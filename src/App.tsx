@@ -2,6 +2,9 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { LazyStore } from "@tauri-apps/plugin-store";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import "./App.css";
 
 interface Artist {
@@ -58,6 +61,27 @@ function isVideoTrack(track: Track): boolean {
 }
 
 type View = "all" | "artists" | "albums" | "tags";
+
+const store = new LazyStore("app-state.json", {
+  autoSave: 500,
+  defaults: {
+    view: "all",
+    searchQuery: "",
+    selectedArtist: null,
+    selectedAlbum: null,
+    selectedTag: null,
+    currentTrackId: null,
+    volume: 1.0,
+    queueTrackIds: [],
+    queueIndex: -1,
+    queueMode: "normal",
+    positionSecs: 0,
+    windowWidth: null,
+    windowHeight: null,
+    windowX: null,
+    windowY: null,
+  },
+});
 
 function getInitials(name: string): string {
   return name.split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
@@ -126,7 +150,7 @@ function App() {
   const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
   const [syncProgress, setSyncProgress] = useState({ synced: 0, total: 0, collection: "" });
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; trackId: number; subsonic: boolean } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; trackId: number; track: Track; subsonic: boolean } | null>(null);
   const [artistImages, setArtistImages] = useState<Record<number, string | null>>({});
   const [fetchedArtistImages, setFetchedArtistImages] = useState<Set<number>>(new Set());
   const [albumImages, setAlbumImages] = useState<Record<number, string | null>>({});
@@ -146,10 +170,37 @@ function App() {
   const [durationSecs, setDurationSecs] = useState(0);
   const [volume, setVolume] = useState(1.0);
 
+  // Queue state
+  const [queue, setQueue] = useState<Track[]>([]);
+  const [queueIndex, setQueueIndex] = useState(-1);
+  const [queueMode, setQueueMode] = useState<"normal" | "loop" | "shuffle">("normal");
+  const [shuffleOrder, setShuffleOrder] = useState<number[]>([]);
+  const [shufflePosition, setShufflePosition] = useState(0);
+  const [showQueue, setShowQueue] = useState(false);
+
+  // Sort state
+  type SortField = "num" | "title" | "artist" | "album" | "duration";
+  type SortDir = "asc" | "desc";
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
   const audioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pendingSrcRef = useRef<string | null>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
+  const restoredRef = useRef(false);
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const queueIndexRef = useRef(queueIndex);
+  queueIndexRef.current = queueIndex;
+  const queueModeRef = useRef(queueMode);
+  queueModeRef.current = queueMode;
+  const shuffleOrderRef = useRef(shuffleOrder);
+  shuffleOrderRef.current = shuffleOrder;
+  const shufflePositionRef = useRef(shufflePosition);
+  shufflePositionRef.current = shufflePosition;
+  const queuePanelRef = useRef<HTMLDivElement>(null);
+  const dragIndexRef = useRef<number | null>(null);
 
   // Get the active media element based on current track type
   function getMediaElement(): HTMLAudioElement | HTMLVideoElement | null {
@@ -192,7 +243,12 @@ function App() {
   const loadTracks = useCallback(async () => {
     try {
       if (searchQuery.trim()) {
-        const results = await invoke<Track[]>("search", { query: searchQuery });
+        const results = await invoke<Track[]>("search", {
+          query: searchQuery,
+          artistId: selectedArtist,
+          albumId: selectedAlbum,
+          tagId: selectedTag,
+        });
         setTracks(results);
       } else if (selectedTag !== null) {
         const results = await invoke<Track[]>("get_tracks_by_tag", { tagId: selectedTag });
@@ -212,6 +268,110 @@ function App() {
     }
   }, [searchQuery, selectedTag, selectedAlbum, selectedArtist]);
 
+  // Restore persisted state on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy] = await Promise.all([
+          store.get<string>("view"),
+          store.get<string>("searchQuery"),
+          store.get<number | null>("selectedArtist"),
+          store.get<number | null>("selectedAlbum"),
+          store.get<number | null>("selectedTag"),
+          store.get<number | null>("currentTrackId"),
+          store.get<number>("volume"),
+          store.get<number[]>("queueTrackIds"),
+          store.get<number>("queueIndex"),
+          store.get<string>("queueMode"),
+          store.get<number>("positionSecs"),
+          store.get<number | null>("windowWidth"),
+          store.get<number | null>("windowHeight"),
+          store.get<number | null>("windowX"),
+          store.get<number | null>("windowY"),
+        ]);
+        if (v && ["all", "artists", "albums", "tags"].includes(v)) setView(v as View);
+        if (sq) setSearchQuery(sq);
+        if (sa !== undefined && sa !== null) setSelectedArtist(sa);
+        if (sal !== undefined && sal !== null) setSelectedAlbum(sal);
+        if (st !== undefined && st !== null) setSelectedTag(st);
+        if (vol !== undefined && vol !== null) setVolume(vol);
+        if (tid !== undefined && tid !== null) {
+          try {
+            const track = await invoke<Track>("get_track_by_id", { trackId: tid });
+            setCurrentTrack(track);
+            if (pos) setPositionSecs(pos);
+          } catch {
+            // Track was deleted, fall back to null
+          }
+        }
+        // Restore queue
+        if (qIds && qIds.length > 0) {
+          try {
+            const restoredTracks = await invoke<Track[]>("get_tracks_by_ids", { ids: qIds });
+            setQueue(restoredTracks);
+            const idx = qIdx ?? -1;
+            setQueueIndex(idx >= 0 && idx < restoredTracks.length ? idx : -1);
+          } catch {
+            // Queue restore failed, start fresh
+          }
+        }
+        if (qMode && ["normal", "loop", "shuffle"].includes(qMode)) {
+          setQueueMode(qMode as "normal" | "loop" | "shuffle");
+        }
+        // Restore window size and position
+        const win = getCurrentWindow();
+        if (ww && wh && ww > 0 && wh > 0) {
+          await win.setSize(new LogicalSize(ww, wh));
+        }
+        if (wx !== undefined && wx !== null && wy !== undefined && wy !== null) {
+          await win.setPosition(new LogicalPosition(wx, wy));
+        }
+      } catch (e) {
+        console.error("Failed to restore state:", e);
+      }
+      restoredRef.current = true;
+    })();
+  }, []);
+
+  // Save state effects
+  useEffect(() => { if (restoredRef.current) store.set("view", view); }, [view]);
+  useEffect(() => { if (restoredRef.current) store.set("searchQuery", searchQuery); }, [searchQuery]);
+  useEffect(() => { if (restoredRef.current) store.set("selectedArtist", selectedArtist); }, [selectedArtist]);
+  useEffect(() => { if (restoredRef.current) store.set("selectedAlbum", selectedAlbum); }, [selectedAlbum]);
+  useEffect(() => { if (restoredRef.current) store.set("selectedTag", selectedTag); }, [selectedTag]);
+  useEffect(() => { if (restoredRef.current) store.set("currentTrackId", currentTrack?.id ?? null); }, [currentTrack]);
+  useEffect(() => { if (restoredRef.current) store.set("positionSecs", positionSecs); }, [positionSecs]);
+  useEffect(() => { if (restoredRef.current) store.set("volume", volume); }, [volume]);
+  useEffect(() => { if (restoredRef.current) store.set("queueTrackIds", queue.map(t => t.id)); }, [queue]);
+  useEffect(() => { if (restoredRef.current) store.set("queueIndex", queueIndex); }, [queueIndex]);
+  useEffect(() => { if (restoredRef.current) store.set("queueMode", queueMode); }, [queueMode]);
+
+  // Save window size and position on resize/move
+  useEffect(() => {
+    const win = getCurrentWindow();
+    let timer: ReturnType<typeof setTimeout>;
+    const save = async () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        if (!restoredRef.current) return;
+        const factor = await win.scaleFactor();
+        const size = await win.innerSize();
+        const pos = await win.outerPosition();
+        store.set("windowWidth", size.width / factor);
+        store.set("windowHeight", size.height / factor);
+        store.set("windowX", pos.x / factor);
+        store.set("windowY", pos.y / factor);
+      }, 500);
+    };
+    const unlistenResize = win.onResized(save);
+    const unlistenMove = win.onMoved(save);
+    return () => {
+      clearTimeout(timer);
+      unlistenResize.then(f => f());
+      unlistenMove.then(f => f());
+    };
+  }, []);
+
   useEffect(() => {
     loadLibrary();
   }, [loadLibrary]);
@@ -220,9 +380,11 @@ function App() {
     loadTracks();
   }, [loadTracks]);
 
-  // Reset highlighted index when tracks change
+  // Reset highlighted index and sort when tracks change
   useEffect(() => {
     setHighlightedIndex(-1);
+    setSortField(null);
+    setSortDir("asc");
   }, [tracks]);
 
   // Listen for scan events
@@ -392,6 +554,15 @@ function App() {
     if (album) fetchAlbumImageOnDemand(album);
   }, [selectedAlbum]);
 
+  // Auto-scroll queue panel to current track
+  useEffect(() => {
+    if (showQueue && queueIndex >= 0 && queuePanelRef.current) {
+      const list = queuePanelRef.current.querySelector(".queue-list");
+      const item = list?.children[queueIndex] as HTMLElement | undefined;
+      item?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [queueIndex, showQueue]);
+
   // Sync volume to media elements when it changes
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
@@ -534,6 +705,267 @@ function App() {
     setDurationSecs(0);
   }
 
+  function generateShuffleOrder(length: number, startIndex: number): number[] {
+    const order = Array.from({ length }, (_, i) => i);
+    // Fisher-Yates shuffle
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    // Move startIndex to front (if valid)
+    if (startIndex >= 0) {
+      const pos = order.indexOf(startIndex);
+      if (pos > 0) {
+        [order[0], order[pos]] = [order[pos], order[0]];
+      }
+    }
+    return order;
+  }
+
+  function playTracks(tracks: Track[], startIndex: number) {
+    setQueue(tracks);
+    setQueueIndex(startIndex);
+    if (queueModeRef.current === "shuffle") {
+      const order = generateShuffleOrder(tracks.length, startIndex);
+      setShuffleOrder(order);
+      setShufflePosition(0);
+    }
+    if (tracks.length > 0 && startIndex >= 0 && startIndex < tracks.length) {
+      handlePlay(tracks[startIndex]);
+    }
+  }
+
+  function enqueueTracks(newTracks: Track[]) {
+    const currentQueue = queueRef.current;
+    const currentIndex = queueIndexRef.current;
+    if (currentQueue.length === 0 || currentIndex === -1) {
+      // Nothing playing, start playback
+      playTracks(newTracks, 0);
+    } else {
+      const updatedQueue = [...currentQueue, ...newTracks];
+      setQueue(updatedQueue);
+      if (queueModeRef.current === "shuffle") {
+        const newIndices = Array.from({ length: newTracks.length }, (_, i) => currentQueue.length + i);
+        // Shuffle the new indices
+        for (let i = newIndices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [newIndices[i], newIndices[j]] = [newIndices[j], newIndices[i]];
+        }
+        setShuffleOrder(prev => [...prev, ...newIndices]);
+      }
+    }
+  }
+
+  function playNext(): boolean {
+    const q = queueRef.current;
+    const idx = queueIndexRef.current;
+    const mode = queueModeRef.current;
+
+    if (q.length === 0) return false;
+
+    if (mode === "shuffle") {
+      const sOrder = shuffleOrderRef.current;
+      const sPos = shufflePositionRef.current;
+      const nextPos = sPos + 1;
+      if (nextPos < sOrder.length) {
+        setShufflePosition(nextPos);
+        const nextIdx = sOrder[nextPos];
+        setQueueIndex(nextIdx);
+        handlePlay(q[nextIdx]);
+        return true;
+      } else {
+        // All tracks played — reshuffle and start over
+        const order = generateShuffleOrder(q.length, -1);
+        setShuffleOrder(order);
+        setShufflePosition(0);
+        const nextIdx = order[0];
+        setQueueIndex(nextIdx);
+        handlePlay(q[nextIdx]);
+        return true;
+      }
+    }
+
+    const nextIdx = idx + 1;
+    if (nextIdx < q.length) {
+      setQueueIndex(nextIdx);
+      handlePlay(q[nextIdx]);
+      return true;
+    } else if (mode === "loop") {
+      setQueueIndex(0);
+      handlePlay(q[0]);
+      return true;
+    }
+    // normal mode, end of queue
+    return false;
+  }
+
+  function playPrevious() {
+    const el = getMediaElement();
+    if (el && el.currentTime > 3) {
+      el.currentTime = 0;
+      setPositionSecs(0);
+      return;
+    }
+
+    const q = queueRef.current;
+    const idx = queueIndexRef.current;
+    const mode = queueModeRef.current;
+
+    if (q.length === 0 || idx <= 0) {
+      if (mode === "loop" && q.length > 0) {
+        const prevIdx = q.length - 1;
+        setQueueIndex(prevIdx);
+        handlePlay(q[prevIdx]);
+      }
+      return;
+    }
+
+    if (mode === "shuffle") {
+      const sPos = shufflePositionRef.current;
+      if (sPos > 0) {
+        const prevPos = sPos - 1;
+        setShufflePosition(prevPos);
+        const prevIdx = shuffleOrderRef.current[prevPos];
+        setQueueIndex(prevIdx);
+        handlePlay(q[prevIdx]);
+        return;
+      }
+    }
+
+    const prevIdx = idx - 1;
+    setQueueIndex(prevIdx);
+    handlePlay(q[prevIdx]);
+  }
+
+  function removeFromQueue(index: number) {
+    const q = queueRef.current;
+    const idx = queueIndexRef.current;
+    const newQueue = [...q];
+    newQueue.splice(index, 1);
+    setQueue(newQueue);
+
+    if (newQueue.length === 0) {
+      setQueueIndex(-1);
+      handleStop();
+    } else if (index === idx) {
+      // Removed current track - play next or stop
+      const newIdx = Math.min(index, newQueue.length - 1);
+      setQueueIndex(newIdx);
+      handlePlay(newQueue[newIdx]);
+    } else if (index < idx) {
+      setQueueIndex(idx - 1);
+    }
+  }
+
+  function moveInQueue(from: number, to: number) {
+    if (from === to) return;
+    const q = [...queueRef.current];
+    const idx = queueIndexRef.current;
+    const [item] = q.splice(from, 1);
+    q.splice(to, 0, item);
+    setQueue(q);
+
+    // Adjust queueIndex to follow current track
+    if (idx === from) {
+      setQueueIndex(to);
+    } else if (from < idx && to >= idx) {
+      setQueueIndex(idx - 1);
+    } else if (from > idx && to <= idx) {
+      setQueueIndex(idx + 1);
+    }
+  }
+
+  function clearQueue() {
+    setQueue([]);
+    setQueueIndex(-1);
+    setShuffleOrder([]);
+    setShufflePosition(0);
+    handleStop();
+  }
+
+  function toggleQueueMode() {
+    setQueueMode(prev => {
+      if (prev === "normal") {
+        // Switching to loop
+        return "loop";
+      } else if (prev === "loop") {
+        // Switching to shuffle - generate shuffle order
+        const q = queueRef.current;
+        const idx = queueIndexRef.current;
+        if (q.length > 0 && idx >= 0) {
+          const order = generateShuffleOrder(q.length, idx);
+          setShuffleOrder(order);
+          setShufflePosition(0);
+        }
+        return "shuffle";
+      } else {
+        // Switching back to normal
+        setShuffleOrder([]);
+        setShufflePosition(0);
+        return "normal";
+      }
+    });
+  }
+
+  function playNextInQueue(track: Track) {
+    const q = queueRef.current;
+    const idx = queueIndexRef.current;
+    if (q.length === 0 || idx === -1) {
+      playTracks([track], 0);
+    } else {
+      const newQueue = [...q];
+      newQueue.splice(idx + 1, 0, track);
+      setQueue(newQueue);
+    }
+  }
+
+  function addToQueue(track: Track) {
+    enqueueTracks([track]);
+  }
+
+  function handleSort(field: SortField) {
+    if (sortField === field) {
+      if (sortDir === "asc") {
+        setSortDir("desc");
+      } else {
+        // Third click resets to default order
+        setSortField(null);
+        setSortDir("asc");
+      }
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  }
+
+  const sortedTracks = (() => {
+    if (!sortField) return tracks;
+    const sorted = [...tracks];
+    const dir = sortDir === "asc" ? 1 : -1;
+    sorted.sort((a, b) => {
+      switch (sortField) {
+        case "num":
+          return dir * ((a.track_number ?? 0) - (b.track_number ?? 0));
+        case "title":
+          return dir * a.title.localeCompare(b.title);
+        case "artist":
+          return dir * (a.artist_name ?? "").localeCompare(b.artist_name ?? "");
+        case "album":
+          return dir * (a.album_title ?? "").localeCompare(b.album_title ?? "");
+        case "duration":
+          return dir * ((a.duration_secs ?? 0) - (b.duration_secs ?? 0));
+        default:
+          return 0;
+      }
+    });
+    return sorted;
+  })();
+
+  function sortIndicator(field: SortField): string {
+    if (sortField !== field) return "";
+    return sortDir === "asc" ? " ▲" : " ▼";
+  }
+
   function handleVolume(level: number) {
     setVolume(level);
   }
@@ -556,8 +988,10 @@ function App() {
   function onPlay() { setPlaying(true); }
   function onPause() { setPlaying(false); }
   function onEnded() {
-    setPlaying(false);
-    setPositionSecs(0);
+    if (!playNext()) {
+      setPlaying(false);
+      setPositionSecs(0);
+    }
   }
 
   function handleArtistClick(artistId: number) {
@@ -586,7 +1020,7 @@ function App() {
 
   function handleContextMenu(e: React.MouseEvent, track: Track) {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, trackId: track.id, subsonic: !!track.subsonic_id });
+    setContextMenu({ x: e.clientX, y: e.clientY, trackId: track.id, track, subsonic: !!track.subsonic_id });
   }
 
   function handleShowInFolder() {
@@ -597,7 +1031,7 @@ function App() {
   }
 
   return (
-    <div className={`app ${currentTrack && isVideoTrack(currentTrack) ? "video-mode" : ""}`} onClick={() => setContextMenu(null)}>
+    <div className={`app ${currentTrack && isVideoTrack(currentTrack) ? "video-mode" : ""} ${showQueue ? "queue-open" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio element */}
       <audio
         ref={audioRef}
@@ -803,8 +1237,11 @@ function App() {
             type="text"
             placeholder={
               view === "artists" && selectedArtist === null ? "Search artists..." :
-              view === "albums" ? "Search albums..." :
+              view === "albums" && selectedAlbum === null ? "Search albums..." :
               view === "tags" && selectedTag === null ? "Search tags..." :
+              selectedArtist !== null && selectedAlbum === null ? `Search in ${artists.find(a => a.id === selectedArtist)?.name ?? "artist"}...` :
+              selectedAlbum !== null ? `Search in ${albums.find(a => a.id === selectedAlbum)?.title ?? "album"}...` :
+              selectedTag !== null ? `Search in ${tags.find(t => t.id === selectedTag)?.name ?? "tag"}...` :
               "Search tracks..."
             }
             title=""
@@ -830,7 +1267,7 @@ function App() {
                 });
               } else if (e.key === "Enter" && highlightedIndex >= 0 && highlightedIndex < tracks.length) {
                 e.preventDefault();
-                handlePlay(tracks[highlightedIndex]);
+                playTracks([tracks[highlightedIndex]], 0);
               }
             }}
           />
@@ -897,6 +1334,12 @@ function App() {
               </>
             ) : (
               <span>All Tracks</span>
+            )}
+            {tracks.length > 0 && (view === "all" || selectedTag !== null || (view === "artists" && selectedArtist !== null)) && (
+              <div className="breadcrumb-actions">
+                <button className="action-btn" onClick={() => playTracks(sortedTracks, 0)}>Play All</button>
+                <button className="action-btn action-btn-secondary" onClick={() => enqueueTracks(sortedTracks)}>Queue All</button>
+              </div>
             )}
           </div>
 
@@ -1004,29 +1447,37 @@ function App() {
                   <div className="section-title">All Tracks</div>
                   <div className="track-list" ref={trackListRef}>
                     <div className="track-header">
-                      <span className="col-num">#</span>
-                      <span className="col-title">Title</span>
-                      <span className="col-artist">Artist</span>
-                      <span className="col-album">Album</span>
-                      <span className="col-duration">Duration</span>
+                      <span className={`col-num sortable ${sortField === "num" ? "sorted" : ""}`} onClick={() => handleSort("num")}>{`#${sortIndicator("num")}`}</span>
+                      <span className={`col-title sortable ${sortField === "title" ? "sorted" : ""}`} onClick={() => handleSort("title")}>{`Title${sortIndicator("title")}`}</span>
+                      <span className={`col-artist sortable ${sortField === "artist" ? "sorted" : ""}`} onClick={() => handleSort("artist")}>{`Artist${sortIndicator("artist")}`}</span>
+                      <span className={`col-album sortable ${sortField === "album" ? "sorted" : ""}`} onClick={() => handleSort("album")}>{`Album${sortIndicator("album")}`}</span>
+                      <span className={`col-duration sortable ${sortField === "duration" ? "sorted" : ""}`} onClick={() => handleSort("duration")}>{`Duration${sortIndicator("duration")}`}</span>
                     </div>
-                    {tracks.map((t, i) => (
+                    {sortedTracks.map((t, i) => (
                       <div
                         key={t.id}
                         className={`track-row ${currentTrack?.id === t.id ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""}`}
-                        onDoubleClick={() => handlePlay(t)}
+                        onDoubleClick={() => playTracks(sortedTracks, i)}
                         onContextMenu={(e) => handleContextMenu(e, t)}
                       >
                         <span className="col-num">
                           {isVideoTrack(t) ? "🎬" : (t.track_number || i + 1)}
                         </span>
                         <span className="col-title">{t.title}</span>
-                        <span className="col-artist">{t.artist_name || "Unknown"}</span>
-                        <span className="col-album">{t.album_title || "Unknown"}</span>
+                        <span className="col-artist">
+                          {t.artist_id ? (
+                            <span className="track-link" onClick={(e) => { e.stopPropagation(); handleArtistClick(t.artist_id!); }}>{t.artist_name || "Unknown"}</span>
+                          ) : (t.artist_name || "Unknown")}
+                        </span>
+                        <span className="col-album">
+                          {t.album_id ? (
+                            <span className="track-link" onClick={(e) => { e.stopPropagation(); handleAlbumClick(t.album_id!); }}>{t.album_title || "Unknown"}</span>
+                          ) : (t.album_title || "Unknown")}
+                        </span>
                         <span className="col-duration">{formatDuration(t.duration_secs)}</span>
                       </div>
                     ))}
-                    {tracks.length === 0 && (
+                    {sortedTracks.length === 0 && (
                       <div className="empty">No tracks found for this artist.</div>
                     )}
                   </div>
@@ -1151,29 +1602,37 @@ function App() {
           {view === "all" && (
             <div className="track-list" ref={trackListRef}>
               <div className="track-header">
-                <span className="col-num">#</span>
-                <span className="col-title">Title</span>
-                <span className="col-artist">Artist</span>
-                <span className="col-album">Album</span>
-                <span className="col-duration">Duration</span>
+                <span className={`col-num sortable ${sortField === "num" ? "sorted" : ""}`} onClick={() => handleSort("num")}>{`#${sortIndicator("num")}`}</span>
+                <span className={`col-title sortable ${sortField === "title" ? "sorted" : ""}`} onClick={() => handleSort("title")}>{`Title${sortIndicator("title")}`}</span>
+                <span className={`col-artist sortable ${sortField === "artist" ? "sorted" : ""}`} onClick={() => handleSort("artist")}>{`Artist${sortIndicator("artist")}`}</span>
+                <span className={`col-album sortable ${sortField === "album" ? "sorted" : ""}`} onClick={() => handleSort("album")}>{`Album${sortIndicator("album")}`}</span>
+                <span className={`col-duration sortable ${sortField === "duration" ? "sorted" : ""}`} onClick={() => handleSort("duration")}>{`Duration${sortIndicator("duration")}`}</span>
               </div>
-              {tracks.map((t, i) => (
+              {sortedTracks.map((t, i) => (
                 <div
                   key={t.id}
                   className={`track-row ${currentTrack?.id === t.id ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""}`}
-                  onDoubleClick={() => handlePlay(t)}
+                  onDoubleClick={() => playTracks(sortedTracks, i)}
                   onContextMenu={(e) => handleContextMenu(e, t)}
                 >
                   <span className="col-num">
                     {isVideoTrack(t) ? "🎬" : (t.track_number || i + 1)}
                   </span>
                   <span className="col-title">{t.title}</span>
-                  <span className="col-artist">{t.artist_name || "Unknown"}</span>
-                  <span className="col-album">{t.album_title || "Unknown"}</span>
+                  <span className="col-artist">
+                    {t.artist_id ? (
+                      <span className="track-link" onClick={(e) => { e.stopPropagation(); handleArtistClick(t.artist_id!); }}>{t.artist_name || "Unknown"}</span>
+                    ) : (t.artist_name || "Unknown")}
+                  </span>
+                  <span className="col-album">
+                    {t.album_id ? (
+                      <span className="track-link" onClick={(e) => { e.stopPropagation(); handleAlbumClick(t.album_id!); }}>{t.album_title || "Unknown"}</span>
+                    ) : (t.album_title || "Unknown")}
+                  </span>
                   <span className="col-duration">{formatDuration(t.duration_secs)}</span>
                 </div>
               ))}
-              {tracks.length === 0 && (
+              {sortedTracks.length === 0 && (
                 <div className="empty">
                   No tracks found. Add a folder or server to start building your library.
                 </div>
@@ -1183,12 +1642,67 @@ function App() {
         </div>
       </main>
 
+      {/* Queue panel */}
+      {showQueue && (
+        <aside className="queue-panel" ref={queuePanelRef}>
+          <div className="queue-header">
+            <span className="queue-title">Queue</span>
+            <div className="queue-header-actions">
+              <button className="ctrl-btn" onClick={clearQueue} title="Clear queue">🗑</button>
+              <button className="ctrl-btn" onClick={() => setShowQueue(false)} title="Close">×</button>
+            </div>
+          </div>
+          <div className="queue-list">
+            {queue.map((t, i) => (
+              <div
+                key={`${t.id}-${i}`}
+                className={`queue-item ${i === queueIndex ? "queue-current" : ""}`}
+                draggable
+                onDragStart={() => { dragIndexRef.current = i; }}
+                onDragOver={(e) => { e.preventDefault(); }}
+                onDrop={() => {
+                  if (dragIndexRef.current !== null && dragIndexRef.current !== i) {
+                    moveInQueue(dragIndexRef.current, i);
+                  }
+                  dragIndexRef.current = null;
+                }}
+                onClick={() => {
+                  setQueueIndex(i);
+                  handlePlay(t);
+                }}
+              >
+                <div className="queue-item-info">
+                  <span className="queue-item-title">{t.title}</span>
+                  <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
+                </div>
+                <button
+                  className="queue-item-remove"
+                  onClick={(e) => { e.stopPropagation(); removeFromQueue(i); }}
+                  title="Remove"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            {queue.length === 0 && (
+              <div className="queue-empty">Queue is empty</div>
+            )}
+          </div>
+        </aside>
+      )}
+
       {/* Context menu */}
       {contextMenu && (
         <div
           className="context-menu"
           style={{ top: contextMenu.y, left: contextMenu.x }}
         >
+          <div className="context-menu-item" onClick={() => { playNextInQueue(contextMenu.track); setContextMenu(null); }}>
+            Play Next
+          </div>
+          <div className="context-menu-item" onClick={() => { addToQueue(contextMenu.track); setContextMenu(null); }}>
+            Add to Queue
+          </div>
           {!contextMenu.subsonic && (
             <div className="context-menu-item" onClick={handleShowInFolder}>
               Open Containing Folder
@@ -1216,10 +1730,12 @@ function App() {
         </div>
         <div className="now-center">
           <div className="now-controls">
+            <button className="ctrl-btn" onClick={playPrevious} title="Previous">⏮</button>
             <button className="ctrl-btn" onClick={handleStop}>⏹</button>
             <button className="ctrl-btn play-btn" onClick={handlePause}>
               {playing ? "⏸" : "▶"}
             </button>
+            <button className="ctrl-btn" onClick={() => { playNext(); }} title="Next">⏭</button>
           </div>
           <div className="now-seek">
             <span className="time-label">{formatDuration(positionSecs)}</span>
@@ -1235,16 +1751,32 @@ function App() {
             <span className="time-label">{formatDuration(durationSecs)}</span>
           </div>
         </div>
-        <div className="now-volume">
-          <span>🔊</span>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={volume}
-            onChange={(e) => handleVolume(parseFloat(e.target.value))}
-          />
+        <div className="now-right">
+          <button
+            className={`ctrl-btn mode-btn ${queueMode !== "normal" ? "active" : ""}`}
+            onClick={toggleQueueMode}
+            title={queueMode === "normal" ? "Normal" : queueMode === "loop" ? "Loop" : "Shuffle"}
+          >
+            {queueMode === "shuffle" ? "🔀" : queueMode === "loop" ? "🔁" : "➡"}
+          </button>
+          <div className="now-volume">
+            <span>🔊</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={volume}
+              onChange={(e) => handleVolume(parseFloat(e.target.value))}
+            />
+          </div>
+          <button
+            className={`ctrl-btn queue-toggle-btn ${showQueue ? "active" : ""}`}
+            onClick={() => setShowQueue(!showQueue)}
+            title="Queue"
+          >
+            ☰
+          </button>
         </div>
       </footer>
 

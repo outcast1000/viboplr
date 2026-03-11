@@ -288,11 +288,30 @@ pub fn get_tracks(
 }
 
 #[tauri::command]
-pub fn search(state: State<'_, AppState>, query: String) -> Result<Vec<Track>, String> {
+pub fn search(
+    state: State<'_, AppState>,
+    query: String,
+    artist_id: Option<i64>,
+    album_id: Option<i64>,
+    tag_id: Option<i64>,
+) -> Result<Vec<Track>, String> {
     if query.trim().is_empty() {
         return state.db.get_tracks(None).map_err(|e| e.to_string());
     }
-    state.db.search_tracks(&query).map_err(|e| e.to_string())
+    state
+        .db
+        .search_tracks(&query, artist_id, album_id, tag_id)
+        .map_err(|e| e.to_string())
+}
+
+// --- Track lookup command ---
+
+#[tauri::command]
+pub fn get_track_by_id(state: State<'_, AppState>, track_id: i64) -> Result<Track, String> {
+    state
+        .db
+        .get_track_by_id(track_id)
+        .map_err(|e| e.to_string())
 }
 
 // --- Track path command ---
@@ -323,6 +342,17 @@ pub fn get_track_path(state: State<'_, AppState>, track_id: i64) -> Result<Strin
     } else {
         Ok(track.path)
     }
+}
+
+#[tauri::command]
+pub fn get_tracks_by_ids(
+    state: State<'_, AppState>,
+    ids: Vec<i64>,
+) -> Result<Vec<Track>, String> {
+    state
+        .db
+        .get_tracks_by_ids(&ids)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

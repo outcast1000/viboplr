@@ -26,6 +26,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_albums,
         commands::get_tracks,
         commands::get_track_count,
+        commands::get_track_by_id,
+        commands::get_tracks_by_ids,
         commands::get_tracks_by_artist,
         commands::get_track_path,
         commands::search,
@@ -57,6 +59,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_albums,
         commands::get_tracks,
         commands::get_track_count,
+        commands::get_track_by_id,
+        commands::get_tracks_by_ids,
         commands::get_tracks_by_artist,
         commands::get_track_path,
         commands::search,
@@ -83,6 +87,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
             let app_dir = app
                 .path()

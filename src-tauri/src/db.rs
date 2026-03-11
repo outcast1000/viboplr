@@ -518,23 +518,65 @@ impl Database {
         )
     }
 
-    pub fn search_tracks(&self, query: &str) -> SqlResult<Vec<Track>> {
+    pub fn search_tracks(
+        &self,
+        query: &str,
+        artist_id: Option<i64>,
+        album_id: Option<i64>,
+        tag_id: Option<i64>,
+    ) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let fts_query = query
             .split_whitespace()
             .map(|w| format!("\"{}\"*", w.replace('"', "")))
             .collect::<Vec<_>>()
             .join(" AND ");
-        let mut stmt = conn.prepare(
+
+        let mut sql = String::from(
             "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
              FROM tracks_fts fts
              JOIN tracks t ON fts.rowid = t.id
              LEFT JOIN artists ar ON t.artist_id = ar.id
-             LEFT JOIN albums al ON t.album_id = al.id
-             WHERE tracks_fts MATCH ?1
-             LIMIT 100",
-        )?;
-        let rows = stmt.query_map(params![fts_query], |row| {
+             LEFT JOIN albums al ON t.album_id = al.id"
+        );
+
+        if tag_id.is_some() {
+            sql.push_str(" JOIN track_tags tt ON tt.track_id = t.id");
+        }
+
+        sql.push_str(" WHERE tracks_fts MATCH ?1");
+
+        let mut param_idx = 2;
+        if artist_id.is_some() {
+            sql.push_str(&format!(" AND t.artist_id = ?{}", param_idx));
+            param_idx += 1;
+        }
+        if album_id.is_some() {
+            sql.push_str(&format!(" AND t.album_id = ?{}", param_idx));
+            param_idx += 1;
+        }
+        if tag_id.is_some() {
+            sql.push_str(&format!(" AND tt.tag_id = ?{}", param_idx));
+        }
+
+        sql.push_str(" LIMIT 100");
+
+        let mut stmt = conn.prepare(&sql)?;
+
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        params_vec.push(Box::new(fts_query));
+        if let Some(aid) = artist_id {
+            params_vec.push(Box::new(aid));
+        }
+        if let Some(alid) = album_id {
+            params_vec.push(Box::new(alid));
+        }
+        if let Some(tid) = tag_id {
+            params_vec.push(Box::new(tid));
+        }
+
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+        let rows = stmt.query_map(param_refs.as_slice(), |row| {
             Ok(Track {
                 id: row.get(0)?,
                 path: row.get(1)?,
@@ -676,6 +718,42 @@ impl Database {
             params![collection_id],
         )?;
         Ok(())
+    }
+
+    pub fn get_tracks_by_ids(&self, ids: &[i64]) -> SqlResult<Vec<Track>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let conn = self.conn.lock().unwrap();
+        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
+             FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id
+             WHERE t.id IN ({})",
+            placeholders
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::types::ToSql> = ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            Ok(Track {
+                id: row.get(0)?,
+                path: row.get(1)?,
+                title: row.get(2)?,
+                artist_id: row.get(3)?,
+                artist_name: row.get(4)?,
+                album_id: row.get(5)?,
+                album_title: row.get(6)?,
+                track_number: row.get(7)?,
+                duration_secs: row.get(8)?,
+                format: row.get(9)?,
+                file_size: row.get(10)?,
+                collection_id: row.get(11)?,
+                subsonic_id: row.get(12)?,
+            })
+        })?;
+        let track_map: std::collections::HashMap<i64, Track> = rows.filter_map(|r| r.ok()).map(|t| (t.id, t)).collect();
+        // Return in input order, skipping missing ids
+        Ok(ids.iter().filter_map(|id| track_map.get(id).cloned()).collect())
     }
 
     pub fn remove_track_by_path(&self, path: &str) -> SqlResult<()> {

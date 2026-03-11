@@ -20,6 +20,7 @@ FastPlayer is a lightweight, cross-platform **media player** for macOS and Windo
 | File watching    | `notify`                            | Cross-platform filesystem events         |
 | Database         | SQLite via `rusqlite`               | Embedded media library                   |
 | Search           | SQLite FTS5                         | Sub-millisecond full-text search         |
+| State persistence| `tauri-plugin-store` v2              | Save/restore UI state across restarts    |
 
 All Rust dependencies are MIT or Apache-2.0 licensed. No GPL/LGPL.
 
@@ -122,6 +123,39 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - Right-click on a track to open a context menu.
 - **Open Containing Folder** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer, or Linux xdg-open).
 - For server tracks, the context menu indicates it is a server track (no folder to open).
+
+### 4.11 State Persistence
+
+UI state is saved to disk via `tauri-plugin-store` and restored on startup so the app resumes exactly where the user left off. The store is a JSON file (`app-state.json`) in the app data directory.
+
+**Persisted state:**
+
+| Key | Type | Default |
+|-----|------|---------|
+| `view` | `string` (`"all"`, `"artists"`, `"albums"`, `"tags"`) | `"all"` |
+| `searchQuery` | `string` | `""` |
+| `selectedArtist` | `number \| null` | `null` |
+| `selectedAlbum` | `number \| null` | `null` |
+| `selectedTag` | `number \| null` | `null` |
+| `currentTrackId` | `number \| null` | `null` |
+| `positionSecs` | `number` | `0` |
+| `volume` | `number` | `1.0` |
+| `queueTrackIds` | `number[]` | `[]` |
+| `queueIndex` | `number` | `-1` |
+| `queueMode` | `string` (`"normal"`, `"loop"`, `"shuffle"`) | `"normal"` |
+| `windowWidth` | `number \| null` | `null` |
+| `windowHeight` | `number \| null` | `null` |
+| `windowX` | `number \| null` | `null` |
+| `windowY` | `number \| null` | `null` |
+
+**Behavior:**
+
+- Only the track ID is persisted — the full `Track` object is re-fetched via `get_track_by_id` on restore. If the track was deleted, the app gracefully falls back to no current track.
+- On restore, the last track is loaded at the saved position but playback does **not** auto-start — the user must press play. `positionSecs` updates ~4×/sec during playback; the `autoSave: 500` debounce coalesces disk writes.
+- Queue is persisted as an array of track IDs. On restore, tracks are re-fetched via `get_tracks_by_ids`. Missing tracks are silently dropped.
+- Window size and position are stored in logical (CSS) pixels. On restore, size is applied first, then position. On resize/move, saves are debounced at 500 ms. If no saved values exist, the app uses the default window size from `tauri.conf.json`.
+- Saves are debounced at 500 ms (`autoSave: 500`).
+- A `restoredRef` guard prevents save effects from firing before restore completes, avoiding overwriting persisted data with defaults.
 
 ## 5. Database Schema
 
@@ -253,6 +287,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `get_albums`            | `artist_id: Option<i64>`    | `Vec<Album>`             |
 | `get_tracks`            | `album_id: Option<i64>`     | `Vec<Track>`             |
 | `get_track_count`       | —                           | `i64`                    |
+| `get_track_by_id`       | `track_id: i64`             | `Track`                  |
 | `get_tracks_by_artist`  | `artist_id: i64`            | `Vec<Track>`             |
 | `get_tags`              | —                           | `Vec<Tag>`               |
 | `get_tags_for_track`    | `track_id: i64`             | `Vec<Tag>`               |

@@ -39,8 +39,13 @@ body {
   user-select: none;
 }
 
+.app.queue-open {
+  grid-template-columns: 220px 1fr 300px;
+}
+
 /* Sidebar */
 .sidebar {
+  grid-column: 1;
   grid-row: 1 / 3;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
@@ -322,6 +327,7 @@ body {
 
 /* Main content */
 .main {
+  grid-column: 2;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -370,6 +376,9 @@ body {
   font-weight: 600;
   color: var(--text-secondary);
   letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .breadcrumb-link {
@@ -553,9 +562,34 @@ body {
   color: var(--text-secondary);
 }
 
+/* Sortable column headers */
+.track-header .sortable {
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.track-header .sortable:hover {
+  color: var(--text-primary);
+}
+
+.track-header .sortable.sorted {
+  color: var(--accent);
+}
+
+/* Clickable artist/album links in track rows */
+.track-link {
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.track-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
 /* Now playing bar */
 .now-playing {
-  grid-column: 1 / 3;
+  grid-column: 1 / -1;
   background: var(--now-playing-bg);
   border-top: 1px solid var(--border);
   display: flex;
@@ -643,18 +677,29 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.now-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .now-volume {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 14px;
-  width: 140px;
   flex-shrink: 0;
 }
 
 .now-volume input[type="range"] {
   width: 80px;
   accent-color: var(--accent);
+}
+
+.mode-btn.active,
+.queue-toggle-btn.active {
+  color: var(--accent);
 }
 
 /* Artist detail view */
@@ -935,4 +980,150 @@ body {
 
 .modal-btn-confirm:hover {
   background: var(--accent-dim);
+}
+
+/* Queue panel */
+.queue-panel {
+  grid-column: 3;
+  grid-row: 1 / 2;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.queue-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.queue-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.queue-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.queue-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.1s;
+  font-size: 13px;
+  gap: 8px;
+}
+
+.queue-item:hover {
+  background: var(--bg-hover);
+}
+
+.queue-item.queue-current {
+  background: rgba(83, 168, 255, 0.12);
+  border-left: 3px solid var(--accent);
+  padding-left: 13px;
+}
+
+.queue-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.queue-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-item.queue-current .queue-item-title {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.queue-item-artist {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-item-remove {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.queue-item:hover .queue-item-remove {
+  opacity: 1;
+}
+
+.queue-item-remove:hover {
+  color: #ff5555;
+}
+
+.queue-empty {
+  padding: 20px 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+/* Breadcrumb actions */
+.breadcrumb-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  padding-right: 16px;
+}
+
+.action-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.action-btn:hover {
+  background: var(--accent-dim);
+}
+
+.action-btn-secondary {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.action-btn-secondary:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: none;
 }
