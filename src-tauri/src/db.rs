@@ -272,7 +272,8 @@ impl Database {
             let mut stmt = conn.prepare(
                 "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.genre_id, g.name, t.track_number, t.duration_secs, t.format, t.file_size
                  FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id LEFT JOIN genres g ON t.genre_id = g.id
-                 ORDER BY ar.name, al.title, t.track_number, t.title"
+                 ORDER BY ar.name, al.title, t.track_number, t.title
+                 LIMIT 100"
             )?;
             let rows = stmt.query_map([], |row| {
                 Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, genre_id: row.get(7)?, genre_name: row.get(8)?, track_number: row.get(9)?, duration_secs: row.get(10)?, format: row.get(11)?, file_size: row.get(12)? })
