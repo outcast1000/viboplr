@@ -331,7 +331,7 @@ impl Database {
             .split_whitespace()
             .map(|w| format!("\"{}\"*", w.replace('"', "")))
             .collect::<Vec<_>>()
-            .join(" ");
+            .join(" AND ");
         let mut stmt = conn.prepare(
             "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.genre_id, g.name, t.track_number, t.duration_secs, t.format, t.file_size
              FROM tracks_fts fts
