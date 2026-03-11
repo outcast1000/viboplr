@@ -13,7 +13,7 @@ impl Database {
     pub fn new(app_dir: &Path) -> SqlResult<Self> {
         std::fs::create_dir_all(app_dir).ok();
         let db_path = app_dir.join("fastplayer.db");
-        let mut conn = Connection::open(db_path)?;
+        let conn = Connection::open(db_path)?;
 
         // Register custom SQL function to extract filename from path
         conn.create_scalar_function(
@@ -219,27 +219,6 @@ impl Database {
         Ok(id)
     }
 
-    pub fn index_track_fts(
-        &self,
-        track_id: i64,
-        title: &str,
-        artist_name: &str,
-        album_title: &str,
-        genre_name: &str,
-        filename: &str,
-    ) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, genre_name, filename)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(rowid) DO UPDATE SET
-                title=excluded.title, artist_name=excluded.artist_name,
-                album_title=excluded.album_title, genre_name=excluded.genre_name,
-                filename=excluded.filename",
-            params![track_id, title, artist_name, album_title, genre_name, filename],
-        )?;
-        Ok(())
-    }
 
     pub fn rebuild_fts(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();

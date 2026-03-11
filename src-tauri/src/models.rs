@@ -15,11 +15,6 @@ pub struct Album {
     pub year: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Genre {
-    pub id: i64,
-    pub name: String,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
