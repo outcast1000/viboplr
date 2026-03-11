@@ -122,11 +122,18 @@ impl Database {
 
     pub fn get_artists(&self) -> SqlResult<Vec<Artist>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id, name FROM artists ORDER BY name")?;
+        let mut stmt = conn.prepare(
+            "SELECT a.id, a.name, COUNT(t.id)
+             FROM artists a
+             LEFT JOIN tracks t ON t.artist_id = a.id
+             GROUP BY a.id
+             ORDER BY a.name"
+        )?;
         let rows = stmt.query_map([], |row| {
             Ok(Artist {
                 id: row.get(0)?,
                 name: row.get(1)?,
+                track_count: row.get(2)?,
             })
         })?;
         rows.collect()
@@ -157,18 +164,29 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = artist_id {
             let mut stmt = conn.prepare(
-                "SELECT a.id, a.title, a.artist_id, ar.name, a.year FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id WHERE a.artist_id = ?1 ORDER BY a.year, a.title"
+                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, COUNT(t.id)
+                 FROM albums a
+                 LEFT JOIN artists ar ON a.artist_id = ar.id
+                 LEFT JOIN tracks t ON t.album_id = a.id
+                 WHERE a.artist_id = ?1
+                 GROUP BY a.id
+                 ORDER BY a.year, a.title"
             )?;
             let rows = stmt.query_map(params![aid], |row| {
-                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)? })
+                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)? })
             })?;
             rows.collect()
         } else {
             let mut stmt = conn.prepare(
-                "SELECT a.id, a.title, a.artist_id, ar.name, a.year FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id ORDER BY a.title"
+                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, COUNT(t.id)
+                 FROM albums a
+                 LEFT JOIN artists ar ON a.artist_id = ar.id
+                 LEFT JOIN tracks t ON t.album_id = a.id
+                 GROUP BY a.id
+                 ORDER BY a.title"
             )?;
             let rows = stmt.query_map([], |row| {
-                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)? })
+                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)? })
             })?;
             rows.collect()
         }
@@ -201,11 +219,18 @@ impl Database {
 
     pub fn get_tags(&self) -> SqlResult<Vec<Tag>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id, name FROM tags ORDER BY name")?;
+        let mut stmt = conn.prepare(
+            "SELECT tg.id, tg.name, COUNT(tt.track_id)
+             FROM tags tg
+             LEFT JOIN track_tags tt ON tt.tag_id = tg.id
+             GROUP BY tg.id
+             ORDER BY tg.name"
+        )?;
         let rows = stmt.query_map([], |row| {
             Ok(Tag {
                 id: row.get(0)?,
                 name: row.get(1)?,
+                track_count: row.get(2)?,
             })
         })?;
         rows.collect()
@@ -214,15 +239,19 @@ impl Database {
     pub fn get_tags_for_track(&self, track_id: i64) -> SqlResult<Vec<Tag>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT t.id, t.name FROM tags t
-             JOIN track_tags tt ON tt.tag_id = t.id
+            "SELECT tg.id, tg.name, COUNT(tt2.track_id)
+             FROM tags tg
+             JOIN track_tags tt ON tt.tag_id = tg.id
+             LEFT JOIN track_tags tt2 ON tt2.tag_id = tg.id
              WHERE tt.track_id = ?1
-             ORDER BY t.name"
+             GROUP BY tg.id
+             ORDER BY tg.name"
         )?;
         let rows = stmt.query_map(params![track_id], |row| {
             Ok(Tag {
                 id: row.get(0)?,
                 name: row.get(1)?,
+                track_count: row.get(2)?,
             })
         })?;
         rows.collect()
@@ -258,6 +287,11 @@ impl Database {
     }
 
     // --- Tracks ---
+
+    pub fn get_track_count(&self) -> SqlResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))
+    }
 
     pub fn upsert_track(
         &self,

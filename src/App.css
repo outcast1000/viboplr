@@ -82,10 +82,22 @@ body {
   color: var(--text-primary);
 }
 
+.nav-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .nav-btn.active {
   background: var(--bg-surface);
   color: var(--accent);
   font-weight: 600;
+}
+
+.nav-count {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: normal;
 }
 
 .folders-section {
@@ -279,6 +291,16 @@ body {
   cursor: pointer;
   transition: background 0.15s;
   font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.list-count {
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  margin-left: 8px;
 }
 
 .list-item:hover {

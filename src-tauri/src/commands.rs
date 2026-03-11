@@ -79,6 +79,11 @@ pub fn get_albums(
 }
 
 #[tauri::command]
+pub fn get_track_count(state: State<'_, AppState>) -> Result<i64, String> {
+    state.db.get_track_count().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_tracks(
     state: State<'_, AppState>,
     album_id: Option<i64>,

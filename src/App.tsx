@@ -7,6 +7,7 @@ import "./App.css";
 interface Artist {
   id: number;
   name: string;
+  track_count: number;
 }
 
 interface Album {
@@ -15,11 +16,13 @@ interface Album {
   artist_id: number | null;
   artist_name: string | null;
   year: number | null;
+  track_count: number;
 }
 
 interface Tag {
   id: number;
   name: string;
+  track_count: number;
 }
 
 interface Track {
@@ -65,6 +68,7 @@ function App() {
   const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [tags, setTags] = useState<Tag[]>([]);
+  const [trackCount, setTrackCount] = useState(0);
   const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<number | null>(null);
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
@@ -97,16 +101,18 @@ function App() {
 
   const loadLibrary = useCallback(async () => {
     try {
-      const [a, al, f, t] = await Promise.all([
+      const [a, al, f, t, tc] = await Promise.all([
         invoke<Artist[]>("get_artists"),
         invoke<Album[]>("get_albums", { artistId: null }),
         invoke<FolderInfo[]>("get_folders"),
         invoke<Tag[]>("get_tags"),
+        invoke<number>("get_track_count"),
       ]);
       setArtists(a);
       setAlbums(al);
       setFolders(f);
       setTags(t);
+      setTrackCount(tc);
     } catch (e) {
       console.error("Failed to load library:", e);
     }
@@ -375,7 +381,7 @@ function App() {
             className={`nav-btn ${view === "all" && !selectedAlbum ? "active" : ""}`}
             onClick={handleShowAll}
           >
-            All Tracks
+            All Tracks <span className="nav-count">{trackCount}</span>
           </button>
           <button
             className={`nav-btn ${view === "artists" ? "active" : ""}`}
@@ -387,7 +393,7 @@ function App() {
               setSearchQuery("");
             }}
           >
-            Artists
+            Artists <span className="nav-count">{artists.length}</span>
           </button>
           <button
             className={`nav-btn ${view === "albums" && !selectedArtist ? "active" : ""}`}
@@ -399,7 +405,7 @@ function App() {
               invoke<Album[]>("get_albums", { artistId: null }).then(setAlbums);
             }}
           >
-            Albums
+            Albums <span className="nav-count">{albums.length}</span>
           </button>
           <button
             className={`nav-btn ${view === "tags" ? "active" : ""}`}
@@ -411,7 +417,7 @@ function App() {
               setSearchQuery("");
             }}
           >
-            Tags
+            Tags <span className="nav-count">{tags.length}</span>
           </button>
         </nav>
 
@@ -573,7 +579,8 @@ function App() {
                   className="list-item"
                   onClick={() => handleArtistClick(a.id)}
                 >
-                  {a.name}
+                  <span>{a.name}</span>
+                  <span className="list-count">{a.track_count}</span>
                 </div>
               ))}
               {artists.length === 0 && (
@@ -591,8 +598,11 @@ function App() {
                   className="list-item"
                   onClick={() => handleAlbumClick(a.id)}
                 >
-                  <strong>{a.title}</strong>
-                  {a.year && <span className="subtitle"> ({a.year})</span>}
+                  <span>
+                    <strong>{a.title}</strong>
+                    {a.year && <span className="subtitle"> ({a.year})</span>}
+                  </span>
+                  <span className="list-count">{a.track_count}</span>
                 </div>
               ))}
               <div
@@ -616,9 +626,12 @@ function App() {
                   className="list-item"
                   onClick={() => handleAlbumClick(a.id)}
                 >
-                  <strong>{a.title}</strong>
-                  {a.artist_name && <span className="subtitle"> — {a.artist_name}</span>}
-                  {a.year && <span className="subtitle"> ({a.year})</span>}
+                  <span>
+                    <strong>{a.title}</strong>
+                    {a.artist_name && <span className="subtitle"> — {a.artist_name}</span>}
+                    {a.year && <span className="subtitle"> ({a.year})</span>}
+                  </span>
+                  <span className="list-count">{a.track_count}</span>
                 </div>
               ))}
               {albums.length === 0 && (
@@ -636,7 +649,8 @@ function App() {
                   className="list-item"
                   onClick={() => { setSelectedTag(t.id); setView("all"); }}
                 >
-                  {t.name}
+                  <span>{t.name}</span>
+                  <span className="list-count">{t.track_count}</span>
                 </div>
               ))}
               {tags.length === 0 && (
