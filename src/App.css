@@ -100,13 +100,13 @@ body {
   font-weight: normal;
 }
 
-.folders-section {
+.collections-section {
   margin-top: auto;
   border-top: 1px solid var(--border);
   padding-top: 12px;
 }
 
-.folders-section h3 {
+.collections-section h3 {
   font-size: 11px;
   text-transform: uppercase;
   color: var(--text-secondary);
@@ -114,38 +114,67 @@ body {
   margin-bottom: 8px;
 }
 
-.folder-item {
+.collection-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 4px 8px;
   font-size: 12px;
   color: var(--text-secondary);
+  gap: 6px;
 }
 
-.folder-path {
+.collection-kind {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.collection-kind-local {
+  background: rgba(83, 168, 255, 0.15);
+  color: var(--accent);
+}
+
+.collection-kind-subsonic {
+  background: rgba(76, 175, 80, 0.15);
+  color: #81c784;
+}
+
+.collection-kind-seed {
+  background: rgba(255, 183, 77, 0.15);
+  color: #ffb74d;
+}
+
+.collection-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
 }
 
-.folder-remove {
+.collection-action {
   background: none;
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 16px;
-  padding: 0 4px;
+  padding: 0 2px;
   opacity: 0;
   transition: opacity 0.15s;
+  font-size: 14px;
 }
 
-.folder-item:hover .folder-remove {
+.collection-item:hover .collection-action {
   opacity: 1;
 }
 
-.folder-remove:hover {
+.collection-resync:hover {
+  color: var(--accent);
+}
+
+.collection-remove:hover {
   color: #ff5555;
 }
 
@@ -165,6 +194,130 @@ body {
 .add-folder-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* Settings button */
+.settings-btn {
+  margin-top: auto;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  width: 100%;
+  transition: all 0.15s;
+}
+.settings-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Settings panel */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 1500;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 40px;
+}
+.settings-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: 500px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+}
+.settings-header h2 { font-size: 16px; }
+.settings-close { background: none; border: none; color: var(--text-secondary); font-size: 20px; cursor: pointer; }
+.settings-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+}
+.settings-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  padding: 10px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.settings-tab:hover {
+  color: var(--text-primary);
+}
+.settings-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.settings-section { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.settings-section:last-child { border-bottom: none; }
+.settings-section h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+  margin-bottom: 10px;
+}
+
+/* Session log */
+.session-log {
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 12px;
+  font-family: monospace;
+}
+.log-entry {
+  padding: 3px 0;
+  display: flex;
+  gap: 8px;
+  color: var(--text-secondary);
+}
+.log-time { color: var(--text-secondary); flex-shrink: 0; opacity: 0.6; }
+.log-empty { color: var(--text-secondary); padding: 12px 0; }
+
+/* Toast notifications */
+.notifications {
+  position: fixed;
+  bottom: 96px;
+  right: 20px;
+  z-index: 3000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.toast {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  animation: toast-in 0.2s ease-out;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* Main content */
@@ -690,4 +843,96 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  width: 380px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.modal-field {
+  margin-bottom: 12px;
+}
+
+.modal-field label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.modal-field input {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.modal-field input:focus {
+  border-color: var(--accent);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.modal-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s;
+}
+
+.modal-btn-cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.modal-btn-cancel:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.modal-btn-confirm {
+  background: var(--accent);
+  color: #fff;
+}
+
+.modal-btn-confirm:hover {
+  background: var(--accent-dim);
 }

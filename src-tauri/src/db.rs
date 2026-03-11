@@ -36,6 +36,7 @@ impl Database {
             conn: Mutex::new(conn),
         };
         db.init_tables()?;
+        db.migrate()?;
         Ok(db)
     }
 
@@ -64,6 +65,19 @@ impl Database {
                 name TEXT NOT NULL UNIQUE
             );
 
+            CREATE TABLE IF NOT EXISTS collections (
+                id              INTEGER PRIMARY KEY,
+                kind            TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                path            TEXT,
+                url             TEXT,
+                username        TEXT,
+                password_token  TEXT,
+                salt            TEXT,
+                auth_method     TEXT DEFAULT 'token',
+                last_synced_at  INTEGER
+            );
+
             CREATE TABLE IF NOT EXISTS tracks (
                 id            INTEGER PRIMARY KEY,
                 path          TEXT NOT NULL UNIQUE,
@@ -75,19 +89,15 @@ impl Database {
                 format        TEXT,
                 file_size     INTEGER,
                 modified_at   INTEGER,
-                added_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+                added_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                collection_id INTEGER REFERENCES collections(id),
+                subsonic_id   TEXT
             );
 
             CREATE TABLE IF NOT EXISTS track_tags (
                 track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
                 tag_id   INTEGER REFERENCES tags(id) ON DELETE CASCADE,
                 UNIQUE(track_id, tag_id)
-            );
-
-            CREATE TABLE IF NOT EXISTS folders (
-                id              INTEGER PRIMARY KEY,
-                path            TEXT NOT NULL UNIQUE,
-                last_scanned_at INTEGER
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS tracks_fts USING fts5(
@@ -101,6 +111,67 @@ impl Database {
             );
             ",
         )?;
+        Ok(())
+    }
+
+    fn migrate(&self) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+
+        // Migrate from old folders table if it exists
+        let has_folders: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='folders'",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if has_folders {
+            // Migrate folder rows into collections
+            conn.execute_batch(
+                "INSERT INTO collections (kind, name, path)
+                 SELECT 'local',
+                        CASE
+                            WHEN INSTR(path, '/') > 0 THEN SUBSTR(path, LENGTH(path) - LENGTH(REPLACE(SUBSTR(path, 1, LENGTH(path) - (CASE WHEN SUBSTR(path, LENGTH(path), 1) = '/' THEN 1 ELSE 0 END)), '/', '')) + 1)
+                            ELSE path
+                        END,
+                        path
+                 FROM folders;"
+            )?;
+
+            // Check if tracks already has collection_id column
+            let has_collection_id: bool = conn.query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('tracks') WHERE name='collection_id'",
+                [],
+                |row| row.get(0),
+            )?;
+
+            if !has_collection_id {
+                conn.execute_batch("ALTER TABLE tracks ADD COLUMN collection_id INTEGER REFERENCES collections(id);")?;
+                conn.execute_batch("ALTER TABLE tracks ADD COLUMN subsonic_id TEXT;")?;
+            }
+
+            // Update existing tracks' collection_id by matching path prefix
+            conn.execute_batch(
+                "UPDATE tracks SET collection_id = (
+                    SELECT c.id FROM collections c
+                    WHERE c.kind = 'local' AND tracks.path LIKE c.path || '%'
+                    LIMIT 1
+                ) WHERE collection_id IS NULL;"
+            )?;
+
+            conn.execute_batch("DROP TABLE folders;")?;
+        } else {
+            // Ensure collection_id and subsonic_id columns exist (for fresh installs the CREATE TABLE already has them)
+            let has_collection_id: bool = conn.query_row(
+                "SELECT COUNT(*) > 0 FROM pragma_table_info('tracks') WHERE name='collection_id'",
+                [],
+                |row| row.get(0),
+            )?;
+            if !has_collection_id {
+                conn.execute_batch("ALTER TABLE tracks ADD COLUMN collection_id INTEGER REFERENCES collections(id);")?;
+                conn.execute_batch("ALTER TABLE tracks ADD COLUMN subsonic_id TEXT;")?;
+            }
+        }
+
         Ok(())
     }
 
@@ -260,7 +331,7 @@ impl Database {
     pub fn get_tracks_by_tag(&self, tag_id: i64) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size
+            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
              FROM tracks t
              JOIN track_tags tt ON tt.track_id = t.id
              LEFT JOIN artists ar ON t.artist_id = ar.id
@@ -281,6 +352,8 @@ impl Database {
                 duration_secs: row.get(8)?,
                 format: row.get(9)?,
                 file_size: row.get(10)?,
+                collection_id: row.get(11)?,
+                subsonic_id: row.get(12)?,
             })
         })?;
         rows.collect()
@@ -304,17 +377,20 @@ impl Database {
         format: Option<&str>,
         file_size: Option<i64>,
         modified_at: Option<i64>,
+        collection_id: Option<i64>,
+        subsonic_id: Option<&str>,
     ) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, subsonic_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(path) DO UPDATE SET
                 title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id,
                 track_number=excluded.track_number,
                 duration_secs=excluded.duration_secs, format=excluded.format,
-                file_size=excluded.file_size, modified_at=excluded.modified_at",
-            params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at],
+                file_size=excluded.file_size, modified_at=excluded.modified_at,
+                collection_id=excluded.collection_id, subsonic_id=excluded.subsonic_id",
+            params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, subsonic_id],
         )?;
         let id: i64 = conn.query_row(
             "SELECT id FROM tracks WHERE path = ?1",
@@ -333,7 +409,7 @@ impl Database {
              DELETE FROM albums;
              DELETE FROM artists;
              DELETE FROM tags;
-             DELETE FROM folders;
+             DELETE FROM collections;
              DROP TABLE IF EXISTS tracks_fts;
              CREATE VIRTUAL TABLE tracks_fts USING fts5(
                  title,
@@ -378,23 +454,23 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = album_id {
             let mut stmt = conn.prepare(
-                "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size
+                "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
                  FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id
                  WHERE t.album_id = ?1 ORDER BY t.track_number, t.title"
             )?;
             let rows = stmt.query_map(params![aid], |row| {
-                Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, track_number: row.get(7)?, duration_secs: row.get(8)?, format: row.get(9)?, file_size: row.get(10)? })
+                Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, track_number: row.get(7)?, duration_secs: row.get(8)?, format: row.get(9)?, file_size: row.get(10)?, collection_id: row.get(11)?, subsonic_id: row.get(12)? })
             })?;
             rows.collect()
         } else {
             let mut stmt = conn.prepare(
-                "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size
+                "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
                  FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id
                  ORDER BY ar.name, al.title, t.track_number, t.title
                  LIMIT 100"
             )?;
             let rows = stmt.query_map([], |row| {
-                Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, track_number: row.get(7)?, duration_secs: row.get(8)?, format: row.get(9)?, file_size: row.get(10)? })
+                Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, track_number: row.get(7)?, duration_secs: row.get(8)?, format: row.get(9)?, file_size: row.get(10)?, collection_id: row.get(11)?, subsonic_id: row.get(12)? })
             })?;
             rows.collect()
         }
@@ -403,12 +479,12 @@ impl Database {
     pub fn get_tracks_by_artist(&self, artist_id: i64) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size
+            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
              FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id
              WHERE t.artist_id = ?1 ORDER BY al.title, t.track_number, t.title"
         )?;
         let rows = stmt.query_map(params![artist_id], |row| {
-            Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, track_number: row.get(7)?, duration_secs: row.get(8)?, format: row.get(9)?, file_size: row.get(10)? })
+            Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, track_number: row.get(7)?, duration_secs: row.get(8)?, format: row.get(9)?, file_size: row.get(10)?, collection_id: row.get(11)?, subsonic_id: row.get(12)? })
         })?;
         rows.collect()
     }
@@ -416,7 +492,7 @@ impl Database {
     pub fn get_track_by_id(&self, track_id: i64) -> SqlResult<Track> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size
+            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
              FROM tracks t
              LEFT JOIN artists ar ON t.artist_id = ar.id
              LEFT JOIN albums al ON t.album_id = al.id
@@ -435,6 +511,8 @@ impl Database {
                     duration_secs: row.get(8)?,
                     format: row.get(9)?,
                     file_size: row.get(10)?,
+                    collection_id: row.get(11)?,
+                    subsonic_id: row.get(12)?,
                 })
             },
         )
@@ -448,7 +526,7 @@ impl Database {
             .collect::<Vec<_>>()
             .join(" AND ");
         let mut stmt = conn.prepare(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size
+            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
              FROM tracks_fts fts
              JOIN tracks t ON fts.rowid = t.id
              LEFT JOIN artists ar ON t.artist_id = ar.id
@@ -469,45 +547,54 @@ impl Database {
                 duration_secs: row.get(8)?,
                 format: row.get(9)?,
                 file_size: row.get(10)?,
+                collection_id: row.get(11)?,
+                subsonic_id: row.get(12)?,
             })
         })?;
         rows.collect()
     }
 
-    // --- Folders ---
+    // --- Collections ---
 
-    pub fn add_folder(&self, path: &str) -> SqlResult<FolderInfo> {
+    pub fn add_collection(
+        &self,
+        kind: &str,
+        name: &str,
+        path: Option<&str>,
+        url: Option<&str>,
+        username: Option<&str>,
+        password_token: Option<&str>,
+        salt: Option<&str>,
+        auth_method: Option<&str>,
+    ) -> SqlResult<Collection> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT OR IGNORE INTO folders (path) VALUES (?1)",
-            params![path],
+            "INSERT INTO collections (kind, name, path, url, username, password_token, salt, auth_method)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![kind, name, path, url, username, password_token, salt, auth_method.unwrap_or("token")],
         )?;
-        conn.query_row(
-            "SELECT id, path, last_scanned_at FROM folders WHERE path = ?1",
-            params![path],
-            |row| {
-                Ok(FolderInfo {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                    last_scanned_at: row.get(2)?,
-                })
-            },
-        )
+        let id = conn.last_insert_rowid();
+        Ok(Collection {
+            id,
+            kind: kind.to_string(),
+            name: name.to_string(),
+            path: path.map(|s| s.to_string()),
+            url: url.map(|s| s.to_string()),
+            username: username.map(|s| s.to_string()),
+            last_synced_at: None,
+        })
     }
 
-    pub fn remove_folder(&self, folder_id: i64) -> SqlResult<()> {
+    pub fn remove_collection(&self, collection_id: i64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
-        let folder_path: String = conn.query_row(
-            "SELECT path FROM folders WHERE id = ?1",
-            params![folder_id],
-            |row| row.get(0),
-        )?;
-        // Delete tracks whose path starts with this folder
         conn.execute(
-            "DELETE FROM tracks WHERE path LIKE ?1 || '%'",
-            params![folder_path],
+            "DELETE FROM tracks WHERE collection_id = ?1",
+            params![collection_id],
         )?;
-        conn.execute("DELETE FROM folders WHERE id = ?1", params![folder_id])?;
+        conn.execute(
+            "DELETE FROM collections WHERE id = ?1",
+            params![collection_id],
+        )?;
         // Clean up orphaned artists, albums, tags
         conn.execute_batch(
             "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL);
@@ -518,25 +605,75 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_folders(&self) -> SqlResult<Vec<FolderInfo>> {
+    pub fn get_collections(&self) -> SqlResult<Vec<Collection>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt =
-            conn.prepare("SELECT id, path, last_scanned_at FROM folders ORDER BY path")?;
+        let mut stmt = conn.prepare(
+            "SELECT id, kind, name, path, url, username, last_synced_at FROM collections ORDER BY name"
+        )?;
         let rows = stmt.query_map([], |row| {
-            Ok(FolderInfo {
+            Ok(Collection {
                 id: row.get(0)?,
-                path: row.get(1)?,
-                last_scanned_at: row.get(2)?,
+                kind: row.get(1)?,
+                name: row.get(2)?,
+                path: row.get(3)?,
+                url: row.get(4)?,
+                username: row.get(5)?,
+                last_synced_at: row.get(6)?,
             })
         })?;
         rows.collect()
     }
 
-    pub fn update_folder_scanned(&self, folder_id: i64) -> SqlResult<()> {
+    pub fn get_collection_by_id(&self, collection_id: i64) -> SqlResult<Collection> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, kind, name, path, url, username, last_synced_at FROM collections WHERE id = ?1",
+            params![collection_id],
+            |row| {
+                Ok(Collection {
+                    id: row.get(0)?,
+                    kind: row.get(1)?,
+                    name: row.get(2)?,
+                    path: row.get(3)?,
+                    url: row.get(4)?,
+                    username: row.get(5)?,
+                    last_synced_at: row.get(6)?,
+                })
+            },
+        )
+    }
+
+    pub fn get_collection_credentials(&self, collection_id: i64) -> SqlResult<CollectionCredentials> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT url, username, password_token, salt, auth_method FROM collections WHERE id = ?1",
+            params![collection_id],
+            |row| {
+                Ok(CollectionCredentials {
+                    url: row.get(0)?,
+                    username: row.get(1)?,
+                    password_token: row.get(2)?,
+                    salt: row.get(3)?,
+                    auth_method: row.get::<_, Option<String>>(4)?.unwrap_or_else(|| "token".to_string()),
+                })
+            },
+        )
+    }
+
+    pub fn update_collection_synced(&self, collection_id: i64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE folders SET last_scanned_at = strftime('%s', 'now') WHERE id = ?1",
-            params![folder_id],
+            "UPDATE collections SET last_synced_at = strftime('%s', 'now') WHERE id = ?1",
+            params![collection_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_tracks_by_collection(&self, collection_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM tracks WHERE collection_id = ?1",
+            params![collection_id],
         )?;
         Ok(())
     }

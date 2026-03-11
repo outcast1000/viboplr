@@ -7,7 +7,7 @@ use std::thread;
 use crate::db::Database;
 use crate::scanner;
 
-pub fn start_watcher(db: Arc<Database>, folders: Vec<String>) -> notify::Result<()> {
+pub fn start_watcher(db: Arc<Database>, folders: Vec<(String, Option<i64>)>) -> notify::Result<()> {
     thread::spawn(move || {
         let (tx, rx) = channel::<notify::Result<Event>>();
         let mut watcher = match recommended_watcher(tx) {
@@ -18,7 +18,7 @@ pub fn start_watcher(db: Arc<Database>, folders: Vec<String>) -> notify::Result<
             }
         };
 
-        for folder in &folders {
+        for (folder, _) in &folders {
             if let Err(e) = watcher.watch(&PathBuf::from(folder), RecursiveMode::Recursive) {
                 log::error!("Failed to watch folder {}: {}", folder, e);
             }
@@ -28,7 +28,7 @@ pub fn start_watcher(db: Arc<Database>, folders: Vec<String>) -> notify::Result<
 
         for result in rx {
             match result {
-                Ok(event) => handle_event(&db, &event),
+                Ok(event) => handle_event(&db, &event, &folders),
                 Err(e) => log::error!("Watch error: {:?}", e),
             }
         }
@@ -37,7 +37,7 @@ pub fn start_watcher(db: Arc<Database>, folders: Vec<String>) -> notify::Result<
     Ok(())
 }
 
-fn handle_event(db: &Arc<Database>, event: &Event) {
+fn handle_event(db: &Arc<Database>, event: &Event, folders: &[(String, Option<i64>)]) {
     let media_extensions = [
         "mp3", "flac", "aac", "m4a", "wav", "opus", "alac", "wma",
         "mp4", "m4v", "mov", "webm",
@@ -54,10 +54,16 @@ fn handle_event(db: &Arc<Database>, event: &Event) {
             continue;
         }
 
+        // Find matching collection_id for this path
+        let path_str = path.to_string_lossy();
+        let collection_id = folders.iter()
+            .find(|(folder, _)| path_str.starts_with(folder.as_str()))
+            .and_then(|(_, id)| *id);
+
         match event.kind {
             EventKind::Create(_) | EventKind::Modify(_) => {
                 log::info!("File changed: {:?}", path);
-                scanner::process_media_file(db, path);
+                scanner::process_media_file(db, path, collection_id);
             }
             EventKind::Remove(_) => {
                 log::info!("File removed: {:?}", path);

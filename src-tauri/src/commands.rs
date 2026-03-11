@@ -1,67 +1,262 @@
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::db::Database;
 use crate::models::*;
 use crate::scanner;
+use crate::subsonic::SubsonicClient;
 use crate::watcher;
+
+pub enum ImageDownloadRequest {
+    Artist { id: i64, name: String },
+    Album { id: i64, title: String, artist_name: Option<String> },
+}
+
+pub struct DownloadQueue {
+    pub queue: Mutex<Vec<ImageDownloadRequest>>,
+    pub condvar: Condvar,
+}
 
 pub struct AppState {
     pub db: Arc<Database>,
     pub app_dir: std::path::PathBuf,
+    pub download_queue: Arc<DownloadQueue>,
 }
 
-// --- Folder commands ---
+// --- Collection commands ---
 
 #[tauri::command]
-pub fn add_folder(
+pub fn add_collection(
     app: AppHandle,
     state: State<'_, AppState>,
-    path: String,
-) -> Result<FolderInfo, String> {
-    let folder = state.db.add_folder(&path).map_err(|e| e.to_string())?;
-    let folder_id = folder.id;
+    kind: String,
+    name: String,
+    path: Option<String>,
+    url: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+) -> Result<Collection, String> {
+    match kind.as_str() {
+        "local" => {
+            let folder_path = path.as_deref().ok_or("Path is required for local collections")?;
+            let collection = state
+                .db
+                .add_collection("local", &name, Some(folder_path), None, None, None, None, None)
+                .map_err(|e| e.to_string())?;
+            let collection_id = collection.id;
 
-    // Start background scan
-    let db = state.db.clone();
-    let scan_path = path.clone();
-    thread::spawn(move || {
-        scanner::scan_folder(&db, &scan_path, |scanned, total| {
-            let _ = app.emit(
-                "scan-progress",
-                ScanProgress {
-                    folder: scan_path.clone(),
-                    scanned,
-                    total,
-                },
-            );
-        });
-        let _ = db.rebuild_fts();
-        let _ = db.update_folder_scanned(folder_id);
-        let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
-    });
+            // Start background scan
+            let db = state.db.clone();
+            let scan_path = folder_path.to_string();
+            thread::spawn(move || {
+                scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
+                    let _ = app.emit(
+                        "scan-progress",
+                        ScanProgress {
+                            folder: scan_path.clone(),
+                            scanned,
+                            total,
+                        },
+                    );
+                });
+                let _ = db.rebuild_fts();
+                let _ = db.update_collection_synced(collection_id);
+                let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
+            });
 
-    // Start watching this folder
-    let db2 = state.db.clone();
-    let _ = watcher::start_watcher(db2, vec![path]);
+            // Start watching this folder
+            let db2 = state.db.clone();
+            let _ = watcher::start_watcher(db2, vec![(folder_path.to_string(), Some(collection_id))]);
 
-    Ok(folder)
+            Ok(collection)
+        }
+        "subsonic" => {
+            let server_url = url.as_deref().ok_or("URL is required for subsonic collections")?;
+            let user = username.as_deref().ok_or("Username is required for subsonic collections")?;
+            let pass = password.as_deref().ok_or("Password is required for subsonic collections")?;
+
+            // Test connection and determine auth method
+            let client = SubsonicClient::new(server_url, user, pass)
+                .map_err(|e| format!("Failed to connect: {}", e))?;
+
+            let collection = state
+                .db
+                .add_collection(
+                    "subsonic",
+                    &name,
+                    None,
+                    Some(server_url),
+                    Some(user),
+                    Some(&client.password_token),
+                    client.salt.as_deref(),
+                    Some(&client.auth_method),
+                )
+                .map_err(|e| e.to_string())?;
+
+            let collection_id = collection.id;
+            let collection_name = collection.name.clone();
+
+            // Start background sync
+            let db = state.db.clone();
+            let creds_url = server_url.to_string();
+            let creds_user = user.to_string();
+            let creds_token = client.password_token.clone();
+            let creds_salt = client.salt.clone();
+            let creds_method = client.auth_method.clone();
+
+            thread::spawn(move || {
+                let client = SubsonicClient::from_stored(
+                    &creds_url,
+                    &creds_user,
+                    &creds_token,
+                    creds_salt.as_deref(),
+                    &creds_method,
+                );
+                let _ = app.emit(
+                    "sync-progress",
+                    SyncProgress {
+                        collection: collection_name.clone(),
+                        synced: 0,
+                        total: 0,
+                    },
+                );
+                match crate::sync::sync_collection(&db, &client, collection_id, |synced, total| {
+                    let _ = app.emit(
+                        "sync-progress",
+                        SyncProgress {
+                            collection: collection_name.clone(),
+                            synced,
+                            total,
+                        },
+                    );
+                }) {
+                    Ok(()) => {
+                        let _ = app.emit(
+                            "sync-complete",
+                            serde_json::json!({ "collectionId": collection_id }),
+                        );
+                    }
+                    Err(e) => {
+                        log::error!("Sync failed for collection {}: {}", collection_id, e);
+                        let _ = app.emit(
+                            "sync-error",
+                            serde_json::json!({ "collectionId": collection_id, "error": e }),
+                        );
+                    }
+                }
+            });
+
+            Ok(collection)
+        }
+        "seed" => {
+            #[cfg(debug_assertions)]
+            {
+                let collection = state
+                    .db
+                    .add_collection("seed", &name, None, None, None, None, None, None)
+                    .map_err(|e| e.to_string())?;
+                crate::seed::seed_database(&state.db, collection.id, 50, 200, 2000)?;
+                Ok(collection)
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                Err("Seed collections are only available in debug mode".to_string())
+            }
+        }
+        _ => Err(format!("Unknown collection kind: {}", kind)),
+    }
 }
 
 #[tauri::command]
-pub fn remove_folder(state: State<'_, AppState>, folder_id: i64) -> Result<(), String> {
+pub fn remove_collection(state: State<'_, AppState>, collection_id: i64) -> Result<(), String> {
     state
         .db
-        .remove_folder(folder_id)
+        .remove_collection(collection_id)
         .map_err(|e| e.to_string())?;
     let _ = state.db.rebuild_fts();
     Ok(())
 }
 
 #[tauri::command]
-pub fn get_folders(state: State<'_, AppState>) -> Result<Vec<FolderInfo>, String> {
-    state.db.get_folders().map_err(|e| e.to_string())
+pub fn get_collections(state: State<'_, AppState>) -> Result<Vec<Collection>, String> {
+    state.db.get_collections().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn resync_collection(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    collection_id: i64,
+) -> Result<(), String> {
+    let collection = state
+        .db
+        .get_collection_by_id(collection_id)
+        .map_err(|e| e.to_string())?;
+
+    match collection.kind.as_str() {
+        "local" => {
+            let folder_path = collection.path.ok_or("Collection has no path")?;
+            let db = state.db.clone();
+            let scan_path = folder_path.clone();
+            thread::spawn(move || {
+                scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
+                    let _ = app.emit(
+                        "scan-progress",
+                        ScanProgress {
+                            folder: scan_path.clone(),
+                            scanned,
+                            total,
+                        },
+                    );
+                });
+                let _ = db.rebuild_fts();
+                let _ = db.update_collection_synced(collection_id);
+                let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
+            });
+            Ok(())
+        }
+        "subsonic" => {
+            let creds = state
+                .db
+                .get_collection_credentials(collection_id)
+                .map_err(|e| e.to_string())?;
+            let collection_name = collection.name.clone();
+            let db = state.db.clone();
+
+            thread::spawn(move || {
+                let client = SubsonicClient::from_stored(
+                    &creds.url,
+                    &creds.username,
+                    &creds.password_token,
+                    creds.salt.as_deref(),
+                    &creds.auth_method,
+                );
+                match crate::sync::sync_collection(&db, &client, collection_id, |synced, total| {
+                    let _ = app.emit(
+                        "sync-progress",
+                        SyncProgress {
+                            collection: collection_name.clone(),
+                            synced,
+                            total,
+                        },
+                    );
+                }) {
+                    Ok(()) => {
+                        let _ = app.emit(
+                            "sync-complete",
+                            serde_json::json!({ "collectionId": collection_id }),
+                        );
+                    }
+                    Err(e) => {
+                        log::error!("Resync failed for collection {}: {}", collection_id, e);
+                    }
+                }
+            });
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 // --- Library commands ---
@@ -108,7 +303,26 @@ pub fn get_track_path(state: State<'_, AppState>, track_id: i64) -> Result<Strin
         .db
         .get_track_by_id(track_id)
         .map_err(|e| e.to_string())?;
-    Ok(track.path)
+
+    if let Some(subsonic_id) = &track.subsonic_id {
+        let collection_id = track
+            .collection_id
+            .ok_or("Track has subsonic_id but no collection_id")?;
+        let creds = state
+            .db
+            .get_collection_credentials(collection_id)
+            .map_err(|e| e.to_string())?;
+        let client = SubsonicClient::from_stored(
+            &creds.url,
+            &creds.username,
+            &creds.password_token,
+            creds.salt.as_deref(),
+            &creds.auth_method,
+        );
+        Ok(client.stream_url(subsonic_id))
+    } else {
+        Ok(track.path)
+    }
 }
 
 #[tauri::command]
@@ -160,6 +374,12 @@ pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), S
         .db
         .get_track_by_id(track_id)
         .map_err(|e| e.to_string())?;
+
+    // Only show in folder for local tracks
+    if track.subsonic_id.is_some() {
+        return Err("Cannot open folder for server tracks".to_string());
+    }
+
     let path = std::path::Path::new(&track.path);
     let folder = path.parent().unwrap_or(path);
     #[cfg(target_os = "macos")]
@@ -190,29 +410,14 @@ pub fn get_artist_image(state: State<'_, AppState>, artist_id: i64) -> Option<St
 
 #[tauri::command]
 pub fn fetch_artist_image(
-    app: AppHandle,
     state: State<'_, AppState>,
     artist_id: i64,
     artist_name: String,
 ) {
-    let app_dir = state.app_dir.clone();
-    thread::spawn(move || {
-        let dest = app_dir.join("artist_images").join(format!("{}.jpg", artist_id));
-        match crate::artist_image::fetch_artist_image(&artist_name, &dest) {
-            Ok(()) => {
-                let _ = app.emit(
-                    "artist-image-ready",
-                    serde_json::json!({
-                        "artistId": artist_id,
-                        "path": dest.to_string_lossy()
-                    }),
-                );
-            }
-            Err(e) => {
-                log::warn!("Failed to fetch image for artist {}: {}", artist_name, e);
-            }
-        }
-    });
+    log::info!("Queued artist image download: {} (id={})", artist_name, artist_id);
+    let mut queue = state.download_queue.queue.lock().unwrap();
+    queue.push(ImageDownloadRequest::Artist { id: artist_id, name: artist_name });
+    state.download_queue.condvar.notify_one();
 }
 
 #[tauri::command]
@@ -253,36 +458,15 @@ pub fn get_album_image(state: State<'_, AppState>, album_id: i64) -> Option<Stri
 
 #[tauri::command]
 pub fn fetch_album_image(
-    app: AppHandle,
     state: State<'_, AppState>,
     album_id: i64,
     album_title: String,
     artist_name: Option<String>,
 ) {
-    let app_dir = state.app_dir.clone();
-    thread::spawn(move || {
-        let dest = app_dir
-            .join("album_images")
-            .join(format!("{}.jpg", album_id));
-        match crate::album_image::fetch_album_image(
-            &album_title,
-            artist_name.as_deref(),
-            &dest,
-        ) {
-            Ok(()) => {
-                let _ = app.emit(
-                    "album-image-ready",
-                    serde_json::json!({
-                        "albumId": album_id,
-                        "path": dest.to_string_lossy()
-                    }),
-                );
-            }
-            Err(e) => {
-                log::warn!("Failed to fetch image for album {}: {}", album_title, e);
-            }
-        }
-    });
+    log::info!("Queued album image download: {} (id={})", album_title, album_id);
+    let mut queue = state.download_queue.queue.lock().unwrap();
+    queue.push(ImageDownloadRequest::Album { id: album_id, title: album_title, artist_name });
+    state.download_queue.condvar.notify_one();
 }
 
 #[tauri::command]
@@ -310,20 +494,6 @@ pub fn set_album_image(
 #[tauri::command]
 pub fn remove_album_image(state: State<'_, AppState>, album_id: i64) {
     crate::album_image::remove_image(&state.app_dir, album_id);
-}
-
-#[cfg(debug_assertions)]
-#[tauri::command]
-pub fn seed_database(
-    state: State<'_, AppState>,
-    num_artists: Option<u32>,
-    num_albums: Option<u32>,
-    num_tracks: Option<u32>,
-) -> Result<String, String> {
-    let artists = num_artists.unwrap_or(50);
-    let albums = num_albums.unwrap_or(200);
-    let tracks = num_tracks.unwrap_or(2000);
-    crate::seed::seed_database(&state.db, artists, albums, tracks)
 }
 
 #[cfg(debug_assertions)]

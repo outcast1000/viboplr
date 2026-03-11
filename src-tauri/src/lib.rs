@@ -6,19 +6,22 @@ mod models;
 mod scanner;
 #[cfg(debug_assertions)]
 mod seed;
+mod subsonic;
+mod sync;
 mod watcher;
 
-use commands::AppState;
+use commands::{AppState, DownloadQueue, ImageDownloadRequest};
 use db::Database;
-use std::sync::Arc;
-use tauri::Manager;
+use std::sync::{Arc, Condvar, Mutex};
+use tauri::{Emitter, Manager};
 
 #[cfg(debug_assertions)]
 fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
-        commands::add_folder,
-        commands::remove_folder,
-        commands::get_folders,
+        commands::add_collection,
+        commands::remove_collection,
+        commands::get_collections,
+        commands::resync_collection,
         commands::get_artists,
         commands::get_albums,
         commands::get_tracks,
@@ -28,7 +31,6 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::search,
         commands::rebuild_search_index,
         commands::show_in_folder,
-        commands::seed_database,
         commands::clear_database,
         commands::get_tags,
         commands::get_tags_for_track,
@@ -47,9 +49,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
 #[cfg(not(debug_assertions))]
 fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
-        commands::add_folder,
-        commands::remove_folder,
-        commands::get_folders,
+        commands::add_collection,
+        commands::remove_collection,
+        commands::get_collections,
+        commands::resync_collection,
         commands::get_artists,
         commands::get_albums,
         commands::get_tracks,
@@ -91,16 +94,96 @@ pub fn run() {
             let _ = std::fs::create_dir_all(app_dir.join("artist_images"));
             let _ = std::fs::create_dir_all(app_dir.join("album_images"));
 
-            // Start watchers for existing folders
-            if let Ok(folders) = db.get_folders() {
-                let paths: Vec<String> = folders.into_iter().map(|f| f.path).collect();
+            // Start watchers for existing local collections
+            if let Ok(collections) = db.get_collections() {
+                let paths: Vec<(String, Option<i64>)> = collections
+                    .iter()
+                    .filter(|c| c.kind == "local")
+                    .filter_map(|c| c.path.clone().map(|p| (p, Some(c.id))))
+                    .collect();
                 if !paths.is_empty() {
                     let db_clone = db.clone();
                     let _ = watcher::start_watcher(db_clone, paths);
                 }
             }
 
-            app.manage(AppState { db, app_dir });
+            let download_queue = Arc::new(DownloadQueue {
+                queue: Mutex::new(Vec::new()),
+                condvar: Condvar::new(),
+            });
+
+            // Spawn the image download worker thread
+            let worker_queue = download_queue.clone();
+            let worker_app_dir = app_dir.clone();
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                loop {
+                    let request = {
+                        let mut queue = worker_queue.queue.lock().unwrap();
+                        while queue.is_empty() {
+                            queue = worker_queue.condvar.wait(queue).unwrap();
+                        }
+                        queue.pop().unwrap() // LIFO: pop from the end
+                    };
+
+                    match &request {
+                        ImageDownloadRequest::Artist { id, name } => {
+                            let dest = worker_app_dir.join("artist_images").join(format!("{}.jpg", id));
+                            if dest.exists() {
+                                log::info!("Artist image already exists for {} (id={}), skipping", name, id);
+                                continue;
+                            }
+                            log::info!("Downloading image for artist: {} (id={})", name, id);
+                            match crate::artist_image::fetch_artist_image(name, &dest) {
+                                Ok(()) => {
+                                    let path = dest.to_string_lossy().to_string();
+                                    log::info!("Downloaded image for artist: {} (id={})", name, id);
+                                    let _ = app_handle.emit(
+                                        "artist-image-ready",
+                                        serde_json::json!({ "artistId": id, "path": &path }),
+                                    );
+                                }
+                                Err(e) => {
+                                    log::warn!("Failed to download image for artist {}: {}", name, e);
+                                    let _ = app_handle.emit(
+                                        "artist-image-error",
+                                        serde_json::json!({ "artistId": id, "error": e.to_string() }),
+                                    );
+                                }
+                            }
+                        }
+                        ImageDownloadRequest::Album { id, title, artist_name } => {
+                            let dest = worker_app_dir.join("album_images").join(format!("{}.jpg", id));
+                            if dest.exists() {
+                                log::info!("Album image already exists for {} (id={}), skipping", title, id);
+                                continue;
+                            }
+                            log::info!("Downloading image for album: {} (id={})", title, id);
+                            match crate::album_image::fetch_album_image(title, artist_name.as_deref(), &dest) {
+                                Ok(()) => {
+                                    let path = dest.to_string_lossy().to_string();
+                                    log::info!("Downloaded image for album: {} (id={})", title, id);
+                                    let _ = app_handle.emit(
+                                        "album-image-ready",
+                                        serde_json::json!({ "albumId": id, "path": &path }),
+                                    );
+                                }
+                                Err(e) => {
+                                    log::warn!("Failed to download image for album {}: {}", title, e);
+                                    let _ = app_handle.emit(
+                                        "album-image-error",
+                                        serde_json::json!({ "albumId": id, "error": e.to_string() }),
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    std::thread::sleep(std::time::Duration::from_millis(1100));
+                }
+            });
+
+            app.manage(AppState { db, app_dir, download_queue });
             Ok(())
         })
         .invoke_handler(get_invoke_handler())

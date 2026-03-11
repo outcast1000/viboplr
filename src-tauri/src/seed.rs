@@ -70,6 +70,7 @@ const GENRES: &[&str] = &[
 
 pub fn seed_database(
     db: &Database,
+    collection_id: i64,
     num_artists: u32,
     num_albums: u32,
     num_tracks: u32,
@@ -141,6 +142,8 @@ pub fn seed_database(
             Some(duration),
             Some("mp3"),
             Some(file_size),
+            None,
+            Some(collection_id),
             None,
         )
         .map_err(|e| e.to_string())?;

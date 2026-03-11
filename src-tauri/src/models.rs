@@ -37,18 +37,40 @@ pub struct Track {
     pub duration_secs: Option<f64>,
     pub format: Option<String>,
     pub file_size: Option<i64>,
+    pub collection_id: Option<i64>,
+    pub subsonic_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FolderInfo {
+pub struct Collection {
     pub id: i64,
-    pub path: String,
-    pub last_scanned_at: Option<i64>,
+    pub kind: String,
+    pub name: String,
+    pub path: Option<String>,
+    pub url: Option<String>,
+    pub username: Option<String>,
+    pub last_synced_at: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CollectionCredentials {
+    pub url: String,
+    pub username: String,
+    pub password_token: String,
+    pub salt: Option<String>,
+    pub auth_method: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanProgress {
     pub folder: String,
     pub scanned: u64,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncProgress {
+    pub collection: String,
+    pub synced: u64,
     pub total: u64,
 }

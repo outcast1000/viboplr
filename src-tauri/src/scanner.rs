@@ -147,6 +147,7 @@ fn grandparent_folder_name(path: &Path) -> Option<String> {
 pub fn scan_folder(
     db: &Arc<Database>,
     folder_path: &str,
+    collection_id: Option<i64>,
     progress_callback: impl Fn(u64, u64) + Send,
 ) {
     let root = PathBuf::from(folder_path);
@@ -166,7 +167,7 @@ pub fn scan_folder(
         .filter(|e| e.file_type().is_file() && is_media_file(e.path()))
     {
         let path = entry.path();
-        process_media_file(db, path);
+        process_media_file(db, path, collection_id);
         scanned += 1;
         if scanned % 10 == 0 || scanned == total {
             progress_callback(scanned, total);
@@ -174,7 +175,7 @@ pub fn scan_folder(
     }
 }
 
-pub fn process_media_file(db: &Arc<Database>, path: &Path) {
+pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>) {
     let path_str = path.to_string_lossy().to_string();
     let tags = read_tags(path);
 
@@ -211,6 +212,8 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path) {
         format.as_deref(),
         file_size,
         modified_at,
+        collection_id,
+        None,
     ) {
         if let Some(genre) = &tags.genre {
             if let Ok(tag_id) = db.get_or_create_tag(genre) {
