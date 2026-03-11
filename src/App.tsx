@@ -70,6 +70,7 @@ function App() {
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; trackId: number } | null>(null);
@@ -195,6 +196,19 @@ function App() {
       console.error("Seed error:", e);
     } finally {
       setSeeding(false);
+    }
+  }
+
+  async function handleClearDatabase() {
+    setClearing(true);
+    try {
+      await invoke("clear_database", {});
+      await loadLibrary();
+      await loadTracks();
+    } catch (e) {
+      console.error("Clear database error:", e);
+    } finally {
+      setClearing(false);
     }
   }
 
@@ -423,6 +437,15 @@ function App() {
               disabled={seeding}
             >
               {seeding ? "Seeding..." : "Seed Test Data"}
+            </button>
+          )}
+          {import.meta.env.DEV && (
+            <button
+              className="add-folder-btn"
+              onClick={handleClearDatabase}
+              disabled={clearing}
+            >
+              {clearing ? "Clearing..." : "Clear Database"}
             </button>
           )}
         </div>

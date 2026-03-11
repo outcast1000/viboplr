@@ -187,3 +187,10 @@ pub fn seed_database(
     let tracks = num_tracks.unwrap_or(2000);
     crate::seed::seed_database(&state.db, artists, albums, tracks)
 }
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn clear_database(state: State<'_, AppState>) -> Result<String, String> {
+    state.db.clear_database().map_err(|e| e.to_string())?;
+    Ok("Database cleared".to_string())
+}

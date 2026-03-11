@@ -32,7 +32,7 @@ WMA: best-effort.
 
 ### Video
 
-MP4 (H.264) — supported on both macOS and Windows.
+MP4/M4V/MOV (H.264) — supported on both macOS and Windows.
 
 WebM (VP8/VP9) — Windows only (Chromium-based WebView2). Not supported on macOS (WebKit).
 
@@ -44,7 +44,8 @@ WebM (VP8/VP9) — Windows only (Chromium-based WebView2). Not supported on macO
 - A background Rust thread walks the folder tree recursively.
 - For each audio or video file, reads tags via `lofty`.
 - If tags are missing or empty, falls back to **regex-based filename parsing** (see §4.2).
-- Inserts/updates rows in SQLite (`artists`, `albums`, `genres`, `tracks`).
+- Genre metadata from file tags is stored as **tags** (many-to-many relationship with tracks).
+- Inserts/updates rows in SQLite (`artists`, `albums`, `tags`, `track_tags`, `tracks`).
 - Reports scan progress to the frontend via Tauri events.
 
 ### 4.2 Tag Fallback — Filename Regex
@@ -67,27 +68,35 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 
 ### 4.4 Library Browsing
 
-- Browse by **artist**, **album**, **genre**, or **all tracks** (flat list).
-- Grid view (album art) and list view (table).
+- Browse by **artist**, **album**, **tag**, or **all tracks** (flat list).
+- List view (table) with columns: track number, title, artist, album, duration.
 - Sort by name, date added, year, duration.
 
-### 4.5 Search
+### 4.5 Tags
 
-- SQLite FTS5 virtual table indexes: track title, artist name, album title, genre name, filename.
+Tags replace the previous single-genre-per-track model. A track can have **multiple tags** via a many-to-many relationship (`track_tags` junction table). Genre metadata read from file tags is stored as tags. The Tags view in the sidebar lists all tags; clicking one filters the track list.
+
+### 4.6 Search
+
+- SQLite FTS5 virtual table indexes: track title, artist name, album title, tag names, filename.
 - Search-as-you-type with <100 ms response time.
 - Uses custom SQLite function `filename_from_path()` (Rust-implemented) to correctly extract filenames from full paths for indexing.
 - Index automatically rebuilt after folder scans; can be manually triggered via `rebuild_search_index` command.
 
-### 4.6 Playback
+### 4.7 Playback
 
 - Frontend-driven via HTML5 `<audio>` and `<video>` elements.
 - Local files served to the webview via Tauri's `asset://` protocol (`convertFileSrc()`).
-- Media type (audio vs video) determined by file extension.
+- Media type (audio vs video) determined by file extension (video: mp4, m4v, mov, webm).
 - Transport controls: play, pause, stop, seek, volume.
 - Position and duration tracked via HTML5 media events (`timeupdate`, `loadedmetadata`, `play`, `pause`, `ended`) — no polling.
 - Video displayed inline in the main content area; audio plays with no visual.
-- Shuffle and repeat (repeat-one, repeat-all, no-repeat).
-- Album art display from embedded tags when available.
+- Keyboard navigation: arrow keys to navigate tracks, Enter to play.
+
+### 4.8 Context Menu
+
+- Right-click on a track to open a context menu.
+- **Open Containing Folder**: Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer, or Linux xdg-open).
 
 ## 5. Database Schema
 
@@ -105,7 +114,7 @@ CREATE TABLE albums (
     UNIQUE(title, artist_id)
 );
 
-CREATE TABLE genres (
+CREATE TABLE tags (
     id          INTEGER PRIMARY KEY,
     name        TEXT NOT NULL UNIQUE
 );
@@ -116,13 +125,18 @@ CREATE TABLE tracks (
     title           TEXT NOT NULL,
     artist_id       INTEGER REFERENCES artists(id),
     album_id        INTEGER REFERENCES albums(id),
-    genre_id        INTEGER REFERENCES genres(id),
     track_number    INTEGER,
     duration_secs   REAL,
     format          TEXT,
     file_size       INTEGER,
     modified_at     INTEGER,
     added_at        INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+CREATE TABLE track_tags (
+    track_id    INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+    tag_id      INTEGER REFERENCES tags(id) ON DELETE CASCADE,
+    UNIQUE(track_id, tag_id)
 );
 
 CREATE TABLE folders (
@@ -136,7 +150,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
     title,
     artist_name,
     album_title,
-    genre_name,
+    tag_names,
     filename,
     content='',
     tokenize='unicode61'
@@ -162,8 +176,8 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 ┌──────────────────▼──────────────────────────┐
 │                Tauri Commands               │
 │  add_folder, remove_folder, get_artists,    │
-│  get_albums, get_tracks, get_track_path,    │
-│  search                                     │
+│  get_albums, get_tracks, get_tags,          │
+│  get_tracks_by_tag, search, show_in_folder  │
 └──┬───────────┬──────────────────────────────┘
    │           │
    ▼           ▼
@@ -192,8 +206,12 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `get_albums`            | `artist_id: Option<i64>`    | `Vec<Album>`             |
 | `get_tracks`            | `album_id: Option<i64>`     | `Vec<Track>`             |
 | `get_tracks_by_artist`  | `artist_id: i64`            | `Vec<Track>`             |
+| `get_tags`              | —                           | `Vec<Tag>`               |
+| `get_tags_for_track`    | `track_id: i64`             | `Vec<Tag>`               |
+| `get_tracks_by_tag`     | `tag_id: i64`               | `Vec<Track>`             |
 | `search`                | `query: String`             | `Vec<Track>`             |
 | `get_track_path`        | `track_id: i64`             | `String`                 |
+| `show_in_folder`        | `track_id: i64`             | `()`                     |
 | `rebuild_search_index`  | —                           | `()`                     |
 
 ### Tauri Events (backend → frontend)
@@ -257,10 +275,15 @@ conn.create_scalar_function(
 **Usage in FTS rebuild:**
 
 ```sql
-INSERT INTO tracks_fts (rowid, title, artist_name, album_title, genre_name, filename)
+INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, filename)
 SELECT t.id, t.title, COALESCE(ar.name, ''), COALESCE(al.title, ''),
-       COALESCE(g.name, ''), filename_from_path(t.path)
-FROM tracks t ...
+       COALESCE(GROUP_CONCAT(tg.name, ', '), ''), filename_from_path(t.path)
+FROM tracks t
+LEFT JOIN artists ar ON t.artist_id = ar.id
+LEFT JOIN albums al ON t.album_id = al.id
+LEFT JOIN track_tags tt ON t.id = tt.track_id
+LEFT JOIN tags tg ON tt.tag_id = tg.id
+GROUP BY t.id
 ```
 
 **Dependencies:** Requires the `functions` feature in rusqlite (`Cargo.toml`):

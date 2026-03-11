@@ -26,6 +26,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::rebuild_search_index,
         commands::show_in_folder,
         commands::seed_database,
+        commands::clear_database,
         commands::get_tags,
         commands::get_tags_for_track,
         commands::get_tracks_by_tag,

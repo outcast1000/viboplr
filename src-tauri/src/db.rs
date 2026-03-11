@@ -291,6 +291,29 @@ impl Database {
     }
 
 
+    pub fn clear_database(&self) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch(
+            "DELETE FROM track_tags;
+             DELETE FROM tracks;
+             DELETE FROM albums;
+             DELETE FROM artists;
+             DELETE FROM tags;
+             DELETE FROM folders;
+             DROP TABLE IF EXISTS tracks_fts;
+             CREATE VIRTUAL TABLE tracks_fts USING fts5(
+                 title,
+                 artist_name,
+                 album_title,
+                 tag_names,
+                 filename,
+                 content='',
+                 tokenize='unicode61'
+             );"
+        )?;
+        Ok(())
+    }
+
     pub fn rebuild_fts(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch(
