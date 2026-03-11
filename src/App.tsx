@@ -53,6 +53,10 @@ function isVideoTrack(track: Track): boolean {
 
 type View = "all" | "artists" | "albums" | "tags";
 
+function getInitials(name: string): string {
+  return name.split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
+}
+
 function formatDuration(secs: number | null | undefined): string {
   if (!secs) return "--:--";
   const m = Math.floor(secs / 60);
@@ -336,11 +340,6 @@ function App() {
     setView("all");
   }
 
-  function handleShowAllArtistTracks() {
-    setSelectedAlbum(null);
-    setView("all");
-  }
-
   function handleShowAll() {
     setSelectedArtist(null);
     setSelectedAlbum(null);
@@ -543,14 +542,6 @@ function App() {
                 <span className="breadcrumb-sep"> › </span>
                 <span>{albums.find(a => a.id === selectedAlbum)?.title ?? "Album"}</span>
               </>
-            ) : selectedArtist !== null ? (
-              <>
-                <span className="breadcrumb-link" onClick={() => { setSelectedArtist(null); setSelectedAlbum(null); setView("artists"); }}>Artists</span>
-                <span className="breadcrumb-sep"> › </span>
-                <span className="breadcrumb-link" onClick={() => { setSelectedAlbum(null); setView("artists"); invoke<Album[]>("get_albums", { artistId: selectedArtist }).then(setAlbums); }}>{artists.find(a => a.id === selectedArtist)?.name ?? "Unknown"}</span>
-                <span className="breadcrumb-sep"> › </span>
-                <span>All Tracks</span>
-              </>
             ) : view === "tags" && selectedTag === null ? (
               <span>All Tags</span>
             ) : selectedTag !== null ? (
@@ -589,33 +580,76 @@ function App() {
             </div>
           )}
 
-          {/* Albums by selected artist (intermediate step) */}
-          {view === "artists" && !searchQuery.trim() && selectedArtist !== null && (
-            <div className="list">
-              {albums.map((a) => (
-                <div
-                  key={a.id}
-                  className="list-item"
-                  onClick={() => handleAlbumClick(a.id)}
-                >
-                  <span>
-                    <strong>{a.title}</strong>
-                    {a.year && <span className="subtitle"> ({a.year})</span>}
-                  </span>
-                  <span className="list-count">{a.track_count}</span>
+          {/* Artist detail view */}
+          {view === "artists" && !searchQuery.trim() && selectedArtist !== null && (() => {
+            const artist = artists.find(a => a.id === selectedArtist);
+            return (
+              <div className="artist-detail">
+                <div className="artist-header">
+                  <div className="artist-avatar">
+                    {artist ? getInitials(artist.name) : "?"}
+                  </div>
+                  <div className="artist-header-info">
+                    <h2>{artist?.name ?? "Unknown"}</h2>
+                    <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
+                  </div>
                 </div>
-              ))}
-              <div
-                className="list-item all-tracks-link"
-                onClick={handleShowAllArtistTracks}
-              >
-                All Tracks
+
+                {albums.length > 0 && (
+                  <div className="artist-section">
+                    <div className="section-title">Albums</div>
+                    <div className="album-grid">
+                      {albums.map((a) => (
+                        <div key={a.id} className="album-card" onClick={() => handleAlbumClick(a.id)}>
+                          <div className="album-card-art">
+                            {a.title[0]?.toUpperCase() ?? "?"}
+                          </div>
+                          <div className="album-card-body">
+                            <div className="album-card-title" title={a.title}>{a.title}</div>
+                            <div className="album-card-info">
+                              {a.year ? `${a.year} · ` : ""}{a.track_count} tracks
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="artist-section">
+                  <div className="section-title">All Tracks</div>
+                  <div className="track-list" ref={trackListRef}>
+                    <div className="track-header">
+                      <span className="col-num">#</span>
+                      <span className="col-title">Title</span>
+                      <span className="col-artist">Artist</span>
+                      <span className="col-album">Album</span>
+                      <span className="col-duration">Duration</span>
+                    </div>
+                    {tracks.map((t, i) => (
+                      <div
+                        key={t.id}
+                        className={`track-row ${currentTrack?.id === t.id ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""}`}
+                        onDoubleClick={() => handlePlay(t)}
+                        onContextMenu={(e) => handleContextMenu(e, t.id)}
+                      >
+                        <span className="col-num">
+                          {isVideoTrack(t) ? "🎬" : (t.track_number || i + 1)}
+                        </span>
+                        <span className="col-title">{t.title}</span>
+                        <span className="col-artist">{t.artist_name || "Unknown"}</span>
+                        <span className="col-album">{t.album_title || "Unknown"}</span>
+                        <span className="col-duration">{formatDuration(t.duration_secs)}</span>
+                      </div>
+                    ))}
+                    {tracks.length === 0 && (
+                      <div className="empty">No tracks found for this artist.</div>
+                    )}
+                  </div>
+                </div>
               </div>
-              {albums.length === 0 && (
-                <div className="empty">No albums found for this artist.</div>
-              )}
-            </div>
-          )}
+            );
+          })()}
 
           {/* All albums view */}
           {view === "albums" && !searchQuery.trim() && (
