@@ -59,7 +59,7 @@ impl Database {
                 UNIQUE(title, artist_id)
             );
 
-            CREATE TABLE IF NOT EXISTS genres (
+            CREATE TABLE IF NOT EXISTS tags (
                 id   INTEGER PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE
             );
@@ -70,13 +70,18 @@ impl Database {
                 title         TEXT NOT NULL,
                 artist_id     INTEGER REFERENCES artists(id),
                 album_id      INTEGER REFERENCES albums(id),
-                genre_id      INTEGER REFERENCES genres(id),
                 track_number  INTEGER,
                 duration_secs REAL,
                 format        TEXT,
                 file_size     INTEGER,
                 modified_at   INTEGER,
                 added_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS track_tags (
+                track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+                tag_id   INTEGER REFERENCES tags(id) ON DELETE CASCADE,
+                UNIQUE(track_id, tag_id)
             );
 
             CREATE TABLE IF NOT EXISTS folders (
@@ -89,7 +94,7 @@ impl Database {
                 title,
                 artist_name,
                 album_title,
-                genre_name,
+                tag_names,
                 filename,
                 content='',
                 tokenize='unicode61'
@@ -169,20 +174,87 @@ impl Database {
         }
     }
 
-    // --- Genres ---
+    // --- Tags ---
 
-    pub fn get_or_create_genre(&self, name: &str) -> SqlResult<i64> {
+    pub fn get_or_create_tag(&self, name: &str) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT OR IGNORE INTO genres (name) VALUES (?1)",
+            "INSERT OR IGNORE INTO tags (name) VALUES (?1)",
             params![name],
         )?;
         let id: i64 = conn.query_row(
-            "SELECT id FROM genres WHERE name = ?1",
+            "SELECT id FROM tags WHERE name = ?1",
             params![name],
             |row| row.get(0),
         )?;
         Ok(id)
+    }
+
+    pub fn add_track_tag(&self, track_id: i64, tag_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?1, ?2)",
+            params![track_id, tag_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_tags(&self) -> SqlResult<Vec<Tag>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT id, name FROM tags ORDER BY name")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(Tag {
+                id: row.get(0)?,
+                name: row.get(1)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_tags_for_track(&self, track_id: i64) -> SqlResult<Vec<Tag>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT t.id, t.name FROM tags t
+             JOIN track_tags tt ON tt.tag_id = t.id
+             WHERE tt.track_id = ?1
+             ORDER BY t.name"
+        )?;
+        let rows = stmt.query_map(params![track_id], |row| {
+            Ok(Tag {
+                id: row.get(0)?,
+                name: row.get(1)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_tracks_by_tag(&self, tag_id: i64) -> SqlResult<Vec<Track>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size
+             FROM tracks t
+             JOIN track_tags tt ON tt.track_id = t.id
+             LEFT JOIN artists ar ON t.artist_id = ar.id
+             LEFT JOIN albums al ON t.album_id = al.id
+             WHERE tt.tag_id = ?1
+             ORDER BY ar.name, al.title, t.track_number, t.title"
+        )?;
+        let rows = stmt.query_map(params![tag_id], |row| {
+            Ok(Track {
+                id: row.get(0)?,
+                path: row.get(1)?,
+                title: row.get(2)?,
+                artist_id: row.get(3)?,
+                artist_name: row.get(4)?,
+                album_id: row.get(5)?,
+                album_title: row.get(6)?,
+                track_number: row.get(7)?,
+                duration_secs: row.get(8)?,
+                format: row.get(9)?,
+                file_size: row.get(10)?,
+            })
+        })?;
+        rows.collect()
     }
 
     // --- Tracks ---
@@ -193,7 +265,6 @@ impl Database {
         title: &str,
         artist_id: Option<i64>,
         album_id: Option<i64>,
-        genre_id: Option<i64>,
         track_number: Option<i32>,
         duration_secs: Option<f64>,
         format: Option<&str>,
@@ -202,14 +273,14 @@ impl Database {
     ) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tracks (path, title, artist_id, album_id, genre_id, track_number, duration_secs, format, file_size, modified_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(path) DO UPDATE SET
                 title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id,
-                genre_id=excluded.genre_id, track_number=excluded.track_number,
+                track_number=excluded.track_number,
                 duration_secs=excluded.duration_secs, format=excluded.format,
                 file_size=excluded.file_size, modified_at=excluded.modified_at",
-            params![path, title, artist_id, album_id, genre_id, track_number, duration_secs, format, file_size, modified_at],
+            params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at],
         )?;
         let id: i64 = conn.query_row(
             "SELECT id FROM tracks WHERE path = ?1",
@@ -228,20 +299,20 @@ impl Database {
                  title,
                  artist_name,
                  album_title,
-                 genre_name,
+                 tag_names,
                  filename,
                  content='',
                  tokenize='unicode61'
              );"
         )?;
         conn.execute_batch(
-            "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, genre_name, filename)
-             SELECT t.id, t.title, COALESCE(ar.name, ''), COALESCE(al.title, ''), COALESCE(g.name, ''),
+            "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, filename)
+             SELECT t.id, t.title, COALESCE(ar.name, ''), COALESCE(al.title, ''),
+                    COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), ''),
                     filename_from_path(t.path)
              FROM tracks t
              LEFT JOIN artists ar ON t.artist_id = ar.id
-             LEFT JOIN albums al ON t.album_id = al.id
-             LEFT JOIN genres g ON t.genre_id = g.id;",
+             LEFT JOIN albums al ON t.album_id = al.id;",
         )?;
         Ok(())
     }
@@ -250,23 +321,23 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = album_id {
             let mut stmt = conn.prepare(
-                "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.genre_id, g.name, t.track_number, t.duration_secs, t.format, t.file_size
-                 FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id LEFT JOIN genres g ON t.genre_id = g.id
+                "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size
+                 FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id
                  WHERE t.album_id = ?1 ORDER BY t.track_number, t.title"
             )?;
             let rows = stmt.query_map(params![aid], |row| {
-                Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, genre_id: row.get(7)?, genre_name: row.get(8)?, track_number: row.get(9)?, duration_secs: row.get(10)?, format: row.get(11)?, file_size: row.get(12)? })
+                Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, track_number: row.get(7)?, duration_secs: row.get(8)?, format: row.get(9)?, file_size: row.get(10)? })
             })?;
             rows.collect()
         } else {
             let mut stmt = conn.prepare(
-                "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.genre_id, g.name, t.track_number, t.duration_secs, t.format, t.file_size
-                 FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id LEFT JOIN genres g ON t.genre_id = g.id
+                "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size
+                 FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id
                  ORDER BY ar.name, al.title, t.track_number, t.title
                  LIMIT 100"
             )?;
             let rows = stmt.query_map([], |row| {
-                Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, genre_id: row.get(7)?, genre_name: row.get(8)?, track_number: row.get(9)?, duration_secs: row.get(10)?, format: row.get(11)?, file_size: row.get(12)? })
+                Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, track_number: row.get(7)?, duration_secs: row.get(8)?, format: row.get(9)?, file_size: row.get(10)? })
             })?;
             rows.collect()
         }
@@ -275,12 +346,12 @@ impl Database {
     pub fn get_tracks_by_artist(&self, artist_id: i64) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.genre_id, g.name, t.track_number, t.duration_secs, t.format, t.file_size
-             FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id LEFT JOIN genres g ON t.genre_id = g.id
+            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size
+             FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id
              WHERE t.artist_id = ?1 ORDER BY al.title, t.track_number, t.title"
         )?;
         let rows = stmt.query_map(params![artist_id], |row| {
-            Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, genre_id: row.get(7)?, genre_name: row.get(8)?, track_number: row.get(9)?, duration_secs: row.get(10)?, format: row.get(11)?, file_size: row.get(12)? })
+            Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, track_number: row.get(7)?, duration_secs: row.get(8)?, format: row.get(9)?, file_size: row.get(10)? })
         })?;
         rows.collect()
     }
@@ -288,11 +359,10 @@ impl Database {
     pub fn get_track_by_id(&self, track_id: i64) -> SqlResult<Track> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.genre_id, g.name, t.track_number, t.duration_secs, t.format, t.file_size
+            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size
              FROM tracks t
              LEFT JOIN artists ar ON t.artist_id = ar.id
              LEFT JOIN albums al ON t.album_id = al.id
-             LEFT JOIN genres g ON t.genre_id = g.id
              WHERE t.id = ?1",
             params![track_id],
             |row| {
@@ -304,12 +374,10 @@ impl Database {
                     artist_name: row.get(4)?,
                     album_id: row.get(5)?,
                     album_title: row.get(6)?,
-                    genre_id: row.get(7)?,
-                    genre_name: row.get(8)?,
-                    track_number: row.get(9)?,
-                    duration_secs: row.get(10)?,
-                    format: row.get(11)?,
-                    file_size: row.get(12)?,
+                    track_number: row.get(7)?,
+                    duration_secs: row.get(8)?,
+                    format: row.get(9)?,
+                    file_size: row.get(10)?,
                 })
             },
         )
@@ -323,12 +391,11 @@ impl Database {
             .collect::<Vec<_>>()
             .join(" AND ");
         let mut stmt = conn.prepare(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.genre_id, g.name, t.track_number, t.duration_secs, t.format, t.file_size
+            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size
              FROM tracks_fts fts
              JOIN tracks t ON fts.rowid = t.id
              LEFT JOIN artists ar ON t.artist_id = ar.id
              LEFT JOIN albums al ON t.album_id = al.id
-             LEFT JOIN genres g ON t.genre_id = g.id
              WHERE tracks_fts MATCH ?1
              LIMIT 100",
         )?;
@@ -341,12 +408,10 @@ impl Database {
                 artist_name: row.get(4)?,
                 album_id: row.get(5)?,
                 album_title: row.get(6)?,
-                genre_id: row.get(7)?,
-                genre_name: row.get(8)?,
-                track_number: row.get(9)?,
-                duration_secs: row.get(10)?,
-                format: row.get(11)?,
-                file_size: row.get(12)?,
+                track_number: row.get(7)?,
+                duration_secs: row.get(8)?,
+                format: row.get(9)?,
+                file_size: row.get(10)?,
             })
         })?;
         rows.collect()
@@ -386,12 +451,12 @@ impl Database {
             params![folder_path],
         )?;
         conn.execute("DELETE FROM folders WHERE id = ?1", params![folder_id])?;
-        // Clean up orphaned artists, albums, genres
+        // Clean up orphaned artists, albums, tags
         conn.execute_batch(
             "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL);
              DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM tracks WHERE artist_id IS NOT NULL)
                                    AND id NOT IN (SELECT DISTINCT artist_id FROM albums WHERE artist_id IS NOT NULL);
-             DELETE FROM genres WHERE id NOT IN (SELECT DISTINCT genre_id FROM tracks WHERE genre_id IS NOT NULL);",
+             DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM track_tags);",
         )?;
         Ok(())
     }

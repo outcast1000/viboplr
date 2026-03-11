@@ -117,6 +117,33 @@ pub fn get_tracks_by_artist(
 }
 
 #[tauri::command]
+pub fn get_tags(state: State<'_, AppState>) -> Result<Vec<Tag>, String> {
+    state.db.get_tags().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_tags_for_track(
+    state: State<'_, AppState>,
+    track_id: i64,
+) -> Result<Vec<Tag>, String> {
+    state
+        .db
+        .get_tags_for_track(track_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_tracks_by_tag(
+    state: State<'_, AppState>,
+    tag_id: i64,
+) -> Result<Vec<Track>, String> {
+    state
+        .db
+        .get_tracks_by_tag(tag_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn rebuild_search_index(state: State<'_, AppState>) -> Result<(), String> {
     state.db.rebuild_fts().map_err(|e| e.to_string())
 }

@@ -201,24 +201,22 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path) {
         .as_ref()
         .and_then(|title| db.get_or_create_album(title, artist_id, tags.year).ok());
 
-    let genre_id = tags
-        .genre
-        .as_ref()
-        .and_then(|name| db.get_or_create_genre(name).ok());
-
     if let Ok(track_id) = db.upsert_track(
         &path_str,
         &tags.title,
         artist_id,
         album_id,
-        genre_id,
         tags.track_number,
         tags.duration_secs,
         format.as_deref(),
         file_size,
         modified_at,
     ) {
-        let _ = track_id;
+        if let Some(genre) = &tags.genre {
+            if let Ok(tag_id) = db.get_or_create_tag(genre) {
+                let _ = db.add_track_tag(track_id, tag_id);
+            }
+        }
     }
 }
 

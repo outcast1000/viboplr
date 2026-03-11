@@ -15,6 +15,11 @@ pub struct Album {
     pub year: Option<i32>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tag {
+    pub id: i64,
+    pub name: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
@@ -25,8 +30,6 @@ pub struct Track {
     pub artist_name: Option<String>,
     pub album_id: Option<i64>,
     pub album_title: Option<String>,
-    pub genre_id: Option<i64>,
-    pub genre_name: Option<String>,
     pub track_number: Option<i32>,
     pub duration_secs: Option<f64>,
     pub format: Option<String>,

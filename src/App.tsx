@@ -17,6 +17,11 @@ interface Album {
   year: number | null;
 }
 
+interface Tag {
+  id: number;
+  name: string;
+}
+
 interface Track {
   id: number;
   path: string;
@@ -25,8 +30,6 @@ interface Track {
   artist_name: string | null;
   album_id: number | null;
   album_title: string | null;
-  genre_id: number | null;
-  genre_name: string | null;
   track_number: number | null;
   duration_secs: number | null;
   format: string | null;
@@ -45,7 +48,7 @@ function isVideoTrack(track: Track): boolean {
   return VIDEO_FORMATS.includes(track.format?.toLowerCase() ?? "");
 }
 
-type View = "all" | "artists" | "albums";
+type View = "all" | "artists" | "albums" | "tags";
 
 function formatDuration(secs: number | null | undefined): string {
   if (!secs) return "--:--";
@@ -61,8 +64,10 @@ function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [folders, setFolders] = useState<FolderInfo[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [tags, setTags] = useState<Tag[]>([]);
   const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<number | null>(null);
+  const [selectedTag, setSelectedTag] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
@@ -91,14 +96,16 @@ function App() {
 
   const loadLibrary = useCallback(async () => {
     try {
-      const [a, al, f] = await Promise.all([
+      const [a, al, f, t] = await Promise.all([
         invoke<Artist[]>("get_artists"),
         invoke<Album[]>("get_albums", { artistId: null }),
         invoke<FolderInfo[]>("get_folders"),
+        invoke<Tag[]>("get_tags"),
       ]);
       setArtists(a);
       setAlbums(al);
       setFolders(f);
+      setTags(t);
     } catch (e) {
       console.error("Failed to load library:", e);
     }
@@ -108,6 +115,9 @@ function App() {
     try {
       if (searchQuery.trim()) {
         const results = await invoke<Track[]>("search", { query: searchQuery });
+        setTracks(results);
+      } else if (selectedTag !== null) {
+        const results = await invoke<Track[]>("get_tracks_by_tag", { tagId: selectedTag });
         setTracks(results);
       } else if (selectedAlbum !== null) {
         const results = await invoke<Track[]>("get_tracks", { albumId: selectedAlbum });
@@ -122,7 +132,7 @@ function App() {
     } catch (e) {
       console.error("Failed to load tracks:", e);
     }
-  }, [searchQuery, selectedAlbum, selectedArtist]);
+  }, [searchQuery, selectedTag, selectedAlbum, selectedArtist]);
 
   useEffect(() => {
     loadLibrary();
@@ -295,12 +305,14 @@ function App() {
   function handleArtistClick(artistId: number) {
     setSelectedArtist(artistId);
     setSelectedAlbum(null);
+    setSelectedTag(null);
     setView("artists");
     invoke<Album[]>("get_albums", { artistId }).then(setAlbums);
   }
 
   function handleAlbumClick(albumId: number) {
     setSelectedAlbum(albumId);
+    setSelectedTag(null);
     setView("all");
   }
 
@@ -312,6 +324,7 @@ function App() {
   function handleShowAll() {
     setSelectedArtist(null);
     setSelectedAlbum(null);
+    setSelectedTag(null);
     setView("all");
     setSearchQuery("");
   }
@@ -356,6 +369,7 @@ function App() {
               setView("artists");
               setSelectedArtist(null);
               setSelectedAlbum(null);
+              setSelectedTag(null);
               setSearchQuery("");
             }}
           >
@@ -366,11 +380,24 @@ function App() {
             onClick={() => {
               setView("albums");
               setSelectedArtist(null);
+              setSelectedTag(null);
               setSearchQuery("");
               invoke<Album[]>("get_albums", { artistId: null }).then(setAlbums);
             }}
           >
             Albums
+          </button>
+          <button
+            className={`nav-btn ${view === "tags" ? "active" : ""}`}
+            onClick={() => {
+              setView("tags");
+              setSelectedArtist(null);
+              setSelectedAlbum(null);
+              setSelectedTag(null);
+              setSearchQuery("");
+            }}
+          >
+            Tags
           </button>
         </nav>
 
@@ -419,6 +446,7 @@ function App() {
                 setView("all");
                 setSelectedArtist(null);
                 setSelectedAlbum(null);
+                setSelectedTag(null);
               }
             }}
             onKeyDown={(e) => {
@@ -494,6 +522,14 @@ function App() {
                 <span className="breadcrumb-sep"> › </span>
                 <span>All Tracks</span>
               </>
+            ) : view === "tags" && selectedTag === null ? (
+              <span>All Tags</span>
+            ) : selectedTag !== null ? (
+              <>
+                <span className="breadcrumb-link" onClick={() => { setSelectedTag(null); setView("tags"); }}>Tags</span>
+                <span className="breadcrumb-sep"> › </span>
+                <span>{tags.find(t => t.id === selectedTag)?.name ?? "Tag"}</span>
+              </>
             ) : selectedAlbum !== null ? (
               <>
                 <span className="breadcrumb-link" onClick={() => { setSelectedAlbum(null); setView("albums"); invoke<Album[]>("get_albums", { artistId: null }).then(setAlbums); }}>Albums</span>
@@ -568,7 +604,25 @@ function App() {
             </div>
           )}
 
-          {(view === "all" || searchQuery.trim()) && (
+          {/* Tags list view */}
+          {view === "tags" && !searchQuery.trim() && selectedTag === null && (
+            <div className="list">
+              {tags.map((t) => (
+                <div
+                  key={t.id}
+                  className="list-item"
+                  onClick={() => { setSelectedTag(t.id); setView("all"); }}
+                >
+                  {t.name}
+                </div>
+              ))}
+              {tags.length === 0 && (
+                <div className="empty">No tags found. Add a folder to scan or seed test data.</div>
+              )}
+            </div>
+          )}
+
+          {(view === "all" || selectedTag !== null || searchQuery.trim()) && (
             <div className="track-list" ref={trackListRef}>
               <div className="track-header">
                 <span className="col-num">#</span>

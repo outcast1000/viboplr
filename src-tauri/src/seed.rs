@@ -84,11 +84,11 @@ pub fn seed_database(
         artist_ids.push(id);
     }
 
-    // Generate genres
-    let mut genre_ids = Vec::with_capacity(GENRES.len());
+    // Generate tags from genres
+    let mut tag_ids = Vec::with_capacity(GENRES.len());
     for genre in GENRES {
-        let id = db.get_or_create_genre(genre).map_err(|e| e.to_string())?;
-        genre_ids.push(id);
+        let id = db.get_or_create_tag(genre).map_err(|e| e.to_string())?;
+        tag_ids.push(id);
     }
 
     // Generate albums, each assigned to a random artist
@@ -119,8 +119,8 @@ pub fn seed_database(
         let track_num = track_counters[album_idx];
 
         let title = format!("{} {}", rng.pick(VERBS), rng.pick(NOUNS));
-        let genre_idx = (rng.next() % genre_ids.len() as u64) as usize;
-        let genre_id = genre_ids[genre_idx];
+        let tag_idx = (rng.next() % tag_ids.len() as u64) as usize;
+        let tag_id = tag_ids[tag_idx];
         let duration = rng.range(120, 360) as f64;
         let file_size = rng.range(3_000_000, 10_000_000) as i64;
 
@@ -132,12 +132,11 @@ pub fn seed_database(
             artist_name, album_title, track_num, title
         );
 
-        db.upsert_track(
+        let track_id = db.upsert_track(
             &path,
             &title,
             Some(artist_id),
             Some(album_id),
-            Some(genre_id),
             Some(track_num as i32),
             Some(duration),
             Some("mp3"),
@@ -145,6 +144,7 @@ pub fn seed_database(
             None,
         )
         .map_err(|e| e.to_string())?;
+        db.add_track_tag(track_id, tag_id).map_err(|e| e.to_string())?;
     }
 
     db.rebuild_fts().map_err(|e| e.to_string())?;
