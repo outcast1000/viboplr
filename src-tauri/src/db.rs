@@ -5,6 +5,29 @@ use std::sync::Mutex;
 
 use crate::models::*;
 
+const TRACK_SELECT: &str =
+    "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, \
+     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id \
+     FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id";
+
+fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
+    Ok(Track {
+        id: row.get(0)?,
+        path: row.get(1)?,
+        title: row.get(2)?,
+        artist_id: row.get(3)?,
+        artist_name: row.get(4)?,
+        album_id: row.get(5)?,
+        album_title: row.get(6)?,
+        track_number: row.get(7)?,
+        duration_secs: row.get(8)?,
+        format: row.get(9)?,
+        file_size: row.get(10)?,
+        collection_id: row.get(11)?,
+        subsonic_id: row.get(12)?,
+    })
+}
+
 pub struct Database {
     conn: Mutex<Connection>,
 }
@@ -330,32 +353,12 @@ impl Database {
 
     pub fn get_tracks_by_tag(&self, tag_id: i64) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
-             FROM tracks t
-             JOIN track_tags tt ON tt.track_id = t.id
-             LEFT JOIN artists ar ON t.artist_id = ar.id
-             LEFT JOIN albums al ON t.album_id = al.id
-             WHERE tt.tag_id = ?1
-             ORDER BY ar.name, al.title, t.track_number, t.title"
-        )?;
-        let rows = stmt.query_map(params![tag_id], |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                title: row.get(2)?,
-                artist_id: row.get(3)?,
-                artist_name: row.get(4)?,
-                album_id: row.get(5)?,
-                album_title: row.get(6)?,
-                track_number: row.get(7)?,
-                duration_secs: row.get(8)?,
-                format: row.get(9)?,
-                file_size: row.get(10)?,
-                collection_id: row.get(11)?,
-                subsonic_id: row.get(12)?,
-            })
-        })?;
+        let sql = format!(
+            "{} JOIN track_tags tt ON tt.track_id = t.id WHERE tt.tag_id = ?1 ORDER BY ar.name, al.title, t.track_number, t.title",
+            TRACK_SELECT
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![tag_id], |row| track_from_row(row))?;
         rows.collect()
     }
 
@@ -453,69 +456,30 @@ impl Database {
     pub fn get_tracks(&self, album_id: Option<i64>) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = album_id {
-            let mut stmt = conn.prepare(
-                "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
-                 FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id
-                 WHERE t.album_id = ?1 ORDER BY t.track_number, t.title"
-            )?;
-            let rows = stmt.query_map(params![aid], |row| {
-                Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, track_number: row.get(7)?, duration_secs: row.get(8)?, format: row.get(9)?, file_size: row.get(10)?, collection_id: row.get(11)?, subsonic_id: row.get(12)? })
-            })?;
+            let sql = format!("{} WHERE t.album_id = ?1 ORDER BY t.track_number, t.title", TRACK_SELECT);
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![aid], |row| track_from_row(row))?;
             rows.collect()
         } else {
-            let mut stmt = conn.prepare(
-                "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
-                 FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id
-                 ORDER BY ar.name, al.title, t.track_number, t.title
-                 LIMIT 100"
-            )?;
-            let rows = stmt.query_map([], |row| {
-                Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, track_number: row.get(7)?, duration_secs: row.get(8)?, format: row.get(9)?, file_size: row.get(10)?, collection_id: row.get(11)?, subsonic_id: row.get(12)? })
-            })?;
+            let sql = format!("{} ORDER BY ar.name, al.title, t.track_number, t.title LIMIT 100", TRACK_SELECT);
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map([], |row| track_from_row(row))?;
             rows.collect()
         }
     }
 
     pub fn get_tracks_by_artist(&self, artist_id: i64) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
-             FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id
-             WHERE t.artist_id = ?1 ORDER BY al.title, t.track_number, t.title"
-        )?;
-        let rows = stmt.query_map(params![artist_id], |row| {
-            Ok(Track { id: row.get(0)?, path: row.get(1)?, title: row.get(2)?, artist_id: row.get(3)?, artist_name: row.get(4)?, album_id: row.get(5)?, album_title: row.get(6)?, track_number: row.get(7)?, duration_secs: row.get(8)?, format: row.get(9)?, file_size: row.get(10)?, collection_id: row.get(11)?, subsonic_id: row.get(12)? })
-        })?;
+        let sql = format!("{} WHERE t.artist_id = ?1 ORDER BY al.title, t.track_number, t.title", TRACK_SELECT);
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![artist_id], |row| track_from_row(row))?;
         rows.collect()
     }
 
     pub fn get_track_by_id(&self, track_id: i64) -> SqlResult<Track> {
         let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
-             FROM tracks t
-             LEFT JOIN artists ar ON t.artist_id = ar.id
-             LEFT JOIN albums al ON t.album_id = al.id
-             WHERE t.id = ?1",
-            params![track_id],
-            |row| {
-                Ok(Track {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                    title: row.get(2)?,
-                    artist_id: row.get(3)?,
-                    artist_name: row.get(4)?,
-                    album_id: row.get(5)?,
-                    album_title: row.get(6)?,
-                    track_number: row.get(7)?,
-                    duration_secs: row.get(8)?,
-                    format: row.get(9)?,
-                    file_size: row.get(10)?,
-                    collection_id: row.get(11)?,
-                    subsonic_id: row.get(12)?,
-                })
-            },
-        )
+        let sql = format!("{} WHERE t.id = ?1", TRACK_SELECT);
+        conn.query_row(&sql, params![track_id], |row| track_from_row(row))
     }
 
     pub fn search_tracks(
@@ -533,10 +497,11 @@ impl Database {
             .join(" AND ");
 
         let mut sql = String::from(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
-             FROM tracks_fts fts
-             JOIN tracks t ON fts.rowid = t.id
-             LEFT JOIN artists ar ON t.artist_id = ar.id
+            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, \
+             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id \
+             FROM tracks_fts fts \
+             JOIN tracks t ON fts.rowid = t.id \
+             LEFT JOIN artists ar ON t.artist_id = ar.id \
              LEFT JOIN albums al ON t.album_id = al.id"
         );
 
@@ -576,23 +541,7 @@ impl Database {
         }
 
         let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
-        let rows = stmt.query_map(param_refs.as_slice(), |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                title: row.get(2)?,
-                artist_id: row.get(3)?,
-                artist_name: row.get(4)?,
-                album_id: row.get(5)?,
-                album_title: row.get(6)?,
-                track_number: row.get(7)?,
-                duration_secs: row.get(8)?,
-                format: row.get(9)?,
-                file_size: row.get(10)?,
-                collection_id: row.get(11)?,
-                subsonic_id: row.get(12)?,
-            })
-        })?;
+        let rows = stmt.query_map(param_refs.as_slice(), |row| track_from_row(row))?;
         rows.collect()
     }
 
@@ -726,31 +675,10 @@ impl Database {
         }
         let conn = self.conn.lock().unwrap();
         let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let sql = format!(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id
-             FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id
-             WHERE t.id IN ({})",
-            placeholders
-        );
+        let sql = format!("{} WHERE t.id IN ({})", TRACK_SELECT, placeholders);
         let mut stmt = conn.prepare(&sql)?;
         let params: Vec<&dyn rusqlite::types::ToSql> = ids.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
-        let rows = stmt.query_map(params.as_slice(), |row| {
-            Ok(Track {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                title: row.get(2)?,
-                artist_id: row.get(3)?,
-                artist_name: row.get(4)?,
-                album_id: row.get(5)?,
-                album_title: row.get(6)?,
-                track_number: row.get(7)?,
-                duration_secs: row.get(8)?,
-                format: row.get(9)?,
-                file_size: row.get(10)?,
-                collection_id: row.get(11)?,
-                subsonic_id: row.get(12)?,
-            })
-        })?;
+        let rows = stmt.query_map(params.as_slice(), |row| track_from_row(row))?;
         let track_map: std::collections::HashMap<i64, Track> = rows.filter_map(|r| r.ok()).map(|t| (t.id, t)).collect();
         // Return in input order, skipping missing ids
         Ok(ids.iter().filter_map(|id| track_map.get(id).cloned()).collect())
