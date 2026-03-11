@@ -46,6 +46,7 @@ pub fn run() {
             commands::get_track_path,
             commands::search,
             commands::rebuild_search_index,
+            commands::show_in_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

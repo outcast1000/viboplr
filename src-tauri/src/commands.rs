@@ -120,3 +120,18 @@ pub fn get_tracks_by_artist(
 pub fn rebuild_search_index(state: State<'_, AppState>) -> Result<(), String> {
     state.db.rebuild_fts().map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), String> {
+    let track = state
+        .db
+        .get_track_by_id(track_id)
+        .map_err(|e| e.to_string())?;
+    let path = std::path::Path::new(&track.path);
+    let folder = path.parent().unwrap_or(path);
+    std::process::Command::new("open")
+        .arg(folder)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}

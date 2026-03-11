@@ -66,6 +66,7 @@ function App() {
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; trackId: number } | null>(null);
 
   // Playback state (driven by HTML5 media events)
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
@@ -296,8 +297,20 @@ function App() {
     setSearchQuery("");
   }
 
+  function handleContextMenu(e: React.MouseEvent, trackId: number) {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, trackId });
+  }
+
+  function handleShowInFolder() {
+    if (contextMenu) {
+      invoke("show_in_folder", { trackId: contextMenu.trackId });
+      setContextMenu(null);
+    }
+  }
+
   return (
-    <div className={`app ${currentTrack && isVideoTrack(currentTrack) ? "video-mode" : ""}`}>
+    <div className={`app ${currentTrack && isVideoTrack(currentTrack) ? "video-mode" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio element */}
       <audio
         ref={audioRef}
@@ -487,6 +500,7 @@ function App() {
                   key={t.id}
                   className={`track-row ${currentTrack?.id === t.id ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""}`}
                   onDoubleClick={() => handlePlay(t)}
+                  onContextMenu={(e) => handleContextMenu(e, t.id)}
                 >
                   <span className="col-num">
                     {isVideoTrack(t) ? "🎬" : (t.track_number || i + 1)}
@@ -506,6 +520,18 @@ function App() {
           )}
         </div>
       </main>
+
+      {/* Context menu */}
+      {contextMenu && (
+        <div
+          className="context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+        >
+          <div className="context-menu-item" onClick={handleShowInFolder}>
+            Open Containing Folder
+          </div>
+        </div>
+      )}
 
       {/* Now playing bar */}
       <footer className="now-playing">
