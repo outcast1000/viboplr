@@ -65,6 +65,7 @@ function App() {
   const [selectedAlbum, setSelectedAlbum] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
   // Playback state (driven by HTML5 media events)
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
@@ -76,6 +77,7 @@ function App() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pendingSrcRef = useRef<string | null>(null);
+  const trackListRef = useRef<HTMLDivElement>(null);
 
   // Get the active media element based on current track type
   function getMediaElement(): HTMLAudioElement | HTMLVideoElement | null {
@@ -127,6 +129,11 @@ function App() {
   useEffect(() => {
     loadTracks();
   }, [loadTracks]);
+
+  // Reset highlighted index when tracks change
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [tracks]);
 
   // Listen for scan events
   useEffect(() => {
@@ -359,6 +366,10 @@ function App() {
           <input
             type="text"
             placeholder="Search tracks..."
+            title=""
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -366,6 +377,26 @@ function App() {
                 setView("all");
                 setSelectedArtist(null);
                 setSelectedAlbum(null);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setHighlightedIndex((prev) => {
+                  const next = Math.min(prev + 1, tracks.length - 1);
+                  trackListRef.current?.children[next + 1]?.scrollIntoView({ block: "nearest" });
+                  return next;
+                });
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setHighlightedIndex((prev) => {
+                  const next = Math.max(prev - 1, 0);
+                  trackListRef.current?.children[next + 1]?.scrollIntoView({ block: "nearest" });
+                  return next;
+                });
+              } else if (e.key === "Enter" && highlightedIndex >= 0 && highlightedIndex < tracks.length) {
+                e.preventDefault();
+                handlePlay(tracks[highlightedIndex]);
               }
             }}
           />
@@ -443,7 +474,7 @@ function App() {
           )}
 
           {(view === "all" || searchQuery.trim()) && (
-            <div className="track-list">
+            <div className="track-list" ref={trackListRef}>
               <div className="track-header">
                 <span className="col-num">#</span>
                 <span className="col-title">Title</span>
@@ -454,7 +485,7 @@ function App() {
               {tracks.map((t, i) => (
                 <div
                   key={t.id}
-                  className={`track-row ${currentTrack?.id === t.id ? "playing" : ""}`}
+                  className={`track-row ${currentTrack?.id === t.id ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""}`}
                   onDoubleClick={() => handlePlay(t)}
                 >
                   <span className="col-num">

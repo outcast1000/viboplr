@@ -288,6 +288,12 @@ body {
   background: var(--bg-hover);
 }
 
+.track-row.highlighted {
+  background: var(--bg-hover);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
 .track-row.playing {
   color: var(--accent);
   background: rgba(83, 168, 255, 0.08);
