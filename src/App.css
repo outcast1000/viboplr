@@ -198,13 +198,34 @@ body {
   padding: 0;
 }
 
-.content-label {
+/* Breadcrumb */
+.breadcrumb {
   padding: 12px 16px 4px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-secondary, #888);
-  text-transform: uppercase;
+  color: var(--text-secondary);
   letter-spacing: 0.04em;
+}
+
+.breadcrumb-link {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.breadcrumb-link:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb-sep {
+  color: var(--text-secondary);
+  font-weight: normal;
+}
+
+.all-tracks-link {
+  color: var(--accent);
+  font-style: italic;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
 }
 
 /* Context menu */

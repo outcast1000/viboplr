@@ -243,7 +243,18 @@ impl Database {
 
     pub fn rebuild_fts(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute_batch("DELETE FROM tracks_fts;")?;
+        conn.execute_batch(
+            "DROP TABLE IF EXISTS tracks_fts;
+             CREATE VIRTUAL TABLE tracks_fts USING fts5(
+                 title,
+                 artist_name,
+                 album_title,
+                 genre_name,
+                 filename,
+                 content='',
+                 tokenize='unicode61'
+             );"
+        )?;
         conn.execute_batch(
             "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, genre_name, filename)
              SELECT t.id, t.title, COALESCE(ar.name, ''), COALESCE(al.title, ''), COALESCE(g.name, ''),

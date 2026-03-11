@@ -64,6 +64,7 @@ function App() {
   const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<number | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [seeding, setSeeding] = useState(false);
   const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; trackId: number } | null>(null);
@@ -174,6 +175,19 @@ function App() {
     }
   }, [currentTrack]);
 
+  async function handleSeedDatabase() {
+    setSeeding(true);
+    try {
+      await invoke("seed_database", {});
+      await loadLibrary();
+      await loadTracks();
+    } catch (e) {
+      console.error("Seed error:", e);
+    } finally {
+      setSeeding(false);
+    }
+  }
+
   async function handleAddFolder() {
     const selected = await open({ directory: true, multiple: false });
     if (selected) {
@@ -281,12 +295,17 @@ function App() {
   function handleArtistClick(artistId: number) {
     setSelectedArtist(artistId);
     setSelectedAlbum(null);
-    setView("all");
-    invoke<Track[]>("get_tracks_by_artist", { artistId }).then(setTracks);
+    setView("artists");
+    invoke<Album[]>("get_albums", { artistId }).then(setAlbums);
   }
 
   function handleAlbumClick(albumId: number) {
     setSelectedAlbum(albumId);
+    setView("all");
+  }
+
+  function handleShowAllArtistTracks() {
+    setSelectedAlbum(null);
     setView("all");
   }
 
@@ -335,6 +354,7 @@ function App() {
             className={`nav-btn ${view === "artists" ? "active" : ""}`}
             onClick={() => {
               setView("artists");
+              setSelectedArtist(null);
               setSelectedAlbum(null);
               setSearchQuery("");
             }}
@@ -369,6 +389,15 @@ function App() {
           <button className="add-folder-btn" onClick={handleAddFolder}>
             + Add Folder
           </button>
+          {import.meta.env.DEV && (
+            <button
+              className="add-folder-btn"
+              onClick={handleSeedDatabase}
+              disabled={seeding}
+            >
+              {seeding ? "Seeding..." : "Seed Test Data"}
+            </button>
+          )}
         </div>
       </aside>
 
@@ -435,27 +464,54 @@ function App() {
 
         {/* Content area */}
         <div className="content">
-          <div className="content-label">
-            {searchQuery.trim()
-              ? `Search results for "${searchQuery}"`
-              : view === "artists"
-                ? "All Artists"
-                : view === "albums"
-                  ? selectedArtist !== null
-                    ? `Albums by ${artists.find(a => a.id === selectedArtist)?.name ?? "Unknown"}`
-                    : "All Albums"
-                  : selectedAlbum !== null
-                    ? `${albums.find(a => a.id === selectedAlbum)?.title ?? "Album"}`
-                    : selectedArtist !== null
-                      ? `${artists.find(a => a.id === selectedArtist)?.name ?? "Artist"}`
-                      : "All Tracks"}
+          {/* Breadcrumb navigation */}
+          <div className="breadcrumb">
+            {searchQuery.trim() ? (
+              <span>Search results for "{searchQuery}"</span>
+            ) : view === "artists" && selectedArtist === null ? (
+              <span>All Artists</span>
+            ) : view === "artists" && selectedArtist !== null ? (
+              <>
+                <span className="breadcrumb-link" onClick={() => { setSelectedArtist(null); setView("artists"); }}>Artists</span>
+                <span className="breadcrumb-sep"> › </span>
+                <span>{artists.find(a => a.id === selectedArtist)?.name ?? "Unknown"}</span>
+              </>
+            ) : view === "albums" && selectedAlbum === null ? (
+              <span>All Albums</span>
+            ) : selectedArtist !== null && selectedAlbum !== null ? (
+              <>
+                <span className="breadcrumb-link" onClick={() => { setSelectedArtist(null); setSelectedAlbum(null); setView("artists"); }}>Artists</span>
+                <span className="breadcrumb-sep"> › </span>
+                <span className="breadcrumb-link" onClick={() => { setSelectedAlbum(null); setView("artists"); invoke<Album[]>("get_albums", { artistId: selectedArtist }).then(setAlbums); }}>{artists.find(a => a.id === selectedArtist)?.name ?? "Unknown"}</span>
+                <span className="breadcrumb-sep"> › </span>
+                <span>{albums.find(a => a.id === selectedAlbum)?.title ?? "Album"}</span>
+              </>
+            ) : selectedArtist !== null ? (
+              <>
+                <span className="breadcrumb-link" onClick={() => { setSelectedArtist(null); setSelectedAlbum(null); setView("artists"); }}>Artists</span>
+                <span className="breadcrumb-sep"> › </span>
+                <span className="breadcrumb-link" onClick={() => { setSelectedAlbum(null); setView("artists"); invoke<Album[]>("get_albums", { artistId: selectedArtist }).then(setAlbums); }}>{artists.find(a => a.id === selectedArtist)?.name ?? "Unknown"}</span>
+                <span className="breadcrumb-sep"> › </span>
+                <span>All Tracks</span>
+              </>
+            ) : selectedAlbum !== null ? (
+              <>
+                <span className="breadcrumb-link" onClick={() => { setSelectedAlbum(null); setView("albums"); invoke<Album[]>("get_albums", { artistId: null }).then(setAlbums); }}>Albums</span>
+                <span className="breadcrumb-sep"> › </span>
+                <span>{albums.find(a => a.id === selectedAlbum)?.title ?? "Album"}</span>
+              </>
+            ) : (
+              <span>All Tracks</span>
+            )}
           </div>
-          {view === "artists" && !searchQuery.trim() && (
+
+          {/* Artist list */}
+          {view === "artists" && !searchQuery.trim() && selectedArtist === null && (
             <div className="list">
               {artists.map((a) => (
                 <div
                   key={a.id}
-                  className={`list-item ${selectedArtist === a.id ? "active" : ""}`}
+                  className="list-item"
                   onClick={() => handleArtistClick(a.id)}
                 >
                   {a.name}
@@ -467,6 +523,32 @@ function App() {
             </div>
           )}
 
+          {/* Albums by selected artist (intermediate step) */}
+          {view === "artists" && !searchQuery.trim() && selectedArtist !== null && (
+            <div className="list">
+              {albums.map((a) => (
+                <div
+                  key={a.id}
+                  className="list-item"
+                  onClick={() => handleAlbumClick(a.id)}
+                >
+                  <strong>{a.title}</strong>
+                  {a.year && <span className="subtitle"> ({a.year})</span>}
+                </div>
+              ))}
+              <div
+                className="list-item all-tracks-link"
+                onClick={handleShowAllArtistTracks}
+              >
+                All Tracks
+              </div>
+              {albums.length === 0 && (
+                <div className="empty">No albums found for this artist.</div>
+              )}
+            </div>
+          )}
+
+          {/* All albums view */}
           {view === "albums" && !searchQuery.trim() && (
             <div className="list">
               {albums.map((a) => (

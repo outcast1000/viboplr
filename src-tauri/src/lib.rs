@@ -2,12 +2,49 @@ mod commands;
 mod db;
 mod models;
 mod scanner;
+#[cfg(debug_assertions)]
+mod seed;
 mod watcher;
 
 use commands::AppState;
 use db::Database;
 use std::sync::Arc;
 use tauri::Manager;
+
+#[cfg(debug_assertions)]
+fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        commands::add_folder,
+        commands::remove_folder,
+        commands::get_folders,
+        commands::get_artists,
+        commands::get_albums,
+        commands::get_tracks,
+        commands::get_tracks_by_artist,
+        commands::get_track_path,
+        commands::search,
+        commands::rebuild_search_index,
+        commands::show_in_folder,
+        commands::seed_database,
+    ]
+}
+
+#[cfg(not(debug_assertions))]
+fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        commands::add_folder,
+        commands::remove_folder,
+        commands::get_folders,
+        commands::get_artists,
+        commands::get_albums,
+        commands::get_tracks,
+        commands::get_tracks_by_artist,
+        commands::get_track_path,
+        commands::search,
+        commands::rebuild_search_index,
+        commands::show_in_folder,
+    ]
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,19 +72,7 @@ pub fn run() {
             app.manage(AppState { db });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            commands::add_folder,
-            commands::remove_folder,
-            commands::get_folders,
-            commands::get_artists,
-            commands::get_albums,
-            commands::get_tracks,
-            commands::get_tracks_by_artist,
-            commands::get_track_path,
-            commands::search,
-            commands::rebuild_search_index,
-            commands::show_in_folder,
-        ])
+        .invoke_handler(get_invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -146,3 +146,17 @@ pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), S
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn seed_database(
+    state: State<'_, AppState>,
+    num_artists: Option<u32>,
+    num_albums: Option<u32>,
+    num_tracks: Option<u32>,
+) -> Result<String, String> {
+    let artists = num_artists.unwrap_or(50);
+    let albums = num_albums.unwrap_or(200);
+    let tracks = num_tracks.unwrap_or(2000);
+    crate::seed::seed_database(&state.db, artists, albums, tracks)
+}
