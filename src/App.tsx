@@ -82,6 +82,10 @@ function App() {
   const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; trackId: number } | null>(null);
+  const [artistImages, setArtistImages] = useState<Record<number, string | null>>({});
+  const [fetchedArtistImages, setFetchedArtistImages] = useState<Set<number>>(new Set());
+  const [albumImages, setAlbumImages] = useState<Record<number, string | null>>({});
+  const [fetchedAlbumImages, setFetchedAlbumImages] = useState<Set<number>>(new Set());
 
   // Playback state (driven by HTML5 media events)
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
@@ -178,6 +182,76 @@ function App() {
       unlisten2.then((f) => f());
     };
   }, [loadLibrary, loadTracks]);
+
+  // Listen for artist image ready events
+  useEffect(() => {
+    const unlisten = listen<{ artistId: number; path: string }>(
+      "artist-image-ready",
+      (event) => {
+        setArtistImages((prev) => ({
+          ...prev,
+          [event.payload.artistId]: event.payload.path,
+        }));
+      }
+    );
+    return () => { unlisten.then((f) => f()); };
+  }, []);
+
+  // Fetch artist image on demand when selectedArtist changes
+  useEffect(() => {
+    if (selectedArtist === null) return;
+    // Already have image or already tried fetching
+    if (artistImages[selectedArtist] !== undefined) return;
+    if (fetchedArtistImages.has(selectedArtist)) return;
+
+    const artist = artists.find((a) => a.id === selectedArtist);
+    if (!artist) return;
+
+    // Check if cached image exists
+    invoke<string | null>("get_artist_image", { artistId: selectedArtist }).then((path) => {
+      if (path) {
+        setArtistImages((prev) => ({ ...prev, [selectedArtist]: path }));
+      } else {
+        // Trigger background fetch
+        setFetchedArtistImages((prev) => new Set(prev).add(selectedArtist));
+        invoke("fetch_artist_image", { artistId: selectedArtist, artistName: artist.name });
+      }
+    });
+  }, [selectedArtist, artists, artistImages, fetchedArtistImages]);
+
+  // Listen for album image ready events
+  useEffect(() => {
+    const unlisten = listen<{ albumId: number; path: string }>(
+      "album-image-ready",
+      (event) => {
+        setAlbumImages((prev) => ({
+          ...prev,
+          [event.payload.albumId]: event.payload.path,
+        }));
+      }
+    );
+    return () => { unlisten.then((f) => f()); };
+  }, []);
+
+  // Fetch album images on demand when albums list changes (for visible albums)
+  useEffect(() => {
+    for (const album of albums) {
+      if (albumImages[album.id] !== undefined) continue;
+      if (fetchedAlbumImages.has(album.id)) continue;
+      invoke<string | null>("get_album_image", { albumId: album.id }).then((path) => {
+        if (path) {
+          setAlbumImages((prev) => ({ ...prev, [album.id]: path }));
+        } else {
+          setFetchedAlbumImages((prev) => new Set(prev).add(album.id));
+          invoke("fetch_album_image", {
+            albumId: album.id,
+            albumTitle: album.title,
+            artistName: album.artist_name,
+          });
+        }
+      });
+    }
+  }, [albums, albumImages, fetchedAlbumImages]);
 
   // Sync volume to media elements when it changes
   useEffect(() => {
@@ -583,15 +657,58 @@ function App() {
           {/* Artist detail view */}
           {view === "artists" && !searchQuery.trim() && selectedArtist !== null && (() => {
             const artist = artists.find(a => a.id === selectedArtist);
+            const artistImagePath = selectedArtist !== null ? artistImages[selectedArtist] : null;
             return (
               <div className="artist-detail">
                 <div className="artist-header">
                   <div className="artist-avatar">
-                    {artist ? getInitials(artist.name) : "?"}
+                    {artistImagePath ? (
+                      <img className="artist-avatar-img" src={convertFileSrc(artistImagePath)} alt={artist?.name} />
+                    ) : (
+                      artist ? getInitials(artist.name) : "?"
+                    )}
                   </div>
                   <div className="artist-header-info">
                     <h2>{artist?.name ?? "Unknown"}</h2>
                     <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
+                    <div className="artist-image-actions">
+                      <button
+                        className="artist-image-btn"
+                        onClick={async () => {
+                          const selected = await open({
+                            multiple: false,
+                            filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
+                          });
+                          if (selected && selectedArtist !== null) {
+                            const newPath = await invoke<string>("set_artist_image", {
+                              artistId: selectedArtist,
+                              sourcePath: selected,
+                            });
+                            setArtistImages((prev) => ({ ...prev, [selectedArtist!]: newPath }));
+                          }
+                        }}
+                      >
+                        Set Image
+                      </button>
+                      {artistImagePath && (
+                        <button
+                          className="artist-image-btn"
+                          onClick={() => {
+                            if (selectedArtist !== null) {
+                              invoke("remove_artist_image", { artistId: selectedArtist });
+                              setArtistImages((prev) => ({ ...prev, [selectedArtist!]: null }));
+                              setFetchedArtistImages((prev) => {
+                                const next = new Set(prev);
+                                next.delete(selectedArtist!);
+                                return next;
+                              });
+                            }
+                          }}
+                        >
+                          Remove Image
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -602,7 +719,11 @@ function App() {
                       {albums.map((a) => (
                         <div key={a.id} className="album-card" onClick={() => handleAlbumClick(a.id)}>
                           <div className="album-card-art">
-                            {a.title[0]?.toUpperCase() ?? "?"}
+                            {albumImages[a.id] ? (
+                              <img className="album-card-art-img" src={convertFileSrc(albumImages[a.id]!)} alt={a.title} />
+                            ) : (
+                              a.title[0]?.toUpperCase() ?? "?"
+                            )}
                           </div>
                           <div className="album-card-body">
                             <div className="album-card-title" title={a.title}>{a.title}</div>
@@ -653,19 +774,23 @@ function App() {
 
           {/* All albums view */}
           {view === "albums" && !searchQuery.trim() && (
-            <div className="list">
+            <div className="album-grid" style={{ padding: 16 }}>
               {albums.map((a) => (
-                <div
-                  key={a.id}
-                  className="list-item"
-                  onClick={() => handleAlbumClick(a.id)}
-                >
-                  <span>
-                    <strong>{a.title}</strong>
-                    {a.artist_name && <span className="subtitle"> — {a.artist_name}</span>}
-                    {a.year && <span className="subtitle"> ({a.year})</span>}
-                  </span>
-                  <span className="list-count">{a.track_count}</span>
+                <div key={a.id} className="album-card" onClick={() => handleAlbumClick(a.id)}>
+                  <div className="album-card-art">
+                    {albumImages[a.id] ? (
+                      <img className="album-card-art-img" src={convertFileSrc(albumImages[a.id]!)} alt={a.title} />
+                    ) : (
+                      a.title[0]?.toUpperCase() ?? "?"
+                    )}
+                  </div>
+                  <div className="album-card-body">
+                    <div className="album-card-title" title={a.title}>{a.title}</div>
+                    <div className="album-card-info">
+                      {a.artist_name && <>{a.artist_name} · </>}
+                      {a.year ? `${a.year} · ` : ""}{a.track_count} tracks
+                    </div>
+                  </div>
                 </div>
               ))}
               {albums.length === 0 && (
@@ -692,6 +817,68 @@ function App() {
               )}
             </div>
           )}
+
+          {(view === "all" || selectedTag !== null || searchQuery.trim()) && selectedAlbum !== null && !searchQuery.trim() && (() => {
+            const album = albums.find(a => a.id === selectedAlbum);
+            const albumImagePath = albumImages[selectedAlbum] ?? null;
+            return (
+              <div className="album-detail-header">
+                <div className="album-detail-art">
+                  {albumImagePath ? (
+                    <img className="album-detail-art-img" src={convertFileSrc(albumImagePath)} alt={album?.title} />
+                  ) : (
+                    album?.title[0]?.toUpperCase() ?? "?"
+                  )}
+                </div>
+                <div className="album-detail-info">
+                  <h2>{album?.title ?? "Unknown"}</h2>
+                  <span className="artist-meta">
+                    {album?.artist_name && <>{album.artist_name} · </>}
+                    {album?.year && <>{album.year} · </>}
+                    {album?.track_count ?? 0} tracks
+                  </span>
+                  <div className="artist-image-actions">
+                    <button
+                      className="artist-image-btn"
+                      onClick={async () => {
+                        const selected = await open({
+                          multiple: false,
+                          filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
+                        });
+                        if (selected && selectedAlbum !== null) {
+                          const newPath = await invoke<string>("set_album_image", {
+                            albumId: selectedAlbum,
+                            sourcePath: selected,
+                          });
+                          setAlbumImages((prev) => ({ ...prev, [selectedAlbum!]: newPath }));
+                        }
+                      }}
+                    >
+                      Set Image
+                    </button>
+                    {albumImagePath && (
+                      <button
+                        className="artist-image-btn"
+                        onClick={() => {
+                          if (selectedAlbum !== null) {
+                            invoke("remove_album_image", { albumId: selectedAlbum });
+                            setAlbumImages((prev) => ({ ...prev, [selectedAlbum!]: null }));
+                            setFetchedAlbumImages((prev) => {
+                              const next = new Set(prev);
+                              next.delete(selectedAlbum!);
+                              return next;
+                            });
+                          }
+                        }}
+                      >
+                        Remove Image
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {(view === "all" || selectedTag !== null || searchQuery.trim()) && (
             <div className="track-list" ref={trackListRef}>

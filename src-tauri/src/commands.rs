@@ -9,6 +9,7 @@ use crate::watcher;
 
 pub struct AppState {
     pub db: Arc<Database>,
+    pub app_dir: std::path::PathBuf,
 }
 
 // --- Folder commands ---
@@ -177,6 +178,138 @@ pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), S
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// --- Artist image commands ---
+
+#[tauri::command]
+pub fn get_artist_image(state: State<'_, AppState>, artist_id: i64) -> Option<String> {
+    crate::artist_image::get_image_path(&state.app_dir, artist_id)
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn fetch_artist_image(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    artist_id: i64,
+    artist_name: String,
+) {
+    let app_dir = state.app_dir.clone();
+    thread::spawn(move || {
+        let dest = app_dir.join("artist_images").join(format!("{}.jpg", artist_id));
+        match crate::artist_image::fetch_artist_image(&artist_name, &dest) {
+            Ok(()) => {
+                let _ = app.emit(
+                    "artist-image-ready",
+                    serde_json::json!({
+                        "artistId": artist_id,
+                        "path": dest.to_string_lossy()
+                    }),
+                );
+            }
+            Err(e) => {
+                log::warn!("Failed to fetch image for artist {}: {}", artist_name, e);
+            }
+        }
+    });
+}
+
+#[tauri::command]
+pub fn set_artist_image(
+    state: State<'_, AppState>,
+    artist_id: i64,
+    source_path: String,
+) -> Result<String, String> {
+    let source = std::path::Path::new(&source_path);
+    let ext = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("jpg")
+        .to_lowercase();
+
+    // Remove any existing image first
+    crate::artist_image::remove_image(&state.app_dir, artist_id);
+
+    let dest_dir = state.app_dir.join("artist_images");
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(format!("{}.{}", artist_id, ext));
+    std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy image: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn remove_artist_image(state: State<'_, AppState>, artist_id: i64) {
+    crate::artist_image::remove_image(&state.app_dir, artist_id);
+}
+
+// --- Album image commands ---
+
+#[tauri::command]
+pub fn get_album_image(state: State<'_, AppState>, album_id: i64) -> Option<String> {
+    crate::album_image::get_image_path(&state.app_dir, album_id)
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn fetch_album_image(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    album_id: i64,
+    album_title: String,
+    artist_name: Option<String>,
+) {
+    let app_dir = state.app_dir.clone();
+    thread::spawn(move || {
+        let dest = app_dir
+            .join("album_images")
+            .join(format!("{}.jpg", album_id));
+        match crate::album_image::fetch_album_image(
+            &album_title,
+            artist_name.as_deref(),
+            &dest,
+        ) {
+            Ok(()) => {
+                let _ = app.emit(
+                    "album-image-ready",
+                    serde_json::json!({
+                        "albumId": album_id,
+                        "path": dest.to_string_lossy()
+                    }),
+                );
+            }
+            Err(e) => {
+                log::warn!("Failed to fetch image for album {}: {}", album_title, e);
+            }
+        }
+    });
+}
+
+#[tauri::command]
+pub fn set_album_image(
+    state: State<'_, AppState>,
+    album_id: i64,
+    source_path: String,
+) -> Result<String, String> {
+    let source = std::path::Path::new(&source_path);
+    let ext = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("jpg")
+        .to_lowercase();
+
+    crate::album_image::remove_image(&state.app_dir, album_id);
+
+    let dest_dir = state.app_dir.join("album_images");
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(format!("{}.{}", album_id, ext));
+    std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy image: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn remove_album_image(state: State<'_, AppState>, album_id: i64) {
+    crate::album_image::remove_image(&state.app_dir, album_id);
 }
 
 #[cfg(debug_assertions)]

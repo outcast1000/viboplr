@@ -1,3 +1,5 @@
+mod album_image;
+mod artist_image;
 mod commands;
 mod db;
 mod models;
@@ -31,6 +33,14 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_tags,
         commands::get_tags_for_track,
         commands::get_tracks_by_tag,
+        commands::get_artist_image,
+        commands::fetch_artist_image,
+        commands::set_artist_image,
+        commands::remove_artist_image,
+        commands::get_album_image,
+        commands::fetch_album_image,
+        commands::set_album_image,
+        commands::remove_album_image,
     ]
 }
 
@@ -52,6 +62,14 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_tags,
         commands::get_tags_for_track,
         commands::get_tracks_by_tag,
+        commands::get_artist_image,
+        commands::fetch_artist_image,
+        commands::set_artist_image,
+        commands::remove_artist_image,
+        commands::get_album_image,
+        commands::fetch_album_image,
+        commands::set_album_image,
+        commands::remove_album_image,
     ]
 }
 
@@ -69,6 +87,10 @@ pub fn run() {
                 .expect("Failed to get app data dir");
             let db = Arc::new(Database::new(&app_dir).expect("Failed to init database"));
 
+            // Ensure image directories exist
+            let _ = std::fs::create_dir_all(app_dir.join("artist_images"));
+            let _ = std::fs::create_dir_all(app_dir.join("album_images"));
+
             // Start watchers for existing folders
             if let Ok(folders) = db.get_folders() {
                 let paths: Vec<String> = folders.into_iter().map(|f| f.path).collect();
@@ -78,7 +100,7 @@ pub fn run() {
                 }
             }
 
-            app.manage(AppState { db });
+            app.manage(AppState { db, app_dir });
             Ok(())
         })
         .invoke_handler(get_invoke_handler())
