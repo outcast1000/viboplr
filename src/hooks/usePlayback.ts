@@ -143,13 +143,10 @@ export function usePlayback(restoredRef: React.RefObject<boolean>) {
     const el = getMediaElement();
     if (el) {
       el.pause();
-      el.removeAttribute("src");
-      el.load();
+      el.currentTime = 0;
     }
-    setCurrentTrack(null);
     setPlaying(false);
     setPositionSecs(0);
-    setDurationSecs(0);
   }
 
   function handleVolume(level: number) {
