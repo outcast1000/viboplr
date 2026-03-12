@@ -12,6 +12,8 @@ interface EventListenerOptions {
   setSyncProgress: (v: { synced: number; total: number; collection: string }) => void;
   setArtistImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
   setAlbumImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
+  setFailedArtistImages: React.Dispatch<React.SetStateAction<Set<number>>>;
+  setFailedAlbumImages: React.Dispatch<React.SetStateAction<Set<number>>>;
 }
 
 export function useEventListeners(opts: EventListenerOptions) {
@@ -21,6 +23,7 @@ export function useEventListeners(opts: EventListenerOptions) {
     setScanning, setScanProgress,
     setSyncing, setSyncProgress,
     setArtistImages, setAlbumImages,
+    setFailedArtistImages, setFailedAlbumImages,
   } = opts;
 
   // Scan events
@@ -111,6 +114,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       (event) => {
         addNotification("Artist image error (id=" + event.payload.artistId + "): " + event.payload.error);
         addLog("Artist image error (id=" + event.payload.artistId + "): " + event.payload.error);
+        setFailedArtistImages((prev) => new Set(prev).add(event.payload.artistId));
       }
     );
     return () => { unlisten.then((f) => f()); unlisten2.then((f) => f()); };
@@ -133,6 +137,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       (event) => {
         addNotification("Album image error (id=" + event.payload.albumId + "): " + event.payload.error);
         addLog("Album image error (id=" + event.payload.albumId + "): " + event.payload.error);
+        setFailedAlbumImages((prev) => new Set(prev).add(event.payload.albumId));
       }
     );
     return () => { unlisten.then((f) => f()); unlisten2.then((f) => f()); };

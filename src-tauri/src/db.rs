@@ -132,6 +132,13 @@ impl Database {
                 content='',
                 tokenize='unicode61'
             );
+
+            CREATE TABLE IF NOT EXISTS image_fetch_failures (
+                kind       TEXT NOT NULL,
+                item_id    INTEGER NOT NULL,
+                failed_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                UNIQUE(kind, item_id)
+            );
             ",
         )?;
         Ok(())
@@ -687,6 +694,33 @@ impl Database {
     pub fn remove_track_by_path(&self, path: &str) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM tracks WHERE path = ?1", params![path])?;
+        Ok(())
+    }
+
+    // --- Image fetch failures ---
+
+    pub fn record_image_failure(&self, kind: &str, item_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO image_fetch_failures (kind, item_id) VALUES (?1, ?2)",
+            params![kind, item_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn is_image_failed(&self, kind: &str, item_id: i64) -> SqlResult<bool> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM image_fetch_failures WHERE kind = ?1 AND item_id = ?2",
+            params![kind, item_id],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    pub fn clear_image_failures(&self) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM image_fetch_failures", [])?;
         Ok(())
     }
 }

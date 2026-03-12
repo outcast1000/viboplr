@@ -13,6 +13,7 @@ interface SettingsPanelProps {
   onSeedDatabase: () => void;
   onClearDatabase: () => void;
   clearing: boolean;
+  onClearImageFailures: () => void;
 }
 
 export function SettingsPanel({
@@ -20,6 +21,7 @@ export function SettingsPanel({
   onClose, onAddFolder, onShowAddServer,
   onRemoveCollection, onResyncCollection,
   onSeedDatabase, onClearDatabase, clearing,
+  onClearImageFailures,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<"main" | "collections" | "logging">("main");
 
@@ -39,7 +41,9 @@ export function SettingsPanel({
 
         {settingsTab === "main" && (
           <div className="settings-section">
-            <div className="log-empty">No settings yet</div>
+            <button className="add-folder-btn" onClick={onClearImageFailures}>
+              Retry Failed Image Downloads
+            </button>
           </div>
         )}
 

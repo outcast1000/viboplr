@@ -526,6 +526,11 @@ pub fn remove_album_image(state: State<'_, AppState>, album_id: i64) {
     crate::album_image::remove_image(&state.app_dir, album_id);
 }
 
+#[tauri::command]
+pub fn clear_image_failures(state: State<'_, AppState>) -> Result<(), String> {
+    state.db.clear_image_failures().map_err(|e| e.to_string())
+}
+
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub fn clear_database(state: State<'_, AppState>) -> Result<String, String> {

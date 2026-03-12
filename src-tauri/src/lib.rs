@@ -49,6 +49,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::fetch_album_image,
         commands::set_album_image,
         commands::remove_album_image,
+        commands::clear_image_failures,
     ]
 }
 
@@ -81,6 +82,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::fetch_album_image,
         commands::set_album_image,
         commands::remove_album_image,
+        commands::clear_image_failures,
     ]
 }
 
@@ -136,6 +138,7 @@ pub fn run() {
             // Spawn the image download worker thread
             let worker_queue = download_queue.clone();
             let worker_app_dir = app_dir.clone();
+            let worker_db = db.clone();
             let app_handle = app.handle().clone();
             let worker_artist_provider = artist_provider.clone();
             let worker_album_provider = album_provider.clone();
@@ -151,6 +154,10 @@ pub fn run() {
 
                     match &request {
                         ImageDownloadRequest::Artist { id, name } => {
+                            if worker_db.is_image_failed("artist", *id).unwrap_or(false) {
+                                log::info!("Skipping previously failed artist image: {} (id={})", name, id);
+                                continue;
+                            }
                             let dest = worker_app_dir.join("artist_images").join(format!("{}.jpg", id));
                             if dest.exists() {
                                 log::info!("Artist image already exists for {} (id={}), skipping", name, id);
@@ -168,6 +175,7 @@ pub fn run() {
                                 }
                                 Err(e) => {
                                     log::warn!("Failed to download image for artist {}: {}", name, e);
+                                    let _ = worker_db.record_image_failure("artist", *id);
                                     let _ = app_handle.emit(
                                         "artist-image-error",
                                         serde_json::json!({ "artistId": id, "error": e.to_string() }),
@@ -176,6 +184,10 @@ pub fn run() {
                             }
                         }
                         ImageDownloadRequest::Album { id, title, artist_name } => {
+                            if worker_db.is_image_failed("album", *id).unwrap_or(false) {
+                                log::info!("Skipping previously failed album image: {} (id={})", title, id);
+                                continue;
+                            }
                             let dest = worker_app_dir.join("album_images").join(format!("{}.jpg", id));
                             if dest.exists() {
                                 log::info!("Album image already exists for {} (id={}), skipping", title, id);
@@ -193,6 +205,7 @@ pub fn run() {
                                 }
                                 Err(e) => {
                                     log::warn!("Failed to download image for album {}: {}", title, e);
+                                    let _ = worker_db.record_image_failure("album", *id);
                                     let _ = app_handle.emit(
                                         "album-image-error",
                                         serde_json::json!({ "albumId": id, "error": e.to_string() }),

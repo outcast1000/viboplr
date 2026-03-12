@@ -53,6 +53,8 @@ function App() {
   const [fetchedArtistImages, setFetchedArtistImages] = useState<Set<number>>(new Set());
   const [albumImages, setAlbumImages] = useState<Record<number, string | null>>({});
   const [fetchedAlbumImages, setFetchedAlbumImages] = useState<Set<number>>(new Set());
+  const [failedArtistImages, setFailedArtistImages] = useState<Set<number>>(new Set());
+  const [failedAlbumImages, setFailedAlbumImages] = useState<Set<number>>(new Set());
 
   function addNotification(text: string) {
     const id = ++notifIdRef.current;
@@ -73,6 +75,7 @@ function App() {
     setScanning, setScanProgress,
     setSyncing, setSyncProgress,
     setArtistImages, setAlbumImages,
+    setFailedArtistImages, setFailedAlbumImages,
   });
 
   // Restore persisted state on mount
@@ -172,10 +175,13 @@ function App() {
   fetchedArtistImagesRef.current = fetchedArtistImages;
   const artistImagesRef = useRef(artistImages);
   artistImagesRef.current = artistImages;
+  const failedArtistImagesRef = useRef(failedArtistImages);
+  failedArtistImagesRef.current = failedArtistImages;
   useEffect(() => {
     if (library.selectedArtist === null) return;
     if (artistImagesRef.current[library.selectedArtist] !== undefined) return;
     if (fetchedArtistImagesRef.current.has(library.selectedArtist)) return;
+    if (failedArtistImagesRef.current.has(library.selectedArtist)) return;
 
     const artist = library.artists.find((a) => a.id === library.selectedArtist);
     if (!artist) return;
@@ -197,9 +203,12 @@ function App() {
   fetchedAlbumImagesRef.current = fetchedAlbumImages;
   const albumImagesRef = useRef(albumImages);
   albumImagesRef.current = albumImages;
+  const failedAlbumImagesRef = useRef(failedAlbumImages);
+  failedAlbumImagesRef.current = failedAlbumImages;
   const fetchAlbumImageOnDemand = useCallback((album: Album) => {
     if (albumImagesRef.current[album.id] !== undefined) return;
     if (fetchedAlbumImagesRef.current.has(album.id)) return;
+    if (failedAlbumImagesRef.current.has(album.id)) return;
     setFetchedAlbumImages((prev) => new Set(prev).add(album.id));
 
     invoke<string | null>("get_album_image", { albumId: album.id }).then((path) => {
@@ -289,6 +298,20 @@ function App() {
     }
   }
 
+  async function handleClearImageFailures() {
+    try {
+      await invoke("clear_image_failures");
+      setFailedArtistImages(new Set());
+      setFailedAlbumImages(new Set());
+      setFetchedArtistImages(new Set());
+      setFetchedAlbumImages(new Set());
+      addNotification("Image failures cleared - images will be retried");
+      addLog("Cleared image fetch failures");
+    } catch (e) {
+      console.error("Failed to clear image failures:", e);
+    }
+  }
+
   async function handleRemoveCollection(collectionId: number) {
     await invoke("remove_collection", { collectionId });
     library.loadLibrary();
@@ -368,6 +391,7 @@ function App() {
           onSeedDatabase={handleSeedDatabase}
           onClearDatabase={handleClearDatabase}
           clearing={clearing}
+          onClearImageFailures={handleClearImageFailures}
         />
       )}
 
