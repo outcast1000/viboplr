@@ -7,7 +7,7 @@ use crate::models::*;
 
 const TRACK_SELECT: &str =
     "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, \
-     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id \
+     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id, t.liked \
      FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id";
 
 fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
@@ -25,6 +25,7 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
         file_size: row.get(10)?,
         collection_id: row.get(11)?,
         subsonic_id: row.get(12)?,
+        liked: row.get::<_, i32>(13).unwrap_or(0) != 0,
     })
 }
 
@@ -114,7 +115,8 @@ impl Database {
                 modified_at   INTEGER,
                 added_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 collection_id INTEGER REFERENCES collections(id),
-                subsonic_id   TEXT
+                subsonic_id   TEXT,
+                liked         INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS track_tags (
@@ -200,6 +202,16 @@ impl Database {
                 conn.execute_batch("ALTER TABLE tracks ADD COLUMN collection_id INTEGER REFERENCES collections(id);")?;
                 conn.execute_batch("ALTER TABLE tracks ADD COLUMN subsonic_id TEXT;")?;
             }
+        }
+
+        // Add liked column if missing
+        let has_liked: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracks') WHERE name='liked'",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_liked {
+            conn.execute_batch("ALTER TABLE tracks ADD COLUMN liked INTEGER NOT NULL DEFAULT 0;")?;
         }
 
         Ok(())
@@ -505,7 +517,7 @@ impl Database {
 
         let mut sql = String::from(
             "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, \
-             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id \
+             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id, t.liked \
              FROM tracks_fts fts \
              JOIN tracks t ON fts.rowid = t.id \
              LEFT JOIN artists ar ON t.artist_id = ar.id \
@@ -695,6 +707,25 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM tracks WHERE path = ?1", params![path])?;
         Ok(())
+    }
+
+    // --- Liked tracks ---
+
+    pub fn toggle_track_liked(&self, track_id: i64, liked: bool) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tracks SET liked = ?2 WHERE id = ?1",
+            params![track_id, liked as i32],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_liked_tracks(&self) -> SqlResult<Vec<Track>> {
+        let conn = self.conn.lock().unwrap();
+        let sql = format!("{} WHERE t.liked = 1 ORDER BY ar.name, al.title, t.track_number, t.title", TRACK_SELECT);
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| track_from_row(row))?;
+        rows.collect()
     }
 
     // --- Image fetch failures ---

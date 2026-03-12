@@ -68,6 +68,9 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
       } else if (selectedArtist !== null) {
         const results = await invoke<Track[]>("get_tracks_by_artist", { artistId: selectedArtist });
         setTracks(results);
+      } else if (view === "liked") {
+        const results = await invoke<Track[]>("get_liked_tracks");
+        setTracks(results);
       } else {
         const results = await invoke<Track[]>("get_tracks", { albumId: null });
         setTracks(results);
@@ -75,7 +78,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     } catch (e) {
       console.error("Failed to load tracks:", e);
     }
-  }, [searchQuery, selectedTag, selectedAlbum, selectedArtist]);
+  }, [searchQuery, selectedTag, selectedAlbum, selectedArtist, view]);
 
   useEffect(() => { loadLibrary(); }, [loadLibrary]);
   useEffect(() => { loadTracks(); }, [loadTracks]);
@@ -147,6 +150,14 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     setSearchQuery("");
   }
 
+  function handleShowLiked() {
+    setView("liked");
+    setSelectedArtist(null);
+    setSelectedAlbum(null);
+    setSelectedTag(null);
+    setSearchQuery("");
+  }
+
   return {
     view, setView,
     artists, setArtists,
@@ -163,7 +174,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     sortField, sortDir,
     sortedTracks,
     handleSort, sortIndicator,
-    handleArtistClick, handleAlbumClick, handleShowAll,
+    handleArtistClick, handleAlbumClick, handleShowAll, handleShowLiked,
     loadLibrary, loadTracks,
   };
 }

@@ -523,6 +523,19 @@ body {
   background: rgba(83, 168, 255, 0.08);
 }
 
+.col-like {
+  width: 24px;
+  flex-shrink: 0;
+  cursor: pointer;
+  text-align: center;
+  font-size: 14px;
+  color: #666;
+}
+
+.col-like:hover {
+  color: #e44;
+}
+
 .col-num {
   width: 40px;
   flex-shrink: 0;

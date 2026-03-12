@@ -39,6 +39,7 @@ pub struct Track {
     pub file_size: Option<i64>,
     pub collection_id: Option<i64>,
     pub subsonic_id: Option<String>,
+    pub liked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -33,6 +33,7 @@ export interface Track {
   file_size: number | null;
   collection_id: number | null;
   subsonic_id: string | null;
+  liked: boolean;
 }
 
 export interface Collection {
@@ -45,7 +46,7 @@ export interface Collection {
   last_synced_at: number | null;
 }
 
-export type View = "all" | "artists" | "albums" | "tags";
+export type View = "all" | "artists" | "albums" | "tags" | "liked";
 
 export type SortField = "num" | "title" | "artist" | "album" | "duration";
 export type SortDir = "asc" | "desc";

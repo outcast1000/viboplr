@@ -92,8 +92,8 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 
 ### 4.6 Library Browsing
 
-- Browse by **artist**, **album**, **tag**, or **all tracks** (flat list).
-- List view (table) with columns: track number, title, artist, album, duration.
+- Browse by **artist**, **album**, **tag**, **liked tracks**, or **all tracks** (flat list).
+- List view (table) with columns: like (heart icon), track number, title, artist, album, duration.
 - Tracks from all collections (local and server) are unified in a single library.
 
 ### 4.7 Tags
@@ -118,13 +118,22 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - Video displayed inline in the main content area; audio plays with no visual.
 - Keyboard navigation: arrow keys to navigate tracks, Enter to play.
 
-### 4.10 Context Menu
+### 4.10 Liked Tracks
+
+- Each track has a `liked` boolean attribute (stored as `INTEGER DEFAULT 0` in SQLite).
+- A heart icon column appears in the track list: filled heart (♥) when liked, outline heart (♡) when not.
+- Clicking the heart toggles the liked state via `toggle_track_liked` and updates local state immediately (tracks list, current track, and queue).
+- The sidebar has a "Liked" view that shows all liked tracks via `get_liked_tracks`.
+- **Scan-safe:** the `liked` column is excluded from the `upsert_track` ON CONFLICT clause, so re-scanning or re-syncing a collection preserves the user's likes.
+- **Migration:** existing databases gain the `liked` column via `ALTER TABLE tracks ADD COLUMN liked INTEGER NOT NULL DEFAULT 0`.
+
+### 4.11 Context Menu
 
 - Right-click on a track to open a context menu.
 - **Open Containing Folder** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer, or Linux xdg-open).
 - For server tracks, the context menu indicates it is a server track (no folder to open).
 
-### 4.11 State Persistence
+### 4.12 State Persistence
 
 UI state is saved to disk via `tauri-plugin-store` and restored on startup so the app resumes exactly where the user left off. The store is a JSON file (`app-state.json`) in the app data directory.
 
@@ -132,7 +141,7 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 
 | Key | Type | Default |
 |-----|------|---------|
-| `view` | `string` (`"all"`, `"artists"`, `"albums"`, `"tags"`) | `"all"` |
+| `view` | `string` (`"all"`, `"artists"`, `"albums"`, `"tags"`, `"liked"`) | `"all"` |
 | `searchQuery` | `string` | `""` |
 | `selectedArtist` | `number \| null` | `null` |
 | `selectedAlbum` | `number \| null` | `null` |
@@ -204,7 +213,8 @@ CREATE TABLE tracks (
     modified_at     INTEGER,
     added_at        INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     collection_id   INTEGER REFERENCES collections(id),
-    subsonic_id     TEXT
+    subsonic_id     TEXT,
+    liked           INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE track_tags (
@@ -249,8 +259,8 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 │  add_collection, remove_collection,         │
 │  get_collections, resync_collection,        │
 │  get_artists, get_albums, get_tracks,       │
-│  get_tags, search, show_in_folder,          │
-│  get_track_path                             │
+│  get_tags, search, toggle_track_liked,      │
+│  show_in_folder, get_track_path             │
 └──┬───────────┬───────────┬──────────────────┘
    │           │           │
    ▼           ▼           ▼
@@ -292,6 +302,8 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `get_tags`              | —                           | `Vec<Tag>`               |
 | `get_tags_for_track`    | `track_id: i64`             | `Vec<Tag>`               |
 | `get_tracks_by_tag`     | `tag_id: i64`               | `Vec<Track>`             |
+| `toggle_track_liked`    | `track_id: i64, liked: bool`| `()`                     |
+| `get_liked_tracks`      | —                           | `Vec<Track>`             |
 | `search`                | `query: String`             | `Vec<Track>`             |
 | `get_track_path`        | `track_id: i64`             | `String` (path or URL)   |
 | `show_in_folder`        | `track_id: i64`             | `()`                     |

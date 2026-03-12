@@ -13,6 +13,7 @@ interface TrackListProps {
   onAlbumClick: (albumId: number) => void;
   onSort: (field: SortField) => void;
   sortIndicator: (field: SortField) => string;
+  onToggleLike: (track: Track) => void;
   emptyMessage?: string;
 }
 
@@ -20,12 +21,13 @@ export function TrackList({
   tracks, currentTrack, highlightedIndex,
   sortField, trackListRef,
   onDoubleClick, onContextMenu, onArtistClick, onAlbumClick,
-  onSort, sortIndicator,
+  onSort, sortIndicator, onToggleLike,
   emptyMessage = "No tracks found.",
 }: TrackListProps) {
   return (
     <div className="track-list" ref={trackListRef}>
       <div className="track-header">
+        <span className="col-like"></span>
         <span className={`col-num sortable ${sortField === "num" ? "sorted" : ""}`} onClick={() => onSort("num")}>{`#${sortIndicator("num")}`}</span>
         <span className={`col-title sortable ${sortField === "title" ? "sorted" : ""}`} onClick={() => onSort("title")}>{`Title${sortIndicator("title")}`}</span>
         <span className={`col-artist sortable ${sortField === "artist" ? "sorted" : ""}`} onClick={() => onSort("artist")}>{`Artist${sortIndicator("artist")}`}</span>
@@ -39,6 +41,9 @@ export function TrackList({
           onDoubleClick={() => onDoubleClick(tracks, i)}
           onContextMenu={(e) => onContextMenu(e, t)}
         >
+          <span className="col-like" onClick={(e) => { e.stopPropagation(); onToggleLike(t); }}>
+            {t.liked ? "\u2665" : "\u2661"}
+          </span>
           <span className="col-num">
             {isVideoTrack(t) ? "\uD83C\uDFAC" : (t.track_number || i + 1)}
           </span>

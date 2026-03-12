@@ -394,6 +394,23 @@ pub fn get_tracks_by_tag(
 }
 
 #[tauri::command]
+pub fn toggle_track_liked(
+    state: State<'_, AppState>,
+    track_id: i64,
+    liked: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .toggle_track_liked(track_id, liked)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
+    state.db.get_liked_tracks().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn rebuild_search_index(state: State<'_, AppState>) -> Result<(), String> {
     state.db.rebuild_fts().map_err(|e| e.to_string())
 }

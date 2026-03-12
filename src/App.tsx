@@ -99,7 +99,7 @@ function App() {
           store.get<number | null>("windowX"),
           store.get<number | null>("windowY"),
         ]);
-        if (v && ["all", "artists", "albums", "tags"].includes(v)) library.setView(v as View);
+        if (v && ["all", "artists", "albums", "tags", "liked"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
         if (sa !== undefined && sa !== null) {
           library.setSelectedArtist(sa);
@@ -322,6 +322,20 @@ function App() {
     await invoke("resync_collection", { collectionId });
   }
 
+  async function handleToggleLike(track: Track) {
+    const newLiked = !track.liked;
+    try {
+      await invoke("toggle_track_liked", { trackId: track.id, liked: newLiked });
+      library.setTracks(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
+      if (playback.currentTrack?.id === track.id) {
+        playback.setCurrentTrack({ ...playback.currentTrack, liked: newLiked });
+      }
+      queueHook.setQueue(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
+    } catch (e) {
+      console.error("Failed to toggle like:", e);
+    }
+  }
+
   const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags, tracks,
     searchQuery, sortedTracks, sortField, highlightedIndex } = library;
 
@@ -367,6 +381,7 @@ function App() {
           library.setSelectedTag(null);
           library.setSearchQuery("");
         }}
+        onShowLiked={library.handleShowLiked}
         onShowSettings={() => setShowSettings(true)}
       />
 
@@ -569,6 +584,7 @@ function App() {
                     onAlbumClick={library.handleAlbumClick}
                     onSort={library.handleSort}
                     sortIndicator={library.sortIndicator}
+                    onToggleLike={handleToggleLike}
                     emptyMessage="No tracks found for this artist."
                   />
                 </div>
@@ -676,7 +692,27 @@ function App() {
               onAlbumClick={library.handleAlbumClick}
               onSort={library.handleSort}
               sortIndicator={library.sortIndicator}
+              onToggleLike={handleToggleLike}
               emptyMessage="No tracks found. Add a folder or server to start building your library."
+            />
+          )}
+
+          {/* Liked tracks view */}
+          {view === "liked" && (
+            <TrackList
+              tracks={sortedTracks}
+              currentTrack={playback.currentTrack}
+              highlightedIndex={highlightedIndex}
+              sortField={sortField}
+              trackListRef={trackListRef}
+              onDoubleClick={queueHook.playTracks}
+              onContextMenu={handleContextMenu}
+              onArtistClick={library.handleArtistClick}
+              onAlbumClick={library.handleAlbumClick}
+              onSort={library.handleSort}
+              sortIndicator={library.sortIndicator}
+              onToggleLike={handleToggleLike}
+              emptyMessage="No liked tracks yet. Click the heart icon on any track to like it."
             />
           )}
         </div>

@@ -12,13 +12,14 @@ interface SidebarProps {
   onShowArtists: () => void;
   onShowAlbums: () => void;
   onShowTags: () => void;
+  onShowLiked: () => void;
   onShowSettings: () => void;
 }
 
 export function Sidebar({
   view, trackCount, artistCount, albumCount, tagCount,
   selectedAlbum, selectedArtist,
-  onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowSettings,
+  onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowSettings,
 }: SidebarProps) {
   return (
     <aside className="sidebar">
@@ -47,6 +48,12 @@ export function Sidebar({
           onClick={onShowTags}
         >
           Tags <span className="nav-count">{tagCount}</span>
+        </button>
+        <button
+          className={`nav-btn ${view === "liked" ? "active" : ""}`}
+          onClick={onShowLiked}
+        >
+          Liked
         </button>
       </nav>
 
