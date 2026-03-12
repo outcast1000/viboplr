@@ -2,6 +2,7 @@ mod album_image;
 mod artist_image;
 mod commands;
 mod db;
+mod image_provider;
 mod models;
 mod scanner;
 #[cfg(debug_assertions)]
@@ -12,6 +13,9 @@ mod watcher;
 
 use commands::{AppState, DownloadQueue, ImageDownloadRequest};
 use db::Database;
+use image_provider::{
+    AlbumImageFallbackChain, AlbumImageProvider, ArtistImageFallbackChain, ArtistImageProvider,
+};
 use std::sync::{Arc, Condvar, Mutex};
 use tauri::{Emitter, Manager};
 
@@ -117,10 +121,24 @@ pub fn run() {
                 condvar: Condvar::new(),
             });
 
+            // Build image provider fallback chains
+            let artist_provider: Arc<dyn ArtistImageProvider> = Arc::new(
+                ArtistImageFallbackChain::new(vec![Box::new(
+                    image_provider::musicbrainz::MusicBrainzArtistProvider,
+                )]),
+            );
+            let album_provider: Arc<dyn AlbumImageProvider> = Arc::new(
+                AlbumImageFallbackChain::new(vec![Box::new(
+                    image_provider::musicbrainz::MusicBrainzAlbumProvider,
+                )]),
+            );
+
             // Spawn the image download worker thread
             let worker_queue = download_queue.clone();
             let worker_app_dir = app_dir.clone();
             let app_handle = app.handle().clone();
+            let worker_artist_provider = artist_provider.clone();
+            let worker_album_provider = album_provider.clone();
             std::thread::spawn(move || {
                 loop {
                     let request = {
@@ -139,7 +157,7 @@ pub fn run() {
                                 continue;
                             }
                             log::info!("Downloading image for artist: {} (id={})", name, id);
-                            match crate::artist_image::fetch_artist_image(name, &dest) {
+                            match worker_artist_provider.fetch_artist_image(name, &dest) {
                                 Ok(()) => {
                                     let path = dest.to_string_lossy().to_string();
                                     log::info!("Downloaded image for artist: {} (id={})", name, id);
@@ -164,7 +182,7 @@ pub fn run() {
                                 continue;
                             }
                             log::info!("Downloading image for album: {} (id={})", title, id);
-                            match crate::album_image::fetch_album_image(title, artist_name.as_deref(), &dest) {
+                            match worker_album_provider.fetch_album_image(title, artist_name.as_deref(), &dest) {
                                 Ok(()) => {
                                     let path = dest.to_string_lossy().to_string();
                                     log::info!("Downloaded image for album: {} (id={})", title, id);

@@ -407,6 +407,39 @@ Artist and album image fetching is handled by a single background worker thread 
 - On success, the worker emits `artist-image-ready` / `album-image-ready` events. On failure, it emits `artist-image-error` / `album-image-error` events.
 - All logging is done via `log::info!` / `log::warn!` in Rust — no JS console logging for image downloads.
 
+### 11.5 Extensible Image Provider System
+
+Image fetching uses a trait-based provider system (`src-tauri/src/image_provider/`) so new sources (Discogs, Last.fm, Spotify, etc.) can be added without touching the download queue, commands, or frontend.
+
+**Two separate traits:**
+- `ArtistImageProvider` — `name() -> &str`, `fetch_artist_image(artist_name, dest_path) -> Result<(), String>`
+- `AlbumImageProvider` — `name() -> &str`, `fetch_album_image(title, artist_name?, dest_path) -> Result<(), String>`
+
+Two traits rather than one combined trait because providers may only support one entity type (e.g., Cover Art Archive only does albums). Both traits require `Send + Sync` since the worker thread holds them via `Arc<dyn Trait>`.
+
+**Fallback chains:**
+- `ArtistImageFallbackChain` and `AlbumImageFallbackChain` each hold a `Vec<Box<dyn Provider>>`, implement the corresponding trait, and try each provider in order. Failures are logged; the last error is returned if all providers fail.
+
+**Built-in providers (`image_provider/musicbrainz.rs`):**
+- `MusicBrainzArtistProvider` — searches MusicBrainz for the artist, follows image relations (resolving Wikimedia Commons thumbnails), and downloads the image.
+- `MusicBrainzAlbumProvider` — searches MusicBrainz for a release-group, then fetches cover art from the Cover Art Archive.
+
+**Shared utilities (`image_provider/mod.rs`):**
+- `urlencoded()` — percent-encodes strings for MusicBrainz queries.
+- `http_client()` — builds a `reqwest::blocking::Client` with the FastPlayer user-agent.
+- `write_image()` — creates parent directories and writes bytes to disk.
+
+**Wiring (`lib.rs`):**
+- At app startup, fallback chains are constructed with MusicBrainz as the sole provider.
+- The chains are passed as `Arc<dyn ArtistImageProvider>` / `Arc<dyn AlbumImageProvider>` into the worker thread.
+- `artist_image.rs` and `album_image.rs` only retain `get_image_path()` and `remove_image()` (used by commands).
+
+**Adding a new provider:**
+1. Create `src-tauri/src/image_provider/newprovider.rs`.
+2. Implement `ArtistImageProvider` and/or `AlbumImageProvider`.
+3. Add to the fallback chain in `lib.rs` setup.
+4. No changes to commands, events, or frontend.
+
 ### 11.4 Playback Resolution
 
 `get_track_path` returns different values based on track type:
