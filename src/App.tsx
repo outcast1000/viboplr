@@ -137,8 +137,10 @@ function App() {
         if (wx !== undefined && wx !== null && wy !== undefined && wy !== null) {
           await win.setPosition(new LogicalPosition(wx, wy));
         }
+        await win.show();
       } catch (e) {
         console.error("Failed to restore state:", e);
+        await getCurrentWindow().show();
       }
       restoredRef.current = true;
     })();
