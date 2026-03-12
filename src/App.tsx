@@ -242,17 +242,19 @@ function App() {
   // Action handlers
   function handleTrackContextMenu(e: React.MouseEvent, track: Track) {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: !!track.subsonic_id } });
+    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: !!track.subsonic_id, title: track.title, artistName: track.artist_name } });
   }
 
   function handleAlbumContextMenu(e: React.MouseEvent, albumId: number) {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "album", albumId } });
+    const album = albums.find(a => a.id === albumId);
+    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "album", albumId, title: album?.title ?? "", artistName: album?.artist_name ?? null } });
   }
 
   function handleArtistContextMenu(e: React.MouseEvent, artistId: number) {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "artist", artistId } });
+    const artist = artists.find(a => a.id === artistId);
+    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "artist", artistId, name: artist?.name ?? "" } });
   }
 
   async function handleContextPlay() {

@@ -412,10 +412,28 @@ body {
   font-size: 13px;
   cursor: pointer;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.context-menu-item svg {
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .context-menu-item:hover {
   background: var(--bg-hover);
+}
+
+.context-menu-item:hover svg {
+  opacity: 1;
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
 }
 
 /* Video player */
