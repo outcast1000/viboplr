@@ -61,6 +61,10 @@ export function Breadcrumb({
           <span className="breadcrumb-sep"> {"\u203A"} </span>
           <span>{albums.find(a => a.id === selectedAlbum)?.title ?? "Album"}</span>
         </>
+      ) : view === "liked" ? (
+        <span>Liked Tracks</span>
+      ) : view === "history" ? (
+        <span>History</span>
       ) : (
         <span>All Tracks</span>
       )}

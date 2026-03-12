@@ -112,8 +112,7 @@ function App() {
         if (tid !== undefined && tid !== null) {
           try {
             const track = await invoke<Track>("get_track_by_id", { trackId: tid });
-            playback.setCurrentTrack(track);
-            if (pos) playback.setPositionSecs(pos);
+            await playback.handleRestore(track, pos ?? 0);
           } catch {
             // Track was deleted
           }
@@ -425,6 +424,7 @@ function App() {
           <input
             type="text"
             placeholder={
+              view === "history" ? "Search history..." :
               view === "artists" && selectedArtist === null ? "Search artists..." :
               view === "albums" && selectedAlbum === null ? "Search albums..." :
               view === "tags" && selectedTag === null ? "Search tags..." :
@@ -726,7 +726,7 @@ function App() {
 
           {/* History view */}
           {view === "history" && (
-            <HistoryView onPlayTrack={queueHook.playTracks} />
+            <HistoryView searchQuery={searchQuery} onPlayTrack={queueHook.playTracks} />
           )}
         </div>
       </main>

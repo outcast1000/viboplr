@@ -14,6 +14,8 @@ export function usePlayback(restoredRef: React.RefObject<boolean>) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const pendingSrcRef = useRef<string | null>(null);
+  const pendingAutoPlayRef = useRef(true);
+  const pendingSeekRef = useRef(0);
 
   function getMediaElement(): HTMLAudioElement | HTMLVideoElement | null {
     if (currentTrack && isVideoTrack(currentTrack)) {
@@ -28,14 +30,21 @@ export function usePlayback(restoredRef: React.RefObject<boolean>) {
     if (videoRef.current) videoRef.current.volume = volume;
   }, [volume]);
 
-  // Start video playback once the element is available after render
+  // Load video source once the element is available after render
   useEffect(() => {
     if (pendingSrcRef.current && currentTrack && isVideoTrack(currentTrack) && videoRef.current) {
       const src = pendingSrcRef.current;
+      const autoPlay = pendingAutoPlayRef.current;
       pendingSrcRef.current = null;
+      pendingAutoPlayRef.current = true;
+      const seekTo = pendingSeekRef.current;
+      pendingSeekRef.current = 0;
       videoRef.current.src = src;
       videoRef.current.volume = volume;
-      videoRef.current.play().catch(e => console.error("Video play error:", e));
+      if (seekTo > 0) videoRef.current.currentTime = seekTo;
+      if (autoPlay) {
+        videoRef.current.play().catch(e => console.error("Video play error:", e));
+      }
     }
   }, [currentTrack]);
 
@@ -97,6 +106,39 @@ export function usePlayback(restoredRef: React.RefObject<boolean>) {
     }
   }
 
+  async function handleRestore(track: Track, position: number) {
+    try {
+      const pathOrUrl = await invoke<string>("get_track_path", { trackId: track.id });
+      const src = track.subsonic_id ? pathOrUrl : convertFileSrc(pathOrUrl);
+
+      setCurrentTrack(track);
+      setPositionSecs(position);
+      setDurationSecs(track.duration_secs ?? 0);
+
+      const loadInto = (el: HTMLMediaElement) => {
+        el.src = src;
+        el.volume = volume;
+        el.currentTime = position;
+      };
+
+      if (isVideoTrack(track)) {
+        if (videoRef.current) {
+          loadInto(videoRef.current);
+        } else {
+          pendingSrcRef.current = src;
+          pendingAutoPlayRef.current = false;
+          pendingSeekRef.current = position;
+        }
+      } else {
+        if (audioRef.current) {
+          loadInto(audioRef.current);
+        }
+      }
+    } catch (e) {
+      console.error("Restore error:", e);
+    }
+  }
+
   function handleStop() {
     const el = getMediaElement();
     if (el) {
@@ -141,7 +183,7 @@ export function usePlayback(restoredRef: React.RefObject<boolean>) {
     volume, setVolume,
     audioRef, videoRef,
     getMediaElement,
-    handlePlay, handlePause, handleStop,
+    handlePlay, handlePause, handleStop, handleRestore,
     handleVolume, handleSeek,
     onTimeUpdate, onLoadedMetadata, onPlay, onPause,
   };

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Track, PlayHistoryEntry, MostPlayedTrack } from "../types";
 
 interface HistoryViewProps {
+  searchQuery: string;
   onPlayTrack: (tracks: Track[], index: number) => void;
 }
 
@@ -23,7 +24,12 @@ function formatDuration(secs: number | null): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function HistoryView({ onPlayTrack }: HistoryViewProps) {
+function matchesQuery(q: string, title: string, artist: string | null): boolean {
+  const lower = q.toLowerCase();
+  return title.toLowerCase().includes(lower) || (artist?.toLowerCase().includes(lower) ?? false);
+}
+
+export function HistoryView({ searchQuery, onPlayTrack }: HistoryViewProps) {
   const [mostPlayedAllTime, setMostPlayedAllTime] = useState<MostPlayedTrack[]>([]);
   const [mostPlayedRecent, setMostPlayedRecent] = useState<MostPlayedTrack[]>([]);
   const [recentPlays, setRecentPlays] = useState<PlayHistoryEntry[]>([]);
@@ -41,6 +47,15 @@ export function HistoryView({ onPlayTrack }: HistoryViewProps) {
     }).catch(console.error);
   }, []);
 
+  const q = searchQuery.trim();
+  const filteredAllTime = mostPlayedAllTime
+    .map((t, i) => ({ ...t, rank: i + 1 }))
+    .filter(t => !q || matchesQuery(q, t.track_title, t.artist_name));
+  const filteredRecent30 = mostPlayedRecent
+    .map((t, i) => ({ ...t, rank: i + 1 }))
+    .filter(t => !q || matchesQuery(q, t.track_title, t.artist_name));
+  const filteredPlays = q ? recentPlays.filter(t => matchesQuery(q, t.track_title, t.artist_name)) : recentPlays;
+
   async function handleClick(trackId: number) {
     try {
       const track = await invoke<Track>("get_track_by_id", { trackId });
@@ -52,13 +67,13 @@ export function HistoryView({ onPlayTrack }: HistoryViewProps) {
 
   return (
     <div className="history-view">
-      {mostPlayedAllTime.length > 0 && (
+      {filteredAllTime.length > 0 && (
         <div className="history-section">
           <div className="section-title">Most Played — All Time</div>
           <div className="history-list">
-            {mostPlayedAllTime.map((t, i) => (
+            {filteredAllTime.map((t) => (
               <div key={t.track_id} className="history-row" onClick={() => handleClick(t.track_id)}>
-                <span className="history-rank">{i + 1}</span>
+                <span className="history-rank">{t.rank}</span>
                 <div className="history-info">
                   <span className="history-title">{t.track_title}</span>
                   <span className="history-artist">{t.artist_name ?? "Unknown"}</span>
@@ -71,13 +86,13 @@ export function HistoryView({ onPlayTrack }: HistoryViewProps) {
         </div>
       )}
 
-      {mostPlayedRecent.length > 0 && (
+      {filteredRecent30.length > 0 && (
         <div className="history-section">
           <div className="section-title">Most Played — Last 30 Days</div>
           <div className="history-list">
-            {mostPlayedRecent.map((t, i) => (
+            {filteredRecent30.map((t) => (
               <div key={t.track_id} className="history-row" onClick={() => handleClick(t.track_id)}>
-                <span className="history-rank">{i + 1}</span>
+                <span className="history-rank">{t.rank}</span>
                 <div className="history-info">
                   <span className="history-title">{t.track_title}</span>
                   <span className="history-artist">{t.artist_name ?? "Unknown"}</span>
@@ -93,7 +108,7 @@ export function HistoryView({ onPlayTrack }: HistoryViewProps) {
       <div className="history-section">
         <div className="section-title">Recent History</div>
         <div className="history-list">
-          {recentPlays.map((entry) => (
+          {filteredPlays.map((entry) => (
             <div key={entry.id} className="history-row" onClick={() => handleClick(entry.track_id)}>
               <span className="history-time">{formatRelativeTime(entry.played_at)}</span>
               <div className="history-info">
@@ -103,7 +118,7 @@ export function HistoryView({ onPlayTrack }: HistoryViewProps) {
               <span className="history-duration">{formatDuration(entry.duration_secs)}</span>
             </div>
           ))}
-          {recentPlays.length === 0 && (
+          {filteredPlays.length === 0 && (
             <div className="empty">No play history yet. Start listening to build your history.</div>
           )}
         </div>
