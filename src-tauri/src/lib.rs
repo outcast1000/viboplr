@@ -137,14 +137,20 @@ pub fn run() {
 
             // Build image provider fallback chains
             let artist_provider: Arc<dyn ArtistImageProvider> = Arc::new(
-                ArtistImageFallbackChain::new(vec![Box::new(
-                    image_provider::musicbrainz::MusicBrainzArtistProvider,
-                )]),
+                ArtistImageFallbackChain::new(vec![
+                    Box::new(image_provider::deezer::DeezerArtistProvider),
+                    Box::new(image_provider::itunes::ITunesArtistProvider),
+                    Box::new(image_provider::audiodb::AudioDbArtistProvider),
+                    Box::new(image_provider::musicbrainz::MusicBrainzArtistProvider),
+                ]),
             );
             let album_provider: Arc<dyn AlbumImageProvider> = Arc::new(
-                AlbumImageFallbackChain::new(vec![Box::new(
-                    image_provider::musicbrainz::MusicBrainzAlbumProvider,
-                )]),
+                AlbumImageFallbackChain::new(vec![
+                    Box::new(image_provider::embedded::EmbeddedArtworkProvider::new(db.clone())),
+                    Box::new(image_provider::itunes::ITunesAlbumProvider),
+                    Box::new(image_provider::deezer::DeezerAlbumProvider),
+                    Box::new(image_provider::musicbrainz::MusicBrainzAlbumProvider),
+                ]),
             );
 
             // Spawn the image download worker thread

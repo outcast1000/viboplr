@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, Result as SqlResult};
+use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
 use rusqlite::functions::FunctionFlags;
 use std::path::Path;
 use std::sync::Mutex;
@@ -780,6 +780,34 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM image_fetch_failures", [])?;
         Ok(())
+    }
+
+    // --- Image helpers ---
+
+    pub fn get_track_path_for_album(
+        &self,
+        album_title: &str,
+        artist_name: Option<&str>,
+    ) -> SqlResult<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        match artist_name {
+            Some(artist) => conn.query_row(
+                "SELECT t.path FROM tracks t \
+                 JOIN albums a ON t.album_id = a.id \
+                 LEFT JOIN artists ar ON t.artist_id = ar.id \
+                 WHERE a.title = ?1 AND ar.name = ?2 AND t.subsonic_id IS NULL LIMIT 1",
+                params![album_title, artist],
+                |row| row.get(0),
+            ),
+            None => conn.query_row(
+                "SELECT t.path FROM tracks t \
+                 JOIN albums a ON t.album_id = a.id \
+                 WHERE a.title = ?1 AND t.subsonic_id IS NULL LIMIT 1",
+                params![album_title],
+                |row| row.get(0),
+            ),
+        }
+        .optional()
     }
 
     // --- Play history ---

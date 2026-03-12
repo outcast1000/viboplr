@@ -103,8 +103,9 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 ### 4.8 Search
 
 - SQLite FTS5 virtual table indexes: track title, artist name, album title, tag names, filename.
+- **Accent-insensitive:** all indexed text is stripped of diacritics before insertion via a custom `strip_diacritics()` SQL function (Rust, using `unicode-normalization` crate). Search queries are also normalized before matching. This works for all Unicode scripts (Latin, Greek, Cyrillic, etc.). Client-side list filtering (artists, albums, tags) uses JavaScript `String.normalize("NFD")` with combining-mark removal for the same effect.
 - Search-as-you-type with <100 ms response time.
-- Uses custom SQLite function `filename_from_path()` (Rust-implemented) to correctly extract filenames from full paths for indexing.
+- Uses custom SQL functions `filename_from_path()` and `strip_diacritics()` (Rust-implemented) registered at database initialization.
 - Index automatically rebuilt after folder scans and server syncs; can be manually triggered via `rebuild_search_index` command.
 
 ### 4.9 Playback
@@ -231,7 +232,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
     tag_names,
     filename,
     content='',
-    tokenize='unicode61'
+    tokenize='unicode61 remove_diacritics 2'
 );
 ```
 
@@ -381,8 +382,10 @@ conn.create_scalar_function(
 
 ```sql
 INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, filename)
-SELECT t.id, t.title, COALESCE(ar.name, ''), COALESCE(al.title, ''),
-       COALESCE(GROUP_CONCAT(tg.name, ', '), ''), filename_from_path(t.path)
+SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')),
+       strip_diacritics(COALESCE(al.title, '')),
+       strip_diacritics(COALESCE(GROUP_CONCAT(tg.name, ', '), '')),
+       strip_diacritics(filename_from_path(t.path))
 FROM tracks t
 LEFT JOIN artists ar ON t.artist_id = ar.id
 LEFT JOIN albums al ON t.album_id = al.id
@@ -391,10 +394,30 @@ LEFT JOIN tags tg ON tt.tag_id = tg.id
 GROUP BY t.id
 ```
 
-**Dependencies:** Requires the `functions` feature in rusqlite (`Cargo.toml`):
+### 11.6 Accent-Insensitive Search
+
+SQLite FTS5's built-in `remove_diacritics 2` only strips diacritics for Latin-based characters. It does **not** work for Greek, Cyrillic, or other non-Latin scripts (e.g., searching "μπαλαφας" would not match "Μπαλάφας").
+
+**Solution:** A custom `strip_diacritics()` SQL function is registered at database initialization. It uses the `unicode-normalization` crate to NFD-decompose text and remove all combining marks, working correctly for any Unicode script.
+
+```rust
+// In db.rs
+pub fn strip_diacritics(s: &str) -> String {
+    s.nfd().filter(|c| !unicode_normalization::char::is_combining_mark(*c)).collect()
+}
+```
+
+This function is applied in two places:
+1. **FTS indexing:** all text is stripped before insertion into `tracks_fts` (via `strip_diacritics()` SQL function wrapping each column).
+2. **Search queries:** the query string is stripped in Rust before building the FTS MATCH expression.
+
+The frontend also applies equivalent normalization (`String.normalize("NFD")` + regex removal of combining marks) for client-side filtering of artist, album, and tag lists.
+
+**Dependencies:** Requires `unicode-normalization` and the `functions` feature in rusqlite:
 
 ```toml
 rusqlite = { version = "0.32", features = ["bundled", "functions"] }
+unicode-normalization = "0.1"
 ```
 
 ### 11.2 Subsonic Authentication

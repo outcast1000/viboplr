@@ -1,3 +1,7 @@
+pub mod audiodb;
+pub mod deezer;
+pub mod embedded;
+pub mod itunes;
 pub mod musicbrainz;
 
 use std::path::Path;
