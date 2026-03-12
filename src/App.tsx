@@ -26,6 +26,8 @@ import { AlbumCardArt } from "./components/AlbumCardArt";
 import { ImageActions } from "./components/ImageActions";
 import { HistoryView } from "./components/HistoryView";
 
+const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
 function App() {
   const restoredRef = useRef(false);
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -511,7 +513,7 @@ function App() {
           {/* Artist list */}
           {view === "artists" && selectedArtist === null && (() => {
             const q = searchQuery.trim().toLowerCase();
-            const filtered = q ? artists.filter(a => a.name.toLowerCase().includes(q)) : artists;
+            const filtered = q ? artists.filter(a => stripAccents(a.name.toLowerCase()).includes(stripAccents(q))) : artists;
             return (
               <div className="list">
                 {filtered.map((a) => (
@@ -605,10 +607,11 @@ function App() {
           {/* All albums view */}
           {view === "albums" && (() => {
             const q = searchQuery.trim().toLowerCase();
-            const filtered = q ? albums.filter(a =>
-              a.title.toLowerCase().includes(q) ||
-              (a.artist_name?.toLowerCase().includes(q) ?? false)
-            ) : albums;
+            const filtered = q ? albums.filter(a => {
+              const sq = stripAccents(q);
+              return stripAccents(a.title.toLowerCase()).includes(sq) ||
+                (a.artist_name ? stripAccents(a.artist_name.toLowerCase()).includes(sq) : false);
+            }) : albums;
             return (
               <div className="album-grid" style={{ padding: 16 }}>
                 {filtered.map((a) => (
@@ -633,7 +636,7 @@ function App() {
           {/* Tags list view */}
           {view === "tags" && selectedTag === null && (() => {
             const q = searchQuery.trim().toLowerCase();
-            const filtered = q ? tags.filter(t => t.name.toLowerCase().includes(q)) : tags;
+            const filtered = q ? tags.filter(t => stripAccents(t.name.toLowerCase()).includes(stripAccents(q))) : tags;
             return (
               <div className="list">
                 {filtered.map((t) => (

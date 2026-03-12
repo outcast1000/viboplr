@@ -2,8 +2,14 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use rusqlite::functions::FunctionFlags;
 use std::path::Path;
 use std::sync::Mutex;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::models::*;
+
+/// Strip all Unicode diacritics/combining marks from a string (works for any script).
+pub fn strip_diacritics(s: &str) -> String {
+    s.nfd().filter(|c| !unicode_normalization::char::is_combining_mark(*c)).collect()
+}
 
 const TRACK_SELECT: &str =
     "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, \
@@ -53,6 +59,17 @@ impl Database {
                     .unwrap_or("")
                     .to_string();
                 Ok(filename)
+            },
+        )?;
+
+        // Register custom SQL function to strip diacritics for FTS indexing
+        conn.create_scalar_function(
+            "strip_diacritics",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                let s: String = ctx.get(0)?;
+                Ok(strip_diacritics(&s))
             },
         )?;
 
@@ -132,7 +149,7 @@ impl Database {
                 tag_names,
                 filename,
                 content='',
-                tokenize='unicode61'
+                tokenize='unicode61 remove_diacritics 2'
             );
 
             CREATE TABLE IF NOT EXISTS play_history (
@@ -449,7 +466,7 @@ impl Database {
                  tag_names,
                  filename,
                  content='',
-                 tokenize='unicode61'
+                 tokenize='unicode61 remove_diacritics 2'
              );"
         )?;
         Ok(())
@@ -466,14 +483,14 @@ impl Database {
                  tag_names,
                  filename,
                  content='',
-                 tokenize='unicode61'
+                 tokenize='unicode61 remove_diacritics 2'
              );"
         )?;
         conn.execute_batch(
             "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, filename)
-             SELECT t.id, t.title, COALESCE(ar.name, ''), COALESCE(al.title, ''),
-                    COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), ''),
-                    filename_from_path(t.path)
+             SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')), strip_diacritics(COALESCE(al.title, '')),
+                    strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
+                    strip_diacritics(filename_from_path(t.path))
              FROM tracks t
              LEFT JOIN artists ar ON t.artist_id = ar.id
              LEFT JOIN albums al ON t.album_id = al.id;",
@@ -518,7 +535,8 @@ impl Database {
         tag_id: Option<i64>,
     ) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
-        let fts_query = query
+        let normalized = strip_diacritics(query);
+        let fts_query = normalized
             .split_whitespace()
             .map(|w| format!("\"{}\"*", w.replace('"', "")))
             .collect::<Vec<_>>()
