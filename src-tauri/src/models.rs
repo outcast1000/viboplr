@@ -75,3 +75,24 @@ pub struct SyncProgress {
     pub synced: u64,
     pub total: u64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayHistoryEntry {
+    pub id: i64,
+    pub track_id: i64,
+    pub played_at: i64,
+    pub track_title: String,
+    pub artist_name: Option<String>,
+    pub album_title: Option<String>,
+    pub duration_secs: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MostPlayedTrack {
+    pub track_id: i64,
+    pub play_count: i64,
+    pub track_title: String,
+    pub artist_name: Option<String>,
+    pub album_title: Option<String>,
+    pub duration_secs: Option<f64>,
+}

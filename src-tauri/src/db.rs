@@ -135,6 +135,14 @@ impl Database {
                 tokenize='unicode61'
             );
 
+            CREATE TABLE IF NOT EXISTS play_history (
+                id        INTEGER PRIMARY KEY,
+                track_id  INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+                played_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_play_history_track ON play_history(track_id);
+            CREATE INDEX IF NOT EXISTS idx_play_history_time  ON play_history(played_at);
+
             CREATE TABLE IF NOT EXISTS image_fetch_failures (
                 kind       TEXT NOT NULL,
                 item_id    INTEGER NOT NULL,
@@ -431,6 +439,7 @@ impl Database {
              DELETE FROM albums;
              DELETE FROM artists;
              DELETE FROM tags;
+             DELETE FROM play_history;
              DELETE FROM collections;
              DROP TABLE IF EXISTS tracks_fts;
              CREATE VIRTUAL TABLE tracks_fts USING fts5(
@@ -753,5 +762,92 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM image_fetch_failures", [])?;
         Ok(())
+    }
+
+    // --- Play history ---
+
+    pub fn record_play(&self, track_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO play_history (track_id) VALUES (?1)",
+            params![track_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_recent_plays(&self, limit: i64) -> SqlResult<Vec<PlayHistoryEntry>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT ph.id, ph.track_id, ph.played_at, t.title, ar.name, al.title, t.duration_secs
+             FROM play_history ph
+             JOIN tracks t ON t.id = ph.track_id
+             LEFT JOIN artists ar ON t.artist_id = ar.id
+             LEFT JOIN albums al ON t.album_id = al.id
+             ORDER BY ph.played_at DESC
+             LIMIT ?1"
+        )?;
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(PlayHistoryEntry {
+                id: row.get(0)?,
+                track_id: row.get(1)?,
+                played_at: row.get(2)?,
+                track_title: row.get(3)?,
+                artist_name: row.get(4)?,
+                album_title: row.get(5)?,
+                duration_secs: row.get(6)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_most_played(&self, limit: i64) -> SqlResult<Vec<MostPlayedTrack>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT ph.track_id, COUNT(*) as play_count, t.title, ar.name, al.title, t.duration_secs
+             FROM play_history ph
+             JOIN tracks t ON t.id = ph.track_id
+             LEFT JOIN artists ar ON t.artist_id = ar.id
+             LEFT JOIN albums al ON t.album_id = al.id
+             GROUP BY ph.track_id
+             ORDER BY play_count DESC
+             LIMIT ?1"
+        )?;
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(MostPlayedTrack {
+                track_id: row.get(0)?,
+                play_count: row.get(1)?,
+                track_title: row.get(2)?,
+                artist_name: row.get(3)?,
+                album_title: row.get(4)?,
+                duration_secs: row.get(5)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_most_played_since(&self, since_ts: i64, limit: i64) -> SqlResult<Vec<MostPlayedTrack>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT ph.track_id, COUNT(*) as play_count, t.title, ar.name, al.title, t.duration_secs
+             FROM play_history ph
+             JOIN tracks t ON t.id = ph.track_id
+             LEFT JOIN artists ar ON t.artist_id = ar.id
+             LEFT JOIN albums al ON t.album_id = al.id
+             WHERE ph.played_at >= ?1
+             GROUP BY ph.track_id
+             ORDER BY play_count DESC
+             LIMIT ?2"
+        )?;
+        let rows = stmt.query_map(params![since_ts, limit], |row| {
+            Ok(MostPlayedTrack {
+                track_id: row.get(0)?,
+                play_count: row.get(1)?,
+                track_title: row.get(2)?,
+                artist_name: row.get(3)?,
+                album_title: row.get(4)?,
+                duration_secs: row.get(5)?,
+            })
+        })?;
+        rows.collect()
     }
 }

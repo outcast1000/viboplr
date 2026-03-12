@@ -46,7 +46,26 @@ export interface Collection {
   last_synced_at: number | null;
 }
 
-export type View = "all" | "artists" | "albums" | "tags" | "liked";
+export type View = "all" | "artists" | "albums" | "tags" | "liked" | "history";
+
+export interface PlayHistoryEntry {
+  id: number;
+  track_id: number;
+  played_at: number;
+  track_title: string;
+  artist_name: string | null;
+  album_title: string | null;
+  duration_secs: number | null;
+}
+
+export interface MostPlayedTrack {
+  track_id: number;
+  play_count: number;
+  track_title: string;
+  artist_name: string | null;
+  album_title: string | null;
+  duration_secs: number | null;
+}
 
 export type SortField = "num" | "title" | "artist" | "album" | "duration";
 export type SortDir = "asc" | "desc";

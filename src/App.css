@@ -1140,3 +1140,95 @@ body {
   color: var(--accent);
   background: none;
 }
+
+/* History view */
+.history-view {
+  padding: 0 0 16px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.history-section {
+  padding: 16px;
+}
+
+.history-section + .history-section {
+  border-top: 1px solid var(--border);
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s;
+  font-size: 13px;
+  gap: 12px;
+}
+
+.history-row:hover {
+  background: var(--bg-hover);
+}
+
+.history-rank {
+  width: 28px;
+  flex-shrink: 0;
+  text-align: right;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-time {
+  width: 72px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.history-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.history-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-artist {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-duration {
+  width: 48px;
+  flex-shrink: 0;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-play-count {
+  width: 64px;
+  flex-shrink: 0;
+  text-align: right;
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+}

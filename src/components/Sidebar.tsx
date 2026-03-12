@@ -13,13 +13,14 @@ interface SidebarProps {
   onShowAlbums: () => void;
   onShowTags: () => void;
   onShowLiked: () => void;
+  onShowHistory: () => void;
   onShowSettings: () => void;
 }
 
 export function Sidebar({
   view, trackCount, artistCount, albumCount, tagCount,
   selectedAlbum, selectedArtist,
-  onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowSettings,
+  onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowSettings,
 }: SidebarProps) {
   return (
     <aside className="sidebar">
@@ -54,6 +55,12 @@ export function Sidebar({
           onClick={onShowLiked}
         >
           Liked
+        </button>
+        <button
+          className={`nav-btn ${view === "history" ? "active" : ""}`}
+          onClick={onShowHistory}
+        >
+          History
         </button>
       </nav>
 

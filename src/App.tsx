@@ -24,6 +24,7 @@ import { ContextMenu } from "./components/ContextMenu";
 import { Breadcrumb } from "./components/Breadcrumb";
 import { AlbumCardArt } from "./components/AlbumCardArt";
 import { ImageActions } from "./components/ImageActions";
+import { HistoryView } from "./components/HistoryView";
 
 function App() {
   const restoredRef = useRef(false);
@@ -99,7 +100,7 @@ function App() {
           store.get<number | null>("windowX"),
           store.get<number | null>("windowY"),
         ]);
-        if (v && ["all", "artists", "albums", "tags", "liked"].includes(v)) library.setView(v as View);
+        if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
         if (sa !== undefined && sa !== null) {
           library.setSelectedArtist(sa);
@@ -382,6 +383,13 @@ function App() {
           library.setSearchQuery("");
         }}
         onShowLiked={library.handleShowLiked}
+        onShowHistory={() => {
+          library.setView("history");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSearchQuery("");
+        }}
         onShowSettings={() => setShowSettings(true)}
       />
 
@@ -714,6 +722,11 @@ function App() {
               onToggleLike={handleToggleLike}
               emptyMessage="No liked tracks yet. Click the heart icon on any track to like it."
             />
+          )}
+
+          {/* History view */}
+          {view === "history" && (
+            <HistoryView onPlayTrack={queueHook.playTracks} />
           )}
         </div>
       </main>

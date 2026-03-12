@@ -80,6 +80,8 @@ export function usePlayback(restoredRef: React.RefObject<boolean>) {
           await audioRef.current.play();
         }
       }
+
+      invoke("record_play", { trackId: track.id }).catch(console.error);
     } catch (e) {
       console.error("Playback error:", e);
     }

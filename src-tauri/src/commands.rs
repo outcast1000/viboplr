@@ -548,6 +548,28 @@ pub fn clear_image_failures(state: State<'_, AppState>) -> Result<(), String> {
     state.db.clear_image_failures().map_err(|e| e.to_string())
 }
 
+// --- Play history commands ---
+
+#[tauri::command]
+pub fn record_play(state: State<'_, AppState>, track_id: i64) -> Result<(), String> {
+    state.db.record_play(track_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_recent_plays(state: State<'_, AppState>, limit: i64) -> Result<Vec<PlayHistoryEntry>, String> {
+    state.db.get_recent_plays(limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_most_played(state: State<'_, AppState>, limit: i64) -> Result<Vec<MostPlayedTrack>, String> {
+    state.db.get_most_played(limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_most_played_since(state: State<'_, AppState>, since_ts: i64, limit: i64) -> Result<Vec<MostPlayedTrack>, String> {
+    state.db.get_most_played_since(since_ts, limit).map_err(|e| e.to_string())
+}
+
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub fn clear_database(state: State<'_, AppState>) -> Result<String, String> {

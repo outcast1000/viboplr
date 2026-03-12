@@ -52,6 +52,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::set_album_image,
         commands::remove_album_image,
         commands::clear_image_failures,
+        commands::record_play,
+        commands::get_recent_plays,
+        commands::get_most_played,
+        commands::get_most_played_since,
     ]
 }
 
@@ -87,6 +91,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::set_album_image,
         commands::remove_album_image,
         commands::clear_image_failures,
+        commands::record_play,
+        commands::get_recent_plays,
+        commands::get_most_played,
+        commands::get_most_played_since,
     ]
 }
 
