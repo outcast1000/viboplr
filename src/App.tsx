@@ -98,7 +98,10 @@ function App() {
         ]);
         if (v && ["all", "artists", "albums", "tags"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
-        if (sa !== undefined && sa !== null) library.setSelectedArtist(sa);
+        if (sa !== undefined && sa !== null) {
+          library.setSelectedArtist(sa);
+          invoke<Album[]>("get_albums", { artistId: sa }).then(library.setAlbums);
+        }
         if (sal !== undefined && sal !== null) library.setSelectedAlbum(sal);
         if (st !== undefined && st !== null) library.setSelectedTag(st);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
