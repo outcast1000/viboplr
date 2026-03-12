@@ -429,20 +429,20 @@ pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), S
     }
 
     let path = std::path::Path::new(&track.path);
-    let folder = path.parent().unwrap_or(path);
     #[cfg(target_os = "macos")]
     std::process::Command::new("open")
-        .arg(folder)
+        .arg("-R")
+        .arg(path)
         .spawn()
         .map_err(|e| e.to_string())?;
     #[cfg(target_os = "windows")]
     std::process::Command::new("explorer")
-        .arg(folder)
+        .arg(format!("/select,{}", path.display()))
         .spawn()
         .map_err(|e| e.to_string())?;
     #[cfg(target_os = "linux")]
     std::process::Command::new("xdg-open")
-        .arg(folder)
+        .arg(path.parent().unwrap_or(path))
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())

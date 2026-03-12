@@ -1,41 +1,59 @@
-import type { Track } from "../types";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { artistSearchProviders, albumSearchProviders, trackSearchProviders } from "../searchProviders";
+import { IconPlay, IconEnqueue, IconFolder } from "./Icons";
 
-interface ContextMenuProps {
+export type ContextMenuTarget =
+  | { kind: "track"; trackId: number; subsonic: boolean; title: string; artistName: string | null }
+  | { kind: "album"; albumId: number; title: string; artistName: string | null }
+  | { kind: "artist"; artistId: number; name: string };
+
+export interface ContextMenuState {
   x: number;
   y: number;
-  track: Track;
-  subsonic: boolean;
-  onPlayNext: (track: Track) => void;
-  onAddToQueue: (track: Track) => void;
+  target: ContextMenuTarget;
+}
+
+interface ContextMenuProps {
+  menu: ContextMenuState;
+  onPlay: () => void;
+  onEnqueue: () => void;
   onShowInFolder: () => void;
   onClose: () => void;
 }
 
 export function ContextMenu({
-  x, y, track, subsonic,
-  onPlayNext, onAddToQueue, onShowInFolder, onClose,
+  menu, onPlay, onEnqueue, onShowInFolder, onClose,
 }: ContextMenuProps) {
+  const { target } = menu;
+
+  const searchItems = target.kind === "artist"
+    ? artistSearchProviders.map((p) => ({ label: p.label, icon: p.icon, url: p.buildUrl({ name: target.name }) }))
+    : target.kind === "album"
+    ? albumSearchProviders.map((p) => ({ label: p.label, icon: p.icon, url: p.buildUrl({ title: target.title, artistName: target.artistName ?? undefined }) }))
+    : trackSearchProviders.map((p) => ({ label: p.label, icon: p.icon, url: p.buildUrl({ title: target.title, artistName: target.artistName ?? undefined }) }));
+
   return (
     <div
       className="context-menu"
-      style={{ top: y, left: x }}
+      style={{ top: menu.y, left: menu.x }}
     >
-      <div className="context-menu-item" onClick={() => { onPlayNext(track); onClose(); }}>
-        Play Next
+      <div className="context-menu-item" onClick={() => { onPlay(); onClose(); }}>
+        <IconPlay size={14} /><span>Play</span>
       </div>
-      <div className="context-menu-item" onClick={() => { onAddToQueue(track); onClose(); }}>
-        Add to Queue
+      <div className="context-menu-item" onClick={() => { onEnqueue(); onClose(); }}>
+        <IconEnqueue size={14} /><span>Enqueue</span>
       </div>
-      {!subsonic && (
+      {target.kind === "track" && !target.subsonic && (
         <div className="context-menu-item" onClick={onShowInFolder}>
-          Open Containing Folder
+          <IconFolder size={14} /><span>Locate File</span>
         </div>
       )}
-      {subsonic && (
-        <div className="context-menu-item" style={{ color: "var(--text-secondary)", cursor: "default" }}>
-          Server track
+      <div className="context-menu-separator" />
+      {searchItems.map((item) => (
+        <div key={item.label} className="context-menu-item" onClick={() => { openUrl(item.url); onClose(); }}>
+          {item.icon}<span>{item.label}</span>
         </div>
-      )}
+      ))}
     </div>
   );
 }
