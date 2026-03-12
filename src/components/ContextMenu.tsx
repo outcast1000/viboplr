@@ -1,39 +1,40 @@
-import type { Track } from "../types";
+export type ContextMenuTarget =
+  | { kind: "track"; trackId: number; subsonic: boolean }
+  | { kind: "album"; albumId: number }
+  | { kind: "artist"; artistId: number };
 
-interface ContextMenuProps {
+export interface ContextMenuState {
   x: number;
   y: number;
-  track: Track;
-  subsonic: boolean;
-  onPlayNext: (track: Track) => void;
-  onAddToQueue: (track: Track) => void;
+  target: ContextMenuTarget;
+}
+
+interface ContextMenuProps {
+  menu: ContextMenuState;
+  onPlay: () => void;
+  onEnqueue: () => void;
   onShowInFolder: () => void;
   onClose: () => void;
 }
 
 export function ContextMenu({
-  x, y, track, subsonic,
-  onPlayNext, onAddToQueue, onShowInFolder, onClose,
+  menu, onPlay, onEnqueue, onShowInFolder, onClose,
 }: ContextMenuProps) {
+  const { target } = menu;
   return (
     <div
       className="context-menu"
-      style={{ top: y, left: x }}
+      style={{ top: menu.y, left: menu.x }}
     >
-      <div className="context-menu-item" onClick={() => { onPlayNext(track); onClose(); }}>
-        Play Next
+      <div className="context-menu-item" onClick={() => { onPlay(); onClose(); }}>
+        Play
       </div>
-      <div className="context-menu-item" onClick={() => { onAddToQueue(track); onClose(); }}>
-        Add to Queue
+      <div className="context-menu-item" onClick={() => { onEnqueue(); onClose(); }}>
+        Enqueue
       </div>
-      {!subsonic && (
+      {target.kind === "track" && !target.subsonic && (
         <div className="context-menu-item" onClick={onShowInFolder}>
-          Open Containing Folder
-        </div>
-      )}
-      {subsonic && (
-        <div className="context-menu-item" style={{ color: "var(--text-secondary)", cursor: "default" }}>
-          Server track
+          Locate File
         </div>
       )}
     </div>

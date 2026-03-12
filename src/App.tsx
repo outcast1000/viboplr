@@ -21,6 +21,7 @@ import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { AddServerModal } from "./components/AddServerModal";
 import { ContextMenu } from "./components/ContextMenu";
+import type { ContextMenuState } from "./components/ContextMenu";
 import { Breadcrumb } from "./components/Breadcrumb";
 import { AlbumCardArt } from "./components/AlbumCardArt";
 import { ImageActions } from "./components/ImageActions";
@@ -43,7 +44,7 @@ function App() {
   const [clearing, setClearing] = useState(false);
   const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
   const [syncProgress, setSyncProgress] = useState({ synced: 0, total: 0, collection: "" });
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; track: Track; subsonic: boolean } | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [showAddServer, setShowAddServer] = useState(false);
   const [serverForm, setServerForm] = useState({ name: "", url: "", username: "", password: "" });
   const [showSettings, setShowSettings] = useState(false);
@@ -239,14 +240,54 @@ function App() {
   }
 
   // Action handlers
-  function handleContextMenu(e: React.MouseEvent, track: Track) {
+  function handleTrackContextMenu(e: React.MouseEvent, track: Track) {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, track, subsonic: !!track.subsonic_id });
+    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: !!track.subsonic_id } });
+  }
+
+  function handleAlbumContextMenu(e: React.MouseEvent, albumId: number) {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "album", albumId } });
+  }
+
+  function handleArtistContextMenu(e: React.MouseEvent, artistId: number) {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "artist", artistId } });
+  }
+
+  async function handleContextPlay() {
+    if (!contextMenu) return;
+    const { target } = contextMenu;
+    if (target.kind === "track") {
+      const track = tracks.find(t => t.id === target.trackId);
+      if (track) queueHook.playTracks([track], 0);
+    } else if (target.kind === "album") {
+      const albumTracks = await invoke<Track[]>("get_tracks", { albumId: target.albumId });
+      if (albumTracks.length > 0) queueHook.playTracks(albumTracks, 0);
+    } else if (target.kind === "artist") {
+      const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
+      if (artistTracks.length > 0) queueHook.playTracks(artistTracks, 0);
+    }
+  }
+
+  async function handleContextEnqueue() {
+    if (!contextMenu) return;
+    const { target } = contextMenu;
+    if (target.kind === "track") {
+      const track = tracks.find(t => t.id === target.trackId);
+      if (track) queueHook.enqueueTracks([track]);
+    } else if (target.kind === "album") {
+      const albumTracks = await invoke<Track[]>("get_tracks", { albumId: target.albumId });
+      queueHook.enqueueTracks(albumTracks);
+    } else if (target.kind === "artist") {
+      const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
+      queueHook.enqueueTracks(artistTracks);
+    }
   }
 
   function handleShowInFolder() {
-    if (contextMenu) {
-      invoke("show_in_folder", { trackId: contextMenu.track.id });
+    if (contextMenu && contextMenu.target.kind === "track") {
+      invoke("show_in_folder", { trackId: contextMenu.target.trackId });
       setContextMenu(null);
     }
   }
@@ -521,6 +562,7 @@ function App() {
                     key={a.id}
                     className="list-item"
                     onClick={() => library.handleArtistClick(a.id)}
+                    onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
                   >
                     <span>{a.name}</span>
                     <span className="list-count">{a.track_count}</span>
@@ -568,7 +610,7 @@ function App() {
                     <div className="section-title">Albums</div>
                     <div className="album-grid">
                       {albums.map((a) => (
-                        <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)}>
+                        <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
                           <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={fetchAlbumImageOnDemand} />
                           <div className="album-card-body">
                             <div className="album-card-title" title={a.title}>{a.title}</div>
@@ -591,7 +633,7 @@ function App() {
                     sortField={sortField}
                     trackListRef={trackListRef}
                     onDoubleClick={queueHook.playTracks}
-                    onContextMenu={handleContextMenu}
+                    onContextMenu={handleTrackContextMenu}
                     onArtistClick={library.handleArtistClick}
                     onAlbumClick={library.handleAlbumClick}
                     onSort={library.handleSort}
@@ -615,7 +657,7 @@ function App() {
             return (
               <div className="album-grid" style={{ padding: 16 }}>
                 {filtered.map((a) => (
-                  <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)}>
+                  <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
                     <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={fetchAlbumImageOnDemand} />
                     <div className="album-card-body">
                       <div className="album-card-title" title={a.title}>{a.title}</div>
@@ -700,7 +742,7 @@ function App() {
               sortField={sortField}
               trackListRef={trackListRef}
               onDoubleClick={queueHook.playTracks}
-              onContextMenu={handleContextMenu}
+              onContextMenu={handleTrackContextMenu}
               onArtistClick={library.handleArtistClick}
               onAlbumClick={library.handleAlbumClick}
               onSort={library.handleSort}
@@ -719,7 +761,7 @@ function App() {
               sortField={sortField}
               trackListRef={trackListRef}
               onDoubleClick={queueHook.playTracks}
-              onContextMenu={handleContextMenu}
+              onContextMenu={handleTrackContextMenu}
               onArtistClick={library.handleArtistClick}
               onAlbumClick={library.handleAlbumClick}
               onSort={library.handleSort}
@@ -752,12 +794,9 @@ function App() {
 
       {contextMenu && (
         <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          track={contextMenu.track}
-          subsonic={contextMenu.subsonic}
-          onPlayNext={queueHook.playNextInQueue}
-          onAddToQueue={queueHook.addToQueue}
+          menu={contextMenu}
+          onPlay={handleContextPlay}
+          onEnqueue={handleContextEnqueue}
           onShowInFolder={handleShowInFolder}
           onClose={() => setContextMenu(null)}
         />
