@@ -533,6 +533,7 @@ impl Database {
         artist_id: Option<i64>,
         album_id: Option<i64>,
         tag_id: Option<i64>,
+        liked_only: bool,
     ) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let normalized = strip_diacritics(query);
@@ -568,6 +569,9 @@ impl Database {
         }
         if tag_id.is_some() {
             sql.push_str(&format!(" AND tt.tag_id = ?{}", param_idx));
+        }
+        if liked_only {
+            sql.push_str(" AND t.liked = 1");
         }
 
         sql.push_str(" LIMIT 100");

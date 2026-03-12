@@ -428,6 +428,7 @@ function App() {
           <input
             type="text"
             placeholder={
+              view === "liked" ? "Search liked tracks..." :
               view === "history" ? "Search history..." :
               view === "artists" && selectedArtist === null ? "Search artists..." :
               view === "albums" && selectedAlbum === null ? "Search albums..." :

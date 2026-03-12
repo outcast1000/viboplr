@@ -124,7 +124,7 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - Each track has a `liked` boolean attribute (stored as `INTEGER DEFAULT 0` in SQLite).
 - A heart icon column appears in the track list: filled heart (♥) when liked, outline heart (♡) when not.
 - Clicking the heart toggles the liked state via `toggle_track_liked` and updates local state immediately (tracks list, current track, and queue).
-- The sidebar has a "Liked" view that shows all liked tracks via `get_liked_tracks`.
+- The sidebar has a "Liked" view that shows all liked tracks via `get_liked_tracks`. Search in this view is scoped to liked tracks only (`liked_only` flag passed to `search`).
 - **Scan-safe:** the `liked` column is excluded from the `upsert_track` ON CONFLICT clause, so re-scanning or re-syncing a collection preserves the user's likes.
 - **Migration:** existing databases gain the `liked` column via `ALTER TABLE tracks ADD COLUMN liked INTEGER NOT NULL DEFAULT 0`.
 
@@ -305,7 +305,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `get_tracks_by_tag`     | `tag_id: i64`               | `Vec<Track>`             |
 | `toggle_track_liked`    | `track_id: i64, liked: bool`| `()`                     |
 | `get_liked_tracks`      | —                           | `Vec<Track>`             |
-| `search`                | `query: String`             | `Vec<Track>`             |
+| `search`                | `query, artist_id?, album_id?, tag_id?, liked_only?` | `Vec<Track>`   |
 | `get_track_path`        | `track_id: i64`             | `String` (path or URL)   |
 | `show_in_folder`        | `track_id: i64`             | `()`                     |
 | `rebuild_search_index`  | —                           | `()`                     |

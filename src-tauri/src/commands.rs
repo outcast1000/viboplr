@@ -294,13 +294,14 @@ pub fn search(
     artist_id: Option<i64>,
     album_id: Option<i64>,
     tag_id: Option<i64>,
+    liked_only: Option<bool>,
 ) -> Result<Vec<Track>, String> {
     if query.trim().is_empty() {
         return state.db.get_tracks(None).map_err(|e| e.to_string());
     }
     state
         .db
-        .search_tracks(&query, artist_id, album_id, tag_id)
+        .search_tracks(&query, artist_id, album_id, tag_id, liked_only.unwrap_or(false))
         .map_err(|e| e.to_string())
 }
 

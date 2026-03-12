@@ -57,6 +57,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
           artistId: selectedArtist,
           albumId: selectedAlbum,
           tagId: selectedTag,
+          likedOnly: view === "liked" ? true : null,
         });
         setTracks(results);
       } else if (selectedTag !== null) {
