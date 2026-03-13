@@ -57,6 +57,8 @@ interface SettingsPanelProps {
   onClearDatabase: () => void;
   clearing: boolean;
   onClearImageFailures: () => void;
+  crossfadeSecs: number;
+  onCrossfadeChange: (secs: number) => void;
   onSaveProviders: (providers: SearchProviderConfig[]) => void;
 }
 
@@ -73,6 +75,8 @@ export function SettingsPanel({
   onRemoveCollection, onResyncCollection,
   onSeedDatabase, onClearDatabase, clearing,
   onClearImageFailures, onSaveProviders,
+  crossfadeSecs,
+  onCrossfadeChange,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<"main" | "collections" | "providers" | "logging">("main");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -165,6 +169,19 @@ export function SettingsPanel({
 
         {settingsTab === "main" && (
           <div className="settings-section">
+            <div className="settings-row">
+              <label className="settings-label">Crossfade</label>
+              <input
+                type="range"
+                min={0}
+                max={10}
+                step={0.5}
+                value={crossfadeSecs}
+                onChange={e => onCrossfadeChange(parseFloat(e.target.value))}
+                className="settings-slider"
+              />
+              <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
+            </div>
             <button className="add-folder-btn" onClick={onClearImageFailures}>
               Retry Failed Image Downloads
             </button>

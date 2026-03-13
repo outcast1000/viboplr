@@ -37,10 +37,17 @@ function App() {
   const trackListRef = useRef<HTMLDivElement>(null);
 
   // Core hooks
-  const playback = usePlayback(restoredRef);
+  const peekNextRef = useRef<() => Track | null>(() => null);
+  const crossfadeSecsRef = useRef(3);
+  const [crossfadeSecs, setCrossfadeSecs] = useState(3);
+  crossfadeSecsRef.current = crossfadeSecs;
+  const advanceIndexRef = useRef<() => void>(() => {});
+  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef);
   const library = useLibrary(restoredRef);
   const queueHook = useQueue(restoredRef, playback.handlePlay);
   const autoContinue = useAutoContinue(restoredRef);
+  peekNextRef.current = queueHook.peekNext;
+  advanceIndexRef.current = queueHook.advanceIndex;
 
   // UI state
   const [scanning, setScanning] = useState(false);
@@ -91,7 +98,7 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy] = await Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy, cf] = await Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -107,6 +114,7 @@ function App() {
           store.get<number | null>("windowHeight"),
           store.get<number | null>("windowX"),
           store.get<number | null>("windowY"),
+          store.get<number>("crossfadeSecs"),
         ]);
         if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -117,6 +125,7 @@ function App() {
         if (sal !== undefined && sal !== null) library.setSelectedAlbum(sal);
         if (st !== undefined && st !== null) library.setSelectedTag(st);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
+        if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (tid !== undefined && tid !== null) {
           try {
             const track = await invoke<Track>("get_track_by_id", { trackId: tid });
@@ -247,6 +256,10 @@ function App() {
   handleStopRef.current = playback.handleStop;
 
   const onEnded = useCallback(async () => {
+    if (playback.handleGaplessNext()) {
+      queueHook.advanceIndex();
+      return;
+    }
     if (!queueHook.playNext()) {
       const ac = autoContinueRef.current;
       const track = currentTrackRef.current;
@@ -262,16 +275,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const audio = playback.audioRef.current;
     const video = playback.videoRef.current;
-    if (audio) {
-      audio.addEventListener("ended", onEnded);
-    }
     if (video) {
       video.addEventListener("ended", onEnded);
     }
     return () => {
-      if (audio) audio.removeEventListener("ended", onEnded);
       if (video) video.removeEventListener("ended", onEnded);
     };
   }, [onEnded]);
@@ -401,6 +409,11 @@ function App() {
     saveProviders(store, providers);
   }
 
+  function handleCrossfadeChange(secs: number) {
+    setCrossfadeSecs(secs);
+    store.set("crossfadeSecs", secs);
+  }
+
   async function handleRemoveCollection(collectionId: number) {
     await invoke("remove_collection", { collectionId });
     library.loadLibrary();
@@ -430,13 +443,22 @@ function App() {
 
   return (
     <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""}`} onClick={() => setContextMenu(null)}>
-      {/* Hidden audio element */}
+      {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
-        ref={playback.audioRef}
+        ref={playback.audioRefA}
         onTimeUpdate={playback.onTimeUpdate}
         onLoadedMetadata={playback.onLoadedMetadata}
-        onPlay={playback.onPlay}
-        onPause={playback.onPause}
+        onPlay={playback.onPlaySlotA}
+        onPause={playback.onPauseSlotA}
+        onEnded={() => playback.onEndedSlotA(onEnded)}
+      />
+      <audio
+        ref={playback.audioRefB}
+        onTimeUpdate={playback.onTimeUpdate}
+        onLoadedMetadata={playback.onLoadedMetadata}
+        onPlay={playback.onPlaySlotB}
+        onPause={playback.onPauseSlotB}
+        onEnded={() => playback.onEndedSlotB(onEnded)}
       />
 
       <Sidebar
@@ -504,6 +526,8 @@ function App() {
           clearing={clearing}
           onClearImageFailures={handleClearImageFailures}
           onSaveProviders={handleSaveProviders}
+          crossfadeSecs={crossfadeSecs}
+          onCrossfadeChange={handleCrossfadeChange}
         />
       )}
 
