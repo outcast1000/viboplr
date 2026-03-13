@@ -15,6 +15,7 @@ import { usePlayback } from "./hooks/usePlayback";
 import { useQueue } from "./hooks/useQueue";
 import { useLibrary } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
+import { useAutoContinue } from "./hooks/useAutoContinue";
 
 import { Sidebar } from "./components/Sidebar";
 import { TrackList } from "./components/TrackList";
@@ -39,6 +40,7 @@ function App() {
   const playback = usePlayback(restoredRef);
   const library = useLibrary(restoredRef);
   const queueHook = useQueue(restoredRef, playback.handlePlay);
+  const autoContinue = useAutoContinue(restoredRef);
 
   // UI state
   const [scanning, setScanning] = useState(false);
@@ -236,12 +238,43 @@ function App() {
     if (album) fetchAlbumImageOnDemand(album);
   }, [library.selectedAlbum]);
 
-  // onEnded handler — needs access to both playback and queue
-  function onEnded() {
+  // onEnded handler — uses refs to avoid stale closures from useCallback([])
+  const autoContinueRef = useRef(autoContinue);
+  autoContinueRef.current = autoContinue;
+  const currentTrackRef = useRef(playback.currentTrack);
+  currentTrackRef.current = playback.currentTrack;
+  const handleStopRef = useRef(playback.handleStop);
+  handleStopRef.current = playback.handleStop;
+
+  const onEnded = useCallback(async () => {
     if (!queueHook.playNext()) {
-      playback.handleStop();
+      const ac = autoContinueRef.current;
+      const track = currentTrackRef.current;
+      if (ac.enabled && track) {
+        const next = await ac.fetchTrack(track);
+        if (next) {
+          queueHook.addToQueueAndPlay(next);
+          return;
+        }
+      }
+      handleStopRef.current();
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    const audio = playback.audioRef.current;
+    const video = playback.videoRef.current;
+    if (audio) {
+      audio.addEventListener("ended", onEnded);
+    }
+    if (video) {
+      video.addEventListener("ended", onEnded);
+    }
+    return () => {
+      if (audio) audio.removeEventListener("ended", onEnded);
+      if (video) video.removeEventListener("ended", onEnded);
+    };
+  }, [onEnded]);
 
   // Action handlers
   function handleTrackContextMenu(e: React.MouseEvent, track: Track) {
@@ -404,7 +437,6 @@ function App() {
         onLoadedMetadata={playback.onLoadedMetadata}
         onPlay={playback.onPlay}
         onPause={playback.onPause}
-        onEnded={onEnded}
       />
 
       <Sidebar
@@ -539,7 +571,6 @@ function App() {
             onLoadedMetadata={playback.onLoadedMetadata}
             onPlay={playback.onPlay}
             onPause={playback.onPause}
-            onEnded={onEnded}
             onClick={playback.handlePause}
           />
         </div>
@@ -825,6 +856,9 @@ function App() {
         volume={playback.volume}
         queueMode={queueHook.queueMode}
         showQueue={queueHook.showQueue}
+        autoContinueEnabled={autoContinue.enabled}
+        showAutoContinuePopover={autoContinue.showPopover}
+        autoContinueWeights={autoContinue.weights}
         onPause={playback.handlePause}
         onStop={playback.handleStop}
         onNext={() => queueHook.playNext()}
@@ -833,6 +867,9 @@ function App() {
         onVolume={playback.handleVolume}
         onToggleQueueMode={queueHook.toggleQueueMode}
         onToggleQueue={() => queueHook.setShowQueue(!queueHook.showQueue)}
+        onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
+        onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
+        onAdjustAutoContinueWeight={autoContinue.adjustWeight}
       />
 
       {/* Toast notifications */}

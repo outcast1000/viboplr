@@ -571,6 +571,18 @@ pub fn get_most_played_since(state: State<'_, AppState>, since_ts: i64, limit: i
     state.db.get_most_played_since(since_ts, limit).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn get_auto_continue_track(
+    state: State<'_, AppState>,
+    strategy: String,
+    current_track_id: i64,
+) -> Result<Option<Track>, String> {
+    state
+        .db
+        .get_auto_continue_track(&strategy, current_track_id)
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub fn clear_database(state: State<'_, AppState>) -> Result<String, String> {

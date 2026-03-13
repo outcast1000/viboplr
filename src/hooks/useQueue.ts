@@ -208,6 +208,13 @@ export function useQueue(
     setQueue(prev => [...prev, track]);
   }
 
+  function addToQueueAndPlay(track: Track) {
+    const newIndex = queueRef.current.length;
+    setQueue(prev => [...prev, track]);
+    setQueueIndex(newIndex);
+    handlePlay(track);
+  }
+
   return {
     queue, setQueue,
     queueIndex, setQueueIndex,
@@ -219,6 +226,6 @@ export function useQueue(
     playTracks, enqueueTracks,
     playNext, playPrevious,
     removeFromQueue, moveInQueue, clearQueue,
-    toggleQueueMode, playNextInQueue, addToQueue,
+    toggleQueueMode, playNextInQueue, addToQueue, addToQueueAndPlay,
   };
 }

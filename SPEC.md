@@ -128,14 +128,40 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - **Scan-safe:** the `liked` column is excluded from the `upsert_track` ON CONFLICT clause, so re-scanning or re-syncing a collection preserves the user's likes.
 - **Migration:** existing databases gain the `liked` column via `ALTER TABLE tracks ADD COLUMN liked INTEGER NOT NULL DEFAULT 0`.
 
-### 4.11 Context Menu
+### 4.11 Auto Continue
+
+When playback reaches the end of the queue in "normal" mode, the player normally stops. **Auto Continue** mode instead automatically selects and plays one more track, creating an endless listening experience.
+
+**UI:** An infinity symbol (`∞`) button in the Now Playing bar (between the queue mode button and volume). When enabled, the button is accent-colored. Clicking opens a popover with:
+- An ON/OFF toggle at the top.
+- 5 weighted sliders (0–100%) controlling the probability of each selection strategy. Adjusting one slider proportionally redistributes the others to maintain a 100% total.
+
+**Selection strategies:**
+
+| Strategy | Default Weight | Behavior |
+|----------|---------------|----------|
+| Random | 40% | Any random track from the library (excluding the current track) |
+| Same Artist | 20% | Random track by the same artist |
+| Same Tag | 20% | Random track sharing any tag with the current track |
+| Most Played | 10% | Random pick from the top 50 most-played tracks |
+| Liked | 10% | Random liked track |
+
+**Selection logic:**
+1. A random number 0–99 is rolled and mapped to a strategy based on cumulative weights.
+2. The backend `get_auto_continue_track` command executes the chosen strategy's SQL query (all exclude the current track via `t.id != ?`).
+3. If the strategy returns no result (e.g., no liked tracks, no tags), the frontend retries with `"random"` as a fallback.
+4. The selected track is appended to the queue and immediately played.
+
+**Persistence:** `autoContinueEnabled` (boolean) and `autoContinueWeights` (object with 5 number fields) are persisted to the app store and restored on startup.
+
+### 4.12 Context Menu
 
 - Right-click on a track, album, or artist to open a context menu.
 - **Play** / **Enqueue**: Play immediately or add to queue.
 - **Locate File** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer, or Linux xdg-open).
-- **Search providers**: Dynamic list of enabled search providers (see §4.13). Each provider appears with its icon and a "Search on {name}" label. Clicking opens the provider's URL with `{artist}` and `{title}` placeholders filled in. Only providers with a URL template for the current context (artist/album/track) are shown.
+- **Search providers**: Dynamic list of enabled search providers (see §4.14). Each provider appears with its icon and a "Search on {name}" label. Clicking opens the provider's URL with `{artist}` and `{title}` placeholders filled in. Only providers with a URL template for the current context (artist/album/track) are shown.
 
-### 4.13 Configurable Search Providers
+### 4.14 Configurable Search Providers
 
 Search providers in the context menu are fully user-configurable: add, remove, edit, enable/disable. Configuration is persisted across sessions via `tauri-plugin-store`.
 
@@ -169,7 +195,7 @@ interface SearchProviderConfig {
 **Persistence:**
 - Stored under the `searchProviders` key in the app store. Default value is `null`, meaning "use built-in defaults". The key is only written when the user makes their first edit, avoiding unnecessary disk writes for default configurations.
 
-### 4.12 State Persistence
+### 4.15 State Persistence
 
 UI state is saved to disk via `tauri-plugin-store` and restored on startup so the app resumes exactly where the user left off. The store is a JSON file (`app-state.json`) in the app data directory.
 
@@ -193,6 +219,8 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `windowX` | `number \| null` | `null` |
 | `windowY` | `number \| null` | `null` |
 | `searchProviders` | `SearchProviderConfig[] \| null` | `null` |
+| `autoContinueEnabled` | `boolean` | `false` |
+| `autoContinueWeights` | `{ random, sameArtist, sameTag, mostPlayed, liked }` | `{ 40, 20, 20, 10, 10 }` |
 
 **Behavior:**
 
@@ -345,6 +373,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `get_track_path`        | `track_id: i64`             | `String` (path or URL)   |
 | `show_in_folder`        | `track_id: i64`             | `()`                     |
 | `rebuild_search_index`  | —                           | `()`                     |
+| `get_auto_continue_track` | `strategy: String, current_track_id: i64` | `Option<Track>` |
 
 ### Debug-Only Commands
 

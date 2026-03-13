@@ -875,6 +875,56 @@ impl Database {
         rows.collect()
     }
 
+    pub fn get_auto_continue_track(&self, strategy: &str, current_track_id: i64) -> SqlResult<Option<Track>> {
+        let conn = self.conn.lock().unwrap();
+        match strategy {
+            "random" => {
+                let sql = format!("{} WHERE t.id != ?1 ORDER BY RANDOM() LIMIT 1", TRACK_SELECT);
+                conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
+            }
+            "same_artist" => {
+                let artist_id: Option<i64> = conn.query_row(
+                    "SELECT artist_id FROM tracks WHERE id = ?1",
+                    params![current_track_id],
+                    |row| row.get(0),
+                ).optional()?.flatten();
+                match artist_id {
+                    Some(aid) => {
+                        let sql = format!("{} WHERE t.id != ?1 AND t.artist_id = ?2 ORDER BY RANDOM() LIMIT 1", TRACK_SELECT);
+                        conn.query_row(&sql, params![current_track_id, aid], |row| track_from_row(row)).optional()
+                    }
+                    None => Ok(None),
+                }
+            }
+            "same_tag" => {
+                let sql = format!(
+                    "{} WHERE t.id != ?1 AND t.id IN (\
+                        SELECT tt2.track_id FROM track_tags tt1 \
+                        JOIN track_tags tt2 ON tt1.tag_id = tt2.tag_id \
+                        WHERE tt1.track_id = ?1 AND tt2.track_id != ?1\
+                    ) ORDER BY RANDOM() LIMIT 1",
+                    TRACK_SELECT
+                );
+                conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
+            }
+            "most_played" => {
+                let sql = format!(
+                    "{} WHERE t.id != ?1 AND t.id IN (\
+                        SELECT track_id FROM play_history \
+                        GROUP BY track_id ORDER BY COUNT(*) DESC LIMIT 50\
+                    ) ORDER BY RANDOM() LIMIT 1",
+                    TRACK_SELECT
+                );
+                conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
+            }
+            "liked" => {
+                let sql = format!("{} WHERE t.id != ?1 AND t.liked = 1 ORDER BY RANDOM() LIMIT 1", TRACK_SELECT);
+                conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
+            }
+            _ => Ok(None),
+        }
+    }
+
     pub fn get_most_played_since(&self, since_ts: i64, limit: i64) -> SqlResult<Vec<MostPlayedTrack>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
