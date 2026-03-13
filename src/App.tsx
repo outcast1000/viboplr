@@ -16,6 +16,7 @@ import { useQueue } from "./hooks/useQueue";
 import { useLibrary } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
 import { useAutoContinue } from "./hooks/useAutoContinue";
+import { usePasteImage } from "./hooks/usePasteImage";
 
 import { Sidebar } from "./components/Sidebar";
 import { TrackList } from "./components/TrackList";
@@ -92,6 +93,17 @@ function App() {
     setSyncing, setSyncProgress,
     setArtistImages, setAlbumImages,
     setFailedArtistImages, setFailedAlbumImages,
+  });
+
+  // Paste image onto artist/album
+  usePasteImage({
+    view: library.view,
+    selectedArtist: library.selectedArtist,
+    selectedAlbum: library.selectedAlbum,
+    searchQuery: library.searchQuery,
+    setArtistImages,
+    setAlbumImages,
+    addNotification,
   });
 
   // Disable default browser context menu globally

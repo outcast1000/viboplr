@@ -24,6 +24,16 @@ pub struct AppState {
     pub download_queue: Arc<DownloadQueue>,
 }
 
+fn detect_image_format(data: &[u8]) -> &'static str {
+    if data.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+        "png"
+    } else if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "jpg"
+    } else {
+        "png"
+    }
+}
+
 // --- Collection commands ---
 
 #[tauri::command]
@@ -495,6 +505,21 @@ pub fn set_artist_image(
 }
 
 #[tauri::command]
+pub fn paste_artist_image(
+    state: State<'_, AppState>,
+    artist_id: i64,
+    image_data: Vec<u8>,
+) -> Result<String, String> {
+    let ext = detect_image_format(&image_data);
+    crate::artist_image::remove_image(&state.app_dir, artist_id);
+    let dest_dir = state.app_dir.join("artist_images");
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(format!("{}.{}", artist_id, ext));
+    std::fs::write(&dest, &image_data).map_err(|e| format!("Failed to write image: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub fn remove_artist_image(state: State<'_, AppState>, artist_id: i64) {
     crate::artist_image::remove_image(&state.app_dir, artist_id);
 }
@@ -539,6 +564,21 @@ pub fn set_album_image(
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let dest = dest_dir.join(format!("{}.{}", album_id, ext));
     std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy image: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn paste_album_image(
+    state: State<'_, AppState>,
+    album_id: i64,
+    image_data: Vec<u8>,
+) -> Result<String, String> {
+    let ext = detect_image_format(&image_data);
+    crate::album_image::remove_image(&state.app_dir, album_id);
+    let dest_dir = state.app_dir.join("album_images");
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(format!("{}.{}", album_id, ext));
+    std::fs::write(&dest, &image_data).map_err(|e| format!("Failed to write image: {}", e))?;
     Ok(dest.to_string_lossy().to_string())
 }
 
