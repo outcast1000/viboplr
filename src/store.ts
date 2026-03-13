@@ -14,6 +14,7 @@ export const store = new LazyStore("app-state.json", {
     queueIndex: -1,
     queueMode: "normal",
     positionSecs: 0,
+    crossfadeSecs: 3,
     windowWidth: null,
     windowHeight: null,
     windowX: null,

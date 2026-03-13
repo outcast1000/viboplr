@@ -195,6 +195,67 @@ export function useQueue(
     });
   }
 
+  function peekNext(): Track | null {
+    const q = queueRef.current;
+    const idx = queueIndexRef.current;
+    const mode = queueModeRef.current;
+
+    if (q.length === 0) return null;
+
+    if (mode === "shuffle") {
+      const pos = shufflePositionRef.current;
+      const order = shuffleOrderRef.current;
+      if (order.length === 0) return null;
+      const nextPos = pos + 1;
+      if (nextPos >= order.length) return null; // can't predict new shuffle order
+      return q[order[nextPos]] ?? null;
+    }
+
+    if (mode === "loop") {
+      return q[(idx + 1) % q.length] ?? null;
+    }
+
+    // normal
+    if (idx + 1 < q.length) return q[idx + 1];
+    return null;
+  }
+
+  function advanceIndex(): boolean {
+    const q = queueRef.current;
+    const idx = queueIndexRef.current;
+    const mode = queueModeRef.current;
+
+    if (q.length === 0) return false;
+
+    if (mode === "shuffle") {
+      const pos = shufflePositionRef.current;
+      const order = shuffleOrderRef.current;
+      if (order.length === 0) return false;
+      const nextPos = pos + 1;
+      if (nextPos >= order.length) {
+        const newOrder = generateShuffleOrder(q.length, order[0]);
+        setShuffleOrder(newOrder);
+        setShufflePosition(0);
+        setQueueIndex(newOrder[0]);
+      } else {
+        setShufflePosition(nextPos);
+        setQueueIndex(order[nextPos]);
+      }
+      return true;
+    }
+
+    if (mode === "loop") {
+      setQueueIndex((idx + 1) % q.length);
+      return true;
+    }
+
+    if (idx + 1 < q.length) {
+      setQueueIndex(idx + 1);
+      return true;
+    }
+    return false;
+  }
+
   function playNextInQueue(track: Track) {
     const idx = queueIndexRef.current;
     setQueue(prev => {
@@ -220,5 +281,6 @@ export function useQueue(
     playNext, playPrevious,
     removeFromQueue, moveInQueue, clearQueue,
     toggleQueueMode, playNextInQueue, addToQueue,
+    peekNext, advanceIndex,
   };
 }
