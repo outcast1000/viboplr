@@ -46,7 +46,6 @@ function SettingsProviderIcon({ provider }: { provider: SearchProviderConfig }) 
 
 interface SettingsPanelProps {
   collections: Collection[];
-  sessionLog: { time: Date; message: string }[];
   searchProviders: SearchProviderConfig[];
   onClose: () => void;
   onAddFolder: () => void;
@@ -60,6 +59,8 @@ interface SettingsPanelProps {
   crossfadeSecs: number;
   onCrossfadeChange: (secs: number) => void;
   onSaveProviders: (providers: SearchProviderConfig[]) => void;
+  showStatusBar: boolean;
+  onToggleStatusBar: () => void;
 }
 
 interface ProviderFormData {
@@ -70,15 +71,17 @@ interface ProviderFormData {
 }
 
 export function SettingsPanel({
-  collections, sessionLog, searchProviders,
+  collections, searchProviders,
   onClose, onAddFolder, onShowAddServer,
   onRemoveCollection, onResyncCollection,
   onSeedDatabase, onClearDatabase, clearing,
   onClearImageFailures, onSaveProviders,
   crossfadeSecs,
   onCrossfadeChange,
+  showStatusBar,
+  onToggleStatusBar,
 }: SettingsPanelProps) {
-  const [settingsTab, setSettingsTab] = useState<"main" | "collections" | "providers" | "logging">("main");
+  const [settingsTab, setSettingsTab] = useState<"main" | "collections" | "providers">("main");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<ProviderFormData>({ name: "", artistUrl: "", albumUrl: "", trackUrl: "" });
@@ -153,7 +156,7 @@ export function SettingsPanel({
   const isEditing = editingId !== null || adding;
 
   return (
-    <div className="settings-overlay" onClick={onClose}>
+    <div className="settings-overlay">
       <div className="settings-panel" onClick={e => e.stopPropagation()}>
         <div className="settings-header">
           <h2>Settings</h2>
@@ -164,7 +167,6 @@ export function SettingsPanel({
           <button className={`settings-tab ${settingsTab === "main" ? "active" : ""}`} onClick={() => setSettingsTab("main")}>Main</button>
           <button className={`settings-tab ${settingsTab === "collections" ? "active" : ""}`} onClick={() => setSettingsTab("collections")}>Collections</button>
           <button className={`settings-tab ${settingsTab === "providers" ? "active" : ""}`} onClick={() => setSettingsTab("providers")}>Providers</button>
-          <button className={`settings-tab ${settingsTab === "logging" ? "active" : ""}`} onClick={() => setSettingsTab("logging")}>Logging</button>
         </div>
 
         {settingsTab === "main" && (
@@ -181,6 +183,15 @@ export function SettingsPanel({
                 className="settings-slider"
               />
               <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
+            </div>
+            <div className="settings-row">
+              <label className="settings-label">Status Bar</label>
+              <button
+                className={`provider-toggle ${showStatusBar ? "provider-toggle-on" : ""}`}
+                onClick={onToggleStatusBar}
+              >
+                {showStatusBar ? "On" : "Off"}
+              </button>
             </div>
             <button className="add-folder-btn" onClick={onClearImageFailures}>
               Retry Failed Image Downloads
@@ -333,19 +344,6 @@ export function SettingsPanel({
           </div>
         )}
 
-        {settingsTab === "logging" && (
-          <div className="settings-section">
-            <div className="session-log">
-              {sessionLog.length === 0 && <div className="log-empty">No events yet</div>}
-              {[...sessionLog].reverse().map((entry, i) => (
-                <div key={i} className="log-entry">
-                  <span className="log-time">{entry.time.toLocaleTimeString()}</span>
-                  <span className="log-message">{entry.message}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

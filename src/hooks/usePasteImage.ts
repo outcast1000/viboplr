@@ -1,23 +1,27 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { View } from "../types";
+import type { View, Artist, Album } from "../types";
 
 export function usePasteImage({
   view,
   selectedArtist,
   selectedAlbum,
   searchQuery,
+  artists,
+  albums,
   setArtistImages,
   setAlbumImages,
-  addNotification,
+  addLog,
 }: {
   view: View;
   selectedArtist: number | null;
   selectedAlbum: number | null;
   searchQuery: string;
+  artists: Artist[];
+  albums: Album[];
   setArtistImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
   setAlbumImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
-  addNotification: (text: string) => void;
+  addLog: (text: string) => void;
 }) {
   useEffect(() => {
     const handler = async (e: ClipboardEvent) => {
@@ -53,21 +57,21 @@ export function usePasteImage({
             imageData,
           });
           setArtistImages((prev) => ({ ...prev, [selectedArtist!]: path }));
-          addNotification("Artist image set from clipboard");
+          addLog("Artist image set from clipboard: " + (artists.find(a => a.id === selectedArtist)?.name ?? "unknown"));
         } else if (isAlbumDetail) {
           const path = await invoke<string>("paste_album_image", {
             albumId: selectedAlbum,
             imageData,
           });
           setAlbumImages((prev) => ({ ...prev, [selectedAlbum!]: path }));
-          addNotification("Album image set from clipboard");
+          addLog("Album image set from clipboard: " + (albums.find(a => a.id === selectedAlbum)?.title ?? "unknown"));
         }
       } catch (err) {
-        addNotification(`Failed to paste image: ${err}`);
+        addLog(`Failed to paste image: ${err}`);
       }
     };
 
     document.addEventListener("paste", handler);
     return () => document.removeEventListener("paste", handler);
-  }, [view, selectedArtist, selectedAlbum, searchQuery, setArtistImages, setAlbumImages, addNotification]);
+  }, [view, selectedArtist, selectedAlbum, searchQuery, artists, albums, setArtistImages, setAlbumImages, addLog]);
 }
