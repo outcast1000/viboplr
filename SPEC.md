@@ -119,6 +119,33 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - Video displayed inline in the main content area; audio plays with no visual.
 - Keyboard navigation: arrow keys to navigate tracks, Enter to play.
 
+#### Gapless Playback & Crossfading
+
+The player uses a **dual audio element (A/B)** architecture to achieve gapless transitions and crossfading between audio tracks. Video tracks do not participate in crossfading.
+
+**Architecture:**
+- Two `<audio>` elements (`audioRefA`, `audioRefB`) are always present in the DOM. One is the "active" slot (currently playing), the other is "inactive" (available for preloading).
+- An `activeSlot` state (`"A"` | `"B"`) tracks which element is currently playing. On explicit `handlePlay`, the slot resets to `"A"`.
+
+**Preloading:**
+- When the active track's remaining time drops below a threshold (`max(5, crossfadeSecs + 2)` seconds), the player calls `peekNext()` from the queue to identify the next track.
+- The next track's audio source is loaded into the inactive audio element with `preload="auto"`. A `canplay` event marks it as ready.
+- If the queue changes or the user takes a manual action (play, stop), the preload is invalidated: the inactive element is paused, its `src` removed, and preload state cleared.
+
+**Crossfade:**
+- When crossfade is enabled (`crossfadeSecs > 0`) and the remaining time of the active track drops below `crossfadeSecs`, the player initiates a crossfade — provided the preload is ready.
+- The incoming element starts playing at volume 0. A `requestAnimationFrame` loop ramps the incoming element's volume up from 0 to `volume` and the outgoing element's volume down from `volume` to 0 over the crossfade duration.
+- At the end of the fade, the outgoing element is paused and its `src` removed. The active slot swaps to the incoming element.
+- User actions during crossfade (pause, stop, manual play) cancel the crossfade immediately, snapping the incoming element to full volume and cleaning up the outgoing element.
+
+**Gapless (crossfade = 0):**
+- When crossfade is disabled, preloading still occurs. When the active track ends, `handleGaplessNext()` checks for a preloaded track and immediately starts the inactive element at full volume while stopping the active element, achieving a gapless transition.
+- If no preload is ready, the normal `onEnded` path fires (auto-continue or stop).
+
+**Settings:**
+- `crossfadeSecs` is configurable via a slider in Settings (0–10 seconds, 0.5s steps). A value of 0 means "off" (gapless mode). Default: 3 seconds.
+- Persisted to the app store under the `crossfadeSecs` key.
+
 ### 4.10 Liked Tracks
 
 - Each track has a `liked` boolean attribute (stored as `INTEGER DEFAULT 0` in SQLite).
@@ -158,7 +185,7 @@ When playback reaches the end of the queue in "normal" mode, the player normally
 
 - Right-click on a track, album, or artist to open a context menu.
 - **Play** / **Enqueue**: Play immediately or add to queue.
-- **Locate File** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer, or Linux xdg-open).
+- **Locate File** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer via `raw_arg` for proper path quoting, or Linux xdg-open).
 - **Search providers**: Dynamic list of enabled search providers (see §4.14). Each provider appears with its icon and a "Search on {name}" label. Clicking opens the provider's URL with `{artist}` and `{title}` placeholders filled in. Only providers with a URL template for the current context (artist/album/track) are shown.
 
 ### 4.14 Configurable Search Providers
@@ -203,7 +230,7 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 
 | Key | Type | Default |
 |-----|------|---------|
-| `view` | `string` (`"all"`, `"artists"`, `"albums"`, `"tags"`, `"liked"`) | `"all"` |
+| `view` | `string` (`"all"`, `"artists"`, `"albums"`, `"tags"`, `"liked"`, `"history"`) | `"all"` |
 | `searchQuery` | `string` | `""` |
 | `selectedArtist` | `number \| null` | `null` |
 | `selectedAlbum` | `number \| null` | `null` |
@@ -219,6 +246,7 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `windowX` | `number \| null` | `null` |
 | `windowY` | `number \| null` | `null` |
 | `searchProviders` | `SearchProviderConfig[] \| null` | `null` |
+| `crossfadeSecs` | `number` | `3` |
 | `autoContinueEnabled` | `boolean` | `false` |
 | `autoContinueWeights` | `{ random, sameArtist, sameTag, mostPlayed, liked }` | `{ 40, 20, 20, 10, 10 }` |
 
