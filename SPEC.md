@@ -130,9 +130,44 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 
 ### 4.11 Context Menu
 
-- Right-click on a track to open a context menu.
-- **Open Containing Folder** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer, or Linux xdg-open).
-- For server tracks, the context menu indicates it is a server track (no folder to open).
+- Right-click on a track, album, or artist to open a context menu.
+- **Play** / **Enqueue**: Play immediately or add to queue.
+- **Locate File** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer, or Linux xdg-open).
+- **Search providers**: Dynamic list of enabled search providers (see §4.13). Each provider appears with its icon and a "Search on {name}" label. Clicking opens the provider's URL with `{artist}` and `{title}` placeholders filled in. Only providers with a URL template for the current context (artist/album/track) are shown.
+
+### 4.13 Configurable Search Providers
+
+Search providers in the context menu are fully user-configurable: add, remove, edit, enable/disable. Configuration is persisted across sessions via `tauri-plugin-store`.
+
+**Data model (`SearchProviderConfig`):**
+
+```typescript
+interface SearchProviderConfig {
+  id: string;            // "builtin-google" for defaults, crypto.randomUUID() for custom
+  name: string;          // Display name
+  enabled: boolean;
+  builtinIcon?: string;  // "google"|"lastfm"|"x"|"youtube"|"genius" for SVG icons
+  artistUrl?: string;    // e.g., "https://www.last.fm/music/{artist}"
+  albumUrl?: string;     // e.g., "https://www.last.fm/music/{artist}/{title}"
+  trackUrl?: string;     // e.g., "https://genius.com/search?q={title}+{artist}"
+}
+```
+
+- Placeholders `{artist}` and `{title}` are URL-encoded on substitution. Unfilled placeholders are removed.
+- If a URL template is absent for a context (artist/album/track), the provider is hidden for that context.
+- **5 built-in providers** ship by default: Google, Last.fm, X, YouTube, Genius.
+
+**Built-in vs custom providers:**
+- Built-in providers (`id.startsWith("builtin-")`) can be disabled and edited but not deleted.
+- Custom providers can be deleted. Their icons are fetched via Google's favicon service (`https://www.google.com/s2/favicons?domain={domain}&sz=32`), with a first-letter circle fallback on error.
+
+**Settings UI** (Settings > Providers tab):
+- List view: each row shows icon, name, context chips (Artist/Album/Track), enable/disable toggle, edit button, and delete button (custom only).
+- Inline edit/add form: name, artist/album/track URL template fields with placeholder hints.
+- "Add Provider" and "Reset to Defaults" buttons.
+
+**Persistence:**
+- Stored under the `searchProviders` key in the app store. Default value is `null`, meaning "use built-in defaults". The key is only written when the user makes their first edit, avoiding unnecessary disk writes for default configurations.
 
 ### 4.12 State Persistence
 
@@ -157,6 +192,7 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `windowHeight` | `number \| null` | `null` |
 | `windowX` | `number \| null` | `null` |
 | `windowY` | `number \| null` | `null` |
+| `searchProviders` | `SearchProviderConfig[] \| null` | `null` |
 
 **Behavior:**
 
