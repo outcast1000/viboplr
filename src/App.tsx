@@ -37,6 +37,8 @@ const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/
 function App() {
   const restoredRef = useRef(false);
   const trackListRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const previousVolumeRef = useRef(1.0);
 
   // Core hooks
   const peekNextRef = useRef<() => Track | null>(() => null);
@@ -267,6 +269,123 @@ function App() {
     const album = library.albums.find(a => a.id === library.selectedAlbum);
     if (album) fetchAlbumImageOnDemand(album);
   }, [library.selectedAlbum]);
+
+  // Ref for keyboard shortcut handler to avoid stale closures
+  const shortcutStateRef = useRef({
+    volume: playback.volume,
+    showQueue: queueHook.showQueue,
+    getMediaElement: playback.getMediaElement,
+    handleSeek: playback.handleSeek,
+  });
+  shortcutStateRef.current = {
+    volume: playback.volume,
+    showQueue: queueHook.showQueue,
+    getMediaElement: playback.getMediaElement,
+    handleSeek: playback.handleSeek,
+  };
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+
+      const s = shortcutStateRef.current;
+
+      switch (e.key) {
+        case "1":
+          e.preventDefault();
+          library.handleShowAll();
+          searchInputRef.current?.focus();
+          break;
+        case "2":
+          e.preventDefault();
+          library.setView("artists");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSearchQuery("");
+          searchInputRef.current?.focus();
+          break;
+        case "3":
+          e.preventDefault();
+          library.setView("albums");
+          library.setSelectedArtist(null);
+          library.setSelectedTag(null);
+          library.setSearchQuery("");
+          invoke<Album[]>("get_albums", { artistId: null }).then(library.setAlbums);
+          searchInputRef.current?.focus();
+          break;
+        case "4":
+          e.preventDefault();
+          library.setView("tags");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSearchQuery("");
+          searchInputRef.current?.focus();
+          break;
+        case "5":
+          e.preventDefault();
+          library.handleShowLiked();
+          searchInputRef.current?.focus();
+          break;
+        case "6":
+          e.preventDefault();
+          library.setView("history");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSearchQuery("");
+          searchInputRef.current?.focus();
+          break;
+        case "7":
+          e.preventDefault();
+          queueHook.setShowQueue(!s.showQueue);
+          break;
+        case "m":
+        case "M":
+          e.preventDefault();
+          if (s.volume > 0) {
+            previousVolumeRef.current = s.volume;
+            playback.handleVolume(0);
+          } else {
+            playback.handleVolume(previousVolumeRef.current || 1.0);
+          }
+          break;
+        case "ArrowLeft": {
+          e.preventDefault();
+          const el = s.getMediaElement();
+          if (el) s.handleSeek(Math.max(0, el.currentTime - 15));
+          break;
+        }
+        case "ArrowRight": {
+          e.preventDefault();
+          const el = s.getMediaElement();
+          if (el) s.handleSeek(Math.min(el.duration || 0, el.currentTime + 15));
+          break;
+        }
+        case "ArrowUp":
+          e.preventDefault();
+          playback.handleVolume(Math.min(1, s.volume + 0.05));
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          playback.handleVolume(Math.max(0, s.volume - 0.05));
+          break;
+        case ">":
+          e.preventDefault();
+          queueHook.playNext();
+          break;
+        case "<":
+          e.preventDefault();
+          queueHook.playPrevious();
+          break;
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   // onEnded handler — uses refs to avoid stale closures from useCallback([])
   const autoContinueRef = useRef(autoContinue);
@@ -565,6 +684,7 @@ function App() {
         {/* Search bar */}
         <div className="search-bar">
           <input
+            ref={searchInputRef}
             type="text"
             placeholder={
               view === "liked" ? "Search liked tracks..." :
@@ -600,7 +720,11 @@ function App() {
                 });
               } else if (e.key === "Enter" && highlightedIndex >= 0 && highlightedIndex < tracks.length) {
                 e.preventDefault();
-                queueHook.playTracks([tracks[highlightedIndex]], 0);
+                if (e.shiftKey) {
+                  queueHook.enqueueTracks([tracks[highlightedIndex]]);
+                } else {
+                  queueHook.playTracks([tracks[highlightedIndex]], 0);
+                }
               }
             }}
           />
