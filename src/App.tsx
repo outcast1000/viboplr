@@ -8,11 +8,14 @@ import "./App.css";
 import type { Album, Track, View } from "./types";
 import { isVideoTrack, getInitials } from "./utils";
 import { store } from "./store";
+import type { SearchProviderConfig } from "./searchProviders";
+import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
 
 import { usePlayback } from "./hooks/usePlayback";
 import { useQueue } from "./hooks/useQueue";
 import { useLibrary } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
+import { useAutoContinue } from "./hooks/useAutoContinue";
 
 import { Sidebar } from "./components/Sidebar";
 import { TrackList } from "./components/TrackList";
@@ -42,6 +45,7 @@ function App() {
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef);
   const library = useLibrary(restoredRef);
   const queueHook = useQueue(restoredRef, playback.handlePlay);
+  const autoContinue = useAutoContinue(restoredRef);
   peekNextRef.current = queueHook.peekNext;
   advanceIndexRef.current = queueHook.advanceIndex;
 
@@ -57,6 +61,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [notifications, setNotifications] = useState<{ id: number; text: string }[]>([]);
   const [sessionLog, setSessionLog] = useState<{ time: Date; message: string }[]>([]);
+  const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const notifIdRef = useRef(0);
 
   // Image state
@@ -154,6 +159,7 @@ function App() {
         console.error("Failed to restore state:", e);
         await getCurrentWindow().show();
       }
+      loadProviders(store).then(setSearchProviders);
       restoredRef.current = true;
     })();
   }, []);
@@ -241,16 +247,42 @@ function App() {
     if (album) fetchAlbumImageOnDemand(album);
   }, [library.selectedAlbum]);
 
-  // onEnded handler — tries gapless transition first, falls back to normal
-  function onEnded() {
+  // onEnded handler — uses refs to avoid stale closures from useCallback([])
+  const autoContinueRef = useRef(autoContinue);
+  autoContinueRef.current = autoContinue;
+  const currentTrackRef = useRef(playback.currentTrack);
+  currentTrackRef.current = playback.currentTrack;
+  const handleStopRef = useRef(playback.handleStop);
+  handleStopRef.current = playback.handleStop;
+
+  const onEnded = useCallback(async () => {
     if (playback.handleGaplessNext()) {
       queueHook.advanceIndex();
       return;
     }
     if (!queueHook.playNext()) {
-      playback.handleStop();
+      const ac = autoContinueRef.current;
+      const track = currentTrackRef.current;
+      if (ac.enabled && track) {
+        const next = await ac.fetchTrack(track);
+        if (next) {
+          queueHook.addToQueueAndPlay(next);
+          return;
+        }
+      }
+      handleStopRef.current();
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    const video = playback.videoRef.current;
+    if (video) {
+      video.addEventListener("ended", onEnded);
+    }
+    return () => {
+      if (video) video.removeEventListener("ended", onEnded);
+    };
+  }, [onEnded]);
 
   // Action handlers
   function handleTrackContextMenu(e: React.MouseEvent, track: Track) {
@@ -372,6 +404,11 @@ function App() {
     }
   }
 
+  function handleSaveProviders(providers: SearchProviderConfig[]) {
+    setSearchProviders(providers);
+    saveProviders(store, providers);
+  }
+
   function handleCrossfadeChange(secs: number) {
     setCrossfadeSecs(secs);
     store.set("crossfadeSecs", secs);
@@ -478,6 +515,7 @@ function App() {
         <SettingsPanel
           collections={library.collections}
           sessionLog={sessionLog}
+          searchProviders={searchProviders}
           onClose={() => setShowSettings(false)}
           onAddFolder={handleAddFolder}
           onShowAddServer={() => setShowAddServer(true)}
@@ -487,6 +525,7 @@ function App() {
           onClearDatabase={handleClearDatabase}
           clearing={clearing}
           onClearImageFailures={handleClearImageFailures}
+          onSaveProviders={handleSaveProviders}
           crossfadeSecs={crossfadeSecs}
           onCrossfadeChange={handleCrossfadeChange}
         />
@@ -556,7 +595,6 @@ function App() {
             onLoadedMetadata={playback.onLoadedMetadata}
             onPlay={playback.onPlay}
             onPause={playback.onPause}
-            onEnded={onEnded}
             onClick={playback.handlePause}
           />
         </div>
@@ -826,6 +864,7 @@ function App() {
       {contextMenu && (
         <ContextMenu
           menu={contextMenu}
+          providers={searchProviders}
           onPlay={handleContextPlay}
           onEnqueue={handleContextEnqueue}
           onShowInFolder={handleShowInFolder}
@@ -841,6 +880,9 @@ function App() {
         volume={playback.volume}
         queueMode={queueHook.queueMode}
         showQueue={queueHook.showQueue}
+        autoContinueEnabled={autoContinue.enabled}
+        showAutoContinuePopover={autoContinue.showPopover}
+        autoContinueWeights={autoContinue.weights}
         onPause={playback.handlePause}
         onStop={playback.handleStop}
         onNext={() => queueHook.playNext()}
@@ -849,6 +891,9 @@ function App() {
         onVolume={playback.handleVolume}
         onToggleQueueMode={queueHook.toggleQueueMode}
         onToggleQueue={() => queueHook.setShowQueue(!queueHook.showQueue)}
+        onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
+        onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
+        onAdjustAutoContinueWeight={autoContinue.adjustWeight}
       />
 
       {/* Toast notifications */}

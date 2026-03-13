@@ -1,5 +1,7 @@
 import type { Track } from "../types";
+import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
+import { AutoContinuePopover } from "./AutoContinuePopover";
 
 interface NowPlayingBarProps {
   currentTrack: Track | null;
@@ -9,6 +11,9 @@ interface NowPlayingBarProps {
   volume: number;
   queueMode: "normal" | "loop" | "shuffle";
   showQueue: boolean;
+  autoContinueEnabled: boolean;
+  showAutoContinuePopover: boolean;
+  autoContinueWeights: AutoContinueWeights;
   onPause: () => void;
   onStop: () => void;
   onNext: () => void;
@@ -17,14 +22,19 @@ interface NowPlayingBarProps {
   onVolume: (level: number) => void;
   onToggleQueueMode: () => void;
   onToggleQueue: () => void;
+  onToggleAutoContinue: () => void;
+  onToggleAutoContinuePopover: () => void;
+  onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
 }
 
 export function NowPlayingBar({
   currentTrack, playing,
   positionSecs, durationSecs,
   volume, queueMode, showQueue,
+  autoContinueEnabled, showAutoContinuePopover, autoContinueWeights,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onToggleQueueMode, onToggleQueue,
+  onToggleAutoContinue, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
 }: NowPlayingBarProps) {
   return (
     <footer className="now-playing">
@@ -69,6 +79,23 @@ export function NowPlayingBar({
         >
           {queueMode === "shuffle" ? "\uD83D\uDD00" : queueMode === "loop" ? "\uD83D\uDD01" : "\u27A1"}
         </button>
+        <div className="auto-continue-wrapper">
+          <button
+            className={`ctrl-btn auto-continue-btn ${autoContinueEnabled ? "active" : ""}`}
+            onClick={onToggleAutoContinuePopover}
+            title="Auto Continue"
+          >
+            {"\u221E"}
+          </button>
+          {showAutoContinuePopover && (
+            <AutoContinuePopover
+              enabled={autoContinueEnabled}
+              weights={autoContinueWeights}
+              onToggle={onToggleAutoContinue}
+              onAdjust={onAdjustAutoContinueWeight}
+            />
+          )}
+        </div>
         <div className="now-volume">
           <span>{"\uD83D\uDD0A"}</span>
           <input
