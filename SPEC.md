@@ -60,6 +60,7 @@ Every track belongs to a collection via `collection_id`. The sidebar displays al
 - Inserts/updates rows in SQLite (`artists`, `albums`, `tags`, `track_tags`, `tracks`).
 - Reports scan progress to the frontend via Tauri events.
 - Each track's `collection_id` is set to the owning collection.
+- **Logging:** The scanner logs at `info!` level throughout: scan start (folder path + file count), each file processed ("New file" or "Updated file"), file removals, and scan end (total count + elapsed time).
 
 ### 4.3 Tag Fallback — Filename Regex
 
@@ -78,6 +79,7 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 - `notify` crate watches all local collection folders for create/delete/rename/modify events.
 - On change, the scanner re-processes only the affected file(s), with the correct `collection_id`.
 - Runs on a dedicated background thread; does not block UI or playback.
+- Logs file change and removal events at `info!` level.
 
 ### 4.5 Subsonic/Navidrome Server Integration
 

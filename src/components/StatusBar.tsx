@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import { getVersion } from "@tauri-apps/api/app";
 
 interface StatusBarProps {
   sessionLog: { time: Date; message: string }[];
@@ -8,13 +7,8 @@ interface StatusBarProps {
 export function StatusBar({ sessionLog }: StatusBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [activeMessage, setActiveMessage] = useState<{ message: string; time: Date; isError: boolean } | null>(null);
-  const [appVersion, setAppVersion] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  useEffect(() => {
-    getVersion().then(setAppVersion);
-  }, []);
 
   useEffect(() => {
     if (sessionLog.length === 0) return;
@@ -37,10 +31,12 @@ export function StatusBar({ sessionLog }: StatusBarProps) {
     return () => document.removeEventListener("mousedown", handler);
   }, [expanded]);
 
+  const visible = activeMessage !== null || expanded;
+
   return (
-    <div className="status-bar" ref={panelRef}>
+    <div className={`status-bar ${visible ? "status-bar-visible" : ""}`} ref={panelRef}>
       <div className="status-bar-content" onClick={() => setExpanded(!expanded)}>
-        {activeMessage ? (
+        {activeMessage && (
           <>
             <span className={`status-bar-icon ${activeMessage.isError ? "status-bar-icon-error" : ""}`}>
               {activeMessage.isError ? "\u26A0" : "\u2139"}
@@ -48,8 +44,6 @@ export function StatusBar({ sessionLog }: StatusBarProps) {
             <span className="status-bar-text">{activeMessage.message}</span>
             <span className="status-bar-time">{activeMessage.time.toLocaleTimeString()}</span>
           </>
-        ) : (
-          <span className="status-bar-text status-bar-version">FastPlayer {appVersion}</span>
         )}
       </div>
       {expanded && (
