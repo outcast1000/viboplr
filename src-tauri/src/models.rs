@@ -40,6 +40,7 @@ pub struct Track {
     pub collection_id: Option<i64>,
     pub subsonic_id: Option<String>,
     pub liked: bool,
+    pub deleted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

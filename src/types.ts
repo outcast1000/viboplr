@@ -34,6 +34,7 @@ export interface Track {
   collection_id: number | null;
   subsonic_id: string | null;
   liked: boolean;
+  deleted: boolean;
 }
 
 export interface Collection {

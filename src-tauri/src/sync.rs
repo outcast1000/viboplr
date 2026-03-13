@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::db::Database;
@@ -9,9 +10,14 @@ pub fn sync_collection(
     collection_id: i64,
     progress_callback: impl Fn(u64, u64) + Send,
 ) -> Result<(), String> {
-    // Delete existing tracks for this collection (full resync)
-    db.delete_tracks_by_collection(collection_id)
-        .map_err(|e| e.to_string())?;
+    // Build set of all existing paths for this collection (including already-deleted)
+    let existing_paths: HashSet<String> = db
+        .get_track_paths_for_collection(collection_id)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .collect();
+
+    let mut seen_paths: HashSet<String> = HashSet::new();
 
     // Paginate album list
     let page_size = 500u32;
@@ -62,6 +68,7 @@ pub fn sync_collection(
                 .or(artist_id);
 
             let path = format!("subsonic://{}/{}", collection_id, track.id);
+            seen_paths.insert(path.clone());
 
             if let Ok(track_db_id) = db.upsert_track(
                 &path,
@@ -93,6 +100,14 @@ pub fn sync_collection(
             progress_callback(synced, total);
         }
     }
+
+    // Soft-delete tracks that are no longer on the server
+    let removed: Vec<String> = existing_paths
+        .into_iter()
+        .filter(|p| !seen_paths.contains(p))
+        .collect();
+    db.mark_tracks_deleted_by_paths(&removed)
+        .map_err(|e| e.to_string())?;
 
     db.rebuild_fts().map_err(|e| e.to_string())?;
     db.update_collection_synced(collection_id)

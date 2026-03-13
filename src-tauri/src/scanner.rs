@@ -1,8 +1,10 @@
+use log::info;
 use lofty::prelude::*;
 use lofty::probe::Probe;
 use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 use walkdir::WalkDir;
 
 use crate::db::Database;
@@ -151,6 +153,7 @@ pub fn scan_folder(
     progress_callback: impl Fn(u64, u64) + Send,
 ) {
     let root = PathBuf::from(folder_path);
+    let start = Instant::now();
 
     // First pass: count files
     let total: u64 = WalkDir::new(&root)
@@ -158,6 +161,8 @@ pub fn scan_folder(
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file() && is_media_file(e.path()))
         .count() as u64;
+
+    info!("Scan started: {} ({} media files found)", folder_path, total);
 
     // Second pass: process files
     let mut scanned: u64 = 0;
@@ -173,10 +178,14 @@ pub fn scan_folder(
             progress_callback(scanned, total);
         }
     }
+
+    let elapsed = start.elapsed();
+    info!("Scan complete: {} files in {:.1}s", scanned, elapsed.as_secs_f64());
 }
 
 pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>) {
     let path_str = path.to_string_lossy().to_string();
+    let is_update = db.track_exists_by_path(&path_str);
     let tags = read_tags(path);
 
     let format = path
@@ -202,6 +211,12 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
         .as_ref()
         .and_then(|title| db.get_or_create_album(title, artist_id, tags.year).ok());
 
+    if is_update {
+        info!("Updated file: {}", path_str);
+    } else {
+        info!("New file: {}", path_str);
+    }
+
     if let Ok(track_id) = db.upsert_track(
         &path_str,
         &tags.title,
@@ -225,5 +240,6 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
 
 pub fn remove_media_file(db: &Arc<Database>, path: &Path) {
     let path_str = path.to_string_lossy().to_string();
+    info!("Removed file: {}", path_str);
     let _ = db.remove_track_by_path(&path_str);
 }
