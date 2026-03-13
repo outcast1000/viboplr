@@ -22,6 +22,5 @@ export const store = new LazyStore("app-state.json", {
     searchProviders: null,
     autoContinueEnabled: false,
     autoContinueWeights: { random: 40, sameArtist: 20, sameTag: 20, mostPlayed: 10, liked: 10 },
-    showStatusBar: true,
   },
 });

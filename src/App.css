@@ -55,13 +55,6 @@ body {
   padding: 16px 12px;
 }
 
-.logo {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--accent);
-  margin-bottom: 24px;
-  letter-spacing: -0.5px;
-}
 
 .nav {
   display: flex;
@@ -75,10 +68,10 @@ body {
   border: none;
   color: var(--text-secondary);
   text-align: left;
-  padding: 8px 12px;
+  padding: 10px 12px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   transition: all 0.15s;
 }
 
@@ -504,22 +497,25 @@ body {
 .log-empty { color: var(--text-secondary); padding: 12px 0; }
 
 /* Status bar */
-.app.has-status-bar {
-  grid-template-rows: 1fr 80px 24px;
-}
-
-.app.has-status-bar .sidebar {
-  grid-row: 1 / 4;
-}
-
 .status-bar {
-  grid-column: 1 / -1;
-  grid-row: 3;
+  position: fixed;
+  bottom: 80px;
+  left: 220px;
+  right: 0;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
-  position: relative;
   height: 24px;
   z-index: 100;
+  opacity: 0;
+  transform: translateY(100%);
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+}
+
+.status-bar.status-bar-visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 
 .status-bar-content {
@@ -555,9 +551,6 @@ body {
   white-space: nowrap;
 }
 
-.status-bar-version {
-  opacity: 0.5;
-}
 
 .status-bar-time {
   flex-shrink: 0;

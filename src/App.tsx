@@ -65,7 +65,6 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [sessionLog, setSessionLog] = useState<{ time: Date; message: string }[]>([]);
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
-  const [showStatusBar, setShowStatusBar] = useState(true);
 
   // Image state
   const [artistImages, setArtistImages] = useState<Record<number, string | null>>({});
@@ -121,7 +120,7 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy, cf, sb] = await Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy, cf] = await Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -138,7 +137,6 @@ function App() {
           store.get<number | null>("windowX"),
           store.get<number | null>("windowY"),
           store.get<number>("crossfadeSecs"),
-          store.get<boolean>("showStatusBar"),
         ]);
         if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -150,7 +148,6 @@ function App() {
         if (st !== undefined && st !== null) library.setSelectedTag(st);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
-        if (sb !== undefined && sb !== null) setShowStatusBar(sb);
         if (tid !== undefined && tid !== null) {
           try {
             const track = await invoke<Track>("get_track_by_id", { trackId: tid });
@@ -553,14 +550,6 @@ function App() {
     store.set("crossfadeSecs", secs);
   }
 
-  function handleToggleStatusBar() {
-    setShowStatusBar(prev => {
-      const next = !prev;
-      store.set("showStatusBar", next);
-      return next;
-    });
-  }
-
   async function handleRemoveCollection(collectionId: number) {
     await invoke("remove_collection", { collectionId });
     library.loadLibrary();
@@ -589,7 +578,7 @@ function App() {
     searchQuery, sortedTracks, sortField, highlightedIndex } = library;
 
   return (
-    <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${showStatusBar ? "has-status-bar" : ""}`} onClick={() => setContextMenu(null)}>
+    <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -610,10 +599,6 @@ function App() {
 
       <Sidebar
         view={view}
-        trackCount={library.trackCount}
-        artistCount={artists.length}
-        albumCount={library.albumCount}
-        tagCount={tags.length}
         selectedAlbum={selectedAlbum}
         selectedArtist={selectedArtist}
         onShowAll={library.handleShowAll}
@@ -674,8 +659,6 @@ function App() {
           onSaveProviders={handleSaveProviders}
           crossfadeSecs={crossfadeSecs}
           onCrossfadeChange={handleCrossfadeChange}
-          showStatusBar={showStatusBar}
-          onToggleStatusBar={handleToggleStatusBar}
         />
       )}
 
@@ -1049,7 +1032,7 @@ function App() {
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
       />
 
-      {showStatusBar && <StatusBar sessionLog={sessionLog} />}
+      <StatusBar sessionLog={sessionLog} />
     </div>
   );
 }

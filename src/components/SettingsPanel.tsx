@@ -59,8 +59,6 @@ interface SettingsPanelProps {
   crossfadeSecs: number;
   onCrossfadeChange: (secs: number) => void;
   onSaveProviders: (providers: SearchProviderConfig[]) => void;
-  showStatusBar: boolean;
-  onToggleStatusBar: () => void;
 }
 
 interface ProviderFormData {
@@ -78,8 +76,6 @@ export function SettingsPanel({
   onClearImageFailures, onSaveProviders,
   crossfadeSecs,
   onCrossfadeChange,
-  showStatusBar,
-  onToggleStatusBar,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<"main" | "collections" | "providers">("main");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -183,15 +179,6 @@ export function SettingsPanel({
                 className="settings-slider"
               />
               <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
-            </div>
-            <div className="settings-row">
-              <label className="settings-label">Status Bar</label>
-              <button
-                className={`provider-toggle ${showStatusBar ? "provider-toggle-on" : ""}`}
-                onClick={onToggleStatusBar}
-              >
-                {showStatusBar ? "On" : "Off"}
-              </button>
             </div>
             <button className="add-folder-btn" onClick={onClearImageFailures}>
               Retry Failed Image Downloads
