@@ -94,6 +94,13 @@ function App() {
     setFailedArtistImages, setFailedAlbumImages,
   });
 
+  // Disable default browser context menu globally
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { e.preventDefault(); };
+    document.addEventListener("contextmenu", handler);
+    return () => document.removeEventListener("contextmenu", handler);
+  }, []);
+
   // Restore persisted state on mount
   useEffect(() => {
     (async () => {
