@@ -30,6 +30,7 @@ import { Breadcrumb } from "./components/Breadcrumb";
 import { AlbumCardArt } from "./components/AlbumCardArt";
 import { ImageActions } from "./components/ImageActions";
 import { HistoryView } from "./components/HistoryView";
+import { StatusBar } from "./components/StatusBar";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
@@ -60,10 +61,9 @@ function App() {
   const [showAddServer, setShowAddServer] = useState(false);
   const [serverForm, setServerForm] = useState({ name: "", url: "", username: "", password: "" });
   const [showSettings, setShowSettings] = useState(false);
-  const [notifications, setNotifications] = useState<{ id: number; text: string }[]>([]);
   const [sessionLog, setSessionLog] = useState<{ time: Date; message: string }[]>([]);
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
-  const notifIdRef = useRef(0);
+  const [showStatusBar, setShowStatusBar] = useState(true);
 
   // Image state
   const [artistImages, setArtistImages] = useState<Record<number, string | null>>({});
@@ -73,26 +73,26 @@ function App() {
   const [failedArtistImages, setFailedArtistImages] = useState<Set<number>>(new Set());
   const [failedAlbumImages, setFailedAlbumImages] = useState<Set<number>>(new Set());
 
-  function addNotification(text: string) {
-    const id = ++notifIdRef.current;
-    setNotifications(prev => [...prev, { id, text }]);
-    setTimeout(() => setNotifications(prev => prev.filter(n => n.id !== id)), 3000);
-  }
-
   function addLog(message: string) {
     setSessionLog(prev => [...prev, { time: new Date(), message }]);
   }
+
+  // Refs for latest artists/albums (needed by useEventListeners to avoid stale closures)
+  const artistsRef = useRef(library.artists);
+  artistsRef.current = library.artists;
+  const albumsRef = useRef(library.albums);
+  albumsRef.current = library.albums;
 
   // Event listeners
   useEventListeners({
     loadLibrary: library.loadLibrary,
     loadTracks: library.loadTracks,
-    addNotification,
     addLog,
     setScanning, setScanProgress,
     setSyncing, setSyncProgress,
     setArtistImages, setAlbumImages,
     setFailedArtistImages, setFailedAlbumImages,
+    artistsRef, albumsRef,
   });
 
   // Paste image onto artist/album
@@ -101,9 +101,11 @@ function App() {
     selectedArtist: library.selectedArtist,
     selectedAlbum: library.selectedAlbum,
     searchQuery: library.searchQuery,
+    artists: library.artists,
+    albums: library.albums,
     setArtistImages,
     setAlbumImages,
-    addNotification,
+    addLog,
   });
 
   // Disable default browser context menu globally
@@ -117,7 +119,7 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy, cf] = await Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy, cf, sb] = await Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -134,6 +136,7 @@ function App() {
           store.get<number | null>("windowX"),
           store.get<number | null>("windowY"),
           store.get<number>("crossfadeSecs"),
+          store.get<boolean>("showStatusBar"),
         ]);
         if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -145,6 +148,7 @@ function App() {
         if (st !== undefined && st !== null) library.setSelectedTag(st);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
+        if (sb !== undefined && sb !== null) setShowStatusBar(sb);
         if (tid !== undefined && tid !== null) {
           try {
             const track = await invoke<Track>("get_track_by_id", { trackId: tid });
@@ -232,7 +236,6 @@ function App() {
         setArtistImages((prev) => ({ ...prev, [library.selectedArtist!]: path }));
       } else {
         invoke("fetch_artist_image", { artistId: library.selectedArtist, artistName: artist.name });
-        addLog("Requested artist image: " + artist.name);
       }
     });
   }, [library.selectedArtist, library.artists]);
@@ -255,7 +258,6 @@ function App() {
         setAlbumImages((prev) => ({ ...prev, [album.id]: path }));
       } else {
         invoke("fetch_album_image", { albumId: album.id, albumTitle: album.title, artistName: album.artist_name });
-        addLog("Requested album image: " + album.title);
       }
     });
   }, []);
@@ -416,7 +418,6 @@ function App() {
       setFailedAlbumImages(new Set());
       setFetchedArtistImages(new Set());
       setFetchedAlbumImages(new Set());
-      addNotification("Image failures cleared - images will be retried");
       addLog("Cleared image fetch failures");
     } catch (e) {
       console.error("Failed to clear image failures:", e);
@@ -431,6 +432,14 @@ function App() {
   function handleCrossfadeChange(secs: number) {
     setCrossfadeSecs(secs);
     store.set("crossfadeSecs", secs);
+  }
+
+  function handleToggleStatusBar() {
+    setShowStatusBar(prev => {
+      const next = !prev;
+      store.set("showStatusBar", next);
+      return next;
+    });
   }
 
   async function handleRemoveCollection(collectionId: number) {
@@ -461,7 +470,7 @@ function App() {
     searchQuery, sortedTracks, sortField, highlightedIndex } = library;
 
   return (
-    <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""}`} onClick={() => setContextMenu(null)}>
+    <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${showStatusBar ? "has-status-bar" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -533,7 +542,6 @@ function App() {
       {showSettings && (
         <SettingsPanel
           collections={library.collections}
-          sessionLog={sessionLog}
           searchProviders={searchProviders}
           onClose={() => setShowSettings(false)}
           onAddFolder={handleAddFolder}
@@ -547,6 +555,8 @@ function App() {
           onSaveProviders={handleSaveProviders}
           crossfadeSecs={crossfadeSecs}
           onCrossfadeChange={handleCrossfadeChange}
+          showStatusBar={showStatusBar}
+          onToggleStatusBar={handleToggleStatusBar}
         />
       )}
 
@@ -915,12 +925,7 @@ function App() {
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
       />
 
-      {/* Toast notifications */}
-      <div className="notifications">
-        {notifications.map(n => (
-          <div key={n.id} className="toast">{n.text}</div>
-        ))}
-      </div>
+      {showStatusBar && <StatusBar sessionLog={sessionLog} />}
     </div>
   );
 }
