@@ -17,6 +17,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   const [selectedAlbum, setSelectedAlbum] = useState<number | null>(null);
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [highlightedListIndex, setHighlightedListIndex] = useState(-1);
 
   // Sort state
   const [sortField, setSortField] = useState<SortField | null>(null);
@@ -90,6 +91,9 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     setSortField(null);
     setSortDir("asc");
   }, [tracks]);
+
+  // Reset list highlight when search or view changes
+  useEffect(() => { setHighlightedListIndex(-1); }, [searchQuery, view, selectedArtist, selectedAlbum, selectedTag]);
 
   function handleSort(field: SortField) {
     if (sortField === field) {
@@ -172,6 +176,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     selectedAlbum, setSelectedAlbum,
     selectedTag, setSelectedTag,
     highlightedIndex, setHighlightedIndex,
+    highlightedListIndex, setHighlightedListIndex,
     sortField, sortDir,
     sortedTracks,
     handleSort, sortIndicator,

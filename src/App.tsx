@@ -30,6 +30,7 @@ import { Breadcrumb } from "./components/Breadcrumb";
 import { AlbumCardArt } from "./components/AlbumCardArt";
 import { ImageActions } from "./components/ImageActions";
 import { HistoryView } from "./components/HistoryView";
+import type { HistoryViewHandle } from "./components/HistoryView";
 import { StatusBar } from "./components/StatusBar";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -38,6 +39,7 @@ function App() {
   const restoredRef = useRef(false);
   const trackListRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const historyRef = useRef<HistoryViewHandle>(null);
   const previousVolumeRef = useRef(1.0);
 
   // Core hooks
@@ -64,6 +66,7 @@ function App() {
   const [serverForm, setServerForm] = useState({ name: "", url: "", username: "", password: "" });
   const [showSettings, setShowSettings] = useState(false);
   const [sessionLog, setSessionLog] = useState<{ time: Date; message: string }[]>([]);
+  const [statusHint, setStatusHint] = useState<string | null>(null);
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
 
   // Image state
@@ -575,7 +578,34 @@ function App() {
   }
 
   const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags, tracks,
-    searchQuery, sortedTracks, sortField, highlightedIndex } = library;
+    searchQuery, sortedTracks, sortField, highlightedIndex, highlightedListIndex } = library;
+
+  // Filtered lists for keyboard navigation
+  const filteredArtists = (() => {
+    if (view !== "artists" || selectedArtist !== null) return [];
+    const q = searchQuery.trim().toLowerCase();
+    return q ? artists.filter(a => stripAccents(a.name.toLowerCase()).includes(stripAccents(q))) : artists;
+  })();
+
+  const filteredAlbums = (() => {
+    if (view !== "albums") return [];
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return albums;
+    const sq = stripAccents(q);
+    return albums.filter(a =>
+      stripAccents(a.title.toLowerCase()).includes(sq) ||
+      (a.artist_name ? stripAccents(a.artist_name.toLowerCase()).includes(sq) : false)
+    );
+  })();
+
+  const filteredTags = (() => {
+    if (view !== "tags" || selectedTag !== null) return [];
+    const q = searchQuery.trim().toLowerCase();
+    return q ? tags.filter(t => stripAccents(t.name.toLowerCase()).includes(stripAccents(q))) : tags;
+  })();
+
+  const isListView = (view === "artists" && selectedArtist === null) || view === "albums" || (view === "tags" && selectedTag === null);
+  const isHistoryView = view === "history";
 
   return (
     <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""}`} onClick={() => setContextMenu(null)}>
@@ -601,6 +631,11 @@ function App() {
         view={view}
         selectedAlbum={selectedAlbum}
         selectedArtist={selectedArtist}
+        trackCount={library.trackCount}
+        artistCount={artists.length}
+        albumCount={library.albumCount}
+        tagCount={tags.length}
+        onNavHover={setStatusHint}
         onShowAll={library.handleShowAll}
         onShowArtists={() => {
           library.setView("artists");
@@ -687,26 +722,90 @@ function App() {
             value={searchQuery}
             onChange={(e) => library.setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                library.setHighlightedIndex((prev) => {
-                  const next = Math.min(prev + 1, tracks.length - 1);
-                  trackListRef.current?.children[next + 1]?.scrollIntoView({ block: "nearest" });
-                  return next;
-                });
-              } else if (e.key === "ArrowUp") {
-                e.preventDefault();
-                library.setHighlightedIndex((prev) => {
-                  const next = Math.max(prev - 1, 0);
-                  trackListRef.current?.children[next + 1]?.scrollIntoView({ block: "nearest" });
-                  return next;
-                });
-              } else if (e.key === "Enter" && highlightedIndex >= 0 && highlightedIndex < tracks.length) {
-                e.preventDefault();
-                if (e.shiftKey) {
-                  queueHook.enqueueTracks([tracks[highlightedIndex]]);
-                } else {
-                  queueHook.playTracks([tracks[highlightedIndex]], 0);
+              if (e.ctrlKey || e.metaKey || e.altKey) return;
+              if (isHistoryView) {
+                const count = historyRef.current?.count ?? 0;
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  library.setHighlightedListIndex((prev) => {
+                    const next = Math.min(prev + 1, count - 1);
+                    document.querySelector(`.history-row[data-history-index="${next}"]`)?.scrollIntoView({ block: "nearest" });
+                    return next;
+                  });
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  library.setHighlightedListIndex((prev) => {
+                    const next = Math.max(prev - 1, 0);
+                    document.querySelector(`.history-row[data-history-index="${next}"]`)?.scrollIntoView({ block: "nearest" });
+                    return next;
+                  });
+                } else if (e.key === "Enter" && highlightedListIndex >= 0 && highlightedListIndex < count) {
+                  e.preventDefault();
+                  if (e.shiftKey) {
+                    historyRef.current?.enqueueItem(highlightedListIndex);
+                  } else {
+                    historyRef.current?.playItem(highlightedListIndex);
+                  }
+                }
+              } else if (isListView) {
+                const list = view === "artists" ? filteredArtists : view === "albums" ? filteredAlbums : filteredTags;
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  library.setHighlightedListIndex((prev) => {
+                    const next = Math.min(prev + 1, list.length - 1);
+                    if (view === "albums") {
+                      document.querySelector(`.album-grid .album-card:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
+                    } else {
+                      document.querySelector(`.list .list-item:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
+                    }
+                    return next;
+                  });
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  library.setHighlightedListIndex((prev) => {
+                    const next = Math.max(prev - 1, 0);
+                    if (view === "albums") {
+                      document.querySelector(`.album-grid .album-card:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
+                    } else {
+                      document.querySelector(`.list .list-item:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
+                    }
+                    return next;
+                  });
+                } else if (e.key === "Enter" && highlightedListIndex >= 0 && highlightedListIndex < list.length) {
+                  e.preventDefault();
+                  const item = list[highlightedListIndex];
+                  if (view === "artists") {
+                    library.handleArtistClick(item.id);
+                  } else if (view === "albums") {
+                    library.handleAlbumClick(item.id);
+                  } else {
+                    library.setSelectedTag(item.id);
+                    library.setSearchQuery("");
+                    library.setView("all");
+                  }
+                }
+              } else {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  library.setHighlightedIndex((prev) => {
+                    const next = Math.min(prev + 1, tracks.length - 1);
+                    trackListRef.current?.children[next + 1]?.scrollIntoView({ block: "nearest" });
+                    return next;
+                  });
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  library.setHighlightedIndex((prev) => {
+                    const next = Math.max(prev - 1, 0);
+                    trackListRef.current?.children[next + 1]?.scrollIntoView({ block: "nearest" });
+                    return next;
+                  });
+                } else if (e.key === "Enter" && highlightedIndex >= 0 && highlightedIndex < tracks.length) {
+                  e.preventDefault();
+                  if (e.shiftKey) {
+                    queueHook.enqueueTracks([tracks[highlightedIndex]]);
+                  } else {
+                    queueHook.playTracks([tracks[highlightedIndex]], 0);
+                  }
                 }
               }
             }}
@@ -757,15 +856,12 @@ function App() {
           />
 
           {/* Artist list */}
-          {view === "artists" && selectedArtist === null && (() => {
-            const q = searchQuery.trim().toLowerCase();
-            const filtered = q ? artists.filter(a => stripAccents(a.name.toLowerCase()).includes(stripAccents(q))) : artists;
-            return (
+          {view === "artists" && selectedArtist === null && (
               <div className="list">
-                {filtered.map((a) => (
+                {filteredArtists.map((a, i) => (
                   <div
                     key={a.id}
-                    className="list-item"
+                    className={`list-item${i === highlightedListIndex ? " highlighted" : ""}`}
                     onClick={() => library.handleArtistClick(a.id)}
                     onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
                   >
@@ -773,12 +869,11 @@ function App() {
                     <span className="list-count">{a.track_count}</span>
                   </div>
                 ))}
-                {filtered.length === 0 && (
-                  <div className="empty">{q ? `No artists matching "${searchQuery}"` : "No artists found. Add a folder or server to get started."}</div>
+                {filteredArtists.length === 0 && (
+                  <div className="empty">{searchQuery.trim() ? `No artists matching "${searchQuery}"` : "No artists found. Add a folder or server to get started."}</div>
                 )}
               </div>
-            );
-          })()}
+          )}
 
           {/* Artist detail view */}
           {view === "artists" && selectedArtist !== null && (() => {
@@ -852,17 +947,10 @@ function App() {
           })()}
 
           {/* All albums view */}
-          {view === "albums" && (() => {
-            const q = searchQuery.trim().toLowerCase();
-            const filtered = q ? albums.filter(a => {
-              const sq = stripAccents(q);
-              return stripAccents(a.title.toLowerCase()).includes(sq) ||
-                (a.artist_name ? stripAccents(a.artist_name.toLowerCase()).includes(sq) : false);
-            }) : albums;
-            return (
+          {view === "albums" && (
               <div className="album-grid" style={{ padding: 16 }}>
-                {filtered.map((a) => (
-                  <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
+                {filteredAlbums.map((a, i) => (
+                  <div key={a.id} className={`album-card${i === highlightedListIndex ? " highlighted" : ""}`} onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
                     <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={fetchAlbumImageOnDemand} />
                     <div className="album-card-body">
                       <div className="album-card-title" title={a.title}>{a.title}</div>
@@ -873,35 +961,30 @@ function App() {
                     </div>
                   </div>
                 ))}
-                {filtered.length === 0 && (
-                  <div className="empty">{q ? `No albums matching "${searchQuery}"` : "No albums found."}</div>
+                {filteredAlbums.length === 0 && (
+                  <div className="empty">{searchQuery.trim() ? `No albums matching "${searchQuery}"` : "No albums found."}</div>
                 )}
               </div>
-            );
-          })()}
+          )}
 
           {/* Tags list view */}
-          {view === "tags" && selectedTag === null && (() => {
-            const q = searchQuery.trim().toLowerCase();
-            const filtered = q ? tags.filter(t => stripAccents(t.name.toLowerCase()).includes(stripAccents(q))) : tags;
-            return (
+          {view === "tags" && selectedTag === null && (
               <div className="list">
-                {filtered.map((t) => (
+                {filteredTags.map((t, i) => (
                   <div
                     key={t.id}
-                    className="list-item"
+                    className={`list-item${i === highlightedListIndex ? " highlighted" : ""}`}
                     onClick={() => { library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
                   >
                     <span>{t.name}</span>
                     <span className="list-count">{t.track_count}</span>
                   </div>
                 ))}
-                {filtered.length === 0 && (
-                  <div className="empty">{q ? `No tags matching "${searchQuery}"` : "No tags found. Add a folder or server to get started."}</div>
+                {filteredTags.length === 0 && (
+                  <div className="empty">{searchQuery.trim() ? `No tags matching "${searchQuery}"` : "No tags found. Add a folder or server to get started."}</div>
                 )}
               </div>
-            );
-          })()}
+          )}
 
           {/* Album detail header */}
           {view === "all" && selectedAlbum !== null && !searchQuery.trim() && (() => {
@@ -978,7 +1061,7 @@ function App() {
 
           {/* History view */}
           {view === "history" && (
-            <HistoryView searchQuery={searchQuery} onPlayTrack={queueHook.playTracks} />
+            <HistoryView ref={historyRef} searchQuery={searchQuery} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={queueHook.enqueueTracks} />
           )}
         </div>
       </main>
@@ -1016,9 +1099,11 @@ function App() {
         volume={playback.volume}
         queueMode={queueHook.queueMode}
         showQueue={queueHook.showQueue}
+        queueCount={queueHook.queue.length}
         autoContinueEnabled={autoContinue.enabled}
         showAutoContinuePopover={autoContinue.showPopover}
         autoContinueWeights={autoContinue.weights}
+        onHint={setStatusHint}
         onPause={playback.handlePause}
         onStop={playback.handleStop}
         onNext={() => queueHook.playNext()}
@@ -1032,7 +1117,7 @@ function App() {
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
       />
 
-      <StatusBar sessionLog={sessionLog} />
+      <StatusBar sessionLog={sessionLog} hint={statusHint} />
     </div>
   );
 }

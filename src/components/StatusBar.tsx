@@ -2,9 +2,10 @@ import { useState, useRef, useEffect } from "react";
 
 interface StatusBarProps {
   sessionLog: { time: Date; message: string }[];
+  hint?: string | null;
 }
 
-export function StatusBar({ sessionLog }: StatusBarProps) {
+export function StatusBar({ sessionLog, hint }: StatusBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [activeMessage, setActiveMessage] = useState<{ message: string; time: Date; isError: boolean } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -31,12 +32,14 @@ export function StatusBar({ sessionLog }: StatusBarProps) {
     return () => document.removeEventListener("mousedown", handler);
   }, [expanded]);
 
-  const visible = activeMessage !== null || expanded;
+  const visible = activeMessage !== null || expanded || !!hint;
 
   return (
     <div className={`status-bar ${visible ? "status-bar-visible" : ""}`} ref={panelRef}>
       <div className="status-bar-content" onClick={() => setExpanded(!expanded)}>
-        {activeMessage && (
+        {hint ? (
+          <span className="status-bar-text">{hint}</span>
+        ) : activeMessage ? (
           <>
             <span className={`status-bar-icon ${activeMessage.isError ? "status-bar-icon-error" : ""}`}>
               {activeMessage.isError ? "\u26A0" : "\u2139"}
@@ -44,7 +47,7 @@ export function StatusBar({ sessionLog }: StatusBarProps) {
             <span className="status-bar-text">{activeMessage.message}</span>
             <span className="status-bar-time">{activeMessage.time.toLocaleTimeString()}</span>
           </>
-        )}
+        ) : null}
       </div>
       {expanded && (
         <div className="status-bar-log">

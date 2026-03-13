@@ -3,6 +3,8 @@ import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
 import { AutoContinuePopover } from "./AutoContinuePopover";
 
+const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
+
 interface NowPlayingBarProps {
   currentTrack: Track | null;
   playing: boolean;
@@ -11,9 +13,11 @@ interface NowPlayingBarProps {
   volume: number;
   queueMode: "normal" | "loop" | "shuffle";
   showQueue: boolean;
+  queueCount: number;
   autoContinueEnabled: boolean;
   showAutoContinuePopover: boolean;
   autoContinueWeights: AutoContinueWeights;
+  onHint: (hint: string | null) => void;
   onPause: () => void;
   onStop: () => void;
   onNext: () => void;
@@ -30,8 +34,9 @@ interface NowPlayingBarProps {
 export function NowPlayingBar({
   currentTrack, playing,
   positionSecs, durationSecs,
-  volume, queueMode, showQueue,
+  volume, queueMode, showQueue, queueCount,
   autoContinueEnabled, showAutoContinuePopover, autoContinueWeights,
+  onHint,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onToggleQueueMode, onToggleQueue,
   onToggleAutoContinue, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
@@ -57,7 +62,11 @@ export function NowPlayingBar({
           </button>
           <button className="ctrl-btn" onClick={onNext} title="Next">{"\u23ED"}</button>
         </div>
-        <div className="now-seek">
+        <div
+          className="now-seek"
+          onMouseEnter={() => onHint(`Seek \u2014 ${mod}\u2190 / ${mod}\u2192`)}
+          onMouseLeave={() => onHint(null)}
+        >
           <span className="time-label">{formatDuration(positionSecs)}</span>
           <input
             type="range"
@@ -96,7 +105,11 @@ export function NowPlayingBar({
             />
           )}
         </div>
-        <div className="now-volume">
+        <div
+          className="now-volume"
+          onMouseEnter={() => onHint(`Volume \u2014 ${mod}\u2191 / ${mod}\u2193, Mute ${mod}M`)}
+          onMouseLeave={() => onHint(null)}
+        >
           <span>{"\uD83D\uDD0A"}</span>
           <input
             type="range"
@@ -110,6 +123,8 @@ export function NowPlayingBar({
         <button
           className={`ctrl-btn queue-toggle-btn ${showQueue ? "active" : ""}`}
           onClick={onToggleQueue}
+          onMouseEnter={() => onHint(`${queueCount} track${queueCount !== 1 ? "s" : ""} in queue \u2014 ${mod}7`)}
+          onMouseLeave={() => onHint(null)}
           title="Queue"
         >
           {"\u2630"}
