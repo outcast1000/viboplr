@@ -8,6 +8,8 @@ import "./App.css";
 import type { Album, Track, View } from "./types";
 import { isVideoTrack, getInitials } from "./utils";
 import { store } from "./store";
+import type { SearchProviderConfig } from "./searchProviders";
+import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
 
 import { usePlayback } from "./hooks/usePlayback";
 import { useQueue } from "./hooks/useQueue";
@@ -50,6 +52,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [notifications, setNotifications] = useState<{ id: number; text: string }[]>([]);
   const [sessionLog, setSessionLog] = useState<{ time: Date; message: string }[]>([]);
+  const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const notifIdRef = useRef(0);
 
   // Image state
@@ -145,6 +148,7 @@ function App() {
         console.error("Failed to restore state:", e);
         await getCurrentWindow().show();
       }
+      loadProviders(store).then(setSearchProviders);
       restoredRef.current = true;
     })();
   }, []);
@@ -359,6 +363,11 @@ function App() {
     }
   }
 
+  function handleSaveProviders(providers: SearchProviderConfig[]) {
+    setSearchProviders(providers);
+    saveProviders(store, providers);
+  }
+
   async function handleRemoveCollection(collectionId: number) {
     await invoke("remove_collection", { collectionId });
     library.loadLibrary();
@@ -452,6 +461,7 @@ function App() {
         <SettingsPanel
           collections={library.collections}
           sessionLog={sessionLog}
+          searchProviders={searchProviders}
           onClose={() => setShowSettings(false)}
           onAddFolder={handleAddFolder}
           onShowAddServer={() => setShowAddServer(true)}
@@ -461,6 +471,7 @@ function App() {
           onClearDatabase={handleClearDatabase}
           clearing={clearing}
           onClearImageFailures={handleClearImageFailures}
+          onSaveProviders={handleSaveProviders}
         />
       )}
 
@@ -798,6 +809,7 @@ function App() {
       {contextMenu && (
         <ContextMenu
           menu={contextMenu}
+          providers={searchProviders}
           onPlay={handleContextPlay}
           onEnqueue={handleContextEnqueue}
           onShowInFolder={handleShowInFolder}

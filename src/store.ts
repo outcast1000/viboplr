@@ -18,5 +18,6 @@ export const store = new LazyStore("app-state.json", {
     windowHeight: null,
     windowX: null,
     windowY: null,
+    searchProviders: null,
   },
 });
