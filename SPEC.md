@@ -50,6 +50,13 @@ All music sources are unified under a **Collections** abstraction. A collection 
 
 Every track belongs to a collection via `collection_id`. The sidebar displays all collections with kind badges, resync buttons, and remove buttons.
 
+**Collection settings:** Each collection can be edited via an Edit Collection modal (`EditCollectionModal` component) with:
+- **Name** — editable display name.
+- **Enabled/Disabled** — a boolean toggle. Disabled collections' tracks are filtered out of all library views and search results via a global `ENABLED_COLLECTION_FILTER`. Disabling is non-destructive; tracks remain in the database.
+- **Auto-update** — a boolean toggle. When enabled, the collection is automatically resynced at a configurable interval.
+- **Update frequency** — selectable interval (15m, 30m, 1h, 3h, 6h, 12h, 24h). Default: 60 minutes.
+- **Last synced** — read-only display of last sync time and duration.
+
 ### 4.2 Local Folder Scanning
 
 - User selects a folder via native directory picker → creates a `local` collection.
@@ -60,6 +67,7 @@ Every track belongs to a collection via `collection_id`. The sidebar displays al
 - Inserts/updates rows in SQLite (`artists`, `albums`, `tags`, `track_tags`, `tracks`).
 - Reports scan progress to the frontend via Tauri events.
 - Each track's `collection_id` is set to the owning collection.
+- **Soft delete:** When files are removed from disk, their tracks are marked as `deleted = 1` rather than being hard-deleted from the database. All track queries filter `WHERE t.deleted = 0`.
 - **Logging:** The scanner logs at `info!` level throughout: scan start (folder path + file count), each file processed ("New file" or "Updated file"), file removals, and scan end (total count + elapsed time).
 
 ### 4.3 Tag Fallback — Filename Regex
@@ -94,9 +102,9 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 
 ### 4.6 Library Browsing
 
-- Browse by **artist**, **album**, **tag**, **liked tracks**, or **all tracks** (flat list).
+- Browse by **artist**, **album**, **tag**, **liked tracks**, **history**, or **all tracks** (flat list).
 - List view (table) with columns: like (heart icon), track number, title, artist, album, duration.
-- Tracks from all collections (local and server) are unified in a single library.
+- Tracks from all enabled collections (local and server) are unified in a single library.
 
 **Artist list sort controls:** A sort bar above the artist list offers Name, Tracks (track count), and Shuffle buttons, plus a heart toggle to float liked artists to the top. Name and Tracks cycle through ascending → descending → unsorted on repeated clicks. Shuffle re-randomizes each click (Fisher-Yates).
 
@@ -193,6 +201,24 @@ When playback reaches the end of the queue in "normal" mode, the player normally
 - **Locate File** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer via `raw_arg` for proper path quoting, or Linux xdg-open).
 - **Search providers**: Dynamic list of enabled search providers (see §4.14). Each provider appears with its icon and a "Search on {name}" label. Clicking opens the provider's URL with `{artist}` and `{title}` placeholders filled in. Only providers with a URL template for the current context (artist/album/track) are shown.
 
+### 4.13 Play History
+
+Every track play is recorded in the `play_history` table with a timestamp. This powers the History view and the "Most Played" auto-continue strategy.
+
+**Backend:**
+- `record_play(track_id)` — inserts a row into `play_history` with the current timestamp. Called by the frontend when a track starts playing.
+- `get_recent_plays(limit)` — returns the most recent play history entries (joined with track/artist/album metadata).
+- `get_most_played(limit)` — returns tracks ranked by total play count (all time).
+- `get_most_played_since(since_ts, limit)` — returns tracks ranked by play count since a given timestamp.
+
+**Frontend (HistoryView component):**
+The History view (`Ctrl/Cmd+6`) displays three sections:
+1. **Most Played — All Time** — top 20 tracks by total play count, showing rank, title, artist, duration, and play count.
+2. **Most Played — Last 30 Days** — top 20 tracks by play count in the last 30 days.
+3. **Recent History** — last 50 individual plays with relative timestamps (e.g., "5m ago", "2h ago", "3d ago").
+
+All sections support search filtering by title and artist name. Clicking a row plays the track.
+
 ### 4.14 Configurable Search Providers
 
 Search providers in the context menu are fully user-configurable: add, remove, edit, enable/disable. Configuration is persisted across sessions via `tauri-plugin-store`.
@@ -254,6 +280,13 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `crossfadeSecs` | `number` | `3` |
 | `autoContinueEnabled` | `boolean` | `false` |
 | `autoContinueWeights` | `{ random, sameArtist, sameTag, mostPlayed, liked }` | `{ 40, 20, 20, 10, 10 }` |
+| `miniMode` | `boolean` | `false` |
+| `miniWindowX` | `number \| null` | `null` |
+| `miniWindowY` | `number \| null` | `null` |
+| `fullWindowWidth` | `number \| null` | `null` |
+| `fullWindowHeight` | `number \| null` | `null` |
+| `fullWindowX` | `number \| null` | `null` |
+| `fullWindowY` | `number \| null` | `null` |
 
 **Behavior:**
 
@@ -261,8 +294,61 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 - On restore, the last track is loaded at the saved position but playback does **not** auto-start — the user must press play. `positionSecs` updates ~4×/sec during playback; the `autoSave: 500` debounce coalesces disk writes.
 - Queue is persisted as an array of track IDs. On restore, tracks are re-fetched via `get_tracks_by_ids`. Missing tracks are silently dropped.
 - Window size and position are stored in logical (CSS) pixels. On restore, size is applied first, then position. On resize/move, saves are debounced at 500 ms. If no saved values exist, the app uses the default window size from `tauri.conf.json`.
+- Mini mode state is persisted separately: full window geometry is saved when entering mini mode and restored when exiting. Mini window position is also saved independently.
 - Saves are debounced at 500 ms (`autoSave: 500`).
 - A `restoredRef` guard prevents save effects from firing before restore completes, avoiding overwriting persisted data with defaults.
+
+### 4.16 Mini Player Mode
+
+A compact, always-on-top floating player that replaces the full window with a minimal transport bar.
+
+**Dimensions:** 40px height, 280–550px width (auto-sized based on track title/artist text width, initial: 500px). The window has no native decorations in mini mode and uses a transparent background for rounded corners on macOS.
+
+**UI (NowPlayingBar mini mode):**
+- Track title and artist name.
+- Previous, play/pause, and next buttons.
+- Expand button (exit mini mode) and close button.
+- A thin progress bar at the bottom showing playback position.
+- Draggable: clicking and dragging anywhere on the bar (except buttons) moves the window via `getCurrentWindow().startDragging()`.
+
+**Toggle:** `Ctrl+Shift+M` (or `Cmd+Shift+M` on macOS). When entering mini mode:
+1. Current full window geometry (size + position) is saved to the store.
+2. Window resizes to mini dimensions.
+3. Mini window position is restored from store (if previously saved), otherwise stays at current position.
+4. Window becomes always-on-top with no decorations.
+
+When exiting mini mode:
+1. Mini window position is saved.
+2. Full window geometry is restored.
+3. Always-on-top and decorations are restored to normal.
+
+**Auto-resize:** When the current track changes while in mini mode, the mini player recalculates its width based on the track title and artist text to avoid unnecessary truncation (clamped to `MINI_MIN_WIDTH`–`MINI_MAX_WIDTH`).
+
+**macOS transparency:** On macOS, the native window background is set to transparent via Cocoa APIs (`NSWindow.setBackgroundColor_(NSColor::clearColor)`) to allow CSS rounded corners on the mini player.
+
+### 4.17 Keyboard Shortcuts
+
+All shortcuts use `Ctrl` on Windows/Linux and `Cmd` on macOS.
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+1` | Show All Tracks view |
+| `Ctrl+2` | Show Artists view |
+| `Ctrl+3` | Show Albums view |
+| `Ctrl+4` | Show Tags view |
+| `Ctrl+5` | Show Liked Tracks view |
+| `Ctrl+6` | Show History view |
+| `Ctrl+7` | Toggle Queue panel |
+| `Ctrl+M` | Toggle mute (mute/unmute volume) |
+| `Ctrl+Shift+M` | Toggle mini player mode |
+| `Ctrl+←` | Seek backward 15 seconds |
+| `Ctrl+→` | Seek forward 15 seconds |
+| `Ctrl+↑` | Volume up (+5%) |
+| `Ctrl+↓` | Volume down (-5%) |
+| `Ctrl+>` | Next track |
+| `Ctrl+<` | Previous track |
+
+Track list keyboard navigation (without modifier): arrow keys to navigate tracks, Enter to play, Shift+Enter to enqueue.
 
 ## 5. Database Schema
 
@@ -288,16 +374,20 @@ CREATE TABLE tags (
 );
 
 CREATE TABLE collections (
-    id              INTEGER PRIMARY KEY,
-    kind            TEXT NOT NULL,           -- 'local', 'subsonic', 'seed'
-    name            TEXT NOT NULL,           -- display name
-    path            TEXT,                    -- local folder path (local only)
-    url             TEXT,                    -- server base URL (subsonic only)
-    username        TEXT,                    -- (subsonic only)
-    password_token  TEXT,                    -- md5 token or plaintext (subsonic only)
-    salt            TEXT,                    -- (subsonic only, NULL for plaintext auth)
-    auth_method     TEXT DEFAULT 'token',    -- 'token' or 'plaintext' (subsonic only)
-    last_synced_at  INTEGER
+    id                          INTEGER PRIMARY KEY,
+    kind                        TEXT NOT NULL,           -- 'local', 'subsonic', 'seed'
+    name                        TEXT NOT NULL,           -- display name
+    path                        TEXT,                    -- local folder path (local only)
+    url                         TEXT,                    -- server base URL (subsonic only)
+    username                    TEXT,                    -- (subsonic only)
+    password_token              TEXT,                    -- md5 token or plaintext (subsonic only)
+    salt                        TEXT,                    -- (subsonic only, NULL for plaintext auth)
+    auth_method                 TEXT DEFAULT 'token',    -- 'token' or 'plaintext' (subsonic only)
+    last_synced_at              INTEGER,
+    auto_update                 INTEGER NOT NULL DEFAULT 0,
+    auto_update_interval_mins   INTEGER NOT NULL DEFAULT 60,
+    enabled                     INTEGER NOT NULL DEFAULT 1,
+    last_sync_duration_secs     REAL
 );
 
 CREATE TABLE tracks (
@@ -314,13 +404,29 @@ CREATE TABLE tracks (
     added_at        INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     collection_id   INTEGER REFERENCES collections(id),
     subsonic_id     TEXT,
-    liked           INTEGER NOT NULL DEFAULT 0
+    liked           INTEGER NOT NULL DEFAULT 0,
+    deleted         INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE track_tags (
     track_id    INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
     tag_id      INTEGER REFERENCES tags(id) ON DELETE CASCADE,
     UNIQUE(track_id, tag_id)
+);
+
+CREATE TABLE play_history (
+    id        INTEGER PRIMARY KEY,
+    track_id  INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    played_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+CREATE INDEX idx_play_history_track ON play_history(track_id);
+CREATE INDEX idx_play_history_time  ON play_history(played_at);
+
+CREATE TABLE image_fetch_failures (
+    kind       TEXT NOT NULL,        -- 'artist' or 'album'
+    item_id    INTEGER NOT NULL,
+    failed_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+    UNIQUE(kind, item_id)
 );
 
 -- Full-text search
@@ -335,7 +441,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 );
 ```
 
-**Migration:** On upgrade from the old schema, the `folders` table is automatically migrated to `collections` with `kind='local'`. Existing tracks are linked to their collection by path prefix matching. The `folders` table is dropped after migration.
+**Migration:** On upgrade from the old schema, the `folders` table is automatically migrated to `collections` with `kind='local'`. Existing tracks are linked to their collection by path prefix matching. The `folders` table is dropped after migration. Additional migrations add `deleted` to tracks, `liked` to artists/albums/tracks, `auto_update`/`auto_update_interval_mins`/`enabled`/`last_sync_duration_secs` to collections.
 
 ## 6. Architecture
 
@@ -357,10 +463,13 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 ┌──────────────────▼──────────────────────────┐
 │                Tauri Commands               │
 │  add_collection, remove_collection,         │
-│  get_collections, resync_collection,        │
+│  update_collection, get_collections,        │
+│  resync_collection,                         │
 │  get_artists, get_albums, get_tracks,       │
 │  get_tags, search, toggle_track_liked,      │
-│  show_in_folder, get_track_path             │
+│  show_in_folder, get_track_path,            │
+│  record_play, get_recent_plays,             │
+│  get_most_played, get_most_played_since     │
 └──┬───────────┬───────────┬──────────────────┘
    │           │           │
    ▼           ▼           ▼
@@ -386,6 +495,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | ----------------------- | ------------------------------------------------------- | ------------------ |
 | `add_collection`        | `kind, name, path?, url?, username?, password?`         | `Collection`       |
 | `remove_collection`     | `collection_id: i64`                                    | `()`               |
+| `update_collection`     | `collection_id: i64, name: String, auto_update: bool, auto_update_interval_mins: i64, enabled: bool` | `()` |
 | `get_collections`       | —                                                       | `Vec<Collection>`  |
 | `resync_collection`     | `collection_id: i64`                                    | `()`               |
 
@@ -398,6 +508,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `get_tracks`            | `album_id: Option<i64>`     | `Vec<Track>`             |
 | `get_track_count`       | —                           | `i64`                    |
 | `get_track_by_id`       | `track_id: i64`             | `Track`                  |
+| `get_tracks_by_ids`     | `ids: Vec<i64>`             | `Vec<Track>`             |
 | `get_tracks_by_artist`  | `artist_id: i64`            | `Vec<Track>`             |
 | `get_tags`              | —                           | `Vec<Tag>`               |
 | `get_tags_for_track`    | `track_id: i64`             | `Vec<Tag>`               |
@@ -411,6 +522,31 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `show_in_folder`        | `track_id: i64`             | `()`                     |
 | `rebuild_search_index`  | —                           | `()`                     |
 | `get_auto_continue_track` | `strategy: String, current_track_id: i64` | `Option<Track>` |
+
+### Play History Commands
+
+| Command                 | Args                        | Returns                  |
+| ----------------------- | --------------------------- | ------------------------ |
+| `record_play`           | `track_id: i64`             | `()`                     |
+| `get_recent_plays`      | `limit: i64`                | `Vec<PlayHistoryEntry>`  |
+| `get_most_played`       | `limit: i64`                | `Vec<MostPlayedTrack>`   |
+| `get_most_played_since` | `since_ts: i64, limit: i64` | `Vec<MostPlayedTrack>`   |
+
+### Image Commands
+
+| Command                 | Args                        | Returns                  |
+| ----------------------- | --------------------------- | ------------------------ |
+| `get_artist_image`      | `artist_id: i64`            | `Option<String>` (path)  |
+| `fetch_artist_image`    | `artist_id: i64, artist_name: String` | `()` (fire-and-forget) |
+| `set_artist_image`      | `artist_id: i64, source_path: String` | `String` (dest path)  |
+| `paste_artist_image`    | `artist_id: i64, image_data: Vec<u8>` | `String` (dest path)  |
+| `remove_artist_image`   | `artist_id: i64`            | `()`                     |
+| `get_album_image`       | `album_id: i64`             | `Option<String>` (path)  |
+| `fetch_album_image`     | `album_id: i64, album_title: String, artist_name?: String` | `()` (fire-and-forget) |
+| `set_album_image`       | `album_id: i64, source_path: String` | `String` (dest path)   |
+| `paste_album_image`     | `album_id: i64, image_data: Vec<u8>` | `String` (dest path)   |
+| `remove_album_image`    | `album_id: i64`             | `()`                     |
+| `clear_image_failures`  | —                           | `()`                     |
 
 ### Debug-Only Commands
 
@@ -444,7 +580,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 
 ## 9. Platform Notes
 
-- **macOS:** `.dmg` distribution, native title bar, media key support via `souvlaki` crate.
+- **macOS:** `.dmg` distribution, native title bar, media key support via `souvlaki` crate. Transparent window background for mini player rounded corners.
 - **Windows:** `.msi` / `.exe` installer, taskbar controls, media key support via `souvlaki` crate.
 
 ## 10. Out of Scope (v1)
@@ -496,6 +632,84 @@ LEFT JOIN tags tg ON tt.tag_id = tg.id
 GROUP BY t.id
 ```
 
+### 11.2 Subsonic Authentication
+
+The Subsonic API supports two auth modes:
+
+1. **Token auth** (preferred): `u={user}&t={md5(password+salt)}&s={salt}` — password never sent over the wire.
+2. **Plaintext auth** (fallback): `u={user}&p={password}` — used when the server does not support token auth.
+
+On initial connection, `SubsonicClient::new()` tries token auth first and falls back to plaintext if the ping fails. The chosen method, token, and salt are persisted in the `collections` table so subsequent syncs reconstruct the client via `SubsonicClient::from_stored()` without needing the original password.
+
+### 11.3 LIFO Image Download Queue
+
+Artist and album image fetching is handled by a single background worker thread with a LIFO (last-in, first-out) queue. This ensures that the most recently requested images (i.e., whatever the user is currently looking at) are downloaded first.
+
+**Architecture:**
+- `AppState` holds a shared `DownloadQueue` containing a `Mutex<Vec<ImageDownloadRequest>>` and a `Condvar`.
+- `fetch_artist_image` and `fetch_album_image` commands are fire-and-forget: they push a request onto the queue and return immediately.
+- A single worker thread (spawned at app startup) waits on the condvar, pops the **last** item from the vec (LIFO), and processes it.
+- Before downloading, the worker checks if the image file already exists on disk and skips if so (deduplication).
+- **Failure tracking:** Before attempting a download, the worker also checks the `image_fetch_failures` table. If the item has a recorded failure, the download is skipped. On failure, the worker records the failure via `record_image_failure()`. The `clear_image_failures` command allows retrying all previously failed downloads.
+- After each download, the worker sleeps 1100ms to respect rate limits (1 request/second with margin).
+- On success, the worker emits `artist-image-ready` / `album-image-ready` events. On failure, it emits `artist-image-error` / `album-image-error` events.
+- All logging is done via `log::info!` / `log::warn!` in Rust — no JS console logging for image downloads.
+
+**Manual image management:**
+- `set_artist_image` / `set_album_image` — copy an image from a local file path to the app's image directory.
+- `paste_artist_image` / `paste_album_image` — write raw image bytes (e.g., from clipboard paste) to the app's image directory. Image format (PNG/JPG) is auto-detected from magic bytes.
+- `remove_artist_image` / `remove_album_image` — delete an image from the app's image directory.
+
+### 11.4 Playback Resolution
+
+`get_track_path` returns different values based on track type:
+
+- **Local track** (`subsonic_id` is NULL): returns the filesystem path. Frontend wraps it with `convertFileSrc()` for `asset://` protocol.
+- **Server track** (`subsonic_id` is set): constructs a full streaming URL `{server}/rest/stream.view?id={subsonic_id}&{auth_params}`. Frontend uses the URL directly as the `<audio>` src.
+
+### 11.5 Extensible Image Provider System
+
+Image fetching uses a trait-based provider system (`src-tauri/src/image_provider/`) so new sources can be added without touching the download queue, commands, or frontend.
+
+**Two separate traits:**
+- `ArtistImageProvider` — `name() -> &str`, `fetch_artist_image(artist_name, dest_path) -> Result<(), String>`
+- `AlbumImageProvider` — `name() -> &str`, `fetch_album_image(title, artist_name?, dest_path) -> Result<(), String>`
+
+Two traits rather than one combined trait because providers may only support one entity type (e.g., Cover Art Archive only does albums, embedded artwork only does albums). Both traits require `Send + Sync` since the worker thread holds them via `Arc<dyn Trait>`.
+
+**Fallback chains:**
+- `ArtistImageFallbackChain` and `AlbumImageFallbackChain` each hold a `Vec<Box<dyn Provider>>`, implement the corresponding trait, and try each provider in order. Failures are logged; the last error is returned if all providers fail.
+
+**Built-in providers:**
+
+| Provider | File | Artist | Album | Notes |
+|----------|------|--------|-------|-------|
+| Deezer | `deezer.rs` | Yes | Yes | Searches Deezer API for artist photos and album covers |
+| iTunes | `itunes.rs` | Yes | Yes | Searches iTunes Search API |
+| AudioDB | `audiodb.rs` | Yes | No | Searches TheAudioDB for artist images |
+| MusicBrainz | `musicbrainz.rs` | Yes | Yes | Searches MusicBrainz + Wikimedia Commons (artists) / Cover Art Archive (albums) |
+| Embedded | `embedded.rs` | No | Yes | Extracts embedded artwork from the first local audio file of the album using `lofty` |
+
+**Default fallback order:**
+- Artists: Deezer → iTunes → AudioDB → MusicBrainz
+- Albums: Embedded → iTunes → Deezer → MusicBrainz
+
+**Shared utilities (`image_provider/mod.rs`):**
+- `urlencoded()` — percent-encodes strings for API queries.
+- `http_client()` — builds a `reqwest::blocking::Client` with the FastPlayer user-agent.
+- `write_image()` — creates parent directories and writes bytes to disk.
+
+**Wiring (`lib.rs`):**
+- At app startup, fallback chains are constructed with all providers in the specified order.
+- The chains are passed as `Arc<dyn ArtistImageProvider>` / `Arc<dyn AlbumImageProvider>` into the worker thread.
+- `artist_image.rs` and `album_image.rs` only retain `get_image_path()` and `remove_image()` (used by commands).
+
+**Adding a new provider:**
+1. Create `src-tauri/src/image_provider/newprovider.rs`.
+2. Implement `ArtistImageProvider` and/or `AlbumImageProvider`.
+3. Add to the fallback chain in `lib.rs` setup.
+4. No changes to commands, events, or frontend.
+
 ### 11.6 Accent-Insensitive Search
 
 SQLite FTS5's built-in `remove_diacritics 2` only strips diacritics for Latin-based characters. It does **not** work for Greek, Cyrillic, or other non-Latin scripts (e.g., searching "μπαλαφας" would not match "Μπαλάφας").
@@ -521,65 +735,3 @@ The frontend also applies equivalent normalization (`String.normalize("NFD")` + 
 rusqlite = { version = "0.32", features = ["bundled", "functions"] }
 unicode-normalization = "0.1"
 ```
-
-### 11.2 Subsonic Authentication
-
-The Subsonic API supports two auth modes:
-
-1. **Token auth** (preferred): `u={user}&t={md5(password+salt)}&s={salt}` — password never sent over the wire.
-2. **Plaintext auth** (fallback): `u={user}&p={password}` — used when the server does not support token auth.
-
-On initial connection, `SubsonicClient::new()` tries token auth first and falls back to plaintext if the ping fails. The chosen method, token, and salt are persisted in the `collections` table so subsequent syncs reconstruct the client via `SubsonicClient::from_stored()` without needing the original password.
-
-### 11.3 LIFO Image Download Queue
-
-Artist and album image fetching is handled by a single background worker thread with a LIFO (last-in, first-out) queue. This ensures that the most recently requested images (i.e., whatever the user is currently looking at) are downloaded first.
-
-**Architecture:**
-- `AppState` holds a shared `DownloadQueue` containing a `Mutex<Vec<ImageDownloadRequest>>` and a `Condvar`.
-- `fetch_artist_image` and `fetch_album_image` commands are fire-and-forget: they push a request onto the queue and return immediately.
-- A single worker thread (spawned at app startup) waits on the condvar, pops the **last** item from the vec (LIFO), and processes it.
-- Before downloading, the worker checks if the image file already exists on disk and skips if so (deduplication).
-- After each download, the worker sleeps 1100ms to respect MusicBrainz rate limits (1 request/second with margin).
-- On success, the worker emits `artist-image-ready` / `album-image-ready` events. On failure, it emits `artist-image-error` / `album-image-error` events.
-- All logging is done via `log::info!` / `log::warn!` in Rust — no JS console logging for image downloads.
-
-### 11.5 Extensible Image Provider System
-
-Image fetching uses a trait-based provider system (`src-tauri/src/image_provider/`) so new sources (Discogs, Last.fm, Spotify, etc.) can be added without touching the download queue, commands, or frontend.
-
-**Two separate traits:**
-- `ArtistImageProvider` — `name() -> &str`, `fetch_artist_image(artist_name, dest_path) -> Result<(), String>`
-- `AlbumImageProvider` — `name() -> &str`, `fetch_album_image(title, artist_name?, dest_path) -> Result<(), String>`
-
-Two traits rather than one combined trait because providers may only support one entity type (e.g., Cover Art Archive only does albums). Both traits require `Send + Sync` since the worker thread holds them via `Arc<dyn Trait>`.
-
-**Fallback chains:**
-- `ArtistImageFallbackChain` and `AlbumImageFallbackChain` each hold a `Vec<Box<dyn Provider>>`, implement the corresponding trait, and try each provider in order. Failures are logged; the last error is returned if all providers fail.
-
-**Built-in providers (`image_provider/musicbrainz.rs`):**
-- `MusicBrainzArtistProvider` — searches MusicBrainz for the artist, follows image relations (resolving Wikimedia Commons thumbnails), and downloads the image.
-- `MusicBrainzAlbumProvider` — searches MusicBrainz for a release-group, then fetches cover art from the Cover Art Archive.
-
-**Shared utilities (`image_provider/mod.rs`):**
-- `urlencoded()` — percent-encodes strings for MusicBrainz queries.
-- `http_client()` — builds a `reqwest::blocking::Client` with the FastPlayer user-agent.
-- `write_image()` — creates parent directories and writes bytes to disk.
-
-**Wiring (`lib.rs`):**
-- At app startup, fallback chains are constructed with MusicBrainz as the sole provider.
-- The chains are passed as `Arc<dyn ArtistImageProvider>` / `Arc<dyn AlbumImageProvider>` into the worker thread.
-- `artist_image.rs` and `album_image.rs` only retain `get_image_path()` and `remove_image()` (used by commands).
-
-**Adding a new provider:**
-1. Create `src-tauri/src/image_provider/newprovider.rs`.
-2. Implement `ArtistImageProvider` and/or `AlbumImageProvider`.
-3. Add to the fallback chain in `lib.rs` setup.
-4. No changes to commands, events, or frontend.
-
-### 11.4 Playback Resolution
-
-`get_track_path` returns different values based on track type:
-
-- **Local track** (`subsonic_id` is NULL): returns the filesystem path. Frontend wraps it with `convertFileSrc()` for `asset://` protocol.
-- **Server track** (`subsonic_id` is set): constructs a full streaming URL `{server}/rest/stream.view?id={subsonic_id}&{auth_params}`. Frontend uses the URL directly as the `<audio>` src.
