@@ -161,6 +161,9 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     } else if (artistSortField === "name") {
       const dir = artistSortDir === "asc" ? 1 : -1;
       result = [...artists].sort((a, b) => a.name.localeCompare(b.name) * dir);
+    } else if (artistSortField === "tracks") {
+      const dir = artistSortDir === "asc" ? 1 : -1;
+      result = [...artists].sort((a, b) => (a.track_count - b.track_count) * dir);
     } else {
       result = artists;
     }

@@ -73,5 +73,5 @@ export interface MostPlayedTrack {
 export type SortField = "num" | "title" | "artist" | "album" | "duration";
 export type SortDir = "asc" | "desc";
 
-export type ArtistSortField = "name" | "random";
+export type ArtistSortField = "name" | "tracks" | "random";
 export type AlbumSortField = "name" | "year" | "random";
