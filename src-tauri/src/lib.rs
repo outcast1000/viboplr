@@ -250,6 +250,23 @@ pub fn run() {
             });
 
             app.manage(AppState { db, app_dir, download_queue });
+
+            // Make window background transparent for rounded mini player corners
+            #[cfg(target_os = "macos")]
+            {
+                #[allow(deprecated)]
+                {
+                    use cocoa::appkit::{NSColor, NSWindow};
+                    use cocoa::base::{id, nil};
+
+                    let window = app.get_webview_window("main").unwrap();
+                    let ns_window = window.ns_window().unwrap() as id;
+                    unsafe {
+                        ns_window.setBackgroundColor_(NSColor::clearColor(nil));
+                    }
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(get_invoke_handler())

@@ -1,3 +1,4 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Track } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
@@ -17,6 +18,9 @@ interface NowPlayingBarProps {
   autoContinueEnabled: boolean;
   showAutoContinuePopover: boolean;
   autoContinueWeights: AutoContinueWeights;
+  miniMode: boolean;
+  onToggleMiniMode: () => void;
+  onClose: () => void;
   onHint: (hint: string | null) => void;
   onPause: () => void;
   onStop: () => void;
@@ -36,11 +40,45 @@ export function NowPlayingBar({
   positionSecs, durationSecs,
   volume, queueMode, showQueue, queueCount,
   autoContinueEnabled, showAutoContinuePopover, autoContinueWeights,
+  miniMode, onToggleMiniMode, onClose,
   onHint,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onToggleQueueMode, onToggleQueue,
   onToggleAutoContinue, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
 }: NowPlayingBarProps) {
+  if (miniMode) {
+    const handleDrag = (e: React.MouseEvent) => {
+      if ((e.target as HTMLElement).closest("button")) return;
+      if (e.buttons === 1) getCurrentWindow().startDragging();
+    };
+    const progress = durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0;
+    return (
+      <footer className="now-playing now-playing-mini" onMouseDown={handleDrag}>
+        <div className="now-info">
+          {currentTrack ? (
+            <>
+              <span className="now-title">{currentTrack.title}</span>
+              <span className="now-artist">{currentTrack.artist_name || "Unknown"}</span>
+            </>
+          ) : (
+            <span className="now-title">No track playing</span>
+          )}
+        </div>
+        <div className="now-controls">
+          <button className="ctrl-btn" onClick={onPrevious} title="Previous">{"\u23EE"}</button>
+          <button className="ctrl-btn play-btn" onClick={onPause}>
+            {playing ? "\u23F8" : "\u25B6"}
+          </button>
+          <button className="ctrl-btn" onClick={onNext} title="Next">{"\u23ED"}</button>
+        </div>
+        <span className="mini-separator" />
+        <button className="ctrl-btn mini-expand-btn" onClick={onToggleMiniMode} title="Exit mini mode">{"\u26F6"}</button>
+        <button className="ctrl-btn mini-close-btn" onClick={onClose} title="Close">{"\u2715"}</button>
+        <div className="mini-progress" style={{ width: `${progress}%` }} />
+      </footer>
+    );
+  }
+
   return (
     <footer className="now-playing">
       <div className="now-info">
@@ -128,6 +166,15 @@ export function NowPlayingBar({
           title="Queue"
         >
           {"\u2630"}
+        </button>
+        <button
+          className="ctrl-btn mini-mode-btn"
+          onClick={onToggleMiniMode}
+          onMouseEnter={() => onHint(`Mini player \u2014 ${mod}\u21E7M`)}
+          onMouseLeave={() => onHint(null)}
+          title="Mini player"
+        >
+          {"\u2013"}
         </button>
       </div>
     </footer>

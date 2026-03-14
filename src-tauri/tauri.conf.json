@@ -10,11 +10,15 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "FastPlayer",
+        "transparent": true,
         "width": 1024,
         "height": 700,
+        "minWidth": 300,
+        "minHeight": 80,
         "visible": false
       }
     ],
