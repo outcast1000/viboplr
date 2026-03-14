@@ -1624,8 +1624,9 @@ body {
 .app.mini-mode {
   grid-template-columns: 1fr;
   grid-template-rows: 1fr;
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .app.mini-mode .sidebar,
@@ -1640,6 +1641,11 @@ body {
   grid-row: 1;
   height: 100%;
   border-top: none;
+  background: rgba(13, 27, 42, 0.82);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
 }
 
 .now-playing-mini {
@@ -1647,7 +1653,7 @@ body {
   align-items: center;
   justify-content: flex-end;
   padding: 0 12px;
-  gap: 12px;
+  gap: 10px;
   cursor: grab;
 }
 
@@ -1673,13 +1679,53 @@ body {
 .now-playing-mini .ctrl-btn {
   width: 32px;
   text-align: center;
+  transition: color 0.15s, transform 0.15s;
+}
+
+.now-playing-mini .ctrl-btn:hover {
+  transform: scale(1.15);
+}
+
+.now-playing-mini .play-btn {
+  color: var(--accent);
+  font-size: 20px;
+}
+
+.mini-separator {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 
 .now-playing-mini .mini-expand-btn,
 .now-playing-mini .mini-close-btn {
   flex-shrink: 0;
+  font-size: 14px;
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s, transform 0.15s;
+}
+
+.now-playing-mini .mini-expand-btn:hover,
+.now-playing-mini .mini-close-btn:hover {
+  opacity: 1;
 }
 
 .mini-close-btn:hover {
   color: #ff5f57;
+}
+
+.mini-expand-btn:hover {
+  color: var(--accent);
+}
+
+.mini-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.6;
+  transition: width 0.3s linear;
+  pointer-events: none;
 }

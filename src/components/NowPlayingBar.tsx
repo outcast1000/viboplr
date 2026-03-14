@@ -51,6 +51,7 @@ export function NowPlayingBar({
       if ((e.target as HTMLElement).closest("button")) return;
       if (e.buttons === 1) getCurrentWindow().startDragging();
     };
+    const progress = durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0;
     return (
       <footer className="now-playing now-playing-mini" onMouseDown={handleDrag}>
         <div className="now-info">
@@ -70,8 +71,10 @@ export function NowPlayingBar({
           </button>
           <button className="ctrl-btn" onClick={onNext} title="Next">{"\u23ED"}</button>
         </div>
+        <span className="mini-separator" />
         <button className="ctrl-btn mini-expand-btn" onClick={onToggleMiniMode} title="Exit mini mode">{"\u26F6"}</button>
         <button className="ctrl-btn mini-close-btn" onClick={onClose} title="Close">{"\u2715"}</button>
+        <div className="mini-progress" style={{ width: `${progress}%` }} />
       </footer>
     );
   }
