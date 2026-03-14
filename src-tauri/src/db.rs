@@ -16,6 +16,9 @@ const TRACK_SELECT: &str =
      t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id, t.liked, t.deleted \
      FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id";
 
+const ENABLED_COLLECTION_FILTER: &str =
+    "AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1))";
+
 fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
     Ok(Track {
         id: row.get(0)?,
@@ -251,6 +254,48 @@ impl Database {
             conn.execute_batch("ALTER TABLE tracks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;")?;
         }
 
+        // Add liked column to artists if missing
+        let has_artist_liked: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('artists') WHERE name='liked'",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_artist_liked {
+            conn.execute_batch("ALTER TABLE artists ADD COLUMN liked INTEGER NOT NULL DEFAULT 0;")?;
+        }
+
+        // Add liked column to albums if missing
+        let has_album_liked: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('albums') WHERE name='liked'",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_album_liked {
+            conn.execute_batch("ALTER TABLE albums ADD COLUMN liked INTEGER NOT NULL DEFAULT 0;")?;
+        }
+
+        // Add auto_update and auto_update_interval_mins columns to collections if missing
+        let has_auto_update: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('collections') WHERE name='auto_update'",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_auto_update {
+            conn.execute_batch("ALTER TABLE collections ADD COLUMN auto_update INTEGER NOT NULL DEFAULT 0;")?;
+            conn.execute_batch("ALTER TABLE collections ADD COLUMN auto_update_interval_mins INTEGER NOT NULL DEFAULT 60;")?;
+        }
+
+        // Add enabled and last_sync_duration_secs columns to collections if missing
+        let has_enabled: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('collections') WHERE name='enabled'",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_enabled {
+            conn.execute_batch("ALTER TABLE collections ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;")?;
+            conn.execute_batch("ALTER TABLE collections ADD COLUMN last_sync_duration_secs REAL;")?;
+        }
+
         Ok(())
     }
 
@@ -273,17 +318,22 @@ impl Database {
     pub fn get_artists(&self) -> SqlResult<Vec<Artist>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT a.id, a.name, COUNT(t.id)
-             FROM artists a
-             LEFT JOIN tracks t ON t.artist_id = a.id AND t.deleted = 0
-             GROUP BY a.id
-             ORDER BY a.name"
+            &format!(
+                "SELECT a.id, a.name, COUNT(t.id), a.liked
+                 FROM artists a
+                 LEFT JOIN tracks t ON t.artist_id = a.id AND t.deleted = 0 {}
+                 GROUP BY a.id
+                 HAVING COUNT(t.id) > 0
+                 ORDER BY a.name",
+                ENABLED_COLLECTION_FILTER
+            )
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Artist {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 track_count: row.get(2)?,
+                liked: row.get::<_, i32>(3).unwrap_or(0) != 0,
             })
         })?;
         rows.collect()
@@ -313,30 +363,36 @@ impl Database {
     pub fn get_albums(&self, artist_id: Option<i64>) -> SqlResult<Vec<Album>> {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = artist_id {
-            let mut stmt = conn.prepare(
-                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, COUNT(t.id)
+            let sql = format!(
+                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, COUNT(t.id), a.liked
                  FROM albums a
                  LEFT JOIN artists ar ON a.artist_id = ar.id
-                 LEFT JOIN tracks t ON t.album_id = a.id AND t.deleted = 0
+                 LEFT JOIN tracks t ON t.album_id = a.id AND t.deleted = 0 {}
                  WHERE a.artist_id = ?1
                  GROUP BY a.id
-                 ORDER BY a.year, a.title"
-            )?;
+                 HAVING COUNT(t.id) > 0
+                 ORDER BY a.year, a.title",
+                ENABLED_COLLECTION_FILTER
+            );
+            let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![aid], |row| {
-                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)? })
+                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)?, liked: row.get::<_, i32>(6).unwrap_or(0) != 0 })
             })?;
             rows.collect()
         } else {
-            let mut stmt = conn.prepare(
-                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, COUNT(t.id)
+            let sql = format!(
+                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, COUNT(t.id), a.liked
                  FROM albums a
                  LEFT JOIN artists ar ON a.artist_id = ar.id
-                 LEFT JOIN tracks t ON t.album_id = a.id AND t.deleted = 0
+                 LEFT JOIN tracks t ON t.album_id = a.id AND t.deleted = 0 {}
                  GROUP BY a.id
-                 ORDER BY a.title"
-            )?;
+                 HAVING COUNT(t.id) > 0
+                 ORDER BY a.title",
+                ENABLED_COLLECTION_FILTER
+            );
+            let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map([], |row| {
-                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)? })
+                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)?, liked: row.get::<_, i32>(6).unwrap_or(0) != 0 })
             })?;
             rows.collect()
         }
@@ -370,12 +426,16 @@ impl Database {
     pub fn get_tags(&self) -> SqlResult<Vec<Tag>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT tg.id, tg.name, COUNT(t.id)
-             FROM tags tg
-             LEFT JOIN track_tags tt ON tt.tag_id = tg.id
-             LEFT JOIN tracks t ON t.id = tt.track_id AND t.deleted = 0
-             GROUP BY tg.id
-             ORDER BY tg.name"
+            &format!(
+                "SELECT tg.id, tg.name, COUNT(t.id)
+                 FROM tags tg
+                 LEFT JOIN track_tags tt ON tt.tag_id = tg.id
+                 LEFT JOIN tracks t ON t.id = tt.track_id AND t.deleted = 0 {}
+                 GROUP BY tg.id
+                 HAVING COUNT(t.id) > 0
+                 ORDER BY tg.name",
+                ENABLED_COLLECTION_FILTER
+            )
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Tag {
@@ -412,8 +472,8 @@ impl Database {
     pub fn get_tracks_by_tag(&self, tag_id: i64) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let sql = format!(
-            "{} JOIN track_tags tt ON tt.track_id = t.id WHERE tt.tag_id = ?1 AND t.deleted = 0 ORDER BY ar.name, al.title, t.track_number, t.title",
-            TRACK_SELECT
+            "{} JOIN track_tags tt ON tt.track_id = t.id WHERE tt.tag_id = ?1 AND t.deleted = 0 {} ORDER BY ar.name, al.title, t.track_number, t.title",
+            TRACK_SELECT, ENABLED_COLLECTION_FILTER
         );
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![tag_id], |row| track_from_row(row))?;
@@ -424,7 +484,11 @@ impl Database {
 
     pub fn get_track_count(&self) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
-        conn.query_row("SELECT COUNT(*) FROM tracks WHERE deleted = 0", [], |row| row.get(0))
+        conn.query_row(
+            &format!("SELECT COUNT(*) FROM tracks t WHERE t.deleted = 0 {}", ENABLED_COLLECTION_FILTER),
+            [],
+            |row| row.get(0),
+        )
     }
 
     pub fn upsert_track(
@@ -502,14 +566,17 @@ impl Database {
              );"
         )?;
         conn.execute_batch(
-            "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, filename)
-             SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')), strip_diacritics(COALESCE(al.title, '')),
-                    strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
-                    strip_diacritics(filename_from_path(t.path))
-             FROM tracks t
-             LEFT JOIN artists ar ON t.artist_id = ar.id
-             LEFT JOIN albums al ON t.album_id = al.id
-             WHERE t.deleted = 0;",
+            &format!(
+                "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, filename)
+                 SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')), strip_diacritics(COALESCE(al.title, '')),
+                        strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
+                        strip_diacritics(filename_from_path(t.path))
+                 FROM tracks t
+                 LEFT JOIN artists ar ON t.artist_id = ar.id
+                 LEFT JOIN albums al ON t.album_id = al.id
+                 WHERE t.deleted = 0 {};",
+                ENABLED_COLLECTION_FILTER
+            ),
         )?;
         Ok(())
     }
@@ -517,12 +584,12 @@ impl Database {
     pub fn get_tracks(&self, album_id: Option<i64>) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = album_id {
-            let sql = format!("{} WHERE t.album_id = ?1 AND t.deleted = 0 ORDER BY t.track_number, t.title", TRACK_SELECT);
+            let sql = format!("{} WHERE t.album_id = ?1 AND t.deleted = 0 {} ORDER BY t.track_number, t.title", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![aid], |row| track_from_row(row))?;
             rows.collect()
         } else {
-            let sql = format!("{} WHERE t.deleted = 0 ORDER BY ar.name, al.title, t.track_number, t.title LIMIT 100", TRACK_SELECT);
+            let sql = format!("{} WHERE t.deleted = 0 {} ORDER BY ar.name, al.title, t.track_number, t.title LIMIT 100", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map([], |row| track_from_row(row))?;
             rows.collect()
@@ -531,7 +598,7 @@ impl Database {
 
     pub fn get_tracks_by_artist(&self, artist_id: i64) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
-        let sql = format!("{} WHERE t.artist_id = ?1 AND t.deleted = 0 ORDER BY al.title, t.track_number, t.title", TRACK_SELECT);
+        let sql = format!("{} WHERE t.artist_id = ?1 AND t.deleted = 0 {} ORDER BY al.title, t.track_number, t.title", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![artist_id], |row| track_from_row(row))?;
         rows.collect()
@@ -573,6 +640,7 @@ impl Database {
         }
 
         sql.push_str(" WHERE tracks_fts MATCH ?1 AND t.deleted = 0");
+        sql.push_str(&format!(" {}", ENABLED_COLLECTION_FILTER));
 
         let mut param_idx = 2;
         if artist_id.is_some() {
@@ -639,6 +707,10 @@ impl Database {
             url: url.map(|s| s.to_string()),
             username: username.map(|s| s.to_string()),
             last_synced_at: None,
+            auto_update: false,
+            auto_update_interval_mins: 60,
+            enabled: true,
+            last_sync_duration_secs: None,
         })
     }
 
@@ -665,7 +737,7 @@ impl Database {
     pub fn get_collections(&self) -> SqlResult<Vec<Collection>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, name, path, url, username, last_synced_at FROM collections ORDER BY name"
+            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs FROM collections ORDER BY name"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Collection {
@@ -676,6 +748,10 @@ impl Database {
                 url: row.get(4)?,
                 username: row.get(5)?,
                 last_synced_at: row.get(6)?,
+                auto_update: row.get::<_, i32>(7).unwrap_or(0) != 0,
+                auto_update_interval_mins: row.get::<_, i64>(8).unwrap_or(60),
+                enabled: row.get::<_, i32>(9).unwrap_or(1) != 0,
+                last_sync_duration_secs: row.get(10)?,
             })
         })?;
         rows.collect()
@@ -684,7 +760,7 @@ impl Database {
     pub fn get_collection_by_id(&self, collection_id: i64) -> SqlResult<Collection> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, kind, name, path, url, username, last_synced_at FROM collections WHERE id = ?1",
+            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs FROM collections WHERE id = ?1",
             params![collection_id],
             |row| {
                 Ok(Collection {
@@ -695,6 +771,10 @@ impl Database {
                     url: row.get(4)?,
                     username: row.get(5)?,
                     last_synced_at: row.get(6)?,
+                    auto_update: row.get::<_, i32>(7).unwrap_or(0) != 0,
+                    auto_update_interval_mins: row.get::<_, i64>(8).unwrap_or(60),
+                    enabled: row.get::<_, i32>(9).unwrap_or(1) != 0,
+                    last_sync_duration_secs: row.get(10)?,
                 })
             },
         )
@@ -717,11 +797,27 @@ impl Database {
         )
     }
 
-    pub fn update_collection_synced(&self, collection_id: i64) -> SqlResult<()> {
+    pub fn update_collection(
+        &self,
+        collection_id: i64,
+        name: &str,
+        auto_update: bool,
+        auto_update_interval_mins: i64,
+        enabled: bool,
+    ) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE collections SET last_synced_at = strftime('%s', 'now') WHERE id = ?1",
-            params![collection_id],
+            "UPDATE collections SET name = ?2, auto_update = ?3, auto_update_interval_mins = ?4, enabled = ?5 WHERE id = ?1",
+            params![collection_id, name, auto_update as i32, auto_update_interval_mins, enabled as i32],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_collection_synced(&self, collection_id: i64, duration_secs: f64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE collections SET last_synced_at = strftime('%s', 'now'), last_sync_duration_secs = ?2 WHERE id = ?1",
+            params![collection_id, duration_secs],
         )?;
         Ok(())
     }
@@ -802,9 +898,27 @@ impl Database {
         Ok(())
     }
 
+    pub fn toggle_artist_liked(&self, artist_id: i64, liked: bool) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE artists SET liked = ?2 WHERE id = ?1",
+            params![artist_id, liked as i32],
+        )?;
+        Ok(())
+    }
+
+    pub fn toggle_album_liked(&self, album_id: i64, liked: bool) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE albums SET liked = ?2 WHERE id = ?1",
+            params![album_id, liked as i32],
+        )?;
+        Ok(())
+    }
+
     pub fn get_liked_tracks(&self) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
-        let sql = format!("{} WHERE t.liked = 1 AND t.deleted = 0 ORDER BY ar.name, al.title, t.track_number, t.title", TRACK_SELECT);
+        let sql = format!("{} WHERE t.liked = 1 AND t.deleted = 0 {} ORDER BY ar.name, al.title, t.track_number, t.title", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| track_from_row(row))?;
         rows.collect()
@@ -932,7 +1046,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         match strategy {
             "random" => {
-                let sql = format!("{} WHERE t.id != ?1 AND t.deleted = 0 ORDER BY RANDOM() LIMIT 1", TRACK_SELECT);
+                let sql = format!("{} WHERE t.id != ?1 AND t.deleted = 0 {} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
                 conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
             }
             "same_artist" => {
@@ -943,7 +1057,7 @@ impl Database {
                 ).optional()?.flatten();
                 match artist_id {
                     Some(aid) => {
-                        let sql = format!("{} WHERE t.id != ?1 AND t.artist_id = ?2 AND t.deleted = 0 ORDER BY RANDOM() LIMIT 1", TRACK_SELECT);
+                        let sql = format!("{} WHERE t.id != ?1 AND t.artist_id = ?2 AND t.deleted = 0 {} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
                         conn.query_row(&sql, params![current_track_id, aid], |row| track_from_row(row)).optional()
                     }
                     None => Ok(None),
@@ -951,27 +1065,27 @@ impl Database {
             }
             "same_tag" => {
                 let sql = format!(
-                    "{} WHERE t.id != ?1 AND t.deleted = 0 AND t.id IN (\
+                    "{} WHERE t.id != ?1 AND t.deleted = 0 {} AND t.id IN (\
                         SELECT tt2.track_id FROM track_tags tt1 \
                         JOIN track_tags tt2 ON tt1.tag_id = tt2.tag_id \
                         WHERE tt1.track_id = ?1 AND tt2.track_id != ?1\
                     ) ORDER BY RANDOM() LIMIT 1",
-                    TRACK_SELECT
+                    TRACK_SELECT, ENABLED_COLLECTION_FILTER
                 );
                 conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
             }
             "most_played" => {
                 let sql = format!(
-                    "{} WHERE t.id != ?1 AND t.deleted = 0 AND t.id IN (\
+                    "{} WHERE t.id != ?1 AND t.deleted = 0 {} AND t.id IN (\
                         SELECT track_id FROM play_history \
                         GROUP BY track_id ORDER BY COUNT(*) DESC LIMIT 50\
                     ) ORDER BY RANDOM() LIMIT 1",
-                    TRACK_SELECT
+                    TRACK_SELECT, ENABLED_COLLECTION_FILTER
                 );
                 conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
             }
             "liked" => {
-                let sql = format!("{} WHERE t.id != ?1 AND t.liked = 1 AND t.deleted = 0 ORDER BY RANDOM() LIMIT 1", TRACK_SELECT);
+                let sql = format!("{} WHERE t.id != ?1 AND t.liked = 1 AND t.deleted = 0 {} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
                 conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
             }
             _ => Ok(None),

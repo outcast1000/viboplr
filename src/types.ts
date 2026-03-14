@@ -2,6 +2,7 @@ export interface Artist {
   id: number;
   name: string;
   track_count: number;
+  liked: boolean;
 }
 
 export interface Album {
@@ -11,6 +12,7 @@ export interface Album {
   artist_name: string | null;
   year: number | null;
   track_count: number;
+  liked: boolean;
 }
 
 export interface Tag {
@@ -45,6 +47,10 @@ export interface Collection {
   url: string | null;
   username: string | null;
   last_synced_at: number | null;
+  auto_update: boolean;
+  auto_update_interval_mins: number;
+  enabled: boolean;
+  last_sync_duration_secs: number | null;
 }
 
 export type View = "all" | "artists" | "albums" | "tags" | "liked" | "history";
@@ -70,3 +76,6 @@ export interface MostPlayedTrack {
 
 export type SortField = "num" | "title" | "artist" | "album" | "duration";
 export type SortDir = "asc" | "desc";
+
+export type ArtistSortField = "name" | "tracks" | "random";
+export type AlbumSortField = "name" | "year" | "random";

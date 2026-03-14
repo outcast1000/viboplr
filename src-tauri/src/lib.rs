@@ -24,6 +24,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
     tauri::generate_handler![
         commands::add_collection,
         commands::remove_collection,
+        commands::update_collection,
         commands::get_collections,
         commands::resync_collection,
         commands::get_artists,
@@ -36,6 +37,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_track_path,
         commands::search,
         commands::toggle_track_liked,
+        commands::toggle_artist_liked,
+        commands::toggle_album_liked,
         commands::get_liked_tracks,
         commands::rebuild_search_index,
         commands::show_in_folder,
@@ -67,6 +70,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
     tauri::generate_handler![
         commands::add_collection,
         commands::remove_collection,
+        commands::update_collection,
         commands::get_collections,
         commands::resync_collection,
         commands::get_artists,
@@ -79,6 +83,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_track_path,
         commands::search,
         commands::toggle_track_liked,
+        commands::toggle_artist_liked,
+        commands::toggle_album_liked,
         commands::get_liked_tracks,
         commands::rebuild_search_index,
         commands::show_in_folder,

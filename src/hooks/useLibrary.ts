@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Artist, Album, Tag, Track, Collection, View, SortField, SortDir } from "../types";
+import type { Artist, Album, Tag, Track, Collection, View, SortField, SortDir, ArtistSortField, AlbumSortField } from "../types";
 import { store } from "../store";
 
 export function useLibrary(restoredRef: React.RefObject<boolean>) {
@@ -22,6 +22,18 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   // Sort state
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  // Artist sort state
+  const [artistSortField, setArtistSortField] = useState<ArtistSortField | null>(null);
+  const [artistSortDir, setArtistSortDir] = useState<SortDir>("asc");
+  const [artistLikedFirst, setArtistLikedFirst] = useState(false);
+  const [artistShuffleKey, setArtistShuffleKey] = useState(0);
+
+  // Album sort state
+  const [albumSortField, setAlbumSortField] = useState<AlbumSortField | null>(null);
+  const [albumSortDir, setAlbumSortDir] = useState<SortDir>("asc");
+  const [albumLikedFirst, setAlbumLikedFirst] = useState(false);
+  const [albumShuffleKey, setAlbumShuffleKey] = useState(0);
 
   // Persist state
   useEffect(() => { if (restoredRef.current) store.set("view", view); }, [view]);
@@ -131,6 +143,94 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     return sorted;
   })();
 
+  // Fisher-Yates shuffle helper
+  function shuffle<T>(arr: T[]): T[] {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  const sortedArtists = useMemo(() => {
+    void artistShuffleKey; // trigger re-compute on shuffle
+    let result: Artist[];
+    if (artistSortField === "random") {
+      result = shuffle(artists);
+    } else if (artistSortField === "name") {
+      const dir = artistSortDir === "asc" ? 1 : -1;
+      result = [...artists].sort((a, b) => a.name.localeCompare(b.name) * dir);
+    } else if (artistSortField === "tracks") {
+      const dir = artistSortDir === "asc" ? 1 : -1;
+      result = [...artists].sort((a, b) => (a.track_count - b.track_count) * dir);
+    } else {
+      result = artists;
+    }
+    if (artistLikedFirst) {
+      result = [...result].sort((a, b) => (a.liked === b.liked ? 0 : a.liked ? -1 : 1));
+    }
+    return result;
+  }, [artists, artistSortField, artistSortDir, artistLikedFirst, artistShuffleKey]);
+
+  const sortedAlbums = useMemo(() => {
+    void albumShuffleKey;
+    let result: Album[];
+    if (albumSortField === "random") {
+      result = shuffle(albums);
+    } else if (albumSortField === "name") {
+      const dir = albumSortDir === "asc" ? 1 : -1;
+      result = [...albums].sort((a, b) => a.title.localeCompare(b.title) * dir);
+    } else if (albumSortField === "year") {
+      const dir = albumSortDir === "asc" ? 1 : -1;
+      result = [...albums].sort((a, b) => ((a.year ?? 0) - (b.year ?? 0)) * dir);
+    } else {
+      result = albums;
+    }
+    if (albumLikedFirst) {
+      result = [...result].sort((a, b) => (a.liked === b.liked ? 0 : a.liked ? -1 : 1));
+    }
+    return result;
+  }, [albums, albumSortField, albumSortDir, albumLikedFirst, albumShuffleKey]);
+
+  function handleArtistSort(field: ArtistSortField) {
+    if (field === "random") {
+      setArtistSortField("random");
+      setArtistShuffleKey(k => k + 1);
+      return;
+    }
+    if (artistSortField === field) {
+      if (artistSortDir === "asc") {
+        setArtistSortDir("desc");
+      } else {
+        setArtistSortField(null);
+        setArtistSortDir("asc");
+      }
+    } else {
+      setArtistSortField(field);
+      setArtistSortDir("asc");
+    }
+  }
+
+  function handleAlbumSort(field: AlbumSortField) {
+    if (field === "random") {
+      setAlbumSortField("random");
+      setAlbumShuffleKey(k => k + 1);
+      return;
+    }
+    if (albumSortField === field) {
+      if (albumSortDir === "asc") {
+        setAlbumSortDir("desc");
+      } else {
+        setAlbumSortField(null);
+        setAlbumSortDir("asc");
+      }
+    } else {
+      setAlbumSortField(field);
+      setAlbumSortDir("asc");
+    }
+  }
+
   function handleArtistClick(artistId: number) {
     setSelectedArtist(artistId);
     setSelectedAlbum(null);
@@ -182,5 +282,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     handleSort, sortIndicator,
     handleArtistClick, handleAlbumClick, handleShowAll, handleShowLiked,
     loadLibrary, loadTracks,
+    sortedArtists, artistSortField, artistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,
+    sortedAlbums, albumSortField, albumSortDir, albumLikedFirst, setAlbumLikedFirst, handleAlbumSort,
   };
 }

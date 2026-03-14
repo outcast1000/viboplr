@@ -3,9 +3,10 @@ import { useState, useRef, useEffect } from "react";
 interface StatusBarProps {
   sessionLog: { time: Date; message: string }[];
   hint?: string | null;
+  activity?: string | null;
 }
 
-export function StatusBar({ sessionLog, hint }: StatusBarProps) {
+export function StatusBar({ sessionLog, hint, activity }: StatusBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [activeMessage, setActiveMessage] = useState<{ message: string; time: Date; isError: boolean } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -32,12 +33,17 @@ export function StatusBar({ sessionLog, hint }: StatusBarProps) {
     return () => document.removeEventListener("mousedown", handler);
   }, [expanded]);
 
-  const visible = activeMessage !== null || expanded || !!hint;
+  const visible = activeMessage !== null || expanded || !!hint || !!activity;
 
   return (
     <div className={`status-bar ${visible ? "status-bar-visible" : ""}`} ref={panelRef}>
       <div className="status-bar-content" onClick={() => setExpanded(!expanded)}>
-        {hint ? (
+        {activity ? (
+          <>
+            <span className="status-bar-icon status-bar-icon-spin">{"\u27F3"}</span>
+            <span className="status-bar-text">{activity}</span>
+          </>
+        ) : hint ? (
           <span className="status-bar-text">{hint}</span>
         ) : activeMessage ? (
           <>

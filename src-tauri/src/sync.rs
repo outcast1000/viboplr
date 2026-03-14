@@ -10,6 +10,8 @@ pub fn sync_collection(
     collection_id: i64,
     progress_callback: impl Fn(u64, u64) + Send,
 ) -> Result<(), String> {
+    let start = std::time::Instant::now();
+
     // Build set of all existing paths for this collection (including already-deleted)
     let existing_paths: HashSet<String> = db
         .get_track_paths_for_collection(collection_id)
@@ -110,7 +112,7 @@ pub fn sync_collection(
         .map_err(|e| e.to_string())?;
 
     db.rebuild_fts().map_err(|e| e.to_string())?;
-    db.update_collection_synced(collection_id)
+    db.update_collection_synced(collection_id, start.elapsed().as_secs_f64())
         .map_err(|e| e.to_string())?;
 
     Ok(())

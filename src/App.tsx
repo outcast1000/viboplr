@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import "./App.css";
 
-import type { Album, Track, View } from "./types";
+import type { Album, Collection, Track, View } from "./types";
 import { isVideoTrack, getInitials } from "./utils";
 import { store } from "./store";
 import type { SearchProviderConfig } from "./searchProviders";
@@ -175,6 +175,12 @@ function App() {
     setFailedArtistImages, setFailedAlbumImages,
     artistsRef, albumsRef,
   });
+
+  const statusActivity = scanning
+    ? `Scanning... ${scanProgress.scanned}/${scanProgress.total}`
+    : syncing
+    ? `Syncing ${syncProgress.collection}... ${syncProgress.synced}/${syncProgress.total} albums`
+    : null;
 
   // Paste image onto artist/album
   usePasteImage({
@@ -691,6 +697,24 @@ function App() {
     await invoke("resync_collection", { collectionId });
   }
 
+  async function handleUpdateCollection(collectionId: number, name: string, autoUpdate: boolean, autoUpdateIntervalMins: number, enabled: boolean) {
+    await invoke("update_collection", { collectionId, name, autoUpdate, autoUpdateIntervalMins, enabled });
+    library.loadLibrary();
+    library.loadTracks();
+  }
+
+  async function handleToggleCollectionEnabled(collection: Collection) {
+    await invoke("update_collection", {
+      collectionId: collection.id,
+      name: collection.name,
+      autoUpdate: collection.auto_update,
+      autoUpdateIntervalMins: collection.auto_update_interval_mins,
+      enabled: !collection.enabled,
+    });
+    library.loadLibrary();
+    library.loadTracks();
+  }
+
   async function handleToggleLike(track: Track) {
     const newLiked = !track.liked;
     try {
@@ -705,6 +729,30 @@ function App() {
     }
   }
 
+  async function handleToggleArtistLike(artistId: number) {
+    const artist = artists.find(a => a.id === artistId);
+    if (!artist) return;
+    const newLiked = !artist.liked;
+    try {
+      await invoke("toggle_artist_liked", { artistId, liked: newLiked });
+      library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked: newLiked } : a));
+    } catch (e) {
+      console.error("Failed to toggle artist like:", e);
+    }
+  }
+
+  async function handleToggleAlbumLike(albumId: number) {
+    const album = albums.find(a => a.id === albumId);
+    if (!album) return;
+    const newLiked = !album.liked;
+    try {
+      await invoke("toggle_album_liked", { albumId, liked: newLiked });
+      library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: newLiked } : a));
+    } catch (e) {
+      console.error("Failed to toggle album like:", e);
+    }
+  }
+
   const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags, tracks,
     searchQuery, sortedTracks, sortField, highlightedIndex, highlightedListIndex } = library;
 
@@ -712,15 +760,15 @@ function App() {
   const filteredArtists = (() => {
     if (view !== "artists" || selectedArtist !== null) return [];
     const q = searchQuery.trim().toLowerCase();
-    return q ? artists.filter(a => stripAccents(a.name.toLowerCase()).includes(stripAccents(q))) : artists;
+    return q ? library.sortedArtists.filter(a => stripAccents(a.name.toLowerCase()).includes(stripAccents(q))) : library.sortedArtists;
   })();
 
   const filteredAlbums = (() => {
     if (view !== "albums") return [];
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return albums;
+    if (!q) return library.sortedAlbums;
     const sq = stripAccents(q);
-    return albums.filter(a =>
+    return library.sortedAlbums.filter(a =>
       stripAccents(a.title.toLowerCase()).includes(sq) ||
       (a.artist_name ? stripAccents(a.artist_name.toLowerCase()).includes(sq) : false)
     );
@@ -815,6 +863,8 @@ function App() {
           onShowAddServer={() => setShowAddServer(true)}
           onRemoveCollection={handleRemoveCollection}
           onResyncCollection={handleResyncCollection}
+          onUpdateCollection={handleUpdateCollection}
+          onToggleCollectionEnabled={handleToggleCollectionEnabled}
           onSeedDatabase={handleSeedDatabase}
           onClearDatabase={handleClearDatabase}
           clearing={clearing}
@@ -938,16 +988,6 @@ function App() {
               }
             }}
           />
-          {scanning && (
-            <span className="scan-status">
-              Scanning... {scanProgress.scanned}/{scanProgress.total}
-            </span>
-          )}
-          {syncing && (
-            <span className="scan-status">
-              Syncing {syncProgress.collection}... {syncProgress.synced}/{syncProgress.total} albums
-            </span>
-          )}
         </div>
 
         {/* Video player area */}
@@ -985,6 +1025,25 @@ function App() {
 
           {/* Artist list */}
           {view === "artists" && selectedArtist === null && (
+            <>
+              <div className="sort-bar">
+                <div className="sort-options">
+                  <button className={`sort-btn${library.artistSortField === "name" ? " active" : ""}`} onClick={() => library.handleArtistSort("name")}>
+                    Name{library.artistSortField === "name" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  </button>
+                  <button className={`sort-btn${library.artistSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleArtistSort("tracks")}>
+                    Tracks{library.artistSortField === "tracks" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  </button>
+                  <button className={`sort-btn${library.artistSortField === "random" ? " active" : ""}`} onClick={() => library.handleArtistSort("random")}>
+                    Shuffle
+                  </button>
+                </div>
+                <button
+                  className={`sort-btn liked-first-btn${library.artistLikedFirst ? " active" : ""}`}
+                  onClick={() => library.setArtistLikedFirst(v => !v)}
+                  title="Liked first"
+                >{"\u2665"}</button>
+              </div>
               <div className="list">
                 {filteredArtists.map((a, i) => (
                   <div
@@ -993,7 +1052,11 @@ function App() {
                     onClick={() => library.handleArtistClick(a.id)}
                     onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
                   >
-                    <span>{a.name}</span>
+                    <span
+                      className="list-item-like"
+                      onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
+                    >{a.liked ? "\u2665" : "\u2661"}</span>
+                    <span style={{ flex: 1 }}>{a.name}</span>
                     <span className="list-count">{a.track_count}</span>
                   </div>
                 ))}
@@ -1001,6 +1064,7 @@ function App() {
                   <div className="empty">{searchQuery.trim() ? `No artists matching "${searchQuery}"` : "No artists found. Add a folder or server to get started."}</div>
                 )}
               </div>
+            </>
           )}
 
           {/* Artist detail view */}
@@ -1018,7 +1082,14 @@ function App() {
                     )}
                   </div>
                   <div className="artist-header-info">
-                    <h2>{artist?.name ?? "Unknown"}</h2>
+                    <h2>
+                      {artist?.name ?? "Unknown"}
+                      <span
+                        className={`detail-like-btn${artist?.liked ? " liked" : ""}`}
+                        onClick={() => handleToggleArtistLike(selectedArtist)}
+                        title={artist?.liked ? "Unlike artist" : "Like artist"}
+                      >{artist?.liked ? "\u2665" : "\u2661"}</span>
+                    </h2>
                     <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
                     <ImageActions
                       entityId={selectedArtist}
@@ -1076,10 +1147,33 @@ function App() {
 
           {/* All albums view */}
           {view === "albums" && (
+            <>
+              <div className="sort-bar">
+                <div className="sort-options">
+                  <button className={`sort-btn${library.albumSortField === "name" ? " active" : ""}`} onClick={() => library.handleAlbumSort("name")}>
+                    Name{library.albumSortField === "name" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  </button>
+                  <button className={`sort-btn${library.albumSortField === "year" ? " active" : ""}`} onClick={() => library.handleAlbumSort("year")}>
+                    Year{library.albumSortField === "year" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  </button>
+                  <button className={`sort-btn${library.albumSortField === "random" ? " active" : ""}`} onClick={() => library.handleAlbumSort("random")}>
+                    Shuffle
+                  </button>
+                </div>
+                <button
+                  className={`sort-btn liked-first-btn${library.albumLikedFirst ? " active" : ""}`}
+                  onClick={() => library.setAlbumLikedFirst(v => !v)}
+                  title="Liked first"
+                >{"\u2665"}</button>
+              </div>
               <div className="album-grid" style={{ padding: 16 }}>
                 {filteredAlbums.map((a, i) => (
                   <div key={a.id} className={`album-card${i === highlightedListIndex ? " highlighted" : ""}`} onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
                     <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={fetchAlbumImageOnDemand} />
+                    <div
+                      className={`album-card-like${a.liked ? " liked" : ""}`}
+                      onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
+                    >{a.liked ? "\u2665" : "\u2661"}</div>
                     <div className="album-card-body">
                       <div className="album-card-title" title={a.title}>{a.title}</div>
                       <div className="album-card-info">
@@ -1093,6 +1187,7 @@ function App() {
                   <div className="empty">{searchQuery.trim() ? `No albums matching "${searchQuery}"` : "No albums found."}</div>
                 )}
               </div>
+            </>
           )}
 
           {/* Tags list view */}
@@ -1128,7 +1223,14 @@ function App() {
                   )}
                 </div>
                 <div className="album-detail-info">
-                  <h2>{album?.title ?? "Unknown"}</h2>
+                  <h2>
+                    {album?.title ?? "Unknown"}
+                    <span
+                      className={`detail-like-btn${album?.liked ? " liked" : ""}`}
+                      onClick={() => handleToggleAlbumLike(selectedAlbum)}
+                      title={album?.liked ? "Unlike album" : "Like album"}
+                    >{album?.liked ? "\u2665" : "\u2661"}</span>
+                  </h2>
                   <span className="artist-meta">
                     {album?.artist_name && <>{album.artist_name} {"\u00B7"} </>}
                     {album?.year && <>{album.year} {"\u00B7"} </>}
@@ -1248,7 +1350,7 @@ function App() {
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
       />
 
-      <StatusBar sessionLog={sessionLog} hint={statusHint} />
+      <StatusBar sessionLog={sessionLog} hint={statusHint} activity={statusActivity} />
     </div>
   );
 }

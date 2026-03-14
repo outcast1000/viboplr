@@ -98,6 +98,10 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 - List view (table) with columns: like (heart icon), track number, title, artist, album, duration.
 - Tracks from all collections (local and server) are unified in a single library.
 
+**Artist list sort controls:** A sort bar above the artist list offers Name, Tracks (track count), and Shuffle buttons, plus a heart toggle to float liked artists to the top. Name and Tracks cycle through ascending → descending → unsorted on repeated clicks. Shuffle re-randomizes each click (Fisher-Yates).
+
+**Album grid sort controls:** A sort bar above the album grid offers Name, Year, and Shuffle buttons, plus a heart toggle to float liked albums to the top. Name and Year cycle asc → desc → unsorted. Shuffle re-randomizes each click.
+
 ### 4.7 Tags
 
 Tags replace the previous single-genre-per-track model. A track can have **multiple tags** via a many-to-many relationship (`track_tags` junction table). Genre metadata read from file tags or Subsonic metadata is stored as tags. The Tags view in the sidebar lists all tags; clicking one filters the track list.
@@ -148,14 +152,13 @@ The player uses a **dual audio element (A/B)** architecture to achieve gapless t
 - `crossfadeSecs` is configurable via a slider in Settings (0–10 seconds, 0.5s steps). A value of 0 means "off" (gapless mode). Default: 3 seconds.
 - Persisted to the app store under the `crossfadeSecs` key.
 
-### 4.10 Liked Tracks
+### 4.10 Liked Tracks, Artists & Albums
 
-- Each track has a `liked` boolean attribute (stored as `INTEGER DEFAULT 0` in SQLite).
-- A heart icon column appears in the track list: filled heart (♥) when liked, outline heart (♡) when not.
-- Clicking the heart toggles the liked state via `toggle_track_liked` and updates local state immediately (tracks list, current track, and queue).
-- The sidebar has a "Liked" view that shows all liked tracks via `get_liked_tracks`. Search in this view is scoped to liked tracks only (`liked_only` flag passed to `search`).
-- **Scan-safe:** the `liked` column is excluded from the `upsert_track` ON CONFLICT clause, so re-scanning or re-syncing a collection preserves the user's likes.
-- **Migration:** existing databases gain the `liked` column via `ALTER TABLE tracks ADD COLUMN liked INTEGER NOT NULL DEFAULT 0`.
+- **Tracks:** Each track has a `liked` boolean attribute (stored as `INTEGER DEFAULT 0` in SQLite). A heart icon column appears in the track list: filled heart (♥) when liked, outline heart (♡) when not. Clicking the heart toggles the liked state via `toggle_track_liked` and updates local state immediately (tracks list, current track, and queue). The sidebar has a "Liked" view that shows all liked tracks via `get_liked_tracks`. Search in this view is scoped to liked tracks only (`liked_only` flag passed to `search`).
+- **Artists:** Each artist has a `liked` boolean. In the All Artists list, a heart icon per row toggles the like via `toggle_artist_liked`. The artist detail header also shows a heart icon next to the artist name. The sort bar's heart toggle floats liked artists to the top.
+- **Albums:** Each album has a `liked` boolean. In the All Albums grid, a heart overlay appears on hover (top-right corner of the album card) and toggles via `toggle_album_liked`. Liked albums show the heart permanently. The album detail header also shows a heart icon next to the album title. The sort bar's heart toggle floats liked albums to the top.
+- **Scan-safe:** the `liked` column on tracks is excluded from the `upsert_track` ON CONFLICT clause, so re-scanning or re-syncing a collection preserves the user's likes. Artist and album likes are never touched by scanning.
+- **Migration:** existing databases gain `liked` columns via `ALTER TABLE` for `tracks`, `artists`, and `albums` (all `INTEGER NOT NULL DEFAULT 0`).
 
 ### 4.11 Auto Continue
 
@@ -266,7 +269,8 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 ```sql
 CREATE TABLE artists (
     id          INTEGER PRIMARY KEY,
-    name        TEXT NOT NULL UNIQUE
+    name        TEXT NOT NULL UNIQUE,
+    liked       INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE albums (
@@ -274,6 +278,7 @@ CREATE TABLE albums (
     title       TEXT NOT NULL,
     artist_id   INTEGER REFERENCES artists(id),
     year        INTEGER,
+    liked       INTEGER NOT NULL DEFAULT 0,
     UNIQUE(title, artist_id)
 );
 
@@ -398,6 +403,8 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `get_tags_for_track`    | `track_id: i64`             | `Vec<Tag>`               |
 | `get_tracks_by_tag`     | `tag_id: i64`               | `Vec<Track>`             |
 | `toggle_track_liked`    | `track_id: i64, liked: bool`| `()`                     |
+| `toggle_artist_liked`   | `artist_id: i64, liked: bool`| `()`                    |
+| `toggle_album_liked`    | `album_id: i64, liked: bool`| `()`                     |
 | `get_liked_tracks`      | —                           | `Vec<Track>`             |
 | `search`                | `query, artist_id?, album_id?, tag_id?, liked_only?` | `Vec<Track>`   |
 | `get_track_path`        | `track_id: i64`             | `String` (path or URL)   |

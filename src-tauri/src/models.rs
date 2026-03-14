@@ -5,6 +5,7 @@ pub struct Artist {
     pub id: i64,
     pub name: String,
     pub track_count: i64,
+    pub liked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +16,7 @@ pub struct Album {
     pub artist_name: Option<String>,
     pub year: Option<i32>,
     pub track_count: i64,
+    pub liked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +54,10 @@ pub struct Collection {
     pub url: Option<String>,
     pub username: Option<String>,
     pub last_synced_at: Option<i64>,
+    pub auto_update: bool,
+    pub auto_update_interval_mins: i64,
+    pub enabled: bool,
+    pub last_sync_duration_secs: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
