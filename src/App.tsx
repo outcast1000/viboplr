@@ -35,12 +35,33 @@ import { StatusBar } from "./components/StatusBar";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
+const MINI_HEIGHT = 40;
+const MINI_MIN_WIDTH = 280;
+const MINI_MAX_WIDTH = 550;
+const MINI_INITIAL_WIDTH = 500;
+
+function measureMiniFooter(): number {
+  const footer = document.querySelector(".now-playing-mini") as HTMLElement;
+  if (!footer) return MINI_INITIAL_WIDTH;
+  const clone = footer.cloneNode(true) as HTMLElement;
+  clone.style.cssText = "position:fixed;top:-9999px;left:-9999px;visibility:hidden;width:max-content;pointer-events:none;";
+  document.body.appendChild(clone);
+  const width = clone.offsetWidth;
+  document.body.removeChild(clone);
+  return Math.max(MINI_MIN_WIDTH, Math.min(width + 16, MINI_MAX_WIDTH));
+}
+
 function App() {
   const restoredRef = useRef(false);
   const trackListRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HistoryViewHandle>(null);
   const previousVolumeRef = useRef(1.0);
+
+  // Mini mode state
+  const [miniMode, setMiniMode] = useState(false);
+  const miniModeRef = useRef(false);
+  const fullSizeRef = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
 
   // Core hooks
   const peekNextRef = useRef<() => Track | null>(() => null);
@@ -80,6 +101,62 @@ function App() {
   function addLog(message: string) {
     setSessionLog(prev => [...prev, { time: new Date(), message }]);
   }
+
+  // Toggle mini mode
+  const toggleMiniMode = useCallback(async () => {
+    const win = getCurrentWindow();
+    const factor = await win.scaleFactor();
+    if (!miniModeRef.current) {
+      // Entering mini mode — save current full geometry
+      const size = await win.innerSize();
+      const pos = await win.outerPosition();
+      const geo = { w: size.width / factor, h: size.height / factor, x: pos.x / factor, y: pos.y / factor };
+      fullSizeRef.current = geo;
+      store.set("fullWindowWidth", geo.w);
+      store.set("fullWindowHeight", geo.h);
+      store.set("fullWindowX", geo.x);
+      store.set("fullWindowY", geo.y);
+      await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_HEIGHT));
+      // Restore saved mini position if available
+      const [mx, my] = await Promise.all([
+        store.get<number | null>("miniWindowX"),
+        store.get<number | null>("miniWindowY"),
+      ]);
+      if (mx != null && my != null) {
+        await win.setPosition(new LogicalPosition(mx, my));
+      }
+      await win.setAlwaysOnTop(true);
+      await win.setDecorations(false);
+      setMiniMode(true);
+      miniModeRef.current = true;
+      store.set("miniMode", true);
+    } else {
+      // Exiting mini mode — save mini position, then restore full geometry
+      const pos = await win.outerPosition();
+      store.set("miniWindowX", pos.x / factor);
+      store.set("miniWindowY", pos.y / factor);
+      await win.setDecorations(true);
+      await win.setAlwaysOnTop(false);
+      const geo = fullSizeRef.current;
+      if (geo) {
+        await win.setSize(new LogicalSize(geo.w, geo.h));
+        await win.setPosition(new LogicalPosition(geo.x, geo.y));
+      } else {
+        // Fallback: read from store
+        const [fw, fh, fx, fy] = await Promise.all([
+          store.get<number | null>("fullWindowWidth"),
+          store.get<number | null>("fullWindowHeight"),
+          store.get<number | null>("fullWindowX"),
+          store.get<number | null>("fullWindowY"),
+        ]);
+        if (fw && fh) await win.setSize(new LogicalSize(fw, fh));
+        if (fx != null && fy != null) await win.setPosition(new LogicalPosition(fx, fy));
+      }
+      setMiniMode(false);
+      miniModeRef.current = false;
+      store.set("miniMode", false);
+    }
+  }, []);
 
   // Refs for latest artists/albums (needed by useEventListeners to avoid stale closures)
   const artistsRef = useRef(library.artists);
@@ -123,7 +200,7 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy, cf] = await Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy, cf, wasMini, fww, fwh, fwx, fwy, mwx, mwy] = await Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -140,6 +217,13 @@ function App() {
           store.get<number | null>("windowX"),
           store.get<number | null>("windowY"),
           store.get<number>("crossfadeSecs"),
+          store.get<boolean>("miniMode"),
+          store.get<number | null>("fullWindowWidth"),
+          store.get<number | null>("fullWindowHeight"),
+          store.get<number | null>("fullWindowX"),
+          store.get<number | null>("fullWindowY"),
+          store.get<number | null>("miniWindowX"),
+          store.get<number | null>("miniWindowY"),
         ]);
         if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -151,10 +235,11 @@ function App() {
         if (st !== undefined && st !== null) library.setSelectedTag(st);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
+        let restoredTrack: Track | null = null;
         if (tid !== undefined && tid !== null) {
           try {
-            const track = await invoke<Track>("get_track_by_id", { trackId: tid });
-            await playback.handleRestore(track, pos ?? 0);
+            restoredTrack = await invoke<Track>("get_track_by_id", { trackId: tid });
+            await playback.handleRestore(restoredTrack, pos ?? 0);
           } catch {
             // Track was deleted
           }
@@ -173,11 +258,22 @@ function App() {
           queueHook.setQueueMode(qMode as "normal" | "loop" | "shuffle");
         }
         const win = getCurrentWindow();
-        if (ww && wh && ww > 0 && wh > 0) {
-          await win.setSize(new LogicalSize(ww, wh));
-        }
-        if (wx !== undefined && wx !== null && wy !== undefined && wy !== null) {
-          await win.setPosition(new LogicalPosition(wx, wy));
+        if (wasMini) {
+          // Restore into mini mode
+          if (fww && fwh) fullSizeRef.current = { w: fww, h: fwh, x: fwx ?? 0, y: fwy ?? 0 };
+          await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_HEIGHT));
+          if (mwx != null && mwy != null) await win.setPosition(new LogicalPosition(mwx, mwy));
+          await win.setAlwaysOnTop(true);
+          await win.setDecorations(false);
+          setMiniMode(true);
+          miniModeRef.current = true;
+        } else {
+          if (ww && wh && ww > 0 && wh > 0) {
+            await win.setSize(new LogicalSize(ww, wh));
+          }
+          if (wx !== undefined && wx !== null && wy !== undefined && wy !== null) {
+            await win.setPosition(new LogicalPosition(wx, wy));
+          }
         }
         await win.show();
       } catch (e) {
@@ -198,12 +294,17 @@ function App() {
       timer = setTimeout(async () => {
         if (!restoredRef.current) return;
         const factor = await win.scaleFactor();
-        const size = await win.innerSize();
         const pos = await win.outerPosition();
-        store.set("windowWidth", size.width / factor);
-        store.set("windowHeight", size.height / factor);
-        store.set("windowX", pos.x / factor);
-        store.set("windowY", pos.y / factor);
+        if (miniModeRef.current) {
+          store.set("miniWindowX", pos.x / factor);
+          store.set("miniWindowY", pos.y / factor);
+        } else {
+          const size = await win.innerSize();
+          store.set("windowWidth", size.width / factor);
+          store.set("windowHeight", size.height / factor);
+          store.set("windowX", pos.x / factor);
+          store.set("windowY", pos.y / factor);
+        }
       }, 500);
     };
     const unlistenResize = win.onResized(save);
@@ -214,6 +315,30 @@ function App() {
       unlistenMove.then(f => f());
     };
   }, []);
+
+  // Auto-resize mini window when track changes or mini mode is entered
+  const miniSettledRef = useRef(false);
+  useEffect(() => {
+    if (!miniMode) { miniSettledRef.current = false; return; }
+    const frame = requestAnimationFrame(async () => {
+      const win = getCurrentWindow();
+      const newWidth = measureMiniFooter();
+      if (miniSettledRef.current) {
+        // Track changed while in mini mode — pin right edge
+        const factor = await win.scaleFactor();
+        const size = await win.innerSize();
+        const pos = await win.outerPosition();
+        const rightEdge = pos.x / factor + size.width / factor;
+        await win.setSize(new LogicalSize(newWidth, MINI_HEIGHT));
+        await win.setPosition(new LogicalPosition(rightEdge - newWidth, pos.y / factor));
+      } else {
+        // Just entered mini mode — set size only, keep position
+        await win.setSize(new LogicalSize(newWidth, MINI_HEIGHT));
+        miniSettledRef.current = true;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [miniMode, playback.currentTrack]);
 
   // Fetch artist image on demand
   const fetchedArtistImagesRef = useRef(fetchedArtistImages);
@@ -343,7 +468,6 @@ function App() {
           queueHook.setShowQueue(!s.showQueue);
           break;
         case "m":
-        case "M":
           e.preventDefault();
           if (s.volume > 0) {
             previousVolumeRef.current = s.volume;
@@ -351,6 +475,10 @@ function App() {
           } else {
             playback.handleVolume(previousVolumeRef.current || 1.0);
           }
+          break;
+        case "M":
+          e.preventDefault();
+          toggleMiniMode();
           break;
         case "ArrowLeft": {
           e.preventDefault();
@@ -608,7 +736,7 @@ function App() {
   const isHistoryView = view === "history";
 
   return (
-    <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""}`} onClick={() => setContextMenu(null)}>
+    <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${miniMode ? "mini-mode" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -1103,6 +1231,9 @@ function App() {
         autoContinueEnabled={autoContinue.enabled}
         showAutoContinuePopover={autoContinue.showPopover}
         autoContinueWeights={autoContinue.weights}
+        miniMode={miniMode}
+        onToggleMiniMode={toggleMiniMode}
+        onClose={() => getCurrentWindow().close()}
         onHint={setStatusHint}
         onPause={playback.handlePause}
         onStop={playback.handleStop}
