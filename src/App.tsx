@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import "./App.css";
 
-import type { Album, Track, View } from "./types";
+import type { Album, Collection, Track, View } from "./types";
 import { isVideoTrack, getInitials } from "./utils";
 import { store } from "./store";
 import type { SearchProviderConfig } from "./searchProviders";
@@ -98,6 +98,12 @@ function App() {
     setFailedArtistImages, setFailedAlbumImages,
     artistsRef, albumsRef,
   });
+
+  const statusActivity = scanning
+    ? `Scanning... ${scanProgress.scanned}/${scanProgress.total}`
+    : syncing
+    ? `Syncing ${syncProgress.collection}... ${syncProgress.synced}/${syncProgress.total} albums`
+    : null;
 
   // Paste image onto artist/album
   usePasteImage({
@@ -563,6 +569,24 @@ function App() {
     await invoke("resync_collection", { collectionId });
   }
 
+  async function handleUpdateCollection(collectionId: number, name: string, autoUpdate: boolean, autoUpdateIntervalMins: number, enabled: boolean) {
+    await invoke("update_collection", { collectionId, name, autoUpdate, autoUpdateIntervalMins, enabled });
+    library.loadLibrary();
+    library.loadTracks();
+  }
+
+  async function handleToggleCollectionEnabled(collection: Collection) {
+    await invoke("update_collection", {
+      collectionId: collection.id,
+      name: collection.name,
+      autoUpdate: collection.auto_update,
+      autoUpdateIntervalMins: collection.auto_update_interval_mins,
+      enabled: !collection.enabled,
+    });
+    library.loadLibrary();
+    library.loadTracks();
+  }
+
   async function handleToggleLike(track: Track) {
     const newLiked = !track.liked;
     try {
@@ -711,6 +735,8 @@ function App() {
           onShowAddServer={() => setShowAddServer(true)}
           onRemoveCollection={handleRemoveCollection}
           onResyncCollection={handleResyncCollection}
+          onUpdateCollection={handleUpdateCollection}
+          onToggleCollectionEnabled={handleToggleCollectionEnabled}
           onSeedDatabase={handleSeedDatabase}
           onClearDatabase={handleClearDatabase}
           clearing={clearing}
@@ -834,16 +860,6 @@ function App() {
               }
             }}
           />
-          {scanning && (
-            <span className="scan-status">
-              Scanning... {scanProgress.scanned}/{scanProgress.total}
-            </span>
-          )}
-          {syncing && (
-            <span className="scan-status">
-              Syncing {syncProgress.collection}... {syncProgress.synced}/{syncProgress.total} albums
-            </span>
-          )}
         </div>
 
         {/* Video player area */}
@@ -1203,7 +1219,7 @@ function App() {
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
       />
 
-      <StatusBar sessionLog={sessionLog} hint={statusHint} />
+      <StatusBar sessionLog={sessionLog} hint={statusHint} activity={statusActivity} />
     </div>
   );
 }

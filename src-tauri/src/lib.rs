@@ -24,6 +24,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
     tauri::generate_handler![
         commands::add_collection,
         commands::remove_collection,
+        commands::update_collection,
         commands::get_collections,
         commands::resync_collection,
         commands::get_artists,
@@ -69,6 +70,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
     tauri::generate_handler![
         commands::add_collection,
         commands::remove_collection,
+        commands::update_collection,
         commands::get_collections,
         commands::resync_collection,
         commands::get_artists,

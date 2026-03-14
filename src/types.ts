@@ -47,6 +47,10 @@ export interface Collection {
   url: string | null;
   username: string | null;
   last_synced_at: number | null;
+  auto_update: boolean;
+  auto_update_interval_mins: number;
+  enabled: boolean;
+  last_sync_duration_secs: number | null;
 }
 
 export type View = "all" | "artists" | "albums" | "tags" | "liked" | "history";

@@ -60,6 +60,7 @@ pub fn add_collection(
             let db = state.db.clone();
             let scan_path = folder_path.to_string();
             thread::spawn(move || {
+                let start = std::time::Instant::now();
                 scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
                     let _ = app.emit(
                         "scan-progress",
@@ -71,7 +72,7 @@ pub fn add_collection(
                     );
                 });
                 let _ = db.rebuild_fts();
-                let _ = db.update_collection_synced(collection_id);
+                let _ = db.update_collection_synced(collection_id, start.elapsed().as_secs_f64());
                 let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
             });
 
@@ -194,6 +195,22 @@ pub fn get_collections(state: State<'_, AppState>) -> Result<Vec<Collection>, St
 }
 
 #[tauri::command]
+pub fn update_collection(
+    state: State<'_, AppState>,
+    collection_id: i64,
+    name: String,
+    auto_update: bool,
+    auto_update_interval_mins: i64,
+    enabled: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .update_collection(collection_id, &name, auto_update, auto_update_interval_mins, enabled)
+        .map_err(|e| e.to_string())?;
+    state.db.rebuild_fts().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn resync_collection(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -210,6 +227,7 @@ pub fn resync_collection(
             let db = state.db.clone();
             let scan_path = folder_path.clone();
             thread::spawn(move || {
+                let start = std::time::Instant::now();
                 scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
                     let _ = app.emit(
                         "scan-progress",
@@ -221,7 +239,7 @@ pub fn resync_collection(
                     );
                 });
                 let _ = db.rebuild_fts();
-                let _ = db.update_collection_synced(collection_id);
+                let _ = db.update_collection_synced(collection_id, start.elapsed().as_secs_f64());
                 let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
             });
             Ok(())

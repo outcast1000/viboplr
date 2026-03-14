@@ -54,6 +54,10 @@ pub struct Collection {
     pub url: Option<String>,
     pub username: Option<String>,
     pub last_synced_at: Option<i64>,
+    pub auto_update: bool,
+    pub auto_update_interval_mins: i64,
+    pub enabled: bool,
+    pub last_sync_duration_secs: Option<f64>,
 }
 
 #[derive(Debug, Clone)]

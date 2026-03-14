@@ -4,6 +4,7 @@ import { collectionKindLabel } from "../utils";
 import type { SearchProviderConfig } from "../searchProviders";
 import { DEFAULT_PROVIDERS, getDomainFromUrl } from "../searchProviders";
 import { IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
+import { EditCollectionModal } from "./EditCollectionModal";
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
   google: IconGoogle,
@@ -44,6 +45,21 @@ function SettingsProviderIcon({ provider }: { provider: SearchProviderConfig }) 
   );
 }
 
+function formatSyncDuration(secs: number): string {
+  if (secs < 60) return `${secs.toFixed(1)}s`;
+  const mins = Math.floor(secs / 60);
+  const remainSecs = Math.round(secs % 60);
+  return `${mins}m ${remainSecs}s`;
+}
+
+function formatTimeAgo(ts: number): string {
+  const diffSecs = Math.floor(Date.now() / 1000) - ts;
+  if (diffSecs < 60) return "just now";
+  if (diffSecs < 3600) return `${Math.floor(diffSecs / 60)}m ago`;
+  if (diffSecs < 86400) return `${Math.floor(diffSecs / 3600)}h ago`;
+  return `${Math.floor(diffSecs / 86400)}d ago`;
+}
+
 interface SettingsPanelProps {
   collections: Collection[];
   searchProviders: SearchProviderConfig[];
@@ -52,6 +68,8 @@ interface SettingsPanelProps {
   onShowAddServer: () => void;
   onRemoveCollection: (id: number) => void;
   onResyncCollection: (id: number) => void;
+  onUpdateCollection: (id: number, name: string, autoUpdate: boolean, autoUpdateIntervalMins: number, enabled: boolean) => void;
+  onToggleCollectionEnabled: (collection: Collection) => void;
   onSeedDatabase: () => void;
   onClearDatabase: () => void;
   clearing: boolean;
@@ -71,13 +89,14 @@ interface ProviderFormData {
 export function SettingsPanel({
   collections, searchProviders,
   onClose, onAddFolder, onShowAddServer,
-  onRemoveCollection, onResyncCollection,
+  onRemoveCollection, onResyncCollection, onUpdateCollection, onToggleCollectionEnabled,
   onSeedDatabase, onClearDatabase, clearing,
   onClearImageFailures, onSaveProviders,
   crossfadeSecs,
   onCrossfadeChange,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<"main" | "collections" | "providers">("main");
+  const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<ProviderFormData>({ name: "", artistUrl: "", albumUrl: "", trackUrl: "" });
@@ -189,27 +208,56 @@ export function SettingsPanel({
         {settingsTab === "collections" && (
           <div className="settings-section">
             {collections.map((c) => (
-              <div key={c.id} className="collection-item">
-                <span className={`collection-kind collection-kind-${c.kind}`}>
-                  {collectionKindLabel(c.kind)}
-                </span>
-                <span className="collection-name" title={c.path || c.url || c.name}>
-                  {c.name}
-                </span>
-                <button
-                  className="collection-action collection-resync"
-                  onClick={() => onResyncCollection(c.id)}
-                  title="Resync"
-                >
-                  {"\u21BB"}
-                </button>
-                <button
-                  className="collection-action collection-remove"
-                  onClick={() => onRemoveCollection(c.id)}
-                  title="Remove"
-                >
-                  {"\u00D7"}
-                </button>
+              <div key={c.id} className={`collection-card${!c.enabled ? " collection-card-disabled" : ""}`}>
+                <div className="collection-card-header">
+                  <button
+                    className={`collection-enable-toggle ${c.enabled ? "collection-enable-toggle-on" : ""}`}
+                    onClick={() => onToggleCollectionEnabled(c)}
+                    title={c.enabled ? "Disable" : "Enable"}
+                  >
+                    {c.enabled ? "On" : "Off"}
+                  </button>
+                  <span className={`collection-kind collection-kind-${c.kind}`}>
+                    {collectionKindLabel(c.kind)}
+                  </span>
+                  <span className="collection-card-name" title={c.path || c.url || c.name}>
+                    {c.name}
+                  </span>
+                  <button
+                    className="collection-action collection-edit"
+                    onClick={() => setEditingCollection(c)}
+                    title="Edit"
+                  >
+                    {"\u270E"}
+                  </button>
+                  <button
+                    className="collection-action collection-resync"
+                    onClick={() => onResyncCollection(c.id)}
+                    title="Resync"
+                  >
+                    {"\u21BB"}
+                  </button>
+                  <button
+                    className="collection-action collection-remove"
+                    onClick={() => onRemoveCollection(c.id)}
+                    title="Remove"
+                  >
+                    {"\u00D7"}
+                  </button>
+                </div>
+                <div className="collection-card-details">
+                  {c.path && <span className="collection-card-detail" title={c.path}>{c.path}</span>}
+                  {c.url && <span className="collection-card-detail">{c.url}</span>}
+                  {c.last_synced_at && (
+                    <span className="collection-card-detail">
+                      Synced {formatTimeAgo(c.last_synced_at)}
+                      {c.last_sync_duration_secs != null && <> in {formatSyncDuration(c.last_sync_duration_secs)}</>}
+                    </span>
+                  )}
+                  {c.auto_update && (
+                    <span className="collection-card-detail">Auto-update every {c.auto_update_interval_mins < 60 ? `${c.auto_update_interval_mins}m` : `${c.auto_update_interval_mins / 60}h`}</span>
+                  )}
+                </div>
               </div>
             ))}
             <button className="add-folder-btn" onClick={onAddFolder}>
@@ -332,6 +380,17 @@ export function SettingsPanel({
         )}
 
       </div>
+
+      {editingCollection && (
+        <EditCollectionModal
+          collection={editingCollection}
+          onSave={(id, name, autoUpdate, autoUpdateIntervalMins, enabled) => {
+            onUpdateCollection(id, name, autoUpdate, autoUpdateIntervalMins, enabled);
+            setEditingCollection(null);
+          }}
+          onClose={() => setEditingCollection(null)}
+        />
+      )}
     </div>
   );
 }
