@@ -251,6 +251,26 @@ impl Database {
             conn.execute_batch("ALTER TABLE tracks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;")?;
         }
 
+        // Add liked column to artists if missing
+        let has_artist_liked: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('artists') WHERE name='liked'",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_artist_liked {
+            conn.execute_batch("ALTER TABLE artists ADD COLUMN liked INTEGER NOT NULL DEFAULT 0;")?;
+        }
+
+        // Add liked column to albums if missing
+        let has_album_liked: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('albums') WHERE name='liked'",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_album_liked {
+            conn.execute_batch("ALTER TABLE albums ADD COLUMN liked INTEGER NOT NULL DEFAULT 0;")?;
+        }
+
         Ok(())
     }
 
@@ -273,7 +293,7 @@ impl Database {
     pub fn get_artists(&self) -> SqlResult<Vec<Artist>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT a.id, a.name, COUNT(t.id)
+            "SELECT a.id, a.name, COUNT(t.id), a.liked
              FROM artists a
              LEFT JOIN tracks t ON t.artist_id = a.id AND t.deleted = 0
              GROUP BY a.id
@@ -284,6 +304,7 @@ impl Database {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 track_count: row.get(2)?,
+                liked: row.get::<_, i32>(3).unwrap_or(0) != 0,
             })
         })?;
         rows.collect()
@@ -314,7 +335,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = artist_id {
             let mut stmt = conn.prepare(
-                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, COUNT(t.id)
+                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, COUNT(t.id), a.liked
                  FROM albums a
                  LEFT JOIN artists ar ON a.artist_id = ar.id
                  LEFT JOIN tracks t ON t.album_id = a.id AND t.deleted = 0
@@ -323,12 +344,12 @@ impl Database {
                  ORDER BY a.year, a.title"
             )?;
             let rows = stmt.query_map(params![aid], |row| {
-                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)? })
+                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)?, liked: row.get::<_, i32>(6).unwrap_or(0) != 0 })
             })?;
             rows.collect()
         } else {
             let mut stmt = conn.prepare(
-                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, COUNT(t.id)
+                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, COUNT(t.id), a.liked
                  FROM albums a
                  LEFT JOIN artists ar ON a.artist_id = ar.id
                  LEFT JOIN tracks t ON t.album_id = a.id AND t.deleted = 0
@@ -336,7 +357,7 @@ impl Database {
                  ORDER BY a.title"
             )?;
             let rows = stmt.query_map([], |row| {
-                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)? })
+                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)?, liked: row.get::<_, i32>(6).unwrap_or(0) != 0 })
             })?;
             rows.collect()
         }
@@ -798,6 +819,24 @@ impl Database {
         conn.execute(
             "UPDATE tracks SET liked = ?2 WHERE id = ?1",
             params![track_id, liked as i32],
+        )?;
+        Ok(())
+    }
+
+    pub fn toggle_artist_liked(&self, artist_id: i64, liked: bool) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE artists SET liked = ?2 WHERE id = ?1",
+            params![artist_id, liked as i32],
+        )?;
+        Ok(())
+    }
+
+    pub fn toggle_album_liked(&self, album_id: i64, liked: bool) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE albums SET liked = ?2 WHERE id = ?1",
+            params![album_id, liked as i32],
         )?;
         Ok(())
     }

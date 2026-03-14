@@ -2,6 +2,7 @@ export interface Artist {
   id: number;
   name: string;
   track_count: number;
+  liked: boolean;
 }
 
 export interface Album {
@@ -11,6 +12,7 @@ export interface Album {
   artist_name: string | null;
   year: number | null;
   track_count: number;
+  liked: boolean;
 }
 
 export interface Tag {
@@ -70,3 +72,6 @@ export interface MostPlayedTrack {
 
 export type SortField = "num" | "title" | "artist" | "album" | "duration";
 export type SortDir = "asc" | "desc";
+
+export type ArtistSortField = "name" | "random";
+export type AlbumSortField = "name" | "year" | "random";

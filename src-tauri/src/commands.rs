@@ -417,6 +417,30 @@ pub fn toggle_track_liked(
 }
 
 #[tauri::command]
+pub fn toggle_artist_liked(
+    state: State<'_, AppState>,
+    artist_id: i64,
+    liked: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .toggle_artist_liked(artist_id, liked)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn toggle_album_liked(
+    state: State<'_, AppState>,
+    album_id: i64,
+    liked: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .toggle_album_liked(album_id, liked)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
     state.db.get_liked_tracks().map_err(|e| e.to_string())
 }
