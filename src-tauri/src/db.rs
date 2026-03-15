@@ -11,6 +11,11 @@ pub fn strip_diacritics(s: &str) -> String {
     s.nfd().filter(|c| !unicode_normalization::char::is_combining_mark(*c)).collect()
 }
 
+/// Normalize a string for case+diacritic-insensitive comparison.
+fn normalize_for_comparison(s: &str) -> String {
+    strip_diacritics(&s.to_lowercase())
+}
+
 const TRACK_SELECT: &str =
     "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, \
      t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id, t.liked, t.deleted \
@@ -77,11 +82,25 @@ impl Database {
             },
         )?;
 
+        // Register custom SQL function for Unicode-aware lowercase (handles Greek, Cyrillic, etc.)
+        conn.create_scalar_function(
+            "unicode_lower",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                let s: String = ctx.get(0)?;
+                Ok(s.to_lowercase())
+            },
+        )?;
+
         let db = Self {
             conn: Mutex::new(conn),
         };
         db.init_tables()?;
-        db.migrate()?;
+        let needs_fts_rebuild = db.migrate(app_dir)?;
+        if needs_fts_rebuild {
+            db.rebuild_fts()?;
+        }
         Ok(db)
     }
 
@@ -176,7 +195,7 @@ impl Database {
         Ok(())
     }
 
-    fn migrate(&self) -> SqlResult<()> {
+    fn migrate(&self, app_dir: &Path) -> SqlResult<bool> {
         let conn = self.conn.lock().unwrap();
 
         // Migrate from old folders table if it exists
@@ -296,6 +315,261 @@ impl Database {
             conn.execute_batch("ALTER TABLE collections ADD COLUMN last_sync_duration_secs REAL;")?;
         }
 
+        // --- Unicode case-insensitive dedup migration ---
+        // Check if any duplicate artists, albums, or tags exist (differing only by Unicode case)
+        let has_artist_dupes: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM artists a1 JOIN artists a2
+             ON strip_diacritics(unicode_lower(a1.name)) = strip_diacritics(unicode_lower(a2.name)) AND a1.id < a2.id)",
+            [],
+            |row| row.get(0),
+        )?;
+        let has_album_dupes: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM albums a1 JOIN albums a2
+             ON strip_diacritics(unicode_lower(a1.title)) = strip_diacritics(unicode_lower(a2.title))
+             AND (a1.artist_id = a2.artist_id OR (a1.artist_id IS NULL AND a2.artist_id IS NULL))
+             AND a1.id < a2.id)",
+            [],
+            |row| row.get(0),
+        )?;
+        let has_tag_dupes: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM tags t1 JOIN tags t2
+             ON strip_diacritics(unicode_lower(t1.name)) = strip_diacritics(unicode_lower(t2.name)) AND t1.id < t2.id)",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if !has_artist_dupes && !has_album_dupes && !has_tag_dupes {
+            return Ok(false);
+        }
+
+        drop(conn);
+        self.dedup_artists(app_dir)?;
+        self.dedup_albums(app_dir)?;
+        self.dedup_tags()?;
+        Ok(true)
+    }
+
+    fn dedup_artists(&self, app_dir: &Path) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        // Collect all artists grouped by lowercased name
+        let mut stmt = conn.prepare("SELECT id, name FROM artists ORDER BY id")?;
+        let rows: Vec<(i64, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        drop(stmt);
+
+        let mut groups: std::collections::HashMap<String, Vec<i64>> = std::collections::HashMap::new();
+        for (id, name) in &rows {
+            groups.entry(normalize_for_comparison(name)).or_default().push(*id);
+        }
+
+        for (_key, ids) in &groups {
+            if ids.len() < 2 {
+                continue;
+            }
+            let keeper = ids[0]; // lowest id
+            for &old in &ids[1..] {
+                // Transfer tracks (artist_id on tracks)
+                conn.execute(
+                    "UPDATE tracks SET artist_id = ?1 WHERE artist_id = ?2",
+                    params![keeper, old],
+                )?;
+                // Merge albums: for each album under `old`, check if keeper already
+                // has an album with the same title (which would violate the UNIQUE constraint).
+                {
+                    let mut old_albums_stmt = conn.prepare(
+                        "SELECT id, title FROM albums WHERE artist_id = ?1"
+                    )?;
+                    let old_albums: Vec<(i64, String)> = old_albums_stmt
+                        .query_map(params![old], |row| Ok((row.get(0)?, row.get(1)?)))?
+                        .collect::<SqlResult<Vec<_>>>()?;
+                    drop(old_albums_stmt);
+
+                    for (old_album_id, old_title) in &old_albums {
+                        let keeper_album: Option<i64> = conn.query_row(
+                            "SELECT id FROM albums WHERE artist_id = ?1 \
+                             AND strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?2))",
+                            params![keeper, old_title],
+                            |row| row.get(0),
+                        ).optional()?;
+                        if let Some(keeper_album_id) = keeper_album {
+                            // Conflicting album exists — merge tracks into keeper album
+                            conn.execute(
+                                "UPDATE tracks SET album_id = ?1 WHERE album_id = ?2",
+                                params![keeper_album_id, old_album_id],
+                            )?;
+                            // Transfer liked
+                            let al_liked: i32 = conn.query_row(
+                                "SELECT liked FROM albums WHERE id = ?1",
+                                params![old_album_id], |row| row.get(0),
+                            ).unwrap_or(0);
+                            if al_liked != 0 {
+                                conn.execute(
+                                    "UPDATE albums SET liked = 1 WHERE id = ?1",
+                                    params![keeper_album_id],
+                                )?;
+                            }
+                            // Transfer album image
+                            let image_exts = ["jpg", "jpeg", "png"];
+                            let album_dir = app_dir.join("album_images");
+                            let has_img = image_exts.iter().any(|e| album_dir.join(format!("{}.{}", keeper_album_id, e)).exists());
+                            if !has_img {
+                                for ext in &image_exts {
+                                    let p = album_dir.join(format!("{}.{}", old_album_id, ext));
+                                    if p.exists() {
+                                        let _ = std::fs::rename(&p, album_dir.join(format!("{}.{}", keeper_album_id, ext)));
+                                        break;
+                                    }
+                                }
+                            }
+                            conn.execute(
+                                "DELETE FROM image_fetch_failures WHERE kind='album' AND item_id = ?1",
+                                params![old_album_id],
+                            )?;
+                            conn.execute("DELETE FROM albums WHERE id = ?1", params![old_album_id])?;
+                        } else {
+                            // No conflict — just reassign
+                            conn.execute(
+                                "UPDATE albums SET artist_id = ?1 WHERE id = ?2",
+                                params![keeper, old_album_id],
+                            )?;
+                        }
+                    }
+                }
+                // Transfer liked status
+                let old_liked: i32 = conn.query_row(
+                    "SELECT liked FROM artists WHERE id = ?1",
+                    params![old],
+                    |row| row.get(0),
+                ).unwrap_or(0);
+                if old_liked != 0 {
+                    conn.execute(
+                        "UPDATE artists SET liked = 1 WHERE id = ?1",
+                        params![keeper],
+                    )?;
+                }
+                // Rename image files if keeper has none but old does
+                let image_exts = ["jpg", "jpeg", "png"];
+                let artist_dir = app_dir.join("artist_images");
+                let keeper_has_image = image_exts.iter().any(|ext| {
+                    artist_dir.join(format!("{}.{}", keeper, ext)).exists()
+                });
+                if !keeper_has_image {
+                    for ext in &image_exts {
+                        let old_path = artist_dir.join(format!("{}.{}", old, ext));
+                        if old_path.exists() {
+                            let new_path = artist_dir.join(format!("{}.{}", keeper, ext));
+                            let _ = std::fs::rename(&old_path, &new_path);
+                            break;
+                        }
+                    }
+                }
+                // Clean up image fetch failures for the old id
+                conn.execute(
+                    "DELETE FROM image_fetch_failures WHERE kind='artist' AND item_id = ?1",
+                    params![old],
+                )?;
+                // Delete the duplicate artist
+                conn.execute("DELETE FROM artists WHERE id = ?1", params![old])?;
+            }
+        }
+        Ok(())
+    }
+
+    fn dedup_albums(&self, app_dir: &Path) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT id, title, artist_id FROM albums ORDER BY id")?;
+        let rows: Vec<(i64, String, Option<i64>)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        drop(stmt);
+
+        // Group by (normalized title, artist_id)
+        let mut groups: std::collections::HashMap<(String, Option<i64>), Vec<i64>> =
+            std::collections::HashMap::new();
+        for (id, title, artist_id) in &rows {
+            groups.entry((normalize_for_comparison(title), *artist_id)).or_default().push(*id);
+        }
+
+        for (_key, ids) in &groups {
+            if ids.len() < 2 {
+                continue;
+            }
+            let keeper = ids[0];
+            for &old in &ids[1..] {
+                conn.execute(
+                    "UPDATE tracks SET album_id = ?1 WHERE album_id = ?2",
+                    params![keeper, old],
+                )?;
+                let old_liked: i32 = conn.query_row(
+                    "SELECT liked FROM albums WHERE id = ?1",
+                    params![old],
+                    |row| row.get(0),
+                ).unwrap_or(0);
+                if old_liked != 0 {
+                    conn.execute(
+                        "UPDATE albums SET liked = 1 WHERE id = ?1",
+                        params![keeper],
+                    )?;
+                }
+                // Rename image files if keeper has none but old does
+                let image_exts = ["jpg", "jpeg", "png"];
+                let album_dir = app_dir.join("album_images");
+                let keeper_has_image = image_exts.iter().any(|ext| {
+                    album_dir.join(format!("{}.{}", keeper, ext)).exists()
+                });
+                if !keeper_has_image {
+                    for ext in &image_exts {
+                        let old_path = album_dir.join(format!("{}.{}", old, ext));
+                        if old_path.exists() {
+                            let new_path = album_dir.join(format!("{}.{}", keeper, ext));
+                            let _ = std::fs::rename(&old_path, &new_path);
+                            break;
+                        }
+                    }
+                }
+                conn.execute(
+                    "DELETE FROM image_fetch_failures WHERE kind='album' AND item_id = ?1",
+                    params![old],
+                )?;
+                conn.execute("DELETE FROM albums WHERE id = ?1", params![old])?;
+            }
+        }
+        Ok(())
+    }
+
+    fn dedup_tags(&self) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT id, name FROM tags ORDER BY id")?;
+        let rows: Vec<(i64, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        drop(stmt);
+
+        let mut groups: std::collections::HashMap<String, Vec<i64>> = std::collections::HashMap::new();
+        for (id, name) in &rows {
+            groups.entry(normalize_for_comparison(name)).or_default().push(*id);
+        }
+
+        for (_key, ids) in &groups {
+            if ids.len() < 2 {
+                continue;
+            }
+            let keeper = ids[0];
+            for &old in &ids[1..] {
+                // Move track_tags, ignoring conflicts (track already has keeper tag)
+                conn.execute(
+                    "UPDATE OR IGNORE track_tags SET tag_id = ?1 WHERE tag_id = ?2",
+                    params![keeper, old],
+                )?;
+                // Clean up any remaining rows that conflicted
+                conn.execute(
+                    "DELETE FROM track_tags WHERE tag_id = ?1",
+                    params![old],
+                )?;
+                conn.execute("DELETE FROM tags WHERE id = ?1", params![old])?;
+            }
+        }
         Ok(())
     }
 
@@ -303,16 +577,16 @@ impl Database {
 
     pub fn get_or_create_artist(&self, name: &str) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT OR IGNORE INTO artists (name) VALUES (?1)",
-            params![name],
-        )?;
-        let id: i64 = conn.query_row(
-            "SELECT id FROM artists WHERE name = ?1",
+        let existing: Option<i64> = conn.query_row(
+            "SELECT id FROM artists WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
             params![name],
             |row| row.get(0),
-        )?;
-        Ok(id)
+        ).optional()?;
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+        conn.execute("INSERT INTO artists (name) VALUES (?1)", params![name])?;
+        Ok(conn.last_insert_rowid())
     }
 
     pub fn get_artists(&self) -> SqlResult<Vec<Artist>> {
@@ -348,16 +622,20 @@ impl Database {
         year: Option<i32>,
     ) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT OR IGNORE INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
-            params![title, artist_id, year],
-        )?;
-        let id: i64 = conn.query_row(
-            "SELECT id FROM albums WHERE title = ?1 AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
+        let existing: Option<i64> = conn.query_row(
+            "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
+             AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
             params![title, artist_id],
             |row| row.get(0),
+        ).optional()?;
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+        conn.execute(
+            "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
+            params![title, artist_id, year],
         )?;
-        Ok(id)
+        Ok(conn.last_insert_rowid())
     }
 
     pub fn get_albums(&self, artist_id: Option<i64>) -> SqlResult<Vec<Album>> {
@@ -402,16 +680,16 @@ impl Database {
 
     pub fn get_or_create_tag(&self, name: &str) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT OR IGNORE INTO tags (name) VALUES (?1)",
-            params![name],
-        )?;
-        let id: i64 = conn.query_row(
-            "SELECT id FROM tags WHERE name = ?1",
+        let existing: Option<i64> = conn.query_row(
+            "SELECT id FROM tags WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
             params![name],
             |row| row.get(0),
-        )?;
-        Ok(id)
+        ).optional()?;
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+        conn.execute("INSERT INTO tags (name) VALUES (?1)", params![name])?;
+        Ok(conn.last_insert_rowid())
     }
 
     pub fn add_track_tag(&self, track_id: i64, tag_id: i64) -> SqlResult<()> {
