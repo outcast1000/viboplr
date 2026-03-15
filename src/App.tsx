@@ -401,6 +401,28 @@ function App() {
     if (album) fetchAlbumImageOnDemand(album);
   }, [library.selectedAlbum]);
 
+  // Fetch album/artist image when current track changes (for Now Playing bar)
+  useEffect(() => {
+    const track = playback.currentTrack;
+    if (!track) return;
+    if (track.album_id) {
+      fetchAlbumImageOnDemand({ id: track.album_id, title: track.album_title ?? "", artist_name: track.artist_name } as Album);
+    }
+    if (track.artist_id) {
+      if (artistImagesRef.current[track.artist_id] !== undefined) return;
+      if (fetchedArtistImagesRef.current.has(track.artist_id)) return;
+      if (failedArtistImagesRef.current.has(track.artist_id)) return;
+      setFetchedArtistImages((prev) => new Set(prev).add(track.artist_id!));
+      invoke<string | null>("get_artist_image", { artistId: track.artist_id }).then((path) => {
+        if (path) {
+          setArtistImages((prev) => ({ ...prev, [track.artist_id!]: path }));
+        } else {
+          invoke("fetch_artist_image", { artistId: track.artist_id, artistName: track.artist_name ?? "Unknown" });
+        }
+      });
+    }
+  }, [playback.currentTrack]);
+
   // Ref for keyboard shortcut handler to avoid stale closures
   const shortcutStateRef = useRef({
     volume: playback.volume,
