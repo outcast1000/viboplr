@@ -508,7 +508,7 @@ function App() {
           break;
         case ">":
           e.preventDefault();
-          queueHook.playNext();
+          handleNext();
           break;
         case "<":
           e.preventDefault();
@@ -529,11 +529,7 @@ function App() {
   const handleStopRef = useRef(playback.handleStop);
   handleStopRef.current = playback.handleStop;
 
-  const onEnded = useCallback(async () => {
-    if (playback.handleGaplessNext()) {
-      queueHook.advanceIndex();
-      return;
-    }
+  const handleNext = useCallback(async () => {
     if (!queueHook.playNext()) {
       const ac = autoContinueRef.current;
       const track = currentTrackRef.current;
@@ -546,6 +542,14 @@ function App() {
       }
       handleStopRef.current();
     }
+  }, []);
+
+  const onEnded = useCallback(async () => {
+    if (playback.handleGaplessNext()) {
+      queueHook.advanceIndex();
+      return;
+    }
+    handleNext();
   }, []);
 
   useEffect(() => {
@@ -1339,7 +1343,7 @@ function App() {
         onHint={setStatusHint}
         onPause={playback.handlePause}
         onStop={playback.handleStop}
-        onNext={() => queueHook.playNext()}
+        onNext={handleNext}
         onPrevious={queueHook.playPrevious}
         onSeek={playback.handleSeek}
         onVolume={playback.handleVolume}
