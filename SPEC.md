@@ -350,6 +350,23 @@ All shortcuts use `Ctrl` on Windows/Linux and `Cmd` on macOS.
 
 Track list keyboard navigation (without modifier): arrow keys to navigate tracks, Enter to play, Shift+Enter to enqueue.
 
+### 4.18 Custom Data Directory
+
+By default, FastPlayer stores its database and images in the platform-specific app data directory (`~/Library/Application Support/com.alex.fastplayer/` on macOS). This can be overridden to use a different location.
+
+**Environment variable (preferred for development):**
+```bash
+FASTPLAYER_DATA_DIR=/path/to/data npm run tauri dev
+```
+
+**CLI argument (for the built binary):**
+```bash
+./FastPlayer --data-dir /path/to/data
+./FastPlayer --data-dir=/path/to/data
+```
+
+The environment variable takes precedence if both are set. The directory is created automatically if it doesn't exist. All app data (database, artist images, album images) is stored under the specified directory.
+
 ## 5. Database Schema
 
 ```sql
