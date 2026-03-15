@@ -1094,7 +1094,7 @@ function App() {
           )}
 
           {/* Artist detail view */}
-          {view === "artists" && selectedArtist !== null && (() => {
+          {view === "artists" && selectedArtist !== null && selectedAlbum === null && (() => {
             const artist = artists.find(a => a.id === selectedArtist);
             const artistImagePath = artistImages[selectedArtist] ?? null;
             return (
@@ -1236,7 +1236,7 @@ function App() {
           )}
 
           {/* Album detail header */}
-          {view === "all" && selectedAlbum !== null && !searchQuery.trim() && (() => {
+          {(view === "all" || view === "artists") && selectedAlbum !== null && !searchQuery.trim() && (() => {
             const album = albums.find(a => a.id === selectedAlbum);
             const albumImagePath = albumImages[selectedAlbum] ?? null;
             return (
@@ -1278,7 +1278,7 @@ function App() {
           })()}
 
           {/* All tracks view */}
-          {view === "all" && (
+          {(view === "all" || (view === "artists" && selectedAlbum !== null)) && (
             <TrackList
               tracks={sortedTracks}
               currentTrack={playback.currentTrack}

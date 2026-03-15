@@ -31,7 +31,7 @@ export function Breadcrumb({
     <div className="breadcrumb">
       {view === "artists" && selectedArtist === null ? (
         <span>All Artists</span>
-      ) : view === "artists" && selectedArtist !== null ? (
+      ) : view === "artists" && selectedArtist !== null && selectedAlbum === null ? (
         <>
           <span className="breadcrumb-link" onClick={() => { onSetSelectedArtist(null); onSetView("artists"); }}>Artists</span>
           <span className="breadcrumb-sep"> {"\u203A"} </span>
