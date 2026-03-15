@@ -93,3 +93,4 @@ export interface ColumnConfig {
 
 export type ArtistSortField = "name" | "tracks" | "random";
 export type AlbumSortField = "name" | "year" | "random";
+export type TagSortField = "name" | "tracks" | "random";

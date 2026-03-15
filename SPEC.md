@@ -110,9 +110,13 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 
 **Album grid sort controls:** A sort bar above the album grid offers Name, Year, and Shuffle buttons, plus a heart toggle to float liked albums to the top. Name and Year cycle asc → desc → unsorted. Shuffle re-randomizes each click.
 
+**Tag list sort controls:** A sort bar above the tag list offers Name, Tracks (track count), and Shuffle buttons. Name and Tracks cycle asc → desc → unsorted. Shuffle re-randomizes each click (Fisher-Yates).
+
+**Performance:** Track counts for artists, albums, and tags are precomputed and stored in `track_count` columns (see §5). Counts are recomputed after every scan, sync, collection toggle, and FTS rebuild. The `get_artists`, `get_albums`, and `get_tags` queries use simple `WHERE track_count > 0` filters instead of JOIN/GROUP BY/HAVING, making sidebar navigation instant. The frontend skips fetching tracks when only the album grid or tag list is displayed (no track table rendered), and does not re-fetch the full album list when navigating to the Albums view (already loaded by `loadLibrary`).
+
 ### 4.7 Tags
 
-Tags replace the previous single-genre-per-track model. A track can have **multiple tags** via a many-to-many relationship (`track_tags` junction table). Genre metadata read from file tags or Subsonic metadata is stored as tags. The Tags view in the sidebar lists all tags; clicking one filters the track list.
+Tags replace the previous single-genre-per-track model. A track can have **multiple tags** via a many-to-many relationship (`track_tags` junction table). Genre metadata read from file tags or Subsonic metadata is stored as tags. The Tags view in the sidebar lists all tags with track counts; clicking one filters the track list.
 
 ### 4.8 Search
 
@@ -373,7 +377,8 @@ The environment variable takes precedence if both are set. The directory is crea
 CREATE TABLE artists (
     id          INTEGER PRIMARY KEY,
     name        TEXT NOT NULL UNIQUE,
-    liked       INTEGER NOT NULL DEFAULT 0
+    liked       INTEGER NOT NULL DEFAULT 0,
+    track_count INTEGER NOT NULL DEFAULT 0   -- precomputed, updated by recompute_counts()
 );
 
 CREATE TABLE albums (
@@ -382,12 +387,14 @@ CREATE TABLE albums (
     artist_id   INTEGER REFERENCES artists(id),
     year        INTEGER,
     liked       INTEGER NOT NULL DEFAULT 0,
+    track_count INTEGER NOT NULL DEFAULT 0,  -- precomputed, updated by recompute_counts()
     UNIQUE(title, artist_id)
 );
 
 CREATE TABLE tags (
     id          INTEGER PRIMARY KEY,
-    name        TEXT NOT NULL UNIQUE
+    name        TEXT NOT NULL UNIQUE,
+    track_count INTEGER NOT NULL DEFAULT 0   -- precomputed, updated by recompute_counts()
 );
 
 CREATE TABLE collections (
@@ -458,7 +465,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 );
 ```
 
-**Migration:** On upgrade from the old schema, the `folders` table is automatically migrated to `collections` with `kind='local'`. Existing tracks are linked to their collection by path prefix matching. The `folders` table is dropped after migration. Additional migrations add `deleted` to tracks, `liked` to artists/albums/tracks, `auto_update`/`auto_update_interval_mins`/`enabled`/`last_sync_duration_secs` to collections.
+**Migration:** A `db_version` table tracks the schema version (starting at 1). On startup, `run_migrations()` checks the version and applies any needed ALTER TABLE statements. Migrations include: `folders` → `collections` with `kind='local'` (path prefix matching); `deleted` on tracks; `liked` on artists/albums/tracks; `auto_update`/`auto_update_interval_mins`/`enabled`/`last_sync_duration_secs` on collections; `track_count` on artists/albums/tags (version 2). After migrations, `recompute_counts()` runs on every startup to ensure counts are correct even after a crash or interrupted scan.
 
 ## 6. Architecture
 

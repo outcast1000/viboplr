@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Artist, Album, Tag, Track, Collection, View, SortField, SortDir, ArtistSortField, AlbumSortField, ColumnConfig, TrackColumnId } from "../types";
+import type { Artist, Album, Tag, Track, Collection, View, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField, ColumnConfig, TrackColumnId } from "../types";
 import { store } from "../store";
 
 const ALL_COLUMN_IDS: TrackColumnId[] = ["like", "num", "title", "artist", "album", "year", "quality", "duration", "collection", "path"];
@@ -47,6 +47,11 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   const [albumLikedFirst, setAlbumLikedFirst] = useState(false);
   const [albumShuffleKey, setAlbumShuffleKey] = useState(0);
 
+  // Tag sort state
+  const [tagSortField, setTagSortField] = useState<TagSortField | null>(null);
+  const [tagSortDir, setTagSortDir] = useState<SortDir>("asc");
+  const [tagShuffleKey, setTagShuffleKey] = useState(0);
+
   // Persist state
   useEffect(() => { if (restoredRef.current) store.set("view", view); }, [view]);
   useEffect(() => { if (restoredRef.current) store.set("searchQuery", searchQuery); }, [searchQuery]);
@@ -79,6 +84,10 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
 
   const loadTracks = useCallback(async () => {
     try {
+      // No tracks rendered on album grid or tag list
+      if ((view === "albums" && selectedAlbum === null) || (view === "tags" && selectedTag === null)) {
+        if (!searchQuery.trim()) { setTracks([]); return; }
+      }
       if (searchQuery.trim()) {
         const results = await invoke<Track[]>("search", {
           query: searchQuery,
@@ -109,7 +118,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     }
   }, [searchQuery, selectedTag, selectedAlbum, selectedArtist, view]);
 
-  useEffect(() => { loadLibrary(); }, [loadLibrary]);
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
   // Reset highlighted index when tracks change
@@ -214,6 +222,42 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     return result;
   }, [albums, albumSortField, albumSortDir, albumLikedFirst, albumShuffleKey]);
 
+  const sortedTags = useMemo(() => {
+    void tagShuffleKey;
+    let result: Tag[];
+    if (tagSortField === "random") {
+      result = shuffle(tags);
+    } else if (tagSortField === "name") {
+      const dir = tagSortDir === "asc" ? 1 : -1;
+      result = [...tags].sort((a, b) => a.name.localeCompare(b.name) * dir);
+    } else if (tagSortField === "tracks") {
+      const dir = tagSortDir === "asc" ? 1 : -1;
+      result = [...tags].sort((a, b) => (a.track_count - b.track_count) * dir);
+    } else {
+      result = tags;
+    }
+    return result;
+  }, [tags, tagSortField, tagSortDir, tagShuffleKey]);
+
+  function handleTagSort(field: TagSortField) {
+    if (field === "random") {
+      setTagSortField("random");
+      setTagShuffleKey(k => k + 1);
+      return;
+    }
+    if (tagSortField === field) {
+      if (tagSortDir === "asc") {
+        setTagSortDir("desc");
+      } else {
+        setTagSortField(null);
+        setTagSortDir("asc");
+      }
+    } else {
+      setTagSortField(field);
+      setTagSortDir("asc");
+    }
+  }
+
   function handleArtistSort(field: ArtistSortField) {
     if (field === "random") {
       setArtistSortField("random");
@@ -274,7 +318,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     } else {
       setSelectedArtist(null);
       setView("albums");
-      invoke<Album[]>("get_albums", { artistId: null }).then(setAlbums);
     }
   }
 
@@ -316,5 +359,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     loadLibrary, loadTracks,
     sortedArtists, artistSortField, artistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,
     sortedAlbums, albumSortField, albumSortDir, albumLikedFirst, setAlbumLikedFirst, handleAlbumSort,
+    sortedTags, tagSortField, tagSortDir, handleTagSort,
   };
 }

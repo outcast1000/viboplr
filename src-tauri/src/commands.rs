@@ -6,7 +6,7 @@ use crate::db::Database;
 use crate::models::*;
 use crate::scanner;
 use crate::subsonic::SubsonicClient;
-use crate::watcher;
+
 
 pub enum ImageDownloadRequest {
     Artist { id: i64, name: String },
@@ -72,13 +72,10 @@ pub fn add_collection(
                     );
                 });
                 let _ = db.rebuild_fts();
+                let _ = db.recompute_counts();
                 let _ = db.update_collection_synced(collection_id, start.elapsed().as_secs_f64());
                 let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
             });
-
-            // Start watching this folder
-            let db2 = state.db.clone();
-            let _ = watcher::start_watcher(db2, vec![(folder_path.to_string(), Some(collection_id))]);
 
             Ok(collection)
         }
@@ -186,6 +183,7 @@ pub fn remove_collection(state: State<'_, AppState>, collection_id: i64) -> Resu
         .remove_collection(collection_id)
         .map_err(|e| e.to_string())?;
     let _ = state.db.rebuild_fts();
+    let _ = state.db.recompute_counts();
     Ok(())
 }
 
@@ -207,7 +205,8 @@ pub fn update_collection(
         .db
         .update_collection(collection_id, &name, auto_update, auto_update_interval_mins, enabled)
         .map_err(|e| e.to_string())?;
-    state.db.rebuild_fts().map_err(|e| e.to_string())
+    state.db.rebuild_fts().map_err(|e| e.to_string())?;
+    state.db.recompute_counts().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -239,6 +238,7 @@ pub fn resync_collection(
                     );
                 });
                 let _ = db.rebuild_fts();
+                let _ = db.recompute_counts();
                 let _ = db.update_collection_synced(collection_id, start.elapsed().as_secs_f64());
                 let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
             });
@@ -465,7 +465,8 @@ pub fn get_liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String
 
 #[tauri::command]
 pub fn rebuild_search_index(state: State<'_, AppState>) -> Result<(), String> {
-    state.db.rebuild_fts().map_err(|e| e.to_string())
+    state.db.rebuild_fts().map_err(|e| e.to_string())?;
+    state.db.recompute_counts().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

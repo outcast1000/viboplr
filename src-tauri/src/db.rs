@@ -11,10 +11,6 @@ pub fn strip_diacritics(s: &str) -> String {
     s.nfd().filter(|c| !unicode_normalization::char::is_combining_mark(*c)).collect()
 }
 
-/// Normalize a string for case+diacritic-insensitive comparison.
-fn normalize_for_comparison(s: &str) -> String {
-    strip_diacritics(&s.to_lowercase())
-}
 
 const TRACK_SELECT: &str =
     "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, al.year, \
@@ -100,10 +96,7 @@ impl Database {
             conn: Mutex::new(conn),
         };
         db.init_tables()?;
-        let needs_fts_rebuild = db.migrate(app_dir)?;
-        if needs_fts_rebuild {
-            db.rebuild_fts()?;
-        }
+        db.run_migrations()?;
         Ok(db)
     }
 
@@ -111,38 +104,51 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")?;
+        conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
+        conn.execute_batch("PRAGMA cache_size=-8000;")?;
+        conn.execute_batch("PRAGMA mmap_size=268435456;")?;
+        conn.execute_batch("PRAGMA temp_store=MEMORY;")?;
 
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS artists (
-                id   INTEGER PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE
+                id          INTEGER PRIMARY KEY,
+                name        TEXT NOT NULL UNIQUE,
+                liked       INTEGER NOT NULL DEFAULT 0,
+                track_count INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS albums (
-                id        INTEGER PRIMARY KEY,
-                title     TEXT NOT NULL,
-                artist_id INTEGER REFERENCES artists(id),
-                year      INTEGER,
+                id          INTEGER PRIMARY KEY,
+                title       TEXT NOT NULL,
+                artist_id   INTEGER REFERENCES artists(id),
+                year        INTEGER,
+                liked       INTEGER NOT NULL DEFAULT 0,
+                track_count INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(title, artist_id)
             );
 
             CREATE TABLE IF NOT EXISTS tags (
-                id   INTEGER PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE
+                id          INTEGER PRIMARY KEY,
+                name        TEXT NOT NULL UNIQUE,
+                track_count INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS collections (
-                id              INTEGER PRIMARY KEY,
-                kind            TEXT NOT NULL,
-                name            TEXT NOT NULL,
-                path            TEXT,
-                url             TEXT,
-                username        TEXT,
-                password_token  TEXT,
-                salt            TEXT,
-                auth_method     TEXT DEFAULT 'token',
-                last_synced_at  INTEGER
+                id                        INTEGER PRIMARY KEY,
+                kind                      TEXT NOT NULL,
+                name                      TEXT NOT NULL,
+                path                      TEXT,
+                url                       TEXT,
+                username                  TEXT,
+                password_token            TEXT,
+                salt                      TEXT,
+                auth_method               TEXT DEFAULT 'token',
+                last_synced_at            INTEGER,
+                auto_update               INTEGER NOT NULL DEFAULT 0,
+                auto_update_interval_mins INTEGER NOT NULL DEFAULT 60,
+                enabled                   INTEGER NOT NULL DEFAULT 1,
+                last_sync_duration_secs   REAL
             );
 
             CREATE TABLE IF NOT EXISTS tracks (
@@ -193,386 +199,41 @@ impl Database {
                 failed_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 UNIQUE(kind, item_id)
             );
+
+            CREATE TABLE IF NOT EXISTS db_version (
+                version INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 1);
+
+            CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id);
+            CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);
+            CREATE INDEX IF NOT EXISTS idx_tracks_collection_id ON tracks(collection_id);
+            CREATE INDEX IF NOT EXISTS idx_tracks_deleted ON tracks(deleted);
+            CREATE INDEX IF NOT EXISTS idx_albums_artist_id ON albums(artist_id);
+            CREATE INDEX IF NOT EXISTS idx_track_tags_tag_id ON track_tags(tag_id);
+            CREATE INDEX IF NOT EXISTS idx_track_tags_track_id ON track_tags(track_id);
             ",
         )?;
         Ok(())
     }
 
-    fn migrate(&self, app_dir: &Path) -> SqlResult<bool> {
+    fn run_migrations(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
+        let version: i64 = conn.query_row(
+            "SELECT version FROM db_version WHERE rowid = 1", [], |row| row.get(0),
+        ).unwrap_or(1);
 
-        // Migrate from old folders table if it exists
-        let has_folders: bool = conn.query_row(
-            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='folders'",
-            [],
-            |row| row.get(0),
-        )?;
-
-        if has_folders {
-            // Migrate folder rows into collections
-            conn.execute_batch(
-                "INSERT INTO collections (kind, name, path)
-                 SELECT 'local',
-                        CASE
-                            WHEN INSTR(path, '/') > 0 THEN SUBSTR(path, LENGTH(path) - LENGTH(REPLACE(SUBSTR(path, 1, LENGTH(path) - (CASE WHEN SUBSTR(path, LENGTH(path), 1) = '/' THEN 1 ELSE 0 END)), '/', '')) + 1)
-                            ELSE path
-                        END,
-                        path
-                 FROM folders;"
-            )?;
-
-            // Check if tracks already has collection_id column
-            let has_collection_id: bool = conn.query_row(
-                "SELECT COUNT(*) > 0 FROM pragma_table_info('tracks') WHERE name='collection_id'",
-                [],
-                |row| row.get(0),
-            )?;
-
-            if !has_collection_id {
-                conn.execute_batch("ALTER TABLE tracks ADD COLUMN collection_id INTEGER REFERENCES collections(id);")?;
-                conn.execute_batch("ALTER TABLE tracks ADD COLUMN subsonic_id TEXT;")?;
-            }
-
-            // Update existing tracks' collection_id by matching path prefix
-            conn.execute_batch(
-                "UPDATE tracks SET collection_id = (
-                    SELECT c.id FROM collections c
-                    WHERE c.kind = 'local' AND tracks.path LIKE c.path || '%'
-                    LIMIT 1
-                ) WHERE collection_id IS NULL;"
-            )?;
-
-            conn.execute_batch("DROP TABLE folders;")?;
-        } else {
-            // Ensure collection_id and subsonic_id columns exist (for fresh installs the CREATE TABLE already has them)
-            let has_collection_id: bool = conn.query_row(
-                "SELECT COUNT(*) > 0 FROM pragma_table_info('tracks') WHERE name='collection_id'",
-                [],
-                |row| row.get(0),
-            )?;
-            if !has_collection_id {
-                conn.execute_batch("ALTER TABLE tracks ADD COLUMN collection_id INTEGER REFERENCES collections(id);")?;
-                conn.execute_batch("ALTER TABLE tracks ADD COLUMN subsonic_id TEXT;")?;
-            }
-        }
-
-        // Add liked column if missing
-        let has_liked: bool = conn.query_row(
-            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracks') WHERE name='liked'",
-            [],
-            |row| row.get(0),
-        )?;
-        if !has_liked {
-            conn.execute_batch("ALTER TABLE tracks ADD COLUMN liked INTEGER NOT NULL DEFAULT 0;")?;
-        }
-
-        // Add deleted column if missing
-        let has_deleted: bool = conn.query_row(
-            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracks') WHERE name='deleted'",
-            [],
-            |row| row.get(0),
-        )?;
-        if !has_deleted {
-            conn.execute_batch("ALTER TABLE tracks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;")?;
-        }
-
-        // Add liked column to artists if missing
-        let has_artist_liked: bool = conn.query_row(
-            "SELECT COUNT(*) > 0 FROM pragma_table_info('artists') WHERE name='liked'",
-            [],
-            |row| row.get(0),
-        )?;
-        if !has_artist_liked {
-            conn.execute_batch("ALTER TABLE artists ADD COLUMN liked INTEGER NOT NULL DEFAULT 0;")?;
-        }
-
-        // Add liked column to albums if missing
-        let has_album_liked: bool = conn.query_row(
-            "SELECT COUNT(*) > 0 FROM pragma_table_info('albums') WHERE name='liked'",
-            [],
-            |row| row.get(0),
-        )?;
-        if !has_album_liked {
-            conn.execute_batch("ALTER TABLE albums ADD COLUMN liked INTEGER NOT NULL DEFAULT 0;")?;
-        }
-
-        // Add auto_update and auto_update_interval_mins columns to collections if missing
-        let has_auto_update: bool = conn.query_row(
-            "SELECT COUNT(*) > 0 FROM pragma_table_info('collections') WHERE name='auto_update'",
-            [],
-            |row| row.get(0),
-        )?;
-        if !has_auto_update {
-            conn.execute_batch("ALTER TABLE collections ADD COLUMN auto_update INTEGER NOT NULL DEFAULT 0;")?;
-            conn.execute_batch("ALTER TABLE collections ADD COLUMN auto_update_interval_mins INTEGER NOT NULL DEFAULT 60;")?;
-        }
-
-        // Add enabled and last_sync_duration_secs columns to collections if missing
-        let has_enabled: bool = conn.query_row(
-            "SELECT COUNT(*) > 0 FROM pragma_table_info('collections') WHERE name='enabled'",
-            [],
-            |row| row.get(0),
-        )?;
-        if !has_enabled {
-            conn.execute_batch("ALTER TABLE collections ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;")?;
-            conn.execute_batch("ALTER TABLE collections ADD COLUMN last_sync_duration_secs REAL;")?;
-        }
-
-        // --- Unicode case-insensitive dedup migration ---
-        // Check if any duplicate artists, albums, or tags exist (differing only by Unicode case)
-        let has_artist_dupes: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM artists a1 JOIN artists a2
-             ON strip_diacritics(unicode_lower(a1.name)) = strip_diacritics(unicode_lower(a2.name)) AND a1.id < a2.id)",
-            [],
-            |row| row.get(0),
-        )?;
-        let has_album_dupes: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM albums a1 JOIN albums a2
-             ON strip_diacritics(unicode_lower(a1.title)) = strip_diacritics(unicode_lower(a2.title))
-             AND (a1.artist_id = a2.artist_id OR (a1.artist_id IS NULL AND a2.artist_id IS NULL))
-             AND a1.id < a2.id)",
-            [],
-            |row| row.get(0),
-        )?;
-        let has_tag_dupes: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM tags t1 JOIN tags t2
-             ON strip_diacritics(unicode_lower(t1.name)) = strip_diacritics(unicode_lower(t2.name)) AND t1.id < t2.id)",
-            [],
-            |row| row.get(0),
-        )?;
-
-        if !has_artist_dupes && !has_album_dupes && !has_tag_dupes {
-            return Ok(false);
+        if version < 2 {
+            // Add track_count columns (ignored if already present via fresh CREATE TABLE)
+            let _ = conn.execute_batch("ALTER TABLE artists ADD COLUMN track_count INTEGER NOT NULL DEFAULT 0");
+            let _ = conn.execute_batch("ALTER TABLE albums ADD COLUMN track_count INTEGER NOT NULL DEFAULT 0");
+            let _ = conn.execute_batch("ALTER TABLE tags ADD COLUMN track_count INTEGER NOT NULL DEFAULT 0");
+            conn.execute("UPDATE db_version SET version = 2 WHERE rowid = 1", [])?;
         }
 
         drop(conn);
-        self.dedup_artists(app_dir)?;
-        self.dedup_albums(app_dir)?;
-        self.dedup_tags()?;
-        Ok(true)
-    }
-
-    fn dedup_artists(&self, app_dir: &Path) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        // Collect all artists grouped by lowercased name
-        let mut stmt = conn.prepare("SELECT id, name FROM artists ORDER BY id")?;
-        let rows: Vec<(i64, String)> = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<SqlResult<Vec<_>>>()?;
-        drop(stmt);
-
-        let mut groups: std::collections::HashMap<String, Vec<i64>> = std::collections::HashMap::new();
-        for (id, name) in &rows {
-            groups.entry(normalize_for_comparison(name)).or_default().push(*id);
-        }
-
-        for (_key, ids) in &groups {
-            if ids.len() < 2 {
-                continue;
-            }
-            let keeper = ids[0]; // lowest id
-            for &old in &ids[1..] {
-                // Transfer tracks (artist_id on tracks)
-                conn.execute(
-                    "UPDATE tracks SET artist_id = ?1 WHERE artist_id = ?2",
-                    params![keeper, old],
-                )?;
-                // Merge albums: for each album under `old`, check if keeper already
-                // has an album with the same title (which would violate the UNIQUE constraint).
-                {
-                    let mut old_albums_stmt = conn.prepare(
-                        "SELECT id, title FROM albums WHERE artist_id = ?1"
-                    )?;
-                    let old_albums: Vec<(i64, String)> = old_albums_stmt
-                        .query_map(params![old], |row| Ok((row.get(0)?, row.get(1)?)))?
-                        .collect::<SqlResult<Vec<_>>>()?;
-                    drop(old_albums_stmt);
-
-                    for (old_album_id, old_title) in &old_albums {
-                        let keeper_album: Option<i64> = conn.query_row(
-                            "SELECT id FROM albums WHERE artist_id = ?1 \
-                             AND strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?2))",
-                            params![keeper, old_title],
-                            |row| row.get(0),
-                        ).optional()?;
-                        if let Some(keeper_album_id) = keeper_album {
-                            // Conflicting album exists — merge tracks into keeper album
-                            conn.execute(
-                                "UPDATE tracks SET album_id = ?1 WHERE album_id = ?2",
-                                params![keeper_album_id, old_album_id],
-                            )?;
-                            // Transfer liked
-                            let al_liked: i32 = conn.query_row(
-                                "SELECT liked FROM albums WHERE id = ?1",
-                                params![old_album_id], |row| row.get(0),
-                            ).unwrap_or(0);
-                            if al_liked != 0 {
-                                conn.execute(
-                                    "UPDATE albums SET liked = 1 WHERE id = ?1",
-                                    params![keeper_album_id],
-                                )?;
-                            }
-                            // Transfer album image
-                            let image_exts = ["jpg", "jpeg", "png"];
-                            let album_dir = app_dir.join("album_images");
-                            let has_img = image_exts.iter().any(|e| album_dir.join(format!("{}.{}", keeper_album_id, e)).exists());
-                            if !has_img {
-                                for ext in &image_exts {
-                                    let p = album_dir.join(format!("{}.{}", old_album_id, ext));
-                                    if p.exists() {
-                                        let _ = std::fs::rename(&p, album_dir.join(format!("{}.{}", keeper_album_id, ext)));
-                                        break;
-                                    }
-                                }
-                            }
-                            conn.execute(
-                                "DELETE FROM image_fetch_failures WHERE kind='album' AND item_id = ?1",
-                                params![old_album_id],
-                            )?;
-                            conn.execute("DELETE FROM albums WHERE id = ?1", params![old_album_id])?;
-                        } else {
-                            // No conflict — just reassign
-                            conn.execute(
-                                "UPDATE albums SET artist_id = ?1 WHERE id = ?2",
-                                params![keeper, old_album_id],
-                            )?;
-                        }
-                    }
-                }
-                // Transfer liked status
-                let old_liked: i32 = conn.query_row(
-                    "SELECT liked FROM artists WHERE id = ?1",
-                    params![old],
-                    |row| row.get(0),
-                ).unwrap_or(0);
-                if old_liked != 0 {
-                    conn.execute(
-                        "UPDATE artists SET liked = 1 WHERE id = ?1",
-                        params![keeper],
-                    )?;
-                }
-                // Rename image files if keeper has none but old does
-                let image_exts = ["jpg", "jpeg", "png"];
-                let artist_dir = app_dir.join("artist_images");
-                let keeper_has_image = image_exts.iter().any(|ext| {
-                    artist_dir.join(format!("{}.{}", keeper, ext)).exists()
-                });
-                if !keeper_has_image {
-                    for ext in &image_exts {
-                        let old_path = artist_dir.join(format!("{}.{}", old, ext));
-                        if old_path.exists() {
-                            let new_path = artist_dir.join(format!("{}.{}", keeper, ext));
-                            let _ = std::fs::rename(&old_path, &new_path);
-                            break;
-                        }
-                    }
-                }
-                // Clean up image fetch failures for the old id
-                conn.execute(
-                    "DELETE FROM image_fetch_failures WHERE kind='artist' AND item_id = ?1",
-                    params![old],
-                )?;
-                // Delete the duplicate artist
-                conn.execute("DELETE FROM artists WHERE id = ?1", params![old])?;
-            }
-        }
-        Ok(())
-    }
-
-    fn dedup_albums(&self, app_dir: &Path) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id, title, artist_id FROM albums ORDER BY id")?;
-        let rows: Vec<(i64, String, Option<i64>)> = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-            .collect::<SqlResult<Vec<_>>>()?;
-        drop(stmt);
-
-        // Group by (normalized title, artist_id)
-        let mut groups: std::collections::HashMap<(String, Option<i64>), Vec<i64>> =
-            std::collections::HashMap::new();
-        for (id, title, artist_id) in &rows {
-            groups.entry((normalize_for_comparison(title), *artist_id)).or_default().push(*id);
-        }
-
-        for (_key, ids) in &groups {
-            if ids.len() < 2 {
-                continue;
-            }
-            let keeper = ids[0];
-            for &old in &ids[1..] {
-                conn.execute(
-                    "UPDATE tracks SET album_id = ?1 WHERE album_id = ?2",
-                    params![keeper, old],
-                )?;
-                let old_liked: i32 = conn.query_row(
-                    "SELECT liked FROM albums WHERE id = ?1",
-                    params![old],
-                    |row| row.get(0),
-                ).unwrap_or(0);
-                if old_liked != 0 {
-                    conn.execute(
-                        "UPDATE albums SET liked = 1 WHERE id = ?1",
-                        params![keeper],
-                    )?;
-                }
-                // Rename image files if keeper has none but old does
-                let image_exts = ["jpg", "jpeg", "png"];
-                let album_dir = app_dir.join("album_images");
-                let keeper_has_image = image_exts.iter().any(|ext| {
-                    album_dir.join(format!("{}.{}", keeper, ext)).exists()
-                });
-                if !keeper_has_image {
-                    for ext in &image_exts {
-                        let old_path = album_dir.join(format!("{}.{}", old, ext));
-                        if old_path.exists() {
-                            let new_path = album_dir.join(format!("{}.{}", keeper, ext));
-                            let _ = std::fs::rename(&old_path, &new_path);
-                            break;
-                        }
-                    }
-                }
-                conn.execute(
-                    "DELETE FROM image_fetch_failures WHERE kind='album' AND item_id = ?1",
-                    params![old],
-                )?;
-                conn.execute("DELETE FROM albums WHERE id = ?1", params![old])?;
-            }
-        }
-        Ok(())
-    }
-
-    fn dedup_tags(&self) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id, name FROM tags ORDER BY id")?;
-        let rows: Vec<(i64, String)> = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<SqlResult<Vec<_>>>()?;
-        drop(stmt);
-
-        let mut groups: std::collections::HashMap<String, Vec<i64>> = std::collections::HashMap::new();
-        for (id, name) in &rows {
-            groups.entry(normalize_for_comparison(name)).or_default().push(*id);
-        }
-
-        for (_key, ids) in &groups {
-            if ids.len() < 2 {
-                continue;
-            }
-            let keeper = ids[0];
-            for &old in &ids[1..] {
-                // Move track_tags, ignoring conflicts (track already has keeper tag)
-                conn.execute(
-                    "UPDATE OR IGNORE track_tags SET tag_id = ?1 WHERE tag_id = ?2",
-                    params![keeper, old],
-                )?;
-                // Clean up any remaining rows that conflicted
-                conn.execute(
-                    "DELETE FROM track_tags WHERE tag_id = ?1",
-                    params![old],
-                )?;
-                conn.execute("DELETE FROM tags WHERE id = ?1", params![old])?;
-            }
-        }
+        // Always recompute on startup so counts are correct after any prior crash/interruption
+        self.recompute_counts()?;
         Ok(())
     }
 
@@ -595,15 +256,7 @@ impl Database {
     pub fn get_artists(&self) -> SqlResult<Vec<Artist>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            &format!(
-                "SELECT a.id, a.name, COUNT(t.id), a.liked
-                 FROM artists a
-                 LEFT JOIN tracks t ON t.artist_id = a.id AND t.deleted = 0 {}
-                 GROUP BY a.id
-                 HAVING COUNT(t.id) > 0
-                 ORDER BY a.name",
-                ENABLED_COLLECTION_FILTER
-            )
+            "SELECT id, name, track_count, liked FROM artists WHERE track_count > 0 ORDER BY name"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Artist {
@@ -644,34 +297,23 @@ impl Database {
     pub fn get_albums(&self, artist_id: Option<i64>) -> SqlResult<Vec<Album>> {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = artist_id {
-            let sql = format!(
-                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, COUNT(t.id), a.liked
-                 FROM albums a
-                 LEFT JOIN artists ar ON a.artist_id = ar.id
-                 LEFT JOIN tracks t ON t.album_id = a.id AND t.deleted = 0 {}
-                 WHERE a.artist_id = ?1
-                 GROUP BY a.id
-                 HAVING COUNT(t.id) > 0
-                 ORDER BY a.year, a.title",
-                ENABLED_COLLECTION_FILTER
-            );
-            let mut stmt = conn.prepare(&sql)?;
+            let mut stmt = conn.prepare(
+                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked
+                 FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id
+                 WHERE a.artist_id = ?1 AND a.track_count > 0
+                 ORDER BY a.year, a.title"
+            )?;
             let rows = stmt.query_map(params![aid], |row| {
                 Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)?, liked: row.get::<_, i32>(6).unwrap_or(0) != 0 })
             })?;
             rows.collect()
         } else {
-            let sql = format!(
-                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, COUNT(t.id), a.liked
-                 FROM albums a
-                 LEFT JOIN artists ar ON a.artist_id = ar.id
-                 LEFT JOIN tracks t ON t.album_id = a.id AND t.deleted = 0 {}
-                 GROUP BY a.id
-                 HAVING COUNT(t.id) > 0
-                 ORDER BY a.title",
-                ENABLED_COLLECTION_FILTER
-            );
-            let mut stmt = conn.prepare(&sql)?;
+            let mut stmt = conn.prepare(
+                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked
+                 FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id
+                 WHERE a.track_count > 0
+                 ORDER BY a.title"
+            )?;
             let rows = stmt.query_map([], |row| {
                 Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)?, liked: row.get::<_, i32>(6).unwrap_or(0) != 0 })
             })?;
@@ -707,16 +349,7 @@ impl Database {
     pub fn get_tags(&self) -> SqlResult<Vec<Tag>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            &format!(
-                "SELECT tg.id, tg.name, COUNT(t.id)
-                 FROM tags tg
-                 LEFT JOIN track_tags tt ON tt.tag_id = tg.id
-                 LEFT JOIN tracks t ON t.id = tt.track_id AND t.deleted = 0 {}
-                 GROUP BY tg.id
-                 HAVING COUNT(t.id) > 0
-                 ORDER BY tg.name",
-                ENABLED_COLLECTION_FILTER
-            )
+            "SELECT id, name, track_count FROM tags WHERE track_count > 0 ORDER BY name"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Tag {
@@ -860,6 +493,28 @@ impl Database {
             ),
         )?;
         Ok(())
+    }
+
+    pub fn recompute_counts(&self) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch(
+            &format!(
+                "UPDATE artists SET track_count = (
+                   SELECT COUNT(*) FROM tracks t
+                   WHERE t.artist_id = artists.id AND t.deleted = 0 {cf}
+                 );
+                 UPDATE albums SET track_count = (
+                   SELECT COUNT(*) FROM tracks t
+                   WHERE t.album_id = albums.id AND t.deleted = 0 {cf}
+                 );
+                 UPDATE tags SET track_count = (
+                   SELECT COUNT(*) FROM track_tags tt
+                   JOIN tracks t ON t.id = tt.track_id
+                   WHERE tt.tag_id = tags.id AND t.deleted = 0 {cf}
+                 );",
+                cf = ENABLED_COLLECTION_FILTER
+            )
+        )
     }
 
     pub fn get_tracks(&self, album_id: Option<i64>) -> SqlResult<Vec<Track>> {

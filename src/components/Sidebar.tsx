@@ -19,10 +19,6 @@ interface SidebarProps {
   view: View;
   selectedAlbum: number | null;
   selectedArtist: number | null;
-  trackCount: number;
-  artistCount: number;
-  albumCount: number;
-  tagCount: number;
   onNavHover: (hint: string | null) => void;
   onShowAll: () => void;
   onShowArtists: () => void;
@@ -36,15 +32,14 @@ interface SidebarProps {
 export function Sidebar({
   view,
   selectedAlbum, selectedArtist,
-  trackCount, artistCount, albumCount, tagCount,
   onNavHover,
   onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowSettings,
 }: SidebarProps) {
   const navItems: { key: string; label: string; icon: ReactNode; active: boolean; onClick: () => void; hint: string }[] = [
-    { key: "tracks", label: "Tracks", icon: icons.tracks, active: view === "all" && !selectedAlbum, onClick: onShowAll, hint: `${trackCount} Tracks \u2014 ${mod}1` },
-    { key: "artists", label: "Artists", icon: icons.artists, active: view === "artists", onClick: onShowArtists, hint: `${artistCount} Artists \u2014 ${mod}2` },
-    { key: "albums", label: "Albums", icon: icons.albums, active: view === "albums" && !selectedArtist, onClick: onShowAlbums, hint: `${albumCount} Albums \u2014 ${mod}3` },
-    { key: "tags", label: "Tags", icon: icons.tags, active: view === "tags", onClick: onShowTags, hint: `${tagCount} Tags \u2014 ${mod}4` },
+    { key: "tracks", label: "Tracks", icon: icons.tracks, active: view === "all" && !selectedAlbum, onClick: onShowAll, hint: `Tracks \u2014 ${mod}1` },
+    { key: "artists", label: "Artists", icon: icons.artists, active: view === "artists", onClick: onShowArtists, hint: `Artists \u2014 ${mod}2` },
+    { key: "albums", label: "Albums", icon: icons.albums, active: view === "albums" && !selectedArtist, onClick: onShowAlbums, hint: `Albums \u2014 ${mod}3` },
+    { key: "tags", label: "Tags", icon: icons.tags, active: view === "tags", onClick: onShowTags, hint: `Tags \u2014 ${mod}4` },
     { key: "liked", label: "Liked", icon: icons.liked, active: view === "liked", onClick: onShowLiked, hint: `Liked Tracks \u2014 ${mod}5` },
     { key: "history", label: "History", icon: icons.history, active: view === "history", onClick: onShowHistory, hint: `Play History \u2014 ${mod}6` },
   ];

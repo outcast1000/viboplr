@@ -9,7 +9,7 @@ mod scanner;
 mod seed;
 mod subsonic;
 mod sync;
-mod watcher;
+
 
 use commands::{AppState, DownloadQueue, ImageDownloadRequest};
 use db::Database;
@@ -176,19 +176,6 @@ pub fn run() {
             // Ensure image directories exist
             let _ = std::fs::create_dir_all(app_dir.join("artist_images"));
             let _ = std::fs::create_dir_all(app_dir.join("album_images"));
-
-            // Start watchers for existing local collections
-            if let Ok(collections) = db.get_collections() {
-                let paths: Vec<(String, Option<i64>)> = collections
-                    .iter()
-                    .filter(|c| c.kind == "local")
-                    .filter_map(|c| c.path.clone().map(|p| (p, Some(c.id))))
-                    .collect();
-                if !paths.is_empty() {
-                    let db_clone = db.clone();
-                    let _ = watcher::start_watcher(db_clone, paths);
-                }
-            }
 
             let download_queue = Arc::new(DownloadQueue {
                 queue: Mutex::new(Vec::new()),

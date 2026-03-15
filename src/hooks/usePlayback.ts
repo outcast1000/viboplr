@@ -336,9 +336,9 @@ export function usePlayback(
     }
   }
 
-  async function handleRestore(track: Track, position: number) {
+  async function handleRestore(track: Track, position: number, pathOverride?: string) {
     try {
-      const pathOrUrl = await invoke<string>("get_track_path", { trackId: track.id });
+      const pathOrUrl = pathOverride ?? await invoke<string>("get_track_path", { trackId: track.id });
       const src = track.subsonic_id ? pathOrUrl : convertFileSrc(pathOrUrl);
 
       setCurrentTrack(track);

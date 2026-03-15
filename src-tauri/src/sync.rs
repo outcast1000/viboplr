@@ -112,6 +112,7 @@ pub fn sync_collection(
         .map_err(|e| e.to_string())?;
 
     db.rebuild_fts().map_err(|e| e.to_string())?;
+    db.recompute_counts().map_err(|e| e.to_string())?;
     db.update_collection_synced(collection_id, start.elapsed().as_secs_f64())
         .map_err(|e| e.to_string())?;
 

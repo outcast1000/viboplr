@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { Artist, Album, Tag, Track, View } from "../types";
 
 interface BreadcrumbProps {
@@ -15,7 +14,6 @@ interface BreadcrumbProps {
   onSetSelectedAlbum: (id: number | null) => void;
   onSetSelectedTag: (id: number | null) => void;
   onSetView: (view: View) => void;
-  onSetAlbums: (albums: Album[]) => void;
   onPlayAll: (tracks: Track[], startIndex: number) => void;
   onEnqueueAll: (tracks: Track[]) => void;
 }
@@ -24,7 +22,7 @@ export function Breadcrumb({
   view, selectedArtist, selectedAlbum, selectedTag,
   artists, albums, tags, tracks, sortedTracks,
   onSetSelectedArtist, onSetSelectedAlbum, onSetSelectedTag,
-  onSetView, onSetAlbums,
+  onSetView,
   onPlayAll, onEnqueueAll,
 }: BreadcrumbProps) {
   return (
@@ -43,7 +41,7 @@ export function Breadcrumb({
         <>
           <span className="breadcrumb-link" onClick={() => { onSetSelectedArtist(null); onSetSelectedAlbum(null); onSetView("artists"); }}>Artists</span>
           <span className="breadcrumb-sep"> {"\u203A"} </span>
-          <span className="breadcrumb-link" onClick={() => { onSetSelectedAlbum(null); onSetView("artists"); invoke<Album[]>("get_albums", { artistId: selectedArtist }).then(onSetAlbums); }}>{artists.find(a => a.id === selectedArtist)?.name ?? "Unknown"}</span>
+          <span className="breadcrumb-link" onClick={() => { onSetSelectedAlbum(null); onSetView("artists"); }}>{artists.find(a => a.id === selectedArtist)?.name ?? "Unknown"}</span>
           <span className="breadcrumb-sep"> {"\u203A"} </span>
           <span>{albums.find(a => a.id === selectedAlbum)?.title ?? "Album"}</span>
         </>
@@ -57,7 +55,7 @@ export function Breadcrumb({
         </>
       ) : selectedAlbum !== null ? (
         <>
-          <span className="breadcrumb-link" onClick={() => { onSetSelectedAlbum(null); onSetView("albums"); invoke<Album[]>("get_albums", { artistId: null }).then(onSetAlbums); }}>Albums</span>
+          <span className="breadcrumb-link" onClick={() => { onSetSelectedAlbum(null); onSetView("albums"); }}>Albums</span>
           <span className="breadcrumb-sep"> {"\u203A"} </span>
           <span>{albums.find(a => a.id === selectedAlbum)?.title ?? "Album"}</span>
         </>

@@ -206,6 +206,7 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
+        await store.init();
         const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy, cf, wasMini, fww, fwh, fwx, fwy, mwx, mwy, tSortField, tSortDir, tCols] = await Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
@@ -247,24 +248,16 @@ function App() {
         if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "collection"].includes(tSortField)) library.setSortField(tSortField as SortField);
         if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
         if (tCols && Array.isArray(tCols) && tCols.length > 0) library.setTrackColumns(tCols);
-        let restoredTrack: Track | null = null;
-        if (tid !== undefined && tid !== null) {
-          try {
-            restoredTrack = await invoke<Track>("get_track_by_id", { trackId: tid });
-            await playback.handleRestore(restoredTrack, pos ?? 0);
-          } catch {
-            // Track was deleted
-          }
-        }
-        if (qIds && qIds.length > 0) {
-          try {
-            const restoredTracks = await invoke<Track[]>("get_tracks_by_ids", { ids: qIds });
-            queueHook.setQueue(restoredTracks);
-            const idx = qIdx ?? -1;
-            queueHook.setQueueIndex(idx >= 0 && idx < restoredTracks.length ? idx : -1);
-          } catch {
-            // Queue restore failed
-          }
+        const [restoredTrack, restoredTracks, trackPath] = await Promise.all([
+          tid ? invoke<Track>("get_track_by_id", { trackId: tid }).catch(() => null) : Promise.resolve(null),
+          qIds?.length ? invoke<Track[]>("get_tracks_by_ids", { ids: qIds }).catch(() => []) : Promise.resolve([]),
+          tid ? invoke<string>("get_track_path", { trackId: tid }).catch(() => null) : Promise.resolve(null),
+        ]);
+        if (restoredTrack && trackPath) await playback.handleRestore(restoredTrack, pos ?? 0, trackPath);
+        if (restoredTracks && restoredTracks.length) {
+          queueHook.setQueue(restoredTracks);
+          const idx = qIdx ?? -1;
+          queueHook.setQueueIndex(idx >= 0 && idx < restoredTracks.length ? idx : -1);
         }
         if (qMode && ["normal", "loop", "shuffle"].includes(qMode)) {
           queueHook.setQueueMode(qMode as "normal" | "loop" | "shuffle");
@@ -273,19 +266,19 @@ function App() {
         if (wasMini) {
           // Restore into mini mode
           if (fww && fwh) fullSizeRef.current = { w: fww, h: fwh, x: fwx ?? 0, y: fwy ?? 0 };
-          await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_HEIGHT));
-          if (mwx != null && mwy != null) await win.setPosition(new LogicalPosition(mwx, mwy));
-          await win.setAlwaysOnTop(true);
-          await win.setDecorations(false);
+          await Promise.all([
+            win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_HEIGHT)),
+            ...(mwx != null && mwy != null ? [win.setPosition(new LogicalPosition(mwx, mwy))] : []),
+            win.setAlwaysOnTop(true),
+            win.setDecorations(false),
+          ]);
           setMiniMode(true);
           miniModeRef.current = true;
         } else {
-          if (ww && wh && ww > 0 && wh > 0) {
-            await win.setSize(new LogicalSize(ww, wh));
-          }
-          if (wx !== undefined && wx !== null && wy !== undefined && wy !== null) {
-            await win.setPosition(new LogicalPosition(wx, wy));
-          }
+          const sizeAndPos: Promise<void>[] = [];
+          if (ww && wh && ww > 0 && wh > 0) sizeAndPos.push(win.setSize(new LogicalSize(ww, wh)));
+          if (wx !== undefined && wx !== null && wy !== undefined && wy !== null) sizeAndPos.push(win.setPosition(new LogicalPosition(wx, wy)));
+          await Promise.all(sizeAndPos);
         }
         await win.show();
       } catch (e) {
@@ -294,6 +287,7 @@ function App() {
       }
       loadProviders(store).then(setSearchProviders);
       restoredRef.current = true;
+      library.loadLibrary();
     })();
   }, []);
 
@@ -471,7 +465,6 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedTag(null);
           library.setSearchQuery("");
-          invoke<Album[]>("get_albums", { artistId: null }).then(library.setAlbums);
           searchInputRef.current?.focus();
           break;
         case "4":
@@ -809,7 +802,7 @@ function App() {
   const filteredTags = (() => {
     if (view !== "tags" || selectedTag !== null) return [];
     const q = searchQuery.trim().toLowerCase();
-    return q ? tags.filter(t => stripAccents(t.name.toLowerCase()).includes(stripAccents(q))) : tags;
+    return q ? library.sortedTags.filter(t => stripAccents(t.name.toLowerCase()).includes(stripAccents(q))) : library.sortedTags;
   })();
 
   const isListView = (view === "artists" && selectedArtist === null) || view === "albums" || (view === "tags" && selectedTag === null);
@@ -839,10 +832,6 @@ function App() {
         view={view}
         selectedAlbum={selectedAlbum}
         selectedArtist={selectedArtist}
-        trackCount={library.trackCount}
-        artistCount={artists.length}
-        albumCount={library.albumCount}
-        tagCount={tags.length}
         onNavHover={setStatusHint}
         onShowAll={library.handleShowAll}
         onShowArtists={() => {
@@ -857,7 +846,6 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedTag(null);
           library.setSearchQuery("");
-          invoke<Album[]>("get_albums", { artistId: null }).then(library.setAlbums);
         }}
         onShowTags={() => {
           library.setView("tags");
@@ -1050,7 +1038,6 @@ function App() {
             onSetSelectedAlbum={library.setSelectedAlbum}
             onSetSelectedTag={library.setSelectedTag}
             onSetView={library.setView}
-            onSetAlbums={library.setAlbums}
             onPlayAll={queueHook.playTracks}
             onEnqueueAll={queueHook.enqueueTracks}
           />
@@ -1077,25 +1064,25 @@ function App() {
                 >{"\u2665"}</button>
               </div>
               <div className="list">
-                {filteredArtists.map((a, i) => (
-                  <div
-                    key={a.id}
-                    className={`list-item${i === highlightedListIndex ? " highlighted" : ""}`}
-                    onClick={() => library.handleArtistClick(a.id)}
-                    onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
-                  >
-                    <span
-                      className="list-item-like"
-                      onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
-                    >{a.liked ? "\u2665" : "\u2661"}</span>
-                    <span style={{ flex: 1 }}>{a.name}</span>
-                    <span className="list-count">{a.track_count}</span>
-                  </div>
-                ))}
-                {filteredArtists.length === 0 && (
-                  <div className="empty">{searchQuery.trim() ? `No artists matching "${searchQuery}"` : "No artists found. Add a folder or server to get started."}</div>
-                )}
-              </div>
+              {filteredArtists.map((a, i) => (
+                <div
+                  key={a.id}
+                  className={`list-item${i === highlightedListIndex ? " highlighted" : ""}`}
+                  onClick={() => library.handleArtistClick(a.id)}
+                  onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
+                >
+                  <span
+                    className="list-item-like"
+                    onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
+                  >{a.liked ? "\u2665" : "\u2661"}</span>
+                  <span style={{ flex: 1 }}>{a.name}</span>
+                  <span className="list-count">{a.track_count}</span>
+                </div>
+              ))}
+              {filteredArtists.length === 0 && (
+                <div className="empty">{searchQuery.trim() ? `No artists matching "${searchQuery}"` : "No artists found. Add a folder or server to get started."}</div>
+              )}
+            </div>
             </>
           )}
 
@@ -1226,6 +1213,20 @@ function App() {
 
           {/* Tags list view */}
           {view === "tags" && selectedTag === null && (
+            <>
+              <div className="sort-bar">
+                <div className="sort-options">
+                  <button className={`sort-btn${library.tagSortField === "name" ? " active" : ""}`} onClick={() => library.handleTagSort("name")}>
+                    Name{library.tagSortField === "name" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  </button>
+                  <button className={`sort-btn${library.tagSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleTagSort("tracks")}>
+                    Tracks{library.tagSortField === "tracks" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  </button>
+                  <button className={`sort-btn${library.tagSortField === "random" ? " active" : ""}`} onClick={() => library.handleTagSort("random")}>
+                    Shuffle
+                  </button>
+                </div>
+              </div>
               <div className="list">
                 {filteredTags.map((t, i) => (
                   <div
@@ -1241,6 +1242,7 @@ function App() {
                   <div className="empty">{searchQuery.trim() ? `No tags matching "${searchQuery}"` : "No tags found. Add a folder or server to get started."}</div>
                 )}
               </div>
+            </>
           )}
 
           {/* Album detail header */}

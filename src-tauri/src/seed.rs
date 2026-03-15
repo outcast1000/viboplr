@@ -151,6 +151,7 @@ pub fn seed_database(
     }
 
     db.rebuild_fts().map_err(|e| e.to_string())?;
+    db.recompute_counts().map_err(|e| e.to_string())?;
 
     Ok(format!(
         "Seeded {} artists, {} albums, {} tracks",
