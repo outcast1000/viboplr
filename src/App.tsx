@@ -1337,6 +1337,11 @@ function App() {
         autoContinueEnabled={autoContinue.enabled}
         showAutoContinuePopover={autoContinue.showPopover}
         autoContinueWeights={autoContinue.weights}
+        imagePath={
+          (playback.currentTrack?.album_id && albumImages[playback.currentTrack.album_id])
+          || (playback.currentTrack?.artist_id && artistImages[playback.currentTrack.artist_id])
+          || null
+        }
         miniMode={miniMode}
         onToggleMiniMode={toggleMiniMode}
         onClose={() => getCurrentWindow().close()}
@@ -1347,11 +1352,21 @@ function App() {
         onPrevious={queueHook.playPrevious}
         onSeek={playback.handleSeek}
         onVolume={playback.handleVolume}
+        onMute={() => {
+          if (playback.volume > 0) {
+            previousVolumeRef.current = playback.volume;
+            playback.handleVolume(0);
+          } else {
+            playback.handleVolume(previousVolumeRef.current || 1.0);
+          }
+        }}
         onToggleQueueMode={queueHook.toggleQueueMode}
         onToggleQueue={() => queueHook.setShowQueue(!queueHook.showQueue)}
         onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
         onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
+        onArtistClick={library.handleArtistClick}
+        onAlbumClick={library.handleAlbumClick}
       />
 
       <StatusBar sessionLog={sessionLog} hint={statusHint} activity={statusActivity} />

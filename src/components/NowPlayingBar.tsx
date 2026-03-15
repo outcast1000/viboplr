@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
@@ -18,6 +19,7 @@ interface NowPlayingBarProps {
   autoContinueEnabled: boolean;
   showAutoContinuePopover: boolean;
   autoContinueWeights: AutoContinueWeights;
+  imagePath: string | null;
   miniMode: boolean;
   onToggleMiniMode: () => void;
   onClose: () => void;
@@ -28,11 +30,14 @@ interface NowPlayingBarProps {
   onPrevious: () => void;
   onSeek: (secs: number) => void;
   onVolume: (level: number) => void;
+  onMute: () => void;
   onToggleQueueMode: () => void;
   onToggleQueue: () => void;
   onToggleAutoContinue: () => void;
   onToggleAutoContinuePopover: () => void;
   onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
+  onArtistClick: (artistId: number) => void;
+  onAlbumClick: (albumId: number) => void;
 }
 
 export function NowPlayingBar({
@@ -40,11 +45,12 @@ export function NowPlayingBar({
   positionSecs, durationSecs,
   volume, queueMode, showQueue, queueCount,
   autoContinueEnabled, showAutoContinuePopover, autoContinueWeights,
-  miniMode, onToggleMiniMode, onClose,
+  imagePath, miniMode, onToggleMiniMode, onClose,
   onHint,
   onPause, onStop, onNext, onPrevious,
-  onSeek, onVolume, onToggleQueueMode, onToggleQueue,
+  onSeek, onVolume, onMute, onToggleQueueMode, onToggleQueue,
   onToggleAutoContinue, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
+  onArtistClick, onAlbumClick,
 }: NowPlayingBarProps) {
   if (miniMode) {
     const handleDrag = (e: React.MouseEvent) => {
@@ -81,43 +87,45 @@ export function NowPlayingBar({
 
   return (
     <footer className="now-playing">
-      <div className="now-info">
-        {currentTrack ? (
-          <>
-            <span className="now-title">{currentTrack.title}</span>
-            <span className="now-artist">{currentTrack.artist_name || "Unknown"}</span>
-          </>
-        ) : (
-          <span className="now-title">No track playing</span>
-        )}
+      <div
+        className="now-seek-bar"
+        onClick={(e) => {
+          if (!durationSecs) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pct = (e.clientX - rect.left) / rect.width;
+          onSeek(pct * durationSecs);
+        }}
+      >
+        <div className="now-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
       </div>
-      <div className="now-center">
+      <div className="now-main">
+        <div className="now-info">
+          {imagePath && <img className="now-art" src={convertFileSrc(imagePath)} alt="" />}
+          <div className="now-info-text">
+            {currentTrack ? (
+              <>
+                <span className={`now-title${currentTrack.album_id ? " now-link" : ""}`} onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!) : undefined}>{currentTrack.title}</span>
+                <span className="now-subtitle">
+                  <span className="now-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : undefined}>{currentTrack.artist_name || "Unknown"}</span>
+                  {currentTrack.album_id && currentTrack.album_title && (
+                    <><span className="now-sep"> — </span><span className="now-link" onClick={() => onAlbumClick(currentTrack.album_id!)}>{currentTrack.album_title}</span></>
+                  )}
+                </span>
+              </>
+            ) : (
+              <span className="now-title">No track playing</span>
+            )}
+          </div>
+        </div>
         <div className="now-controls">
           <button className="ctrl-btn" onClick={onPrevious} title="Previous">{"\u23EE"}</button>
-          <button className="ctrl-btn" onClick={onStop}>{"\u23F9"}</button>
           <button className="ctrl-btn play-btn" onClick={onPause}>
             {playing ? "\u23F8" : "\u25B6"}
           </button>
           <button className="ctrl-btn" onClick={onNext} title="Next">{"\u23ED"}</button>
+          <button className="ctrl-btn" onClick={onStop}>{"\u23F9"}</button>
+          <span className="now-time">{formatDuration(positionSecs)} / {formatDuration(durationSecs)}</span>
         </div>
-        <div
-          className="now-seek"
-          onMouseEnter={() => onHint(`Seek \u2014 ${mod}\u2190 / ${mod}\u2192`)}
-          onMouseLeave={() => onHint(null)}
-        >
-          <span className="time-label">{formatDuration(positionSecs)}</span>
-          <input
-            type="range"
-            className="seek-bar"
-            min="0"
-            max={durationSecs || 1}
-            step="0.5"
-            value={positionSecs}
-            onChange={(e) => onSeek(parseFloat(e.target.value))}
-          />
-          <span className="time-label">{formatDuration(durationSecs)}</span>
-        </div>
-      </div>
       <div className="now-right">
         <button
           className={`ctrl-btn mode-btn ${queueMode !== "normal" ? "active" : ""}`}
@@ -143,18 +151,21 @@ export function NowPlayingBar({
             />
           )}
         </div>
-        <div
-          className="now-volume"
-          onMouseEnter={() => onHint(`Volume \u2014 ${mod}\u2191 / ${mod}\u2193, Mute ${mod}M`)}
-          onMouseLeave={() => onHint(null)}
-        >
-          <span>{"\uD83D\uDD0A"}</span>
+        <div className="now-volume">
+          <span className="volume-icon" onClick={onMute} dangerouslySetInnerHTML={{ __html: volume === 0
+            ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`
+            : volume < 0.5
+            ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>`
+            : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>`
+          }} />
           <input
             type="range"
+            className="volume-slider"
             min="0"
             max="1"
             step="0.01"
             value={volume}
+            style={{ background: `linear-gradient(to right, var(--accent) ${volume * 100}%, rgba(255,255,255,0.12) ${volume * 100}%)` }}
             onChange={(e) => onVolume(parseFloat(e.target.value))}
           />
         </div>
@@ -176,6 +187,7 @@ export function NowPlayingBar({
         >
           {"\u2013"}
         </button>
+      </div>
       </div>
     </footer>
   );

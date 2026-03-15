@@ -34,10 +34,14 @@ body {
 .app {
   display: grid;
   grid-template-columns: 220px 1fr;
-  grid-template-rows: 1fr 80px;
+  grid-template-rows: 1fr auto;
   height: 100vh;
   user-select: none;
   background: var(--bg-primary);
+}
+
+.app > audio {
+  display: none;
 }
 
 .app.queue-open {
@@ -1016,15 +1020,59 @@ body {
   background: var(--now-playing-bg);
   border-top: 1px solid var(--border);
   display: flex;
-  align-items: center;
-  padding: 0 20px;
-  gap: 16px;
+  flex-direction: column;
   height: 80px;
 }
 
-.now-info {
-  width: 200px;
+.now-seek-bar {
+  width: 100%;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
   flex-shrink: 0;
+  border-radius: 2.5px;
+}
+
+.now-seek-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2.5px;
+}
+
+.now-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 16px;
+  min-height: 0;
+}
+
+.now-time {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+
+.now-info {
+  flex: 0 1 auto;
+  max-width: 350px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.now-art {
+  width: 52px;
+  height: 52px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.now-info-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1032,38 +1080,48 @@ body {
 }
 
 .now-title {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.now-artist {
-  font-size: 11px;
+.now-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.now-sep {
   color: var(--text-secondary);
 }
 
-.now-center {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
+.now-link {
+  cursor: pointer;
+}
+
+.now-link:hover {
+  color: var(--accent);
 }
 
 .now-controls {
   display: flex;
   gap: 8px;
+  flex: 1;
+  justify-content: center;
+  align-items: center;
 }
 
 .ctrl-btn {
   background: none;
   border: none;
   color: var(--text-primary);
-  font-size: 18px;
+  font-size: 22px;
   cursor: pointer;
-  padding: 6px 8px;
+  padding: 6px 10px;
   border-radius: 50%;
   transition: background 0.15s;
   line-height: 1;
@@ -1074,30 +1132,19 @@ body {
 }
 
 .play-btn {
-  font-size: 22px;
-}
-
-.now-seek {
+  font-size: 28px;
+  background: var(--accent);
+  color: #1a1a2e;
+  width: 48px;
+  height: 48px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 500px;
+  justify-content: center;
+  padding: 0;
 }
 
-.seek-bar {
-  flex: 1;
-  accent-color: var(--accent);
-  height: 4px;
-  cursor: pointer;
-}
-
-.time-label {
-  font-size: 11px;
-  color: var(--text-secondary);
-  min-width: 36px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
+.play-btn:hover {
+  background: var(--accent-dim);
 }
 
 .now-right {
@@ -1110,14 +1157,33 @@ body {
 .now-volume {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
+  gap: 6px;
   flex-shrink: 0;
 }
 
-.now-volume input[type="range"] {
-  width: 80px;
-  accent-color: var(--accent);
+.volume-icon {
+  font-size: 16px;
+  width: 22px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 90px;
+  height: 4px;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0;
+  height: 0;
+  border: none;
 }
 
 .mode-btn.active,
@@ -1909,6 +1975,7 @@ body {
 
 .now-playing-mini {
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: flex-end;
   padding: 0 12px;
@@ -1932,7 +1999,7 @@ body {
 }
 
 .now-playing-mini .now-controls {
-  flex-shrink: 0;
+  flex: none;
 }
 
 .now-playing-mini .ctrl-btn {
@@ -1946,8 +2013,16 @@ body {
 }
 
 .now-playing-mini .play-btn {
+  background: none;
   color: var(--accent);
   font-size: 20px;
+  width: auto;
+  height: auto;
+  padding: 6px 8px;
+}
+
+.now-playing-mini .play-btn:hover {
+  background: none;
 }
 
 .mini-separator {
