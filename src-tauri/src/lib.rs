@@ -118,6 +118,41 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
 pub fn run() {
     env_logger::init();
 
+    // Parse optional data directory override from env var or CLI argument
+    // Usage: FASTPLAYER_DATA_DIR=/path or --data-dir /path or --data-dir=/path
+    let custom_data_dir: Option<std::path::PathBuf> = {
+        let mut data_dir: Option<std::path::PathBuf> =
+            std::env::var("FASTPLAYER_DATA_DIR").ok().map(std::path::PathBuf::from);
+
+        if data_dir.is_none() {
+            let args: Vec<String> = std::env::args().collect();
+            let mut i = 1;
+            while i < args.len() {
+                if args[i].starts_with("--data-dir=") {
+                    data_dir = Some(std::path::PathBuf::from(
+                        args[i].trim_start_matches("--data-dir="),
+                    ));
+                    i += 1;
+                } else if args[i] == "--data-dir" {
+                    if i + 1 < args.len() {
+                        data_dir = Some(std::path::PathBuf::from(&args[i + 1]));
+                        i += 2;
+                    } else {
+                        eprintln!("Error: --data-dir requires a path argument");
+                        std::process::exit(1);
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+        }
+
+        if let Some(ref dir) = data_dir {
+            log::info!("Using custom data directory: {}", dir.display());
+        }
+        data_dir
+    };
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -129,10 +164,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
-            let app_dir = app
-                .path()
-                .app_data_dir()
-                .expect("Failed to get app data dir");
+            let app_dir = match custom_data_dir {
+                Some(dir) => dir,
+                None => app
+                    .path()
+                    .app_data_dir()
+                    .expect("Failed to get app data dir"),
+            };
             let db = Arc::new(Database::new(&app_dir).expect("Failed to init database"));
 
             // Ensure image directories exist
