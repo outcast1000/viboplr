@@ -655,6 +655,12 @@ Artist and album image fetching is handled by a single background worker thread 
 - On success, the worker emits `artist-image-ready` / `album-image-ready` events. On failure, it emits `artist-image-error` / `album-image-error` events.
 - All logging is done via `log::info!` / `log::warn!` in Rust — no JS console logging for image downloads.
 
+**Now Playing bar image fetching:**
+- When the current track changes, the frontend proactively requests the album image (and artist image as fallback) for the playing track.
+- This ensures the Now Playing bar displays artwork even if the user has not browsed to the track's album or artist view.
+- Uses the same on-demand fetch pattern: checks local cache first (`get_album_image` / `get_artist_image`), then fires off a background download (`fetch_album_image` / `fetch_artist_image`) if no local image exists.
+- Respects the same deduplication guards (fetched/failed sets) so images are only requested once per session.
+
 **Manual image management:**
 - `set_artist_image` / `set_album_image` — copy an image from a local file path to the app's image directory.
 - `paste_artist_image` / `paste_album_image` — write raw image bytes (e.g., from clipboard paste) to the app's image directory. Image format (PNG/JPG) is auto-detected from magic bytes.
