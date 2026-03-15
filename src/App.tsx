@@ -1328,11 +1328,14 @@ function App() {
           queueIndex={queueHook.queueIndex}
           queuePanelRef={queueHook.queuePanelRef}
           dragIndexRef={queueHook.dragIndexRef}
+          playlistName={queueHook.playlistName}
           onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
           onRemove={queueHook.removeFromQueue}
           onMove={queueHook.moveInQueue}
           onClear={queueHook.clearQueue}
           onClose={() => queueHook.setShowQueue(false)}
+          onSavePlaylist={queueHook.savePlaylist}
+          onLoadPlaylist={queueHook.loadPlaylist}
         />
       )}
 

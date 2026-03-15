@@ -15,7 +15,7 @@ const shortcuts = [
   { keys: `${mod}4`, action: "Tags" },
   { keys: `${mod}5`, action: "Liked" },
   { keys: `${mod}6`, action: "History" },
-  { keys: `${mod}7`, action: "Toggle Queue" },
+  { keys: `${mod}7`, action: "Toggle Playlist" },
   { keys: `${mod}M`, action: "Mute / Unmute" },
   { keys: `${mod}\u21E7M`, action: "Mini Player" },
   { keys: `${mod}\u2190`, action: "Seek Back 15s" },
@@ -191,7 +191,7 @@ export function NowPlayingBar({
         <button
           className={`ctrl-btn queue-toggle-btn ${showQueue ? "active" : ""}`}
           onClick={onToggleQueue}
-          title="Queue"
+          title="Playlist"
         >
           {"\u2630"}
         </button>

@@ -1146,6 +1146,21 @@ impl Database {
         Ok(ids.iter().filter_map(|id| track_map.get(id).cloned()).collect())
     }
 
+    pub fn get_tracks_by_paths(&self, paths: &[String]) -> SqlResult<Vec<Track>> {
+        if paths.is_empty() {
+            return Ok(vec![]);
+        }
+        let conn = self.conn.lock().unwrap();
+        let placeholders = paths.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!("{} WHERE t.path IN ({})", TRACK_SELECT, placeholders);
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::types::ToSql> = paths.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+        let rows = stmt.query_map(params.as_slice(), |row| track_from_row(row))?;
+        let track_map: std::collections::HashMap<String, Track> = rows.filter_map(|r| r.ok()).map(|t| (t.path.clone(), t)).collect();
+        // Return in input order, skipping missing paths
+        Ok(paths.iter().filter_map(|p| track_map.get(p).cloned()).collect())
+    }
+
     pub fn track_exists_by_path(&self, path: &str) -> bool {
         let conn = self.conn.lock().unwrap();
         conn.query_row(

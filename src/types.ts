@@ -74,6 +74,12 @@ export interface MostPlayedTrack {
   duration_secs: number | null;
 }
 
+export interface PlaylistLoadResult {
+  tracks: Track[];
+  not_found_count: number;
+  playlist_name: string;
+}
+
 export type SortField = "num" | "title" | "artist" | "album" | "duration";
 export type SortDir = "asc" | "desc";
 

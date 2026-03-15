@@ -103,3 +103,10 @@ pub struct MostPlayedTrack {
     pub album_title: Option<String>,
     pub duration_secs: Option<f64>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaylistLoadResult {
+    pub tracks: Vec<Track>,
+    pub not_found_count: usize,
+    pub playlist_name: String,
+}

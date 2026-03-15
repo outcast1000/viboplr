@@ -62,6 +62,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_most_played,
         commands::get_most_played_since,
         commands::get_auto_continue_track,
+        commands::save_playlist,
+        commands::load_playlist,
     ]
 }
 
@@ -107,6 +109,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_most_played,
         commands::get_most_played_since,
         commands::get_auto_continue_track,
+        commands::save_playlist,
+        commands::load_playlist,
     ]
 }
 

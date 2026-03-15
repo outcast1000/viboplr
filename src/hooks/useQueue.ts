@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { Track } from "../types";
+import { invoke } from "@tauri-apps/api/core";
+import { save, open } from "@tauri-apps/plugin-dialog";
+import type { Track, PlaylistLoadResult } from "../types";
 import { store } from "../store";
 
 export function useQueue(
@@ -12,6 +14,7 @@ export function useQueue(
   const [shuffleOrder, setShuffleOrder] = useState<number[]>([]);
   const [shufflePosition, setShufflePosition] = useState(0);
   const [showQueue, setShowQueue] = useState(false);
+  const [playlistName, setPlaylistName] = useState<string | null>(null);
 
   const queueRef = useRef(queue);
   queueRef.current = queue;
@@ -181,6 +184,7 @@ export function useQueue(
     setQueueIndex(-1);
     setShuffleOrder([]);
     setShufflePosition(0);
+    setPlaylistName(null);
   }
 
   function toggleQueueMode() {
@@ -276,6 +280,33 @@ export function useQueue(
     handlePlay(track);
   }
 
+  async function savePlaylist() {
+    if (queueRef.current.length === 0) return;
+    const filePath = await save({
+      filters: [{ name: "M3U Playlist", extensions: ["m3u"] }],
+    });
+    if (!filePath) return;
+    const trackIds = queueRef.current.map(t => t.id);
+    await invoke("save_playlist", { path: filePath, trackIds });
+    const name = filePath.split(/[/\\]/).pop()?.replace(/\.m3u8?$/i, "") ?? "Playlist";
+    setPlaylistName(name);
+  }
+
+  async function loadPlaylist() {
+    const filePath = await open({
+      filters: [{ name: "M3U Playlist", extensions: ["m3u", "m3u8"] }],
+      multiple: false,
+    });
+    if (!filePath) return;
+    const result = await invoke<PlaylistLoadResult>("load_playlist", { path: filePath });
+    if (result.tracks.length > 0) {
+      setQueue(result.tracks);
+      setQueueIndex(0);
+      handlePlay(result.tracks[0]);
+      setPlaylistName(result.playlist_name);
+    }
+  }
+
   return {
     queue, setQueue,
     queueIndex, setQueueIndex,
@@ -289,5 +320,6 @@ export function useQueue(
     removeFromQueue, moveInQueue, clearQueue,
     toggleQueueMode, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
+    playlistName, savePlaylist, loadPlaylist,
   };
 }

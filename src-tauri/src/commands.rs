@@ -668,6 +668,69 @@ pub fn get_auto_continue_track(
         .map_err(|e| e.to_string())
 }
 
+// --- Playlist commands ---
+
+#[tauri::command]
+pub fn save_playlist(
+    state: State<'_, AppState>,
+    path: String,
+    track_ids: Vec<i64>,
+) -> Result<(), String> {
+    let tracks = state.db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())?;
+    let mut content = String::from("#EXTM3U\n");
+    for track in &tracks {
+        let duration = track.duration_secs.unwrap_or(0.0) as i64;
+        let artist = track.artist_name.as_deref().unwrap_or("Unknown");
+        content.push_str(&format!("#EXTINF:{},{} - {}\n", duration, artist, track.title));
+        content.push_str(&track.path);
+        content.push('\n');
+    }
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write playlist: {}", e))
+}
+
+#[tauri::command]
+pub fn load_playlist(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<PlaylistLoadResult, String> {
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read playlist: {}", e))?;
+    let playlist_path = std::path::Path::new(&path);
+    let parent_dir = playlist_path.parent();
+
+    let mut file_paths: Vec<String> = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let resolved = if line.contains("://") || std::path::Path::new(line).is_absolute() {
+            line.to_string()
+        } else if let Some(parent) = parent_dir {
+            parent.join(line).to_string_lossy().to_string()
+        } else {
+            line.to_string()
+        };
+        file_paths.push(resolved);
+    }
+
+    let total_count = file_paths.len();
+    let tracks = state.db.get_tracks_by_paths(&file_paths).map_err(|e| e.to_string())?;
+    let not_found_count = total_count - tracks.len();
+
+    let playlist_name = playlist_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Playlist")
+        .to_string();
+
+    Ok(PlaylistLoadResult {
+        tracks,
+        not_found_count,
+        playlist_name,
+    })
+}
+
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub fn clear_database(state: State<'_, AppState>) -> Result<String, String> {
