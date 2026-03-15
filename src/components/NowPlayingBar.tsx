@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
@@ -7,6 +8,25 @@ import { AutoContinuePopover } from "./AutoContinuePopover";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
 
+const shortcuts = [
+  { keys: `${mod}1`, action: "All Tracks" },
+  { keys: `${mod}2`, action: "Artists" },
+  { keys: `${mod}3`, action: "Albums" },
+  { keys: `${mod}4`, action: "Tags" },
+  { keys: `${mod}5`, action: "Liked" },
+  { keys: `${mod}6`, action: "History" },
+  { keys: `${mod}7`, action: "Toggle Queue" },
+  { keys: `${mod}M`, action: "Mute / Unmute" },
+  { keys: `${mod}\u21E7M`, action: "Mini Player" },
+  { keys: `${mod}\u2190`, action: "Seek Back 15s" },
+  { keys: `${mod}\u2192`, action: "Seek Forward 15s" },
+  { keys: `${mod}\u2191`, action: "Volume Up" },
+  { keys: `${mod}\u2193`, action: "Volume Down" },
+  { keys: `${mod}>`, action: "Next Track" },
+  { keys: `${mod}<`, action: "Previous Track" },
+];
+
+
 interface NowPlayingBarProps {
   currentTrack: Track | null;
   playing: boolean;
@@ -15,7 +35,6 @@ interface NowPlayingBarProps {
   volume: number;
   queueMode: "normal" | "loop" | "shuffle";
   showQueue: boolean;
-  queueCount: number;
   autoContinueEnabled: boolean;
   showAutoContinuePopover: boolean;
   autoContinueWeights: AutoContinueWeights;
@@ -23,7 +42,6 @@ interface NowPlayingBarProps {
   miniMode: boolean;
   onToggleMiniMode: () => void;
   onClose: () => void;
-  onHint: (hint: string | null) => void;
   onPause: () => void;
   onStop: () => void;
   onNext: () => void;
@@ -37,21 +55,22 @@ interface NowPlayingBarProps {
   onToggleAutoContinuePopover: () => void;
   onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
   onArtistClick: (artistId: number) => void;
-  onAlbumClick: (albumId: number) => void;
+  onAlbumClick: (albumId: number, artistId?: number | null) => void;
 }
 
 export function NowPlayingBar({
   currentTrack, playing,
   positionSecs, durationSecs,
-  volume, queueMode, showQueue, queueCount,
+  volume, queueMode, showQueue,
   autoContinueEnabled, showAutoContinuePopover, autoContinueWeights,
   imagePath, miniMode, onToggleMiniMode, onClose,
-  onHint,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode, onToggleQueue,
   onToggleAutoContinue, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
   onArtistClick, onAlbumClick,
 }: NowPlayingBarProps) {
+  const [showHelp, setShowHelp] = useState(false);
+
   if (miniMode) {
     const handleDrag = (e: React.MouseEvent) => {
       if ((e.target as HTMLElement).closest("button")) return;
@@ -104,11 +123,11 @@ export function NowPlayingBar({
           <div className="now-info-text">
             {currentTrack ? (
               <>
-                <span className={`now-title${currentTrack.album_id ? " now-link" : ""}`} onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!) : undefined}>{currentTrack.title}</span>
+                <span className={`now-title${currentTrack.album_id ? " now-link" : ""}`} onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id) : undefined}>{currentTrack.title}</span>
                 <span className="now-subtitle">
                   <span className="now-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : undefined}>{currentTrack.artist_name || "Unknown"}</span>
                   {currentTrack.album_id && currentTrack.album_title && (
-                    <><span className="now-sep"> — </span><span className="now-link" onClick={() => onAlbumClick(currentTrack.album_id!)}>{currentTrack.album_title}</span></>
+                    <><span className="now-sep"> — </span><span className="now-link" onClick={() => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id)}>{currentTrack.album_title}</span></>
                   )}
                 </span>
               </>
@@ -172,8 +191,6 @@ export function NowPlayingBar({
         <button
           className={`ctrl-btn queue-toggle-btn ${showQueue ? "active" : ""}`}
           onClick={onToggleQueue}
-          onMouseEnter={() => onHint(`${queueCount} track${queueCount !== 1 ? "s" : ""} in queue \u2014 ${mod}7`)}
-          onMouseLeave={() => onHint(null)}
           title="Queue"
         >
           {"\u2630"}
@@ -181,14 +198,37 @@ export function NowPlayingBar({
         <button
           className="ctrl-btn mini-mode-btn"
           onClick={onToggleMiniMode}
-          onMouseEnter={() => onHint(`Mini player \u2014 ${mod}\u21E7M`)}
-          onMouseLeave={() => onHint(null)}
           title="Mini player"
         >
           {"\u2013"}
         </button>
+        <button
+          className="ctrl-btn help-btn"
+          onClick={() => setShowHelp(!showHelp)}
+          title="Keyboard shortcuts"
+        >
+          {"?"}
+        </button>
       </div>
       </div>
+      {showHelp && (
+        <div className="shortcuts-overlay" onClick={() => setShowHelp(false)}>
+          <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="shortcuts-header">
+              <span>Keyboard Shortcuts</span>
+              <button className="ctrl-btn" onClick={() => setShowHelp(false)}>{"\u2715"}</button>
+            </div>
+            <div className="shortcuts-list">
+              {shortcuts.map((s) => (
+                <div key={s.keys} className="shortcut-row">
+                  <kbd className="shortcut-keys">{s.keys}</kbd>
+                  <span className="shortcut-action">{s.action}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </footer>
   );
 }

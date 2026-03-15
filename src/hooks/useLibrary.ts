@@ -240,11 +240,21 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     invoke<Album[]>("get_albums", { artistId }).then(setAlbums);
   }
 
-  function handleAlbumClick(albumId: number) {
+  function handleAlbumClick(albumId: number, artistId?: number | null) {
     setSelectedAlbum(albumId);
     setSelectedTag(null);
     setSearchQuery("");
-    setView("all");
+    const resolvedArtistId = artistId !== undefined ? artistId
+      : albums.find(a => a.id === albumId)?.artist_id ?? null;
+    if (resolvedArtistId) {
+      setSelectedArtist(resolvedArtistId);
+      setView("artists");
+      invoke<Album[]>("get_albums", { artistId: resolvedArtistId }).then(setAlbums);
+    } else {
+      setSelectedArtist(null);
+      setView("albums");
+      invoke<Album[]>("get_albums", { artistId: null }).then(setAlbums);
+    }
   }
 
   function handleShowAll() {

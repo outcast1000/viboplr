@@ -1333,7 +1333,6 @@ function App() {
         volume={playback.volume}
         queueMode={queueHook.queueMode}
         showQueue={queueHook.showQueue}
-        queueCount={queueHook.queue.length}
         autoContinueEnabled={autoContinue.enabled}
         showAutoContinuePopover={autoContinue.showPopover}
         autoContinueWeights={autoContinue.weights}
@@ -1345,7 +1344,6 @@ function App() {
         miniMode={miniMode}
         onToggleMiniMode={toggleMiniMode}
         onClose={() => getCurrentWindow().close()}
-        onHint={setStatusHint}
         onPause={playback.handlePause}
         onStop={playback.handleStop}
         onNext={handleNext}

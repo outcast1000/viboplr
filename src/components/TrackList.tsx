@@ -10,7 +10,7 @@ interface TrackListProps {
   onDoubleClick: (tracks: Track[], index: number) => void;
   onContextMenu: (e: React.MouseEvent, track: Track) => void;
   onArtistClick: (artistId: number) => void;
-  onAlbumClick: (albumId: number) => void;
+  onAlbumClick: (albumId: number, artistId?: number | null) => void;
   onSort: (field: SortField) => void;
   sortIndicator: (field: SortField) => string;
   onToggleLike: (track: Track) => void;
@@ -55,7 +55,7 @@ export function TrackList({
           </span>
           <span className="col-album">
             {t.album_id ? (
-              <span className="track-link" onClick={(e) => { e.stopPropagation(); onAlbumClick(t.album_id!); }}>{t.album_title || "Unknown"}</span>
+              <span className="track-link" onClick={(e) => { e.stopPropagation(); onAlbumClick(t.album_id!, t.artist_id); }}>{t.album_title || "Unknown"}</span>
             ) : (t.album_title || "Unknown")}
           </span>
           <span className="col-duration">{formatDuration(t.duration_secs)}</span>
