@@ -17,9 +17,10 @@ fn normalize_for_comparison(s: &str) -> String {
 }
 
 const TRACK_SELECT: &str =
-    "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, \
-     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id, t.liked, t.deleted \
-     FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id";
+    "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, al.year, \
+     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.deleted \
+     FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id \
+     LEFT JOIN collections co ON t.collection_id = co.id";
 
 const ENABLED_COLLECTION_FILTER: &str =
     "AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1))";
@@ -33,14 +34,16 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
         artist_name: row.get(4)?,
         album_id: row.get(5)?,
         album_title: row.get(6)?,
-        track_number: row.get(7)?,
-        duration_secs: row.get(8)?,
-        format: row.get(9)?,
-        file_size: row.get(10)?,
-        collection_id: row.get(11)?,
-        subsonic_id: row.get(12)?,
-        liked: row.get::<_, i32>(13).unwrap_or(0) != 0,
-        deleted: row.get::<_, i32>(14).unwrap_or(0) != 0,
+        year: row.get(7)?,
+        track_number: row.get(8)?,
+        duration_secs: row.get(9)?,
+        format: row.get(10)?,
+        file_size: row.get(11)?,
+        collection_id: row.get(12)?,
+        collection_name: row.get(13)?,
+        subsonic_id: row.get(14)?,
+        liked: row.get::<_, i32>(15).unwrap_or(0) != 0,
+        deleted: row.get::<_, i32>(16).unwrap_or(0) != 0,
     })
 }
 
@@ -905,12 +908,13 @@ impl Database {
             .join(" AND ");
 
         let mut sql = String::from(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, \
-             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, t.subsonic_id, t.liked \
+            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, al.year, \
+             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked \
              FROM tracks_fts fts \
              JOIN tracks t ON fts.rowid = t.id \
              LEFT JOIN artists ar ON t.artist_id = ar.id \
-             LEFT JOIN albums al ON t.album_id = al.id"
+             LEFT JOIN albums al ON t.album_id = al.id \
+             LEFT JOIN collections co ON t.collection_id = co.id"
         );
 
         if tag_id.is_some() {

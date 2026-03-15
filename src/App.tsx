@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import "./App.css";
 
-import type { Album, Collection, Track, View } from "./types";
+import type { Album, Collection, Track, View, ColumnConfig, SortField, SortDir } from "./types";
 import { isVideoTrack, getInitials } from "./utils";
 import { store } from "./store";
 import type { SearchProviderConfig } from "./searchProviders";
@@ -206,7 +206,7 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy, cf, wasMini, fww, fwh, fwx, fwy, mwx, mwy] = await Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy, cf, wasMini, fww, fwh, fwx, fwy, mwx, mwy, tSortField, tSortDir, tCols] = await Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -230,6 +230,9 @@ function App() {
           store.get<number | null>("fullWindowY"),
           store.get<number | null>("miniWindowX"),
           store.get<number | null>("miniWindowY"),
+          store.get<string | null>("trackSortField"),
+          store.get<string>("trackSortDir"),
+          store.get<ColumnConfig[] | null>("trackColumns"),
         ]);
         if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -241,6 +244,9 @@ function App() {
         if (st !== undefined && st !== null) library.setSelectedTag(st);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
+        if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "collection"].includes(tSortField)) library.setSortField(tSortField as SortField);
+        if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
+        if (tCols && Array.isArray(tCols) && tCols.length > 0) library.setTrackColumns(tCols);
         let restoredTrack: Track | null = null;
         if (tid !== undefined && tid !== null) {
           try {
@@ -1157,6 +1163,8 @@ function App() {
                     highlightedIndex={highlightedIndex}
                     sortField={sortField}
                     trackListRef={trackListRef}
+                    columns={library.trackColumns}
+                    onColumnsChange={library.setTrackColumns}
                     onDoubleClick={queueHook.playTracks}
                     onContextMenu={handleTrackContextMenu}
                     onArtistClick={library.handleArtistClick}
@@ -1285,6 +1293,8 @@ function App() {
               highlightedIndex={highlightedIndex}
               sortField={sortField}
               trackListRef={trackListRef}
+              columns={library.trackColumns}
+              onColumnsChange={library.setTrackColumns}
               onDoubleClick={queueHook.playTracks}
               onContextMenu={handleTrackContextMenu}
               onArtistClick={library.handleArtistClick}
@@ -1304,6 +1314,8 @@ function App() {
               highlightedIndex={highlightedIndex}
               sortField={sortField}
               trackListRef={trackListRef}
+              columns={library.trackColumns}
+              onColumnsChange={library.setTrackColumns}
               onDoubleClick={queueHook.playTracks}
               onContextMenu={handleTrackContextMenu}
               onArtistClick={library.handleArtistClick}

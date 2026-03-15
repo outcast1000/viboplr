@@ -29,11 +29,13 @@ export interface Track {
   artist_name: string | null;
   album_id: number | null;
   album_title: string | null;
+  year: number | null;
   track_number: number | null;
   duration_secs: number | null;
   format: string | null;
   file_size: number | null;
   collection_id: number | null;
+  collection_name: string | null;
   subsonic_id: string | null;
   liked: boolean;
   deleted: boolean;
@@ -80,8 +82,14 @@ export interface PlaylistLoadResult {
   playlist_name: string;
 }
 
-export type SortField = "num" | "title" | "artist" | "album" | "duration";
+export type SortField = "num" | "title" | "artist" | "album" | "duration" | "path" | "year" | "quality" | "collection";
 export type SortDir = "asc" | "desc";
+
+export type TrackColumnId = "like" | "num" | "title" | "artist" | "album" | "duration" | "path" | "year" | "quality" | "collection";
+export interface ColumnConfig {
+  id: TrackColumnId;
+  visible: boolean;
+}
 
 export type ArtistSortField = "name" | "tracks" | "random";
 export type AlbumSortField = "name" | "year" | "random";

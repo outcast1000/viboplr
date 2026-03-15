@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Artist, Album, Tag, Track, Collection, View, SortField, SortDir, ArtistSortField, AlbumSortField } from "../types";
+import type { Artist, Album, Tag, Track, Collection, View, SortField, SortDir, ArtistSortField, AlbumSortField, ColumnConfig, TrackColumnId } from "../types";
 import { store } from "../store";
+
+const ALL_COLUMN_IDS: TrackColumnId[] = ["like", "num", "title", "artist", "album", "year", "quality", "duration", "collection", "path"];
+
+const DEFAULT_VISIBLE: Set<TrackColumnId> = new Set(["like", "num", "title", "artist", "album", "duration"]);
+
+export const DEFAULT_TRACK_COLUMNS: ColumnConfig[] = ALL_COLUMN_IDS.map(id => ({
+  id,
+  visible: DEFAULT_VISIBLE.has(id),
+}));
 
 export function useLibrary(restoredRef: React.RefObject<boolean>) {
   const [view, setView] = useState<View>("all");
@@ -23,6 +32,9 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
+  // Column config state
+  const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(DEFAULT_TRACK_COLUMNS);
+
   // Artist sort state
   const [artistSortField, setArtistSortField] = useState<ArtistSortField | null>(null);
   const [artistSortDir, setArtistSortDir] = useState<SortDir>("asc");
@@ -41,6 +53,9 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   useEffect(() => { if (restoredRef.current) store.set("selectedArtist", selectedArtist); }, [selectedArtist]);
   useEffect(() => { if (restoredRef.current) store.set("selectedAlbum", selectedAlbum); }, [selectedAlbum]);
   useEffect(() => { if (restoredRef.current) store.set("selectedTag", selectedTag); }, [selectedTag]);
+  useEffect(() => { if (restoredRef.current) store.set("trackSortField", sortField); }, [sortField]);
+  useEffect(() => { if (restoredRef.current) store.set("trackSortDir", sortDir); }, [sortDir]);
+  useEffect(() => { if (restoredRef.current) store.set("trackColumns", trackColumns); }, [trackColumns]);
 
   const loadLibrary = useCallback(async () => {
     try {
@@ -97,11 +112,9 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   useEffect(() => { loadLibrary(); }, [loadLibrary]);
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
-  // Reset highlighted index and sort when tracks change
+  // Reset highlighted index when tracks change
   useEffect(() => {
     setHighlightedIndex(-1);
-    setSortField(null);
-    setSortDir("asc");
   }, [tracks]);
 
   // Reset list highlight when search or view changes
@@ -137,6 +150,14 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
         case "artist": return ((a.artist_name ?? "").localeCompare(b.artist_name ?? "")) * dir;
         case "album": return ((a.album_title ?? "").localeCompare(b.album_title ?? "")) * dir;
         case "duration": return ((a.duration_secs ?? 0) - (b.duration_secs ?? 0)) * dir;
+        case "path": return (a.path.localeCompare(b.path)) * dir;
+        case "year": return ((a.year ?? 0) - (b.year ?? 0)) * dir;
+        case "quality": {
+          const bitrateA = (a.duration_secs && a.file_size) ? a.file_size * 8 / a.duration_secs / 1000 : 0;
+          const bitrateB = (b.duration_secs && b.file_size) ? b.file_size * 8 / b.duration_secs / 1000 : 0;
+          return (bitrateA - bitrateB) * dir;
+        }
+        case "collection": return ((a.collection_name ?? "").localeCompare(b.collection_name ?? "")) * dir;
         default: return 0;
       }
     });
@@ -287,9 +308,10 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     selectedTag, setSelectedTag,
     highlightedIndex, setHighlightedIndex,
     highlightedListIndex, setHighlightedListIndex,
-    sortField, sortDir,
+    sortField, sortDir, setSortField, setSortDir,
     sortedTracks,
     handleSort, sortIndicator,
+    trackColumns, setTrackColumns,
     handleArtistClick, handleAlbumClick, handleShowAll, handleShowLiked,
     loadLibrary, loadTracks,
     sortedArtists, artistSortField, artistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,

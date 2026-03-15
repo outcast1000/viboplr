@@ -937,6 +937,29 @@ body {
   background: rgba(83, 168, 255, 0.08);
 }
 
+.track-header > span,
+.track-row > span {
+  padding-right: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-header > span {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.col-header-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.col-header-sort {
+  flex-shrink: 0;
+}
+
 .col-like {
   width: 24px;
   flex-shrink: 0;
@@ -944,6 +967,12 @@ body {
   text-align: center;
   font-size: 14px;
   color: #666;
+}
+
+.track-header > .col-like,
+.track-row > .col-like {
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .col-like:hover {
@@ -961,7 +990,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding-right: 12px;
 }
 
 .col-artist {
@@ -970,7 +998,6 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-secondary);
-  padding-right: 12px;
 }
 
 .col-album {
@@ -979,13 +1006,41 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-secondary);
-  padding-right: 12px;
 }
 
 .col-duration {
-  width: 60px;
+  width: 70px;
   flex-shrink: 0;
   text-align: right;
+  color: var(--text-secondary);
+}
+
+.col-path {
+  flex: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.col-year {
+  width: 50px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.col-collection {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.col-quality {
+  width: 110px;
+  flex-shrink: 0;
   color: var(--text-secondary);
 }
 
@@ -1001,6 +1056,75 @@ body {
 
 .track-header .sortable.sorted {
   color: var(--accent);
+}
+
+/* Column drag-and-drop */
+.track-header .drag-over {
+  border-left: 2px solid var(--accent);
+}
+
+.track-header .dragging {
+  opacity: 0.4;
+}
+
+.col-drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background: var(--bg-surface);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* Column configuration menu */
+.column-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+}
+
+.column-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 0;
+  min-width: 150px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.column-menu-title {
+  padding: 4px 12px 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 0.05em;
+}
+
+.column-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.column-menu-item:hover {
+  background: var(--bg-hover);
+}
+
+.column-menu-item input[type="checkbox"] {
+  accent-color: var(--accent);
 }
 
 /* Clickable artist/album links in track rows */
