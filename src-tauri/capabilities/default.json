@@ -18,6 +18,8 @@
     "core:window:allow-close",
     "core:window:allow-start-dragging",
     "core:window:allow-set-focus",
-    "core:window:allow-unminimize"
+    "core:window:allow-unminimize",
+    "updater:default",
+    "process:default"
   ]
 }

@@ -27,6 +27,7 @@ interface SidebarProps {
   onShowLiked: () => void;
   onShowHistory: () => void;
   onShowSettings: () => void;
+  updateAvailable: boolean;
 }
 
 export function Sidebar({
@@ -34,6 +35,7 @@ export function Sidebar({
   selectedAlbum, selectedArtist,
   onNavHover,
   onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowSettings,
+  updateAvailable,
 }: SidebarProps) {
   const navItems: { key: string; label: string; icon: ReactNode; active: boolean; onClick: () => void; hint: string }[] = [
     { key: "tracks", label: "Tracks", icon: icons.tracks, active: view === "all" && !selectedAlbum, onClick: onShowAll, hint: `Tracks \u2014 ${mod}1` },
@@ -62,6 +64,7 @@ export function Sidebar({
 
       <button className="settings-btn" onClick={onShowSettings}>
         {icons.settings} Settings
+        {updateAvailable && <span className="update-badge" />}
       </button>
     </aside>
   );

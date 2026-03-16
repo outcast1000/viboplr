@@ -6,6 +6,14 @@ import { DEFAULT_PROVIDERS, getDomainFromUrl } from "../searchProviders";
 import { IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
 import { EditCollectionModal } from "./EditCollectionModal";
 
+export interface UpdateState {
+  available: { version: string; body: string } | null;
+  checking: boolean;
+  downloading: boolean;
+  progress: { downloaded: number; total: number } | null;
+  upToDate: boolean;
+}
+
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
   google: IconGoogle,
   lastfm: IconLastfm,
@@ -77,6 +85,10 @@ interface SettingsPanelProps {
   crossfadeSecs: number;
   onCrossfadeChange: (secs: number) => void;
   onSaveProviders: (providers: SearchProviderConfig[]) => void;
+  appVersion: string;
+  updateState: UpdateState;
+  onCheckForUpdates: () => void;
+  onInstallUpdate: () => void;
 }
 
 interface ProviderFormData {
@@ -94,8 +106,12 @@ export function SettingsPanel({
   onClearImageFailures, onSaveProviders,
   crossfadeSecs,
   onCrossfadeChange,
+  appVersion,
+  updateState,
+  onCheckForUpdates,
+  onInstallUpdate,
 }: SettingsPanelProps) {
-  const [settingsTab, setSettingsTab] = useState<"main" | "collections" | "providers">("main");
+  const [settingsTab, setSettingsTab] = useState<"main" | "collections" | "providers" | "about">("main");
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -182,6 +198,7 @@ export function SettingsPanel({
           <button className={`settings-tab ${settingsTab === "main" ? "active" : ""}`} onClick={() => setSettingsTab("main")}>Main</button>
           <button className={`settings-tab ${settingsTab === "collections" ? "active" : ""}`} onClick={() => setSettingsTab("collections")}>Collections</button>
           <button className={`settings-tab ${settingsTab === "providers" ? "active" : ""}`} onClick={() => setSettingsTab("providers")}>Providers</button>
+          <button className={`settings-tab ${settingsTab === "about" ? "active" : ""}`} onClick={() => setSettingsTab("about")}>About</button>
         </div>
 
         {settingsTab === "main" && (
@@ -373,6 +390,53 @@ export function SettingsPanel({
                 </button>
                 <button className="add-folder-btn" onClick={resetToDefaults}>
                   Reset to Defaults
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {settingsTab === "about" && (
+          <div className="settings-section settings-about">
+            <span className="settings-version">FastPlayer v{appVersion}</span>
+
+            {updateState.available && !updateState.downloading && (
+              <div className="update-available">
+                <span className="update-version">v{updateState.available.version} available</span>
+                {updateState.available.body && (
+                  <p className="update-notes">{updateState.available.body}</p>
+                )}
+                <button className="add-folder-btn update-install-btn" onClick={onInstallUpdate}>
+                  Download &amp; Install
+                </button>
+              </div>
+            )}
+
+            {updateState.downloading && (
+              <div className="update-progress">
+                <span>Downloading update...</span>
+                {updateState.progress && updateState.progress.total > 0 && (
+                  <div className="update-progress-bar">
+                    <div
+                      className="update-progress-fill"
+                      style={{ width: `${Math.round((updateState.progress.downloaded / updateState.progress.total) * 100)}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!updateState.available && !updateState.downloading && (
+              <>
+                {updateState.upToDate && (
+                  <span className="update-up-to-date">You're up to date!</span>
+                )}
+                <button
+                  className="add-folder-btn"
+                  onClick={onCheckForUpdates}
+                  disabled={updateState.checking}
+                >
+                  {updateState.checking ? "Checking..." : "Check for Updates"}
                 </button>
               </>
             )}

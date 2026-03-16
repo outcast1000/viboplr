@@ -3,6 +3,9 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
+import { getVersion } from "@tauri-apps/api/app";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import "./App.css";
 
 import type { Album, Collection, Track, View, ColumnConfig, SortField, SortDir } from "./types";
@@ -22,7 +25,7 @@ import { Sidebar } from "./components/Sidebar";
 import { TrackList } from "./components/TrackList";
 import { NowPlayingBar } from "./components/NowPlayingBar";
 import { QueuePanel } from "./components/QueuePanel";
-import { SettingsPanel } from "./components/SettingsPanel";
+import { SettingsPanel, type UpdateState } from "./components/SettingsPanel";
 import { AddServerModal } from "./components/AddServerModal";
 import { ContextMenu } from "./components/ContextMenu";
 import type { ContextMenuState } from "./components/ContextMenu";
@@ -89,6 +92,17 @@ function App() {
   const [sessionLog, setSessionLog] = useState<{ time: Date; message: string }[]>([]);
   const [statusHint, setStatusHint] = useState<string | null>(null);
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
+
+  // Update state
+  const [appVersion, setAppVersion] = useState("");
+  const [updateState, setUpdateState] = useState<UpdateState>({
+    available: null,
+    checking: false,
+    downloading: false,
+    progress: null,
+    upToDate: false,
+  });
+  const updateRef = useRef<Awaited<ReturnType<typeof check>>>(null);
 
   // Image state
   const [artistImages, setArtistImages] = useState<Record<number, string | null>>({});
@@ -200,6 +214,23 @@ function App() {
     const handler = (e: MouseEvent) => { e.preventDefault(); };
     document.addEventListener("contextmenu", handler);
     return () => document.removeEventListener("contextmenu", handler);
+  }, []);
+
+  // Load app version and auto-check for updates on startup
+  useEffect(() => {
+    getVersion().then(setAppVersion);
+    const timer = setTimeout(async () => {
+      try {
+        const update = await check();
+        if (update) {
+          updateRef.current = update;
+          setUpdateState(s => ({ ...s, available: { version: update.version, body: update.body ?? "" } }));
+        }
+      } catch {
+        // Silently ignore — no update endpoint configured or network error
+      }
+    }, 3000);
+    return () => clearTimeout(timer);
   }, []);
 
   // Restore persisted state on mount
@@ -712,6 +743,45 @@ function App() {
     store.set("crossfadeSecs", secs);
   }
 
+  async function handleCheckForUpdates() {
+    setUpdateState(s => ({ ...s, checking: true, upToDate: false }));
+    try {
+      const update = await check();
+      if (update) {
+        updateRef.current = update;
+        setUpdateState(s => ({ ...s, checking: false, available: { version: update.version, body: update.body ?? "" } }));
+      } else {
+        setUpdateState(s => ({ ...s, checking: false, upToDate: true }));
+      }
+    } catch {
+      setUpdateState(s => ({ ...s, checking: false, upToDate: true }));
+    }
+  }
+
+  async function handleInstallUpdate() {
+    const update = updateRef.current;
+    if (!update) return;
+    setUpdateState(s => ({ ...s, downloading: true, progress: null }));
+    try {
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Started" && event.data.contentLength) {
+          setUpdateState(s => ({ ...s, progress: { downloaded: 0, total: event.data.contentLength! } }));
+        } else if (event.event === "Progress") {
+          setUpdateState(s => ({
+            ...s,
+            progress: s.progress
+              ? { downloaded: s.progress.downloaded + event.data.chunkLength, total: s.progress.total }
+              : null,
+          }));
+        }
+      });
+      await relaunch();
+    } catch {
+      setUpdateState(s => ({ ...s, downloading: false, progress: null }));
+      addLog("Failed to install update.");
+    }
+  }
+
   async function handleRemoveCollection(collectionId: number) {
     await invoke("remove_collection", { collectionId });
     library.loadLibrary();
@@ -863,6 +933,7 @@ function App() {
           library.setSearchQuery("");
         }}
         onShowSettings={() => setShowSettings(true)}
+        updateAvailable={updateState.available !== null}
       />
 
       {showAddServer && (
@@ -892,6 +963,10 @@ function App() {
           onSaveProviders={handleSaveProviders}
           crossfadeSecs={crossfadeSecs}
           onCrossfadeChange={handleCrossfadeChange}
+          appVersion={appVersion}
+          updateState={updateState}
+          onCheckForUpdates={handleCheckForUpdates}
+          onInstallUpdate={handleInstallUpdate}
         />
       )}
 
