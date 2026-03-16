@@ -9,7 +9,7 @@ mod scanner;
 mod seed;
 mod subsonic;
 mod sync;
-
+mod tidal;
 
 use commands::{AppState, DownloadQueue, ImageDownloadRequest};
 use db::Database;
@@ -64,6 +64,11 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_auto_continue_track,
         commands::save_playlist,
         commands::load_playlist,
+        commands::tidal_test_connection,
+        commands::tidal_search,
+        commands::tidal_save_track,
+        commands::tidal_get_album,
+        commands::tidal_get_artist,
     ]
 }
 
@@ -111,6 +116,11 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_auto_continue_track,
         commands::save_playlist,
         commands::load_playlist,
+        commands::tidal_test_connection,
+        commands::tidal_search,
+        commands::tidal_save_track,
+        commands::tidal_get_album,
+        commands::tidal_get_artist,
     ]
 }
 

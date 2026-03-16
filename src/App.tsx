@@ -34,6 +34,8 @@ import { AlbumCardArt } from "./components/AlbumCardArt";
 import { ImageActions } from "./components/ImageActions";
 import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
+import { TidalView } from "./components/TidalView";
+import { AddTidalModal } from "./components/AddTidalModal";
 import { StatusBar } from "./components/StatusBar";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -87,6 +89,7 @@ function App() {
   const [syncProgress, setSyncProgress] = useState({ synced: 0, total: 0, collection: "" });
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [showAddServer, setShowAddServer] = useState(false);
+  const [showAddTidal, setShowAddTidal] = useState(false);
   const [serverForm, setServerForm] = useState({ name: "", url: "", username: "", password: "" });
   const [showSettings, setShowSettings] = useState(false);
   const [sessionLog, setSessionLog] = useState<{ time: Date; message: string }[]>([]);
@@ -266,7 +269,7 @@ function App() {
           store.get<string>("trackSortDir"),
           store.get<ColumnConfig[] | null>("trackColumns"),
         ]);
-        if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
+        if (v && ["all", "artists", "albums", "tags", "liked", "history", "tidal"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
         if (sa !== undefined && sa !== null) {
           library.setSelectedArtist(sa);
@@ -877,6 +880,8 @@ function App() {
 
   const isListView = (view === "artists" && selectedArtist === null) || view === "albums" || (view === "tags" && selectedTag === null);
   const isHistoryView = view === "history";
+  const tidalCollection = library.collections.find(c => c.kind === "tidal" && c.enabled);
+  const hasTidal = !!tidalCollection;
 
   return (
     <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${miniMode ? "mini-mode" : ""}`} onClick={() => setContextMenu(null)}>
@@ -902,6 +907,7 @@ function App() {
         view={view}
         selectedAlbum={selectedAlbum}
         selectedArtist={selectedArtist}
+        hasTidal={hasTidal}
         onNavHover={setStatusHint}
         onShowAll={library.handleShowAll}
         onShowArtists={() => {
@@ -932,6 +938,13 @@ function App() {
           library.setSelectedTag(null);
           library.setSearchQuery("");
         }}
+        onShowTidal={() => {
+          library.setView("tidal");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSearchQuery("");
+        }}
         onShowSettings={() => setShowSettings(true)}
         updateAvailable={updateState.available !== null}
       />
@@ -945,13 +958,24 @@ function App() {
         />
       )}
 
+      {showAddTidal && (
+        <AddTidalModal
+          onAdded={() => {
+            setShowAddTidal(false);
+            library.loadLibrary();
+          }}
+          onClose={() => setShowAddTidal(false)}
+        />
+      )}
+
       {showSettings && (
         <SettingsPanel
           collections={library.collections}
           searchProviders={searchProviders}
           onClose={() => setShowSettings(false)}
           onAddFolder={handleAddFolder}
-          onShowAddServer={() => setShowAddServer(true)}
+          onShowAddServer={() => { setShowAddServer(true); setShowSettings(false); }}
+          onShowAddTidal={() => { setShowAddTidal(true); setShowSettings(false); }}
           onRemoveCollection={handleRemoveCollection}
           onResyncCollection={handleResyncCollection}
           onUpdateCollection={handleUpdateCollection}
@@ -1407,6 +1431,15 @@ function App() {
           {/* History view */}
           {view === "history" && (
             <HistoryView ref={historyRef} searchQuery={searchQuery} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={queueHook.enqueueTracks} />
+          )}
+
+          {/* TIDAL view */}
+          {view === "tidal" && tidalCollection && (
+            <TidalView
+              collectionId={tidalCollection.id}
+              onPlayTracks={queueHook.playTracks}
+              onEnqueueTracks={queueHook.enqueueTracks}
+            />
           )}
         </div>
       </main>
