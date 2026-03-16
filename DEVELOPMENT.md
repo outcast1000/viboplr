@@ -68,6 +68,18 @@ npx tsc --noEmit
 npm run bump 0.2.0
 ```
 
+## Updating a Feature Branch from Main
+
+If you're working on a feature branch and need to pull in the latest changes from `main`:
+
+```bash
+git stash
+git merge main
+git stash pop
+```
+
+If `git stash pop` causes conflicts, resolve them manually
+
 ## Releasing
 
 Releases are automated via GitHub Actions. Pushing a version tag triggers builds for macOS (ARM) and Windows, then creates a draft GitHub Release with the installer artifacts attached.
