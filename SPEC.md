@@ -102,7 +102,7 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 
 ### 4.6 Library Browsing
 
-- Browse by **artist**, **album**, **tag**, **liked tracks**, **history**, or **all tracks** (flat list).
+- Browse by **artist**, **album**, **tag**, **liked tracks**, **history**, **TIDAL** (when a tidal collection exists), or **all tracks** (flat list).
 - List view (table) with columns: like (heart icon), track number, title, artist, album, duration.
 - Tracks from all enabled collections (local and server) are unified in a single library.
 
@@ -131,6 +131,7 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - Frontend-driven via HTML5 `<audio>` and `<video>` elements.
 - **Local tracks:** served to the webview via Tauri's `asset://` protocol (`convertFileSrc()`).
 - **Server tracks:** `get_track_path` constructs a streaming URL with auth params from stored credentials. The `<audio>` element plays the HTTP URL directly.
+- **TIDAL tracks:** `get_track_path` fetches a fresh CDN URL from the Hi-Fi API at play time. The `<audio>` element plays the HTTPS URL directly.
 - Media type (audio vs video) determined by file extension (video: mp4, m4v, mov, webm).
 - Transport controls: play, pause, stop, seek, volume.
 - Position and duration tracked via HTML5 media events (`timeupdate`, `loadedmetadata`, `play`, `pause`, `ended`) — no polling.
@@ -265,7 +266,7 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 
 | Key | Type | Default |
 |-----|------|---------|
-| `view` | `string` (`"all"`, `"artists"`, `"albums"`, `"tags"`, `"liked"`, `"history"`) | `"all"` |
+| `view` | `string` (`"all"`, `"artists"`, `"albums"`, `"tags"`, `"liked"`, `"history"`, `"tidal"`) | `"all"` |
 | `searchQuery` | `string` | `""` |
 | `selectedArtist` | `number \| null` | `null` |
 | `selectedAlbum` | `number \| null` | `null` |
@@ -342,7 +343,7 @@ All shortcuts use `Ctrl` on Windows/Linux and `Cmd` on macOS.
 | `Ctrl+4` | Show Tags view |
 | `Ctrl+5` | Show Liked Tracks view |
 | `Ctrl+6` | Show History view |
-| `Ctrl+7` | Toggle Queue panel |
+| `Ctrl+7` | Show TIDAL view (when tidal collection exists) |
 | `Ctrl+M` | Toggle mute (mute/unmute volume) |
 | `Ctrl+Shift+M` | Toggle mini player mode |
 | `Ctrl+←` | Seek backward 15 seconds |
@@ -354,7 +355,47 @@ All shortcuts use `Ctrl` on Windows/Linux and `Cmd` on macOS.
 
 Track list keyboard navigation (without modifier): arrow keys to navigate tracks, Enter to play, Shift+Enter to enqueue.
 
-### 4.18 Custom Data Directory
+### 4.18 TIDAL Integration (Hi-Fi API)
+
+FastPlayer can search and stream from TIDAL's catalog via the **Hi-Fi API** (the backend behind [Monochrome](https://github.com/monochrome-music/monochrome)). The API instance URL is user-configurable — public instances exist (e.g., `monochrome-api.samidy.com`, `api.monochrome.tf`) and users can self-host. No client-side authentication is needed; all TIDAL auth is handled server-side.
+
+**Setup:**
+
+- User adds a TIDAL instance via Settings → Collections → "+ Add TIDAL" (`AddTidalModal` component).
+- Provides a display name and the API base URL.
+- A "Test" button calls `tidal_test_connection` to verify connectivity (checks `GET /` for version).
+- On connect, creates a `tidal` collection with the URL stored in `collections.url`.
+
+**Search & Browsing (`TidalView` component):**
+
+- The TIDAL view appears in the sidebar (diamond icon, `Ctrl/Cmd+7`) when a tidal collection exists.
+- Search bar with 400ms debounce queries the Hi-Fi API (`GET /search/?s={query}`).
+- Results displayed in 3 sections: Tracks, Albums, Artists.
+- Album cards are clickable → loads album detail with full track listing and "Play Album" button.
+- Artist cards are clickable → loads artist detail with discography (album grid).
+- Cover art loaded directly from TIDAL's CDN: `https://resources.tidal.com/images/{uuid_with_slashes}/{size}x{size}.jpg`.
+
+**Playback (on-demand save):**
+
+- TIDAL search results are **ephemeral** (not in the DB). When the user plays a track, `tidal_save_track` is called first:
+  1. Fetches full track metadata via `GET /info/?id={tidal_id}`.
+  2. Creates/finds the artist and album in the local DB via `get_or_create_artist()` / `get_or_create_album()`.
+  3. Upserts the track with `path = "tidal://{collection_id}/{tidal_id}"` and `subsonic_id = tidal_id`.
+  4. Returns the persisted `Track` object, which is then played via the normal playback path.
+- Stream URLs are fetched at play time (not enqueue time) to avoid CDN token expiration. `get_track_path` detects the `tidal` collection kind and calls the Hi-Fi API's `/track/?id={id}&quality=LOSSLESS` endpoint.
+- **BTS manifest decoding:** The stream endpoint returns `{ manifest: "<base64>", manifestMimeType: "application/vnd.tidal.bts" }`. The manifest is base64-decoded to JSON `{ urls: ["https://cdn..."] }` and the first URL is returned. DASH manifests (`application/dash+xml`) are not supported; quality is capped at `LOSSLESS`.
+
+**Reusing `subsonic_id` column:**
+
+- TIDAL track IDs are stored in the existing `subsonic_id` column to avoid schema migration. `get_track_path` disambiguates by checking the collection's `kind` field (see §11.4).
+
+**Backend API client (`src-tauri/src/tidal.rs`):**
+
+- `TidalClient` struct with `base_url` and `reqwest::blocking::Client` (15s timeout).
+- Methods: `ping()`, `search_tracks/artists/albums()`, `get_track_info()`, `get_stream_url()`, `get_album()`, `get_artist()`, `get_artist_albums()`.
+- Static helpers: `cover_url()`, `artist_picture_url()` for constructing TIDAL CDN image URLs.
+
+### 4.19 Custom Data Directory
 
 By default, FastPlayer stores its database and images in the platform-specific app data directory (`~/Library/Application Support/com.alex.fastplayer/` on macOS). This can be overridden to use a different location.
 
@@ -399,10 +440,10 @@ CREATE TABLE tags (
 
 CREATE TABLE collections (
     id                          INTEGER PRIMARY KEY,
-    kind                        TEXT NOT NULL,           -- 'local', 'subsonic', 'seed'
+    kind                        TEXT NOT NULL,           -- 'local', 'subsonic', 'tidal', 'seed'
     name                        TEXT NOT NULL,           -- display name
     path                        TEXT,                    -- local folder path (local only)
-    url                         TEXT,                    -- server base URL (subsonic only)
+    url                         TEXT,                    -- server base URL (subsonic/tidal)
     username                    TEXT,                    -- (subsonic only)
     password_token              TEXT,                    -- md5 token or plaintext (subsonic only)
     salt                        TEXT,                    -- (subsonic only, NULL for plaintext auth)
@@ -427,7 +468,7 @@ CREATE TABLE tracks (
     modified_at     INTEGER,
     added_at        INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
     collection_id   INTEGER REFERENCES collections(id),
-    subsonic_id     TEXT,
+    subsonic_id     TEXT,                           -- remote ID (subsonic track ID or tidal track ID)
     liked           INTEGER NOT NULL DEFAULT 0,
     deleted         INTEGER NOT NULL DEFAULT 0
 );
@@ -481,6 +522,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 │  │  HTML5 <audio> / <video> elements   │   │
 │  │  Local: asset:// protocol           │   │
 │  │  Server: HTTP streaming URL         │   │
+│  │  TIDAL: CDN streaming URL           │   │
 │  └──────────────────────────────────────┘   │
 └──────────────────┬──────────────────────────┘
                    │ Tauri IPC (invoke / listen)
@@ -492,23 +534,24 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 │  get_artists, get_albums, get_tracks,       │
 │  get_tags, search, toggle_track_liked,      │
 │  show_in_folder, get_track_path,            │
+│  tidal_search, tidal_save_track,            │
 │  record_play, get_recent_plays,             │
 │  get_most_played, get_most_played_since     │
-└──┬───────────┬───────────┬──────────────────┘
-   │           │           │
-   ▼           ▼           ▼
-┌────────┐ ┌────────────┐ ┌──────────────┐
-│Scanner │ │  Watcher   │ │  Subsonic    │
-│Service │ │  Service   │ │  Sync        │
-│lofty + │ │  notify    │ │  Client      │
-│regex   │ │            │ │              │
-└───┬────┘ └─────┬──────┘ └──────┬───────┘
-    │            │               │
-    ▼            ▼               ▼
-┌──────────────────────────────────┐
-│          SQLite (DB)             │
-│        rusqlite + FTS5           │
-└──────────────────────────────────┘
+└──┬───────────┬───────────┬─────────┬────────┘
+   │           │           │         │
+   ▼           ▼           ▼         ▼
+┌────────┐ ┌────────────┐ ┌──────┐ ┌──────┐
+│Scanner │ │  Watcher   │ │Subso-│ │TIDAL │
+│Service │ │  Service   │ │nic   │ │Client│
+│lofty + │ │  notify    │ │Client│ │Hi-Fi │
+│regex   │ │            │ │      │ │API   │
+└───┬────┘ └─────┬──────┘ └──┬───┘ └──┬───┘
+    │            │            │        │
+    ▼            ▼            ▼        ▼
+┌──────────────────────────────────────────┐
+│             SQLite (DB)                  │
+│           rusqlite + FTS5                │
+└──────────────────────────────────────────┘
 ```
 
 ## 7. Tauri Commands (API)
@@ -571,6 +614,16 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `paste_album_image`     | `album_id: i64, image_data: Vec<u8>` | `String` (dest path)   |
 | `remove_album_image`    | `album_id: i64`             | `()`                     |
 | `clear_image_failures`  | —                           | `()`                     |
+
+### TIDAL Commands
+
+| Command                   | Args                                                     | Returns              |
+| ------------------------- | -------------------------------------------------------- | -------------------- |
+| `tidal_test_connection`   | `url: String`                                            | `String` (version)   |
+| `tidal_search`            | `collection_id: i64, query: String, limit: u32, offset: u32` | `TidalSearchResult`  |
+| `tidal_save_track`        | `collection_id: i64, tidal_track_id: String`             | `Track`              |
+| `tidal_get_album`         | `collection_id: i64, album_id: String`                   | `TidalAlbumDetail`   |
+| `tidal_get_artist`        | `collection_id: i64, artist_id: String`                  | `TidalArtistDetail`  |
 
 ### Debug-Only Commands
 
@@ -692,10 +745,11 @@ Artist and album image fetching is handled by a single background worker thread 
 
 ### 11.4 Playback Resolution
 
-`get_track_path` returns different values based on track type:
+`get_track_path` returns different values based on track type. When `subsonic_id` is set, the collection's `kind` field is checked to determine the resolution strategy:
 
 - **Local track** (`subsonic_id` is NULL): returns the filesystem path. Frontend wraps it with `convertFileSrc()` for `asset://` protocol.
-- **Server track** (`subsonic_id` is set): constructs a full streaming URL `{server}/rest/stream.view?id={subsonic_id}&{auth_params}`. Frontend uses the URL directly as the `<audio>` src.
+- **Subsonic track** (`subsonic_id` is set, `kind = "subsonic"`): constructs a full streaming URL `{server}/rest/stream.view?id={subsonic_id}&{auth_params}`. Frontend uses the URL directly as the `<audio>` src.
+- **TIDAL track** (`subsonic_id` is set, `kind = "tidal"`): makes a blocking HTTP call to the Hi-Fi API `/track/?id={tidal_id}&quality=LOSSLESS`, base64-decodes the BTS manifest, and returns the CDN URL. Fresh URL fetched at play time to avoid token expiration.
 
 ### 11.5 Extensible Image Provider System
 

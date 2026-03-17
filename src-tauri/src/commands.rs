@@ -6,7 +6,7 @@ use crate::db::Database;
 use crate::models::*;
 use crate::scanner;
 use crate::subsonic::SubsonicClient;
-
+use crate::tidal::TidalClient;
 
 pub enum ImageDownloadRequest {
     Artist { id: i64, name: String },
@@ -154,6 +154,22 @@ pub fn add_collection(
                     }
                 }
             });
+
+            Ok(collection)
+        }
+        "tidal" => {
+            let api_url = url.as_deref().ok_or("URL is required for TIDAL collections")?;
+
+            // Test connection
+            let client = TidalClient::new(api_url);
+            client
+                .ping()
+                .map_err(|e| format!("Failed to connect: {}", e))?;
+
+            let collection = state
+                .db
+                .add_collection("tidal", &name, None, Some(api_url), None, None, None, None)
+                .map_err(|e| e.to_string())?;
 
             Ok(collection)
         }
@@ -352,22 +368,42 @@ pub fn get_track_path(state: State<'_, AppState>, track_id: i64) -> Result<Strin
         .get_track_by_id(track_id)
         .map_err(|e| e.to_string())?;
 
-    if let Some(subsonic_id) = &track.subsonic_id {
+    if let Some(remote_id) = &track.subsonic_id {
         let collection_id = track
             .collection_id
-            .ok_or("Track has subsonic_id but no collection_id")?;
-        let creds = state
+            .ok_or("Track has remote_id but no collection_id")?;
+        let collection = state
             .db
-            .get_collection_credentials(collection_id)
+            .get_collection_by_id(collection_id)
             .map_err(|e| e.to_string())?;
-        let client = SubsonicClient::from_stored(
-            &creds.url,
-            &creds.username,
-            &creds.password_token,
-            creds.salt.as_deref(),
-            &creds.auth_method,
-        );
-        Ok(client.stream_url(subsonic_id))
+
+        match collection.kind.as_str() {
+            "subsonic" => {
+                let creds = state
+                    .db
+                    .get_collection_credentials(collection_id)
+                    .map_err(|e| e.to_string())?;
+                let client = SubsonicClient::from_stored(
+                    &creds.url,
+                    &creds.username,
+                    &creds.password_token,
+                    creds.salt.as_deref(),
+                    &creds.auth_method,
+                );
+                Ok(client.stream_url(remote_id))
+            }
+            "tidal" => {
+                let base_url = collection
+                    .url
+                    .as_deref()
+                    .ok_or("TIDAL collection has no URL")?;
+                let client = TidalClient::new(base_url);
+                client
+                    .get_stream_url(remote_id, "LOSSLESS")
+                    .map_err(|e| e.to_string())
+            }
+            _ => Err(format!("Unknown collection kind: {}", collection.kind)),
+        }
     } else {
         Ok(track.path)
     }
@@ -735,6 +771,231 @@ pub fn load_playlist(
 #[tauri::command]
 pub fn get_startup_timings() -> Vec<crate::timing::TimingEntry> {
     crate::timing::timer().get_entries()
+}
+
+// --- TIDAL commands ---
+
+#[tauri::command]
+pub async fn tidal_test_connection(url: String) -> Result<String, String> {
+    log::info!("tidal_test_connection called with url: {}", url);
+    let api_url = format!("{}/", url.trim_end_matches('/'));
+    let resp = reqwest::get(&api_url)
+        .await
+        .map_err(|e| format!("HTTP error: {}", e))?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+    let json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("JSON parse error: {}", e))?;
+    let version = json["version"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string();
+    log::info!("tidal_test_connection success: version={}", version);
+    Ok(version)
+}
+
+#[tauri::command]
+pub fn tidal_search(
+    state: State<'_, AppState>,
+    collection_id: i64,
+    query: String,
+    limit: u32,
+    offset: u32,
+) -> Result<TidalSearchResult, String> {
+    let collection = state
+        .db
+        .get_collection_by_id(collection_id)
+        .map_err(|e| e.to_string())?;
+    let base_url = collection.url.as_deref().ok_or("Collection has no URL")?;
+    let client = TidalClient::new(base_url);
+
+    let tracks = client
+        .search_tracks(&query, limit, offset)
+        .map_err(|e| e.to_string())?;
+    let artists = client
+        .search_artists(&query, limit, offset)
+        .map_err(|e| e.to_string())?;
+    let albums = client
+        .search_albums(&query, limit, offset)
+        .map_err(|e| e.to_string())?;
+
+    Ok(TidalSearchResult {
+        tracks: tracks
+            .into_iter()
+            .map(|t| TidalSearchTrack {
+                tidal_id: t.id,
+                title: t.title,
+                artist_name: t.artist_name,
+                artist_id: t.artist_id,
+                album_title: t.album_title,
+                album_id: t.album_id,
+                cover_id: t.cover_id,
+                duration_secs: t.duration_secs,
+                track_number: t.track_number,
+            })
+            .collect(),
+        albums: albums
+            .into_iter()
+            .map(|a| TidalSearchAlbum {
+                tidal_id: a.id,
+                title: a.title,
+                artist_name: a.artist_name,
+                cover_id: a.cover_id,
+                year: a.year,
+            })
+            .collect(),
+        artists: artists
+            .into_iter()
+            .map(|a| TidalSearchArtist {
+                tidal_id: a.id,
+                name: a.name,
+                picture_id: a.picture_id,
+            })
+            .collect(),
+    })
+}
+
+#[tauri::command]
+pub fn tidal_save_track(
+    state: State<'_, AppState>,
+    collection_id: i64,
+    tidal_track_id: String,
+) -> Result<Track, String> {
+    let collection = state
+        .db
+        .get_collection_by_id(collection_id)
+        .map_err(|e| e.to_string())?;
+    let base_url = collection.url.as_deref().ok_or("Collection has no URL")?;
+    let client = TidalClient::new(base_url);
+
+    let info = client
+        .get_track_info(&tidal_track_id)
+        .map_err(|e| e.to_string())?;
+
+    let artist_id = if let Some(artist_name) = &info.artist_name {
+        Some(
+            state
+                .db
+                .get_or_create_artist(artist_name)
+                .map_err(|e| e.to_string())?,
+        )
+    } else {
+        None
+    };
+
+    let album_id = if let Some(album_title) = &info.album_title {
+        Some(
+            state
+                .db
+                .get_or_create_album(album_title, artist_id, None)
+                .map_err(|e| e.to_string())?,
+        )
+    } else {
+        None
+    };
+
+    let path = format!("tidal://{}/{}", collection_id, tidal_track_id);
+    let format_str = "flac"; // TIDAL streams are typically FLAC
+
+    let track_id = state
+        .db
+        .upsert_track(
+            &path,
+            &info.title,
+            artist_id,
+            album_id,
+            info.track_number,
+            info.duration_secs,
+            Some(format_str),
+            None, // file_size
+            None, // modified_at
+            Some(collection_id),
+            Some(&tidal_track_id),
+        )
+        .map_err(|e| e.to_string())?;
+
+    let _ = state.db.rebuild_fts();
+
+    state
+        .db
+        .get_track_by_id(track_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn tidal_get_album(
+    state: State<'_, AppState>,
+    collection_id: i64,
+    album_id: String,
+) -> Result<TidalAlbumDetail, String> {
+    let collection = state
+        .db
+        .get_collection_by_id(collection_id)
+        .map_err(|e| e.to_string())?;
+    let base_url = collection.url.as_deref().ok_or("Collection has no URL")?;
+    let client = TidalClient::new(base_url);
+
+    let album = client.get_album(&album_id).map_err(|e| e.to_string())?;
+
+    Ok(TidalAlbumDetail {
+        tidal_id: album.id,
+        title: album.title,
+        artist_name: album.artist_name,
+        cover_id: album.cover_id,
+        year: album.year,
+        tracks: album
+            .tracks
+            .into_iter()
+            .map(|t| TidalSearchTrack {
+                tidal_id: t.id,
+                title: t.title,
+                artist_name: t.artist_name,
+                artist_id: t.artist_id,
+                album_title: t.album_title,
+                album_id: t.album_id,
+                cover_id: t.cover_id,
+                duration_secs: t.duration_secs,
+                track_number: t.track_number,
+            })
+            .collect(),
+    })
+}
+
+#[tauri::command]
+pub fn tidal_get_artist(
+    state: State<'_, AppState>,
+    collection_id: i64,
+    artist_id: String,
+) -> Result<TidalArtistDetail, String> {
+    let collection = state
+        .db
+        .get_collection_by_id(collection_id)
+        .map_err(|e| e.to_string())?;
+    let base_url = collection.url.as_deref().ok_or("Collection has no URL")?;
+    let client = TidalClient::new(base_url);
+
+    let artist = client.get_artist(&artist_id).map_err(|e| e.to_string())?;
+    let albums = client
+        .get_artist_albums(&artist_id)
+        .map_err(|e| e.to_string())?;
+
+    Ok(TidalArtistDetail {
+        tidal_id: artist.id,
+        name: artist.name,
+        picture_id: artist.picture_id,
+        albums: albums
+            .into_iter()
+            .map(|a| TidalSearchAlbum {
+                tidal_id: a.id,
+                title: a.title,
+                artist_name: a.artist_name,
+                cover_id: a.cover_id,
+                year: a.year,
+            })
+            .collect(),
+    })
 }
 
 #[cfg(debug_assertions)]

@@ -43,7 +43,7 @@ export interface Track {
 
 export interface Collection {
   id: number;
-  kind: "local" | "subsonic" | "seed";
+  kind: "local" | "subsonic" | "seed" | "tidal";
   name: string;
   path: string | null;
   url: string | null;
@@ -55,7 +55,7 @@ export interface Collection {
   last_sync_duration_secs: number | null;
 }
 
-export type View = "all" | "artists" | "albums" | "tags" | "liked" | "history";
+export type View = "all" | "artists" | "albums" | "tags" | "liked" | "history" | "tidal";
 
 export interface PlayHistoryEntry {
   id: number;
@@ -94,3 +94,52 @@ export interface ColumnConfig {
 export type ArtistSortField = "name" | "tracks" | "random";
 export type AlbumSortField = "name" | "year" | "random";
 export type TagSortField = "name" | "tracks" | "random";
+
+// TIDAL search result types
+export interface TidalSearchTrack {
+  tidal_id: string;
+  title: string;
+  artist_name: string | null;
+  artist_id: string | null;
+  album_title: string | null;
+  album_id: string | null;
+  cover_id: string | null;
+  duration_secs: number | null;
+  track_number: number | null;
+}
+
+export interface TidalSearchAlbum {
+  tidal_id: string;
+  title: string;
+  artist_name: string | null;
+  cover_id: string | null;
+  year: number | null;
+}
+
+export interface TidalSearchArtist {
+  tidal_id: string;
+  name: string;
+  picture_id: string | null;
+}
+
+export interface TidalSearchResult {
+  tracks: TidalSearchTrack[];
+  albums: TidalSearchAlbum[];
+  artists: TidalSearchArtist[];
+}
+
+export interface TidalAlbumDetail {
+  tidal_id: string;
+  title: string;
+  artist_name: string | null;
+  cover_id: string | null;
+  year: number | null;
+  tracks: TidalSearchTrack[];
+}
+
+export interface TidalArtistDetail {
+  tidal_id: string;
+  name: string;
+  picture_id: string | null;
+  albums: TidalSearchAlbum[];
+}

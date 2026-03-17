@@ -75,6 +75,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   onAddFolder: () => void;
   onShowAddServer: () => void;
+  onShowAddTidal: () => void;
   onRemoveCollection: (id: number) => void;
   onResyncCollection: (id: number) => void;
   onUpdateCollection: (id: number, name: string, autoUpdate: boolean, autoUpdateIntervalMins: number, enabled: boolean) => void;
@@ -104,7 +105,7 @@ interface ProviderFormData {
 
 export function SettingsPanel({
   collections, searchProviders,
-  onClose, onAddFolder, onShowAddServer,
+  onClose, onAddFolder, onShowAddServer, onShowAddTidal,
   onRemoveCollection, onResyncCollection, onUpdateCollection, onToggleCollectionEnabled,
   onSeedDatabase, onClearDatabase, clearing,
   onClearImageFailures, onSaveProviders,
@@ -290,6 +291,9 @@ export function SettingsPanel({
             </button>
             <button className="add-folder-btn" onClick={onShowAddServer}>
               + Add Server
+            </button>
+            <button className="add-folder-btn" onClick={onShowAddTidal}>
+              + Add TIDAL
             </button>
             {import.meta.env.DEV && (
               <button className="add-folder-btn" onClick={onSeedDatabase}>
