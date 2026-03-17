@@ -49,54 +49,61 @@ pub struct Database {
 
 impl Database {
     pub fn new(app_dir: &Path) -> SqlResult<Self> {
-        std::fs::create_dir_all(app_dir).ok();
+        let timer = crate::timing::timer();
+
+        timer.time("db: create_app_dir", || std::fs::create_dir_all(app_dir).ok());
+
         let db_path = app_dir.join("fastplayer.db");
-        let conn = Connection::open(db_path)?;
+        let conn = timer.time("db: open_connection", || Connection::open(db_path))?;
 
-        // Register custom SQL function to extract filename from path
-        conn.create_scalar_function(
-            "filename_from_path",
-            1,
-            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
-            |ctx| {
-                let path_str: String = ctx.get(0)?;
-                let path = std::path::Path::new(&path_str);
-                let filename = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("")
-                    .to_string();
-                Ok(filename)
-            },
-        )?;
+        timer.time("db: register_sql_functions", || -> SqlResult<()> {
+            // Register custom SQL function to extract filename from path
+            conn.create_scalar_function(
+                "filename_from_path",
+                1,
+                FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+                |ctx| {
+                    let path_str: String = ctx.get(0)?;
+                    let path = std::path::Path::new(&path_str);
+                    let filename = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    Ok(filename)
+                },
+            )?;
 
-        // Register custom SQL function to strip diacritics for FTS indexing
-        conn.create_scalar_function(
-            "strip_diacritics",
-            1,
-            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
-            |ctx| {
-                let s: String = ctx.get(0)?;
-                Ok(strip_diacritics(&s))
-            },
-        )?;
+            // Register custom SQL function to strip diacritics for FTS indexing
+            conn.create_scalar_function(
+                "strip_diacritics",
+                1,
+                FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+                |ctx| {
+                    let s: String = ctx.get(0)?;
+                    Ok(strip_diacritics(&s))
+                },
+            )?;
 
-        // Register custom SQL function for Unicode-aware lowercase (handles Greek, Cyrillic, etc.)
-        conn.create_scalar_function(
-            "unicode_lower",
-            1,
-            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
-            |ctx| {
-                let s: String = ctx.get(0)?;
-                Ok(s.to_lowercase())
-            },
-        )?;
+            // Register custom SQL function for Unicode-aware lowercase (handles Greek, Cyrillic, etc.)
+            conn.create_scalar_function(
+                "unicode_lower",
+                1,
+                FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+                |ctx| {
+                    let s: String = ctx.get(0)?;
+                    Ok(s.to_lowercase())
+                },
+            )?;
+
+            Ok(())
+        })?;
 
         let db = Self {
             conn: Mutex::new(conn),
         };
-        db.init_tables()?;
-        db.run_migrations()?;
+        timer.time("db: init_tables", || db.init_tables())?;
+        timer.time("db: run_migrations", || db.run_migrations())?;
         Ok(db)
     }
 
@@ -223,17 +230,21 @@ impl Database {
             "SELECT version FROM db_version WHERE rowid = 1", [], |row| row.get(0),
         ).unwrap_or(1);
 
+        let mut migrated = false;
+
         if version < 2 {
             // Add track_count columns (ignored if already present via fresh CREATE TABLE)
             let _ = conn.execute_batch("ALTER TABLE artists ADD COLUMN track_count INTEGER NOT NULL DEFAULT 0");
             let _ = conn.execute_batch("ALTER TABLE albums ADD COLUMN track_count INTEGER NOT NULL DEFAULT 0");
             let _ = conn.execute_batch("ALTER TABLE tags ADD COLUMN track_count INTEGER NOT NULL DEFAULT 0");
             conn.execute("UPDATE db_version SET version = 2 WHERE rowid = 1", [])?;
+            migrated = true;
         }
 
         drop(conn);
-        // Always recompute on startup so counts are correct after any prior crash/interruption
-        self.recompute_counts()?;
+        if migrated {
+            crate::timing::timer().time("db: recompute_counts", || self.recompute_counts())?;
+        }
         Ok(())
     }
 

@@ -9,6 +9,7 @@ mod scanner;
 mod seed;
 mod subsonic;
 mod sync;
+mod timing;
 
 
 use commands::{AppState, DownloadQueue, ImageDownloadRequest};
@@ -64,6 +65,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_auto_continue_track,
         commands::save_playlist,
         commands::load_playlist,
+        commands::get_startup_timings,
     ]
 }
 
@@ -111,16 +113,19 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_auto_continue_track,
         commands::save_playlist,
         commands::load_playlist,
+        commands::get_startup_timings,
     ]
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    let timer = timing::init_timer();
+
+    timer.time("env_logger::init", || env_logger::init());
 
     // Parse optional data directory override from env var or CLI argument
     // Usage: FASTPLAYER_DATA_DIR=/path or --data-dir /path or --data-dir=/path
-    let custom_data_dir: Option<std::path::PathBuf> = {
+    let custom_data_dir: Option<std::path::PathBuf> = timer.time("parse_data_dir", || {
         let mut data_dir: Option<std::path::PathBuf> =
             std::env::var("FASTPLAYER_DATA_DIR").ok().map(std::path::PathBuf::from);
 
@@ -151,56 +156,66 @@ pub fn run() {
             log::info!("Using custom data directory: {}", dir.display());
         }
         data_dir
-    };
+    });
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+    let builder = tauri::Builder::default();
+    let builder = timer.time("plugin: single_instance", || {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
         }))
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_store::Builder::new().build())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+    });
+    let builder = timer.time("plugin: opener", || builder.plugin(tauri_plugin_opener::init()));
+    let builder = timer.time("plugin: dialog", || builder.plugin(tauri_plugin_dialog::init()));
+    let builder = timer.time("plugin: store", || builder.plugin(tauri_plugin_store::Builder::new().build()));
+    let builder = timer.time("plugin: updater", || builder.plugin(tauri_plugin_updater::Builder::new().build()));
+    let builder = timer.time("plugin: process", || builder.plugin(tauri_plugin_process::init()));
+
+    builder
         .setup(|app| {
-            let app_dir = match custom_data_dir {
+            let timer = timing::timer();
+
+            let app_dir = timer.time("resolve_app_dir", || match custom_data_dir {
                 Some(dir) => dir,
                 None => app
                     .path()
                     .app_data_dir()
                     .expect("Failed to get app data dir"),
-            };
-            let db = Arc::new(Database::new(&app_dir).expect("Failed to init database"));
+            });
+            let db = Arc::new(timer.time("Database::new", || Database::new(&app_dir).expect("Failed to init database")));
 
-            // Ensure image directories exist
-            let _ = std::fs::create_dir_all(app_dir.join("artist_images"));
-            let _ = std::fs::create_dir_all(app_dir.join("album_images"));
-
-            let download_queue = Arc::new(DownloadQueue {
-                queue: Mutex::new(Vec::new()),
-                condvar: Condvar::new(),
+            timer.time("create_image_dirs", || {
+                let _ = std::fs::create_dir_all(app_dir.join("artist_images"));
+                let _ = std::fs::create_dir_all(app_dir.join("album_images"));
             });
 
+            let download_queue = timer.time("setup_download_queue", || Arc::new(DownloadQueue {
+                queue: Mutex::new(Vec::new()),
+                condvar: Condvar::new(),
+            }));
+
             // Build image provider fallback chains
-            let artist_provider: Arc<dyn ArtistImageProvider> = Arc::new(
-                ArtistImageFallbackChain::new(vec![
-                    Box::new(image_provider::deezer::DeezerArtistProvider),
-                    Box::new(image_provider::itunes::ITunesArtistProvider),
-                    Box::new(image_provider::audiodb::AudioDbArtistProvider),
-                    Box::new(image_provider::musicbrainz::MusicBrainzArtistProvider),
-                ]),
-            );
-            let album_provider: Arc<dyn AlbumImageProvider> = Arc::new(
-                AlbumImageFallbackChain::new(vec![
-                    Box::new(image_provider::embedded::EmbeddedArtworkProvider::new(db.clone())),
-                    Box::new(image_provider::itunes::ITunesAlbumProvider),
-                    Box::new(image_provider::deezer::DeezerAlbumProvider),
-                    Box::new(image_provider::musicbrainz::MusicBrainzAlbumProvider),
-                ]),
-            );
+            let (artist_provider, album_provider) = timer.time("build_image_providers", || {
+                let artist_provider: Arc<dyn ArtistImageProvider> = Arc::new(
+                    ArtistImageFallbackChain::new(vec![
+                        Box::new(image_provider::deezer::DeezerArtistProvider),
+                        Box::new(image_provider::itunes::ITunesArtistProvider),
+                        Box::new(image_provider::audiodb::AudioDbArtistProvider),
+                        Box::new(image_provider::musicbrainz::MusicBrainzArtistProvider),
+                    ]),
+                );
+                let album_provider: Arc<dyn AlbumImageProvider> = Arc::new(
+                    AlbumImageFallbackChain::new(vec![
+                        Box::new(image_provider::embedded::EmbeddedArtworkProvider::new(db.clone())),
+                        Box::new(image_provider::itunes::ITunesAlbumProvider),
+                        Box::new(image_provider::deezer::DeezerAlbumProvider),
+                        Box::new(image_provider::musicbrainz::MusicBrainzAlbumProvider),
+                    ]),
+                );
+                (artist_provider, album_provider)
+            });
 
             // Spawn the image download worker thread
             let worker_queue = download_queue.clone();
@@ -209,7 +224,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let worker_artist_provider = artist_provider.clone();
             let worker_album_provider = album_provider.clone();
-            std::thread::spawn(move || {
+            timer.time("spawn_image_worker", || { std::thread::spawn(move || {
                 loop {
                     let request = {
                         let mut queue = worker_queue.queue.lock().unwrap();
@@ -284,29 +299,93 @@ pub fn run() {
 
                     std::thread::sleep(std::time::Duration::from_millis(1100));
                 }
-            });
+            }); });
 
-            app.manage(AppState { db, app_dir, download_queue });
+            // Restore window size/position from store before showing, to avoid IPC round-trips
+            timer.time("restore_window", || {
+                let window = app.get_webview_window("main").unwrap();
 
-            // Make window background transparent for rounded mini player corners
-            #[cfg(target_os = "macos")]
-            {
-                #[allow(deprecated)]
+                // Make window background transparent for rounded mini player corners
+                #[cfg(target_os = "macos")]
                 {
-                    use cocoa::appkit::{NSColor, NSWindow};
-                    use cocoa::base::{id, nil};
-
-                    let window = app.get_webview_window("main").unwrap();
-                    let ns_window = window.ns_window().unwrap() as id;
-                    unsafe {
-                        ns_window.setBackgroundColor_(NSColor::clearColor(nil));
+                    #[allow(deprecated)]
+                    {
+                        use cocoa::appkit::{NSColor, NSWindow};
+                        use cocoa::base::{id, nil};
+                        let ns_window = window.ns_window().unwrap() as id;
+                        unsafe {
+                            ns_window.setBackgroundColor_(NSColor::clearColor(nil));
+                        }
                     }
                 }
-            }
+
+                // Read persisted window state from the store JSON file
+                let store_path = app_dir.join("app-state.json");
+                if let Ok(data) = std::fs::read_to_string(&store_path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+                        // Collect monitor bounds for off-screen validation
+                        let monitors: Vec<(f64, f64, f64, f64)> = window.available_monitors()
+                            .unwrap_or_default()
+                            .iter()
+                            .filter_map(|m| {
+                                let pos = m.position();
+                                let size = m.size();
+                                let scale = m.scale_factor();
+                                Some((
+                                    pos.x as f64 / scale,
+                                    pos.y as f64 / scale,
+                                    pos.x as f64 / scale + size.width as f64 / scale,
+                                    pos.y as f64 / scale + size.height as f64 / scale,
+                                ))
+                            })
+                            .collect();
+                        let is_visible = |x: f64, y: f64| -> bool {
+                            if monitors.is_empty() { return true; }
+                            monitors.iter().any(|(mx, my, mx2, my2)| {
+                                x >= *mx && x < *mx2 && y >= *my && y < *my2
+                            })
+                        };
+
+                        let is_mini = json.get("miniMode").and_then(|v| v.as_bool()).unwrap_or(false);
+                        if is_mini {
+                            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 500.0, height: 40.0 }));
+                            if let (Some(x), Some(y)) = (
+                                json.get("miniWindowX").and_then(|v| v.as_f64()),
+                                json.get("miniWindowY").and_then(|v| v.as_f64()),
+                            ) {
+                                if is_visible(x, y) {
+                                    let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+                                }
+                            }
+                            let _ = window.set_always_on_top(true);
+                            let _ = window.set_decorations(false);
+                        } else {
+                            if let (Some(w), Some(h)) = (
+                                json.get("windowWidth").and_then(|v| v.as_f64()),
+                                json.get("windowHeight").and_then(|v| v.as_f64()),
+                            ) {
+                                if w > 0.0 && h > 0.0 {
+                                    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }));
+                                }
+                            }
+                            if let (Some(x), Some(y)) = (
+                                json.get("windowX").and_then(|v| v.as_f64()),
+                                json.get("windowY").and_then(|v| v.as_f64()),
+                            ) {
+                                if is_visible(x, y) {
+                                    let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            timer.time("manage_app_state", || { app.manage(AppState { db, app_dir, download_queue }); });
 
             Ok(())
         })
-        .invoke_handler(get_invoke_handler())
-        .run(tauri::generate_context!())
+        .invoke_handler(timer.time("invoke_handler", || get_invoke_handler()))
+        .run(timer.time("generate_context", || tauri::generate_context!()))
         .expect("error while running tauri application");
 }

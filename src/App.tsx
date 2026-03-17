@@ -13,6 +13,7 @@ import { isVideoTrack, getInitials } from "./utils";
 import { store } from "./store";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
+import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
 import { useQueue } from "./hooks/useQueue";
@@ -92,6 +93,7 @@ function App() {
   const [sessionLog, setSessionLog] = useState<{ time: Date; message: string }[]>([]);
   const [statusHint, setStatusHint] = useState<string | null>(null);
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
+  const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
 
   // Update state
   const [appVersion, setAppVersion] = useState("");
@@ -237,8 +239,8 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        await store.init();
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, ww, wh, wx, wy, cf, wasMini, fww, fwh, fwx, fwy, mwx, mwy, tSortField, tSortDir, tCols] = await Promise.all([
+        await timeAsync("store.init", () => store.init());
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols] = await timeAsync("store.restore (20 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -250,22 +252,16 @@ function App() {
           store.get<number>("queueIndex"),
           store.get<string>("queueMode"),
           store.get<number>("positionSecs"),
-          store.get<number | null>("windowWidth"),
-          store.get<number | null>("windowHeight"),
-          store.get<number | null>("windowX"),
-          store.get<number | null>("windowY"),
           store.get<number>("crossfadeSecs"),
           store.get<boolean>("miniMode"),
           store.get<number | null>("fullWindowWidth"),
           store.get<number | null>("fullWindowHeight"),
           store.get<number | null>("fullWindowX"),
           store.get<number | null>("fullWindowY"),
-          store.get<number | null>("miniWindowX"),
-          store.get<number | null>("miniWindowY"),
           store.get<string | null>("trackSortField"),
           store.get<string>("trackSortDir"),
           store.get<ColumnConfig[] | null>("trackColumns"),
-        ]);
+        ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
         if (sa !== undefined && sa !== null) {
@@ -279,12 +275,12 @@ function App() {
         if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "collection"].includes(tSortField)) library.setSortField(tSortField as SortField);
         if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
         if (tCols && Array.isArray(tCols) && tCols.length > 0) library.setTrackColumns(tCols);
-        const [restoredTrack, restoredTracks, trackPath] = await Promise.all([
+        const [restoredTrack, restoredTracks, trackPath] = await timeAsync("restore IPC (track/queue/path)", () => Promise.all([
           tid ? invoke<Track>("get_track_by_id", { trackId: tid }).catch(() => null) : Promise.resolve(null),
           qIds?.length ? invoke<Track[]>("get_tracks_by_ids", { ids: qIds }).catch(() => []) : Promise.resolve([]),
           tid ? invoke<string>("get_track_path", { trackId: tid }).catch(() => null) : Promise.resolve(null),
-        ]);
-        if (restoredTrack && trackPath) await playback.handleRestore(restoredTrack, pos ?? 0, trackPath);
+        ]));
+        if (restoredTrack && trackPath) await timeAsync("playback.handleRestore", () => playback.handleRestore(restoredTrack, pos ?? 0, trackPath));
         if (restoredTracks && restoredTracks.length) {
           queueHook.setQueue(restoredTracks);
           const idx = qIdx ?? -1;
@@ -293,32 +289,22 @@ function App() {
         if (qMode && ["normal", "loop", "shuffle"].includes(qMode)) {
           queueHook.setQueueMode(qMode as "normal" | "loop" | "shuffle");
         }
-        const win = getCurrentWindow();
-        if (wasMini) {
-          // Restore into mini mode
-          if (fww && fwh) fullSizeRef.current = { w: fww, h: fwh, x: fwx ?? 0, y: fwy ?? 0 };
-          await Promise.all([
-            win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_HEIGHT)),
-            ...(mwx != null && mwy != null ? [win.setPosition(new LogicalPosition(mwx, mwy))] : []),
-            win.setAlwaysOnTop(true),
-            win.setDecorations(false),
-          ]);
-          setMiniMode(true);
-          miniModeRef.current = true;
-        } else {
-          const sizeAndPos: Promise<void>[] = [];
-          if (ww && wh && ww > 0 && wh > 0) sizeAndPos.push(win.setSize(new LogicalSize(ww, wh)));
-          if (wx !== undefined && wx !== null && wy !== undefined && wy !== null) sizeAndPos.push(win.setPosition(new LogicalPosition(wx, wy)));
-          await Promise.all(sizeAndPos);
-        }
-        await win.show();
+        await timeAsync("window.restore", async () => {
+          // Size/position already restored by Rust setup — just set React state and show
+          if (wasMini) {
+            if (fww && fwh) fullSizeRef.current = { w: fww, h: fwh, x: fwx ?? 0, y: fwy ?? 0 };
+            setMiniMode(true);
+            miniModeRef.current = true;
+          }
+          await getCurrentWindow().show();
+        });
       } catch (e) {
         console.error("Failed to restore state:", e);
         await getCurrentWindow().show();
       }
-      loadProviders(store).then(setSearchProviders);
+      await timeAsync("loadProviders", () => loadProviders(store).then(setSearchProviders));
       restoredRef.current = true;
-      library.loadLibrary();
+      await timeAsync("loadLibrary", () => library.loadLibrary());
     })();
   }, []);
 
@@ -967,6 +953,9 @@ function App() {
           updateState={updateState}
           onCheckForUpdates={handleCheckForUpdates}
           onInstallUpdate={handleInstallUpdate}
+          backendTimings={backendTimings}
+          frontendTimings={getTimingEntries()}
+          onFetchBackendTimings={() => invoke<TimingEntry[]>("get_startup_timings").then(setBackendTimings)}
         />
       )}
 

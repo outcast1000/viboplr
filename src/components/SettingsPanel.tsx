@@ -5,6 +5,7 @@ import type { SearchProviderConfig } from "../searchProviders";
 import { DEFAULT_PROVIDERS, getDomainFromUrl } from "../searchProviders";
 import { IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
 import { EditCollectionModal } from "./EditCollectionModal";
+import type { TimingEntry } from "../startupTiming";
 
 export interface UpdateState {
   available: { version: string; body: string } | null;
@@ -89,6 +90,9 @@ interface SettingsPanelProps {
   updateState: UpdateState;
   onCheckForUpdates: () => void;
   onInstallUpdate: () => void;
+  backendTimings: TimingEntry[];
+  frontendTimings: TimingEntry[];
+  onFetchBackendTimings: () => void;
 }
 
 interface ProviderFormData {
@@ -110,8 +114,11 @@ export function SettingsPanel({
   updateState,
   onCheckForUpdates,
   onInstallUpdate,
+  backendTimings,
+  frontendTimings,
+  onFetchBackendTimings,
 }: SettingsPanelProps) {
-  const [settingsTab, setSettingsTab] = useState<"main" | "collections" | "providers" | "about">("main");
+  const [settingsTab, setSettingsTab] = useState<"main" | "collections" | "providers" | "about" | "debug">("main");
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -199,6 +206,7 @@ export function SettingsPanel({
           <button className={`settings-tab ${settingsTab === "collections" ? "active" : ""}`} onClick={() => setSettingsTab("collections")}>Collections</button>
           <button className={`settings-tab ${settingsTab === "providers" ? "active" : ""}`} onClick={() => setSettingsTab("providers")}>Providers</button>
           <button className={`settings-tab ${settingsTab === "about" ? "active" : ""}`} onClick={() => setSettingsTab("about")}>About</button>
+          <button className={`settings-tab ${settingsTab === "debug" ? "active" : ""}`} onClick={() => { setSettingsTab("debug"); onFetchBackendTimings(); }}>Debug</button>
         </div>
 
         {settingsTab === "main" && (
@@ -443,6 +451,13 @@ export function SettingsPanel({
           </div>
         )}
 
+        {settingsTab === "debug" && (
+          <div className="settings-section">
+            <TimingTable title="Backend" entries={backendTimings} />
+            <TimingTable title="Frontend" entries={frontendTimings} />
+          </div>
+        )}
+
       </div>
 
       {editingCollection && (
@@ -454,6 +469,42 @@ export function SettingsPanel({
           }}
           onClose={() => setEditingCollection(null)}
         />
+      )}
+    </div>
+  );
+}
+
+function TimingTable({ title, entries }: { title: string; entries: TimingEntry[] }) {
+  const total = entries.reduce((sum, e) => sum + e.duration_ms, 0);
+  return (
+    <div className="debug-timing-section">
+      <h3>{title}</h3>
+      {entries.length === 0 ? (
+        <span className="text-secondary">No timings recorded</span>
+      ) : (
+        <table className="debug-timing-table">
+          <thead>
+            <tr>
+              <th>Step</th>
+              <th>Duration (ms)</th>
+              <th>Offset (ms)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((e, i) => (
+              <tr key={i}>
+                <td>{e.label}</td>
+                <td className="debug-timing-value">{e.duration_ms.toFixed(2)}</td>
+                <td className="debug-timing-value">{e.offset_ms.toFixed(2)}</td>
+              </tr>
+            ))}
+            <tr className="debug-timing-total">
+              <td>Total</td>
+              <td className="debug-timing-value">{total.toFixed(2)}</td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
       )}
     </div>
   );

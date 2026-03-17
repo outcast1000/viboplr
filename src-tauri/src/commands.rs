@@ -732,6 +732,11 @@ pub fn load_playlist(
     })
 }
 
+#[tauri::command]
+pub fn get_startup_timings() -> Vec<crate::timing::TimingEntry> {
+    crate::timing::timer().get_entries()
+}
+
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub fn clear_database(state: State<'_, AppState>) -> Result<String, String> {

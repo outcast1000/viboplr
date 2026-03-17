@@ -484,6 +484,42 @@ body {
   transition: width 0.2s;
 }
 
+/* Debug timing table */
+.debug-timing-section {
+  margin-bottom: 16px;
+}
+.debug-timing-section h3 {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.debug-timing-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 12px;
+}
+.debug-timing-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.debug-timing-table td {
+  padding: 3px 8px;
+  color: var(--text-primary);
+}
+.debug-timing-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.debug-timing-total td {
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+  padding-top: 6px;
+}
+
 /* Provider management */
 .provider-list {
   display: flex;
