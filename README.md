@@ -1,8 +1,8 @@
-# FastPlayer
+# Viboplr
 
 A lightweight, cross-platform media player for macOS and Windows built with Tauri 2, React, and Rust.
 
-FastPlayer plays audio and video files, scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
+Viboplr plays audio and video files, scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
 
 ## Features
 
@@ -59,7 +59,7 @@ The search index is automatically rebuilt after folder scans, but can also be ma
 ## Project Structure
 
 ```text
-fastplayer/
+viboplr/
 ├── src/              # React frontend
 ├── src-tauri/        # Rust backend
 │   ├── src/

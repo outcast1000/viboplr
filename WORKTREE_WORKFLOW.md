@@ -5,7 +5,7 @@
 Make sure your main repo has a clean state and your work is committed:
 
 ```bash
-cd /Users/alex/fastplayer
+cd /Users/alex/viboplr
 git status  # should be clean
 ```
 
@@ -19,8 +19,8 @@ Claude creates the branch, worktree directory, and starts working.
 
 **Option B — Manual**
 ```bash
-git worktree add ../fastplayer-feature-x -b feature-x
-cd ../fastplayer-feature-x
+git worktree add ../viboplr-feature-x -b feature-x
+cd ../viboplr-feature-x
 claude
 ```
 
@@ -28,7 +28,7 @@ claude
 
 ```bash
 git worktree list                # list all active worktrees
-cd ../fastplayer-feature-x      # navigate to the worktree
+cd ../viboplr-feature-x      # navigate to the worktree
 npm install                      # install dependencies (separate node_modules)
 npm run tauri dev                # work normally
 ```
@@ -49,7 +49,7 @@ git rebase main   # or: git merge main
 ## Phase 4: Test
 
 ```bash
-cd ../fastplayer-feature-x
+cd ../viboplr-feature-x
 npx tsc --noEmit                          # frontend type-check
 cd src-tauri && cargo check && cd ..      # rust check
 npm run tauri dev                          # full run
@@ -59,27 +59,27 @@ npm run tauri dev                          # full run
 
 **Option A — Direct merge**
 ```bash
-cd /Users/alex/fastplayer
+cd /Users/alex/viboplr
 git merge feature-x
 ```
 
 **Option B — PR workflow (recommended)**
 ```bash
-cd ../fastplayer-feature-x
+cd ../viboplr-feature-x
 git push origin feature-x
 # Create PR on GitHub, review, merge
 ```
 
 **Option C — Rebase for clean history**
 ```bash
-cd /Users/alex/fastplayer
+cd /Users/alex/viboplr
 git rebase feature-x
 ```
 
 ## Phase 6: Clean up
 
 ```bash
-git worktree remove ../fastplayer-feature-x
+git worktree remove ../viboplr-feature-x
 git branch -d feature-x
 git worktree list   # verify
 ```

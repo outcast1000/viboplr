@@ -1,8 +1,8 @@
-# FastPlayer — Specification
+# Viboplr — Specification
 
 ## 1. Overview
 
-FastPlayer is a lightweight, cross-platform **media player** for macOS and Windows. It plays audio and video files from local folders and Subsonic/Navidrome servers, scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
+Viboplr is a lightweight, cross-platform **media player** for macOS and Windows. It plays audio and video files from local folders and Subsonic/Navidrome servers, scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
 
 **Non-goals (v1):** playlists/queues, equalizer/DSP, lyrics, mobile.
 
@@ -357,7 +357,7 @@ Track list keyboard navigation (without modifier): arrow keys to navigate tracks
 
 ### 4.18 TIDAL Integration (Hi-Fi API)
 
-FastPlayer can search and stream from TIDAL's catalog via the **Hi-Fi API** (the backend behind [Monochrome](https://github.com/monochrome-music/monochrome)). The API instance URL is user-configurable — public instances exist (e.g., `monochrome-api.samidy.com`, `api.monochrome.tf`) and users can self-host. No client-side authentication is needed; all TIDAL auth is handled server-side.
+Viboplr can search and stream from TIDAL's catalog via the **Hi-Fi API** (the backend behind [Monochrome](https://github.com/monochrome-music/monochrome)). The API instance URL is user-configurable — public instances exist (e.g., `monochrome-api.samidy.com`, `api.monochrome.tf`) and users can self-host. No client-side authentication is needed; all TIDAL auth is handled server-side.
 
 **Setup:**
 
@@ -397,17 +397,17 @@ FastPlayer can search and stream from TIDAL's catalog via the **Hi-Fi API** (the
 
 ### 4.19 Custom Data Directory
 
-By default, FastPlayer stores its database and images in the platform-specific app data directory (`~/Library/Application Support/com.alex.fastplayer/` on macOS). This can be overridden to use a different location.
+By default, Viboplr stores its database and images in the platform-specific app data directory (`~/Library/Application Support/com.alex.viboplr/` on macOS). This can be overridden to use a different location.
 
 **Environment variable (preferred for development):**
 ```bash
-FASTPLAYER_DATA_DIR=/path/to/data npm run tauri dev
+VIBOPLR_DATA_DIR=/path/to/data npm run tauri dev
 ```
 
 **CLI argument (for the built binary):**
 ```bash
-./FastPlayer --data-dir /path/to/data
-./FastPlayer --data-dir=/path/to/data
+./Viboplr --data-dir /path/to/data
+./Viboplr --data-dir=/path/to/data
 ```
 
 The environment variable takes precedence if both are set. The directory is created automatically if it doesn't exist. All app data (database, artist images, album images) is stored under the specified directory.
@@ -780,7 +780,7 @@ Two traits rather than one combined trait because providers may only support one
 
 **Shared utilities (`image_provider/mod.rs`):**
 - `urlencoded()` — percent-encodes strings for API queries.
-- `http_client()` — builds a `reqwest::blocking::Client` with the FastPlayer user-agent.
+- `http_client()` — builds a `reqwest::blocking::Client` with the Viboplr user-agent.
 - `write_image()` — creates parent directories and writes bytes to disk.
 
 **Wiring (`lib.rs`):**

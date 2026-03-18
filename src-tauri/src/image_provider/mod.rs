@@ -110,7 +110,7 @@ pub fn urlencoded(s: &str) -> String {
 
 pub fn http_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
-        .user_agent("FastPlayer/0.1.0 (https://github.com/fastplayer)")
+        .user_agent("Viboplr/0.1.0 (https://github.com/viboplr)")
         .build()
         .map_err(|e| e.to_string())
 }

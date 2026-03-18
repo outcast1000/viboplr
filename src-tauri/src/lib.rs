@@ -134,10 +134,10 @@ pub fn run() {
     timer.time("env_logger::init", || env_logger::init());
 
     // Parse optional data directory override from env var or CLI argument
-    // Usage: FASTPLAYER_DATA_DIR=/path or --data-dir /path or --data-dir=/path
+    // Usage: VIBOPLR_DATA_DIR=/path or --data-dir /path or --data-dir=/path
     let custom_data_dir: Option<std::path::PathBuf> = timer.time("parse_data_dir", || {
         let mut data_dir: Option<std::path::PathBuf> =
-            std::env::var("FASTPLAYER_DATA_DIR").ok().map(std::path::PathBuf::from);
+            std::env::var("VIBOPLR_DATA_DIR").ok().map(std::path::PathBuf::from);
 
         if data_dir.is_none() {
             let args: Vec<String> = std::env::args().collect();

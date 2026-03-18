@@ -53,7 +53,7 @@ impl Database {
 
         timer.time("db: create_app_dir", || std::fs::create_dir_all(app_dir).ok());
 
-        let db_path = app_dir.join("fastplayer.db");
+        let db_path = app_dir.join("viboplr.db");
         let conn = timer.time("db: open_connection", || Connection::open(db_path))?;
 
         timer.time("db: register_sql_functions", || -> SqlResult<()> {

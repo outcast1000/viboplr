@@ -410,7 +410,7 @@ export function SettingsPanel({
 
         {settingsTab === "about" && (
           <div className="settings-section settings-about">
-            <span className="settings-version">FastPlayer v{appVersion}</span>
+            <span className="settings-version">Viboplr v{appVersion}</span>
 
             {updateState.available && !updateState.downloading && (
               <div className="update-available">

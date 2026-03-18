@@ -2,7 +2,7 @@ use serde_json::Value;
 use std::fmt;
 
 const API_VERSION: &str = "1.16.1";
-const CLIENT_NAME: &str = "fastplayer";
+const CLIENT_NAME: &str = "viboplr";
 
 #[derive(Debug)]
 pub struct SubsonicError(pub String);

@@ -28,7 +28,7 @@ There are no tests in this project currently.
 
 ## Architecture
 
-FastPlayer is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript frontend rendered in a native webview.
+Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript frontend rendered in a native webview.
 
 ### Backend (src-tauri/src/)
 

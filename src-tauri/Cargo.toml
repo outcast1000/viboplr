@@ -1,12 +1,12 @@
 [package]
-name = "fastplayer"
+name = "viboplr"
 version = "0.3.3"
-description = "FastPlayer — lightweight audio player"
+description = "Viboplr — lightweight audio player"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "fastplayer_lib"
+name = "viboplr_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
