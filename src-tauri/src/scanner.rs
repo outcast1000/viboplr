@@ -2,6 +2,7 @@ use log::info;
 use lofty::prelude::*;
 use lofty::probe::Probe;
 use regex::Regex;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -71,79 +72,53 @@ fn read_tags(path: &Path) -> ParsedTags {
 }
 
 fn fallback_from_filename(path: &Path, duration_secs: Option<f64>) -> ParsedTags {
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("Unknown");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown");
+    let parent = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("");
+    let grandparent = path.parent().and_then(|p| p.parent()).and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("");
 
-    // Pattern 1: "03 - Artist - Title"
-    let re1 = Regex::new(r"^(?P<track>\d+)[\s._-]+(?P<artist>.+?)\s*-\s*(?P<title>.+)$").unwrap();
-    // Pattern 2: "Artist - Title"
-    let re2 = Regex::new(r"^(?P<artist>.+?)\s*-\s*(?P<title>.+)$").unwrap();
-    // Pattern 3: "03 - Title"
-    let re3 = Regex::new(r"^(?P<track>\d+)[\s._-]+(?P<title>.+)$").unwrap();
+    // Build "grandparent/parent/stem" for path-based regex matching
+    let path_str = format!("{}/{}/{}", grandparent, parent, stem);
 
-    if let Some(caps) = re1.captures(stem) {
-        return ParsedTags {
-            title: caps["title"].trim().to_string(),
-            artist: Some(caps["artist"].trim().to_string()),
-            album: parent_folder_name(path),
-            genre: None,
-            year: None,
-            track_number: caps["track"].parse().ok(),
-            duration_secs,
-        };
+    // Each pattern matches against "grandparent/parent/filename_stem".
+    // Patterns are tried most-specific first.
+    let patterns: &[(&str, &str)] = &[
+        // Artist - Album - 03 - Title  (all in filename)
+        ("[^/]*/[^/]*/(?P<artist>.+?)\\s*-\\s*(?P<album>.+?)\\s*-\\s*(?P<track>\\d+)\\s*-\\s*(?P<title>.+)$",
+         "filename has all four fields"),
+        // Artist - Album/03 - Title  (artist-album in parent, track-title in filename)
+        ("[^/]*/(?P<artist>[^/]+?)\\s*-\\s*(?P<album>[^/]+)/(?P<track>\\d+)[\\s._-]+(?P<title>.+)$",
+         "artist-album folder, track-title filename"),
+        // */Artist - Title  (artist-title in filename)
+        ("[^/]*/[^/]*/(?P<artist>.+?)\\s*-\\s*(?P<title>.+)$",
+         "artist-title filename"),
+    ];
+
+    for (pattern, _desc) in patterns {
+        let re = Regex::new(&format!("^{}", pattern)).unwrap();
+        if let Some(caps) = re.captures(&path_str) {
+            return ParsedTags {
+                title: caps.name("title").map(|m| m.as_str().trim().to_string())
+                    .unwrap_or_else(|| stem.to_string()),
+                artist: caps.name("artist").map(|m| m.as_str().trim().to_string()),
+                album: caps.name("album").map(|m| m.as_str().trim().to_string()),
+                genre: None,
+                year: None,
+                track_number: caps.name("track").and_then(|m| m.as_str().parse().ok()),
+                duration_secs,
+            };
+        }
     }
 
-    if let Some(caps) = re2.captures(stem) {
-        return ParsedTags {
-            title: caps["title"].trim().to_string(),
-            artist: Some(caps["artist"].trim().to_string()),
-            album: parent_folder_name(path),
-            genre: None,
-            year: None,
-            track_number: None,
-            duration_secs,
-        };
-    }
-
-    if let Some(caps) = re3.captures(stem) {
-        return ParsedTags {
-            title: caps["title"].trim().to_string(),
-            artist: grandparent_folder_name(path),
-            album: parent_folder_name(path),
-            genre: None,
-            year: None,
-            track_number: caps["track"].parse().ok(),
-            duration_secs,
-        };
-    }
-
-    // Ultimate fallback
+    // Ultimate fallback (bare filename, no useful folder structure)
     ParsedTags {
         title: stem.to_string(),
-        artist: grandparent_folder_name(path),
-        album: parent_folder_name(path),
+        artist: None,
+        album: None,
         genre: None,
         year: None,
         track_number: None,
         duration_secs,
     }
-}
-
-fn parent_folder_name(path: &Path) -> Option<String> {
-    path.parent()
-        .and_then(|p| p.file_name())
-        .and_then(|n| n.to_str())
-        .map(|s| s.to_string())
-}
-
-fn grandparent_folder_name(path: &Path) -> Option<String> {
-    path.parent()
-        .and_then(|p| p.parent())
-        .and_then(|p| p.file_name())
-        .and_then(|n| n.to_str())
-        .map(|s| s.to_string())
 }
 
 pub fn scan_folder(
@@ -164,18 +139,31 @@ pub fn scan_folder(
 
     info!("Scan started: {} ({} media files found)", folder_path, total);
 
-    // Second pass: process files
+    // Second pass: process files and collect seen paths
     let mut scanned: u64 = 0;
+    let mut seen_paths: HashSet<String> = HashSet::with_capacity(total as usize);
     for entry in WalkDir::new(&root)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file() && is_media_file(e.path()))
     {
         let path = entry.path();
+        seen_paths.insert(path.to_string_lossy().to_string());
         process_media_file(db, path, collection_id);
         scanned += 1;
         if scanned % 10 == 0 || scanned == total {
             progress_callback(scanned, total);
+        }
+    }
+
+    // Soft-delete tracks whose files no longer exist on disk
+    if let Some(cid) = collection_id {
+        if let Ok(db_paths) = db.get_local_track_paths_for_collection(cid) {
+            let missing: Vec<String> = db_paths.into_iter().filter(|p| !seen_paths.contains(p)).collect();
+            if !missing.is_empty() {
+                info!("Soft-deleting {} tracks no longer on disk", missing.len());
+                let _ = db.mark_tracks_deleted_by_paths(&missing);
+            }
         }
     }
 
@@ -185,7 +173,27 @@ pub fn scan_folder(
 
 pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>) {
     let path_str = path.to_string_lossy().to_string();
-    let is_update = db.track_exists_by_path(&path_str);
+
+    let metadata = std::fs::metadata(path).ok();
+    let modified_at = metadata
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64);
+
+    // Skip if file hasn't changed since last scan
+    let stored_modified = db.get_track_modified_at_by_path(&path_str);
+    if let (Some(stored), Some(current)) = (stored_modified, modified_at) {
+        if stored >= current {
+            return; // File unchanged, skip
+        }
+        info!("Updated file: {}", path_str);
+    } else if stored_modified.is_some() {
+        info!("Updated file: {}", path_str);
+    } else {
+        info!("New file: {}", path_str);
+    }
+
     let tags = read_tags(path);
 
     let format = path
@@ -193,13 +201,7 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase());
 
-    let file_size = std::fs::metadata(path).ok().map(|m| m.len() as i64);
-
-    let modified_at = std::fs::metadata(path)
-        .ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64);
+    let file_size = metadata.map(|m| m.len() as i64);
 
     let artist_id = tags
         .artist
@@ -210,12 +212,6 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
         .album
         .as_ref()
         .and_then(|title| db.get_or_create_album(title, artist_id, tags.year).ok());
-
-    if is_update {
-        info!("Updated file: {}", path_str);
-    } else {
-        info!("New file: {}", path_str);
-    }
 
     if let Ok(track_id) = db.upsert_track(
         &path_str,

@@ -831,17 +831,25 @@ impl Database {
         Ok(paths.iter().filter_map(|p| track_map.get(p).cloned()).collect())
     }
 
-    pub fn track_exists_by_path(&self, path: &str) -> bool {
+    pub fn get_track_modified_at_by_path(&self, path: &str) -> Option<i64> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT 1 FROM tracks WHERE path = ?1",
+            "SELECT modified_at FROM tracks WHERE path = ?1",
             params![path],
-            |_| Ok(()),
+            |row| row.get(0),
         )
         .optional()
         .ok()
         .flatten()
-        .is_some()
+    }
+
+    pub fn get_local_track_paths_for_collection(&self, collection_id: i64) -> SqlResult<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT path FROM tracks WHERE collection_id = ?1 AND subsonic_id IS NULL AND deleted = 0"
+        )?;
+        let rows = stmt.query_map(params![collection_id], |row| row.get(0))?;
+        rows.collect()
     }
 
     pub fn remove_track_by_path(&self, path: &str) -> SqlResult<()> {
