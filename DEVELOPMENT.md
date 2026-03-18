@@ -87,21 +87,14 @@ Releases are automated via GitHub Actions. Pushing a version tag triggers builds
 ### Steps to cut a release
 
 1. **Bump the version**:
-   ```bash
-   npm run bump X.Y.Z
-   ```
 
-2. **Commit and tag**:
-   ```bash
-   git add -A
-   git commit -m "release: vX.Y.Z"
-   git tag vX.Y.Z
-   ```
-
-3. **Push with tags**:
-   ```bash
-   git push origin main --tags
-   ```
+```bash
+npm run bump X.Y.Z
+git add -A
+git commit -m "release: vX.Y.Z"
+git tag vX.Y.Z
+git push origin main --tags
+```
 
 4. **Review the draft release** on the GitHub Releases page. Add release notes, then publish.
 
