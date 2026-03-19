@@ -22,6 +22,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   const [searchQuery, setSearchQuery] = useState("");
   const [trackCount, setTrackCount] = useState(0);
   const [albumCount, setAlbumCount] = useState(0);
+  const allAlbumsRef = useRef<Album[]>([]);
   const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<number | null>(null);
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
@@ -78,6 +79,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
         invoke<number>("get_track_count"),
       ]);
       setArtists(a);
+      allAlbumsRef.current = al;
       setAlbums(al);
       setAlbumCount(al.length);
       setCollections(c);
@@ -169,10 +171,17 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
 
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
-  // Re-fetch all albums when selectedArtist is cleared (fixes #4)
+  // Keep allAlbumsRef in sync when viewing the full album list
   useEffect(() => {
     if (selectedArtist === null) {
-      invoke<Album[]>("get_albums", { artistId: null }).then(setAlbums);
+      allAlbumsRef.current = albums;
+    }
+  }, [albums, selectedArtist]);
+
+  // Restore full album list immediately when selectedArtist is cleared (fixes #4, #12)
+  useEffect(() => {
+    if (selectedArtist === null) {
+      setAlbums(allAlbumsRef.current);
     }
   }, [selectedArtist]);
 
