@@ -43,6 +43,22 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
     })
 }
 
+/// Maps sort field names to SQL expressions
+fn sort_column_sql(field: Option<&str>) -> Option<String> {
+    match field {
+        Some("title") => Some("t.title".to_string()),
+        Some("artist") => Some("COALESCE(ar.name, '')".to_string()),
+        Some("album") => Some("COALESCE(al.title, '')".to_string()),
+        Some("duration") => Some("COALESCE(t.duration_secs, 0)".to_string()),
+        Some("num") => Some("COALESCE(t.track_number, 0)".to_string()),
+        Some("path") => Some("t.path".to_string()),
+        Some("year") => Some("COALESCE(al.year, 0)".to_string()),
+        Some("quality") => Some("(CASE WHEN t.duration_secs > 0 AND t.file_size > 0 THEN t.file_size * 8.0 / t.duration_secs / 1000.0 ELSE 0 END)".to_string()),
+        Some("collection") => Some("COALESCE(co.name, '')".to_string()),
+        _ => None,
+    }
+}
+
 pub struct Database {
     conn: Mutex<Connection>,
 }
@@ -539,17 +555,30 @@ impl Database {
         )
     }
 
-    pub fn get_tracks(&self, album_id: Option<i64>) -> SqlResult<Vec<Track>> {
+    pub fn get_tracks(&self, album_id: Option<i64>, sort_field: Option<&str>, sort_dir: Option<&str>, limit: i64, offset: i64) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = album_id {
+            // When album_id is Some: behavior unchanged, ignore sort/pagination params
             let sql = format!("{} WHERE t.album_id = ?1 AND t.deleted = 0 {} ORDER BY t.track_number, t.title", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![aid], |row| track_from_row(row))?;
             rows.collect()
         } else {
-            let sql = format!("{} WHERE t.deleted = 0 {} ORDER BY ar.name, al.title, t.track_number, t.title LIMIT 100", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
+            // When album_id is None: build ORDER BY from sort_field and apply pagination
+            let order_by = if let Some(col) = sort_column_sql(sort_field) {
+                let dir = match sort_dir {
+                    Some("desc") => "DESC",
+                    _ => "ASC",
+                };
+                format!("ORDER BY {} {}, t.id", col, dir)
+            } else {
+                // Default order
+                "ORDER BY ar.name, al.title, t.track_number, t.title, t.id".to_string()
+            };
+
+            let sql = format!("{} WHERE t.deleted = 0 {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, ENABLED_COLLECTION_FILTER, order_by);
             let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map([], |row| track_from_row(row))?;
+            let rows = stmt.query_map(params![limit, offset], |row| track_from_row(row))?;
             rows.collect()
         }
     }
@@ -575,6 +604,10 @@ impl Database {
         album_id: Option<i64>,
         tag_id: Option<i64>,
         liked_only: bool,
+        sort_field: Option<&str>,
+        sort_dir: Option<&str>,
+        limit: i64,
+        offset: i64,
     ) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let normalized = strip_diacritics(query);
@@ -612,12 +645,23 @@ impl Database {
         }
         if tag_id.is_some() {
             sql.push_str(&format!(" AND tt.tag_id = ?{}", param_idx));
+            param_idx += 1;
         }
         if liked_only {
             sql.push_str(" AND t.liked = 1");
         }
 
-        sql.push_str(" LIMIT 100");
+        // Add ORDER BY if sort_field maps to something
+        if let Some(col) = sort_column_sql(sort_field) {
+            let dir = match sort_dir {
+                Some("desc") => "DESC",
+                _ => "ASC",
+            };
+            sql.push_str(&format!(" ORDER BY {} {}, t.id", col, dir));
+        }
+        // If sort_field is None, no ORDER BY (FTS relevance)
+
+        sql.push_str(&format!(" LIMIT ?{} OFFSET ?{}", param_idx, param_idx + 1));
 
         let mut stmt = conn.prepare(&sql)?;
 
@@ -632,6 +676,8 @@ impl Database {
         if let Some(tid) = tag_id {
             params_vec.push(Box::new(tid));
         }
+        params_vec.push(Box::new(limit));
+        params_vec.push(Box::new(offset));
 
         let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
         let rows = stmt.query_map(param_refs.as_slice(), |row| track_from_row(row))?;
@@ -1206,16 +1252,16 @@ mod tests {
         db.rebuild_fts().unwrap();
 
         // Search by title
-        let results = db.search_tracks("Time", None, None, None, false).unwrap();
+        let results = db.search_tracks("Time", None, None, None, false, None, None, 100, 0).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Time");
 
         // Search by artist
-        let results = db.search_tracks("Pink Floyd", None, None, None, false).unwrap();
+        let results = db.search_tracks("Pink Floyd", None, None, None, false, None, None, 100, 0).unwrap();
         assert_eq!(results.len(), 2);
 
         // Search by album
-        let results = db.search_tracks("Dark Side", None, None, None, false).unwrap();
+        let results = db.search_tracks("Dark Side", None, None, None, false, None, None, 100, 0).unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -1235,20 +1281,20 @@ mod tests {
         db.rebuild_fts().unwrap();
 
         // Filter by artist
-        let results = db.search_tracks("Song", Some(artist1), None, None, false).unwrap();
+        let results = db.search_tracks("Song", Some(artist1), None, None, false, None, None, 100, 0).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Song Alpha");
 
         // Filter by album
-        let results = db.search_tracks("Song", None, Some(album1), None, false).unwrap();
+        let results = db.search_tracks("Song", None, Some(album1), None, false, None, None, 100, 0).unwrap();
         assert_eq!(results.len(), 1);
 
         // Filter by tag
-        let results = db.search_tracks("Song", None, None, Some(tag_rock), false).unwrap();
+        let results = db.search_tracks("Song", None, None, Some(tag_rock), false, None, None, 100, 0).unwrap();
         assert_eq!(results.len(), 1);
 
         // Filter liked only
-        let results = db.search_tracks("Song", None, None, None, true).unwrap();
+        let results = db.search_tracks("Song", None, None, None, true, None, None, 100, 0).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Song Alpha");
     }
