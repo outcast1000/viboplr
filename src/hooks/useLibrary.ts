@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Artist, Album, Tag, Track, Collection, View, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField, ColumnConfig, TrackColumnId } from "../types";
 import { store } from "../store";
@@ -27,6 +27,12 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [highlightedListIndex, setHighlightedListIndex] = useState(-1);
+
+  // Pagination state
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 100;
+  const tracksRef = useRef<Track[]>([]);
 
   // Sort state
   const [sortField, setSortField] = useState<SortField | null>(null);
@@ -82,41 +88,84 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     }
   }, []);
 
-  const loadTracks = useCallback(async () => {
+  const loadTracks = useCallback(async (append = false) => {
     try {
       // No tracks rendered on album grid or tag list
       if ((view === "albums" && selectedAlbum === null) || (view === "tags" && selectedTag === null)) {
-        if (!searchQuery.trim()) { setTracks([]); return; }
+        if (!searchQuery.trim()) { setTracks([]); tracksRef.current = []; setHasMore(false); return; }
       }
+
+      const offset = append ? tracksRef.current.length : 0;
+
       if (searchQuery.trim()) {
+        // Paginated path: search
         const results = await invoke<Track[]>("search", {
           query: searchQuery,
           artistId: selectedArtist,
           albumId: selectedAlbum,
           tagId: selectedTag,
           likedOnly: view === "liked" ? true : null,
+          sortField: sortField,
+          sortDir: sortDir,
+          limit: PAGE_SIZE,
+          offset,
         });
-        setTracks(results);
+        if (append) {
+          const newTracks = [...tracksRef.current, ...results];
+          setTracks(newTracks);
+          tracksRef.current = newTracks;
+        } else {
+          setTracks(results);
+          tracksRef.current = results;
+        }
+        setHasMore(results.length === PAGE_SIZE);
       } else if (selectedTag !== null) {
+        // Non-paginated: by tag
         const results = await invoke<Track[]>("get_tracks_by_tag", { tagId: selectedTag });
         setTracks(results);
+        tracksRef.current = results;
+        setHasMore(false);
       } else if (selectedAlbum !== null) {
+        // Non-paginated: by album
         const results = await invoke<Track[]>("get_tracks", { albumId: selectedAlbum });
         setTracks(results);
+        tracksRef.current = results;
+        setHasMore(false);
       } else if (selectedArtist !== null) {
+        // Non-paginated: by artist
         const results = await invoke<Track[]>("get_tracks_by_artist", { artistId: selectedArtist });
         setTracks(results);
+        tracksRef.current = results;
+        setHasMore(false);
       } else if (view === "liked") {
+        // Non-paginated: liked
         const results = await invoke<Track[]>("get_liked_tracks");
         setTracks(results);
+        tracksRef.current = results;
+        setHasMore(false);
       } else {
-        const results = await invoke<Track[]>("get_tracks", { albumId: null });
-        setTracks(results);
+        // Paginated path: all tracks
+        const results = await invoke<Track[]>("get_tracks", {
+          albumId: null,
+          sortField: sortField,
+          sortDir: sortDir,
+          limit: PAGE_SIZE,
+          offset,
+        });
+        if (append) {
+          const newTracks = [...tracksRef.current, ...results];
+          setTracks(newTracks);
+          tracksRef.current = newTracks;
+        } else {
+          setTracks(results);
+          tracksRef.current = results;
+        }
+        setHasMore(results.length === PAGE_SIZE);
       }
     } catch (e) {
       console.error("Failed to load tracks:", e);
     }
-  }, [searchQuery, selectedTag, selectedAlbum, selectedArtist, view]);
+  }, [searchQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir]);
 
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
@@ -134,6 +183,17 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
 
   // Reset list highlight when search or view changes
   useEffect(() => { setHighlightedListIndex(-1); }, [searchQuery, view, selectedArtist, selectedAlbum, selectedTag]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    await loadTracks(true);
+    setLoadingMore(false);
+  }, [loadTracks, loadingMore, hasMore]);
+
+  // Server handles sorting for paginated views; skip client-side sort
+  const isServerSorted = searchQuery.trim() !== "" ||
+    (selectedTag === null && selectedAlbum === null && selectedArtist === null && view !== "liked");
 
   function handleSort(field: SortField) {
     if (sortField === field) {
@@ -155,6 +215,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   }
 
   const sortedTracks = (() => {
+    if (isServerSorted) return tracks; // Server already sorted
     if (!sortField) return tracks;
     const sorted = [...tracks];
     const dir = sortDir === "asc" ? 1 : -1;
@@ -364,6 +425,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     trackColumns, setTrackColumns,
     handleArtistClick, handleAlbumClick, handleShowAll, handleShowLiked,
     loadLibrary, loadTracks,
+    hasMore, loadingMore, loadMore,
     sortedArtists, artistSortField, artistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,
     sortedAlbums, albumSortField, albumSortDir, albumLikedFirst, setAlbumLikedFirst, handleAlbumSort,
     sortedTags, tagSortField, tagSortDir, handleTagSort,

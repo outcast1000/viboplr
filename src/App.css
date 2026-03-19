@@ -2746,3 +2746,6 @@ body {
   background: rgba(83, 168, 255, 0.2);
   color: var(--accent);
 }
+
+.track-list-sentinel { padding: 8px 0; text-align: center; min-height: 20px; }
+.track-list-loading { color: var(--text-secondary); font-size: 12px; padding: 8px 0; }

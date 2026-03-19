@@ -57,6 +57,9 @@ interface TrackListProps {
   sortIndicator: (field: SortField) => string;
   onToggleLike: (track: Track) => void;
   emptyMessage?: string;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 export function TrackList({
@@ -65,6 +68,7 @@ export function TrackList({
   onDoubleClick, onContextMenu, onArtistClick, onAlbumClick,
   onSort, sortIndicator, onToggleLike,
   emptyMessage = "No tracks found.",
+  hasMore = false, loadingMore = false, onLoadMore,
 }: TrackListProps) {
   const [columnMenuPos, setColumnMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [draggedCol, setDraggedCol] = useState<TrackColumnId | null>(null);
@@ -72,6 +76,23 @@ export function TrackList({
   const draggedRef = useRef<TrackColumnId | null>(null);
   const dragOverRef = useRef<TrackColumnId | null>(null);
   const didDragRef = useRef(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!hasMore || !onLoadMore) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          onLoadMore();
+        }
+      },
+      { threshold: 0 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, onLoadMore]);
 
   const visibleColumns = columns.filter(c => c.visible);
 
@@ -262,6 +283,11 @@ export function TrackList({
           {visibleColumns.map(col => renderCell(col, t, i))}
         </div>
       ))}
+      {hasMore && (
+        <div ref={sentinelRef} className="track-list-sentinel">
+          {loadingMore && <div className="track-list-loading">Loading more tracks...</div>}
+        </div>
+      )}
       {tracks.length === 0 && (
         <div className="empty">{emptyMessage}</div>
       )}

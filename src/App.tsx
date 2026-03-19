@@ -1458,6 +1458,9 @@ function App() {
               sortIndicator={library.sortIndicator}
               onToggleLike={handleToggleLike}
               emptyMessage="No tracks found. Add a folder or server to start building your library."
+              hasMore={library.hasMore}
+              loadingMore={library.loadingMore}
+              onLoadMore={library.loadMore}
             />
           )}
 
