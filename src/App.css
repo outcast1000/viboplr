@@ -853,6 +853,32 @@ body {
   border-color: var(--accent);
 }
 
+.nav-history-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.nav-history-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-dim);
+}
+
+.nav-history-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
 
 .content {
   flex: 1;
