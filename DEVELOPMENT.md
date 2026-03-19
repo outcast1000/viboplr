@@ -99,6 +99,15 @@ Releases are automated via GitHub Actions. Pushing a version tag triggers builds
 
 ### Steps to cut (bump and deploy) a release
 
+Auto way
+
+```bash
+npm run bump --autocommit
+npm run bump v0.4.0 --autocommit
+```
+
+Old Way
+
 ```bash
 npm run bump X.Y.Z
 git add -A
