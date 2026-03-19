@@ -61,6 +61,7 @@ function measureMiniFooter(): number {
 function App() {
   const restoredRef = useRef(false);
   const trackListRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HistoryViewHandle>(null);
   const previousVolumeRef = useRef(1.0);
@@ -234,6 +235,11 @@ function App() {
   goBackRef.current = goBack;
   const goForwardRef = useRef(goForward);
   goForwardRef.current = goForward;
+
+  // Reset scroll position when switching views
+  useEffect(() => {
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  }, [library.view, library.selectedArtist, library.selectedAlbum, library.selectedTag]);
 
   // Disable default browser context menu globally
   useEffect(() => {
@@ -1176,7 +1182,7 @@ function App() {
         </div>
 
         {/* Content area */}
-        <div className="content">
+        <div className="content" ref={contentRef}>
           <Breadcrumb
             view={view}
             selectedArtist={selectedArtist}
