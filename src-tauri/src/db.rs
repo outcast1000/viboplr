@@ -575,7 +575,7 @@ impl Database {
 
         let mut sql = String::from(
             "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, al.year, \
-             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked \
+             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.deleted \
              FROM tracks_fts fts \
              JOIN tracks t ON fts.rowid = t.id \
              LEFT JOIN artists ar ON t.artist_id = ar.id \

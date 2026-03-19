@@ -46,7 +46,17 @@ pub fn sync_collection(
     let mut synced: u64 = 0;
 
     for album_id in &all_album_ids {
-        let (album, tracks) = client.get_album(album_id).map_err(|e| e.to_string())?;
+        let (album, tracks) = match client.get_album(album_id) {
+            Ok(result) => result,
+            Err(e) => {
+                log::warn!("Failed to fetch album {}: {}", album_id, e);
+                synced += 1;
+                if synced % 5 == 0 || synced == total {
+                    progress_callback(synced, total);
+                }
+                continue;
+            }
+        };
 
         let artist_name = album.artist.as_deref();
         let artist_id = artist_name

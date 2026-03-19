@@ -87,6 +87,8 @@ export function useEventListeners(opts: EventListenerOptions) {
       setSyncing(false);
       addLog("Sync error: " + event.payload);
       console.error("Sync error:", event.payload);
+      loadLibrary();
+      loadTracks();
     });
 
     return () => {
