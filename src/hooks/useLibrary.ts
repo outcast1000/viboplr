@@ -20,6 +20,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [trackCount, setTrackCount] = useState(0);
   const [albumCount, setAlbumCount] = useState(0);
   const allAlbumsRef = useRef<Album[]>([]);
@@ -69,6 +70,12 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   useEffect(() => { if (restoredRef.current) store.set("trackSortDir", sortDir); }, [sortDir]);
   useEffect(() => { if (restoredRef.current) store.set("trackColumns", trackColumns); }, [trackColumns]);
 
+  // Debounce search query to avoid firing a search on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearchQuery(searchQuery), 200);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const loadLibrary = useCallback(async () => {
     try {
       const [a, al, c, t, tc] = await Promise.all([
@@ -94,15 +101,15 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     try {
       // No tracks rendered on album grid or tag list
       if ((view === "albums" && selectedAlbum === null) || (view === "tags" && selectedTag === null)) {
-        if (!searchQuery.trim()) { setTracks([]); tracksRef.current = []; setHasMore(false); return; }
+        if (!debouncedSearchQuery.trim()) { setTracks([]); tracksRef.current = []; setHasMore(false); return; }
       }
 
       const offset = append ? tracksRef.current.length : 0;
 
-      if (searchQuery.trim()) {
+      if (debouncedSearchQuery.trim()) {
         // Paginated path: search
         const results = await invoke<Track[]>("search", {
-          query: searchQuery,
+          query: debouncedSearchQuery,
           artistId: selectedArtist,
           albumId: selectedAlbum,
           tagId: selectedTag,
@@ -167,7 +174,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     } catch (e) {
       console.error("Failed to load tracks:", e);
     }
-  }, [searchQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir]);
+  }, [debouncedSearchQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir]);
 
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
@@ -201,7 +208,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   }, [loadTracks, loadingMore, hasMore]);
 
   // Server handles sorting for paginated views; skip client-side sort
-  const isServerSorted = searchQuery.trim() !== "" ||
+  const isServerSorted = debouncedSearchQuery.trim() !== "" ||
     (selectedTag === null && selectedAlbum === null && selectedArtist === null && view !== "liked");
 
   function handleSort(field: SortField) {
