@@ -222,12 +222,14 @@ function App() {
       selectedArtist: library.selectedArtist,
       selectedAlbum: library.selectedAlbum,
       selectedTag: library.selectedTag,
+      searchQuery: library.searchQuery,
     },
     {
       setView: library.setView,
       setSelectedArtist: library.setSelectedArtist,
       setSelectedAlbum: library.setSelectedAlbum,
       setSelectedTag: library.setSelectedTag,
+      setSearchQuery: library.setSearchQuery,
     },
   );
 

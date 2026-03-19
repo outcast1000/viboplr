@@ -6,6 +6,7 @@ export interface NavState {
   selectedArtist: number | null;
   selectedAlbum: number | null;
   selectedTag: number | null;
+  searchQuery: string;
 }
 
 const MAX_HISTORY = 20;
@@ -14,7 +15,8 @@ function navStateEqual(a: NavState, b: NavState): boolean {
   return a.view === b.view
     && a.selectedArtist === b.selectedArtist
     && a.selectedAlbum === b.selectedAlbum
-    && a.selectedTag === b.selectedTag;
+    && a.selectedTag === b.selectedTag
+    && a.searchQuery === b.searchQuery;
 }
 
 export function useNavigationHistory(
@@ -24,6 +26,7 @@ export function useNavigationHistory(
     setSelectedArtist: (id: number | null) => void;
     setSelectedAlbum: (id: number | null) => void;
     setSelectedTag: (id: number | null) => void;
+    setSearchQuery: (q: string) => void;
   },
 ): {
   goBack: () => void;
@@ -35,6 +38,8 @@ export function useNavigationHistory(
   const [future, setFuture] = useState<NavState[]>([]);
   const skipNextPush = useRef(false);
   const prevState = useRef<NavState>(current);
+  // Keep searchQuery in sync without triggering history pushes on every keystroke
+  prevState.current.searchQuery = current.searchQuery;
 
   useEffect(() => {
     if (skipNextPush.current) {
@@ -66,9 +71,10 @@ export function useNavigationHistory(
       setters.setSelectedArtist(target.selectedArtist);
       setters.setSelectedAlbum(target.selectedAlbum);
       setters.setSelectedTag(target.selectedTag);
+      setters.setSearchQuery(target.searchQuery);
       return newHistory;
     });
-  }, [setters.setView, setters.setSelectedArtist, setters.setSelectedAlbum, setters.setSelectedTag]);
+  }, [setters.setView, setters.setSelectedArtist, setters.setSelectedAlbum, setters.setSelectedTag, setters.setSearchQuery]);
 
   const goForward = useCallback(() => {
     setFuture(f => {
@@ -82,9 +88,10 @@ export function useNavigationHistory(
       setters.setSelectedArtist(target.selectedArtist);
       setters.setSelectedAlbum(target.selectedAlbum);
       setters.setSelectedTag(target.selectedTag);
+      setters.setSearchQuery(target.searchQuery);
       return newFuture;
     });
-  }, [setters.setView, setters.setSelectedArtist, setters.setSelectedAlbum, setters.setSelectedTag]);
+  }, [setters.setView, setters.setSelectedArtist, setters.setSelectedAlbum, setters.setSelectedTag, setters.setSearchQuery]);
 
   return {
     goBack,
