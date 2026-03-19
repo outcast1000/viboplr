@@ -1135,6 +1135,8 @@ body {
 
 .col-title {
   flex: 3;
+  display: flex;
+  align-items: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1284,6 +1286,20 @@ body {
 .track-link:hover {
   color: var(--accent);
   text-decoration: underline;
+}
+
+.track-youtube-link {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  opacity: 0.6;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.track-youtube-link:hover {
+  opacity: 1;
+  color: #ff0000;
 }
 
 /* Now playing bar */

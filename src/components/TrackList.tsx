@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import type { Track, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration } from "../utils";
+import { IconYoutube } from "./Icons";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 const COLUMN_DISPLAY_NAMES: Record<TrackColumnId, string> = {
   like: "Liked",
@@ -238,7 +240,20 @@ export function TrackList({
           </span>
         );
       case "title":
-        return <span key="title" className="col-title">{t.title}</span>;
+        return (
+          <span key="title" className="col-title">
+            {t.title}
+            {t.youtube_url && (
+              <span
+                className="track-youtube-link"
+                title="Open on YouTube"
+                onClick={(e) => { e.stopPropagation(); openUrl(t.youtube_url!); }}
+              >
+                <IconYoutube size={16} />
+              </span>
+            )}
+          </span>
+        );
       case "artist":
         return (
           <span key="artist" className="col-artist">
