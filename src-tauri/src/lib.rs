@@ -74,6 +74,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::search_youtube,
         commands::set_track_youtube_url,
         commands::clear_track_youtube_url,
+        commands::get_track_audio_properties,
     ]
 }
 
@@ -130,6 +131,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::search_youtube,
         commands::set_track_youtube_url,
         commands::clear_track_youtube_url,
+        commands::get_track_audio_properties,
     ]
 }
 

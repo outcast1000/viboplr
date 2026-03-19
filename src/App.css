@@ -1977,6 +1977,11 @@ body {
   transition: border-color 0.15s;
 }
 
+.modal-field input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.4;
+}
+
 .modal-field input:focus {
   border-color: var(--accent);
 }
@@ -2059,6 +2064,127 @@ body {
 
 .modal-select:focus {
   border-color: var(--accent);
+}
+
+/* Track Properties Modal */
+.modal-properties {
+  width: 440px;
+}
+
+.properties-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: -12px 0 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.properties-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.properties-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.properties-tab:hover {
+  color: var(--text-primary);
+}
+
+.properties-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.properties-tab-content {
+  min-height: 120px;
+}
+
+.properties-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+}
+
+.properties-grid-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.properties-grid-item label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.properties-grid-item span {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.properties-grid-span {
+  grid-column: 1 / -1;
+}
+
+.properties-tags-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.properties-tags-section > label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.properties-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.properties-tag {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.properties-youtube-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.properties-youtube-row input {
+  flex: 1;
+}
+
+.properties-apply-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 /* Queue panel */

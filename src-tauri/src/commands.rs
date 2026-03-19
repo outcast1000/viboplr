@@ -1157,6 +1157,43 @@ pub fn search_youtube(title: String, artist_name: Option<String>) -> Result<YouT
     })
 }
 
+// --- Track audio properties command ---
+
+#[derive(serde::Serialize)]
+pub struct AudioProperties {
+    pub sample_rate: Option<u32>,
+    pub bit_depth: Option<u8>,
+    pub channels: Option<u8>,
+    pub bitrate: Option<u32>,
+}
+
+#[tauri::command]
+pub fn get_track_audio_properties(
+    state: State<'_, AppState>,
+    track_id: i64,
+) -> Result<AudioProperties, String> {
+    let track = state
+        .db
+        .get_track_by_id(track_id)
+        .map_err(|e| e.to_string())?;
+    let path = track.path;
+
+    use lofty::prelude::*;
+
+    let tagged_file = lofty::probe::Probe::open(&path)
+        .and_then(|p| p.read())
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+
+    let props = tagged_file.properties();
+
+    Ok(AudioProperties {
+        sample_rate: props.sample_rate(),
+        bit_depth: props.bit_depth(),
+        channels: props.channels(),
+        bitrate: props.overall_bitrate(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

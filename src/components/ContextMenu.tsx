@@ -1,7 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl, getDomainFromUrl } from "../searchProviders";
-import { IconPlay, IconEnqueue, IconFolder, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
+import { IconPlay, IconEnqueue, IconFolder, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius, IconInfo } from "./Icons";
 import { useState, type ReactNode } from "react";
 
 export type ContextMenuTarget =
@@ -22,6 +22,7 @@ interface ContextMenuProps {
   onEnqueue: () => void;
   onShowInFolder: () => void;
   onWatchOnYoutube?: () => void;
+  onShowProperties?: () => void;
   onClose: () => void;
 }
 
@@ -65,7 +66,7 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
 }
 
 export function ContextMenu({
-  menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onClose,
+  menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onShowProperties, onClose,
 }: ContextMenuProps) {
   const { target } = menu;
 
@@ -96,6 +97,11 @@ export function ContextMenu({
       {target.kind === "track" && onWatchOnYoutube && (
         <div className="context-menu-item" onClick={() => { onWatchOnYoutube(); onClose(); }}>
           <IconYoutube size={14} /><span>Watch on YouTube</span>
+        </div>
+      )}
+      {target.kind === "track" && onShowProperties && (
+        <div className="context-menu-item" onClick={() => { onShowProperties(); onClose(); }}>
+          <IconInfo size={14} /><span>Properties</span>
         </div>
       )}
       <div className="context-menu-separator" />

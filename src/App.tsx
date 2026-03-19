@@ -39,6 +39,7 @@ import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
 import { TidalView } from "./components/TidalView";
 import { AddTidalModal } from "./components/AddTidalModal";
+import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
 import { StatusBar } from "./components/StatusBar";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -103,6 +104,7 @@ function App() {
   const [youtubeFeedback, setYoutubeFeedback] = useState<{
     trackId: number; url: string; videoTitle: string;
   } | null>(null);
+  const [propertiesTrack, setPropertiesTrack] = useState<Track | null>(null);
 
   // Update state
   const [appVersion, setAppVersion] = useState("");
@@ -713,6 +715,14 @@ function App() {
       invoke("show_in_folder", { trackId: contextMenu.target.trackId });
       setContextMenu(null);
     }
+  }
+
+  function handleShowProperties() {
+    if (!contextMenu || contextMenu.target.kind !== "track") return;
+    const { trackId } = contextMenu.target;
+    const track = library.tracks.find(t => t.id === trackId);
+    if (track) setPropertiesTrack(track);
+    setContextMenu(null);
   }
 
   async function handleWatchOnYoutube() {
@@ -1578,7 +1588,20 @@ function App() {
           onEnqueue={handleContextEnqueue}
           onShowInFolder={handleShowInFolder}
           onWatchOnYoutube={handleWatchOnYoutube}
+          onShowProperties={handleShowProperties}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {propertiesTrack && (
+        <TrackPropertiesModal
+          track={propertiesTrack}
+          collections={library.collections}
+          onClose={() => setPropertiesTrack(null)}
+          onYoutubeUrlChange={(trackId, url) => {
+            library.setTracks(prev => prev.map(t => t.id === trackId ? { ...t, youtube_url: url } : t));
+            setPropertiesTrack(prev => prev && prev.id === trackId ? { ...prev, youtube_url: url } : prev);
+          }}
         />
       )}
 
