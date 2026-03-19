@@ -749,6 +749,7 @@ function App() {
         trackId: youtubeFeedback.trackId,
         url: youtubeFeedback.url,
       });
+      library.setTracks(prev => prev.map(t => t.id === youtubeFeedback.trackId ? { ...t, youtube_url: youtubeFeedback.url } : t));
       addLog("Saved YouTube link for future use");
     }
     setYoutubeFeedback(null);
