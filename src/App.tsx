@@ -21,6 +21,7 @@ import { useLibrary } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
 import { useAutoContinue } from "./hooks/useAutoContinue";
 import { usePasteImage } from "./hooks/usePasteImage";
+import { useNavigationHistory } from "./hooks/useNavigationHistory";
 
 import { Sidebar } from "./components/Sidebar";
 import { TrackList } from "./components/TrackList";
@@ -213,6 +214,26 @@ function App() {
     setAlbumImages,
     addLog,
   });
+
+  const { goBack, goForward, canGoBack, canGoForward } = useNavigationHistory(
+    {
+      view: library.view,
+      selectedArtist: library.selectedArtist,
+      selectedAlbum: library.selectedAlbum,
+      selectedTag: library.selectedTag,
+    },
+    {
+      setView: library.setView,
+      setSelectedArtist: library.setSelectedArtist,
+      setSelectedAlbum: library.setSelectedAlbum,
+      setSelectedTag: library.setSelectedTag,
+    },
+  );
+
+  const goBackRef = useRef(goBack);
+  goBackRef.current = goBack;
+  const goForwardRef = useRef(goForward);
+  goForwardRef.current = goForward;
 
   // Disable default browser context menu globally
   useEffect(() => {
@@ -460,6 +481,12 @@ function App() {
   // Global keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      // Alt+Arrow: navigation history
+      if (e.altKey && !e.ctrlKey && !e.metaKey) {
+        if (e.key === "ArrowLeft") { e.preventDefault(); goBackRef.current(); return; }
+        if (e.key === "ArrowRight") { e.preventDefault(); goForwardRef.current(); return; }
+      }
+
       if (!(e.ctrlKey || e.metaKey)) return;
 
       const s = shortcutStateRef.current;
@@ -555,11 +582,29 @@ function App() {
           e.preventDefault();
           queueHook.playPrevious();
           break;
+        case "[":
+          e.preventDefault();
+          goBackRef.current();
+          break;
+        case "]":
+          e.preventDefault();
+          goForwardRef.current();
+          break;
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Mouse side buttons for navigation history
+  useEffect(() => {
+    function handleMouseUp(e: MouseEvent) {
+      if (e.button === 3) { e.preventDefault(); goBackRef.current(); }
+      if (e.button === 4) { e.preventDefault(); goForwardRef.current(); }
+    }
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => window.removeEventListener("mouseup", handleMouseUp);
   }, []);
 
   // onEnded handler — uses refs to avoid stale closures from useCallback([])
@@ -987,6 +1032,26 @@ function App() {
       <main className="main">
         {/* Search bar */}
         <div className="search-bar">
+          <button
+            className="nav-history-btn"
+            disabled={!canGoBack}
+            onClick={goBack}
+            title="Go back (Alt+Left)"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+          <button
+            className="nav-history-btn"
+            disabled={!canGoForward}
+            onClick={goForward}
+            title="Go forward (Alt+Right)"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 6 15 12 9 18" />
+            </svg>
+          </button>
           <input
             ref={searchInputRef}
             type="text"
