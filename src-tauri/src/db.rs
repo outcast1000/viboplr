@@ -48,6 +48,46 @@ pub struct Database {
 }
 
 impl Database {
+    fn register_sql_functions(conn: &Connection) -> SqlResult<()> {
+        conn.create_scalar_function(
+            "filename_from_path",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                let path_str: String = ctx.get(0)?;
+                let path = std::path::Path::new(&path_str);
+                let filename = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                Ok(filename)
+            },
+        )?;
+
+        conn.create_scalar_function(
+            "strip_diacritics",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                let s: String = ctx.get(0)?;
+                Ok(strip_diacritics(&s))
+            },
+        )?;
+
+        conn.create_scalar_function(
+            "unicode_lower",
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                let s: String = ctx.get(0)?;
+                Ok(s.to_lowercase())
+            },
+        )?;
+
+        Ok(())
+    }
+
     pub fn new(app_dir: &Path) -> SqlResult<Self> {
         let timer = crate::timing::timer();
 
@@ -56,54 +96,25 @@ impl Database {
         let db_path = app_dir.join("viboplr.db");
         let conn = timer.time("db: open_connection", || Connection::open(db_path))?;
 
-        timer.time("db: register_sql_functions", || -> SqlResult<()> {
-            // Register custom SQL function to extract filename from path
-            conn.create_scalar_function(
-                "filename_from_path",
-                1,
-                FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
-                |ctx| {
-                    let path_str: String = ctx.get(0)?;
-                    let path = std::path::Path::new(&path_str);
-                    let filename = path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("")
-                        .to_string();
-                    Ok(filename)
-                },
-            )?;
-
-            // Register custom SQL function to strip diacritics for FTS indexing
-            conn.create_scalar_function(
-                "strip_diacritics",
-                1,
-                FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
-                |ctx| {
-                    let s: String = ctx.get(0)?;
-                    Ok(strip_diacritics(&s))
-                },
-            )?;
-
-            // Register custom SQL function for Unicode-aware lowercase (handles Greek, Cyrillic, etc.)
-            conn.create_scalar_function(
-                "unicode_lower",
-                1,
-                FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
-                |ctx| {
-                    let s: String = ctx.get(0)?;
-                    Ok(s.to_lowercase())
-                },
-            )?;
-
-            Ok(())
-        })?;
+        timer.time("db: register_sql_functions", || Self::register_sql_functions(&conn))?;
 
         let db = Self {
             conn: Mutex::new(conn),
         };
         timer.time("db: init_tables", || db.init_tables())?;
         timer.time("db: run_migrations", || db.run_migrations())?;
+        Ok(db)
+    }
+
+    #[cfg(test)]
+    pub fn new_in_memory() -> SqlResult<Self> {
+        let conn = Connection::open_in_memory()?;
+        Self::register_sql_functions(&conn)?;
+        let db = Self {
+            conn: Mutex::new(conn),
+        };
+        db.init_tables()?;
+        db.run_migrations()?;
         Ok(db)
     }
 
@@ -1087,5 +1098,217 @@ impl Database {
             })
         })?;
         rows.collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_db() -> Database {
+        Database::new_in_memory().expect("Failed to create in-memory database")
+    }
+
+    /// Helper: insert a track and return its id
+    fn insert_track(db: &Database, path: &str, title: &str, artist_id: Option<i64>, album_id: Option<i64>) -> i64 {
+        db.upsert_track(path, title, artist_id, album_id, None, Some(180.0), Some("mp3"), Some(5_000_000), None, None, None)
+            .expect("upsert_track failed")
+    }
+
+    #[test]
+    fn test_upsert_and_get_track() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Pink Floyd").unwrap();
+        let album_id = db.get_or_create_album("Dark Side", Some(artist_id), Some(1973)).unwrap();
+        let track_id = db.upsert_track(
+            "/music/time.mp3", "Time", Some(artist_id), Some(album_id),
+            Some(4), Some(413.0), Some("mp3"), Some(10_000_000), None, None, None,
+        ).unwrap();
+
+        let track = db.get_track_by_id(track_id).unwrap();
+        assert_eq!(track.title, "Time");
+        assert_eq!(track.artist_name.as_deref(), Some("Pink Floyd"));
+        assert_eq!(track.album_title.as_deref(), Some("Dark Side"));
+        assert_eq!(track.track_number, Some(4));
+        assert_eq!(track.duration_secs, Some(413.0));
+        assert_eq!(track.format.as_deref(), Some("mp3"));
+        assert_eq!(track.year, Some(1973));
+        assert!(!track.liked);
+        assert!(!track.deleted);
+    }
+
+    #[test]
+    fn test_upsert_track_deduplication() {
+        let db = test_db();
+        let id1 = insert_track(&db, "/music/song.mp3", "Song V1", None, None);
+        let id2 = db.upsert_track(
+            "/music/song.mp3", "Song V2", None, None,
+            None, Some(200.0), Some("mp3"), None, None, None, None,
+        ).unwrap();
+
+        assert_eq!(id1, id2, "upsert should return same id for same path");
+        let track = db.get_track_by_id(id1).unwrap();
+        assert_eq!(track.title, "Song V2", "title should be updated");
+    }
+
+    #[test]
+    fn test_artist_crud() {
+        let db = test_db();
+        let id1 = db.get_or_create_artist("Radiohead").unwrap();
+        let id2 = db.get_or_create_artist("Radiohead").unwrap();
+        assert_eq!(id1, id2, "should return existing artist");
+
+        let id3 = db.get_or_create_artist("Björk").unwrap();
+        assert_ne!(id1, id3, "different artist should get different id");
+    }
+
+    #[test]
+    fn test_album_crud() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Pink Floyd").unwrap();
+
+        let id1 = db.get_or_create_album("The Wall", Some(artist_id), Some(1979)).unwrap();
+        let id2 = db.get_or_create_album("The Wall", Some(artist_id), None).unwrap();
+        assert_eq!(id1, id2, "same title+artist should return existing album");
+
+        let id3 = db.get_or_create_album("The Wall", None, None).unwrap();
+        assert_ne!(id1, id3, "NULL artist_id should create separate album");
+    }
+
+    #[test]
+    fn test_tags_many_to_many() {
+        let db = test_db();
+        let track_id = insert_track(&db, "/music/song.mp3", "Song", None, None);
+        let tag_rock = db.get_or_create_tag("Rock").unwrap();
+        let tag_alt = db.get_or_create_tag("Alternative").unwrap();
+
+        db.add_track_tag(track_id, tag_rock).unwrap();
+        db.add_track_tag(track_id, tag_alt).unwrap();
+        // Duplicate should be ignored
+        db.add_track_tag(track_id, tag_rock).unwrap();
+
+        let tags = db.get_tags_for_track(track_id).unwrap();
+        assert_eq!(tags.len(), 2);
+        let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"Alternative"));
+        assert!(names.contains(&"Rock"));
+    }
+
+    #[test]
+    fn test_search_fts() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Pink Floyd").unwrap();
+        let album_id = db.get_or_create_album("Dark Side", Some(artist_id), None).unwrap();
+        insert_track(&db, "/music/time.mp3", "Time", Some(artist_id), Some(album_id));
+        insert_track(&db, "/music/money.mp3", "Money", Some(artist_id), Some(album_id));
+        insert_track(&db, "/music/creep.mp3", "Creep", None, None);
+
+        db.rebuild_fts().unwrap();
+
+        // Search by title
+        let results = db.search_tracks("Time", None, None, None, false).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Time");
+
+        // Search by artist
+        let results = db.search_tracks("Pink Floyd", None, None, None, false).unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Search by album
+        let results = db.search_tracks("Dark Side", None, None, None, false).unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_search_with_filters() {
+        let db = test_db();
+        let artist1 = db.get_or_create_artist("Artist A").unwrap();
+        let artist2 = db.get_or_create_artist("Artist B").unwrap();
+        let album1 = db.get_or_create_album("Album X", Some(artist1), None).unwrap();
+        let tag_rock = db.get_or_create_tag("Rock").unwrap();
+
+        let t1 = insert_track(&db, "/a1.mp3", "Song Alpha", Some(artist1), Some(album1));
+        insert_track(&db, "/a2.mp3", "Song Alpha Two", Some(artist2), None);
+        db.add_track_tag(t1, tag_rock).unwrap();
+        db.toggle_track_liked(t1, true).unwrap();
+
+        db.rebuild_fts().unwrap();
+
+        // Filter by artist
+        let results = db.search_tracks("Song", Some(artist1), None, None, false).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Song Alpha");
+
+        // Filter by album
+        let results = db.search_tracks("Song", None, Some(album1), None, false).unwrap();
+        assert_eq!(results.len(), 1);
+
+        // Filter by tag
+        let results = db.search_tracks("Song", None, None, Some(tag_rock), false).unwrap();
+        assert_eq!(results.len(), 1);
+
+        // Filter liked only
+        let results = db.search_tracks("Song", None, None, None, true).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Song Alpha");
+    }
+
+    #[test]
+    fn test_play_history() {
+        let db = test_db();
+        let t1 = insert_track(&db, "/a.mp3", "Song A", None, None);
+        let t2 = insert_track(&db, "/b.mp3", "Song B", None, None);
+
+        db.record_play(t1).unwrap();
+        db.record_play(t1).unwrap();
+        db.record_play(t2).unwrap();
+
+        let recent = db.get_recent_plays(10).unwrap();
+        assert_eq!(recent.len(), 3);
+        // Verify all plays recorded (ordering within same second is non-deterministic)
+        let t1_plays = recent.iter().filter(|r| r.track_id == t1).count();
+        let t2_plays = recent.iter().filter(|r| r.track_id == t2).count();
+        assert_eq!(t1_plays, 2);
+        assert_eq!(t2_plays, 1);
+
+        let most = db.get_most_played(10).unwrap();
+        assert_eq!(most[0].track_id, t1);
+        assert_eq!(most[0].play_count, 2);
+        assert_eq!(most[1].track_id, t2);
+        assert_eq!(most[1].play_count, 1);
+    }
+
+    #[test]
+    fn test_collection_crud() {
+        let db = test_db();
+        let col = db.add_collection("local", "My Music", Some("/music"), None, None, None, None, None).unwrap();
+        assert_eq!(col.kind, "local");
+        assert_eq!(col.name, "My Music");
+        assert_eq!(col.path.as_deref(), Some("/music"));
+        assert!(col.enabled);
+
+        let collections = db.get_collections().unwrap();
+        assert_eq!(collections.len(), 1);
+
+        db.update_collection(col.id, "Renamed", true, 30, false).unwrap();
+        let updated = db.get_collection_by_id(col.id).unwrap();
+        assert_eq!(updated.name, "Renamed");
+        assert!(updated.auto_update);
+        assert_eq!(updated.auto_update_interval_mins, 30);
+        assert!(!updated.enabled);
+
+        db.remove_collection(col.id).unwrap();
+        let collections = db.get_collections().unwrap();
+        assert!(collections.is_empty());
+    }
+
+    #[test]
+    fn test_strip_diacritics() {
+        assert_eq!(strip_diacritics("café"), "cafe");
+        assert_eq!(strip_diacritics("naïve"), "naive");
+        assert_eq!(strip_diacritics("Björk"), "Bjork");
+        assert_eq!(strip_diacritics("Sigur Rós"), "Sigur Ros");
+        assert_eq!(strip_diacritics("hello"), "hello");
+        assert_eq!(strip_diacritics(""), "");
     }
 }

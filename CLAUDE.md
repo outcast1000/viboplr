@@ -22,9 +22,16 @@ cd src-tauri && cargo check --release
 
 # Type-check frontend only
 npx tsc --noEmit
-```
 
-There are no tests in this project currently.
+# Run all tests
+npm run test:all
+
+# Run TypeScript tests only
+npm test
+
+# Run Rust tests only
+npm run test:rust
+```
 
 ## Architecture
 

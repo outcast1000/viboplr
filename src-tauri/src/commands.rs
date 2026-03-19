@@ -1004,3 +1004,114 @@ pub fn clear_database(state: State<'_, AppState>) -> Result<String, String> {
     state.db.clear_database().map_err(|e| e.to_string())?;
     Ok("Database cleared".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Database;
+
+    fn test_state() -> AppState {
+        let db = Database::new_in_memory().expect("Failed to create test DB");
+        AppState {
+            db: Arc::new(db),
+            app_dir: std::path::PathBuf::from("/tmp/viboplr-test"),
+            download_queue: Arc::new(DownloadQueue {
+                queue: Mutex::new(Vec::new()),
+                condvar: Condvar::new(),
+            }),
+        }
+    }
+
+    /// Helper: insert a track directly through the DB layer
+    fn insert_track(state: &AppState, path: &str, title: &str, artist_id: Option<i64>, album_id: Option<i64>) -> i64 {
+        state.db.upsert_track(path, title, artist_id, album_id, None, Some(200.0), Some("mp3"), Some(5_000_000), None, None, None)
+            .expect("upsert_track failed")
+    }
+
+    #[test]
+    fn test_collection_flow() {
+        let state = test_state();
+        let col = state.db.add_collection("local", "Test", Some("/test"), None, None, None, None, None).unwrap();
+
+        let collections = state.db.get_collections().unwrap();
+        assert_eq!(collections.len(), 1);
+        assert_eq!(collections[0].name, "Test");
+
+        state.db.update_collection(col.id, "Updated", false, 60, true).unwrap();
+        let updated = state.db.get_collection_by_id(col.id).unwrap();
+        assert_eq!(updated.name, "Updated");
+
+        state.db.remove_collection(col.id).unwrap();
+        assert!(state.db.get_collections().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_search_flow() {
+        let state = test_state();
+        let artist_id = state.db.get_or_create_artist("Test Artist").unwrap();
+        let album_id = state.db.get_or_create_album("Test Album", Some(artist_id), None).unwrap();
+        insert_track(&state, "/a.mp3", "Alpha Song", Some(artist_id), Some(album_id));
+        insert_track(&state, "/b.mp3", "Beta Song", Some(artist_id), None);
+
+        state.db.rebuild_fts().unwrap();
+
+        let results = state.db.search_tracks("Alpha", None, None, None, false).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Alpha Song");
+
+        // Search with artist filter
+        let results = state.db.search_tracks("Song", Some(artist_id), None, None, false).unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_toggle_liked() {
+        let state = test_state();
+        let artist_id = state.db.get_or_create_artist("Artist").unwrap();
+        let album_id = state.db.get_or_create_album("Album", Some(artist_id), None).unwrap();
+        let track_id = insert_track(&state, "/t.mp3", "Track", Some(artist_id), Some(album_id));
+
+        // Track liked
+        state.db.toggle_track_liked(track_id, true).unwrap();
+        let track = state.db.get_track_by_id(track_id).unwrap();
+        assert!(track.liked);
+        state.db.toggle_track_liked(track_id, false).unwrap();
+        let track = state.db.get_track_by_id(track_id).unwrap();
+        assert!(!track.liked);
+
+        // Artist liked — need recompute_counts for artist to show up (track_count > 0 filter)
+        state.db.toggle_artist_liked(artist_id, true).unwrap();
+        state.db.recompute_counts().unwrap();
+        let artists = state.db.get_artists().unwrap();
+        assert!(!artists.is_empty());
+        assert!(artists.iter().any(|a| a.id == artist_id && a.liked));
+
+        // Album liked
+        state.db.toggle_album_liked(album_id, true).unwrap();
+        state.db.recompute_counts().unwrap();
+        let albums = state.db.get_albums(None).unwrap();
+        assert!(albums.iter().any(|a| a.id == album_id && a.liked));
+    }
+
+    #[test]
+    fn test_record_and_get_plays() {
+        let state = test_state();
+        let t1 = insert_track(&state, "/a.mp3", "Song A", None, None);
+        let t2 = insert_track(&state, "/b.mp3", "Song B", None, None);
+
+        state.db.record_play(t1).unwrap();
+        state.db.record_play(t1).unwrap();
+        state.db.record_play(t2).unwrap();
+
+        let recent = state.db.get_recent_plays(10).unwrap();
+        assert_eq!(recent.len(), 3);
+        let t1_plays = recent.iter().filter(|r| r.track_id == t1).count();
+        let t2_plays = recent.iter().filter(|r| r.track_id == t2).count();
+        assert_eq!(t1_plays, 2);
+        assert_eq!(t2_plays, 1);
+
+        let most = state.db.get_most_played(10).unwrap();
+        assert_eq!(most[0].track_id, t1);
+        assert_eq!(most[0].play_count, 2);
+    }
+}

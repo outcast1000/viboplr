@@ -239,3 +239,87 @@ pub fn remove_media_file(db: &Arc<Database>, path: &Path) {
     info!("Removed file: {}", path_str);
     let _ = db.remove_track_by_path(&path_str);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_media_file_audio() {
+        for ext in &["mp3", "flac", "aac", "m4a", "wav", "opus", "alac", "wma"] {
+            let path = PathBuf::from(format!("song.{}", ext));
+            assert!(is_media_file(&path), "expected {} to be media", ext);
+        }
+    }
+
+    #[test]
+    fn test_is_media_file_video() {
+        for ext in &["mp4", "m4v", "mov", "webm"] {
+            let path = PathBuf::from(format!("video.{}", ext));
+            assert!(is_media_file(&path), "expected {} to be media", ext);
+        }
+    }
+
+    #[test]
+    fn test_is_media_file_case_insensitive() {
+        assert!(is_media_file(Path::new("song.MP3")));
+        assert!(is_media_file(Path::new("song.Flac")));
+    }
+
+    #[test]
+    fn test_is_media_file_rejects_non_media() {
+        for ext in &["txt", "jpg", "png", "pdf", "doc", "exe", "rs"] {
+            let path = PathBuf::from(format!("file.{}", ext));
+            assert!(!is_media_file(&path), "expected {} to NOT be media", ext);
+        }
+    }
+
+    #[test]
+    fn test_is_media_file_no_extension() {
+        assert!(!is_media_file(Path::new("README")));
+    }
+
+    #[test]
+    fn test_fallback_artist_album_track_title() {
+        // "Artist - Album - 03 - Title" pattern (all in filename)
+        let path = Path::new("/Music/Unknown/Pink Floyd - Dark Side - 03 - Time.mp3");
+        let tags = fallback_from_filename(path, Some(300.0));
+        assert_eq!(tags.title, "Time");
+        assert_eq!(tags.artist.as_deref(), Some("Pink Floyd"));
+        assert_eq!(tags.album.as_deref(), Some("Dark Side"));
+        assert_eq!(tags.track_number, Some(3));
+        assert_eq!(tags.duration_secs, Some(300.0));
+    }
+
+    #[test]
+    fn test_fallback_artist_title() {
+        // "Artist - Title" pattern in filename
+        let path = Path::new("/Music/Unknown/Radiohead - Creep.mp3");
+        let tags = fallback_from_filename(path, None);
+        assert_eq!(tags.title, "Creep");
+        assert_eq!(tags.artist.as_deref(), Some("Radiohead"));
+        assert!(tags.album.is_none());
+    }
+
+    #[test]
+    fn test_fallback_folder_structure() {
+        // "Artist - Album/03 - Title" pattern
+        let path = Path::new("/Music/Pink Floyd - Dark Side/03 - Time.mp3");
+        let tags = fallback_from_filename(path, None);
+        assert_eq!(tags.title, "Time");
+        assert_eq!(tags.artist.as_deref(), Some("Pink Floyd"));
+        assert_eq!(tags.album.as_deref(), Some("Dark Side"));
+        assert_eq!(tags.track_number, Some(3));
+    }
+
+    #[test]
+    fn test_fallback_bare_filename() {
+        // No parseable structure — just returns filename as title
+        let path = Path::new("/somefile.mp3");
+        let tags = fallback_from_filename(path, None);
+        assert_eq!(tags.title, "somefile");
+        assert!(tags.artist.is_none());
+        assert!(tags.album.is_none());
+        assert!(tags.track_number.is_none());
+    }
+}

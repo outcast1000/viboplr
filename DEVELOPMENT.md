@@ -47,7 +47,19 @@ cd src-tauri && cargo check --release
 
 ## Testing
 
-There are no automated tests in this project currently.
+```bash
+# Run all tests (Rust + TypeScript)
+npm run test:all
+
+# Run TypeScript tests only
+npm test
+
+# Run TypeScript tests in watch mode
+npm run test:watch
+
+# Run Rust tests only
+npm run test:rust
+```
 
 Manual verification:
 
