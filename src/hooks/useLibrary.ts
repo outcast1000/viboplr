@@ -23,7 +23,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [trackCount, setTrackCount] = useState(0);
   const [albumCount, setAlbumCount] = useState(0);
-  const allAlbumsRef = useRef<Album[]>([]);
   const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<number | null>(null);
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
@@ -60,6 +59,12 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   const [tagSortDir, setTagSortDir] = useState<SortDir>("asc");
   const [tagShuffleKey, setTagShuffleKey] = useState(0);
 
+  // Artist-filtered albums for artist detail view (derived, never mutates albums state)
+  const artistAlbums = useMemo(() => {
+    if (selectedArtist === null) return [];
+    return albums.filter(a => a.artist_id === selectedArtist);
+  }, [albums, selectedArtist]);
+
   // Persist state
   useEffect(() => { if (restoredRef.current) store.set("view", view); }, [view]);
   useEffect(() => { if (restoredRef.current) store.set("searchQuery", searchQuery); }, [searchQuery]);
@@ -86,7 +91,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
         invoke<number>("get_track_count"),
       ]);
       setArtists(a);
-      allAlbumsRef.current = al;
       setAlbums(al);
       setAlbumCount(al.length);
       setCollections(c);
@@ -177,20 +181,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   }, [debouncedSearchQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir]);
 
   useEffect(() => { loadTracks(); }, [loadTracks]);
-
-  // Keep allAlbumsRef in sync when viewing the full album list
-  useEffect(() => {
-    if (selectedArtist === null) {
-      allAlbumsRef.current = albums;
-    }
-  }, [albums, selectedArtist]);
-
-  // Restore full album list immediately when selectedArtist is cleared (fixes #4, #12)
-  useEffect(() => {
-    if (selectedArtist === null) {
-      setAlbums(allAlbumsRef.current);
-    }
-  }, [selectedArtist]);
 
   // Reset highlighted index when tracks change
   useEffect(() => {
@@ -386,7 +376,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     setSelectedTag(null);
     setSearchQuery("");
     setView("artists");
-    invoke<Album[]>("get_albums", { artistId }).then(setAlbums);
   }
 
   function handleAlbumClick(albumId: number, artistId?: number | null) {
@@ -398,7 +387,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     if (resolvedArtistId) {
       setSelectedArtist(resolvedArtistId);
       setView("artists");
-      invoke<Album[]>("get_albums", { artistId: resolvedArtistId }).then(setAlbums);
     } else {
       setSelectedArtist(null);
       setView("albums");
@@ -439,6 +427,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     sortedTracks,
     handleSort, sortIndicator,
     trackColumns, setTrackColumns,
+    artistAlbums,
     handleArtistClick, handleAlbumClick, handleShowAll, handleShowLiked,
     loadLibrary, loadTracks,
     hasMore, loadingMore, loadMore,
