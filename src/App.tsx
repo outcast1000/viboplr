@@ -485,7 +485,6 @@ function App() {
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
         if (e.key === "ArrowLeft") { e.preventDefault(); goBackRef.current(); return; }
         if (e.key === "ArrowRight") { e.preventDefault(); goForwardRef.current(); return; }
-        return;
       }
 
       if (!(e.ctrlKey || e.metaKey)) return;
