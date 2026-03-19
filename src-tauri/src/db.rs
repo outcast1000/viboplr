@@ -14,7 +14,7 @@ pub fn strip_diacritics(s: &str) -> String {
 
 const TRACK_SELECT: &str =
     "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, al.year, \
-     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.deleted \
+     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.deleted, t.youtube_url \
      FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id \
      LEFT JOIN collections co ON t.collection_id = co.id";
 
@@ -40,6 +40,7 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
         subsonic_id: row.get(14)?,
         liked: row.get::<_, i32>(15).unwrap_or(0) != 0,
         deleted: row.get::<_, i32>(16).unwrap_or(0) != 0,
+        youtube_url: row.get(17)?,
     })
 }
 
@@ -266,6 +267,11 @@ impl Database {
             let _ = conn.execute_batch("ALTER TABLE tags ADD COLUMN track_count INTEGER NOT NULL DEFAULT 0");
             conn.execute("UPDATE db_version SET version = 2 WHERE rowid = 1", [])?;
             migrated = true;
+        }
+
+        if version < 3 {
+            let _ = conn.execute_batch("ALTER TABLE tracks ADD COLUMN youtube_url TEXT");
+            conn.execute("UPDATE db_version SET version = 3 WHERE rowid = 1", [])?;
         }
 
         drop(conn);
@@ -619,7 +625,7 @@ impl Database {
 
         let mut sql = String::from(
             "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, al.year, \
-             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.deleted \
+             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.deleted, t.youtube_url \
              FROM tracks_fts fts \
              JOIN tracks t ON fts.rowid = t.id \
              LEFT JOIN artists ar ON t.artist_id = ar.id \
@@ -922,6 +928,24 @@ impl Database {
         conn.execute(
             "UPDATE tracks SET liked = ?2 WHERE id = ?1",
             params![track_id, liked as i32],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_track_youtube_url(&self, track_id: i64, url: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tracks SET youtube_url = ?2 WHERE id = ?1",
+            params![track_id, url],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_track_youtube_url(&self, track_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tracks SET youtube_url = NULL WHERE id = ?1",
+            params![track_id],
         )?;
         Ok(())
     }

@@ -8,7 +8,7 @@ function makeTrack(overrides: Partial<Track> = {}): Track {
     artist_name: null, album_id: null, album_title: null, year: null,
     track_number: null, duration_secs: null, format: null, file_size: null,
     collection_id: null, collection_name: null, subsonic_id: null,
-    liked: false, deleted: false,
+    liked: false, deleted: false, youtube_url: null,
     ...overrides,
   };
 }

@@ -45,6 +45,7 @@ pub struct Track {
     pub subsonic_id: Option<String>,
     pub liked: bool,
     pub deleted: bool,
+    pub youtube_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

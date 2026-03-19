@@ -4,9 +4,14 @@ interface StatusBarProps {
   sessionLog: { time: Date; message: string }[];
   hint?: string | null;
   activity?: string | null;
+  feedback?: {
+    message: string;
+    onYes: () => void;
+    onNo: () => void;
+  } | null;
 }
 
-export function StatusBar({ sessionLog, hint, activity }: StatusBarProps) {
+export function StatusBar({ sessionLog, hint, activity, feedback }: StatusBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [activeMessage, setActiveMessage] = useState<{ message: string; time: Date; isError: boolean } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -33,12 +38,18 @@ export function StatusBar({ sessionLog, hint, activity }: StatusBarProps) {
     return () => document.removeEventListener("mousedown", handler);
   }, [expanded]);
 
-  const visible = activeMessage !== null || expanded || !!hint || !!activity;
+  const visible = activeMessage !== null || expanded || !!hint || !!activity || !!feedback;
 
   return (
     <div className={`status-bar ${visible ? "status-bar-visible" : ""}`} ref={panelRef}>
-      <div className="status-bar-content" onClick={() => setExpanded(!expanded)}>
-        {activity ? (
+      <div className="status-bar-content" onClick={() => !feedback && setExpanded(!expanded)}>
+        {feedback ? (
+          <div className="status-bar-feedback">
+            <span className="status-bar-text">{feedback.message}</span>
+            <button className="status-bar-btn" onClick={(e) => { e.stopPropagation(); feedback.onYes(); }}>Yes</button>
+            <button className="status-bar-btn" onClick={(e) => { e.stopPropagation(); feedback.onNo(); }}>No</button>
+          </div>
+        ) : activity ? (
           <>
             <span className="status-bar-icon status-bar-icon-spin">{"\u27F3"}</span>
             <span className="status-bar-text">{activity}</span>

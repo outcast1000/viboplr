@@ -100,6 +100,9 @@ function App() {
   const [statusHint, setStatusHint] = useState<string | null>(null);
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
+  const [youtubeFeedback, setYoutubeFeedback] = useState<{
+    trackId: number; url: string; videoTitle: string;
+  } | null>(null);
 
   // Update state
   const [appVersion, setAppVersion] = useState("");
@@ -714,7 +717,16 @@ function App() {
 
   async function handleWatchOnYoutube() {
     if (!contextMenu || contextMenu.target.kind !== "track") return;
-    const { title, artistName } = contextMenu.target;
+    const { trackId, title, artistName } = contextMenu.target;
+
+    // Use saved URL if available
+    const track = tracks.find(t => t.id === trackId);
+    if (track?.youtube_url) {
+      await openUrl(track.youtube_url);
+      addLog(`Opened YouTube: ${title}`);
+      return;
+    }
+
     addLog("Searching YouTube...");
     try {
       const result = await invoke<{ url: string; video_title: string | null }>(
@@ -722,11 +734,24 @@ function App() {
       );
       await openUrl(result.url);
       addLog(`Opened YouTube: ${result.video_title ?? title}`);
+      setYoutubeFeedback({ trackId, url: result.url, videoTitle: result.video_title ?? title });
     } catch {
       const q = encodeURIComponent(`${title} ${artistName ?? ""}`);
       await openUrl(`https://www.youtube.com/results?search_query=${q}`);
       addLog("YouTube search failed, opened search results");
     }
+  }
+
+  async function handleYoutubeFeedback(correct: boolean) {
+    if (!youtubeFeedback) return;
+    if (correct) {
+      await invoke("set_track_youtube_url", {
+        trackId: youtubeFeedback.trackId,
+        url: youtubeFeedback.url,
+      });
+      addLog("Saved YouTube link for future use");
+    }
+    setYoutubeFeedback(null);
   }
 
   async function handleAddFolder() {
@@ -1598,7 +1623,16 @@ function App() {
         onAlbumClick={library.handleAlbumClick}
       />
 
-      <StatusBar sessionLog={sessionLog} hint={statusHint} activity={statusActivity} />
+      <StatusBar
+        sessionLog={sessionLog}
+        hint={statusHint}
+        activity={statusActivity}
+        feedback={youtubeFeedback ? {
+          message: `Was "${youtubeFeedback.videoTitle}" the right video?`,
+          onYes: () => handleYoutubeFeedback(true),
+          onNo: () => handleYoutubeFeedback(false),
+        } : null}
+      />
     </div>
   );
 }
