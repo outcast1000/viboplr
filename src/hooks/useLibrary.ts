@@ -120,6 +120,13 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
 
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
+  // Re-fetch all albums when selectedArtist is cleared (fixes #4)
+  useEffect(() => {
+    if (selectedArtist === null) {
+      invoke<Album[]>("get_albums", { artistId: null }).then(setAlbums);
+    }
+  }, [selectedArtist]);
+
   // Reset highlighted index when tracks change
   useEffect(() => {
     setHighlightedIndex(-1);
