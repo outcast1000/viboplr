@@ -1029,6 +1029,109 @@ pub fn clear_database(state: State<'_, AppState>) -> Result<String, String> {
     Ok("Database cleared".to_string())
 }
 
+// --- YouTube search command ---
+
+#[derive(serde::Serialize)]
+pub struct YouTubeResult {
+    pub url: String,
+    pub video_title: Option<String>,
+}
+
+fn extract_first_video_id(data: &serde_json::Value) -> Option<String> {
+    data.get("contents")?
+        .get("twoColumnSearchResultsRenderer")?
+        .get("primaryContents")?
+        .get("sectionListRenderer")?
+        .get("contents")?
+        .as_array()?
+        .iter()
+        .filter_map(|section| {
+            section
+                .get("itemSectionRenderer")?
+                .get("contents")?
+                .as_array()
+        })
+        .flatten()
+        .find_map(|item| {
+            item.get("videoRenderer")?
+                .get("videoId")?
+                .as_str()
+                .map(String::from)
+        })
+}
+
+fn extract_video_title(data: &serde_json::Value) -> Option<String> {
+    data.get("contents")?
+        .get("twoColumnSearchResultsRenderer")?
+        .get("primaryContents")?
+        .get("sectionListRenderer")?
+        .get("contents")?
+        .as_array()?
+        .iter()
+        .filter_map(|section| {
+            section
+                .get("itemSectionRenderer")?
+                .get("contents")?
+                .as_array()
+        })
+        .flatten()
+        .find_map(|item| {
+            item.get("videoRenderer")?
+                .get("title")?
+                .get("runs")?
+                .as_array()?
+                .first()?
+                .get("text")?
+                .as_str()
+                .map(String::from)
+        })
+}
+
+#[tauri::command]
+pub fn search_youtube(title: String, artist_name: Option<String>) -> Result<YouTubeResult, String> {
+    let query = match &artist_name {
+        Some(artist) => format!("{} {}", title, artist),
+        None => title,
+    };
+    let encoded = urlencoding::encode(&query);
+    let url = format!("https://www.youtube.com/results?search_query={}", encoded);
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .get(&url)
+        .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .send()
+        .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+    let body = resp.text().map_err(|e| format!("Failed to read response: {}", e))?;
+
+    let re = regex::Regex::new(r"var ytInitialData = (\{.*?\});</script>")
+        .map_err(|e| e.to_string())?;
+
+    let json_str = re
+        .captures(&body)
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str())
+        .ok_or("Could not find ytInitialData in page")?;
+
+    let data: serde_json::Value =
+        serde_json::from_str(json_str).map_err(|e| format!("Failed to parse ytInitialData: {}", e))?;
+
+    let video_id = extract_first_video_id(&data)
+        .ok_or("No video found in search results")?;
+
+    let video_title = extract_video_title(&data);
+
+    Ok(YouTubeResult {
+        url: format!("https://www.youtube.com/watch?v={}", video_id),
+        video_title,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1137,5 +1240,71 @@ mod tests {
         let most = state.db.get_most_played(10).unwrap();
         assert_eq!(most[0].track_id, t1);
         assert_eq!(most[0].play_count, 2);
+    }
+
+    #[test]
+    fn test_extract_first_video_id() {
+        let data: serde_json::Value = serde_json::json!({
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [{
+                                "itemSectionRenderer": {
+                                    "contents": [
+                                        {
+                                            "videoRenderer": {
+                                                "videoId": "dQw4w9WgXcQ",
+                                                "title": { "runs": [{ "text": "Rick Astley - Never Gonna Give You Up" }] }
+                                            }
+                                        },
+                                        {
+                                            "videoRenderer": {
+                                                "videoId": "second_id",
+                                                "title": { "runs": [{ "text": "Second Video" }] }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
+        });
+
+        assert_eq!(extract_first_video_id(&data), Some("dQw4w9WgXcQ".to_string()));
+        assert_eq!(extract_video_title(&data), Some("Rick Astley - Never Gonna Give You Up".to_string()));
+    }
+
+    #[test]
+    fn test_extract_video_id_missing() {
+        let data: serde_json::Value = serde_json::json!({
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [{
+                                "itemSectionRenderer": {
+                                    "contents": [
+                                        { "adRenderer": { "some": "ad" } }
+                                    ]
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
+        });
+
+        assert_eq!(extract_first_video_id(&data), None);
+        assert_eq!(extract_video_title(&data), None);
+    }
+
+    #[test]
+    fn test_extract_video_id_empty() {
+        let data: serde_json::Value = serde_json::json!({});
+        assert_eq!(extract_first_video_id(&data), None);
+        assert_eq!(extract_video_title(&data), None);
     }
 }

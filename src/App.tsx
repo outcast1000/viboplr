@@ -6,6 +6,7 @@ import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
 
 import type { Album, Collection, Track, View, ColumnConfig, SortField, SortDir } from "./types";
@@ -708,6 +709,23 @@ function App() {
     if (contextMenu && contextMenu.target.kind === "track") {
       invoke("show_in_folder", { trackId: contextMenu.target.trackId });
       setContextMenu(null);
+    }
+  }
+
+  async function handleWatchOnYoutube() {
+    if (!contextMenu || contextMenu.target.kind !== "track") return;
+    const { title, artistName } = contextMenu.target;
+    addLog("Searching YouTube...");
+    try {
+      const result = await invoke<{ url: string; video_title: string | null }>(
+        "search_youtube", { title, artistName }
+      );
+      await openUrl(result.url);
+      addLog(`Opened YouTube: ${result.video_title ?? title}`);
+    } catch {
+      const q = encodeURIComponent(`${title} ${artistName ?? ""}`);
+      await openUrl(`https://www.youtube.com/results?search_query=${q}`);
+      addLog("YouTube search failed, opened search results");
     }
   }
 
@@ -1533,6 +1551,7 @@ function App() {
           onPlay={handleContextPlay}
           onEnqueue={handleContextEnqueue}
           onShowInFolder={handleShowInFolder}
+          onWatchOnYoutube={handleWatchOnYoutube}
           onClose={() => setContextMenu(null)}
         />
       )}

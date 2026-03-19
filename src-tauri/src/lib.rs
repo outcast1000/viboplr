@@ -71,6 +71,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::tidal_save_track,
         commands::tidal_get_album,
         commands::tidal_get_artist,
+        commands::search_youtube,
     ]
 }
 
@@ -124,6 +125,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::tidal_save_track,
         commands::tidal_get_album,
         commands::tidal_get_artist,
+        commands::search_youtube,
     ]
 }
 

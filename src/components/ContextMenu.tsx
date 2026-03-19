@@ -21,6 +21,7 @@ interface ContextMenuProps {
   onPlay: () => void;
   onEnqueue: () => void;
   onShowInFolder: () => void;
+  onWatchOnYoutube?: () => void;
   onClose: () => void;
 }
 
@@ -64,7 +65,7 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
 }
 
 export function ContextMenu({
-  menu, providers, onPlay, onEnqueue, onShowInFolder, onClose,
+  menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onClose,
 }: ContextMenuProps) {
   const { target } = menu;
 
@@ -90,6 +91,11 @@ export function ContextMenu({
       {target.kind === "track" && !target.subsonic && (
         <div className="context-menu-item" onClick={onShowInFolder}>
           <IconFolder size={14} /><span>Locate File</span>
+        </div>
+      )}
+      {target.kind === "track" && onWatchOnYoutube && (
+        <div className="context-menu-item" onClick={() => { onWatchOnYoutube(); onClose(); }}>
+          <IconYoutube size={14} /><span>Watch on YouTube</span>
         </div>
       )}
       <div className="context-menu-separator" />
