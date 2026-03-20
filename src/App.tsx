@@ -1113,13 +1113,6 @@ function App() {
         <SettingsPanel
           searchProviders={searchProviders}
           onClose={() => setShowSettings(false)}
-          onAddFolder={handleAddFolder}
-          onShowAddServer={() => { setDeepLinkServer(null); setShowAddServer(true); setShowSettings(false); }}
-          onShowAddTidal={() => { setShowAddTidal(true); setShowSettings(false); }}
-          onRemoveCollection={handleRemoveCollection}
-          onResyncCollection={handleResyncCollection}
-          onUpdateCollection={handleUpdateCollection}
-          onToggleCollectionEnabled={handleToggleCollectionEnabled}
           onSeedDatabase={handleSeedDatabase}
           onClearDatabase={handleClearDatabase}
           clearing={clearing}
