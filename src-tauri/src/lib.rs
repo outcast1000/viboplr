@@ -182,13 +182,22 @@ pub fn run() {
 
     let builder = tauri::Builder::default();
     let builder = timer.time("plugin: single_instance", || {
-        builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // Focus existing window
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
+            // Check argv for subsonic:// deep link URLs (Windows/Linux)
+            for arg in &argv {
+                if arg.starts_with("subsonic://") {
+                    let _ = app.emit("deep-link-received", arg.clone());
+                    break;
+                }
+            }
         }))
     });
+    let builder = timer.time("plugin: deep_link", || builder.plugin(tauri_plugin_deep_link::init()));
     let builder = timer.time("plugin: opener", || builder.plugin(tauri_plugin_opener::init()));
     let builder = timer.time("plugin: dialog", || builder.plugin(tauri_plugin_dialog::init()));
     let builder = timer.time("plugin: store", || builder.plugin(tauri_plugin_store::Builder::new().build()));

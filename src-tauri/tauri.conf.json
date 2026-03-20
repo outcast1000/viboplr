@@ -43,6 +43,11 @@
     "createUpdaterArtifacts": true
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["subsonic"]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENENzU1MThDQUM1RURDNEYKUldSUDNGNnNqRkYxemV6SnJNeHJBcldOTVpxcjdkRTFYNDFmVFdralhvUWNSNTArenBwNXV1aFcK",
       "endpoints": [
