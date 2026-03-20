@@ -22,7 +22,7 @@ import { useLibrary } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
 import { useAutoContinue } from "./hooks/useAutoContinue";
 import { usePasteImage } from "./hooks/usePasteImage";
-import { useNavigationHistory } from "./hooks/useNavigationHistory";
+import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistory";
 
 import { Sidebar } from "./components/Sidebar";
 import { TrackList } from "./components/TrackList";
@@ -80,7 +80,8 @@ function App() {
   crossfadeSecsRef.current = crossfadeSecs;
   const advanceIndexRef = useRef<() => void>(() => {});
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef);
-  const library = useLibrary(restoredRef);
+  const beforeNavRef = useRef<() => void>(() => {});
+  const library = useLibrary(restoredRef, () => beforeNavRef.current());
   const queueHook = useQueue(restoredRef, playback.handlePlay);
   const autoContinue = useAutoContinue(restoredRef);
   peekNextRef.current = queueHook.peekNext;
@@ -222,7 +223,21 @@ function App() {
     addLog,
   });
 
-  const { goBack, goForward, canGoBack, canGoForward } = useNavigationHistory(
+  const applyNavState = useCallback((s: NavState) => {
+    library.setView(s.view);
+    library.setSelectedArtist(s.selectedArtist);
+    library.setSelectedAlbum(s.selectedAlbum);
+    library.setSelectedTag(s.selectedTag);
+    library.setSearchQuery(s.searchQuery);
+    // Restore scroll position after React renders the new view
+    requestAnimationFrame(() => {
+      if (contentRef.current) contentRef.current.scrollTop = s.scrollTop;
+    });
+  }, [library.setView, library.setSelectedArtist, library.setSelectedAlbum, library.setSelectedTag, library.setSearchQuery]);
+
+  const getScrollTop = useCallback(() => contentRef.current?.scrollTop ?? 0, []);
+
+  const { pushState, goBack, goForward, canGoBack, canGoForward } = useNavigationHistory(
     {
       view: library.view,
       selectedArtist: library.selectedArtist,
@@ -230,24 +245,24 @@ function App() {
       selectedTag: library.selectedTag,
       searchQuery: library.searchQuery,
     },
-    {
-      setView: library.setView,
-      setSelectedArtist: library.setSelectedArtist,
-      setSelectedAlbum: library.setSelectedAlbum,
-      setSelectedTag: library.setSelectedTag,
-      setSearchQuery: library.setSearchQuery,
-    },
+    applyNavState,
+    getScrollTop,
   );
+
+  // Push history and reset scroll for the new view.
+  // Used by all navigation triggers (sidebar, keyboard, click handlers).
+  const pushAndScroll = useCallback(() => {
+    pushState();
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  }, [pushState]);
+  beforeNavRef.current = pushAndScroll;
 
   const goBackRef = useRef(goBack);
   goBackRef.current = goBack;
   const goForwardRef = useRef(goForward);
   goForwardRef.current = goForward;
-
-  // Reset scroll position when switching views
-  useEffect(() => {
-    if (contentRef.current) contentRef.current.scrollTop = 0;
-  }, [library.view, library.selectedArtist, library.selectedAlbum, library.selectedTag]);
+  const pushStateRef = useRef(pushAndScroll);
+  pushStateRef.current = pushAndScroll;
 
   // Disable default browser context menu globally
   useEffect(() => {
@@ -512,6 +527,7 @@ function App() {
           break;
         case "2":
           e.preventDefault();
+          pushStateRef.current();
           library.setView("artists");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -521,6 +537,7 @@ function App() {
           break;
         case "3":
           e.preventDefault();
+          pushStateRef.current();
           library.setView("albums");
           library.setSelectedArtist(null);
           library.setSelectedTag(null);
@@ -529,6 +546,7 @@ function App() {
           break;
         case "4":
           e.preventDefault();
+          pushStateRef.current();
           library.setView("tags");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -543,6 +561,7 @@ function App() {
           break;
         case "6":
           e.preventDefault();
+          pushStateRef.current();
           library.setView("history");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -1003,6 +1022,7 @@ function App() {
         onNavHover={setStatusHint}
         onShowAll={library.handleShowAll}
         onShowArtists={() => {
+          pushAndScroll();
           library.setView("artists");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -1010,12 +1030,14 @@ function App() {
           library.setSearchQuery("");
         }}
         onShowAlbums={() => {
+          pushAndScroll();
           library.setView("albums");
           library.setSelectedArtist(null);
           library.setSelectedTag(null);
           library.setSearchQuery("");
         }}
         onShowTags={() => {
+          pushAndScroll();
           library.setView("tags");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -1024,6 +1046,7 @@ function App() {
         }}
         onShowLiked={library.handleShowLiked}
         onShowHistory={() => {
+          pushAndScroll();
           library.setView("history");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -1031,6 +1054,7 @@ function App() {
           library.setSearchQuery("");
         }}
         onShowTidal={() => {
+          pushAndScroll();
           library.setView("tidal");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -1191,6 +1215,7 @@ function App() {
                   } else if (view === "albums") {
                     library.handleAlbumClick(item.id);
                   } else {
+                    pushAndScroll();
                     library.setSelectedTag(item.id);
                     library.setSearchQuery("");
                     library.setView("all");
@@ -1446,7 +1471,7 @@ function App() {
                   <div
                     key={t.id}
                     className={`list-item${i === highlightedListIndex ? " highlighted" : ""}`}
-                    onClick={() => { library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
+                    onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
                   >
                     <span>{t.name}</span>
                     <span className="list-count">{t.track_count}</span>
