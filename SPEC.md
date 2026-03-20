@@ -662,7 +662,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 
 ## 10. Showcase Website
 
-A static showcase website lives in `docs/` and is hosted via **GitHub Pages** at `viboplr.j-15.com`.
+A static showcase website lives in `docs/` and is hosted via **GitHub Pages** at `viboplr.com`.
 
 **Pages:**
 - `index.html` — Landing page with hero, feature cards, and download CTAs.
