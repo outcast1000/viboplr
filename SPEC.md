@@ -660,16 +660,31 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 - **macOS:** `.dmg` distribution, native title bar, media key support via `souvlaki` crate. Transparent window background for mini player rounded corners.
 - **Windows:** `.msi` / `.exe` installer, taskbar controls, media key support via `souvlaki` crate.
 
-## 10. Out of Scope (v1)
+## 10. Showcase Website
+
+A static showcase website lives in `docs/` and is hosted via **GitHub Pages** at `viboplr.j-15.com`.
+
+**Pages:**
+- `index.html` — Landing page with hero, feature cards, and download CTAs.
+- `features.html` — Detailed feature breakdowns (playback, library, search, servers, mini player, keyboard shortcuts, discovery).
+- `download.html` — Platform download cards (macOS/Windows), system requirements, changelog, auto-update note.
+
+**Stack:** Plain HTML/CSS/JS (no framework). Outfit font via Google Fonts. Shared `css/style.css` and `js/main.js` (scroll animations, mobile nav hamburger).
+
+**Hosting:** GitHub Pages from `/docs` on `main` branch. Custom domain configured via `docs/CNAME`.
+
+**Analytics:** Cloudflare Web Analytics beacon on all pages — free, cookie-free, no consent banner required. Aligns with Viboplr's privacy-first branding.
+
+## 11. Out of Scope (v1)
 
 - Playlists / queue management
 - Equalizer / audio effects / DSP
 - Lyrics display
 - Mobile platforms (iOS, Android)
 
-## 11. Implementation Notes
+## 12. Implementation Notes
 
-### 11.1 FTS5 Filename Extraction
+### 12.1 FTS5 Filename Extraction
 
 The FTS5 search index requires proper extraction of filenames from full file paths. SQLite's built-in string functions cannot reliably extract filenames because `RTRIM(path, chars)` treats the second argument as a **set of characters** rather than a substring, leading to incorrect truncation.
 
@@ -709,7 +724,7 @@ LEFT JOIN tags tg ON tt.tag_id = tg.id
 GROUP BY t.id
 ```
 
-### 11.2 Subsonic Authentication
+### 12.2 Subsonic Authentication
 
 The Subsonic API supports two auth modes:
 
@@ -718,7 +733,7 @@ The Subsonic API supports two auth modes:
 
 On initial connection, `SubsonicClient::new()` tries token auth first and falls back to plaintext if the ping fails. The chosen method, token, and salt are persisted in the `collections` table so subsequent syncs reconstruct the client via `SubsonicClient::from_stored()` without needing the original password.
 
-### 11.3 LIFO Image Download Queue
+### 12.3 LIFO Image Download Queue
 
 Artist and album image fetching is handled by a single background worker thread with a LIFO (last-in, first-out) queue. This ensures that the most recently requested images (i.e., whatever the user is currently looking at) are downloaded first.
 
@@ -743,7 +758,7 @@ Artist and album image fetching is handled by a single background worker thread 
 - `paste_artist_image` / `paste_album_image` — write raw image bytes (e.g., from clipboard paste) to the app's image directory. Image format (PNG/JPG) is auto-detected from magic bytes.
 - `remove_artist_image` / `remove_album_image` — delete an image from the app's image directory.
 
-### 11.4 Playback Resolution
+### 12.4 Playback Resolution
 
 `get_track_path` returns different values based on track type. When `subsonic_id` is set, the collection's `kind` field is checked to determine the resolution strategy:
 
@@ -751,7 +766,7 @@ Artist and album image fetching is handled by a single background worker thread 
 - **Subsonic track** (`subsonic_id` is set, `kind = "subsonic"`): constructs a full streaming URL `{server}/rest/stream.view?id={subsonic_id}&{auth_params}`. Frontend uses the URL directly as the `<audio>` src.
 - **TIDAL track** (`subsonic_id` is set, `kind = "tidal"`): makes a blocking HTTP call to the Hi-Fi API `/track/?id={tidal_id}&quality=LOSSLESS`, base64-decodes the BTS manifest, and returns the CDN URL. Fresh URL fetched at play time to avoid token expiration.
 
-### 11.5 Extensible Image Provider System
+### 12.5 Extensible Image Provider System
 
 Image fetching uses a trait-based provider system (`src-tauri/src/image_provider/`) so new sources can be added without touching the download queue, commands, or frontend.
 
@@ -794,7 +809,7 @@ Two traits rather than one combined trait because providers may only support one
 3. Add to the fallback chain in `lib.rs` setup.
 4. No changes to commands, events, or frontend.
 
-### 11.6 Accent-Insensitive Search
+### 12.6 Accent-Insensitive Search
 
 SQLite FTS5's built-in `remove_diacritics 2` only strips diacritics for Latin-based characters. It does **not** work for Greek, Cyrillic, or other non-Latin scripts (e.g., searching "μπαλαφας" would not match "Μπαλάφας").
 
