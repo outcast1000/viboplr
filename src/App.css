@@ -1526,6 +1526,22 @@ body {
   min-width: 0;
 }
 
+.now-like-btn {
+  font-size: 18px;
+  color: #666;
+  cursor: pointer;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.now-like-btn:hover {
+  color: #e44;
+}
+
+.now-like-btn.liked {
+  color: #e44;
+}
+
 .now-title {
   font-size: 15px;
   font-weight: 600;

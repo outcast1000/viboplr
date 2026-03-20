@@ -1699,6 +1699,7 @@ function App() {
         onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
         onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
+        onToggleLike={() => playback.currentTrack && handleToggleLike(playback.currentTrack)}
         onArtistClick={library.handleArtistClick}
         onAlbumClick={library.handleAlbumClick}
       />

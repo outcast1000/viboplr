@@ -54,6 +54,7 @@ interface NowPlayingBarProps {
   onToggleAutoContinue: () => void;
   onToggleAutoContinuePopover: () => void;
   onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
+  onToggleLike: () => void;
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
 }
@@ -67,7 +68,7 @@ export function NowPlayingBar({
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode, onToggleQueue,
   onToggleAutoContinue, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
-  onArtistClick, onAlbumClick,
+  onToggleLike, onArtistClick, onAlbumClick,
 }: NowPlayingBarProps) {
   const [showHelp, setShowHelp] = useState(false);
 
@@ -135,6 +136,13 @@ export function NowPlayingBar({
               <span className="now-title">No track playing</span>
             )}
           </div>
+          {currentTrack && (
+            <span
+              className={`now-like-btn${currentTrack.liked ? " liked" : ""}`}
+              onClick={onToggleLike}
+              title={currentTrack.liked ? "Unlike" : "Like"}
+            >{currentTrack.liked ? "\u2665" : "\u2661"}</span>
+          )}
         </div>
         <div className="now-controls">
           <button className="ctrl-btn" onClick={onPrevious} title="Previous">{"\u23EE"}</button>
