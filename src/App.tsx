@@ -41,6 +41,7 @@ import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
 import { TidalView } from "./components/TidalView";
 import { AddTidalModal } from "./components/AddTidalModal";
+import { CollectionsView } from "./components/CollectionsView";
 import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
 import { StatusBar } from "./components/StatusBar";
 
@@ -108,6 +109,8 @@ function App() {
     trackId: number; url: string; videoTitle: string;
   } | null>(null);
   const [propertiesTrack, setPropertiesTrack] = useState<Track | null>(null);
+  const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
+  const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
 
   // Update state
   const [appVersion, setAppVersion] = useState("");
@@ -902,20 +905,8 @@ function App() {
     }
   }
 
-  async function handleRemoveCollection(collectionId: number) {
-    await invoke("remove_collection", { collectionId });
-    library.loadLibrary();
-    library.loadTracks();
-  }
-
   async function handleResyncCollection(collectionId: number) {
     await invoke("resync_collection", { collectionId });
-  }
-
-  async function handleUpdateCollection(collectionId: number, name: string, autoUpdate: boolean, autoUpdateIntervalMins: number, enabled: boolean) {
-    await invoke("update_collection", { collectionId, name, autoUpdate, autoUpdateIntervalMins, enabled });
-    library.loadLibrary();
-    library.loadTracks();
   }
 
   async function handleToggleCollectionEnabled(collection: Collection) {
@@ -928,6 +919,21 @@ function App() {
     });
     library.loadLibrary();
     library.loadTracks();
+  }
+
+  async function handleCheckConnection(collectionId: number) {
+    setCheckingConnectionId(collectionId);
+    setConnectionResult(null);
+    try {
+      const msg = await invoke<string>("test_collection_connection", { collectionId });
+      setConnectionResult({ collectionId, ok: true, message: msg });
+    } catch (e) {
+      setConnectionResult({ collectionId, ok: false, message: String(e) });
+    } finally {
+      setCheckingConnectionId(null);
+      library.loadLibrary();
+      setTimeout(() => setConnectionResult(null), 5000);
+    }
   }
 
   async function handleToggleLike(track: Track) {
@@ -1067,6 +1073,14 @@ function App() {
           library.setSelectedTag(null);
           library.setSearchQuery("");
         }}
+        onShowCollections={() => {
+          pushAndScroll();
+          library.setView("collections");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSearchQuery("");
+        }}
         onShowSettings={() => setShowSettings(true)}
         updateAvailable={updateState.available !== null}
       />
@@ -1097,7 +1111,6 @@ function App() {
 
       {showSettings && (
         <SettingsPanel
-          collections={library.collections}
           searchProviders={searchProviders}
           onClose={() => setShowSettings(false)}
           onAddFolder={handleAddFolder}
@@ -1593,6 +1606,21 @@ function App() {
               collectionId={tidalCollection.id}
               onPlayTracks={queueHook.playTracks}
               onEnqueueTracks={queueHook.enqueueTracks}
+            />
+          )}
+
+          {/* Collections view */}
+          {view === "collections" && (
+            <CollectionsView
+              collections={library.collections}
+              onToggleEnabled={handleToggleCollectionEnabled}
+              onCheckConnection={handleCheckConnection}
+              onResync={handleResyncCollection}
+              checkingConnectionId={checkingConnectionId}
+              connectionResult={connectionResult}
+              onAddFolder={handleAddFolder}
+              onShowAddServer={() => setShowAddServer(true)}
+              onShowAddTidal={() => setShowAddTidal(true)}
             />
           )}
         </div>

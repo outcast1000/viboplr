@@ -162,6 +162,11 @@ body {
   color: #ffb74d;
 }
 
+.collection-kind-tidal {
+  background: rgba(156, 39, 176, 0.15);
+  color: #ce93d8;
+}
+
 .collection-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -305,6 +310,160 @@ body {
 .add-folder-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* Collections view (main content) */
+.collections-view {
+  padding: 16px;
+}
+
+.collections-empty {
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.collections-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.collections-view-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  transition: border-color 0.15s;
+}
+
+.collections-view-card:hover {
+  border-color: var(--text-secondary);
+}
+
+.collections-view-card-disabled {
+  opacity: 0.5;
+}
+
+.collections-view-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.collections-view-card-name {
+  flex: 1;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collections-view-card-disabled .collections-view-card-name {
+  text-decoration: line-through;
+}
+
+.collections-view-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.collections-view-status-connected {
+  background: #4caf50;
+}
+
+.collections-view-status-error {
+  background: #f44336;
+}
+
+.collections-view-status-unknown {
+  background: #9e9e9e;
+}
+
+.collections-view-card-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  padding-left: 42px;
+}
+
+.collections-view-detail {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.collections-view-detail-error {
+  color: #f44336;
+}
+
+.collections-view-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-left: 42px;
+}
+
+.collections-view-action-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.15s;
+}
+
+.collections-view-action-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.collections-view-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.collections-view-action-checking {
+  opacity: 0.7;
+}
+
+.collections-view-feedback {
+  margin-top: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-left: 42px;
+}
+
+.collections-view-feedback-ok {
+  background: rgba(76, 175, 80, 0.15);
+  color: #81c784;
+}
+
+.collections-view-feedback-err {
+  background: rgba(244, 67, 54, 0.15);
+  color: #ef9a9a;
+}
+
+.collections-view-add-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.collections-view-add-buttons .add-folder-btn {
+  flex: 1;
 }
 
 /* Settings button */

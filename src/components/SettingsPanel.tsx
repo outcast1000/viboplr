@@ -1,10 +1,7 @@
 import { useState, type ReactNode } from "react";
-import type { Collection } from "../types";
-import { collectionKindLabel } from "../utils";
 import type { SearchProviderConfig } from "../searchProviders";
 import { DEFAULT_PROVIDERS, getDomainFromUrl } from "../searchProviders";
 import { IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
-import { EditCollectionModal } from "./EditCollectionModal";
 import type { TimingEntry } from "../startupTiming";
 
 export interface UpdateState {
@@ -54,32 +51,9 @@ function SettingsProviderIcon({ provider }: { provider: SearchProviderConfig }) 
   );
 }
 
-function formatSyncDuration(secs: number): string {
-  if (secs < 60) return `${secs.toFixed(1)}s`;
-  const mins = Math.floor(secs / 60);
-  const remainSecs = Math.round(secs % 60);
-  return `${mins}m ${remainSecs}s`;
-}
-
-function formatTimeAgo(ts: number): string {
-  const diffSecs = Math.floor(Date.now() / 1000) - ts;
-  if (diffSecs < 60) return "just now";
-  if (diffSecs < 3600) return `${Math.floor(diffSecs / 60)}m ago`;
-  if (diffSecs < 86400) return `${Math.floor(diffSecs / 3600)}h ago`;
-  return `${Math.floor(diffSecs / 86400)}d ago`;
-}
-
 interface SettingsPanelProps {
-  collections: Collection[];
   searchProviders: SearchProviderConfig[];
   onClose: () => void;
-  onAddFolder: () => void;
-  onShowAddServer: () => void;
-  onShowAddTidal: () => void;
-  onRemoveCollection: (id: number) => void;
-  onResyncCollection: (id: number) => void;
-  onUpdateCollection: (id: number, name: string, autoUpdate: boolean, autoUpdateIntervalMins: number, enabled: boolean) => void;
-  onToggleCollectionEnabled: (collection: Collection) => void;
   onSeedDatabase: () => void;
   onClearDatabase: () => void;
   clearing: boolean;
@@ -104,9 +78,8 @@ interface ProviderFormData {
 }
 
 export function SettingsPanel({
-  collections, searchProviders,
-  onClose, onAddFolder, onShowAddServer, onShowAddTidal,
-  onRemoveCollection, onResyncCollection, onUpdateCollection, onToggleCollectionEnabled,
+  searchProviders,
+  onClose,
   onSeedDatabase, onClearDatabase, clearing,
   onClearImageFailures, onSaveProviders,
   crossfadeSecs,
@@ -119,8 +92,7 @@ export function SettingsPanel({
   frontendTimings,
   onFetchBackendTimings,
 }: SettingsPanelProps) {
-  const [settingsTab, setSettingsTab] = useState<"main" | "collections" | "providers" | "about" | "debug">("main");
-  const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
+  const [settingsTab, setSettingsTab] = useState<"main" | "providers" | "about" | "debug">("main");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<ProviderFormData>({ name: "", artistUrl: "", albumUrl: "", trackUrl: "" });
@@ -204,7 +176,6 @@ export function SettingsPanel({
 
         <div className="settings-tabs">
           <button className={`settings-tab ${settingsTab === "main" ? "active" : ""}`} onClick={() => setSettingsTab("main")}>Main</button>
-          <button className={`settings-tab ${settingsTab === "collections" ? "active" : ""}`} onClick={() => setSettingsTab("collections")}>Collections</button>
           <button className={`settings-tab ${settingsTab === "providers" ? "active" : ""}`} onClick={() => setSettingsTab("providers")}>Providers</button>
           <button className={`settings-tab ${settingsTab === "about" ? "active" : ""}`} onClick={() => setSettingsTab("about")}>About</button>
           <button className={`settings-tab ${settingsTab === "debug" ? "active" : ""}`} onClick={() => { setSettingsTab("debug"); onFetchBackendTimings(); }}>Debug</button>
@@ -225,86 +196,6 @@ export function SettingsPanel({
               />
               <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
             </div>
-            <button className="add-folder-btn" onClick={onClearImageFailures}>
-              Retry Failed Image Downloads
-            </button>
-          </div>
-        )}
-
-        {settingsTab === "collections" && (
-          <div className="settings-section">
-            {collections.map((c) => (
-              <div key={c.id} className={`collection-card${!c.enabled ? " collection-card-disabled" : ""}`}>
-                <div className="collection-card-header">
-                  <button
-                    className={`collection-enable-toggle ${c.enabled ? "collection-enable-toggle-on" : ""}`}
-                    onClick={() => onToggleCollectionEnabled(c)}
-                    title={c.enabled ? "Disable" : "Enable"}
-                  >
-                    {c.enabled ? "On" : "Off"}
-                  </button>
-                  <span className={`collection-kind collection-kind-${c.kind}`}>
-                    {collectionKindLabel(c.kind)}
-                  </span>
-                  <span className="collection-card-name" title={c.path || c.url || c.name}>
-                    {c.name}
-                  </span>
-                  <button
-                    className="collection-action collection-edit"
-                    onClick={() => setEditingCollection(c)}
-                    title="Edit"
-                  >
-                    {"\u270E"}
-                  </button>
-                  <button
-                    className="collection-action collection-resync"
-                    onClick={() => onResyncCollection(c.id)}
-                    title="Resync"
-                  >
-                    {"\u21BB"}
-                  </button>
-                  <button
-                    className="collection-action collection-remove"
-                    onClick={() => onRemoveCollection(c.id)}
-                    title="Remove"
-                  >
-                    {"\u00D7"}
-                  </button>
-                </div>
-                <div className="collection-card-details">
-                  {c.path && <span className="collection-card-detail" title={c.path}>{c.path}</span>}
-                  {c.url && <span className="collection-card-detail">{c.url}</span>}
-                  {c.last_synced_at && (
-                    <span className="collection-card-detail">
-                      Synced {formatTimeAgo(c.last_synced_at)}
-                      {c.last_sync_duration_secs != null && <> in {formatSyncDuration(c.last_sync_duration_secs)}</>}
-                    </span>
-                  )}
-                  {c.auto_update && (
-                    <span className="collection-card-detail">Auto-update every {c.auto_update_interval_mins < 60 ? `${c.auto_update_interval_mins}m` : `${c.auto_update_interval_mins / 60}h`}</span>
-                  )}
-                </div>
-              </div>
-            ))}
-            <button className="add-folder-btn" onClick={onAddFolder}>
-              + Add Folder
-            </button>
-            <button className="add-folder-btn" onClick={onShowAddServer}>
-              + Add Server
-            </button>
-            <button className="add-folder-btn" onClick={onShowAddTidal}>
-              + Add TIDAL
-            </button>
-            {import.meta.env.DEV && (
-              <button className="add-folder-btn" onClick={onSeedDatabase}>
-                Seed Test Data
-              </button>
-            )}
-            {import.meta.env.DEV && (
-              <button className="add-folder-btn" onClick={onClearDatabase} disabled={clearing}>
-                {clearing ? "Clearing..." : "Clear Database"}
-              </button>
-            )}
           </div>
         )}
 
@@ -457,23 +348,25 @@ export function SettingsPanel({
 
         {settingsTab === "debug" && (
           <div className="settings-section">
+            <button className="add-folder-btn" onClick={onClearImageFailures} style={{ marginBottom: 16 }}>
+              Retry Failed Image Downloads
+            </button>
+            {import.meta.env.DEV && (
+              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                <button className="add-folder-btn" onClick={onSeedDatabase}>
+                  Seed Test Data
+                </button>
+                <button className="add-folder-btn" onClick={onClearDatabase} disabled={clearing}>
+                  {clearing ? "Clearing..." : "Clear Database"}
+                </button>
+              </div>
+            )}
             <TimingTable title="Backend" entries={backendTimings} />
             <TimingTable title="Frontend" entries={frontendTimings} />
           </div>
         )}
 
       </div>
-
-      {editingCollection && (
-        <EditCollectionModal
-          collection={editingCollection}
-          onSave={(id, name, autoUpdate, autoUpdateIntervalMins, enabled) => {
-            onUpdateCollection(id, name, autoUpdate, autoUpdateIntervalMins, enabled);
-            setEditingCollection(null);
-          }}
-          onClose={() => setEditingCollection(null)}
-        />
-      )}
     </div>
   );
 }

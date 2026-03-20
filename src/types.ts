@@ -54,9 +54,10 @@ export interface Collection {
   auto_update_interval_mins: number;
   enabled: boolean;
   last_sync_duration_secs: number | null;
+  last_sync_error: string | null;
 }
 
-export type View = "all" | "artists" | "albums" | "tags" | "liked" | "history" | "tidal";
+export type View = "all" | "artists" | "albums" | "tags" | "liked" | "history" | "tidal" | "collections";
 
 export interface PlayHistoryEntry {
   id: number;

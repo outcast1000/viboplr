@@ -61,6 +61,7 @@ pub struct Collection {
     pub auto_update_interval_mins: i64,
     pub enabled: bool,
     pub last_sync_duration_secs: Option<f64>,
+    pub last_sync_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
