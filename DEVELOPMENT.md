@@ -73,14 +73,6 @@ npx tsc --noEmit
 
 ## Scripts
 
-### Version bump
-
-`scripts/bump.mjs` updates the version in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` in one command:
-
-```bash
-npm run bump 0.2.0
-```
-
 ## Updating a Feature Branch from Main
 
 If you're working on a feature branch and need to pull in the latest changes from `main`:
@@ -115,13 +107,6 @@ git commit -m "release: vX.Y.Z"
 git tag vX.Y.Z
 git push origin main --tags
 ```
-
-### What the CI builds
-
-| Platform | Runner | Artifacts |
-|----------|--------|-----------|
-| macOS (ARM) | `macos-latest` | `.dmg` |
-| Windows | `windows-latest` | `.msi`, `.exe` |
 
 ### MacOS unsigned release
 
