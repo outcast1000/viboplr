@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Features — Viboplr</title>
+  <meta name="description" content="Gapless playback, full-text search, server integration, mini player, keyboard shortcuts, and more.">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <svg viewBox="0 0 512 512" width="34" height="34" aria-hidden="true">
+          <defs><linearGradient id="navGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FF6B6B"/><stop offset="100%" stop-color="#E91E8A"/></linearGradient></defs>
+          <path d="M 110,90 L 256,410 L 402,90" fill="none" stroke="url(#navGrad)" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+          <line x1="30" y1="165" x2="100" y2="165" stroke="#FF5C7A" stroke-width="16" stroke-linecap="round" opacity="0.85"/>
+          <line x1="50" y1="230" x2="118" y2="230" stroke="#F63D88" stroke-width="14" stroke-linecap="round" opacity="0.55"/>
+          <line x1="78" y1="295" x2="140" y2="295" stroke="#EE2690" stroke-width="11" stroke-linecap="round" opacity="0.3"/>
+          <line x1="412" y1="165" x2="482" y2="165" stroke="#FF5C7A" stroke-width="16" stroke-linecap="round" opacity="0.85"/>
+          <line x1="394" y1="230" x2="462" y2="230" stroke="#F63D88" stroke-width="14" stroke-linecap="round" opacity="0.55"/>
+          <line x1="372" y1="295" x2="434" y2="295" stroke="#EE2690" stroke-width="11" stroke-linecap="round" opacity="0.3"/>
+        </svg>
+        Viboplr
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="index.html" class="nav-link">Home</a>
+        <a href="features.html" class="nav-link active">Features</a>
+        <a href="download.html" class="nav-link">Download</a>
+        <a href="download.html" class="nav-cta">Get Viboplr</a>
+      </div>
+      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Page Header -->
+  <section class="page-header">
+    <div class="container">
+      <h1 class="animate-in">Everything you need.<br><span class="gradient-text">Nothing you don't.</span></h1>
+      <p class="animate-in animate-delay-1">Built for speed, designed for music lovers, engineered to stay out of your way.</p>
+    </div>
+  </section>
+
+  <!-- Feature 1: Playback -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Playback</span>
+          <h2>Hear it the way it was meant to be heard</h2>
+          <p>Gapless playback for seamless album listening. Crossfading from 0 to 10 seconds between tracks. Native codec support for audio and video files &mdash; no transcoding, no plugins.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Gapless playback across albums</div>
+            <div class="feature-list-item">Adjustable crossfade (0&ndash;10s)</div>
+            <div class="feature-list-item">Audio &amp; video playback with native codecs</div>
+            <div class="feature-list-item">Sub-200ms playback latency</div>
+          </div>
+        </div>
+        <div class="feature-image">
+          <span>Playback screenshot &mdash; coming soon</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature 2: Library Management -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Library</span>
+          <h2>Your collection, always in sync</h2>
+          <p>Point Viboplr at your music folders and it handles the rest. Background scanning reads metadata intelligently, and real-time file watching catches every change the moment it happens.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Background folder scanning</div>
+            <div class="feature-list-item">Smart metadata extraction with fallback parsing</div>
+            <div class="feature-list-item">Real-time file watching for instant updates</div>
+            <div class="feature-list-item">Genre tags from file metadata</div>
+          </div>
+        </div>
+        <div class="feature-image">
+          <span>Library screenshot &mdash; coming soon</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature 3: Search -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Search</span>
+          <h2>Find anything in milliseconds</h2>
+          <p>FTS5-powered full-text search across artists, albums, tracks, and tags. Accent-insensitive and forgiving &mdash; find what you want even when you can't remember the exact spelling.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Full-text search with FTS5</div>
+            <div class="feature-list-item">Accent &amp; case insensitive</div>
+            <div class="feature-list-item">Sub-100ms results across entire library</div>
+            <div class="feature-list-item">Search by artist, album, track, or tag</div>
+          </div>
+        </div>
+        <div class="feature-image">
+          <span>Search screenshot &mdash; coming soon</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature 4: Server Integration -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Servers</span>
+          <h2>Local meets streaming, seamlessly</h2>
+          <p>Connect to Subsonic and Navidrome servers alongside your local folders. Add TIDAL Hi-Fi for lossless streaming. One unified library, one player, zero friction.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Subsonic &amp; Navidrome support</div>
+            <div class="feature-list-item">TIDAL Hi-Fi integration</div>
+            <div class="feature-list-item">Unified library across all sources</div>
+            <div class="feature-list-item">Seamless switching between local &amp; remote</div>
+          </div>
+        </div>
+        <div class="feature-image">
+          <span>Server settings screenshot &mdash; coming soon</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature 5: Mini Player -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Mini Player</span>
+          <h2>Always within reach</h2>
+          <p>A compact, always-on-top mini player that stays visible while you work. Draggable, auto-resizing, and just the right amount of information at a glance.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Always-on-top mode</div>
+            <div class="feature-list-item">Draggable &amp; compact</div>
+            <div class="feature-list-item">Auto-resizing to fit content</div>
+            <div class="feature-list-item">Full playback controls</div>
+          </div>
+        </div>
+        <div class="feature-image">
+          <span>Mini player screenshot &mdash; coming soon</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature 6: Keyboard Shortcuts -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Keyboard</span>
+          <h2>Built for power users</h2>
+          <p>Over 35 keyboard shortcuts for everything from playback to navigation. Never leave the keyboard &mdash; control your music as fast as you can think.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">35+ keyboard shortcuts</div>
+            <div class="feature-list-item">Playback, volume, navigation, search</div>
+            <div class="feature-list-item">Discoverable via shortcut overlay</div>
+            <div class="feature-list-item">Vim-inspired navigation keys</div>
+          </div>
+        </div>
+        <div class="feature-image">
+          <span>Shortcuts screenshot &mdash; coming soon</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature 7: Smart Discovery -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Discovery</span>
+          <h2>Rediscover your own music</h2>
+          <p>Smart auto-continue picks the next track using weighted strategies &mdash; play history, liked tracks, genre affinity, and more. Your library, surfaced in new ways.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Auto-continue with smart selection</div>
+            <div class="feature-list-item">Weighted playback strategies</div>
+            <div class="feature-list-item">Play history tracking</div>
+            <div class="feature-list-item">Liked tracks &amp; favorites</div>
+          </div>
+        </div>
+        <div class="feature-image">
+          <span>Discovery screenshot &mdash; coming soon</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom CTA -->
+  <section class="bottom-cta">
+    <div class="container reveal">
+      <h2>Ready to try <span class="gradient-text">Viboplr</span>?</h2>
+      <p>Free, fast, and built for music lovers.</p>
+      <div class="hero-buttons">
+        <a href="download.html" class="btn btn-primary btn-lg">Download Now</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-left">&copy; 2026 Viboplr. All rights reserved.</div>
+        <div class="footer-right">
+          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
+          <span class="footer-link">Built with Tauri + React</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+  <!-- Cloudflare Web Analytics -->
+  <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "YOUR_CF_TOKEN"}'></script>
+</body>
+</html>
