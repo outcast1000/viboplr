@@ -196,9 +196,6 @@ export function SettingsPanel({
               />
               <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
             </div>
-            <button className="add-folder-btn" onClick={onClearImageFailures}>
-              Retry Failed Image Downloads
-            </button>
           </div>
         )}
 
@@ -351,6 +348,9 @@ export function SettingsPanel({
 
         {settingsTab === "debug" && (
           <div className="settings-section">
+            <button className="add-folder-btn" onClick={onClearImageFailures} style={{ marginBottom: 16 }}>
+              Retry Failed Image Downloads
+            </button>
             {import.meta.env.DEV && (
               <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
                 <button className="add-folder-btn" onClick={onSeedDatabase}>
