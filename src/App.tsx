@@ -880,20 +880,8 @@ function App() {
     }
   }
 
-  async function handleRemoveCollection(collectionId: number) {
-    await invoke("remove_collection", { collectionId });
-    library.loadLibrary();
-    library.loadTracks();
-  }
-
   async function handleResyncCollection(collectionId: number) {
     await invoke("resync_collection", { collectionId });
-  }
-
-  async function handleUpdateCollection(collectionId: number, name: string, autoUpdate: boolean, autoUpdateIntervalMins: number, enabled: boolean) {
-    await invoke("update_collection", { collectionId, name, autoUpdate, autoUpdateIntervalMins, enabled });
-    library.loadLibrary();
-    library.loadTracks();
   }
 
   async function handleToggleCollectionEnabled(collection: Collection) {
@@ -1094,16 +1082,8 @@ function App() {
 
       {showSettings && (
         <SettingsPanel
-          collections={library.collections}
           searchProviders={searchProviders}
           onClose={() => setShowSettings(false)}
-          onAddFolder={handleAddFolder}
-          onShowAddServer={() => { setShowAddServer(true); setShowSettings(false); }}
-          onShowAddTidal={() => { setShowAddTidal(true); setShowSettings(false); }}
-          onRemoveCollection={handleRemoveCollection}
-          onResyncCollection={handleResyncCollection}
-          onUpdateCollection={handleUpdateCollection}
-          onToggleCollectionEnabled={handleToggleCollectionEnabled}
           onSeedDatabase={handleSeedDatabase}
           onClearDatabase={handleClearDatabase}
           clearing={clearing}
