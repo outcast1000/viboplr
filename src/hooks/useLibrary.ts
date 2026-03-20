@@ -34,6 +34,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [loadingMore, setLoadingMore] = useState(false);
   const PAGE_SIZE = 100;
   const tracksRef = useRef<Track[]>([]);
+  const allAlbumsRef = useRef<Album[]>([]);
 
   // Sort state
   const [sortField, setSortField] = useState<SortField | null>(null);
