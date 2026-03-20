@@ -274,6 +274,11 @@ impl Database {
             conn.execute("UPDATE db_version SET version = 3 WHERE rowid = 1", [])?;
         }
 
+        if version < 4 {
+            let _ = conn.execute_batch("ALTER TABLE collections ADD COLUMN last_sync_error TEXT");
+            conn.execute("UPDATE db_version SET version = 4 WHERE rowid = 1", [])?;
+        }
+
         drop(conn);
         if migrated {
             crate::timing::timer().time("db: recompute_counts", || self.recompute_counts())?;
@@ -722,6 +727,7 @@ impl Database {
             auto_update_interval_mins: 60,
             enabled: true,
             last_sync_duration_secs: None,
+            last_sync_error: None,
         })
     }
 
@@ -748,7 +754,7 @@ impl Database {
     pub fn get_collections(&self) -> SqlResult<Vec<Collection>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs FROM collections ORDER BY name"
+            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error FROM collections ORDER BY name"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Collection {
@@ -763,6 +769,7 @@ impl Database {
                 auto_update_interval_mins: row.get::<_, i64>(8).unwrap_or(60),
                 enabled: row.get::<_, i32>(9).unwrap_or(1) != 0,
                 last_sync_duration_secs: row.get(10)?,
+                last_sync_error: row.get(11)?,
             })
         })?;
         rows.collect()
@@ -771,7 +778,7 @@ impl Database {
     pub fn get_collection_by_id(&self, collection_id: i64) -> SqlResult<Collection> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs FROM collections WHERE id = ?1",
+            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error FROM collections WHERE id = ?1",
             params![collection_id],
             |row| {
                 Ok(Collection {
@@ -786,6 +793,7 @@ impl Database {
                     auto_update_interval_mins: row.get::<_, i64>(8).unwrap_or(60),
                     enabled: row.get::<_, i32>(9).unwrap_or(1) != 0,
                     last_sync_duration_secs: row.get(10)?,
+                    last_sync_error: row.get(11)?,
                 })
             },
         )
@@ -827,8 +835,26 @@ impl Database {
     pub fn update_collection_synced(&self, collection_id: i64, duration_secs: f64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE collections SET last_synced_at = strftime('%s', 'now'), last_sync_duration_secs = ?2 WHERE id = ?1",
+            "UPDATE collections SET last_synced_at = strftime('%s', 'now'), last_sync_duration_secs = ?2, last_sync_error = NULL WHERE id = ?1",
             params![collection_id, duration_secs],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_collection_sync_error(&self, collection_id: i64, error: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE collections SET last_sync_error = ?2 WHERE id = ?1",
+            params![collection_id, error],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_collection_sync_error(&self, collection_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE collections SET last_sync_error = NULL WHERE id = ?1",
+            params![collection_id],
         )?;
         Ok(())
     }

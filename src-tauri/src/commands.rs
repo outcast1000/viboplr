@@ -147,6 +147,7 @@ pub fn add_collection(
                     }
                     Err(e) => {
                         log::error!("Sync failed for collection {}: {}", collection_id, e);
+                        let _ = db.update_collection_sync_error(collection_id, &e);
                         let _ = app.emit(
                             "sync-error",
                             serde_json::json!({ "collectionId": collection_id, "error": e }),
@@ -294,6 +295,11 @@ pub fn resync_collection(
                     }
                     Err(e) => {
                         log::error!("Resync failed for collection {}: {}", collection_id, e);
+                        let _ = db.update_collection_sync_error(collection_id, &e);
+                        let _ = app.emit(
+                            "sync-error",
+                            serde_json::json!({ "collectionId": collection_id, "error": e }),
+                        );
                     }
                 }
             });
@@ -809,7 +815,7 @@ pub fn test_collection_connection(
         .get_collection_by_id(collection_id)
         .map_err(|e| e.to_string())?;
 
-    match collection.kind.as_str() {
+    let result = match collection.kind.as_str() {
         "subsonic" => {
             let creds = state
                 .db
@@ -837,7 +843,14 @@ pub fn test_collection_connection(
             Ok(format!("Connected (API v{})", version))
         }
         _ => Err(format!("Connection test not supported for '{}' collections", collection.kind)),
+    };
+
+    match &result {
+        Ok(_) => { let _ = state.db.clear_collection_sync_error(collection_id); }
+        Err(e) => { let _ = state.db.update_collection_sync_error(collection_id, e); }
     }
+
+    result
 }
 
 #[tauri::command]

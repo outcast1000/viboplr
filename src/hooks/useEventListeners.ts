@@ -82,11 +82,11 @@ export function useEventListeners(opts: EventListenerOptions) {
       loadLibrary();
       loadTracks();
     });
-    const unlisten3 = listen<string>("sync-error", (event) => {
+    const unlisten3 = listen<{ collectionId: number; error: string }>("sync-error", (event) => {
       syncStarted = false;
       setSyncing(false);
-      addLog("Sync error: " + event.payload);
-      console.error("Sync error:", event.payload);
+      addLog("Sync error: " + event.payload.error);
+      console.error("Sync error:", event.payload.error);
       loadLibrary();
       loadTracks();
     });
