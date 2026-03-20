@@ -319,7 +319,6 @@ function App() {
         if (sq) library.setSearchQuery(sq);
         if (sa !== undefined && sa !== null) {
           library.setSelectedArtist(sa);
-          invoke<Album[]>("get_albums", { artistId: sa }).then(library.setAlbums);
         }
         if (sal !== undefined && sal !== null) library.setSelectedAlbum(sal);
         if (st !== undefined && st !== null) library.setSelectedTag(st);
@@ -1363,11 +1362,11 @@ function App() {
                   </div>
                 </div>
 
-                {albums.length > 0 && (
+                {library.artistAlbums.length > 0 && (
                   <div className="artist-section">
                     <div className="section-title">Albums</div>
                     <div className="album-grid">
-                      {albums.map((a) => (
+                      {library.artistAlbums.map((a) => (
                         <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
                           <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={fetchAlbumImageOnDemand} />
                           <div className="album-card-body">

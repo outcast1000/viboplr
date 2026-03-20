@@ -23,7 +23,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [trackCount, setTrackCount] = useState(0);
   const [albumCount, setAlbumCount] = useState(0);
-  const allAlbumsRef = useRef<Album[]>([]);
   const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<number | null>(null);
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
@@ -60,6 +59,12 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [tagSortDir, setTagSortDir] = useState<SortDir>("asc");
   const [tagShuffleKey, setTagShuffleKey] = useState(0);
 
+  // Artist-filtered albums for artist detail view (derived, never mutates albums state)
+  const artistAlbums = useMemo(() => {
+    if (selectedArtist === null) return [];
+    return albums.filter(a => a.artist_id === selectedArtist);
+  }, [albums, selectedArtist]);
+
   // Persist state
   useEffect(() => { if (restoredRef.current) store.set("view", view); }, [view]);
   useEffect(() => { if (restoredRef.current) store.set("searchQuery", searchQuery); }, [searchQuery]);
@@ -86,7 +91,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
         invoke<number>("get_track_count"),
       ]);
       setArtists(a);
-      allAlbumsRef.current = al;
       setAlbums(al);
       setAlbumCount(al.length);
       setCollections(c);
@@ -443,6 +447,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     sortedTracks,
     handleSort, sortIndicator,
     trackColumns, setTrackColumns,
+    artistAlbums,
     handleArtistClick, handleAlbumClick, handleShowAll, handleShowLiked,
     loadLibrary, loadTracks,
     hasMore, loadingMore, loadMore,
