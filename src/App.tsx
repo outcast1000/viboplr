@@ -7,10 +7,12 @@ import { getVersion } from "@tauri-apps/api/app";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 
 import type { Album, Collection, Track, View, ColumnConfig, SortField, SortDir } from "./types";
-import { isVideoTrack, getInitials } from "./utils";
+import { isVideoTrack, getInitials, parseSubsonicUrl } from "./utils";
 import { store } from "./store";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
@@ -96,6 +98,7 @@ function App() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [showAddServer, setShowAddServer] = useState(false);
   const [showAddTidal, setShowAddTidal] = useState(false);
+  const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [sessionLog, setSessionLog] = useState<{ time: Date; message: string }[]>([]);
   const [statusHint, setStatusHint] = useState<string | null>(null);
@@ -268,6 +271,28 @@ function App() {
     const handler = (e: MouseEvent) => { e.preventDefault(); };
     document.addEventListener("contextmenu", handler);
     return () => document.removeEventListener("contextmenu", handler);
+  }, []);
+
+  // Listen for deep link events (subsonic:// URLs)
+  useEffect(() => {
+    function handleDeepLink(urls: string[]) {
+      for (const raw of urls) {
+        const parsed = parseSubsonicUrl(raw);
+        if (parsed) {
+          setDeepLinkServer({ url: parsed.serverUrl, username: parsed.username, password: parsed.password });
+          setShowAddServer(true);
+          break;
+        }
+      }
+    }
+    const unlistenOpen = onOpenUrl(handleDeepLink);
+    const unlistenEvent = listen<string>("deep-link-received", (event) => {
+      handleDeepLink([event.payload]);
+    });
+    return () => {
+      unlistenOpen.then(f => f());
+      unlistenEvent.then(f => f());
+    };
   }, []);
 
   // Load app version and auto-check for updates on startup
@@ -1050,9 +1075,13 @@ function App() {
         <AddServerModal
           onAdded={() => {
             setShowAddServer(false);
+            setDeepLinkServer(null);
             library.loadLibrary();
           }}
-          onClose={() => setShowAddServer(false)}
+          onClose={() => { setShowAddServer(false); setDeepLinkServer(null); }}
+          initialUrl={deepLinkServer?.url}
+          initialUsername={deepLinkServer?.username}
+          initialPassword={deepLinkServer?.password}
         />
       )}
 
@@ -1072,7 +1101,7 @@ function App() {
           searchProviders={searchProviders}
           onClose={() => setShowSettings(false)}
           onAddFolder={handleAddFolder}
-          onShowAddServer={() => { setShowAddServer(true); setShowSettings(false); }}
+          onShowAddServer={() => { setDeepLinkServer(null); setShowAddServer(true); setShowSettings(false); }}
           onShowAddTidal={() => { setShowAddTidal(true); setShowSettings(false); }}
           onRemoveCollection={handleRemoveCollection}
           onResyncCollection={handleResyncCollection}

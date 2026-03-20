@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatDuration, isVideoTrack, getInitials, tidalCoverUrl, collectionKindLabel } from "../utils";
+import { formatDuration, isVideoTrack, getInitials, tidalCoverUrl, collectionKindLabel, parseSubsonicUrl } from "../utils";
 import type { Track } from "../types";
 
 function makeTrack(overrides: Partial<Track> = {}): Track {
@@ -85,5 +85,51 @@ describe("collectionKindLabel", () => {
 
   it("returns raw kind for unknown", () => {
     expect(collectionKindLabel("unknown")).toBe("unknown");
+  });
+});
+
+describe("parseSubsonicUrl", () => {
+  it("parses user:pass@host", () => {
+    const result = parseSubsonicUrl("subsonic://testuser:testpass@demo.navidrome.org");
+    expect(result).toEqual({
+      serverUrl: "https://demo.navidrome.org",
+      username: "testuser",
+      password: "testpass",
+    });
+  });
+
+  it("parses with port and path", () => {
+    const result = parseSubsonicUrl("subsonic://user:pass@myserver.com:4533/music");
+    expect(result).toEqual({
+      serverUrl: "https://myserver.com:4533/music",
+      username: "user",
+      password: "pass",
+    });
+  });
+
+  it("decodes percent-encoded credentials", () => {
+    const result = parseSubsonicUrl("subsonic://user%40domain:p%40ss%3Aword@host.com");
+    expect(result).toEqual({
+      serverUrl: "https://host.com",
+      username: "user@domain",
+      password: "p@ss:word",
+    });
+  });
+
+  it("returns null for missing username", () => {
+    expect(parseSubsonicUrl("subsonic://host.com")).toBeNull();
+  });
+
+  it("returns null for invalid URL", () => {
+    expect(parseSubsonicUrl("not a url")).toBeNull();
+  });
+
+  it("handles empty password", () => {
+    const result = parseSubsonicUrl("subsonic://user:@host.com");
+    expect(result).toEqual({
+      serverUrl: "https://host.com",
+      username: "user",
+      password: "",
+    });
   });
 });

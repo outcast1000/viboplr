@@ -23,6 +23,24 @@ export function tidalCoverUrl(coverId: string | null, size = 320): string | null
   return `https://resources.tidal.com/images/${path}/${size}x${size}.jpg`;
 }
 
+export function parseSubsonicUrl(raw: string): { serverUrl: string; username: string; password: string } | null {
+  try {
+    // Replace subsonic:// with https:// so URL parser can handle it
+    const normalized = raw.replace(/^subsonic:\/\//, "https://");
+    const url = new URL(normalized);
+    const username = decodeURIComponent(url.username);
+    const password = decodeURIComponent(url.password);
+    if (!username) return null;
+    // Reconstruct server URL without credentials
+    url.username = "";
+    url.password = "";
+    const serverUrl = url.toString().replace(/\/$/, "");
+    return { serverUrl, username, password };
+  } catch {
+    return null;
+  }
+}
+
 export function collectionKindLabel(kind: string): string {
   switch (kind) {
     case "local": return "Local";
