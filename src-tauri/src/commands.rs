@@ -797,6 +797,61 @@ pub fn get_startup_timings() -> Vec<crate::timing::TimingEntry> {
     crate::timing::timer().get_entries()
 }
 
+// --- Connection test commands ---
+
+#[tauri::command]
+pub fn test_collection_connection(
+    state: State<'_, AppState>,
+    collection_id: i64,
+) -> Result<String, String> {
+    let collection = state
+        .db
+        .get_collection_by_id(collection_id)
+        .map_err(|e| e.to_string())?;
+
+    match collection.kind.as_str() {
+        "subsonic" => {
+            let creds = state
+                .db
+                .get_collection_credentials(collection_id)
+                .map_err(|e| e.to_string())?;
+            let client = SubsonicClient::from_stored(
+                &creds.url,
+                &creds.username,
+                &creds.password_token,
+                creds.salt.as_deref(),
+                &creds.auth_method,
+            );
+            client.ping().map_err(|e| format!("{}", e))?;
+            Ok("Connected successfully".to_string())
+        }
+        "tidal" => {
+            let url = collection.url.ok_or("Collection has no URL")?;
+            let api_url = format!("{}/", url.trim_end_matches('/'));
+            let resp = reqwest::blocking::get(&api_url)
+                .map_err(|e| format!("HTTP error: {}", e))?;
+            let body = resp.text().map_err(|e| format!("Failed to read response: {}", e))?;
+            let json: serde_json::Value =
+                serde_json::from_str(&body).map_err(|e| format!("JSON parse error: {}", e))?;
+            let version = json["version"].as_str().unwrap_or("unknown");
+            Ok(format!("Connected (API v{})", version))
+        }
+        _ => Err(format!("Connection test not supported for '{}' collections", collection.kind)),
+    }
+}
+
+#[tauri::command]
+pub fn subsonic_test_connection(
+    url: String,
+    username: String,
+    password: String,
+) -> Result<String, String> {
+    log::info!("subsonic_test_connection called with url: {}", url);
+    SubsonicClient::new(&url, &username, &password)
+        .map_err(|e| format!("{}", e))?;
+    Ok("Connected successfully".to_string())
+}
+
 // --- TIDAL commands ---
 
 #[tauri::command]

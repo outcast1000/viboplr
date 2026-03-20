@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { Collection } from "../types";
 import { collectionKindLabel } from "../utils";
 
@@ -23,6 +24,26 @@ export function EditCollectionModal({ collection, onSave, onClose }: EditCollect
   const [autoUpdate, setAutoUpdate] = useState(collection.auto_update);
   const [intervalMins, setIntervalMins] = useState(collection.auto_update_interval_mins);
   const [enabled, setEnabled] = useState(collection.enabled);
+  const [testing, setTesting] = useState(false);
+  const [testStatus, setTestStatus] = useState<string | null>(null);
+
+  const canTest = collection.kind === "subsonic" || collection.kind === "tidal";
+
+  async function handleTest() {
+    if (!canTest) return;
+    setTesting(true);
+    setTestStatus(null);
+    try {
+      const result = await invoke<string>("test_collection_connection", {
+        collectionId: collection.id,
+      });
+      setTestStatus(result);
+    } catch (e) {
+      setTestStatus(`Failed: ${e}`);
+    } finally {
+      setTesting(false);
+    }
+  }
 
   function formatDuration(secs: number): string {
     if (secs < 60) return `${secs.toFixed(1)}s`;
@@ -126,8 +147,18 @@ export function EditCollectionModal({ collection, onSave, onClose }: EditCollect
           </div>
         )}
 
+        {testStatus && (
+          <div className={`modal-status ${testStatus.startsWith("Connected") ? "modal-status-ok" : "modal-status-err"}`}>
+            {testStatus}
+          </div>
+        )}
         <div className="modal-actions">
           <button className="modal-btn modal-btn-cancel" onClick={onClose}>Cancel</button>
+          {canTest && (
+            <button className="modal-btn modal-btn-cancel" onClick={handleTest} disabled={testing}>
+              {testing ? "Testing..." : "Test Connection"}
+            </button>
+          )}
           <button className="modal-btn modal-btn-confirm" onClick={handleSave}>Save</button>
         </div>
       </div>

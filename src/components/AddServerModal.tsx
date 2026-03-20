@@ -1,11 +1,59 @@
+import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+
 interface AddServerModalProps {
-  form: { name: string; url: string; username: string; password: string };
-  onChange: (form: { name: string; url: string; username: string; password: string }) => void;
-  onConnect: () => void;
+  onAdded: () => void;
   onClose: () => void;
 }
 
-export function AddServerModal({ form, onChange, onConnect, onClose }: AddServerModalProps) {
+export function AddServerModal({ onAdded, onClose }: AddServerModalProps) {
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  const canTest = url.trim() && username.trim() && password.trim();
+
+  async function handleTest() {
+    if (!canTest) return;
+    setTesting(true);
+    setStatus(null);
+    try {
+      await invoke<string>("subsonic_test_connection", {
+        url: url.trim(),
+        username: username.trim(),
+        password: password.trim(),
+      });
+      setStatus("Connected successfully");
+    } catch (e) {
+      setStatus(`Failed: ${e}`);
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function handleConnect() {
+    if (!canTest) return;
+    try {
+      await invoke("add_collection", {
+        kind: "subsonic",
+        name: name.trim() || url.trim(),
+        url: url.trim(),
+        username: username.trim(),
+        password: password.trim(),
+      });
+      onAdded();
+    } catch (e) {
+      alert("Failed to connect: " + e);
+    }
+  }
+
+  function clearStatus() {
+    setStatus(null);
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -15,8 +63,8 @@ export function AddServerModal({ form, onChange, onConnect, onClose }: AddServer
           <input
             type="text"
             placeholder="My Server"
-            value={form.name}
-            onChange={(e) => onChange({ ...form, name: e.target.value })}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
           />
         </div>
         <div className="modal-field">
@@ -24,31 +72,39 @@ export function AddServerModal({ form, onChange, onConnect, onClose }: AddServer
           <input
             type="text"
             placeholder="https://music.example.com"
-            value={form.url}
-            onChange={(e) => onChange({ ...form, url: e.target.value })}
+            value={url}
+            onChange={(e) => { setUrl(e.target.value); clearStatus(); }}
           />
         </div>
         <div className="modal-field">
           <label>Username</label>
           <input
             type="text"
-            value={form.username}
-            onChange={(e) => onChange({ ...form, username: e.target.value })}
+            value={username}
+            onChange={(e) => { setUsername(e.target.value); clearStatus(); }}
           />
         </div>
         <div className="modal-field">
           <label>Password</label>
           <input
             type="password"
-            value={form.password}
-            onChange={(e) => onChange({ ...form, password: e.target.value })}
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); clearStatus(); }}
           />
         </div>
+        {status && (
+          <div className={`modal-status ${status.startsWith("Connected") ? "modal-status-ok" : "modal-status-err"}`}>
+            {status}
+          </div>
+        )}
         <div className="modal-actions">
           <button className="modal-btn modal-btn-cancel" onClick={onClose}>
             Cancel
           </button>
-          <button className="modal-btn modal-btn-confirm" onClick={onConnect}>
+          <button className="modal-btn modal-btn-cancel" onClick={handleTest} disabled={testing || !canTest}>
+            {testing ? "Testing..." : "Test"}
+          </button>
+          <button className="modal-btn modal-btn-confirm" onClick={handleConnect} disabled={!canTest}>
             Connect
           </button>
         </div>

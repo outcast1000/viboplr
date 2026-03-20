@@ -96,7 +96,6 @@ function App() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [showAddServer, setShowAddServer] = useState(false);
   const [showAddTidal, setShowAddTidal] = useState(false);
-  const [serverForm, setServerForm] = useState({ name: "", url: "", username: "", password: "" });
   const [showSettings, setShowSettings] = useState(false);
   const [sessionLog, setSessionLog] = useState<{ time: Date; message: string }[]>([]);
   const [statusHint, setStatusHint] = useState<string | null>(null);
@@ -792,24 +791,6 @@ function App() {
     }
   }
 
-  async function handleAddServer() {
-    if (!serverForm.url || !serverForm.username || !serverForm.password) return;
-    try {
-      await invoke("add_collection", {
-        kind: "subsonic",
-        name: serverForm.name || serverForm.url,
-        url: serverForm.url,
-        username: serverForm.username,
-        password: serverForm.password,
-      });
-      setShowAddServer(false);
-      setServerForm({ name: "", url: "", username: "", password: "" });
-      library.loadLibrary();
-    } catch (e) {
-      console.error("Failed to add server:", e);
-      alert("Failed to connect: " + e);
-    }
-  }
 
   async function handleSeedDatabase() {
     try {
@@ -1067,9 +1048,10 @@ function App() {
 
       {showAddServer && (
         <AddServerModal
-          form={serverForm}
-          onChange={setServerForm}
-          onConnect={handleAddServer}
+          onAdded={() => {
+            setShowAddServer(false);
+            library.loadLibrary();
+          }}
           onClose={() => setShowAddServer(false)}
         />
       )}
