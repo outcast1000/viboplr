@@ -12,7 +12,7 @@ export const DEFAULT_TRACK_COLUMNS: ColumnConfig[] = ALL_COLUMN_IDS.map(id => ({
   visible: DEFAULT_VISIBLE.has(id),
 }));
 
-export function useLibrary(restoredRef: React.RefObject<boolean>) {
+export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNavigate?: () => void) {
   const [view, setView] = useState<View>("all");
   const [artists, setArtists] = useState<Artist[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -185,10 +185,12 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     }
   }, [albums, selectedArtist]);
 
-  // Restore full album list immediately when selectedArtist is cleared (fixes #4, #12)
+  // Load artist-specific albums or restore full list (fixes #4, #11, #12)
   useEffect(() => {
     if (selectedArtist === null) {
       setAlbums(allAlbumsRef.current);
+    } else {
+      invoke<Album[]>("get_albums", { artistId: selectedArtist }).then(setAlbums);
     }
   }, [selectedArtist]);
 
@@ -381,15 +383,16 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   }
 
   function handleArtistClick(artistId: number) {
+    onBeforeNavigate?.();
     setSelectedArtist(artistId);
     setSelectedAlbum(null);
     setSelectedTag(null);
     setSearchQuery("");
     setView("artists");
-    invoke<Album[]>("get_albums", { artistId }).then(setAlbums);
   }
 
   function handleAlbumClick(albumId: number, artistId?: number | null) {
+    onBeforeNavigate?.();
     setSelectedAlbum(albumId);
     setSelectedTag(null);
     setSearchQuery("");
@@ -398,7 +401,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
     if (resolvedArtistId) {
       setSelectedArtist(resolvedArtistId);
       setView("artists");
-      invoke<Album[]>("get_albums", { artistId: resolvedArtistId }).then(setAlbums);
     } else {
       setSelectedArtist(null);
       setView("albums");
@@ -406,6 +408,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   }
 
   function handleShowAll() {
+    onBeforeNavigate?.();
     setView("all");
     setSelectedArtist(null);
     setSelectedAlbum(null);
@@ -414,6 +417,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>) {
   }
 
   function handleShowLiked() {
+    onBeforeNavigate?.();
     setView("liked");
     setSelectedArtist(null);
     setSelectedAlbum(null);
