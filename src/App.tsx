@@ -708,9 +708,13 @@ function App() {
   }, [onEnded]);
 
   // Action handlers
-  function handleTrackContextMenu(e: React.MouseEvent, track: Track) {
+  function handleTrackContextMenu(e: React.MouseEvent, track: Track, selectedTrackIds: Set<number>) {
     e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: !!track.subsonic_id, title: track.title, artistName: track.artist_name } });
+    if (selectedTrackIds.size > 1) {
+      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-track", trackIds: [...selectedTrackIds] } });
+    } else {
+      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: !!track.subsonic_id, title: track.title, artistName: track.artist_name } });
+    }
   }
 
   function handleAlbumContextMenu(e: React.MouseEvent, albumId: number) {
@@ -737,6 +741,10 @@ function App() {
     } else if (target.kind === "artist") {
       const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
       if (artistTracks.length > 0) queueHook.playTracks(artistTracks, 0);
+    } else if (target.kind === "multi-track") {
+      const idSet = new Set(target.trackIds);
+      const selected = sortedTracks.filter(t => idSet.has(t.id));
+      if (selected.length > 0) queueHook.playTracks(selected, 0);
     }
   }
 
@@ -752,6 +760,10 @@ function App() {
     } else if (target.kind === "artist") {
       const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
       queueHook.enqueueTracks(artistTracks);
+    } else if (target.kind === "multi-track") {
+      const idSet = new Set(target.trackIds);
+      const selected = sortedTracks.filter(t => idSet.has(t.id));
+      queueHook.enqueueTracks(selected);
     }
   }
 
