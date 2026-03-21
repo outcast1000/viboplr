@@ -2424,9 +2424,7 @@ body {
 }
 
 .queue-item.queue-current {
-  background: rgba(83, 168, 255, 0.12);
-  border-left: 3px solid var(--accent);
-  padding-left: 13px;
+  background: rgba(83, 168, 255, 0.08);
 }
 
 .queue-item.selected {
