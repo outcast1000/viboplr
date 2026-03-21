@@ -63,13 +63,15 @@ export function useQueue(
     }
   }
 
+  function findDuplicates(newTracks: Track[]): { duplicates: Track[]; unique: Track[] } {
+    const existing = new Set(queue.map(t => t.id));
+    const duplicates = newTracks.filter(t => existing.has(t.id));
+    const unique = newTracks.filter(t => !existing.has(t.id));
+    return { duplicates, unique };
+  }
+
   function enqueueTracks(newTracks: Track[]) {
-    setQueue(prev => {
-      const existing = new Set(prev.map(t => t.id));
-      const toAdd = newTracks.filter(t => !existing.has(t.id));
-      if (toAdd.length === 0) return prev;
-      return [...prev, ...toAdd];
-    });
+    setQueue(prev => [...prev, ...newTracks]);
   }
 
   function playNext(): boolean {
@@ -395,7 +397,7 @@ export function useQueue(
     shufflePosition, setShufflePosition,
     showQueue, setShowQueue,
     queuePanelRef, dragIndexRef,
-    playTracks, enqueueTracks,
+    playTracks, enqueueTracks, findDuplicates,
     playNext, playPrevious,
     removeFromQueue, removeMultiple, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue,
     toggleQueueMode, playNextInQueue, addToQueue, addToQueueAndPlay,

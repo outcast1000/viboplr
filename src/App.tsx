@@ -44,6 +44,7 @@ import { AddTidalModal } from "./components/AddTidalModal";
 import { CollectionsView } from "./components/CollectionsView";
 import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
 import { StatusBar } from "./components/StatusBar";
+import { DuplicateWarningModal } from "./components/DuplicateWarningModal";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
@@ -109,6 +110,7 @@ function App() {
     trackId: number; url: string; videoTitle: string;
   } | null>(null);
   const [propertiesTrack, setPropertiesTrack] = useState<Track | null>(null);
+  const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[] } | null>(null);
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
   const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
 
@@ -751,22 +753,32 @@ function App() {
     }
   }
 
+  function handleEnqueue(tracks: Track[]) {
+    if (tracks.length === 0) return;
+    const { duplicates, unique } = queueHook.findDuplicates(tracks);
+    if (duplicates.length > 0) {
+      setPendingEnqueue({ all: tracks, duplicates, unique });
+    } else {
+      queueHook.enqueueTracks(tracks);
+    }
+  }
+
   async function handleContextEnqueue() {
     if (!contextMenu) return;
     const { target } = contextMenu;
     if (target.kind === "track") {
       const track = tracks.find(t => t.id === target.trackId);
-      if (track) queueHook.enqueueTracks([track]);
+      if (track) handleEnqueue([track]);
     } else if (target.kind === "album") {
       const albumTracks = await invoke<Track[]>("get_tracks", { albumId: target.albumId });
-      queueHook.enqueueTracks(albumTracks);
+      handleEnqueue(albumTracks);
     } else if (target.kind === "artist") {
       const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
-      queueHook.enqueueTracks(artistTracks);
+      handleEnqueue(artistTracks);
     } else if (target.kind === "multi-track") {
       const idSet = new Set(target.trackIds);
       const selected = sortedTracks.filter(t => idSet.has(t.id));
-      queueHook.enqueueTracks(selected);
+      handleEnqueue(selected);
     }
   }
 
@@ -1286,7 +1298,7 @@ function App() {
                 } else if (e.key === "Enter" && highlightedIndex >= 0 && highlightedIndex < tracks.length) {
                   e.preventDefault();
                   if (e.shiftKey) {
-                    queueHook.enqueueTracks([tracks[highlightedIndex]]);
+                    handleEnqueue([tracks[highlightedIndex]]);
                   } else {
                     queueHook.playTracks([tracks[highlightedIndex]], 0);
                   }
@@ -1325,7 +1337,7 @@ function App() {
             onSetSelectedTag={library.setSelectedTag}
             onSetView={library.setView}
             onPlayAll={queueHook.playTracks}
-            onEnqueueAll={queueHook.enqueueTracks}
+            onEnqueueAll={handleEnqueue}
           />
 
           {/* Artist list */}
@@ -1620,7 +1632,7 @@ function App() {
 
           {/* History view */}
           {view === "history" && (
-            <HistoryView ref={historyRef} searchQuery={searchQuery} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={queueHook.enqueueTracks} />
+            <HistoryView ref={historyRef} searchQuery={searchQuery} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={handleEnqueue} />
           )}
 
           {/* TIDAL view */}
@@ -1628,7 +1640,7 @@ function App() {
             <TidalView
               collectionId={tidalCollection.id}
               onPlayTracks={queueHook.playTracks}
-              onEnqueueTracks={queueHook.enqueueTracks}
+              onEnqueueTracks={handleEnqueue}
             />
           )}
 
@@ -1749,6 +1761,22 @@ function App() {
           onNo: () => handleYoutubeFeedback(false),
         } : null}
       />
+
+      {pendingEnqueue && (
+        <DuplicateWarningModal
+          duplicates={pendingEnqueue.duplicates}
+          totalCount={pendingEnqueue.all.length}
+          onAllowAll={() => {
+            queueHook.enqueueTracks(pendingEnqueue.all);
+            setPendingEnqueue(null);
+          }}
+          onSkipDuplicates={() => {
+            queueHook.enqueueTracks(pendingEnqueue.unique);
+            setPendingEnqueue(null);
+          }}
+          onCancel={() => setPendingEnqueue(null)}
+        />
+      )}
     </div>
   );
 }

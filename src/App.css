@@ -2194,6 +2194,39 @@ body {
   color: var(--text-primary);
 }
 
+.modal-btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.modal-btn-primary:hover {
+  filter: brightness(1.1);
+}
+
+.duplicate-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.duplicate-list li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.duplicate-title {
+  color: var(--text-primary);
+}
+
+.duplicate-more {
+  font-style: italic;
+  padding-top: 4px;
+}
+
 .modal-btn-confirm {
   background: var(--accent);
   color: #fff;
