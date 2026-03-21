@@ -64,7 +64,7 @@ export function useQueue(
   }
 
   function findDuplicates(newTracks: Track[]): { duplicates: Track[]; unique: Track[] } {
-    const existing = new Set(queue.map(t => t.id));
+    const existing = new Set(queueRef.current.map(t => t.id));
     const duplicates = newTracks.filter(t => existing.has(t.id));
     const unique = newTracks.filter(t => !existing.has(t.id));
     return { duplicates, unique };

@@ -109,7 +109,7 @@ function App() {
     trackId: number; url: string; videoTitle: string;
   } | null>(null);
   const [propertiesTrack, setPropertiesTrack] = useState<Track | null>(null);
-  const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[] } | null>(null);
+  const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
   const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
@@ -758,6 +758,7 @@ function App() {
     const { duplicates, unique } = queueHook.findDuplicates(tracks);
     if (duplicates.length > 0) {
       setPendingEnqueue({ all: tracks, duplicates, unique });
+      if (!queueHook.showQueue) queueHook.setShowQueue(true);
     } else {
       queueHook.enqueueTracks(tracks);
     }
@@ -850,8 +851,15 @@ function App() {
       if (ghost) { ghost.remove(); ghost = null; }
 
       if (dropTargetRef.current !== null) {
-        queueHook.insertAtPosition(dragTracks, dropTargetRef.current);
-        if (!queueHook.showQueue) queueHook.setShowQueue(true);
+        const pos = dropTargetRef.current;
+        const { duplicates, unique } = queueHook.findDuplicates(dragTracks);
+        if (duplicates.length > 0) {
+          setPendingEnqueue({ all: dragTracks, duplicates, unique, position: pos });
+          if (!queueHook.showQueue) queueHook.setShowQueue(true);
+        } else {
+          queueHook.insertAtPosition(dragTracks, pos);
+          if (!queueHook.showQueue) queueHook.setShowQueue(true);
+        }
       }
 
       setExternalDropTarget(null);
@@ -1736,11 +1744,17 @@ function App() {
           playlistName={queueHook.playlistName}
           pendingEnqueue={pendingEnqueue}
           onAllowAll={() => {
-            if (pendingEnqueue) queueHook.enqueueTracks(pendingEnqueue.all);
+            if (pendingEnqueue) {
+              if (pendingEnqueue.position != null) queueHook.insertAtPosition(pendingEnqueue.all, pendingEnqueue.position);
+              else queueHook.enqueueTracks(pendingEnqueue.all);
+            }
             setPendingEnqueue(null);
           }}
           onSkipDuplicates={() => {
-            if (pendingEnqueue) queueHook.enqueueTracks(pendingEnqueue.unique);
+            if (pendingEnqueue) {
+              if (pendingEnqueue.position != null) queueHook.insertAtPosition(pendingEnqueue.unique, pendingEnqueue.position);
+              else queueHook.enqueueTracks(pendingEnqueue.unique);
+            }
             setPendingEnqueue(null);
           }}
           onCancelEnqueue={() => setPendingEnqueue(null)}
