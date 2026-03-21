@@ -2437,6 +2437,18 @@ body {
   opacity: 0.4;
 }
 
+.queue-drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background: var(--bg-surface);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
 .queue-item.drop-above {
   border-top: 2px solid var(--accent);
   margin-top: -1px;

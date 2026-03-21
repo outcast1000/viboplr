@@ -62,13 +62,20 @@ export function QueuePanel({
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const lastClickedIndexRef = useRef<number | null>(null);
   const dragIndicesRef = useRef<number[] | null>(null);
+  const dropTargetRef = useRef<number | null>(null);
+  const didDragRef = useRef(false);
+  const ghostRef = useRef<HTMLDivElement | null>(null);
 
   // Clear selection when queue changes (add/remove/reorder)
   useEffect(() => { setSelectedIndices(new Set()); }, [queue]);
 
   function handleClick(e: React.MouseEvent, track: Track, index: number) {
+    // Ignore click if we just finished a drag
+    if (didDragRef.current) return;
+
     const meta = e.metaKey || e.ctrlKey;
     const shift = e.shiftKey;
 
@@ -85,43 +92,98 @@ export function QueuePanel({
     }
   }
 
-  function handleDragStart(e: React.DragEvent, index: number) {
-    // If dragging a selected item, drag all selected; otherwise just the one
+  function findQueueIndex(el: Element | null): number | null {
+    while (el) {
+      const idx = el.getAttribute("data-queue-index");
+      if (idx !== null) return parseInt(idx, 10);
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function handleMouseDown(e: React.MouseEvent, index: number) {
+    if (e.button !== 0) return;
+
+    // Determine which indices we're dragging
+    let indices: number[];
     if (selectedIndices.has(index) && selectedIndices.size > 1) {
-      dragIndicesRef.current = [...selectedIndices].sort((a, b) => a - b);
+      indices = [...selectedIndices].sort((a, b) => a - b);
     } else {
-      dragIndicesRef.current = [index];
-      setSelectedIndices(new Set([index]));
-      lastClickedIndexRef.current = index;
+      indices = [index];
     }
-    e.dataTransfer.effectAllowed = "move";
-  }
+    dragIndicesRef.current = indices;
+    didDragRef.current = false;
 
-  function handleDragOver(e: React.DragEvent, index: number) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    // Determine if drop should be above or below this item
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const midY = rect.top + rect.height / 2;
-    const target = e.clientY < midY ? index : index + 1;
-    setDropTarget(target);
-  }
+    const startX = e.clientX;
+    const startY = e.clientY;
 
-  function handleDrop(e: React.DragEvent, index: number) {
-    e.preventDefault();
-    if (dragIndicesRef.current) {
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      const midY = rect.top + rect.height / 2;
-      const target = e.clientY < midY ? index : index + 1;
-      onMoveMultiple(dragIndicesRef.current, target);
+    function showGhost(x: number, y: number) {
+      if (!ghostRef.current) {
+        const ghost = document.createElement("div");
+        ghost.className = "queue-drag-ghost";
+        ghost.textContent = `${indices.length} track${indices.length > 1 ? "s" : ""}`;
+        document.body.appendChild(ghost);
+        ghostRef.current = ghost;
+      }
+      ghostRef.current.style.left = `${x + 12}px`;
+      ghostRef.current.style.top = `${y - 10}px`;
     }
-    dragIndicesRef.current = null;
-    setDropTarget(null);
-  }
 
-  function handleDragEnd() {
-    dragIndicesRef.current = null;
-    setDropTarget(null);
+    function removeGhost() {
+      if (ghostRef.current) {
+        ghostRef.current.remove();
+        ghostRef.current = null;
+      }
+    }
+
+    function onMouseMove(ev: MouseEvent) {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!didDragRef.current && Math.abs(dx) + Math.abs(dy) < 5) return;
+
+      if (!didDragRef.current) {
+        didDragRef.current = true;
+        setIsDragging(true);
+      }
+
+      showGhost(ev.clientX, ev.clientY);
+
+      const target = document.elementFromPoint(ev.clientX, ev.clientY);
+      const overIndex = target ? findQueueIndex(target) : null;
+      if (overIndex !== null) {
+        const el = target!.closest("[data-queue-index]") as HTMLElement | null;
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          const midY = rect.top + rect.height / 2;
+          const dt = ev.clientY < midY ? overIndex : overIndex + 1;
+          dropTargetRef.current = dt;
+          setDropTarget(dt);
+        }
+      } else {
+        dropTargetRef.current = null;
+        setDropTarget(null);
+      }
+    }
+
+    function onMouseUp() {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      removeGhost();
+
+      if (didDragRef.current && dragIndicesRef.current && dropTargetRef.current !== null) {
+        onMoveMultiple(dragIndicesRef.current, dropTargetRef.current);
+      }
+
+      dragIndicesRef.current = null;
+      dropTargetRef.current = null;
+      setDropTarget(null);
+      setIsDragging(false);
+      // Prevent the click handler from firing after drag
+      setTimeout(() => { didDragRef.current = false; }, 0);
+    }
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
   }
 
   function handleContextMenu(e: React.MouseEvent, index: number) {
@@ -156,16 +218,13 @@ export function QueuePanel({
         {queue.map((t, i) => (
           <div
             key={`${t.id}-${i}`}
+            data-queue-index={i}
             className={
               `queue-item${i === queueIndex ? " queue-current" : ""}${selectedIndices.has(i) ? " selected" : ""}`
               + `${dropTarget === i ? " drop-above" : ""}${dropTarget === i + 1 && i === queue.length - 1 ? " drop-below" : ""}`
-              + `${dragIndicesRef.current?.includes(i) ? " dragging" : ""}`
+              + `${isDragging && dragIndicesRef.current?.includes(i) ? " dragging" : ""}`
             }
-            draggable
-            onDragStart={(e) => handleDragStart(e, i)}
-            onDragOver={(e) => handleDragOver(e, i)}
-            onDrop={(e) => handleDrop(e, i)}
-            onDragEnd={handleDragEnd}
+            onMouseDown={(e) => handleMouseDown(e, i)}
             onClick={(e) => handleClick(e, t, i)}
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
