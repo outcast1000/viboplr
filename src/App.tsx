@@ -355,7 +355,7 @@ function App() {
         if (st !== undefined && st !== null) library.setSelectedTag(st);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
-        if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "collection"].includes(tSortField)) library.setSortField(tSortField as SortField);
+        if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "collection", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
         if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
         if (tCols && Array.isArray(tCols) && tCols.length > 0) library.setTrackColumns(tCols);
         const [restoredTrack, restoredTracks, trackPath] = await timeAsync("restore IPC (track/queue/path)", () => Promise.all([
@@ -1414,6 +1414,8 @@ function App() {
             onSetView={library.setView}
             onPlayAll={queueHook.playTracks}
             onEnqueueAll={handleEnqueue}
+            onShuffle={() => library.handleSort("random")}
+            isShuffled={library.sortField === "random"}
           />
 
           {/* Artist list */}

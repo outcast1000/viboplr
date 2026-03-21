@@ -56,6 +56,7 @@ fn sort_column_sql(field: Option<&str>) -> Option<String> {
         Some("year") => Some("COALESCE(al.year, 0)".to_string()),
         Some("quality") => Some("(CASE WHEN t.duration_secs > 0 AND t.file_size > 0 THEN t.file_size * 8.0 / t.duration_secs / 1000.0 ELSE 0 END)".to_string()),
         Some("collection") => Some("COALESCE(co.name, '')".to_string()),
+        Some("random") => Some("RANDOM()".to_string()),
         _ => None,
     }
 }

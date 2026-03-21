@@ -55,6 +55,9 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [albumLikedFirst, setAlbumLikedFirst] = useState(false);
   const [albumShuffleKey, setAlbumShuffleKey] = useState(0);
 
+  // Track shuffle key (forces re-fetch on shuffle click)
+  const [trackShuffleKey, setTrackShuffleKey] = useState(0);
+
   // Tag sort state
   const [tagSortField, setTagSortField] = useState<TagSortField | null>(null);
   const [tagSortDir, setTagSortDir] = useState<SortDir>("asc");
@@ -179,7 +182,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     } catch (e) {
       console.error("Failed to load tracks:", e);
     }
-  }, [debouncedSearchQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir]);
+  }, [debouncedSearchQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir, trackShuffleKey]);
 
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
@@ -219,6 +222,17 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     (selectedTag === null && selectedAlbum === null && selectedArtist === null && view !== "liked");
 
   function handleSort(field: SortField) {
+    if (field === "random") {
+      if (sortField === "random") {
+        setSortField(null);
+        setSortDir("asc");
+      } else {
+        setSortField("random");
+        setSortDir("asc");
+      }
+      setTrackShuffleKey(k => k + 1);
+      return;
+    }
     if (sortField === field) {
       if (sortDir === "asc") {
         setSortDir("desc");
