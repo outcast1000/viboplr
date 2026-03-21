@@ -745,6 +745,9 @@ function App() {
       const idSet = new Set(target.trackIds);
       const selected = sortedTracks.filter(t => idSet.has(t.id));
       if (selected.length > 0) queueHook.playTracks(selected, 0);
+    } else if (target.kind === "queue-multi") {
+      const selected = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
+      if (selected.length > 0) queueHook.playTracks(selected, 0);
     }
   }
 
@@ -765,6 +768,21 @@ function App() {
       const selected = sortedTracks.filter(t => idSet.has(t.id));
       queueHook.enqueueTracks(selected);
     }
+  }
+
+  function handleQueueRemove() {
+    if (!contextMenu || contextMenu.target.kind !== "queue-multi") return;
+    queueHook.removeMultiple(contextMenu.target.indices);
+  }
+
+  function handleQueueMoveToTop() {
+    if (!contextMenu || contextMenu.target.kind !== "queue-multi") return;
+    queueHook.moveToTop(contextMenu.target.indices);
+  }
+
+  function handleQueueMoveToBottom() {
+    if (!contextMenu || contextMenu.target.kind !== "queue-multi") return;
+    queueHook.moveToBottom(contextMenu.target.indices);
   }
 
   function handleShowInFolder() {
@@ -1645,6 +1663,9 @@ function App() {
           onClose={() => queueHook.setShowQueue(false)}
           onSavePlaylist={queueHook.savePlaylist}
           onLoadPlaylist={queueHook.loadPlaylist}
+          onContextMenu={(e, indices) => {
+            setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "queue-multi", indices } });
+          }}
         />
       )}
 
@@ -1657,6 +1678,9 @@ function App() {
           onShowInFolder={handleShowInFolder}
           onWatchOnYoutube={handleWatchOnYoutube}
           onShowProperties={handleShowProperties}
+          onRemoveFromQueue={handleQueueRemove}
+          onMoveToTop={handleQueueMoveToTop}
+          onMoveToBottom={handleQueueMoveToBottom}
           onClose={() => setContextMenu(null)}
         />
       )}

@@ -2429,6 +2429,12 @@ body {
   padding-left: 13px;
 }
 
+.queue-item.selected {
+  background: rgba(83, 168, 255, 0.15);
+  border-left: 3px solid var(--accent);
+  padding-left: 13px;
+}
+
 .queue-item-info {
   flex: 1;
   min-width: 0;

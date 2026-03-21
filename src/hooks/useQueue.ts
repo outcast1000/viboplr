@@ -164,6 +164,47 @@ export function useQueue(
     });
   }
 
+  function removeMultiple(indices: number[]) {
+    const toRemove = new Set(indices);
+    setQueue(prev => prev.filter((_, i) => !toRemove.has(i)));
+    setQueueIndex(prev => {
+      if (toRemove.has(prev)) return Math.max(0, prev - [...toRemove].filter(i => i < prev).length);
+      return prev - [...toRemove].filter(i => i < prev).length;
+    });
+  }
+
+  function moveToTop(indices: number[]) {
+    const sorted = [...indices].sort((a, b) => a - b);
+    setQueue(prev => {
+      const moving = sorted.map(i => prev[i]);
+      const remaining = prev.filter((_, i) => !new Set(sorted).has(i));
+      return [...moving, ...remaining];
+    });
+    setQueueIndex(prev => {
+      const indexSet = new Set(sorted);
+      if (indexSet.has(prev)) return sorted.indexOf(prev);
+      const shiftedBefore = sorted.filter(i => i < prev).length;
+      return prev - shiftedBefore + sorted.length;
+    });
+  }
+
+  function moveToBottom(indices: number[]) {
+    const sorted = [...indices].sort((a, b) => a - b);
+    setQueue(prev => {
+      const moving = sorted.map(i => prev[i]);
+      const remaining = prev.filter((_, i) => !new Set(sorted).has(i));
+      return [...remaining, ...moving];
+    });
+    setQueueIndex(prev => {
+      const indexSet = new Set(sorted);
+      if (indexSet.has(prev)) {
+        const remaining = queue.length - sorted.length;
+        return remaining + sorted.indexOf(prev);
+      }
+      return prev - sorted.filter(i => i < prev).length;
+    });
+  }
+
   function moveInQueue(from: number, to: number) {
     setQueue(prev => {
       const next = [...prev];
@@ -317,7 +358,7 @@ export function useQueue(
     queuePanelRef, dragIndexRef,
     playTracks, enqueueTracks,
     playNext, playPrevious,
-    removeFromQueue, moveInQueue, clearQueue,
+    removeFromQueue, removeMultiple, moveInQueue, moveToTop, moveToBottom, clearQueue,
     toggleQueueMode, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
     playlistName, savePlaylist, loadPlaylist,

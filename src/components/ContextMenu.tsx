@@ -8,7 +8,8 @@ export type ContextMenuTarget =
   | { kind: "track"; trackId: number; subsonic: boolean; title: string; artistName: string | null }
   | { kind: "album"; albumId: number; title: string; artistName: string | null }
   | { kind: "artist"; artistId: number; name: string }
-  | { kind: "multi-track"; trackIds: number[] };
+  | { kind: "multi-track"; trackIds: number[] }
+  | { kind: "queue-multi"; indices: number[] };
 
 export interface ContextMenuState {
   x: number;
@@ -24,6 +25,9 @@ interface ContextMenuProps {
   onShowInFolder: () => void;
   onWatchOnYoutube?: () => void;
   onShowProperties?: () => void;
+  onRemoveFromQueue?: () => void;
+  onMoveToTop?: () => void;
+  onMoveToBottom?: () => void;
   onClose: () => void;
 }
 
@@ -67,19 +71,48 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
 }
 
 export function ContextMenu({
-  menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onShowProperties, onClose,
+  menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onShowProperties,
+  onRemoveFromQueue, onMoveToTop, onMoveToBottom, onClose,
 }: ContextMenuProps) {
   const { target } = menu;
 
   const isMulti = target.kind === "multi-track";
-  const context = isMulti ? "track" : target.kind;
-  const contextProviders = isMulti ? [] : getProvidersForContext(providers, context);
+  const isQueue = target.kind === "queue-multi";
+  const context = isMulti || isQueue ? "track" : target.kind;
+  const contextProviders = isMulti || isQueue ? [] : getProvidersForContext(providers, context);
   const urlKey = context === "artist" ? "artistUrl" : context === "album" ? "albumUrl" : "trackUrl";
 
-  const params = isMulti ? {} :
+  const params = isMulti || isQueue ? {} :
     target.kind === "artist"
       ? { artist: target.name }
       : { title: target.title, artist: target.artistName ?? undefined };
+
+  const count = isQueue ? target.indices.length : isMulti ? target.trackIds.length : 1;
+
+  if (isQueue) {
+    return (
+      <div className="context-menu" style={{ top: menu.y, left: menu.x }}>
+        <div className="context-menu-item" onClick={() => { onPlay(); onClose(); }}>
+          <IconPlay size={14} /><span>{count > 1 ? `Play ${count} tracks` : "Play"}</span>
+        </div>
+        {onRemoveFromQueue && (
+          <div className="context-menu-item" onClick={() => { onRemoveFromQueue(); onClose(); }}>
+            <IconFolder size={14} /><span>{count > 1 ? `Remove ${count} tracks` : "Remove"}</span>
+          </div>
+        )}
+        {onMoveToTop && (
+          <div className="context-menu-item" onClick={() => { onMoveToTop(); onClose(); }}>
+            <IconEnqueue size={14} /><span>Move to top</span>
+          </div>
+        )}
+        {onMoveToBottom && (
+          <div className="context-menu-item" onClick={() => { onMoveToBottom(); onClose(); }}>
+            <IconEnqueue size={14} /><span>Move to bottom</span>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div

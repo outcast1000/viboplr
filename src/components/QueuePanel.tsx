@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from "react";
 import type { Track } from "../types";
 import { formatDuration } from "../utils";
 
@@ -7,6 +8,37 @@ function formatTotalDuration(tracks: Track[]): string {
   const mins = Math.floor((totalSecs % 3600) / 60);
   if (hours > 0) return `${hours}h ${mins}m`;
   return `${mins}m`;
+}
+
+function computeIndexSelection(
+  current: Set<number>,
+  clickedIndex: number,
+  lastIndex: number | null,
+  meta: boolean,
+  shift: boolean,
+): Set<number> {
+  if (shift) {
+    const start = lastIndex ?? 0;
+    const lo = Math.min(start, clickedIndex);
+    const hi = Math.max(start, clickedIndex);
+    const range = new Set(Array.from({ length: hi - lo + 1 }, (_, k) => lo + k));
+    if (meta) {
+      const merged = new Set(current);
+      for (const idx of range) merged.add(idx);
+      return merged;
+    }
+    return range;
+  }
+  if (meta) {
+    const next = new Set(current);
+    if (next.has(clickedIndex)) {
+      next.delete(clickedIndex);
+    } else {
+      next.add(clickedIndex);
+    }
+    return next;
+  }
+  return new Set([clickedIndex]);
 }
 
 interface QueuePanelProps {
@@ -22,14 +54,55 @@ interface QueuePanelProps {
   onClose: () => void;
   onSavePlaylist: () => void;
   onLoadPlaylist: () => void;
+  onContextMenu: (e: React.MouseEvent, indices: number[]) => void;
 }
 
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, dragIndexRef, playlistName,
-  onPlay, onRemove, onMove, onClear, onClose, onSavePlaylist, onLoadPlaylist,
+  onPlay, onRemove, onMove, onClear, onClose, onSavePlaylist, onLoadPlaylist, onContextMenu,
 }: QueuePanelProps) {
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const lastClickedIndexRef = useRef<number | null>(null);
+
+  // Clear selection when queue changes (add/remove/reorder)
+  useEffect(() => { setSelectedIndices(new Set()); }, [queue]);
+
+  function handleClick(e: React.MouseEvent, track: Track, index: number) {
+    const meta = e.metaKey || e.ctrlKey;
+    const shift = e.shiftKey;
+
+    const newSelection = computeIndexSelection(
+      selectedIndices, index,
+      lastClickedIndexRef.current, meta, shift,
+    );
+    setSelectedIndices(newSelection);
+    lastClickedIndexRef.current = index;
+
+    // Only play on plain click (no modifiers)
+    if (!meta && !shift) {
+      onPlay(track, index);
+    }
+  }
+
+  function handleContextMenu(e: React.MouseEvent, index: number) {
+    e.preventDefault();
+    if (selectedIndices.size > 1 && selectedIndices.has(index)) {
+      onContextMenu(e, [...selectedIndices].sort((a, b) => a - b));
+    } else {
+      setSelectedIndices(new Set([index]));
+      lastClickedIndexRef.current = index;
+      onContextMenu(e, [index]);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape") {
+      setSelectedIndices(new Set());
+    }
+  }
+
   return (
-    <aside className="queue-panel" ref={queuePanelRef}>
+    <aside className="queue-panel" ref={queuePanelRef} tabIndex={-1} onKeyDown={handleKeyDown}>
       <div className="queue-header">
         <span className="queue-title">Playlist</span>
         <div className="queue-header-actions">
@@ -43,7 +116,7 @@ export function QueuePanel({
         {queue.map((t, i) => (
           <div
             key={`${t.id}-${i}`}
-            className={`queue-item ${i === queueIndex ? "queue-current" : ""}`}
+            className={`queue-item${i === queueIndex ? " queue-current" : ""}${selectedIndices.has(i) ? " selected" : ""}`}
             draggable
             onDragStart={() => { dragIndexRef.current = i; }}
             onDragOver={(e) => { e.preventDefault(); }}
@@ -53,7 +126,8 @@ export function QueuePanel({
               }
               dragIndexRef.current = null;
             }}
-            onClick={() => onPlay(t, i)}
+            onClick={(e) => handleClick(e, t, i)}
+            onContextMenu={(e) => handleContextMenu(e, i)}
           >
             <div className="queue-item-info">
               <span className="queue-item-title">{t.title}</span>
