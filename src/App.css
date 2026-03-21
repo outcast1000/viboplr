@@ -1244,6 +1244,12 @@ body {
   background: rgba(83, 168, 255, 0.08);
 }
 
+.track-row.selected {
+  background: rgba(83, 168, 255, 0.15);
+  border-left: 3px solid var(--accent);
+  padding-left: 13px;
+}
+
 .track-header > span,
 .track-row > span {
   padding-right: 12px;

@@ -43,6 +43,38 @@ function filenameFromPath(path: string): string {
   return path.split(sep).pop() ?? path;
 }
 
+export function computeSelection(
+  current: Set<number>,
+  clickedIndex: number,
+  tracks: Track[],
+  lastIndex: number | null,
+  meta: boolean,
+  shift: boolean,
+): Set<number> {
+  if (shift) {
+    const start = lastIndex ?? 0;
+    const lo = Math.min(start, clickedIndex);
+    const hi = Math.max(start, clickedIndex);
+    const range = new Set(tracks.slice(lo, hi + 1).map(t => t.id));
+    if (meta) {
+      const merged = new Set(current);
+      for (const id of range) merged.add(id);
+      return merged;
+    }
+    return range;
+  }
+  if (meta) {
+    const next = new Set(current);
+    if (next.has(tracks[clickedIndex].id)) {
+      next.delete(tracks[clickedIndex].id);
+    } else {
+      next.add(tracks[clickedIndex].id);
+    }
+    return next;
+  }
+  return new Set([tracks[clickedIndex].id]);
+}
+
 interface TrackListProps {
   tracks: Track[];
   currentTrack: Track | null;
@@ -52,7 +84,7 @@ interface TrackListProps {
   columns: ColumnConfig[];
   onColumnsChange: (columns: ColumnConfig[]) => void;
   onDoubleClick: (tracks: Track[], index: number) => void;
-  onContextMenu: (e: React.MouseEvent, track: Track) => void;
+  onContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<number>) => void;
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
   onSort: (field: SortField) => void;
@@ -79,6 +111,8 @@ export function TrackList({
   const dragOverRef = useRef<TrackColumnId | null>(null);
   const didDragRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const lastClickedIndexRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!hasMore || !onLoadMore) return;
@@ -96,16 +130,44 @@ export function TrackList({
     return () => observer.disconnect();
   }, [hasMore, onLoadMore]);
 
+  const prevTrackIdsRef = useRef<string>("");
+  useEffect(() => {
+    const currFirst = String(tracks[0]?.id ?? "");
+    const prevFirst = prevTrackIdsRef.current.split(":")[0];
+    if (prevTrackIdsRef.current && prevFirst !== currFirst) {
+      setSelectedIds(new Set());
+      lastClickedIndexRef.current = null;
+    }
+    prevTrackIdsRef.current = currFirst + ":" + tracks.length;
+  }, [tracks]);
+
   const visibleColumns = columns.filter(c => c.visible);
 
   useEffect(() => {
-    if (!columnMenuPos) return;
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setColumnMenuPos(null);
+      if (e.key === "Escape") {
+        if (columnMenuPos) {
+          setColumnMenuPos(null);
+        } else if (selectedIds.size > 0) {
+          setSelectedIds(new Set());
+        }
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [columnMenuPos]);
+  }, [columnMenuPos, selectedIds.size]);
+
+  function handleRowClick(e: React.MouseEvent, index: number) {
+    if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link')) {
+      return;
+    }
+    const newSelection = computeSelection(
+      selectedIds, index, tracks, lastClickedIndexRef.current,
+      e.metaKey || e.ctrlKey, e.shiftKey,
+    );
+    setSelectedIds(newSelection);
+    lastClickedIndexRef.current = index;
+  }
 
   function handleHeaderContextMenu(e: React.MouseEvent) {
     e.preventDefault();
@@ -291,9 +353,18 @@ export function TrackList({
       {tracks.map((t, i) => (
         <div
           key={t.id}
-          className={`track-row ${currentTrack?.id === t.id ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""}`}
-          onDoubleClick={() => onDoubleClick(tracks, i)}
-          onContextMenu={(e) => onContextMenu(e, t)}
+          className={`track-row ${currentTrack?.id === t.id ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""} ${selectedIds.has(t.id) ? "selected" : ""}`}
+          onClick={(e) => handleRowClick(e, i)}
+          onDoubleClick={() => { setSelectedIds(new Set()); onDoubleClick([tracks[i]], 0); }}
+          onContextMenu={(e) => {
+            if (!selectedIds.has(t.id)) {
+              setSelectedIds(new Set([t.id]));
+              lastClickedIndexRef.current = i;
+              onContextMenu(e, t, new Set([t.id]));
+            } else {
+              onContextMenu(e, t, selectedIds.size > 1 ? selectedIds : new Set([t.id]));
+            }
+          }}
         >
           {visibleColumns.map(col => renderCell(col, t, i))}
         </div>
