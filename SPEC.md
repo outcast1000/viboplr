@@ -104,6 +104,7 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 
 - Browse by **artist**, **album**, **tag**, **liked tracks**, **history**, **TIDAL** (when a tidal collection exists), or **all tracks** (flat list).
 - List view (table) with columns: like (heart icon), track number, title, artist, album, duration.
+- **Multi-selection:** Click to select a single track. Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range to the existing selection. Selected rows are visually highlighted. Selection is cleared on view/track-list change and on double-click.
 - Tracks from all enabled collections (local and server) are unified in a single library.
 
 **Artist list sort controls:** A sort bar above the artist list offers Name, Tracks (track count), and Shuffle buttons, plus a heart toggle to float liked artists to the top. Name and Tracks cycle through ascending → descending → unsorted on repeated clicks. Shuffle re-randomizes each click (Fisher-Yates).
@@ -136,6 +137,7 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - Transport controls: play, pause, stop, seek, volume.
 - Position and duration tracked via HTML5 media events (`timeupdate`, `loadedmetadata`, `play`, `pause`, `ended`) — no polling.
 - Video displayed inline in the main content area; audio plays with no visual.
+- **Double-click:** Double-clicking a track in any view (All Tracks, Artist, Album, Tag, Liked) plays only that single track — the queue is replaced with just that one track. No additional tracks are queued or auto-played after it finishes (unless Auto Continue is enabled).
 - Keyboard navigation: arrow keys to navigate tracks, Enter to play.
 
 #### Gapless Playback & Crossfading
@@ -167,7 +169,7 @@ The player uses a **dual audio element (A/B)** architecture to achieve gapless t
 
 ### 4.10 Liked Tracks, Artists & Albums
 
-- **Tracks:** Each track has a `liked` boolean attribute (stored as `INTEGER DEFAULT 0` in SQLite). A heart icon column appears in the track list: filled heart (♥) when liked, outline heart (♡) when not. Clicking the heart toggles the liked state via `toggle_track_liked` and updates local state immediately (tracks list, current track, and queue). The sidebar has a "Liked" view that shows all liked tracks via `get_liked_tracks`. Search in this view is scoped to liked tracks only (`liked_only` flag passed to `search`).
+- **Tracks:** Each track has a `liked` boolean attribute (stored as `INTEGER DEFAULT 0` in SQLite). A heart icon column appears in the track list: filled heart (♥) when liked, outline heart (♡) when not. Clicking the heart toggles the liked state via `toggle_track_liked` and updates local state immediately (tracks list, current track, and queue). The **Now Playing bar** also shows a like button next to the current track info, allowing users to like/unlike the playing track without scrolling to it in the list. The sidebar has a "Liked" view that shows all liked tracks via `get_liked_tracks`. Search in this view is scoped to liked tracks only (`liked_only` flag passed to `search`).
 - **Artists:** Each artist has a `liked` boolean. In the All Artists list, a heart icon per row toggles the like via `toggle_artist_liked`. The artist detail header also shows a heart icon next to the artist name. The sort bar's heart toggle floats liked artists to the top.
 - **Albums:** Each album has a `liked` boolean. In the All Albums grid, a heart overlay appears on hover (top-right corner of the album card) and toggles via `toggle_album_liked`. Liked albums show the heart permanently. The album detail header also shows a heart icon next to the album title. The sort bar's heart toggle floats liked albums to the top.
 - **Scan-safe:** the `liked` column on tracks is excluded from the `upsert_track` ON CONFLICT clause, so re-scanning or re-syncing a collection preserves the user's likes. Artist and album likes are never touched by scanning.
@@ -202,6 +204,7 @@ When playback reaches the end of the queue in "normal" mode, the player normally
 ### 4.12 Context Menu
 
 - Right-click on a track, album, or artist to open a context menu.
+- **Multi-track context menu:** When multiple tracks are selected, right-clicking shows a context menu with "Play N tracks" and "Enqueue N tracks" actions. Search providers and Locate File are hidden for multi-track selections.
 - **Play** / **Enqueue**: Play immediately or add to queue.
 - **Locate File** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer via `raw_arg` for proper path quoting, or Linux xdg-open).
 - **Search providers**: Dynamic list of enabled search providers (see §4.14). Each provider appears with its icon and a "Search on {name}" label. Clicking opens the provider's URL with `{artist}` and `{title}` placeholders filled in. Only providers with a URL template for the current context (artist/album/track) are shown.
