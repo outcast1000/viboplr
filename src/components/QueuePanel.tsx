@@ -107,14 +107,13 @@ export function QueuePanel({
     setDropTarget(target);
   }
 
-  function handleDragLeave() {
-    setDropTarget(null);
-  }
-
-  function handleDrop(e: React.DragEvent) {
+  function handleDrop(e: React.DragEvent, index: number) {
     e.preventDefault();
-    if (dragIndicesRef.current && dropTarget !== null) {
-      onMoveMultiple(dragIndicesRef.current, dropTarget);
+    if (dragIndicesRef.current) {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const target = e.clientY < midY ? index : index + 1;
+      onMoveMultiple(dragIndicesRef.current, target);
     }
     dragIndicesRef.current = null;
     setDropTarget(null);
@@ -153,7 +152,7 @@ export function QueuePanel({
           <button className="ctrl-btn" onClick={onClose} title="Close">{"\u00D7"}</button>
         </div>
       </div>
-      <div className="queue-list" onDragLeave={handleDragLeave}>
+      <div className="queue-list">
         {queue.map((t, i) => (
           <div
             key={`${t.id}-${i}`}
@@ -165,7 +164,7 @@ export function QueuePanel({
             draggable
             onDragStart={(e) => handleDragStart(e, i)}
             onDragOver={(e) => handleDragOver(e, i)}
-            onDrop={handleDrop}
+            onDrop={(e) => handleDrop(e, i)}
             onDragEnd={handleDragEnd}
             onClick={(e) => handleClick(e, t, i)}
             onContextMenu={(e) => handleContextMenu(e, i)}
