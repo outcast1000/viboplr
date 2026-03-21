@@ -355,7 +355,7 @@ export function TrackList({
           key={t.id}
           className={`track-row ${currentTrack?.id === t.id ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""} ${selectedIds.has(t.id) ? "selected" : ""}`}
           onClick={(e) => handleRowClick(e, i)}
-          onDoubleClick={() => { setSelectedIds(new Set()); onDoubleClick(tracks, i); }}
+          onDoubleClick={() => { setSelectedIds(new Set()); onDoubleClick([tracks[i]], 0); }}
           onContextMenu={(e) => {
             if (!selectedIds.has(t.id)) {
               setSelectedIds(new Set([t.id]));
