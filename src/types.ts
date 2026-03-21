@@ -84,10 +84,10 @@ export interface PlaylistLoadResult {
   playlist_name: string;
 }
 
-export type SortField = "num" | "title" | "artist" | "album" | "duration" | "path" | "year" | "quality" | "collection" | "random";
+export type SortField = "num" | "title" | "artist" | "album" | "duration" | "path" | "year" | "quality" | "size" | "collection" | "random";
 export type SortDir = "asc" | "desc";
 
-export type TrackColumnId = "like" | "num" | "title" | "artist" | "album" | "duration" | "path" | "year" | "quality" | "collection";
+export type TrackColumnId = "like" | "num" | "title" | "artist" | "album" | "duration" | "path" | "year" | "quality" | "size" | "collection";
 export interface ColumnConfig {
   id: TrackColumnId;
   visible: boolean;

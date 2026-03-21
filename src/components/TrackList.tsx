@@ -14,6 +14,7 @@ const COLUMN_DISPLAY_NAMES: Record<TrackColumnId, string> = {
   path: "Path",
   year: "Year",
   quality: "Quality",
+  size: "Size",
   collection: "Collection",
 };
 
@@ -26,8 +27,17 @@ const COLUMN_SORT_FIELDS: Partial<Record<TrackColumnId, SortField>> = {
   path: "path",
   year: "year",
   quality: "quality",
+  size: "size",
   collection: "collection",
 };
+
+function formatFileSize(bytes: number | null): string {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
 
 function formatQuality(track: Track): string {
   const fmt = track.format?.toUpperCase() ?? "";
@@ -381,6 +391,8 @@ export function TrackList({
         return <span key="year" className="col-year">{t.year ?? ""}</span>;
       case "quality":
         return <span key="quality" className="col-quality">{formatQuality(t)}</span>;
+      case "size":
+        return <span key="size" className="col-size">{formatFileSize(t.file_size)}</span>;
       case "collection":
         return <span key="collection" className="col-collection">{t.collection_name ?? ""}</span>;
     }

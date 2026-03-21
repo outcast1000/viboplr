@@ -20,7 +20,7 @@ import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
 import { useQueue } from "./hooks/useQueue";
-import { useLibrary } from "./hooks/useLibrary";
+import { useLibrary, DEFAULT_TRACK_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
 import { useAutoContinue } from "./hooks/useAutoContinue";
 import { usePasteImage } from "./hooks/usePasteImage";
@@ -355,9 +355,14 @@ function App() {
         if (st !== undefined && st !== null) library.setSelectedTag(st);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
-        if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "collection", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
+        if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
         if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
-        if (tCols && Array.isArray(tCols) && tCols.length > 0) library.setTrackColumns(tCols);
+        if (tCols && Array.isArray(tCols) && tCols.length > 0) {
+          // Merge in any new columns that weren't in the saved config
+          const savedIds = new Set(tCols.map((c: ColumnConfig) => c.id));
+          const missing = DEFAULT_TRACK_COLUMNS.filter(c => !savedIds.has(c.id));
+          library.setTrackColumns([...tCols, ...missing]);
+        }
         const [restoredTrack, restoredTracks, trackPath] = await timeAsync("restore IPC (track/queue/path)", () => Promise.all([
           tid ? invoke<Track>("get_track_by_id", { trackId: tid }).catch(() => null) : Promise.resolve(null),
           qIds?.length ? invoke<Track[]>("get_tracks_by_ids", { ids: qIds }).catch(() => []) : Promise.resolve([]),

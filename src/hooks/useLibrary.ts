@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Artist, Album, Tag, Track, Collection, View, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField, ColumnConfig, TrackColumnId } from "../types";
 import { store } from "../store";
 
-const ALL_COLUMN_IDS: TrackColumnId[] = ["like", "num", "title", "artist", "album", "year", "quality", "duration", "collection", "path"];
+const ALL_COLUMN_IDS: TrackColumnId[] = ["like", "num", "title", "artist", "album", "year", "quality", "duration", "size", "collection", "path"];
 
 const DEFAULT_VISIBLE: Set<TrackColumnId> = new Set(["like", "num", "title", "artist", "album", "duration"]);
 
@@ -275,6 +275,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
           const bitrateB = (b.duration_secs && b.file_size) ? b.file_size * 8 / b.duration_secs / 1000 : 0;
           return (bitrateA - bitrateB) * dir;
         }
+        case "size": return ((a.file_size ?? 0) - (b.file_size ?? 0)) * dir;
         case "collection": return ((a.collection_name ?? "").localeCompare(b.collection_name ?? "")) * dir;
         default: return 0;
       }
