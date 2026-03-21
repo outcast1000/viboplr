@@ -68,7 +68,7 @@ export function Breadcrumb({
       ) : (
         <span>All Tracks</span>
       )}
-      {tracks.length > 0 && (view === "all" || selectedTag !== null || (view === "artists" && selectedArtist !== null)) && (
+      {tracks.length > 0 && (selectedTag !== null || (view === "artists" && selectedArtist !== null)) && (
         <div className="breadcrumb-actions">
           <button className="action-btn" onClick={() => onPlayAll(sortedTracks, 0)}>Play All</button>
           <button className="action-btn action-btn-secondary" onClick={() => onEnqueueAll(sortedTracks)}>Queue All</button>
