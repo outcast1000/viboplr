@@ -110,6 +110,7 @@ function App() {
   } | null>(null);
   const [propertiesTrack, setPropertiesTrack] = useState<Track | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[] } | null>(null);
+  const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
   const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
 
@@ -796,6 +797,70 @@ function App() {
     queueHook.moveToBottom(contextMenu.target.indices);
   }
 
+  function handleTrackDragStart(dragTracks: Track[]) {
+    let ghost: HTMLDivElement | null = null;
+    const dropTargetRef = { current: null as number | null };
+
+    function findQueueIndex(el: Element | null): number | null {
+      while (el) {
+        const idx = el.getAttribute("data-queue-index");
+        if (idx !== null) return parseInt(idx, 10);
+        el = el.parentElement;
+      }
+      return null;
+    }
+
+    function onMouseMove(ev: MouseEvent) {
+      if (!ghost) {
+        ghost = document.createElement("div");
+        ghost.className = "queue-drag-ghost";
+        ghost.textContent = `${dragTracks.length} track${dragTracks.length > 1 ? "s" : ""}`;
+        document.body.appendChild(ghost);
+      }
+      ghost.style.left = `${ev.clientX + 12}px`;
+      ghost.style.top = `${ev.clientY - 10}px`;
+
+      const target = document.elementFromPoint(ev.clientX, ev.clientY);
+      const queuePanel = target?.closest(".queue-panel");
+      if (queuePanel) {
+        const overIndex = findQueueIndex(target);
+        if (overIndex !== null) {
+          const el = target!.closest("[data-queue-index]") as HTMLElement | null;
+          if (el) {
+            const rect = el.getBoundingClientRect();
+            const midY = rect.top + rect.height / 2;
+            const dt = ev.clientY < midY ? overIndex : overIndex + 1;
+            dropTargetRef.current = dt;
+            setExternalDropTarget(dt);
+          }
+        } else {
+          // Over queue panel but not on an item — drop at end
+          dropTargetRef.current = queueHook.queue.length;
+          setExternalDropTarget(queueHook.queue.length);
+        }
+      } else {
+        dropTargetRef.current = null;
+        setExternalDropTarget(null);
+      }
+    }
+
+    function onMouseUp() {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      if (ghost) { ghost.remove(); ghost = null; }
+
+      if (dropTargetRef.current !== null) {
+        queueHook.insertAtPosition(dragTracks, dropTargetRef.current);
+        if (!queueHook.showQueue) queueHook.setShowQueue(true);
+      }
+
+      setExternalDropTarget(null);
+    }
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
   function handleShowInFolder() {
     if (contextMenu && contextMenu.target.kind === "track") {
       invoke("show_in_folder", { trackId: contextMenu.target.trackId });
@@ -1456,6 +1521,7 @@ function App() {
                     onSort={library.handleSort}
                     sortIndicator={library.sortIndicator}
                     onToggleLike={handleToggleLike}
+                    onTrackDragStart={handleTrackDragStart}
                     emptyMessage="No tracks found for this artist."
                   />
                 </div>
@@ -1601,6 +1667,7 @@ function App() {
               onSort={library.handleSort}
               sortIndicator={library.sortIndicator}
               onToggleLike={handleToggleLike}
+              onTrackDragStart={handleTrackDragStart}
               emptyMessage="No tracks found. Add a folder or server to start building your library."
               hasMore={library.hasMore}
               loadingMore={library.loadingMore}
@@ -1625,6 +1692,7 @@ function App() {
               onSort={library.handleSort}
               sortIndicator={library.sortIndicator}
               onToggleLike={handleToggleLike}
+              onTrackDragStart={handleTrackDragStart}
               emptyMessage="No liked tracks yet. Click the heart icon on any track to like it."
             />
           )}
@@ -1686,6 +1754,7 @@ function App() {
           onContextMenu={(e, indices) => {
             setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "queue-multi", indices } });
           }}
+          externalDropTarget={externalDropTarget}
         />
       )}
 

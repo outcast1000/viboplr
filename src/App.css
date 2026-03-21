@@ -2581,6 +2581,11 @@ body {
   font-size: 13px;
 }
 
+.queue-empty.drop-highlight {
+  background: rgba(83, 168, 255, 0.08);
+  color: var(--accent);
+}
+
 /* Breadcrumb actions */
 .breadcrumb-actions {
   display: flex;

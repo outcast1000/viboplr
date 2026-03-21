@@ -342,6 +342,15 @@ export function useQueue(
     return false;
   }
 
+  function insertAtPosition(newTracks: Track[], position: number) {
+    setQueue(prev => {
+      const next = [...prev];
+      next.splice(position, 0, ...newTracks);
+      return next;
+    });
+    setQueueIndex(prev => position <= prev ? prev + newTracks.length : prev);
+  }
+
   function playNextInQueue(track: Track) {
     const idx = queueIndexRef.current;
     setQueue(prev => {
@@ -399,7 +408,7 @@ export function useQueue(
     queuePanelRef, dragIndexRef,
     playTracks, enqueueTracks, findDuplicates,
     playNext, playPrevious,
-    removeFromQueue, removeMultiple, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue,
+    removeFromQueue, removeMultiple, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
     playlistName, savePlaylist, loadPlaylist,

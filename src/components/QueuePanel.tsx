@@ -64,6 +64,7 @@ interface QueuePanelProps {
   onSavePlaylist: () => void;
   onLoadPlaylist: () => void;
   onContextMenu: (e: React.MouseEvent, indices: number[]) => void;
+  externalDropTarget: number | null;
 }
 
 const AUTO_APPROVE_SECS = 10;
@@ -71,7 +72,7 @@ const AUTO_APPROVE_SECS = 10;
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistName,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
-  onPlay, onRemove, onMoveMultiple, onClear, onClose, onSavePlaylist, onLoadPlaylist, onContextMenu,
+  onPlay, onRemove, onMoveMultiple, onClear, onClose, onSavePlaylist, onLoadPlaylist, onContextMenu, externalDropTarget,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
@@ -270,7 +271,8 @@ export function QueuePanel({
             data-queue-index={i}
             className={
               `queue-item${i === queueIndex ? " queue-current" : ""}${selectedIndices.has(i) ? " selected" : ""}`
-              + `${dropTarget === i ? " drop-above" : ""}${dropTarget === i + 1 && i === queue.length - 1 ? " drop-below" : ""}`
+              + `${(dropTarget === i || externalDropTarget === i) ? " drop-above" : ""}`
+              + `${((dropTarget === i + 1 || externalDropTarget === i + 1) && i === queue.length - 1) ? " drop-below" : ""}`
               + `${isDragging && dragIndicesRef.current?.includes(i) ? " dragging" : ""}`
             }
             onMouseDown={(e) => handleMouseDown(e, i)}
@@ -292,7 +294,9 @@ export function QueuePanel({
           </div>
         ))}
         {queue.length === 0 && (
-          <div className="queue-empty">Playlist is empty</div>
+          <div className={`queue-empty${externalDropTarget !== null ? " drop-highlight" : ""}`}>
+            {externalDropTarget !== null ? "Drop here to add" : "Playlist is empty"}
+          </div>
         )}
       </div>
       {queue.length > 0 && (

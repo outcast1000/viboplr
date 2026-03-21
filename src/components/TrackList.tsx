@@ -90,6 +90,7 @@ interface TrackListProps {
   onSort: (field: SortField) => void;
   sortIndicator: (field: SortField) => string;
   onToggleLike: (track: Track) => void;
+  onTrackDragStart?: (tracks: Track[]) => void;
   emptyMessage?: string;
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -100,7 +101,7 @@ export function TrackList({
   tracks, currentTrack, highlightedIndex,
   sortField, trackListRef, columns, onColumnsChange,
   onDoubleClick, onContextMenu, onArtistClick, onAlbumClick,
-  onSort, sortIndicator, onToggleLike,
+  onSort, sortIndicator, onToggleLike, onTrackDragStart,
   emptyMessage = "No tracks found.",
   hasMore = false, loadingMore = false, onLoadMore,
 }: TrackListProps) {
@@ -111,6 +112,7 @@ export function TrackList({
   const dragOverRef = useRef<TrackColumnId | null>(null);
   const didDragRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const didDragRowRef = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const lastClickedIndexRef = useRef<number | null>(null);
 
@@ -158,6 +160,7 @@ export function TrackList({
   }, [columnMenuPos, selectedIds.size]);
 
   function handleRowClick(e: React.MouseEvent, index: number) {
+    if (didDragRowRef.current) return;
     if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link')) {
       return;
     }
@@ -167,6 +170,44 @@ export function TrackList({
     );
     setSelectedIds(newSelection);
     lastClickedIndexRef.current = index;
+  }
+
+  function handleRowMouseDown(e: React.MouseEvent, index: number) {
+    if (e.button !== 0 || !onTrackDragStart) return;
+    if ((e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link')) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    didDragRowRef.current = false;
+
+    function onMouseMove(ev: MouseEvent) {
+      if (didDragRowRef.current) return; // already handed off
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (Math.abs(dx) + Math.abs(dy) < 5) return;
+
+      didDragRowRef.current = true;
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+
+      // Determine which tracks to drag
+      let dragTracks: Track[];
+      if (selectedIds.has(tracks[index].id) && selectedIds.size > 1) {
+        dragTracks = tracks.filter(t => selectedIds.has(t.id));
+      } else {
+        dragTracks = [tracks[index]];
+      }
+      onTrackDragStart!(dragTracks);
+    }
+
+    function onMouseUp() {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      setTimeout(() => { didDragRowRef.current = false; }, 0);
+    }
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
   }
 
   function handleHeaderContextMenu(e: React.MouseEvent) {
@@ -354,6 +395,7 @@ export function TrackList({
         <div
           key={t.id}
           className={`track-row ${currentTrack?.id === t.id ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""} ${selectedIds.has(t.id) ? "selected" : ""}`}
+          onMouseDown={(e) => handleRowMouseDown(e, i)}
           onClick={(e) => handleRowClick(e, i)}
           onDoubleClick={() => { setSelectedIds(new Set()); onDoubleClick([tracks[i]], 0); }}
           onContextMenu={(e) => {
