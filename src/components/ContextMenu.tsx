@@ -7,7 +7,8 @@ import { useState, type ReactNode } from "react";
 export type ContextMenuTarget =
   | { kind: "track"; trackId: number; subsonic: boolean; title: string; artistName: string | null }
   | { kind: "album"; albumId: number; title: string; artistName: string | null }
-  | { kind: "artist"; artistId: number; name: string };
+  | { kind: "artist"; artistId: number; name: string }
+  | { kind: "multi-track"; trackIds: number[] };
 
 export interface ContextMenuState {
   x: number;
@@ -70,13 +71,15 @@ export function ContextMenu({
 }: ContextMenuProps) {
   const { target } = menu;
 
-  const context = target.kind;
-  const contextProviders = getProvidersForContext(providers, context);
+  const isMulti = target.kind === "multi-track";
+  const context = isMulti ? "track" : target.kind;
+  const contextProviders = isMulti ? [] : getProvidersForContext(providers, context);
   const urlKey = context === "artist" ? "artistUrl" : context === "album" ? "albumUrl" : "trackUrl";
 
-  const params = target.kind === "artist"
-    ? { artist: target.name }
-    : { title: target.title, artist: target.artistName ?? undefined };
+  const params = isMulti ? {} :
+    target.kind === "artist"
+      ? { artist: target.name }
+      : { title: target.title, artist: target.artistName ?? undefined };
 
   return (
     <div
@@ -84,10 +87,10 @@ export function ContextMenu({
       style={{ top: menu.y, left: menu.x }}
     >
       <div className="context-menu-item" onClick={() => { onPlay(); onClose(); }}>
-        <IconPlay size={14} /><span>Play</span>
+        <IconPlay size={14} /><span>{isMulti ? `Play ${target.trackIds.length} tracks` : "Play"}</span>
       </div>
       <div className="context-menu-item" onClick={() => { onEnqueue(); onClose(); }}>
-        <IconEnqueue size={14} /><span>Enqueue</span>
+        <IconEnqueue size={14} /><span>{isMulti ? `Enqueue ${target.trackIds.length} tracks` : "Enqueue"}</span>
       </div>
       {target.kind === "track" && !target.subsonic && (
         <div className="context-menu-item" onClick={onShowInFolder}>
@@ -104,17 +107,21 @@ export function ContextMenu({
           <IconInfo size={14} /><span>Properties</span>
         </div>
       )}
-      <div className="context-menu-separator" />
-      {contextProviders.map((provider) => {
-        const template = provider[urlKey]!;
-        const url = buildSearchUrl(template, params);
-        return (
-          <div key={provider.id} className="context-menu-item" onClick={() => { openUrl(url); onClose(); }}>
-            <ProviderIcon provider={provider} />
-            <span>Search on {provider.name}</span>
-          </div>
-        );
-      })}
+      {contextProviders.length > 0 && (
+        <>
+          <div className="context-menu-separator" />
+          {contextProviders.map((provider) => {
+            const template = provider[urlKey]!;
+            const url = buildSearchUrl(template, params);
+            return (
+              <div key={provider.id} className="context-menu-item" onClick={() => { openUrl(url); onClose(); }}>
+                <ProviderIcon provider={provider} />
+                <span>Search on {provider.name}</span>
+              </div>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }
