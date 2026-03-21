@@ -205,6 +205,45 @@ export function useQueue(
     });
   }
 
+  function moveMultiple(indices: number[], targetIndex: number) {
+    const sorted = [...indices].sort((a, b) => a - b);
+    const indexSet = new Set(sorted);
+    setQueue(prev => {
+      const moving = sorted.map(i => prev[i]);
+      const remaining = prev.filter((_, i) => !indexSet.has(i));
+      // Calculate insertion point in the remaining array
+      let insertAt = targetIndex;
+      for (const idx of sorted) {
+        if (idx < targetIndex) insertAt--;
+      }
+      insertAt = Math.max(0, Math.min(insertAt, remaining.length));
+      remaining.splice(insertAt, 0, ...moving);
+      return remaining;
+    });
+    setQueueIndex(prev => {
+      if (indexSet.has(prev)) {
+        // Current track is being moved — find its new position
+        const posInMoving = sorted.indexOf(prev);
+        let insertAt = targetIndex;
+        for (const idx of sorted) {
+          if (idx < targetIndex) insertAt--;
+        }
+        insertAt = Math.max(0, Math.min(insertAt, queue.length - sorted.length));
+        return insertAt + posInMoving;
+      }
+      // Current track is not being moved — count how many moved items were before/after
+      const beforeOld = sorted.filter(i => i < prev).length;
+      const newPosWithoutMoving = prev - beforeOld;
+      let insertAt = targetIndex;
+      for (const idx of sorted) {
+        if (idx < targetIndex) insertAt--;
+      }
+      insertAt = Math.max(0, Math.min(insertAt, queue.length - sorted.length));
+      if (newPosWithoutMoving < insertAt) return newPosWithoutMoving;
+      return newPosWithoutMoving + sorted.length;
+    });
+  }
+
   function moveInQueue(from: number, to: number) {
     setQueue(prev => {
       const next = [...prev];
@@ -358,7 +397,7 @@ export function useQueue(
     queuePanelRef, dragIndexRef,
     playTracks, enqueueTracks,
     playNext, playPrevious,
-    removeFromQueue, removeMultiple, moveInQueue, moveToTop, moveToBottom, clearQueue,
+    removeFromQueue, removeMultiple, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue,
     toggleQueueMode, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
     playlistName, savePlaylist, loadPlaylist,

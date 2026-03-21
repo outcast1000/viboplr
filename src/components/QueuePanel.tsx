@@ -45,11 +45,10 @@ interface QueuePanelProps {
   queue: Track[];
   queueIndex: number;
   queuePanelRef: React.RefObject<HTMLDivElement | null>;
-  dragIndexRef: React.MutableRefObject<number | null>;
   playlistName: string | null;
   onPlay: (track: Track, index: number) => void;
   onRemove: (index: number) => void;
-  onMove: (from: number, to: number) => void;
+  onMoveMultiple: (indices: number[], targetIndex: number) => void;
   onClear: () => void;
   onClose: () => void;
   onSavePlaylist: () => void;
@@ -58,11 +57,13 @@ interface QueuePanelProps {
 }
 
 export function QueuePanel({
-  queue, queueIndex, queuePanelRef, dragIndexRef, playlistName,
-  onPlay, onRemove, onMove, onClear, onClose, onSavePlaylist, onLoadPlaylist, onContextMenu,
+  queue, queueIndex, queuePanelRef, playlistName,
+  onPlay, onRemove, onMoveMultiple, onClear, onClose, onSavePlaylist, onLoadPlaylist, onContextMenu,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [dropTarget, setDropTarget] = useState<number | null>(null);
   const lastClickedIndexRef = useRef<number | null>(null);
+  const dragIndicesRef = useRef<number[] | null>(null);
 
   // Clear selection when queue changes (add/remove/reorder)
   useEffect(() => { setSelectedIndices(new Set()); }, [queue]);
@@ -82,6 +83,46 @@ export function QueuePanel({
     if (!meta && !shift) {
       onPlay(track, index);
     }
+  }
+
+  function handleDragStart(e: React.DragEvent, index: number) {
+    // If dragging a selected item, drag all selected; otherwise just the one
+    if (selectedIndices.has(index) && selectedIndices.size > 1) {
+      dragIndicesRef.current = [...selectedIndices].sort((a, b) => a - b);
+    } else {
+      dragIndicesRef.current = [index];
+      setSelectedIndices(new Set([index]));
+      lastClickedIndexRef.current = index;
+    }
+    e.dataTransfer.effectAllowed = "move";
+  }
+
+  function handleDragOver(e: React.DragEvent, index: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    // Determine if drop should be above or below this item
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const target = e.clientY < midY ? index : index + 1;
+    setDropTarget(target);
+  }
+
+  function handleDragLeave() {
+    setDropTarget(null);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    if (dragIndicesRef.current && dropTarget !== null) {
+      onMoveMultiple(dragIndicesRef.current, dropTarget);
+    }
+    dragIndicesRef.current = null;
+    setDropTarget(null);
+  }
+
+  function handleDragEnd() {
+    dragIndicesRef.current = null;
+    setDropTarget(null);
   }
 
   function handleContextMenu(e: React.MouseEvent, index: number) {
@@ -112,20 +153,20 @@ export function QueuePanel({
           <button className="ctrl-btn" onClick={onClose} title="Close">{"\u00D7"}</button>
         </div>
       </div>
-      <div className="queue-list">
+      <div className="queue-list" onDragLeave={handleDragLeave}>
         {queue.map((t, i) => (
           <div
             key={`${t.id}-${i}`}
-            className={`queue-item${i === queueIndex ? " queue-current" : ""}${selectedIndices.has(i) ? " selected" : ""}`}
+            className={
+              `queue-item${i === queueIndex ? " queue-current" : ""}${selectedIndices.has(i) ? " selected" : ""}`
+              + `${dropTarget === i ? " drop-above" : ""}${dropTarget === i + 1 && i === queue.length - 1 ? " drop-below" : ""}`
+              + `${dragIndicesRef.current?.includes(i) ? " dragging" : ""}`
+            }
             draggable
-            onDragStart={() => { dragIndexRef.current = i; }}
-            onDragOver={(e) => { e.preventDefault(); }}
-            onDrop={() => {
-              if (dragIndexRef.current !== null && dragIndexRef.current !== i) {
-                onMove(dragIndexRef.current, i);
-              }
-              dragIndexRef.current = null;
-            }}
+            onDragStart={(e) => handleDragStart(e, i)}
+            onDragOver={(e) => handleDragOver(e, i)}
+            onDrop={handleDrop}
+            onDragEnd={handleDragEnd}
             onClick={(e) => handleClick(e, t, i)}
             onContextMenu={(e) => handleContextMenu(e, i)}
           >

@@ -2433,6 +2433,20 @@ body {
   padding-left: 13px;
 }
 
+.queue-item.dragging {
+  opacity: 0.4;
+}
+
+.queue-item.drop-above {
+  border-top: 2px solid var(--accent);
+  margin-top: -1px;
+}
+
+.queue-item.drop-below {
+  border-bottom: 2px solid var(--accent);
+  margin-bottom: -1px;
+}
+
 .queue-item-info {
   flex: 1;
   min-width: 0;
