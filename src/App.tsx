@@ -322,7 +322,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols] = await timeAsync("store.restore (20 keys)", () => Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName] = await timeAsync("store.restore (22 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -343,6 +343,8 @@ function App() {
           store.get<string | null>("trackSortField"),
           store.get<string>("trackSortDir"),
           store.get<ColumnConfig[] | null>("trackColumns"),
+          store.get<boolean>("showQueue"),
+          store.get<string | null>("playlistName"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history", "tidal"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -370,6 +372,8 @@ function App() {
         if (qMode && ["normal", "loop", "shuffle"].includes(qMode)) {
           queueHook.setQueueMode(qMode as "normal" | "loop" | "shuffle");
         }
+        if (wasShowQueue) queueHook.setShowQueue(true);
+        if (savedPlaylistName) queueHook.setPlaylistName(savedPlaylistName);
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {

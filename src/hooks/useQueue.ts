@@ -33,6 +33,8 @@ export function useQueue(
   useEffect(() => { if (restoredRef.current) store.set("queueTrackIds", queue.map(t => t.id)); }, [queue]);
   useEffect(() => { if (restoredRef.current) store.set("queueIndex", queueIndex); }, [queueIndex]);
   useEffect(() => { if (restoredRef.current) store.set("queueMode", queueMode); }, [queueMode]);
+  useEffect(() => { if (restoredRef.current) store.set("showQueue", showQueue); }, [showQueue]);
+  useEffect(() => { if (restoredRef.current) store.set("playlistName", playlistName); }, [playlistName]);
 
   // Auto-scroll queue panel to current track
   useEffect(() => {
@@ -411,6 +413,6 @@ export function useQueue(
     removeFromQueue, removeMultiple, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
-    playlistName, savePlaylist, loadPlaylist,
+    playlistName, setPlaylistName, savePlaylist, loadPlaylist,
   };
 }
