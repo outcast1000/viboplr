@@ -106,6 +106,7 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 - List view (table) with columns: like (heart icon), track number, title, artist, album, duration.
 - **Multi-selection:** Click to select a single track. Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range to the existing selection. Selected rows are visually highlighted. Selection is cleared on view/track-list change and on double-click.
 - Tracks from all enabled collections (local and server) are unified in a single library.
+- **Breadcrumb actions:** Artist detail and tag detail views show "Play All" and "Queue All" buttons in the breadcrumb bar. The All Tracks view does not show these bulk-play buttons.
 
 **Artist list sort controls:** A sort bar above the artist list offers Name, Tracks (track count), and Shuffle buttons, plus a heart toggle to float liked artists to the top. Name and Tracks cycle through ascending → descending → unsorted on repeated clicks. Shuffle re-randomizes each click (Fisher-Yates).
 
@@ -280,6 +281,8 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `queueTrackIds` | `number[]` | `[]` |
 | `queueIndex` | `number` | `-1` |
 | `queueMode` | `string` (`"normal"`, `"loop"`, `"shuffle"`) | `"normal"` |
+| `showQueue` | `boolean` | `false` |
+| `playlistName` | `string \| null` | `null` |
 | `windowWidth` | `number \| null` | `null` |
 | `windowHeight` | `number \| null` | `null` |
 | `windowX` | `number \| null` | `null` |
@@ -414,6 +417,29 @@ VIBOPLR_DATA_DIR=/path/to/data npm run tauri dev
 ```
 
 The environment variable takes precedence if both are set. The directory is created automatically if it doesn't exist. All app data (database, artist images, album images) is stored under the specified directory.
+
+### 4.20 Playlist Panel
+
+A collapsible side panel for managing the current play queue as a playlist. Toggled via a playlist button in the Now Playing bar.
+
+**Panel UI (`QueuePanel` component):**
+- Header with title "Playlist" and action buttons: Load playlist (folder icon), Save playlist (floppy icon), Clear playlist (trash icon), Close (×).
+- Track list showing title, artist, duration, and a remove (×) button per track. The currently playing track is highlighted.
+- Footer info bar showing playlist name (if loaded/saved), track count, and total duration.
+
+**Multi-selection:** Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range. Right-click context menu offers Play, Remove, Move to top, and Move to bottom for selected tracks.
+
+**Drag and drop reorder:** Mouse-event-based drag (not HTML5 DnD, for Tauri compatibility). Dragging single or multiple selected tracks shows a ghost element with track count and a drop position indicator line. Tracks are reordered on drop via `moveMultiple`.
+
+**Drag from track list to playlist:** One or multiple selected tracks can be dragged from the main track list and dropped at a specific position in the playlist panel. Shows ghost element and drop indicators during drag.
+
+**Duplicate detection:** When enqueueing tracks that already exist in the playlist, an inline banner appears in the playlist panel (not a modal) showing the duplicate count with three options: "Add all" (with auto-approve countdown, defaults to 10 seconds), "Add N new" (skip duplicates), or "Cancel". Only triggers on user-initiated enqueue actions, not on load playlist or auto continue.
+
+**M3U playlist persistence:**
+- **Save:** `save_playlist` command writes an M3U file with `#EXTINF` metadata (duration, artist, title) and absolute file paths. The playlist name is derived from the filename.
+- **Load:** `load_playlist` command parses M3U/M3U8 files, resolves tracks by matching file paths against the database, and returns matched tracks. The playlist name is extracted from the filename.
+
+**State persistence:** `showQueue` (panel visibility) and `playlistName` are persisted to the app store and restored on startup.
 
 ## 5. Database Schema
 
@@ -593,6 +619,13 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `rebuild_search_index`  | —                           | `()`                     |
 | `get_auto_continue_track` | `strategy: String, current_track_id: i64` | `Option<Track>` |
 
+### Playlist Commands
+
+| Command                 | Args                        | Returns                  |
+| ----------------------- | --------------------------- | ------------------------ |
+| `save_playlist`         | `path: String, track_ids: Vec<i64>` | `()`             |
+| `load_playlist`         | `path: String`              | `PlaylistLoadResult`     |
+
 ### Play History Commands
 
 | Command                 | Args                        | Returns                  |
@@ -680,7 +713,6 @@ A static showcase website lives in `docs/` and is hosted via **GitHub Pages** at
 
 ## 11. Out of Scope (v1)
 
-- Playlists / queue management
 - Equalizer / audio effects / DSP
 - Lyrics display
 - Mobile platforms (iOS, Android)
