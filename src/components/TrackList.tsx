@@ -43,6 +43,38 @@ function filenameFromPath(path: string): string {
   return path.split(sep).pop() ?? path;
 }
 
+export function computeSelection(
+  current: Set<number>,
+  clickedIndex: number,
+  tracks: Track[],
+  lastIndex: number | null,
+  meta: boolean,
+  shift: boolean,
+): Set<number> {
+  if (shift) {
+    const start = lastIndex ?? 0;
+    const lo = Math.min(start, clickedIndex);
+    const hi = Math.max(start, clickedIndex);
+    const range = new Set(tracks.slice(lo, hi + 1).map(t => t.id));
+    if (meta) {
+      const merged = new Set(current);
+      for (const id of range) merged.add(id);
+      return merged;
+    }
+    return range;
+  }
+  if (meta) {
+    const next = new Set(current);
+    if (next.has(tracks[clickedIndex].id)) {
+      next.delete(tracks[clickedIndex].id);
+    } else {
+      next.add(tracks[clickedIndex].id);
+    }
+    return next;
+  }
+  return new Set([tracks[clickedIndex].id]);
+}
+
 interface TrackListProps {
   tracks: Track[];
   currentTrack: Track | null;
