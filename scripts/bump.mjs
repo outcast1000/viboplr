@@ -17,8 +17,10 @@ if (!version) {
   const parts = pkg.version.split(".").map(Number);
   parts[parts.length - 1] += 1;
   version = parts.join(".");
-  console.log(`No version specified, bumping patch: ${pkg.version} → ${version}`);
+  console.log(`No version specified, bumping patch: ${pkg.version} -> ${version}`);
 }
+
+console.log(`\nBumping version to ${version}...\n`);
 
 if (!/^\d+\.\d+\.\d+$/.test(version)) {
   console.error("Usage: node scripts/bump.mjs [version]  (e.g. 0.2.0)");
@@ -44,12 +46,25 @@ for (const { path, replace } of files) {
 }
 
 if (autocommit) {
-  const run = (cmd) => {
-    console.log(`$ ${cmd}`);
-    execSync(cmd, { cwd: root, stdio: "inherit" });
+  console.log("\nCommitting and tagging...\n");
+  const run = (label, cmd) => {
+    console.log(`${label}`);
+    console.log(`  $ ${cmd}`);
+    // Redirect stderr to stdout so we capture all git output (e.g. git push writes to stderr)
+    const output = execSync(`${cmd} 2>&1`, { cwd: root, encoding: "utf8" }).trim();
+    if (output) console.log(`  ${output.replace(/\n/g, "\n  ")}`);
+    console.log();
   };
-  run("git add -A");
-  run(`git commit -m "release: v${version}"`);
-  run(`git tag v${version}`);
-  run("git push origin main --tags");
+  run("Staging changes...", "git add -A");
+  run("Creating release commit...", `git commit -m "release: v${version}"`);
+  run("Tagging release...", `git tag v${version}`);
+  run("Pushing to origin...", "git push origin main --tags");
+  console.log(`Done! Released v${version}.`);
+} else {
+  console.log(`\nFiles updated. To commit and tag manually:\n`);
+  console.log(`  git add -A`);
+  console.log(`  git commit -m "release: v${version}"`);
+  console.log(`  git tag v${version}`);
+  console.log(`  git push origin main --tags`);
+  console.log(`\nOr re-run with --autocommit to do this automatically.`);
 }
