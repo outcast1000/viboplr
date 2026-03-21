@@ -1416,6 +1416,8 @@ function App() {
             onEnqueueAll={handleEnqueue}
             onShuffle={() => library.handleSort("random")}
             isShuffled={library.sortField === "random"}
+            filterYoutubeOnly={library.filterYoutubeOnly}
+            onToggleYoutubeFilter={() => library.setFilterYoutubeOnly(v => !v)}
           />
 
           {/* Artist list */}

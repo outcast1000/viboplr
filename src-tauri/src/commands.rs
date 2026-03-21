@@ -337,6 +337,7 @@ pub fn get_tracks(
     sort_dir: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
+    has_youtube_url: Option<bool>,
 ) -> Result<Vec<Track>, String> {
     state.db.get_tracks(
         album_id,
@@ -344,6 +345,7 @@ pub fn get_tracks(
         sort_dir.as_deref(),
         limit.unwrap_or(100),
         offset.unwrap_or(0),
+        has_youtube_url.unwrap_or(false),
     ).map_err(|e| e.to_string())
 }
 
@@ -359,7 +361,9 @@ pub fn search(
     sort_dir: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
+    has_youtube_url: Option<bool>,
 ) -> Result<Vec<Track>, String> {
+    let yt = has_youtube_url.unwrap_or(false);
     if query.trim().is_empty() {
         return state.db.get_tracks(
             None,
@@ -367,6 +371,7 @@ pub fn search(
             sort_dir.as_deref(),
             limit.unwrap_or(100),
             offset.unwrap_or(0),
+            yt,
         ).map_err(|e| e.to_string());
     }
     state
@@ -375,6 +380,7 @@ pub fn search(
             &query, artist_id, album_id, tag_id, liked_only.unwrap_or(false),
             sort_field.as_deref(), sort_dir.as_deref(),
             limit.unwrap_or(100), offset.unwrap_or(0),
+            yt,
         )
         .map_err(|e| e.to_string())
 }

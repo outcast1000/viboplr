@@ -58,6 +58,9 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   // Track shuffle key (forces re-fetch on shuffle click)
   const [trackShuffleKey, setTrackShuffleKey] = useState(0);
 
+  // Track filters
+  const [filterYoutubeOnly, setFilterYoutubeOnly] = useState(false);
+
   // Tag sort state
   const [tagSortField, setTagSortField] = useState<TagSortField | null>(null);
   const [tagSortDir, setTagSortDir] = useState<SortDir>("asc");
@@ -126,6 +129,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
           sortDir: sortDir,
           limit: PAGE_SIZE,
           offset,
+          hasYoutubeUrl: filterYoutubeOnly,
         });
         if (append) {
           const newTracks = [...tracksRef.current, ...results];
@@ -168,6 +172,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
           sortDir: sortDir,
           limit: PAGE_SIZE,
           offset,
+          hasYoutubeUrl: filterYoutubeOnly,
         });
         if (append) {
           const newTracks = [...tracksRef.current, ...results];
@@ -182,7 +187,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     } catch (e) {
       console.error("Failed to load tracks:", e);
     }
-  }, [debouncedSearchQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir, trackShuffleKey]);
+  }, [debouncedSearchQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir, trackShuffleKey, filterYoutubeOnly]);
 
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
@@ -469,5 +474,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     sortedArtists, artistSortField, artistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,
     sortedAlbums, albumSortField, albumSortDir, albumLikedFirst, setAlbumLikedFirst, handleAlbumSort,
     sortedTags, tagSortField, tagSortDir, handleTagSort,
+    filterYoutubeOnly, setFilterYoutubeOnly,
   };
 }

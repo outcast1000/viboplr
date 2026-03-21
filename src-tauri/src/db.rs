@@ -567,7 +567,7 @@ impl Database {
         )
     }
 
-    pub fn get_tracks(&self, album_id: Option<i64>, sort_field: Option<&str>, sort_dir: Option<&str>, limit: i64, offset: i64) -> SqlResult<Vec<Track>> {
+    pub fn get_tracks(&self, album_id: Option<i64>, sort_field: Option<&str>, sort_dir: Option<&str>, limit: i64, offset: i64, has_youtube_url: bool) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = album_id {
             // When album_id is Some: behavior unchanged, ignore sort/pagination params
@@ -588,7 +588,8 @@ impl Database {
                 "ORDER BY ar.name, al.title, t.track_number, t.title, t.id".to_string()
             };
 
-            let sql = format!("{} WHERE t.deleted = 0 {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, ENABLED_COLLECTION_FILTER, order_by);
+            let youtube_filter = if has_youtube_url { "AND t.youtube_url IS NOT NULL AND t.youtube_url != ''" } else { "" };
+            let sql = format!("{} WHERE t.deleted = 0 {} {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, ENABLED_COLLECTION_FILTER, youtube_filter, order_by);
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![limit, offset], |row| track_from_row(row))?;
             rows.collect()
@@ -620,6 +621,7 @@ impl Database {
         sort_dir: Option<&str>,
         limit: i64,
         offset: i64,
+        has_youtube_url: bool,
     ) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let normalized = strip_diacritics(query);
@@ -661,6 +663,9 @@ impl Database {
         }
         if liked_only {
             sql.push_str(" AND t.liked = 1");
+        }
+        if has_youtube_url {
+            sql.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''");
         }
 
         // Add ORDER BY if sort_field maps to something
