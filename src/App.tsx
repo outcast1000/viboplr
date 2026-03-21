@@ -44,7 +44,6 @@ import { AddTidalModal } from "./components/AddTidalModal";
 import { CollectionsView } from "./components/CollectionsView";
 import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
 import { StatusBar } from "./components/StatusBar";
-import { DuplicateWarningModal } from "./components/DuplicateWarningModal";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
@@ -1667,6 +1666,16 @@ function App() {
           queueIndex={queueHook.queueIndex}
           queuePanelRef={queueHook.queuePanelRef}
           playlistName={queueHook.playlistName}
+          pendingEnqueue={pendingEnqueue}
+          onAllowAll={() => {
+            if (pendingEnqueue) queueHook.enqueueTracks(pendingEnqueue.all);
+            setPendingEnqueue(null);
+          }}
+          onSkipDuplicates={() => {
+            if (pendingEnqueue) queueHook.enqueueTracks(pendingEnqueue.unique);
+            setPendingEnqueue(null);
+          }}
+          onCancelEnqueue={() => setPendingEnqueue(null)}
           onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
           onRemove={queueHook.removeFromQueue}
           onMoveMultiple={queueHook.moveMultiple}
@@ -1762,21 +1771,6 @@ function App() {
         } : null}
       />
 
-      {pendingEnqueue && (
-        <DuplicateWarningModal
-          duplicates={pendingEnqueue.duplicates}
-          totalCount={pendingEnqueue.all.length}
-          onAllowAll={() => {
-            queueHook.enqueueTracks(pendingEnqueue.all);
-            setPendingEnqueue(null);
-          }}
-          onSkipDuplicates={() => {
-            queueHook.enqueueTracks(pendingEnqueue.unique);
-            setPendingEnqueue(null);
-          }}
-          onCancel={() => setPendingEnqueue(null)}
-        />
-      )}
     </div>
   );
 }

@@ -2194,42 +2194,51 @@ body {
   color: var(--text-primary);
 }
 
-.modal-btn-primary {
-  background: var(--accent);
-  color: #fff;
-}
-
-.modal-btn-primary:hover {
-  filter: brightness(1.1);
-}
-
-.duplicate-list {
-  list-style: none;
-  padding: 0;
-  margin: 8px 0;
-  max-height: 200px;
-  overflow-y: auto;
+.queue-duplicate-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: rgba(255, 180, 50, 0.12);
+  border-bottom: 1px solid rgba(255, 180, 50, 0.25);
   font-size: 12px;
+  flex-shrink: 0;
+}
+
+.queue-duplicate-text {
+  color: #ffb432;
+}
+
+.queue-duplicate-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.queue-duplicate-btn {
+  background: transparent;
+  border: 1px solid var(--border);
   color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  text-align: center;
 }
 
-.duplicate-list li {
-  padding: 4px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.duplicate-title {
+.queue-duplicate-btn:hover {
+  border-color: var(--text-secondary);
   color: var(--text-primary);
 }
 
-.duplicate-more {
-  font-style: italic;
-  padding-top: 4px;
+.queue-duplicate-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 
-.modal-btn-confirm {
-  background: var(--accent);
-  color: #fff;
+.queue-duplicate-btn-primary:hover {
+  filter: brightness(1.1);
 }
 
 .modal-btn-confirm:hover {

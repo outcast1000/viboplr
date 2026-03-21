@@ -2,6 +2,12 @@ import { useState, useRef, useEffect } from "react";
 import type { Track } from "../types";
 import { formatDuration } from "../utils";
 
+export interface PendingEnqueue {
+  all: Track[];
+  duplicates: Track[];
+  unique: Track[];
+}
+
 function formatTotalDuration(tracks: Track[]): string {
   const totalSecs = tracks.reduce((sum, t) => sum + (t.duration_secs ?? 0), 0);
   const hours = Math.floor(totalSecs / 3600);
@@ -46,6 +52,10 @@ interface QueuePanelProps {
   queueIndex: number;
   queuePanelRef: React.RefObject<HTMLDivElement | null>;
   playlistName: string | null;
+  pendingEnqueue: PendingEnqueue | null;
+  onAllowAll: () => void;
+  onSkipDuplicates: () => void;
+  onCancelEnqueue: () => void;
   onPlay: (track: Track, index: number) => void;
   onRemove: (index: number) => void;
   onMoveMultiple: (indices: number[], targetIndex: number) => void;
@@ -56,13 +66,17 @@ interface QueuePanelProps {
   onContextMenu: (e: React.MouseEvent, indices: number[]) => void;
 }
 
+const AUTO_APPROVE_SECS = 10;
+
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistName,
+  pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
   onPlay, onRemove, onMoveMultiple, onClear, onClose, onSavePlaylist, onLoadPlaylist, onContextMenu,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [countdown, setCountdown] = useState(AUTO_APPROVE_SECS);
   const lastClickedIndexRef = useRef<number | null>(null);
   const dragIndicesRef = useRef<number[] | null>(null);
   const dropTargetRef = useRef<number | null>(null);
@@ -71,6 +85,23 @@ export function QueuePanel({
 
   // Clear selection when queue changes (add/remove/reorder)
   useEffect(() => { setSelectedIndices(new Set()); }, [queue]);
+
+  // Auto-approve countdown for duplicate warning
+  useEffect(() => {
+    if (!pendingEnqueue) { setCountdown(AUTO_APPROVE_SECS); return; }
+    setCountdown(AUTO_APPROVE_SECS);
+    const interval = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) { clearInterval(interval); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [pendingEnqueue]);
+
+  useEffect(() => {
+    if (pendingEnqueue && countdown === 0) onAllowAll();
+  }, [countdown, pendingEnqueue]);
 
   function handleClick(e: React.MouseEvent, track: Track, index: number) {
     // Ignore click if we just finished a drag
@@ -214,6 +245,24 @@ export function QueuePanel({
           <button className="ctrl-btn" onClick={onClose} title="Close">{"\u00D7"}</button>
         </div>
       </div>
+      {pendingEnqueue && (
+        <div className="queue-duplicate-banner">
+          <span className="queue-duplicate-text">
+            {pendingEnqueue.duplicates.length} duplicate{pendingEnqueue.duplicates.length !== 1 ? "s" : ""} found
+          </span>
+          <div className="queue-duplicate-actions">
+            <button className="queue-duplicate-btn" onClick={onAllowAll}>
+              Add all ({countdown}s)
+            </button>
+            {pendingEnqueue.unique.length > 0 && (
+              <button className="queue-duplicate-btn queue-duplicate-btn-primary" onClick={onSkipDuplicates}>
+                Add {pendingEnqueue.unique.length} new
+              </button>
+            )}
+            <button className="queue-duplicate-btn" onClick={onCancelEnqueue}>Cancel</button>
+          </div>
+        </div>
+      )}
       <div className="queue-list">
         {queue.map((t, i) => (
           <div
