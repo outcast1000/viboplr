@@ -167,7 +167,8 @@ impl Database {
             CREATE TABLE IF NOT EXISTS tags (
                 id          INTEGER PRIMARY KEY,
                 name        TEXT NOT NULL UNIQUE,
-                track_count INTEGER NOT NULL DEFAULT 0
+                track_count INTEGER NOT NULL DEFAULT 0,
+                liked       INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS collections (
@@ -278,6 +279,11 @@ impl Database {
         if version < 4 {
             let _ = conn.execute_batch("ALTER TABLE collections ADD COLUMN last_sync_error TEXT");
             conn.execute("UPDATE db_version SET version = 4 WHERE rowid = 1", [])?;
+        }
+
+        if version < 5 {
+            let _ = conn.execute_batch("ALTER TABLE tags ADD COLUMN liked INTEGER NOT NULL DEFAULT 0");
+            conn.execute("UPDATE db_version SET version = 5 WHERE rowid = 1", [])?;
         }
 
         drop(conn);
@@ -399,13 +405,14 @@ impl Database {
     pub fn get_tags(&self) -> SqlResult<Vec<Tag>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, track_count FROM tags WHERE track_count > 0 ORDER BY name"
+            "SELECT id, name, track_count, liked FROM tags WHERE track_count > 0 ORDER BY name"
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Tag {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 track_count: row.get(2)?,
+                liked: row.get::<_, i32>(3).unwrap_or(0) != 0,
             })
         })?;
         rows.collect()
@@ -414,7 +421,7 @@ impl Database {
     pub fn get_tags_for_track(&self, track_id: i64) -> SqlResult<Vec<Tag>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT tg.id, tg.name, COUNT(t2.id)
+            "SELECT tg.id, tg.name, COUNT(t2.id), tg.liked
              FROM tags tg
              JOIN track_tags tt ON tt.tag_id = tg.id
              LEFT JOIN track_tags tt2 ON tt2.tag_id = tg.id
@@ -428,6 +435,7 @@ impl Database {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 track_count: row.get(2)?,
+                liked: row.get::<_, i32>(3).unwrap_or(0) != 0,
             })
         })?;
         rows.collect()
@@ -996,6 +1004,15 @@ impl Database {
         conn.execute(
             "UPDATE albums SET liked = ?2 WHERE id = ?1",
             params![album_id, liked as i32],
+        )?;
+        Ok(())
+    }
+
+    pub fn toggle_tag_liked(&self, tag_id: i64, liked: bool) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tags SET liked = ?2 WHERE id = ?1",
+            params![tag_id, liked as i32],
         )?;
         Ok(())
     }

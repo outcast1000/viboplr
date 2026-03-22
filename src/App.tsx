@@ -37,6 +37,7 @@ import type { ContextMenuState } from "./components/ContextMenu";
 import { Breadcrumb } from "./components/Breadcrumb";
 import { AlbumCardArt } from "./components/AlbumCardArt";
 import { ArtistCardArt } from "./components/ArtistCardArt";
+import { TagCardArt } from "./components/TagCardArt";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { ImageActions } from "./components/ImageActions";
 import { HistoryView } from "./components/HistoryView";
@@ -134,6 +135,8 @@ function App() {
   const [fetchedAlbumImages, setFetchedAlbumImages] = useState<Set<number>>(new Set());
   const [failedArtistImages, setFailedArtistImages] = useState<Set<number>>(new Set());
   const [failedAlbumImages, setFailedAlbumImages] = useState<Set<number>>(new Set());
+  const [tagImages, setTagImages] = useState<Record<number, string | null>>({});
+  const [fetchedTagImages, setFetchedTagImages] = useState<Set<number>>(new Set());
 
   function addLog(message: string) {
     setSessionLog(prev => [...prev, { time: new Date(), message }]);
@@ -224,11 +227,14 @@ function App() {
     view: library.view,
     selectedArtist: library.selectedArtist,
     selectedAlbum: library.selectedAlbum,
+    selectedTag: library.selectedTag,
     searchQuery: library.searchQuery,
     artists: library.artists,
     albums: library.albums,
+    tags: library.tags,
     setArtistImages,
     setAlbumImages,
+    setTagImages,
     addLog,
   });
 
@@ -534,6 +540,27 @@ function App() {
     const album = library.albums.find(a => a.id === library.selectedAlbum);
     if (album) fetchAlbumImageOnDemand(album);
   }, [library.selectedAlbum]);
+
+  // Fetch tag image on demand
+  const fetchedTagImagesRef = useRef(fetchedTagImages);
+  fetchedTagImagesRef.current = fetchedTagImages;
+  const tagImagesRef = useRef(tagImages);
+  tagImagesRef.current = tagImages;
+  const fetchTagImageOnDemand = useCallback((tag: { id: number }) => {
+    if (tagImagesRef.current[tag.id] !== undefined) return;
+    if (fetchedTagImagesRef.current.has(tag.id)) return;
+    setFetchedTagImages((prev) => new Set(prev).add(tag.id));
+    invoke<string | null>("get_tag_image", { tagId: tag.id }).then((path) => {
+      if (path) {
+        setTagImages((prev) => ({ ...prev, [tag.id]: path }));
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    if (library.selectedTag === null) return;
+    fetchTagImageOnDemand({ id: library.selectedTag });
+  }, [library.selectedTag]);
 
   // Fetch album/artist image when current track changes (for Now Playing bar)
   useEffect(() => {
@@ -1121,6 +1148,18 @@ function App() {
       library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: newLiked } : a));
     } catch (e) {
       console.error("Failed to toggle album like:", e);
+    }
+  }
+
+  async function handleToggleTagLike(tagId: number) {
+    const tag = tags.find(t => t.id === tagId);
+    if (!tag) return;
+    const newLiked = !tag.liked;
+    try {
+      await invoke("toggle_tag_liked", { tagId, liked: newLiked });
+      library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked: newLiked } : t));
+    } catch (e) {
+      console.error("Failed to toggle tag like:", e);
     }
   }
 
@@ -1784,6 +1823,11 @@ function App() {
                   </button>
                 </div>
                 <div className="sort-bar-right">
+                  <button
+                    className={`sort-btn liked-first-btn${library.tagLikedFirst ? " active" : ""}`}
+                    onClick={() => library.setTagLikedFirst(v => !v)}
+                    title="Liked first"
+                  >{"\u2665"}</button>
                   <ViewModeToggle mode={library.tagViewMode} onChange={library.setTagViewMode} />
                 </div>
               </div>
@@ -1792,6 +1836,7 @@ function App() {
               {library.tagViewMode === "basic" && (
                 <div className="entity-table">
                   <div className="entity-table-header">
+                    <span className="entity-table-like"></span>
                     <span className={`entity-table-name sortable${library.tagSortField === "name" ? " sorted" : ""}`} onClick={() => library.handleTagSort("name")}>
                       Name{library.tagSortField === "name" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
                     </span>
@@ -1805,6 +1850,10 @@ function App() {
                       className={`entity-table-row${i === highlightedListIndex ? " highlighted" : ""}`}
                       onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
                     >
+                      <span
+                        className="entity-table-like"
+                        onClick={(e) => { e.stopPropagation(); handleToggleTagLike(t.id); }}
+                      >{t.liked ? "\u2665" : "\u2661"}</span>
                       <span className="entity-table-name">{t.name}</span>
                       <span className="entity-table-count">{t.track_count}</span>
                     </div>
@@ -1824,7 +1873,11 @@ function App() {
                       className={`entity-list-item${i === highlightedListIndex ? " highlighted" : ""}`}
                       onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
                     >
-                      <div className="entity-list-img tag-icon">{t.name[0]?.toUpperCase() ?? "#"}</div>
+                      <span
+                        className="entity-list-like"
+                        onClick={(e) => { e.stopPropagation(); handleToggleTagLike(t.id); }}
+                      >{t.liked ? "\u2665" : "\u2661"}</span>
+                      <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={fetchTagImageOnDemand} className="entity-list-img" />
                       <span className="entity-list-name">{t.name}</span>
                       <span className="entity-list-count">{t.track_count} tracks</span>
                     </div>
@@ -1844,7 +1897,11 @@ function App() {
                       className={`tag-card${i === highlightedListIndex ? " highlighted" : ""}`}
                       onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
                     >
-                      <div className="tag-card-art">{t.name[0]?.toUpperCase() ?? "#"}</div>
+                      <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={fetchTagImageOnDemand} />
+                      <div
+                        className={`artist-card-like${t.liked ? " liked" : ""}`}
+                        onClick={(e) => { e.stopPropagation(); handleToggleTagLike(t.id); }}
+                      >{t.liked ? "\u2665" : "\u2661"}</div>
                       <div className="tag-card-body">
                         <div className="tag-card-name" title={t.name}>{t.name}</div>
                         <div className="tag-card-info">{t.track_count} tracks</div>
@@ -1858,6 +1915,44 @@ function App() {
               )}
             </>
           )}
+
+          {/* Tag detail header */}
+          {view === "all" && selectedTag !== null && !searchQuery.trim() && (() => {
+            const tag = tags.find(t => t.id === selectedTag);
+            const tagImagePath = tagImages[selectedTag] ?? null;
+            return (
+              <div className="album-detail-header">
+                <div className="album-detail-art">
+                  {tagImagePath ? (
+                    <img className="album-detail-art-img" src={convertFileSrc(tagImagePath)} alt={tag?.name} />
+                  ) : (
+                    tag?.name[0]?.toUpperCase() ?? "#"
+                  )}
+                </div>
+                <div className="album-detail-info">
+                  <h2>
+                    {tag?.name ?? "Unknown"}
+                    <span
+                      className={`detail-like-btn${tag?.liked ? " liked" : ""}`}
+                      onClick={() => handleToggleTagLike(selectedTag)}
+                      title={tag?.liked ? "Unlike tag" : "Like tag"}
+                    >{tag?.liked ? "\u2665" : "\u2661"}</span>
+                  </h2>
+                  <span className="artist-meta">{tag?.track_count ?? 0} tracks</span>
+                  <ImageActions
+                    entityId={selectedTag}
+                    entityType="tag"
+                    imagePath={tagImagePath}
+                    onImageSet={(id, path) => setTagImages(prev => ({ ...prev, [id]: path }))}
+                    onImageRemoved={(id) => {
+                      setTagImages(prev => ({ ...prev, [id]: null }));
+                      setFetchedTagImages(prev => { const next = new Set(prev); next.delete(id); return next; });
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Album detail header */}
           {(view === "all" || view === "artists") && selectedAlbum !== null && !searchQuery.trim() && (() => {

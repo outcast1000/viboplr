@@ -531,6 +531,18 @@ pub fn toggle_album_liked(
 }
 
 #[tauri::command]
+pub fn toggle_tag_liked(
+    state: State<'_, AppState>,
+    tag_id: i64,
+    liked: bool,
+) -> Result<(), String> {
+    state
+        .db
+        .toggle_tag_liked(tag_id, liked)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
     state.db.get_liked_tracks().map_err(|e| e.to_string())
 }
@@ -700,6 +712,56 @@ pub fn paste_album_image(
 #[tauri::command]
 pub fn remove_album_image(state: State<'_, AppState>, album_id: i64) {
     crate::album_image::remove_image(&state.app_dir, album_id);
+}
+
+// --- Tag image commands ---
+
+#[tauri::command]
+pub fn get_tag_image(state: State<'_, AppState>, tag_id: i64) -> Option<String> {
+    crate::tag_image::get_image_path(&state.app_dir, tag_id)
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn set_tag_image(
+    state: State<'_, AppState>,
+    tag_id: i64,
+    source_path: String,
+) -> Result<String, String> {
+    let source = std::path::Path::new(&source_path);
+    let ext = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("jpg")
+        .to_lowercase();
+
+    crate::tag_image::remove_image(&state.app_dir, tag_id);
+
+    let dest_dir = state.app_dir.join("tag_images");
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(format!("{}.{}", tag_id, ext));
+    std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy image: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn paste_tag_image(
+    state: State<'_, AppState>,
+    tag_id: i64,
+    image_data: Vec<u8>,
+) -> Result<String, String> {
+    let ext = detect_image_format(&image_data);
+    crate::tag_image::remove_image(&state.app_dir, tag_id);
+    let dest_dir = state.app_dir.join("tag_images");
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(format!("{}.{}", tag_id, ext));
+    std::fs::write(&dest, &image_data).map_err(|e| format!("Failed to write image: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn remove_tag_image(state: State<'_, AppState>, tag_id: i64) {
+    crate::tag_image::remove_image(&state.app_dir, tag_id);
 }
 
 #[tauri::command]

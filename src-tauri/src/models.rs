@@ -24,6 +24,7 @@ pub struct Tag {
     pub id: i64,
     pub name: String,
     pub track_count: i64,
+    pub liked: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

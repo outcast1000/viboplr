@@ -9,6 +9,7 @@ mod scanner;
 mod seed;
 mod subsonic;
 mod sync;
+mod tag_image;
 mod timing;
 mod tidal;
 
@@ -47,6 +48,11 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_tags,
         commands::get_tags_for_track,
         commands::get_tracks_by_tag,
+        commands::toggle_tag_liked,
+        commands::get_tag_image,
+        commands::set_tag_image,
+        commands::paste_tag_image,
+        commands::remove_tag_image,
         commands::get_artist_image,
         commands::fetch_artist_image,
         commands::set_artist_image,
@@ -106,6 +112,11 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_tags,
         commands::get_tags_for_track,
         commands::get_tracks_by_tag,
+        commands::toggle_tag_liked,
+        commands::get_tag_image,
+        commands::set_tag_image,
+        commands::paste_tag_image,
+        commands::remove_tag_image,
         commands::get_artist_image,
         commands::fetch_artist_image,
         commands::set_artist_image,
@@ -220,6 +231,7 @@ pub fn run() {
             timer.time("create_image_dirs", || {
                 let _ = std::fs::create_dir_all(app_dir.join("artist_images"));
                 let _ = std::fs::create_dir_all(app_dir.join("album_images"));
+                let _ = std::fs::create_dir_all(app_dir.join("tag_images"));
             });
 
             let download_queue = timer.time("setup_download_queue", || Arc::new(DownloadQueue {

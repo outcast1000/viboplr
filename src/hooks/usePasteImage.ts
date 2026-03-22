@@ -1,26 +1,32 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { View, Artist, Album } from "../types";
+import type { View, Artist, Album, Tag } from "../types";
 
 export function usePasteImage({
   view,
   selectedArtist,
   selectedAlbum,
+  selectedTag,
   searchQuery,
   artists,
   albums,
+  tags,
   setArtistImages,
   setAlbumImages,
+  setTagImages,
   addLog,
 }: {
   view: View;
   selectedArtist: number | null;
   selectedAlbum: number | null;
+  selectedTag: number | null;
   searchQuery: string;
   artists: Artist[];
   albums: Album[];
+  tags: Tag[];
   setArtistImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
   setAlbumImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
+  setTagImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
   addLog: (text: string) => void;
 }) {
   useEffect(() => {
@@ -39,8 +45,9 @@ export function usePasteImage({
 
       const isArtistDetail = view === "artists" && selectedArtist !== null;
       const isAlbumDetail = view === "all" && selectedAlbum !== null && !searchQuery.trim();
+      const isTagDetail = view === "all" && selectedTag !== null && !searchQuery.trim();
 
-      if (!isArtistDetail && !isAlbumDetail) return;
+      if (!isArtistDetail && !isAlbumDetail && !isTagDetail) return;
 
       e.preventDefault();
 
@@ -65,6 +72,13 @@ export function usePasteImage({
           });
           setAlbumImages((prev) => ({ ...prev, [selectedAlbum!]: path }));
           addLog("Album image set from clipboard: " + (albums.find(a => a.id === selectedAlbum)?.title ?? "unknown"));
+        } else if (isTagDetail) {
+          const path = await invoke<string>("paste_tag_image", {
+            tagId: selectedTag,
+            imageData,
+          });
+          setTagImages((prev) => ({ ...prev, [selectedTag!]: path }));
+          addLog("Tag image set from clipboard: " + (tags.find(t => t.id === selectedTag)?.name ?? "unknown"));
         }
       } catch (err) {
         addLog(`Failed to paste image: ${err}`);
@@ -73,5 +87,5 @@ export function usePasteImage({
 
     document.addEventListener("paste", handler);
     return () => document.removeEventListener("paste", handler);
-  }, [view, selectedArtist, selectedAlbum, searchQuery, artists, albums, setArtistImages, setAlbumImages, addLog]);
+  }, [view, selectedArtist, selectedAlbum, selectedTag, searchQuery, artists, albums, tags, setArtistImages, setAlbumImages, setTagImages, addLog]);
 }

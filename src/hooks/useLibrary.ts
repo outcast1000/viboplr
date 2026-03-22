@@ -63,6 +63,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   // Tag sort state
   const [tagSortField, setTagSortField] = useState<TagSortField | null>(null);
   const [tagSortDir, setTagSortDir] = useState<SortDir>("asc");
+  const [tagLikedFirst, setTagLikedFirst] = useState(false);
   const [tagShuffleKey, setTagShuffleKey] = useState(0);
 
   // View mode state
@@ -354,8 +355,11 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     } else {
       result = tags;
     }
+    if (tagLikedFirst) {
+      result = [...result].sort((a, b) => (a.liked === b.liked ? 0 : a.liked ? -1 : 1));
+    }
     return result;
-  }, [tags, tagSortField, tagSortDir, tagShuffleKey]);
+  }, [tags, tagSortField, tagSortDir, tagLikedFirst, tagShuffleKey]);
 
   function handleTagSort(field: TagSortField) {
     if (field === "random") {
@@ -496,7 +500,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     hasMore, loadingMore, loadMore,
     sortedArtists, artistSortField, artistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,
     sortedAlbums, albumSortField, albumSortDir, albumLikedFirst, setAlbumLikedFirst, handleAlbumSort,
-    sortedTags, tagSortField, tagSortDir, handleTagSort,
+    sortedTags, tagSortField, tagSortDir, tagLikedFirst, setTagLikedFirst, handleTagSort,
     filterYoutubeOnly, setFilterYoutubeOnly, trackLikedFirst, setTrackLikedFirst,
     artistViewMode, setArtistViewMode,
     albumViewMode, setAlbumViewMode,

@@ -19,6 +19,7 @@ export interface Tag {
   id: number;
   name: string;
   track_count: number;
+  liked: boolean;
 }
 
 export interface Track {
