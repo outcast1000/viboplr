@@ -28,6 +28,7 @@ export function usePlayback(
   const pendingAutoPlayRef = useRef(true);
   const pendingSeekRef = useRef(0);
   const scrobbledRef = useRef(false);
+  const playStartedAtRef = useRef(0);
 
   // Preload state (refs for use in event handlers without stale closures)
   const preloadedTrackRef = useRef<Track | null>(null);
@@ -204,6 +205,8 @@ export function usePlayback(
     setPositionSecs(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
     scrobbledRef.current = false;
+    playStartedAtRef.current = Math.floor(Date.now() / 1000);
+    invoke("lastfm_now_playing", { trackId: nextTrack.id }).catch(console.error);
 
     // Start incoming element
     incoming.volume = 0;
@@ -271,6 +274,8 @@ export function usePlayback(
     setPositionSecs(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
     scrobbledRef.current = false;
+    playStartedAtRef.current = Math.floor(Date.now() / 1000);
+    invoke("lastfm_now_playing", { trackId: nextTrack.id }).catch(console.error);
 
     // Clear preload state
     preloadedTrackRef.current = null;
@@ -301,6 +306,8 @@ export function usePlayback(
       setPositionSecs(0);
       setDurationSecs(track.duration_secs ?? 0);
       scrobbledRef.current = false;
+      playStartedAtRef.current = Math.floor(Date.now() / 1000);
+      invoke("lastfm_now_playing", { trackId: track.id }).catch(console.error);
 
       // Always reset to slot A on explicit play
       setActiveSlot("A");
@@ -346,6 +353,7 @@ export function usePlayback(
       setPositionSecs(position);
       setDurationSecs(track.duration_secs ?? 0);
       scrobbledRef.current = false;
+      playStartedAtRef.current = Math.floor(Date.now() / 1000);
 
       // Always restore to slot A
       setActiveSlot("A");
@@ -417,6 +425,7 @@ export function usePlayback(
       if (shouldScrobble(el.currentTime, currentTrack.duration_secs)) {
         scrobbledRef.current = true;
         invoke("record_play", { trackId: currentTrack.id }).catch(console.error);
+        invoke("lastfm_scrobble", { trackId: currentTrack.id, startedAt: playStartedAtRef.current }).catch(console.error);
       }
     }
 
