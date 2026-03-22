@@ -489,7 +489,7 @@ function App() {
 
     setFetchedArtistImages((prev) => new Set(prev).add(library.selectedArtist!));
 
-    invoke<string | null>("get_artist_image", { artistId: library.selectedArtist }).then((path) => {
+    invoke<string | null>("get_entity_image", { kind: "artist", id: library.selectedArtist }).then((path) => {
       if (path) {
         setArtistImages((prev) => ({ ...prev, [library.selectedArtist!]: path }));
       } else {
@@ -504,7 +504,7 @@ function App() {
     if (failedArtistImagesRef.current.has(artist.id)) return;
     setFetchedArtistImages((prev) => new Set(prev).add(artist.id));
 
-    invoke<string | null>("get_artist_image", { artistId: artist.id }).then((path) => {
+    invoke<string | null>("get_entity_image", { kind: "artist", id: artist.id }).then((path) => {
       if (path) {
         setArtistImages((prev) => ({ ...prev, [artist.id]: path }));
       } else {
@@ -526,7 +526,7 @@ function App() {
     if (failedAlbumImagesRef.current.has(album.id)) return;
     setFetchedAlbumImages((prev) => new Set(prev).add(album.id));
 
-    invoke<string | null>("get_album_image", { albumId: album.id }).then((path) => {
+    invoke<string | null>("get_entity_image", { kind: "album", id: album.id }).then((path) => {
       if (path) {
         setAlbumImages((prev) => ({ ...prev, [album.id]: path }));
       } else {
@@ -550,7 +550,7 @@ function App() {
     if (tagImagesRef.current[tag.id] !== undefined) return;
     if (fetchedTagImagesRef.current.has(tag.id)) return;
     setFetchedTagImages((prev) => new Set(prev).add(tag.id));
-    invoke<string | null>("get_tag_image", { tagId: tag.id }).then((path) => {
+    invoke<string | null>("get_entity_image", { kind: "tag", id: tag.id }).then((path) => {
       if (path) {
         setTagImages((prev) => ({ ...prev, [tag.id]: path }));
       }
@@ -574,7 +574,7 @@ function App() {
       if (fetchedArtistImagesRef.current.has(track.artist_id)) return;
       if (failedArtistImagesRef.current.has(track.artist_id)) return;
       setFetchedArtistImages((prev) => new Set(prev).add(track.artist_id!));
-      invoke<string | null>("get_artist_image", { artistId: track.artist_id }).then((path) => {
+      invoke<string | null>("get_entity_image", { kind: "artist", id: track.artist_id }).then((path) => {
         if (path) {
           setArtistImages((prev) => ({ ...prev, [track.artist_id!]: path }));
         } else {

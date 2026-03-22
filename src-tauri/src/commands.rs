@@ -557,13 +557,57 @@ pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), S
     Ok(())
 }
 
-// --- Artist image commands ---
+// --- Entity image commands (generic) ---
 
 #[tauri::command]
-pub fn get_artist_image(state: State<'_, AppState>, artist_id: i64) -> Option<String> {
-    crate::entity_image::get_image_path(&state.app_dir, "artist", artist_id)
+pub fn get_entity_image(state: State<'_, AppState>, kind: String, id: i64) -> Option<String> {
+    crate::entity_image::get_image_path(&state.app_dir, &kind, id)
         .map(|p| p.to_string_lossy().to_string())
 }
+
+#[tauri::command]
+pub fn set_entity_image(
+    state: State<'_, AppState>,
+    kind: String,
+    id: i64,
+    source_path: String,
+) -> Result<String, String> {
+    let source = std::path::Path::new(&source_path);
+    let ext = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("jpg")
+        .to_lowercase();
+    crate::entity_image::remove_image(&state.app_dir, &kind, id);
+    let dest_dir = crate::entity_image::image_dir(&state.app_dir, &kind);
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(format!("{}.{}", id, ext));
+    std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy image: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn paste_entity_image(
+    state: State<'_, AppState>,
+    kind: String,
+    id: i64,
+    image_data: Vec<u8>,
+) -> Result<String, String> {
+    let ext = detect_image_format(&image_data);
+    crate::entity_image::remove_image(&state.app_dir, &kind, id);
+    let dest_dir = crate::entity_image::image_dir(&state.app_dir, &kind);
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(format!("{}.{}", id, ext));
+    std::fs::write(&dest, &image_data).map_err(|e| format!("Failed to write image: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn remove_entity_image(state: State<'_, AppState>, kind: String, id: i64) {
+    crate::entity_image::remove_image(&state.app_dir, &kind, id);
+}
+
+// --- Artist/album image fetch commands ---
 
 #[tauri::command]
 pub fn fetch_artist_image(
@@ -578,57 +622,6 @@ pub fn fetch_artist_image(
 }
 
 #[tauri::command]
-pub fn set_artist_image(
-    state: State<'_, AppState>,
-    artist_id: i64,
-    source_path: String,
-) -> Result<String, String> {
-    let source = std::path::Path::new(&source_path);
-    let ext = source
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("jpg")
-        .to_lowercase();
-
-    // Remove any existing image first
-    crate::entity_image::remove_image(&state.app_dir, "artist", artist_id);
-
-    let dest_dir = state.app_dir.join("artist_images");
-    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
-    let dest = dest_dir.join(format!("{}.{}", artist_id, ext));
-    std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy image: {}", e))?;
-    Ok(dest.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-pub fn paste_artist_image(
-    state: State<'_, AppState>,
-    artist_id: i64,
-    image_data: Vec<u8>,
-) -> Result<String, String> {
-    let ext = detect_image_format(&image_data);
-    crate::entity_image::remove_image(&state.app_dir, "artist", artist_id);
-    let dest_dir = state.app_dir.join("artist_images");
-    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
-    let dest = dest_dir.join(format!("{}.{}", artist_id, ext));
-    std::fs::write(&dest, &image_data).map_err(|e| format!("Failed to write image: {}", e))?;
-    Ok(dest.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-pub fn remove_artist_image(state: State<'_, AppState>, artist_id: i64) {
-    crate::entity_image::remove_image(&state.app_dir, "artist", artist_id);
-}
-
-// --- Album image commands ---
-
-#[tauri::command]
-pub fn get_album_image(state: State<'_, AppState>, album_id: i64) -> Option<String> {
-    crate::entity_image::get_image_path(&state.app_dir, "album", album_id)
-        .map(|p| p.to_string_lossy().to_string())
-}
-
-#[tauri::command]
 pub fn fetch_album_image(
     state: State<'_, AppState>,
     album_id: i64,
@@ -639,98 +632,6 @@ pub fn fetch_album_image(
     let mut queue = state.download_queue.queue.lock().unwrap();
     queue.push(ImageDownloadRequest::Album { id: album_id, title: album_title, artist_name });
     state.download_queue.condvar.notify_one();
-}
-
-#[tauri::command]
-pub fn set_album_image(
-    state: State<'_, AppState>,
-    album_id: i64,
-    source_path: String,
-) -> Result<String, String> {
-    let source = std::path::Path::new(&source_path);
-    let ext = source
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("jpg")
-        .to_lowercase();
-
-    crate::entity_image::remove_image(&state.app_dir, "album", album_id);
-
-    let dest_dir = state.app_dir.join("album_images");
-    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
-    let dest = dest_dir.join(format!("{}.{}", album_id, ext));
-    std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy image: {}", e))?;
-    Ok(dest.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-pub fn paste_album_image(
-    state: State<'_, AppState>,
-    album_id: i64,
-    image_data: Vec<u8>,
-) -> Result<String, String> {
-    let ext = detect_image_format(&image_data);
-    crate::entity_image::remove_image(&state.app_dir, "album", album_id);
-    let dest_dir = state.app_dir.join("album_images");
-    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
-    let dest = dest_dir.join(format!("{}.{}", album_id, ext));
-    std::fs::write(&dest, &image_data).map_err(|e| format!("Failed to write image: {}", e))?;
-    Ok(dest.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-pub fn remove_album_image(state: State<'_, AppState>, album_id: i64) {
-    crate::entity_image::remove_image(&state.app_dir, "album", album_id);
-}
-
-// --- Tag image commands ---
-
-#[tauri::command]
-pub fn get_tag_image(state: State<'_, AppState>, tag_id: i64) -> Option<String> {
-    crate::entity_image::get_image_path(&state.app_dir, "tag", tag_id)
-        .map(|p| p.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-pub fn set_tag_image(
-    state: State<'_, AppState>,
-    tag_id: i64,
-    source_path: String,
-) -> Result<String, String> {
-    let source = std::path::Path::new(&source_path);
-    let ext = source
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("jpg")
-        .to_lowercase();
-
-    crate::entity_image::remove_image(&state.app_dir, "tag", tag_id);
-
-    let dest_dir = state.app_dir.join("tag_images");
-    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
-    let dest = dest_dir.join(format!("{}.{}", tag_id, ext));
-    std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy image: {}", e))?;
-    Ok(dest.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-pub fn paste_tag_image(
-    state: State<'_, AppState>,
-    tag_id: i64,
-    image_data: Vec<u8>,
-) -> Result<String, String> {
-    let ext = detect_image_format(&image_data);
-    crate::entity_image::remove_image(&state.app_dir, "tag", tag_id);
-    let dest_dir = state.app_dir.join("tag_images");
-    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
-    let dest = dest_dir.join(format!("{}.{}", tag_id, ext));
-    std::fs::write(&dest, &image_data).map_err(|e| format!("Failed to write image: {}", e))?;
-    Ok(dest.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-pub fn remove_tag_image(state: State<'_, AppState>, tag_id: i64) {
-    crate::entity_image::remove_image(&state.app_dir, "tag", tag_id);
 }
 
 #[tauri::command]

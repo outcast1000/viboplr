@@ -10,10 +10,6 @@ interface ImageActionsProps {
 }
 
 export function ImageActions({ entityId, entityType, imagePath, onImageSet, onImageRemoved }: ImageActionsProps) {
-  const setCommand = entityType === "artist" ? "set_artist_image" : entityType === "album" ? "set_album_image" : "set_tag_image";
-  const removeCommand = entityType === "artist" ? "remove_artist_image" : entityType === "album" ? "remove_album_image" : "remove_tag_image";
-  const idKey = entityType === "artist" ? "artistId" : entityType === "album" ? "albumId" : "tagId";
-
   return (
     <div className="artist-image-actions">
       <button
@@ -24,8 +20,9 @@ export function ImageActions({ entityId, entityType, imagePath, onImageSet, onIm
             filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
           });
           if (selected) {
-            const newPath = await invoke<string>(setCommand, {
-              [idKey]: entityId,
+            const newPath = await invoke<string>("set_entity_image", {
+              kind: entityType,
+              id: entityId,
               sourcePath: selected,
             });
             onImageSet(entityId, newPath);
@@ -38,7 +35,7 @@ export function ImageActions({ entityId, entityType, imagePath, onImageSet, onIm
         <button
           className="artist-image-btn"
           onClick={() => {
-            invoke(removeCommand, { [idKey]: entityId });
+            invoke("remove_entity_image", { kind: entityType, id: entityId });
             onImageRemoved(entityId);
           }}
         >
