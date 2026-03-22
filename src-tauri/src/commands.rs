@@ -1380,12 +1380,12 @@ mod tests {
 
         state.db.rebuild_fts().unwrap();
 
-        let results = state.db.search_tracks("Alpha", None, None, None, false, None, None, 100, 0).unwrap();
+        let results = state.db.search_tracks("Alpha", None, None, None, false, None, None, 100, 0, false).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Alpha Song");
 
         // Search with artist filter
-        let results = state.db.search_tracks("Song", Some(artist_id), None, None, false, None, None, 100, 0).unwrap();
+        let results = state.db.search_tracks("Song", Some(artist_id), None, None, false, None, None, 100, 0, false).unwrap();
         assert_eq!(results.len(), 2);
     }
 

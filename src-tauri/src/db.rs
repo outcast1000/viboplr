@@ -1325,16 +1325,16 @@ mod tests {
         db.rebuild_fts().unwrap();
 
         // Search by title
-        let results = db.search_tracks("Time", None, None, None, false, None, None, 100, 0).unwrap();
+        let results = db.search_tracks("Time", None, None, None, false, None, None, 100, 0, false).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Time");
 
         // Search by artist
-        let results = db.search_tracks("Pink Floyd", None, None, None, false, None, None, 100, 0).unwrap();
+        let results = db.search_tracks("Pink Floyd", None, None, None, false, None, None, 100, 0, false).unwrap();
         assert_eq!(results.len(), 2);
 
         // Search by album
-        let results = db.search_tracks("Dark Side", None, None, None, false, None, None, 100, 0).unwrap();
+        let results = db.search_tracks("Dark Side", None, None, None, false, None, None, 100, 0, false).unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -1354,20 +1354,20 @@ mod tests {
         db.rebuild_fts().unwrap();
 
         // Filter by artist
-        let results = db.search_tracks("Song", Some(artist1), None, None, false, None, None, 100, 0).unwrap();
+        let results = db.search_tracks("Song", Some(artist1), None, None, false, None, None, 100, 0, false).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Song Alpha");
 
         // Filter by album
-        let results = db.search_tracks("Song", None, Some(album1), None, false, None, None, 100, 0).unwrap();
+        let results = db.search_tracks("Song", None, Some(album1), None, false, None, None, 100, 0, false).unwrap();
         assert_eq!(results.len(), 1);
 
         // Filter by tag
-        let results = db.search_tracks("Song", None, None, Some(tag_rock), false, None, None, 100, 0).unwrap();
+        let results = db.search_tracks("Song", None, None, Some(tag_rock), false, None, None, 100, 0, false).unwrap();
         assert_eq!(results.len(), 1);
 
         // Filter liked only
-        let results = db.search_tracks("Song", None, None, None, true, None, None, 100, 0).unwrap();
+        let results = db.search_tracks("Song", None, None, None, true, None, None, 100, 0, false).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Song Alpha");
     }
