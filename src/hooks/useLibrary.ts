@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Artist, Album, Tag, Track, Collection, View, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField, ColumnConfig, TrackColumnId } from "../types";
+import type { Artist, Album, Tag, Track, Collection, View, ViewMode, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField, ColumnConfig, TrackColumnId } from "../types";
 import { store } from "../store";
 
 const ALL_COLUMN_IDS: TrackColumnId[] = ["like", "num", "title", "artist", "album", "year", "quality", "duration", "size", "collection", "path"];
@@ -34,8 +34,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [loadingMore, setLoadingMore] = useState(false);
   const PAGE_SIZE = 100;
   const tracksRef = useRef<Track[]>([]);
-  const allAlbumsRef = useRef<Album[]>([]);
-
   // Sort state
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -66,6 +64,11 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [tagSortDir, setTagSortDir] = useState<SortDir>("asc");
   const [tagShuffleKey, setTagShuffleKey] = useState(0);
 
+  // View mode state
+  const [artistViewMode, setArtistViewMode] = useState<ViewMode>("tiles");
+  const [albumViewMode, setAlbumViewMode] = useState<ViewMode>("tiles");
+  const [tagViewMode, setTagViewMode] = useState<ViewMode>("tiles");
+
   // Artist-filtered albums for artist detail view (derived, never mutates albums state)
   const artistAlbums = useMemo(() => {
     if (selectedArtist === null) return [];
@@ -81,6 +84,9 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   useEffect(() => { if (restoredRef.current) store.set("trackSortField", sortField); }, [sortField]);
   useEffect(() => { if (restoredRef.current) store.set("trackSortDir", sortDir); }, [sortDir]);
   useEffect(() => { if (restoredRef.current) store.set("trackColumns", trackColumns); }, [trackColumns]);
+  useEffect(() => { if (restoredRef.current) store.set("artistViewMode", artistViewMode); }, [artistViewMode]);
+  useEffect(() => { if (restoredRef.current) store.set("albumViewMode", albumViewMode); }, [albumViewMode]);
+  useEffect(() => { if (restoredRef.current) store.set("tagViewMode", tagViewMode); }, [tagViewMode]);
 
   // Debounce search query to avoid firing a search on every keystroke
   useEffect(() => {
@@ -191,21 +197,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
-  // Keep allAlbumsRef in sync when viewing the full album list
-  useEffect(() => {
-    if (selectedArtist === null) {
-      allAlbumsRef.current = albums;
-    }
-  }, [albums, selectedArtist]);
-
-  // Load artist-specific albums or restore full list (fixes #4, #11, #12)
-  useEffect(() => {
-    if (selectedArtist === null) {
-      setAlbums(allAlbumsRef.current);
-    } else {
-      invoke<Album[]>("get_albums", { artistId: selectedArtist }).then(setAlbums);
-    }
-  }, [selectedArtist]);
 
   // Reset highlighted index when tracks change
   useEffect(() => {
@@ -321,9 +312,15 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     } else if (albumSortField === "name") {
       const dir = albumSortDir === "asc" ? 1 : -1;
       result = [...albums].sort((a, b) => a.title.localeCompare(b.title) * dir);
+    } else if (albumSortField === "artist") {
+      const dir = albumSortDir === "asc" ? 1 : -1;
+      result = [...albums].sort((a, b) => (a.artist_name ?? "").localeCompare(b.artist_name ?? "") * dir);
     } else if (albumSortField === "year") {
       const dir = albumSortDir === "asc" ? 1 : -1;
       result = [...albums].sort((a, b) => ((a.year ?? 0) - (b.year ?? 0)) * dir);
+    } else if (albumSortField === "tracks") {
+      const dir = albumSortDir === "asc" ? 1 : -1;
+      result = [...albums].sort((a, b) => (a.track_count - b.track_count) * dir);
     } else {
       result = albums;
     }
@@ -352,8 +349,13 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   function handleTagSort(field: TagSortField) {
     if (field === "random") {
-      setTagSortField("random");
-      setTagShuffleKey(k => k + 1);
+      if (tagSortField === "random") {
+        setTagSortField(null);
+        setTagSortDir("asc");
+      } else {
+        setTagSortField("random");
+        setTagShuffleKey(k => k + 1);
+      }
       return;
     }
     if (tagSortField === field) {
@@ -371,8 +373,13 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   function handleArtistSort(field: ArtistSortField) {
     if (field === "random") {
-      setArtistSortField("random");
-      setArtistShuffleKey(k => k + 1);
+      if (artistSortField === "random") {
+        setArtistSortField(null);
+        setArtistSortDir("asc");
+      } else {
+        setArtistSortField("random");
+        setArtistShuffleKey(k => k + 1);
+      }
       return;
     }
     if (artistSortField === field) {
@@ -390,8 +397,13 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   function handleAlbumSort(field: AlbumSortField) {
     if (field === "random") {
-      setAlbumSortField("random");
-      setAlbumShuffleKey(k => k + 1);
+      if (albumSortField === "random") {
+        setAlbumSortField(null);
+        setAlbumSortDir("asc");
+      } else {
+        setAlbumSortField("random");
+        setAlbumShuffleKey(k => k + 1);
+      }
       return;
     }
     if (albumSortField === field) {
@@ -476,5 +488,8 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     sortedAlbums, albumSortField, albumSortDir, albumLikedFirst, setAlbumLikedFirst, handleAlbumSort,
     sortedTags, tagSortField, tagSortDir, handleTagSort,
     filterYoutubeOnly, setFilterYoutubeOnly,
+    artistViewMode, setArtistViewMode,
+    albumViewMode, setAlbumViewMode,
+    tagViewMode, setTagViewMode,
   };
 }

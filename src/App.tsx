@@ -11,7 +11,7 @@ import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 
-import type { Album, Collection, Track, View, ColumnConfig, SortField, SortDir } from "./types";
+import type { Album, Collection, Track, View, ViewMode, ColumnConfig, SortField, SortDir } from "./types";
 import { isVideoTrack, getInitials, parseSubsonicUrl } from "./utils";
 import { store } from "./store";
 import type { SearchProviderConfig } from "./searchProviders";
@@ -36,6 +36,8 @@ import { ContextMenu } from "./components/ContextMenu";
 import type { ContextMenuState } from "./components/ContextMenu";
 import { Breadcrumb } from "./components/Breadcrumb";
 import { AlbumCardArt } from "./components/AlbumCardArt";
+import { ArtistCardArt } from "./components/ArtistCardArt";
+import { ViewModeToggle } from "./components/ViewModeToggle";
 import { ImageActions } from "./components/ImageActions";
 import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
@@ -322,7 +324,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName] = await timeAsync("store.restore (22 keys)", () => Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode] = await timeAsync("store.restore (25 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -345,6 +347,9 @@ function App() {
           store.get<ColumnConfig[] | null>("trackColumns"),
           store.get<boolean>("showQueue"),
           store.get<string | null>("playlistName"),
+          store.get<string | null>("artistViewMode"),
+          store.get<string | null>("albumViewMode"),
+          store.get<string | null>("tagViewMode"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history", "tidal"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -379,6 +384,9 @@ function App() {
         }
         if (wasShowQueue) queueHook.setShowQueue(true);
         if (savedPlaylistName) queueHook.setPlaylistName(savedPlaylistName);
+        if (savedArtistViewMode && ["basic", "list", "tiles"].includes(savedArtistViewMode)) library.setArtistViewMode(savedArtistViewMode as ViewMode);
+        if (savedAlbumViewMode && ["basic", "list", "tiles"].includes(savedAlbumViewMode)) library.setAlbumViewMode(savedAlbumViewMode as ViewMode);
+        if (savedTagViewMode && ["basic", "list", "tiles"].includes(savedTagViewMode)) library.setTagViewMode(savedTagViewMode as ViewMode);
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {
@@ -479,6 +487,21 @@ function App() {
       }
     });
   }, [library.selectedArtist, library.artists]);
+
+  const fetchArtistImageOnDemand = useCallback((artist: { id: number; name: string }) => {
+    if (artistImagesRef.current[artist.id] !== undefined) return;
+    if (fetchedArtistImagesRef.current.has(artist.id)) return;
+    if (failedArtistImagesRef.current.has(artist.id)) return;
+    setFetchedArtistImages((prev) => new Set(prev).add(artist.id));
+
+    invoke<string | null>("get_artist_image", { artistId: artist.id }).then((path) => {
+      if (path) {
+        setArtistImages((prev) => ({ ...prev, [artist.id]: path }));
+      } else {
+        invoke("fetch_artist_image", { artistId: artist.id, artistName: artist.name });
+      }
+    });
+  }, []);
 
   // Fetch album image on demand
   const fetchedAlbumImagesRef = useRef(fetchedAlbumImages);
@@ -1440,32 +1463,100 @@ function App() {
                     Shuffle
                   </button>
                 </div>
-                <button
-                  className={`sort-btn liked-first-btn${library.artistLikedFirst ? " active" : ""}`}
-                  onClick={() => library.setArtistLikedFirst(v => !v)}
-                  title="Liked first"
-                >{"\u2665"}</button>
-              </div>
-              <div className="list">
-              {filteredArtists.map((a, i) => (
-                <div
-                  key={a.id}
-                  className={`list-item${i === highlightedListIndex ? " highlighted" : ""}`}
-                  onClick={() => library.handleArtistClick(a.id)}
-                  onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
-                >
-                  <span
-                    className="list-item-like"
-                    onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
-                  >{a.liked ? "\u2665" : "\u2661"}</span>
-                  <span style={{ flex: 1 }}>{a.name}</span>
-                  <span className="list-count">{a.track_count}</span>
+                <div className="sort-bar-right">
+                  <button
+                    className={`sort-btn liked-first-btn${library.artistLikedFirst ? " active" : ""}`}
+                    onClick={() => library.setArtistLikedFirst(v => !v)}
+                    title="Liked first"
+                  >{"\u2665"}</button>
+                  <ViewModeToggle mode={library.artistViewMode} onChange={library.setArtistViewMode} />
                 </div>
-              ))}
-              {filteredArtists.length === 0 && (
-                <div className="empty">{searchQuery.trim() ? `No artists matching "${searchQuery}"` : "No artists found. Add a folder or server to get started."}</div>
+              </div>
+
+              {/* Artists: Basic view */}
+              {library.artistViewMode === "basic" && (
+                <div className="entity-table">
+                  <div className="entity-table-header">
+                    <span className="entity-table-like"></span>
+                    <span className={`entity-table-name sortable${library.artistSortField === "name" ? " sorted" : ""}`} onClick={() => library.handleArtistSort("name")}>
+                      Name{library.artistSortField === "name" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </span>
+                    <span className={`entity-table-count sortable${library.artistSortField === "tracks" ? " sorted" : ""}`} onClick={() => library.handleArtistSort("tracks")}>
+                      Tracks{library.artistSortField === "tracks" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </span>
+                  </div>
+                  {filteredArtists.map((a, i) => (
+                    <div
+                      key={a.id}
+                      className={`entity-table-row${i === highlightedListIndex ? " highlighted" : ""}`}
+                      onClick={() => library.handleArtistClick(a.id)}
+                      onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
+                    >
+                      <span
+                        className="entity-table-like"
+                        onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
+                      >{a.liked ? "\u2665" : "\u2661"}</span>
+                      <span className="entity-table-name">{a.name}</span>
+                      <span className="entity-table-count">{a.track_count}</span>
+                    </div>
+                  ))}
+                  {filteredArtists.length === 0 && (
+                    <div className="empty">{searchQuery.trim() ? `No artists matching "${searchQuery}"` : "No artists found. Add a folder or server to get started."}</div>
+                  )}
+                </div>
               )}
-            </div>
+
+              {/* Artists: List view */}
+              {library.artistViewMode === "list" && (
+                <div className="entity-list">
+                  {filteredArtists.map((a, i) => (
+                    <div
+                      key={a.id}
+                      className={`entity-list-item${i === highlightedListIndex ? " highlighted" : ""}`}
+                      onClick={() => library.handleArtistClick(a.id)}
+                      onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
+                    >
+                      <span
+                        className="entity-list-like"
+                        onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
+                      >{a.liked ? "\u2665" : "\u2661"}</span>
+                      <ArtistCardArt artist={a} imagePath={artistImages[a.id]} onVisible={fetchArtistImageOnDemand} className="entity-list-img circular" />
+                      <span className="entity-list-name">{a.name}</span>
+                      <span className="entity-list-count">{a.track_count} tracks</span>
+                    </div>
+                  ))}
+                  {filteredArtists.length === 0 && (
+                    <div className="empty">{searchQuery.trim() ? `No artists matching "${searchQuery}"` : "No artists found. Add a folder or server to get started."}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Artists: Tiles view */}
+              {library.artistViewMode === "tiles" && (
+                <div className="album-grid" style={{ padding: 16 }}>
+                  {filteredArtists.map((a, i) => (
+                    <div
+                      key={a.id}
+                      className={`artist-card${i === highlightedListIndex ? " highlighted" : ""}`}
+                      onClick={() => library.handleArtistClick(a.id)}
+                      onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
+                    >
+                      <ArtistCardArt artist={a} imagePath={artistImages[a.id]} onVisible={fetchArtistImageOnDemand} />
+                      <div
+                        className={`artist-card-like${a.liked ? " liked" : ""}`}
+                        onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
+                      >{a.liked ? "\u2665" : "\u2661"}</div>
+                      <div className="artist-card-body">
+                        <div className="artist-card-name" title={a.name}>{a.name}</div>
+                        <div className="artist-card-info">{a.track_count} tracks</div>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredArtists.length === 0 && (
+                    <div className="empty">{searchQuery.trim() ? `No artists matching "${searchQuery}"` : "No artists found. Add a folder or server to get started."}</div>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -1558,40 +1649,122 @@ function App() {
                   <button className={`sort-btn${library.albumSortField === "name" ? " active" : ""}`} onClick={() => library.handleAlbumSort("name")}>
                     Name{library.albumSortField === "name" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
                   </button>
+                  <button className={`sort-btn${library.albumSortField === "artist" ? " active" : ""}`} onClick={() => library.handleAlbumSort("artist")}>
+                    Artist{library.albumSortField === "artist" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  </button>
                   <button className={`sort-btn${library.albumSortField === "year" ? " active" : ""}`} onClick={() => library.handleAlbumSort("year")}>
                     Year{library.albumSortField === "year" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  </button>
+                  <button className={`sort-btn${library.albumSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleAlbumSort("tracks")}>
+                    Tracks{library.albumSortField === "tracks" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
                   </button>
                   <button className={`sort-btn${library.albumSortField === "random" ? " active" : ""}`} onClick={() => library.handleAlbumSort("random")}>
                     Shuffle
                   </button>
                 </div>
-                <button
-                  className={`sort-btn liked-first-btn${library.albumLikedFirst ? " active" : ""}`}
-                  onClick={() => library.setAlbumLikedFirst(v => !v)}
-                  title="Liked first"
-                >{"\u2665"}</button>
+                <div className="sort-bar-right">
+                  <button
+                    className={`sort-btn liked-first-btn${library.albumLikedFirst ? " active" : ""}`}
+                    onClick={() => library.setAlbumLikedFirst(v => !v)}
+                    title="Liked first"
+                  >{"\u2665"}</button>
+                  <ViewModeToggle mode={library.albumViewMode} onChange={library.setAlbumViewMode} />
+                </div>
               </div>
-              <div className="album-grid" style={{ padding: 16 }}>
-                {filteredAlbums.map((a, i) => (
-                  <div key={a.id} className={`album-card${i === highlightedListIndex ? " highlighted" : ""}`} onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
-                    <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={fetchAlbumImageOnDemand} />
+
+              {/* Albums: Basic view */}
+              {library.albumViewMode === "basic" && (
+                <div className="entity-table">
+                  <div className="entity-table-header">
+                    <span className="entity-table-like"></span>
+                    <span className={`entity-table-name sortable${library.albumSortField === "name" ? " sorted" : ""}`} onClick={() => library.handleAlbumSort("name")}>
+                      Name{library.albumSortField === "name" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </span>
+                    <span className={`entity-table-secondary sortable${library.albumSortField === "artist" ? " sorted" : ""}`} onClick={() => library.handleAlbumSort("artist")}>
+                      Artist{library.albumSortField === "artist" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </span>
+                    <span className={`entity-table-year sortable${library.albumSortField === "year" ? " sorted" : ""}`} onClick={() => library.handleAlbumSort("year")}>
+                      Year{library.albumSortField === "year" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </span>
+                    <span className={`entity-table-count sortable${library.albumSortField === "tracks" ? " sorted" : ""}`} onClick={() => library.handleAlbumSort("tracks")}>
+                      Tracks{library.albumSortField === "tracks" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </span>
+                  </div>
+                  {filteredAlbums.map((a, i) => (
                     <div
-                      className={`album-card-like${a.liked ? " liked" : ""}`}
-                      onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
-                    >{a.liked ? "\u2665" : "\u2661"}</div>
-                    <div className="album-card-body">
-                      <div className="album-card-title" title={a.title}>{a.title}</div>
-                      <div className="album-card-info">
+                      key={a.id}
+                      className={`entity-table-row${i === highlightedListIndex ? " highlighted" : ""}`}
+                      onClick={() => library.handleAlbumClick(a.id)}
+                      onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}
+                    >
+                      <span
+                        className="entity-table-like"
+                        onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
+                      >{a.liked ? "\u2665" : "\u2661"}</span>
+                      <span className="entity-table-name">{a.title}</span>
+                      <span className="entity-table-secondary">{a.artist_name ?? ""}</span>
+                      <span className="entity-table-year">{a.year ?? ""}</span>
+                      <span className="entity-table-count">{a.track_count}</span>
+                    </div>
+                  ))}
+                  {filteredAlbums.length === 0 && (
+                    <div className="empty">{searchQuery.trim() ? `No albums matching "${searchQuery}"` : "No albums found."}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Albums: List view */}
+              {library.albumViewMode === "list" && (
+                <div className="entity-list">
+                  {filteredAlbums.map((a, i) => (
+                    <div
+                      key={a.id}
+                      className={`entity-list-item${i === highlightedListIndex ? " highlighted" : ""}`}
+                      onClick={() => library.handleAlbumClick(a.id)}
+                      onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}
+                    >
+                      <span
+                        className="entity-list-like"
+                        onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
+                      >{a.liked ? "\u2665" : "\u2661"}</span>
+                      <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={fetchAlbumImageOnDemand} />
+                      <span className="entity-list-name">{a.title}</span>
+                      <span className="entity-list-secondary">
                         {a.artist_name && <>{a.artist_name} {"\u00B7"} </>}
                         {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
+                      </span>
+                    </div>
+                  ))}
+                  {filteredAlbums.length === 0 && (
+                    <div className="empty">{searchQuery.trim() ? `No albums matching "${searchQuery}"` : "No albums found."}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Albums: Tiles view */}
+              {library.albumViewMode === "tiles" && (
+                <div className="album-grid" style={{ padding: 16 }}>
+                  {filteredAlbums.map((a, i) => (
+                    <div key={a.id} className={`album-card${i === highlightedListIndex ? " highlighted" : ""}`} onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
+                      <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={fetchAlbumImageOnDemand} />
+                      <div
+                        className={`album-card-like${a.liked ? " liked" : ""}`}
+                        onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
+                      >{a.liked ? "\u2665" : "\u2661"}</div>
+                      <div className="album-card-body">
+                        <div className="album-card-title" title={a.title}>{a.title}</div>
+                        <div className="album-card-info">
+                          {a.artist_name && <>{a.artist_name} {"\u00B7"} </>}
+                          {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-                {filteredAlbums.length === 0 && (
-                  <div className="empty">{searchQuery.trim() ? `No albums matching "${searchQuery}"` : "No albums found."}</div>
-                )}
-              </div>
+                  ))}
+                  {filteredAlbums.length === 0 && (
+                    <div className="empty">{searchQuery.trim() ? `No albums matching "${searchQuery}"` : "No albums found."}</div>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -1610,22 +1783,79 @@ function App() {
                     Shuffle
                   </button>
                 </div>
+                <div className="sort-bar-right">
+                  <ViewModeToggle mode={library.tagViewMode} onChange={library.setTagViewMode} />
+                </div>
               </div>
-              <div className="list">
-                {filteredTags.map((t, i) => (
-                  <div
-                    key={t.id}
-                    className={`list-item${i === highlightedListIndex ? " highlighted" : ""}`}
-                    onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
-                  >
-                    <span>{t.name}</span>
-                    <span className="list-count">{t.track_count}</span>
+
+              {/* Tags: Basic view */}
+              {library.tagViewMode === "basic" && (
+                <div className="entity-table">
+                  <div className="entity-table-header">
+                    <span className={`entity-table-name sortable${library.tagSortField === "name" ? " sorted" : ""}`} onClick={() => library.handleTagSort("name")}>
+                      Name{library.tagSortField === "name" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </span>
+                    <span className={`entity-table-count sortable${library.tagSortField === "tracks" ? " sorted" : ""}`} onClick={() => library.handleTagSort("tracks")}>
+                      Tracks{library.tagSortField === "tracks" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </span>
                   </div>
-                ))}
-                {filteredTags.length === 0 && (
-                  <div className="empty">{searchQuery.trim() ? `No tags matching "${searchQuery}"` : "No tags found. Add a folder or server to get started."}</div>
-                )}
-              </div>
+                  {filteredTags.map((t, i) => (
+                    <div
+                      key={t.id}
+                      className={`entity-table-row${i === highlightedListIndex ? " highlighted" : ""}`}
+                      onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
+                    >
+                      <span className="entity-table-name">{t.name}</span>
+                      <span className="entity-table-count">{t.track_count}</span>
+                    </div>
+                  ))}
+                  {filteredTags.length === 0 && (
+                    <div className="empty">{searchQuery.trim() ? `No tags matching "${searchQuery}"` : "No tags found. Add a folder or server to get started."}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Tags: List view */}
+              {library.tagViewMode === "list" && (
+                <div className="entity-list">
+                  {filteredTags.map((t, i) => (
+                    <div
+                      key={t.id}
+                      className={`entity-list-item${i === highlightedListIndex ? " highlighted" : ""}`}
+                      onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
+                    >
+                      <div className="entity-list-img tag-icon">{t.name[0]?.toUpperCase() ?? "#"}</div>
+                      <span className="entity-list-name">{t.name}</span>
+                      <span className="entity-list-count">{t.track_count} tracks</span>
+                    </div>
+                  ))}
+                  {filteredTags.length === 0 && (
+                    <div className="empty">{searchQuery.trim() ? `No tags matching "${searchQuery}"` : "No tags found. Add a folder or server to get started."}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Tags: Tiles view */}
+              {library.tagViewMode === "tiles" && (
+                <div className="album-grid" style={{ padding: 16 }}>
+                  {filteredTags.map((t, i) => (
+                    <div
+                      key={t.id}
+                      className={`tag-card${i === highlightedListIndex ? " highlighted" : ""}`}
+                      onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
+                    >
+                      <div className="tag-card-art">{t.name[0]?.toUpperCase() ?? "#"}</div>
+                      <div className="tag-card-body">
+                        <div className="tag-card-name" title={t.name}>{t.name}</div>
+                        <div className="tag-card-info">{t.track_count} tracks</div>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredTags.length === 0 && (
+                    <div className="empty">{searchQuery.trim() ? `No tags matching "${searchQuery}"` : "No tags found. Add a folder or server to get started."}</div>
+                  )}
+                </div>
+              )}
             </>
           )}
 

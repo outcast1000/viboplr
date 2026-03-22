@@ -2029,6 +2029,376 @@ body {
   border-color: #e44;
 }
 
+/* Sort bar right group */
+.sort-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* View mode toggle */
+.view-mode-toggle {
+  display: flex;
+  gap: 2px;
+  margin-left: 4px;
+}
+
+.view-mode-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.view-mode-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.view-mode-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Entity table (basic view for artists/albums) */
+.entity-table {
+  padding: 0 8px 8px;
+}
+
+.entity-table-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-primary);
+  z-index: 1;
+  gap: 4px;
+}
+
+.entity-table-header .sortable {
+  cursor: pointer;
+}
+
+.entity-table-header .sortable:hover {
+  color: var(--text-primary);
+}
+
+.entity-table-header .sortable.sorted {
+  color: var(--accent);
+}
+
+.entity-table-row {
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.entity-table-row:hover {
+  background: var(--bg-hover);
+}
+
+.entity-table-row.highlighted {
+  background: var(--bg-hover);
+}
+
+.entity-table-like {
+  width: 20px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 13px;
+  color: #666;
+  cursor: pointer;
+}
+
+.entity-table-like:hover {
+  color: #e44;
+}
+
+.entity-table-name {
+  flex: 3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-table-secondary {
+  flex: 2;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-table-year {
+  width: 50px;
+  text-align: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.entity-table-count {
+  width: 50px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* Entity list (list view with images for artists/albums) */
+.entity-list {
+  padding: 8px;
+}
+
+.entity-list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 13px;
+}
+
+.entity-list-item:hover {
+  background: var(--bg-hover);
+}
+
+.entity-list-item.highlighted {
+  background: var(--bg-hover);
+}
+
+.entity-list-like {
+  width: 20px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 13px;
+  color: #666;
+  cursor: pointer;
+}
+
+.entity-list-like:hover {
+  color: #e44;
+}
+
+.entity-list-img {
+  width: 40px;
+  height: 40px;
+  background: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.entity-list-img.circular {
+  border-radius: 50%;
+}
+
+.entity-list-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* AlbumCardArt in list mode reuses album-card-art but smaller */
+.entity-list-item .album-card-art {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.entity-list-item .album-card-art-img {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+}
+
+.entity-list-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.entity-list-secondary {
+  color: var(--text-secondary);
+  font-size: 12px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.entity-list-count {
+  color: var(--text-secondary);
+  font-size: 12px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Artist card (tiles view) */
+.artist-card {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.artist-card:hover,
+.artist-card.highlighted {
+  background: var(--bg-hover);
+}
+
+.artist-card-art {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin: 12px 12px 0;
+}
+
+.artist-card-art-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.artist-card-body {
+  padding: 8px 10px;
+  text-align: center;
+}
+
+.artist-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artist-card-info {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.artist-card-like {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: #aaa;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  z-index: 1;
+}
+
+.artist-card:hover .artist-card-like {
+  opacity: 1;
+}
+
+.artist-card-like:hover {
+  color: #e44;
+}
+
+.artist-card-like.liked {
+  opacity: 1;
+  color: #e44;
+}
+
+/* Tag card (tiles view) */
+.tag-card {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.tag-card:hover,
+.tag-card.highlighted {
+  background: var(--bg-hover);
+}
+
+.tag-card-art {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 8px 8px 0;
+}
+
+.tag-card-body {
+  padding: 8px 10px;
+  text-align: center;
+}
+
+.tag-card-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-card-info {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* Tag icon in list view */
+.tag-icon {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 /* List item like icon */
 .list-item-like {
   width: 20px;
