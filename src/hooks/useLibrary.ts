@@ -131,17 +131,19 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
       if (debouncedSearchQuery.trim()) {
         // Paginated path: search
-        const results = await invoke<Track[]>("search", {
-          query: debouncedSearchQuery,
-          artistId: selectedArtist,
-          albumId: selectedAlbum,
-          tagId: selectedTag,
-          likedOnly: view === "liked" ? true : null,
-          sortField: sortField,
-          sortDir: sortDir,
-          limit: PAGE_SIZE,
-          offset,
-          hasYoutubeUrl: filterYoutubeOnly,
+        const results = await invoke<Track[]>("get_tracks", {
+          opts: {
+            query: debouncedSearchQuery,
+            artistId: selectedArtist,
+            albumId: selectedAlbum,
+            tagId: selectedTag,
+            likedOnly: view === "liked" ? true : undefined,
+            sortField,
+            sortDir,
+            limit: PAGE_SIZE,
+            offset,
+            hasYoutubeUrl: filterYoutubeOnly,
+          },
         });
         if (append) {
           const newTracks = [...tracksRef.current, ...results];
@@ -160,7 +162,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
         setHasMore(false);
       } else if (selectedAlbum !== null) {
         // Non-paginated: by album
-        const results = await invoke<Track[]>("get_tracks", { albumId: selectedAlbum });
+        const results = await invoke<Track[]>("get_tracks", { opts: { albumId: selectedAlbum } });
         setTracks(results);
         tracksRef.current = results;
         setHasMore(false);
@@ -179,12 +181,13 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       } else {
         // Paginated path: all tracks
         const results = await invoke<Track[]>("get_tracks", {
-          albumId: null,
-          sortField: sortField,
-          sortDir: sortDir,
-          limit: PAGE_SIZE,
-          offset,
-          hasYoutubeUrl: filterYoutubeOnly,
+          opts: {
+            sortField,
+            sortDir,
+            limit: PAGE_SIZE,
+            offset,
+            hasYoutubeUrl: filterYoutubeOnly,
+          },
         });
         if (append) {
           const newTracks = [...tracksRef.current, ...results];

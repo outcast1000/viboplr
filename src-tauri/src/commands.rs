@@ -332,57 +332,9 @@ pub fn get_track_count(state: State<'_, AppState>) -> Result<i64, String> {
 #[tauri::command]
 pub fn get_tracks(
     state: State<'_, AppState>,
-    album_id: Option<i64>,
-    sort_field: Option<String>,
-    sort_dir: Option<String>,
-    limit: Option<i64>,
-    offset: Option<i64>,
-    has_youtube_url: Option<bool>,
+    opts: TrackQuery,
 ) -> Result<Vec<Track>, String> {
-    state.db.get_tracks(
-        album_id,
-        sort_field.as_deref(),
-        sort_dir.as_deref(),
-        limit.unwrap_or(100),
-        offset.unwrap_or(0),
-        has_youtube_url.unwrap_or(false),
-    ).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn search(
-    state: State<'_, AppState>,
-    query: String,
-    artist_id: Option<i64>,
-    album_id: Option<i64>,
-    tag_id: Option<i64>,
-    liked_only: Option<bool>,
-    sort_field: Option<String>,
-    sort_dir: Option<String>,
-    limit: Option<i64>,
-    offset: Option<i64>,
-    has_youtube_url: Option<bool>,
-) -> Result<Vec<Track>, String> {
-    let yt = has_youtube_url.unwrap_or(false);
-    if query.trim().is_empty() {
-        return state.db.get_tracks(
-            None,
-            sort_field.as_deref(),
-            sort_dir.as_deref(),
-            limit.unwrap_or(100),
-            offset.unwrap_or(0),
-            yt,
-        ).map_err(|e| e.to_string());
-    }
-    state
-        .db
-        .search_tracks(
-            &query, artist_id, album_id, tag_id, liked_only.unwrap_or(false),
-            sort_field.as_deref(), sort_dir.as_deref(),
-            limit.unwrap_or(100), offset.unwrap_or(0),
-            yt,
-        )
-        .map_err(|e| e.to_string())
+    state.db.get_tracks(&opts).map_err(|e| e.to_string())
 }
 
 // --- Track lookup command ---
@@ -1250,12 +1202,12 @@ mod tests {
 
         state.db.rebuild_fts().unwrap();
 
-        let results = state.db.search_tracks("Alpha", None, None, None, false, None, None, 100, 0, false).unwrap();
+        let results = state.db.get_tracks(&TrackQuery { query: Some("Alpha".to_string()), limit: Some(100), ..Default::default() }).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Alpha Song");
 
         // Search with artist filter
-        let results = state.db.search_tracks("Song", Some(artist_id), None, None, false, None, None, 100, 0, false).unwrap();
+        let results = state.db.get_tracks(&TrackQuery { query: Some("Song".to_string()), artist_id: Some(artist_id), limit: Some(100), ..Default::default() }).unwrap();
         assert_eq!(results.len(), 2);
     }
 

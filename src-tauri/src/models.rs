@@ -1,5 +1,22 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackQuery {
+    pub album_id: Option<i64>,
+    pub artist_id: Option<i64>,
+    pub tag_id: Option<i64>,
+    pub query: Option<String>,
+    #[serde(default)]
+    pub liked_only: bool,
+    #[serde(default)]
+    pub has_youtube_url: bool,
+    pub sort_field: Option<String>,
+    pub sort_dir: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Artist {
     pub id: i64,

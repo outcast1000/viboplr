@@ -600,33 +600,42 @@ impl Database {
         )
     }
 
-    pub fn get_tracks(&self, album_id: Option<i64>, sort_field: Option<&str>, sort_dir: Option<&str>, limit: i64, offset: i64, has_youtube_url: bool) -> SqlResult<Vec<Track>> {
+    pub fn get_tracks(&self, opts: &TrackQuery) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
-        if let Some(aid) = album_id {
-            // When album_id is Some: behavior unchanged, ignore sort/pagination params
+
+        // If query is present and non-empty, use FTS path
+        if let Some(ref query) = opts.query {
+            if !query.trim().is_empty() {
+                return self.search_tracks_inner(&conn, opts, query);
+            }
+        }
+
+        // Album-scoped: return all tracks for album, ordered by track_number
+        if let Some(aid) = opts.album_id {
             let sql = format!("{} WHERE t.album_id = ?1 AND t.deleted = 0 {} ORDER BY t.track_number, t.title", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![aid], |row| track_from_row(row))?;
-            rows.collect()
-        } else {
-            // When album_id is None: build ORDER BY from sort_field and apply pagination
-            let order_by = if let Some(col) = sort_column_sql(sort_field) {
-                let dir = match sort_dir {
-                    Some("desc") => "DESC",
-                    _ => "ASC",
-                };
-                format!("ORDER BY {} {}, t.id", col, dir)
-            } else {
-                // Default order
-                "ORDER BY ar.name, al.title, t.track_number, t.title, t.id".to_string()
-            };
-
-            let youtube_filter = if has_youtube_url { "AND t.youtube_url IS NOT NULL AND t.youtube_url != ''" } else { "" };
-            let sql = format!("{} WHERE t.deleted = 0 {} {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, ENABLED_COLLECTION_FILTER, youtube_filter, order_by);
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![limit, offset], |row| track_from_row(row))?;
-            rows.collect()
+            return rows.collect();
         }
+
+        // Default paginated path
+        let order_by = if let Some(col) = sort_column_sql(opts.sort_field.as_deref()) {
+            let dir = match opts.sort_dir.as_deref() {
+                Some("desc") => "DESC",
+                _ => "ASC",
+            };
+            format!("ORDER BY {} {}, t.id", col, dir)
+        } else {
+            "ORDER BY ar.name, al.title, t.track_number, t.title, t.id".to_string()
+        };
+
+        let youtube_filter = if opts.has_youtube_url { "AND t.youtube_url IS NOT NULL AND t.youtube_url != ''" } else { "" };
+        let limit = opts.limit.unwrap_or(100);
+        let offset = opts.offset.unwrap_or(0);
+        let sql = format!("{} WHERE t.deleted = 0 {} {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, ENABLED_COLLECTION_FILTER, youtube_filter, order_by);
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit, offset], |row| track_from_row(row))?;
+        rows.collect()
     }
 
     pub fn get_tracks_by_artist(&self, artist_id: i64) -> SqlResult<Vec<Track>> {
@@ -643,20 +652,7 @@ impl Database {
         conn.query_row(&sql, params![track_id], |row| track_from_row(row))
     }
 
-    pub fn search_tracks(
-        &self,
-        query: &str,
-        artist_id: Option<i64>,
-        album_id: Option<i64>,
-        tag_id: Option<i64>,
-        liked_only: bool,
-        sort_field: Option<&str>,
-        sort_dir: Option<&str>,
-        limit: i64,
-        offset: i64,
-        has_youtube_url: bool,
-    ) -> SqlResult<Vec<Track>> {
-        let conn = self.conn.lock().unwrap();
+    fn search_tracks_inner(&self, conn: &rusqlite::Connection, opts: &TrackQuery, query: &str) -> SqlResult<Vec<Track>> {
         let normalized = strip_diacritics(query);
         let fts_query = normalized
             .split_whitespace()
@@ -674,7 +670,7 @@ impl Database {
              LEFT JOIN collections co ON t.collection_id = co.id"
         );
 
-        if tag_id.is_some() {
+        if opts.tag_id.is_some() {
             sql.push_str(" JOIN track_tags tt ON tt.track_id = t.id");
         }
 
@@ -682,48 +678,48 @@ impl Database {
         sql.push_str(&format!(" {}", ENABLED_COLLECTION_FILTER));
 
         let mut param_idx = 2;
-        if artist_id.is_some() {
+        if opts.artist_id.is_some() {
             sql.push_str(&format!(" AND t.artist_id = ?{}", param_idx));
             param_idx += 1;
         }
-        if album_id.is_some() {
+        if opts.album_id.is_some() {
             sql.push_str(&format!(" AND t.album_id = ?{}", param_idx));
             param_idx += 1;
         }
-        if tag_id.is_some() {
+        if opts.tag_id.is_some() {
             sql.push_str(&format!(" AND tt.tag_id = ?{}", param_idx));
             param_idx += 1;
         }
-        if liked_only {
+        if opts.liked_only {
             sql.push_str(" AND t.liked = 1");
         }
-        if has_youtube_url {
+        if opts.has_youtube_url {
             sql.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''");
         }
 
-        // Add ORDER BY if sort_field maps to something
-        if let Some(col) = sort_column_sql(sort_field) {
-            let dir = match sort_dir {
+        if let Some(col) = sort_column_sql(opts.sort_field.as_deref()) {
+            let dir = match opts.sort_dir.as_deref() {
                 Some("desc") => "DESC",
                 _ => "ASC",
             };
             sql.push_str(&format!(" ORDER BY {} {}, t.id", col, dir));
         }
-        // If sort_field is None, no ORDER BY (FTS relevance)
 
+        let limit = opts.limit.unwrap_or(100);
+        let offset = opts.offset.unwrap_or(0);
         sql.push_str(&format!(" LIMIT ?{} OFFSET ?{}", param_idx, param_idx + 1));
 
         let mut stmt = conn.prepare(&sql)?;
 
         let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         params_vec.push(Box::new(fts_query));
-        if let Some(aid) = artist_id {
+        if let Some(aid) = opts.artist_id {
             params_vec.push(Box::new(aid));
         }
-        if let Some(alid) = album_id {
+        if let Some(alid) = opts.album_id {
             params_vec.push(Box::new(alid));
         }
-        if let Some(tid) = tag_id {
+        if let Some(tid) = opts.tag_id {
             params_vec.push(Box::new(tid));
         }
         params_vec.push(Box::new(limit));
@@ -1293,16 +1289,16 @@ mod tests {
         db.rebuild_fts().unwrap();
 
         // Search by title
-        let results = db.search_tracks("Time", None, None, None, false, None, None, 100, 0, false).unwrap();
+        let results = db.get_tracks(&TrackQuery { query: Some("Time".to_string()), limit: Some(100), ..Default::default() }).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Time");
 
         // Search by artist
-        let results = db.search_tracks("Pink Floyd", None, None, None, false, None, None, 100, 0, false).unwrap();
+        let results = db.get_tracks(&TrackQuery { query: Some("Pink Floyd".to_string()), limit: Some(100), ..Default::default() }).unwrap();
         assert_eq!(results.len(), 2);
 
         // Search by album
-        let results = db.search_tracks("Dark Side", None, None, None, false, None, None, 100, 0, false).unwrap();
+        let results = db.get_tracks(&TrackQuery { query: Some("Dark Side".to_string()), limit: Some(100), ..Default::default() }).unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -1322,20 +1318,20 @@ mod tests {
         db.rebuild_fts().unwrap();
 
         // Filter by artist
-        let results = db.search_tracks("Song", Some(artist1), None, None, false, None, None, 100, 0, false).unwrap();
+        let results = db.get_tracks(&TrackQuery { query: Some("Song".to_string()), artist_id: Some(artist1), limit: Some(100), ..Default::default() }).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Song Alpha");
 
         // Filter by album
-        let results = db.search_tracks("Song", None, Some(album1), None, false, None, None, 100, 0, false).unwrap();
+        let results = db.get_tracks(&TrackQuery { query: Some("Song".to_string()), album_id: Some(album1), limit: Some(100), ..Default::default() }).unwrap();
         assert_eq!(results.len(), 1);
 
         // Filter by tag
-        let results = db.search_tracks("Song", None, None, Some(tag_rock), false, None, None, 100, 0, false).unwrap();
+        let results = db.get_tracks(&TrackQuery { query: Some("Song".to_string()), tag_id: Some(tag_rock), limit: Some(100), ..Default::default() }).unwrap();
         assert_eq!(results.len(), 1);
 
         // Filter liked only
-        let results = db.search_tracks("Song", None, None, None, true, None, None, 100, 0, false).unwrap();
+        let results = db.get_tracks(&TrackQuery { query: Some("Song".to_string()), liked_only: true, limit: Some(100), ..Default::default() }).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Song Alpha");
     }
