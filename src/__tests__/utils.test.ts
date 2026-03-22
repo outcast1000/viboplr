@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatDuration, isVideoTrack, getInitials, tidalCoverUrl, collectionKindLabel, parseSubsonicUrl } from "../utils";
+import { formatDuration, isVideoTrack, getInitials, tidalCoverUrl, collectionKindLabel, parseSubsonicUrl, shouldScrobble } from "../utils";
 import type { Track } from "../types";
 
 function makeTrack(overrides: Partial<Track> = {}): Track {
@@ -131,5 +131,39 @@ describe("parseSubsonicUrl", () => {
       username: "user",
       password: "",
     });
+  });
+});
+
+describe("shouldScrobble", () => {
+  it("returns false for null duration", () => {
+    expect(shouldScrobble(100, null)).toBe(false);
+  });
+
+  it("returns false for tracks under 30 seconds", () => {
+    expect(shouldScrobble(25, 29)).toBe(false);
+    expect(shouldScrobble(15, 15)).toBe(false);
+  });
+
+  it("returns true at 50% for short tracks", () => {
+    // 60s track: threshold = min(30, 240) = 30
+    expect(shouldScrobble(29, 60)).toBe(false);
+    expect(shouldScrobble(30, 60)).toBe(true);
+  });
+
+  it("returns true at 50% for medium tracks", () => {
+    // 180s track: threshold = min(90, 240) = 90
+    expect(shouldScrobble(89, 180)).toBe(false);
+    expect(shouldScrobble(90, 180)).toBe(true);
+  });
+
+  it("caps at 240 seconds for long tracks", () => {
+    // 1200s track: threshold = min(600, 240) = 240
+    expect(shouldScrobble(239, 1200)).toBe(false);
+    expect(shouldScrobble(240, 1200)).toBe(true);
+  });
+
+  it("returns true for exactly 30s track at 50%", () => {
+    expect(shouldScrobble(15, 30)).toBe(true);
+    expect(shouldScrobble(14, 30)).toBe(false);
   });
 });

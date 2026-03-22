@@ -50,3 +50,12 @@ export function collectionKindLabel(kind: string): string {
     default: return kind;
   }
 }
+
+export function shouldScrobble(
+  positionSecs: number,
+  durationSecs: number | null,
+): boolean {
+  if (durationSecs == null || durationSecs < 30) return false;
+  const threshold = Math.min(durationSecs * 0.5, 240);
+  return positionSecs >= threshold;
+}
