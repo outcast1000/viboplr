@@ -4,7 +4,7 @@ use lofty::probe::Probe;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use walkdir::WalkDir;
 
@@ -71,6 +71,17 @@ fn read_tags(path: &Path) -> ParsedTags {
     fallback_from_filename(path, None)
 }
 
+static FALLBACK_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    vec![
+        // Artist - Album - 03 - Title  (all in filename)
+        Regex::new(r"^[^/]*/[^/]*/(?P<artist>.+?)\s*-\s*(?P<album>.+?)\s*-\s*(?P<track>\d+)\s*-\s*(?P<title>.+)$").unwrap(),
+        // Artist - Album/03 - Title  (artist-album in parent, track-title in filename)
+        Regex::new(r"^[^/]*/(?P<artist>[^/]+?)\s*-\s*(?P<album>[^/]+)/(?P<track>\d+)[\s._-]+(?P<title>.+)$").unwrap(),
+        // */Artist - Title  (artist-title in filename)
+        Regex::new(r"^[^/]*/[^/]*/(?P<artist>.+?)\s*-\s*(?P<title>.+)$").unwrap(),
+    ]
+});
+
 fn fallback_from_filename(path: &Path, duration_secs: Option<f64>) -> ParsedTags {
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown");
     let parent = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("");
@@ -79,23 +90,8 @@ fn fallback_from_filename(path: &Path, duration_secs: Option<f64>) -> ParsedTags
     // Build "grandparent/parent/stem" for path-based regex matching
     let path_str = format!("{}/{}/{}", grandparent, parent, stem);
 
-    // Each pattern matches against "grandparent/parent/filename_stem".
-    // Patterns are tried most-specific first.
-    let patterns: &[(&str, &str)] = &[
-        // Artist - Album - 03 - Title  (all in filename)
-        ("[^/]*/[^/]*/(?P<artist>.+?)\\s*-\\s*(?P<album>.+?)\\s*-\\s*(?P<track>\\d+)\\s*-\\s*(?P<title>.+)$",
-         "filename has all four fields"),
-        // Artist - Album/03 - Title  (artist-album in parent, track-title in filename)
-        ("[^/]*/(?P<artist>[^/]+?)\\s*-\\s*(?P<album>[^/]+)/(?P<track>\\d+)[\\s._-]+(?P<title>.+)$",
-         "artist-album folder, track-title filename"),
-        // */Artist - Title  (artist-title in filename)
-        ("[^/]*/[^/]*/(?P<artist>.+?)\\s*-\\s*(?P<title>.+)$",
-         "artist-title filename"),
-    ];
-
-    for (pattern, _desc) in patterns {
-        let re = Regex::new(&format!("^{}", pattern)).unwrap();
-        if let Some(caps) = re.captures(&path_str) {
+    for regex in FALLBACK_PATTERNS.iter() {
+        if let Some(caps) = regex.captures(&path_str) {
             return ParsedTags {
                 title: caps.name("title").map(|m| m.as_str().trim().to_string())
                     .unwrap_or_else(|| stem.to_string()),
