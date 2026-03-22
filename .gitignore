@@ -23,6 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 
+# Secrets
+.env
+src-tauri/.cargo/
+
 .worktrees/
 worktrees/
 .superpowers/

@@ -9,8 +9,17 @@ use crate::scanner;
 use crate::subsonic::SubsonicClient;
 use crate::tidal::TidalClient;
 
-pub const LASTFM_API_KEY: &str = "YOUR_API_KEY_HERE";
-pub const LASTFM_API_SECRET: &str = "YOUR_API_SECRET_HERE";
+macro_rules! env_or_empty {
+    ($name:expr) => {
+        match option_env!($name) {
+            Some(v) => v,
+            None => "",
+        }
+    };
+}
+
+pub const LASTFM_API_KEY: &str = env_or_empty!("LASTFM_API_KEY");
+pub const LASTFM_API_SECRET: &str = env_or_empty!("LASTFM_API_SECRET");
 
 pub enum ImageDownloadRequest {
     Artist { id: i64, name: String },
