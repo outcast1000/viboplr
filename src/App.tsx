@@ -2171,6 +2171,7 @@ function App() {
         playing={playback.playing}
         positionSecs={playback.positionSecs}
         durationSecs={playback.durationSecs}
+        scrobbled={playback.scrobbled}
         volume={playback.volume}
         queueMode={queueHook.queueMode}
         showQueue={queueHook.showQueue}

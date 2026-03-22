@@ -32,6 +32,7 @@ interface NowPlayingBarProps {
   playing: boolean;
   positionSecs: number;
   durationSecs: number;
+  scrobbled: boolean;
   volume: number;
   queueMode: "normal" | "loop" | "shuffle";
   showQueue: boolean;
@@ -61,7 +62,7 @@ interface NowPlayingBarProps {
 
 export function NowPlayingBar({
   currentTrack, playing,
-  positionSecs, durationSecs,
+  positionSecs, durationSecs, scrobbled,
   volume, queueMode, showQueue,
   autoContinueEnabled, showAutoContinuePopover, autoContinueWeights,
   imagePath, miniMode, onToggleMiniMode, onClose,
@@ -151,7 +152,10 @@ export function NowPlayingBar({
           </button>
           <button className="ctrl-btn" onClick={onNext} title="Next">{"\u23ED"}</button>
           <button className="ctrl-btn" onClick={onStop}>{"\u23F9"}</button>
-          <span className="now-time">{formatDuration(positionSecs)} / {formatDuration(durationSecs)}</span>
+          <span className="now-time">
+            {formatDuration(positionSecs)} / {formatDuration(durationSecs)}
+            {scrobbled && <span className="now-scrobbled" title="Logged to play history">{"\u2713"}</span>}
+          </span>
         </div>
       <div className="now-right">
         <button

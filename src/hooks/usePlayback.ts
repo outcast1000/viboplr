@@ -28,6 +28,7 @@ export function usePlayback(
   const pendingAutoPlayRef = useRef(true);
   const pendingSeekRef = useRef(0);
   const scrobbledRef = useRef(false);
+  const [scrobbled, setScrobbled] = useState(false);
   const playStartedAtRef = useRef(0);
 
   // Preload state (refs for use in event handlers without stale closures)
@@ -205,6 +206,7 @@ export function usePlayback(
     setPositionSecs(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
     scrobbledRef.current = false;
+    setScrobbled(false);
     playStartedAtRef.current = Math.floor(Date.now() / 1000);
     invoke("lastfm_now_playing", { trackId: nextTrack.id }).catch(console.error);
 
@@ -274,6 +276,7 @@ export function usePlayback(
     setPositionSecs(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
     scrobbledRef.current = false;
+    setScrobbled(false);
     playStartedAtRef.current = Math.floor(Date.now() / 1000);
     invoke("lastfm_now_playing", { trackId: nextTrack.id }).catch(console.error);
 
@@ -306,6 +309,7 @@ export function usePlayback(
       setPositionSecs(0);
       setDurationSecs(track.duration_secs ?? 0);
       scrobbledRef.current = false;
+      setScrobbled(false);
       playStartedAtRef.current = Math.floor(Date.now() / 1000);
       invoke("lastfm_now_playing", { trackId: track.id }).catch(console.error);
 
@@ -353,6 +357,7 @@ export function usePlayback(
       setPositionSecs(position);
       setDurationSecs(track.duration_secs ?? 0);
       scrobbledRef.current = false;
+      setScrobbled(false);
       playStartedAtRef.current = Math.floor(Date.now() / 1000);
 
       // Always restore to slot A
@@ -424,6 +429,7 @@ export function usePlayback(
     if (!scrobbledRef.current && currentTrack && (trackVideoHistoryRef.current || !isVideoTrack(currentTrack))) {
       if (shouldScrobble(el.currentTime, currentTrack.duration_secs)) {
         scrobbledRef.current = true;
+        setScrobbled(true);
         invoke("record_play", { trackId: currentTrack.id }).catch(console.error);
         invoke("lastfm_scrobble", { trackId: currentTrack.id, startedAt: playStartedAtRef.current }).catch(console.error);
       }
@@ -505,7 +511,7 @@ export function usePlayback(
 
   return {
     currentTrack, setCurrentTrack,
-    playing, setPlaying,
+    playing, setPlaying, scrobbled,
     positionSecs, setPositionSecs,
     durationSecs, setDurationSecs,
     volume, setVolume,

@@ -1573,6 +1573,12 @@ body {
   margin-left: 4px;
 }
 
+.now-scrobbled {
+  color: var(--accent);
+  margin-left: 4px;
+  font-size: 11px;
+}
+
 .now-info {
   flex: 0 1 auto;
   max-width: 350px;
