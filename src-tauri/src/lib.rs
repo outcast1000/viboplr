@@ -10,6 +10,7 @@ mod subsonic;
 mod sync;
 mod timing;
 mod tidal;
+mod lastfm;
 
 use commands::{AppState, DownloadQueue, ImageDownloadRequest};
 use db::Database;
