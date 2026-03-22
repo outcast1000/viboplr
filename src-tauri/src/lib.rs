@@ -1,7 +1,6 @@
-mod album_image;
-mod artist_image;
 mod commands;
 mod db;
+mod entity_image;
 mod image_provider;
 mod models;
 mod scanner;
@@ -9,7 +8,6 @@ mod scanner;
 mod seed;
 mod subsonic;
 mod sync;
-mod tag_image;
 mod timing;
 mod tidal;
 

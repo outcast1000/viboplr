@@ -592,7 +592,7 @@ pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), S
 
 #[tauri::command]
 pub fn get_artist_image(state: State<'_, AppState>, artist_id: i64) -> Option<String> {
-    crate::artist_image::get_image_path(&state.app_dir, artist_id)
+    crate::entity_image::get_image_path(&state.app_dir, "artist", artist_id)
         .map(|p| p.to_string_lossy().to_string())
 }
 
@@ -622,7 +622,7 @@ pub fn set_artist_image(
         .to_lowercase();
 
     // Remove any existing image first
-    crate::artist_image::remove_image(&state.app_dir, artist_id);
+    crate::entity_image::remove_image(&state.app_dir, "artist", artist_id);
 
     let dest_dir = state.app_dir.join("artist_images");
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
@@ -638,7 +638,7 @@ pub fn paste_artist_image(
     image_data: Vec<u8>,
 ) -> Result<String, String> {
     let ext = detect_image_format(&image_data);
-    crate::artist_image::remove_image(&state.app_dir, artist_id);
+    crate::entity_image::remove_image(&state.app_dir, "artist", artist_id);
     let dest_dir = state.app_dir.join("artist_images");
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let dest = dest_dir.join(format!("{}.{}", artist_id, ext));
@@ -648,14 +648,14 @@ pub fn paste_artist_image(
 
 #[tauri::command]
 pub fn remove_artist_image(state: State<'_, AppState>, artist_id: i64) {
-    crate::artist_image::remove_image(&state.app_dir, artist_id);
+    crate::entity_image::remove_image(&state.app_dir, "artist", artist_id);
 }
 
 // --- Album image commands ---
 
 #[tauri::command]
 pub fn get_album_image(state: State<'_, AppState>, album_id: i64) -> Option<String> {
-    crate::album_image::get_image_path(&state.app_dir, album_id)
+    crate::entity_image::get_image_path(&state.app_dir, "album", album_id)
         .map(|p| p.to_string_lossy().to_string())
 }
 
@@ -685,7 +685,7 @@ pub fn set_album_image(
         .unwrap_or("jpg")
         .to_lowercase();
 
-    crate::album_image::remove_image(&state.app_dir, album_id);
+    crate::entity_image::remove_image(&state.app_dir, "album", album_id);
 
     let dest_dir = state.app_dir.join("album_images");
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
@@ -701,7 +701,7 @@ pub fn paste_album_image(
     image_data: Vec<u8>,
 ) -> Result<String, String> {
     let ext = detect_image_format(&image_data);
-    crate::album_image::remove_image(&state.app_dir, album_id);
+    crate::entity_image::remove_image(&state.app_dir, "album", album_id);
     let dest_dir = state.app_dir.join("album_images");
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let dest = dest_dir.join(format!("{}.{}", album_id, ext));
@@ -711,14 +711,14 @@ pub fn paste_album_image(
 
 #[tauri::command]
 pub fn remove_album_image(state: State<'_, AppState>, album_id: i64) {
-    crate::album_image::remove_image(&state.app_dir, album_id);
+    crate::entity_image::remove_image(&state.app_dir, "album", album_id);
 }
 
 // --- Tag image commands ---
 
 #[tauri::command]
 pub fn get_tag_image(state: State<'_, AppState>, tag_id: i64) -> Option<String> {
-    crate::tag_image::get_image_path(&state.app_dir, tag_id)
+    crate::entity_image::get_image_path(&state.app_dir, "tag", tag_id)
         .map(|p| p.to_string_lossy().to_string())
 }
 
@@ -735,7 +735,7 @@ pub fn set_tag_image(
         .unwrap_or("jpg")
         .to_lowercase();
 
-    crate::tag_image::remove_image(&state.app_dir, tag_id);
+    crate::entity_image::remove_image(&state.app_dir, "tag", tag_id);
 
     let dest_dir = state.app_dir.join("tag_images");
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
@@ -751,7 +751,7 @@ pub fn paste_tag_image(
     image_data: Vec<u8>,
 ) -> Result<String, String> {
     let ext = detect_image_format(&image_data);
-    crate::tag_image::remove_image(&state.app_dir, tag_id);
+    crate::entity_image::remove_image(&state.app_dir, "tag", tag_id);
     let dest_dir = state.app_dir.join("tag_images");
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
     let dest = dest_dir.join(format!("{}.{}", tag_id, ext));
@@ -761,7 +761,7 @@ pub fn paste_tag_image(
 
 #[tauri::command]
 pub fn remove_tag_image(state: State<'_, AppState>, tag_id: i64) {
-    crate::tag_image::remove_image(&state.app_dir, tag_id);
+    crate::entity_image::remove_image(&state.app_dir, "tag", tag_id);
 }
 
 #[tauri::command]
