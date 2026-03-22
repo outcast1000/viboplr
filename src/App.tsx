@@ -22,6 +22,7 @@ import { usePlayback } from "./hooks/usePlayback";
 import { useQueue } from "./hooks/useQueue";
 import { useLibrary, DEFAULT_TRACK_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
+import { useImageCache } from "./hooks/useImageCache";
 import { useAutoContinue } from "./hooks/useAutoContinue";
 import { usePasteImage } from "./hooks/usePasteImage";
 import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistory";
@@ -128,15 +129,10 @@ function App() {
   });
   const updateRef = useRef<Awaited<ReturnType<typeof check>>>(null);
 
-  // Image state
-  const [artistImages, setArtistImages] = useState<Record<number, string | null>>({});
-  const [fetchedArtistImages, setFetchedArtistImages] = useState<Set<number>>(new Set());
-  const [albumImages, setAlbumImages] = useState<Record<number, string | null>>({});
-  const [fetchedAlbumImages, setFetchedAlbumImages] = useState<Set<number>>(new Set());
-  const [failedArtistImages, setFailedArtistImages] = useState<Set<number>>(new Set());
-  const [failedAlbumImages, setFailedAlbumImages] = useState<Set<number>>(new Set());
-  const [tagImages, setTagImages] = useState<Record<number, string | null>>({});
-  const [fetchedTagImages, setFetchedTagImages] = useState<Set<number>>(new Set());
+  // Image caches
+  const artistImageCache = useImageCache("artist", addLog);
+  const albumImageCache = useImageCache("album", addLog);
+  const tagImageCache = useImageCache("tag", addLog);
 
   function addLog(message: string) {
     setSessionLog(prev => [...prev, { time: new Date(), message }]);
@@ -198,12 +194,6 @@ function App() {
     }
   }, []);
 
-  // Refs for latest artists/albums (needed by useEventListeners to avoid stale closures)
-  const artistsRef = useRef(library.artists);
-  artistsRef.current = library.artists;
-  const albumsRef = useRef(library.albums);
-  albumsRef.current = library.albums;
-
   // Event listeners
   useEventListeners({
     loadLibrary: library.loadLibrary,
@@ -211,9 +201,6 @@ function App() {
     addLog,
     setScanning, setScanProgress,
     setSyncing, setSyncProgress,
-    setArtistImages, setAlbumImages,
-    setFailedArtistImages, setFailedAlbumImages,
-    artistsRef, albumsRef,
   });
 
   const statusActivity = scanning
@@ -232,9 +219,9 @@ function App() {
     artists: library.artists,
     albums: library.albums,
     tags: library.tags,
-    setArtistImages,
-    setAlbumImages,
-    setTagImages,
+    setArtistImages: artistImageCache.setImages,
+    setAlbumImages: albumImageCache.setImages,
+    setTagImages: tagImageCache.setImages,
     addLog,
   });
 
@@ -471,117 +458,30 @@ function App() {
     return () => cancelAnimationFrame(frame);
   }, [miniMode, playback.currentTrack]);
 
-  // Fetch artist image on demand
-  const fetchedArtistImagesRef = useRef(fetchedArtistImages);
-  fetchedArtistImagesRef.current = fetchedArtistImages;
-  const artistImagesRef = useRef(artistImages);
-  artistImagesRef.current = artistImages;
-  const failedArtistImagesRef = useRef(failedArtistImages);
-  failedArtistImagesRef.current = failedArtistImages;
+  // Fetch images for selected entities
   useEffect(() => {
     if (library.selectedArtist === null) return;
-    if (artistImagesRef.current[library.selectedArtist] !== undefined) return;
-    if (fetchedArtistImagesRef.current.has(library.selectedArtist)) return;
-    if (failedArtistImagesRef.current.has(library.selectedArtist)) return;
-
-    const artist = library.artists.find((a) => a.id === library.selectedArtist);
-    if (!artist) return;
-
-    setFetchedArtistImages((prev) => new Set(prev).add(library.selectedArtist!));
-
-    invoke<string | null>("get_entity_image", { kind: "artist", id: library.selectedArtist }).then((path) => {
-      if (path) {
-        setArtistImages((prev) => ({ ...prev, [library.selectedArtist!]: path }));
-      } else {
-        invoke("fetch_artist_image", { artistId: library.selectedArtist, artistName: artist.name });
-      }
-    });
+    const artist = library.artists.find(a => a.id === library.selectedArtist);
+    if (artist) artistImageCache.fetchOnDemand(artist);
   }, [library.selectedArtist, library.artists]);
-
-  const fetchArtistImageOnDemand = useCallback((artist: { id: number; name: string }) => {
-    if (artistImagesRef.current[artist.id] !== undefined) return;
-    if (fetchedArtistImagesRef.current.has(artist.id)) return;
-    if (failedArtistImagesRef.current.has(artist.id)) return;
-    setFetchedArtistImages((prev) => new Set(prev).add(artist.id));
-
-    invoke<string | null>("get_entity_image", { kind: "artist", id: artist.id }).then((path) => {
-      if (path) {
-        setArtistImages((prev) => ({ ...prev, [artist.id]: path }));
-      } else {
-        invoke("fetch_artist_image", { artistId: artist.id, artistName: artist.name });
-      }
-    });
-  }, []);
-
-  // Fetch album image on demand
-  const fetchedAlbumImagesRef = useRef(fetchedAlbumImages);
-  fetchedAlbumImagesRef.current = fetchedAlbumImages;
-  const albumImagesRef = useRef(albumImages);
-  albumImagesRef.current = albumImages;
-  const failedAlbumImagesRef = useRef(failedAlbumImages);
-  failedAlbumImagesRef.current = failedAlbumImages;
-  const fetchAlbumImageOnDemand = useCallback((album: Album) => {
-    if (albumImagesRef.current[album.id] !== undefined) return;
-    if (fetchedAlbumImagesRef.current.has(album.id)) return;
-    if (failedAlbumImagesRef.current.has(album.id)) return;
-    setFetchedAlbumImages((prev) => new Set(prev).add(album.id));
-
-    invoke<string | null>("get_entity_image", { kind: "album", id: album.id }).then((path) => {
-      if (path) {
-        setAlbumImages((prev) => ({ ...prev, [album.id]: path }));
-      } else {
-        invoke("fetch_album_image", { albumId: album.id, albumTitle: album.title, artistName: album.artist_name });
-      }
-    });
-  }, []);
 
   useEffect(() => {
     if (library.selectedAlbum === null) return;
     const album = library.albums.find(a => a.id === library.selectedAlbum);
-    if (album) fetchAlbumImageOnDemand(album);
-  }, [library.selectedAlbum]);
-
-  // Fetch tag image on demand
-  const fetchedTagImagesRef = useRef(fetchedTagImages);
-  fetchedTagImagesRef.current = fetchedTagImages;
-  const tagImagesRef = useRef(tagImages);
-  tagImagesRef.current = tagImages;
-  const fetchTagImageOnDemand = useCallback((tag: { id: number }) => {
-    if (tagImagesRef.current[tag.id] !== undefined) return;
-    if (fetchedTagImagesRef.current.has(tag.id)) return;
-    setFetchedTagImages((prev) => new Set(prev).add(tag.id));
-    invoke<string | null>("get_entity_image", { kind: "tag", id: tag.id }).then((path) => {
-      if (path) {
-        setTagImages((prev) => ({ ...prev, [tag.id]: path }));
-      }
-    });
-  }, []);
+    if (album) albumImageCache.fetchOnDemand(album);
+  }, [library.selectedAlbum, library.albums]);
 
   useEffect(() => {
     if (library.selectedTag === null) return;
-    fetchTagImageOnDemand({ id: library.selectedTag });
+    tagImageCache.fetchOnDemand({ id: library.selectedTag });
   }, [library.selectedTag]);
 
   // Fetch album/artist image when current track changes (for Now Playing bar)
   useEffect(() => {
     const track = playback.currentTrack;
     if (!track) return;
-    if (track.album_id) {
-      fetchAlbumImageOnDemand({ id: track.album_id, title: track.album_title ?? "", artist_name: track.artist_name } as Album);
-    }
-    if (track.artist_id) {
-      if (artistImagesRef.current[track.artist_id] !== undefined) return;
-      if (fetchedArtistImagesRef.current.has(track.artist_id)) return;
-      if (failedArtistImagesRef.current.has(track.artist_id)) return;
-      setFetchedArtistImages((prev) => new Set(prev).add(track.artist_id!));
-      invoke<string | null>("get_entity_image", { kind: "artist", id: track.artist_id }).then((path) => {
-        if (path) {
-          setArtistImages((prev) => ({ ...prev, [track.artist_id!]: path }));
-        } else {
-          invoke("fetch_artist_image", { artistId: track.artist_id, artistName: track.artist_name ?? "Unknown" });
-        }
-      });
-    }
+    if (track.album_id) albumImageCache.fetchOnDemand({ id: track.album_id, title: track.album_title ?? "", artist_name: track.artist_name });
+    if (track.artist_id) artistImageCache.fetchOnDemand({ id: track.artist_id, name: track.artist_name ?? "Unknown" });
   }, [playback.currentTrack]);
 
   // Ref for keyboard shortcut handler to avoid stale closures
@@ -1023,10 +923,8 @@ function App() {
   async function handleClearImageFailures() {
     try {
       await invoke("clear_image_failures");
-      setFailedArtistImages(new Set());
-      setFailedAlbumImages(new Set());
-      setFetchedArtistImages(new Set());
-      setFetchedAlbumImages(new Set());
+      artistImageCache.clearAllFailures();
+      albumImageCache.clearAllFailures();
       addLog("Cleared image fetch failures");
     } catch (e) {
       console.error("Failed to clear image failures:", e);
@@ -1559,7 +1457,7 @@ function App() {
                         className="entity-list-like"
                         onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
                       >{a.liked ? "\u2665" : "\u2661"}</span>
-                      <ArtistCardArt artist={a} imagePath={artistImages[a.id]} onVisible={fetchArtistImageOnDemand} className="entity-list-img circular" />
+                      <ArtistCardArt artist={a} imagePath={artistImageCache.images[a.id]} onVisible={artistImageCache.fetchOnDemand} className="entity-list-img circular" />
                       <span className="entity-list-name">{a.name}</span>
                       <span className="entity-list-count">{a.track_count} tracks</span>
                     </div>
@@ -1580,7 +1478,7 @@ function App() {
                       onClick={() => library.handleArtistClick(a.id)}
                       onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
                     >
-                      <ArtistCardArt artist={a} imagePath={artistImages[a.id]} onVisible={fetchArtistImageOnDemand} />
+                      <ArtistCardArt artist={a} imagePath={artistImageCache.images[a.id]} onVisible={artistImageCache.fetchOnDemand} />
                       <div
                         className={`artist-card-like${a.liked ? " liked" : ""}`}
                         onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
@@ -1602,7 +1500,7 @@ function App() {
           {/* Artist detail view */}
           {view === "artists" && selectedArtist !== null && selectedAlbum === null && (() => {
             const artist = artists.find(a => a.id === selectedArtist);
-            const artistImagePath = artistImages[selectedArtist] ?? null;
+            const artistImagePath = artistImageCache.images[selectedArtist] ?? null;
             return (
               <div className="artist-detail">
                 <div className="artist-header">
@@ -1627,10 +1525,9 @@ function App() {
                       entityId={selectedArtist}
                       entityType="artist"
                       imagePath={artistImagePath}
-                      onImageSet={(id, path) => setArtistImages(prev => ({ ...prev, [id]: path }))}
+                      onImageSet={(id, path) => artistImageCache.setImages(prev => ({ ...prev, [id]: path }))}
                       onImageRemoved={(id) => {
-                        setArtistImages(prev => ({ ...prev, [id]: null }));
-                        setFetchedArtistImages(prev => { const next = new Set(prev); next.delete(id); return next; });
+                        artistImageCache.setImages(prev => ({ ...prev, [id]: null }));
                       }}
                     />
                   </div>
@@ -1642,7 +1539,7 @@ function App() {
                     <div className="album-grid">
                       {library.artistAlbums.map((a) => (
                         <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
-                          <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={fetchAlbumImageOnDemand} />
+                          <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
                           <div className="album-card-body">
                             <div className="album-card-title" title={a.title}>{a.title}</div>
                             <div className="album-card-info">
@@ -1766,7 +1663,7 @@ function App() {
                         className="entity-list-like"
                         onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
                       >{a.liked ? "\u2665" : "\u2661"}</span>
-                      <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={fetchAlbumImageOnDemand} />
+                      <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
                       <span className="entity-list-name">{a.title}</span>
                       <span className="entity-list-secondary">
                         {a.artist_name && <>{a.artist_name} {"\u00B7"} </>}
@@ -1785,7 +1682,7 @@ function App() {
                 <div className="album-grid" style={{ padding: 16 }}>
                   {filteredAlbums.map((a, i) => (
                     <div key={a.id} className={`album-card${i === highlightedListIndex ? " highlighted" : ""}`} onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
-                      <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={fetchAlbumImageOnDemand} />
+                      <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
                       <div
                         className={`album-card-like${a.liked ? " liked" : ""}`}
                         onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
@@ -1877,7 +1774,7 @@ function App() {
                         className="entity-list-like"
                         onClick={(e) => { e.stopPropagation(); handleToggleTagLike(t.id); }}
                       >{t.liked ? "\u2665" : "\u2661"}</span>
-                      <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={fetchTagImageOnDemand} className="entity-list-img" />
+                      <TagCardArt tag={t} imagePath={tagImageCache.images[t.id]} onVisible={tagImageCache.fetchOnDemand} className="entity-list-img" />
                       <span className="entity-list-name">{t.name}</span>
                       <span className="entity-list-count">{t.track_count} tracks</span>
                     </div>
@@ -1897,7 +1794,7 @@ function App() {
                       className={`tag-card${i === highlightedListIndex ? " highlighted" : ""}`}
                       onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
                     >
-                      <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={fetchTagImageOnDemand} />
+                      <TagCardArt tag={t} imagePath={tagImageCache.images[t.id]} onVisible={tagImageCache.fetchOnDemand} />
                       <div
                         className={`artist-card-like${t.liked ? " liked" : ""}`}
                         onClick={(e) => { e.stopPropagation(); handleToggleTagLike(t.id); }}
@@ -1919,7 +1816,7 @@ function App() {
           {/* Tag detail header */}
           {view === "all" && selectedTag !== null && !searchQuery.trim() && (() => {
             const tag = tags.find(t => t.id === selectedTag);
-            const tagImagePath = tagImages[selectedTag] ?? null;
+            const tagImagePath = tagImageCache.images[selectedTag] ?? null;
             return (
               <div className="album-detail-header">
                 <div className="album-detail-art">
@@ -1943,10 +1840,9 @@ function App() {
                     entityId={selectedTag}
                     entityType="tag"
                     imagePath={tagImagePath}
-                    onImageSet={(id, path) => setTagImages(prev => ({ ...prev, [id]: path }))}
+                    onImageSet={(id, path) => tagImageCache.setImages(prev => ({ ...prev, [id]: path }))}
                     onImageRemoved={(id) => {
-                      setTagImages(prev => ({ ...prev, [id]: null }));
-                      setFetchedTagImages(prev => { const next = new Set(prev); next.delete(id); return next; });
+                      tagImageCache.setImages(prev => ({ ...prev, [id]: null }));
                     }}
                   />
                 </div>
@@ -1957,7 +1853,7 @@ function App() {
           {/* Album detail header */}
           {(view === "all" || view === "artists") && selectedAlbum !== null && !searchQuery.trim() && (() => {
             const album = albums.find(a => a.id === selectedAlbum);
-            const albumImagePath = albumImages[selectedAlbum] ?? null;
+            const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
             return (
               <div className="album-detail-header">
                 <div className="album-detail-art">
@@ -1985,10 +1881,9 @@ function App() {
                     entityId={selectedAlbum}
                     entityType="album"
                     imagePath={albumImagePath}
-                    onImageSet={(id, path) => setAlbumImages(prev => ({ ...prev, [id]: path }))}
+                    onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
                     onImageRemoved={(id) => {
-                      setAlbumImages(prev => ({ ...prev, [id]: null }));
-                      setFetchedAlbumImages(prev => { const next = new Set(prev); next.delete(id); return next; });
+                      albumImageCache.setImages(prev => ({ ...prev, [id]: null }));
                     }}
                   />
                 </div>
@@ -2077,7 +1972,7 @@ function App() {
                         onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
                       >{t.liked ? "\u2665" : "\u2661"}</span>
                       {t.album_id ? (
-                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={fetchAlbumImageOnDemand} />
+                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImageCache.images[t.album_id]} onVisible={albumImageCache.fetchOnDemand} />
                       ) : (
                         <div className="entity-list-img">{t.title[0]?.toUpperCase() ?? "?"}</div>
                       )}
@@ -2106,7 +2001,7 @@ function App() {
                       onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
                     >
                       {t.album_id ? (
-                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={fetchAlbumImageOnDemand} />
+                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImageCache.images[t.album_id]} onVisible={albumImageCache.fetchOnDemand} />
                       ) : (
                         <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
                       )}
@@ -2219,7 +2114,7 @@ function App() {
                         onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
                       >{t.liked ? "\u2665" : "\u2661"}</span>
                       {t.album_id ? (
-                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={fetchAlbumImageOnDemand} />
+                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImageCache.images[t.album_id]} onVisible={albumImageCache.fetchOnDemand} />
                       ) : (
                         <div className="entity-list-img">{t.title[0]?.toUpperCase() ?? "?"}</div>
                       )}
@@ -2248,7 +2143,7 @@ function App() {
                       onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
                     >
                       {t.album_id ? (
-                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={fetchAlbumImageOnDemand} />
+                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImageCache.images[t.album_id]} onVisible={albumImageCache.fetchOnDemand} />
                       ) : (
                         <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
                       )}
@@ -2380,8 +2275,8 @@ function App() {
         showAutoContinuePopover={autoContinue.showPopover}
         autoContinueWeights={autoContinue.weights}
         imagePath={
-          (playback.currentTrack?.album_id && albumImages[playback.currentTrack.album_id])
-          || (playback.currentTrack?.artist_id && artistImages[playback.currentTrack.artist_id])
+          (playback.currentTrack?.album_id && albumImageCache.images[playback.currentTrack.album_id])
+          || (playback.currentTrack?.artist_id && artistImageCache.images[playback.currentTrack.artist_id])
           || null
         }
         miniMode={miniMode}

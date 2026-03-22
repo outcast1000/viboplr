@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { Artist, Album } from "../types";
 
 interface EventListenerOptions {
   loadLibrary: () => Promise<void>;
@@ -10,12 +9,6 @@ interface EventListenerOptions {
   setScanProgress: (v: { scanned: number; total: number }) => void;
   setSyncing: (v: boolean) => void;
   setSyncProgress: (v: { synced: number; total: number; collection: string }) => void;
-  setArtistImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
-  setAlbumImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
-  setFailedArtistImages: React.Dispatch<React.SetStateAction<Set<number>>>;
-  setFailedAlbumImages: React.Dispatch<React.SetStateAction<Set<number>>>;
-  artistsRef: React.RefObject<Artist[]>;
-  albumsRef: React.RefObject<Album[]>;
 }
 
 export function useEventListeners(opts: EventListenerOptions) {
@@ -24,9 +17,6 @@ export function useEventListeners(opts: EventListenerOptions) {
     addLog,
     setScanning, setScanProgress,
     setSyncing, setSyncProgress,
-    setArtistImages, setAlbumImages,
-    setFailedArtistImages, setFailedAlbumImages,
-    artistsRef, albumsRef,
   } = opts;
 
   // Scan events
@@ -98,47 +88,4 @@ export function useEventListeners(opts: EventListenerOptions) {
     };
   }, [loadLibrary, loadTracks]);
 
-  // Artist image events
-  useEffect(() => {
-    const unlisten = listen<{ artistId: number; path: string }>(
-      "artist-image-ready",
-      (event) => {
-        addLog("Artist image ready: " + (artistsRef.current.find(a => a.id === event.payload.artistId)?.name ?? "id=" + event.payload.artistId));
-        setArtistImages((prev) => ({
-          ...prev,
-          [event.payload.artistId]: event.payload.path,
-        }));
-      }
-    );
-    const unlisten2 = listen<{ artistId: number; error: string }>(
-      "artist-image-error",
-      (event) => {
-        addLog("Artist image error (" + (artistsRef.current.find(a => a.id === event.payload.artistId)?.name ?? "id=" + event.payload.artistId) + "): " + event.payload.error);
-        setFailedArtistImages((prev) => new Set(prev).add(event.payload.artistId));
-      }
-    );
-    return () => { unlisten.then((f) => f()); unlisten2.then((f) => f()); };
-  }, []);
-
-  // Album image events
-  useEffect(() => {
-    const unlisten = listen<{ albumId: number; path: string }>(
-      "album-image-ready",
-      (event) => {
-        addLog("Album image ready: " + (albumsRef.current.find(a => a.id === event.payload.albumId)?.title ?? "id=" + event.payload.albumId));
-        setAlbumImages((prev) => ({
-          ...prev,
-          [event.payload.albumId]: event.payload.path,
-        }));
-      }
-    );
-    const unlisten2 = listen<{ albumId: number; error: string }>(
-      "album-image-error",
-      (event) => {
-        addLog("Album image error (" + (albumsRef.current.find(a => a.id === event.payload.albumId)?.title ?? "id=" + event.payload.albumId) + "): " + event.payload.error);
-        setFailedAlbumImages((prev) => new Set(prev).add(event.payload.albumId));
-      }
-    );
-    return () => { unlisten.then((f) => f()); unlisten2.then((f) => f()); };
-  }, []);
 }
