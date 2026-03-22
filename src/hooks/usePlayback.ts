@@ -411,8 +411,8 @@ export function usePlayback(
 
     setPositionSecs(el.currentTime);
 
-    // Scrobble threshold check (Last.FM rules)
-    if (!scrobbledRef.current && currentTrack) {
+    // Scrobble threshold check (Last.FM rules) — skip video tracks
+    if (!scrobbledRef.current && currentTrack && !isVideoTrack(currentTrack)) {
       if (shouldScrobble(el.currentTime, currentTrack.duration_secs)) {
         scrobbledRef.current = true;
         invoke("record_play", { trackId: currentTrack.id }).catch(console.error);
