@@ -35,6 +35,21 @@
     });
   });
 
+  // Fetch latest version from GitHub Releases API
+  var versionBadges = document.querySelectorAll('#version-badge');
+  if (versionBadges.length > 0) {
+    fetch('https://api.github.com/repos/outcast1000/viboplr/releases/latest')
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data && data.tag_name) {
+          versionBadges.forEach(function (el) {
+            el.textContent = data.tag_name;
+          });
+        }
+      })
+      .catch(function () { /* silently ignore — badge stays empty */ });
+  }
+
   // Scroll-triggered reveal animations
   var reveals = document.querySelectorAll('.reveal');
 
