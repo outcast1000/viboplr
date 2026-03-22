@@ -30,5 +30,6 @@ export const store = new LazyStore("app-state.json", {
     trackColumns: null,
     trackSortField: null,
     trackSortDir: "asc",
+    videoSplitHeight: 300,
   },
 });

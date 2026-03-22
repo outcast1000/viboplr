@@ -474,6 +474,16 @@ export function usePlayback(
     if (activeSlotRef.current === "B") onPause();
   }
 
+  function toggleFullscreen() {
+    const container = videoRef.current?.parentElement;
+    if (!container) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      container.requestFullscreen();
+    }
+  }
+
   return {
     currentTrack, setCurrentTrack,
     playing, setPlaying,
@@ -491,5 +501,6 @@ export function usePlayback(
     onEndedSlotA, onEndedSlotB,
     onPlaySlotA, onPlaySlotB,
     onPauseSlotA, onPauseSlotB,
+    toggleFullscreen,
   };
 }

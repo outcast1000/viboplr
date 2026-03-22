@@ -25,6 +25,7 @@ import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistor
 import { useSessionLog } from "./hooks/useSessionLog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
 import { useMiniMode } from "./hooks/useMiniMode";
+import { useVideoSplit } from "./hooks/useVideoSplit";
 
 import { Sidebar } from "./components/Sidebar";
 import { TrackList } from "./components/TrackList";
@@ -70,6 +71,7 @@ function App() {
   const queueHook = useQueue(restoredRef, playback.handlePlay);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
+  const videoSplit = useVideoSplit(restoredRef);
   peekNextRef.current = queueHook.peekNext;
   advanceIndexRef.current = queueHook.advanceIndex;
 
@@ -210,7 +212,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode] = await timeAsync("store.restore (27 keys)", () => Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight] = await timeAsync("store.restore (28 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -238,6 +240,7 @@ function App() {
           store.get<string | null>("tagViewMode"),
           store.get<string | null>("trackViewMode"),
           store.get<string | null>("likedViewMode"),
+          store.get<number | null>("videoSplitHeight"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history", "tidal"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -277,6 +280,7 @@ function App() {
         if (savedTagViewMode && ["basic", "list", "tiles"].includes(savedTagViewMode)) library.setTagViewMode(savedTagViewMode as ViewMode);
         if (savedTrackViewMode && ["basic", "list", "tiles"].includes(savedTrackViewMode)) library.setTrackViewMode(savedTrackViewMode as ViewMode);
         if (savedLikedViewMode && ["basic", "list", "tiles"].includes(savedLikedViewMode)) library.setLikedViewMode(savedLikedViewMode as ViewMode);
+        if (savedVideoSplitHeight && savedVideoSplitHeight > 0) videoSplit.setVideoHeight(savedVideoSplitHeight);
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {
@@ -328,12 +332,14 @@ function App() {
     showQueue: queueHook.showQueue,
     getMediaElement: playback.getMediaElement,
     handleSeek: playback.handleSeek,
+    currentTrack: playback.currentTrack,
   });
   shortcutStateRef.current = {
     volume: playback.volume,
     showQueue: queueHook.showQueue,
     getMediaElement: playback.getMediaElement,
     handleSeek: playback.handleSeek,
+    currentTrack: playback.currentTrack,
   };
 
   // Global keyboard shortcuts
@@ -402,6 +408,12 @@ function App() {
         case "7":
           e.preventDefault();
           queueHook.setShowQueue(!s.showQueue);
+          break;
+        case "f":
+          if (s.currentTrack && isVideoTrack(s.currentTrack)) {
+            e.preventDefault();
+            playback.toggleFullscreen();
+          }
           break;
         case "m":
           e.preventDefault();
@@ -1153,7 +1165,13 @@ function App() {
         </div>
 
         {/* Video player area */}
-        <div className="video-container" style={{ display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none' }}>
+        <div
+          className={`video-container${videoSplit.isCollapsed ? " collapsed" : ""}`}
+          style={{
+            display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',
+            height: videoSplit.isCollapsed ? 0 : videoSplit.videoHeight,
+          }}
+        >
           <video
             ref={playback.videoRef}
             onTimeUpdate={playback.onTimeUpdate}
@@ -1161,11 +1179,24 @@ function App() {
             onPlay={playback.onPlay}
             onPause={playback.onPause}
             onClick={playback.handlePause}
+            onDoubleClick={playback.toggleFullscreen}
           />
         </div>
+        {playback.currentTrack && isVideoTrack(playback.currentTrack) && (
+          <div className="video-splitter" onMouseDown={videoSplit.onSplitterMouseDown}>
+            <div className="splitter-handle" />
+            <button
+              className="splitter-collapse-btn"
+              onClick={videoSplit.toggleCollapse}
+              title={videoSplit.isCollapsed ? "Expand video" : "Collapse video"}
+            >
+              {videoSplit.isCollapsed ? "\u25B2" : "\u25BC"}
+            </button>
+          </div>
+        )}
 
         {/* Content area */}
-        <div className="content" ref={contentRef}>
+        <div className="content" ref={contentRef} style={{ minHeight: playback.currentTrack && isVideoTrack(playback.currentTrack) ? 150 : undefined }}>
           <Breadcrumb
             view={view}
             selectedArtist={selectedArtist}
