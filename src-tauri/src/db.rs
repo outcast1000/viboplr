@@ -44,6 +44,35 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
     })
 }
 
+fn collection_from_row(row: &rusqlite::Row) -> rusqlite::Result<Collection> {
+    Ok(Collection {
+        id: row.get(0)?,
+        kind: row.get(1)?,
+        name: row.get(2)?,
+        path: row.get(3)?,
+        url: row.get(4)?,
+        username: row.get(5)?,
+        last_synced_at: row.get(6)?,
+        auto_update: row.get::<_, i32>(7).unwrap_or(0) != 0,
+        auto_update_interval_mins: row.get::<_, i64>(8).unwrap_or(60),
+        enabled: row.get::<_, i32>(9).unwrap_or(1) != 0,
+        last_sync_duration_secs: row.get(10)?,
+        last_sync_error: row.get(11)?,
+    })
+}
+
+fn album_from_row(row: &rusqlite::Row) -> rusqlite::Result<Album> {
+    Ok(Album {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        artist_id: row.get(2)?,
+        artist_name: row.get(3)?,
+        year: row.get(4)?,
+        track_count: row.get(5)?,
+        liked: row.get::<_, i32>(6).unwrap_or(0) != 0,
+    })
+}
+
 /// Maps sort field names to SQL expressions
 fn sort_column_sql(field: Option<&str>) -> Option<String> {
     match field {
@@ -359,9 +388,7 @@ impl Database {
                  WHERE a.artist_id = ?1 AND a.track_count > 0
                  ORDER BY a.year, a.title"
             )?;
-            let rows = stmt.query_map(params![aid], |row| {
-                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)?, liked: row.get::<_, i32>(6).unwrap_or(0) != 0 })
-            })?;
+            let rows = stmt.query_map(params![aid], |row| album_from_row(row))?;
             rows.collect()
         } else {
             let mut stmt = conn.prepare(
@@ -370,9 +397,7 @@ impl Database {
                  WHERE a.track_count > 0
                  ORDER BY a.title"
             )?;
-            let rows = stmt.query_map([], |row| {
-                Ok(Album { id: row.get(0)?, title: row.get(1)?, artist_id: row.get(2)?, artist_name: row.get(3)?, year: row.get(4)?, track_count: row.get(5)?, liked: row.get::<_, i32>(6).unwrap_or(0) != 0 })
-            })?;
+            let rows = stmt.query_map([], |row| album_from_row(row))?;
             rows.collect()
         }
     }
@@ -770,22 +795,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error FROM collections ORDER BY name"
         )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(Collection {
-                id: row.get(0)?,
-                kind: row.get(1)?,
-                name: row.get(2)?,
-                path: row.get(3)?,
-                url: row.get(4)?,
-                username: row.get(5)?,
-                last_synced_at: row.get(6)?,
-                auto_update: row.get::<_, i32>(7).unwrap_or(0) != 0,
-                auto_update_interval_mins: row.get::<_, i64>(8).unwrap_or(60),
-                enabled: row.get::<_, i32>(9).unwrap_or(1) != 0,
-                last_sync_duration_secs: row.get(10)?,
-                last_sync_error: row.get(11)?,
-            })
-        })?;
+        let rows = stmt.query_map([], |row| collection_from_row(row))?;
         rows.collect()
     }
 
@@ -794,22 +804,7 @@ impl Database {
         conn.query_row(
             "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error FROM collections WHERE id = ?1",
             params![collection_id],
-            |row| {
-                Ok(Collection {
-                    id: row.get(0)?,
-                    kind: row.get(1)?,
-                    name: row.get(2)?,
-                    path: row.get(3)?,
-                    url: row.get(4)?,
-                    username: row.get(5)?,
-                    last_synced_at: row.get(6)?,
-                    auto_update: row.get::<_, i32>(7).unwrap_or(0) != 0,
-                    auto_update_interval_mins: row.get::<_, i64>(8).unwrap_or(60),
-                    enabled: row.get::<_, i32>(9).unwrap_or(1) != 0,
-                    last_sync_duration_secs: row.get(10)?,
-                    last_sync_error: row.get(11)?,
-                })
-            },
+            |row| collection_from_row(row),
         )
     }
 
