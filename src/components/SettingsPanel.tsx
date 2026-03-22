@@ -53,6 +53,8 @@ interface SettingsPanelProps {
   onClearImageFailures: () => void;
   crossfadeSecs: number;
   onCrossfadeChange: (secs: number) => void;
+  trackVideoHistory: boolean;
+  onTrackVideoHistoryChange: (enabled: boolean) => void;
   onSaveProviders: (providers: SearchProviderConfig[]) => void;
   appVersion: string;
   updateState: UpdateState;
@@ -77,6 +79,8 @@ export function SettingsPanel({
   onClearImageFailures, onSaveProviders,
   crossfadeSecs,
   onCrossfadeChange,
+  trackVideoHistory,
+  onTrackVideoHistoryChange,
   appVersion,
   updateState,
   onCheckForUpdates,
@@ -188,6 +192,15 @@ export function SettingsPanel({
                 className="settings-slider"
               />
               <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
+            </div>
+            <div className="settings-row">
+              <label className="settings-label">Track video history</label>
+              <button
+                className={`provider-toggle ${trackVideoHistory ? "provider-toggle-on" : ""}`}
+                onClick={() => onTrackVideoHistoryChange(!trackVideoHistory)}
+              >
+                {trackVideoHistory ? "On" : "Off"}
+              </button>
             </div>
           </div>
         )}

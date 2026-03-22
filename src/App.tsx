@@ -64,8 +64,11 @@ function App() {
   const crossfadeSecsRef = useRef(3);
   const [crossfadeSecs, setCrossfadeSecs] = useState(3);
   crossfadeSecsRef.current = crossfadeSecs;
+  const trackVideoHistoryRef = useRef(false);
+  const [trackVideoHistory, setTrackVideoHistory] = useState(false);
+  trackVideoHistoryRef.current = trackVideoHistory;
   const advanceIndexRef = useRef<() => void>(() => {});
-  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef);
+  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef);
   const beforeNavRef = useRef<() => void>(() => {});
   const library = useLibrary(restoredRef, () => beforeNavRef.current());
   const queueHook = useQueue(restoredRef, playback.handlePlay);
@@ -212,7 +215,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight] = await timeAsync("store.restore (28 keys)", () => Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight] = await timeAsync("store.restore (29 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -225,6 +228,7 @@ function App() {
           store.get<string>("queueMode"),
           store.get<number>("positionSecs"),
           store.get<number>("crossfadeSecs"),
+          store.get<boolean>("trackVideoHistory"),
           store.get<boolean>("miniMode"),
           store.get<number | null>("fullWindowWidth"),
           store.get<number | null>("fullWindowHeight"),
@@ -251,6 +255,7 @@ function App() {
         if (st !== undefined && st !== null) library.setSelectedTag(st);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
+        if (savedTrackVideoHistory) setTrackVideoHistory(true);
         if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
         if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
         if (tCols && Array.isArray(tCols) && tCols.length > 0) {
@@ -791,6 +796,11 @@ function App() {
     store.set("crossfadeSecs", secs);
   }
 
+  function handleTrackVideoHistoryChange(enabled: boolean) {
+    setTrackVideoHistory(enabled);
+    store.set("trackVideoHistory", enabled);
+  }
+
   async function handleResyncCollection(collectionId: number) {
     await invoke("resync_collection", { collectionId });
   }
@@ -1018,6 +1028,8 @@ function App() {
           onSaveProviders={handleSaveProviders}
           crossfadeSecs={crossfadeSecs}
           onCrossfadeChange={handleCrossfadeChange}
+          trackVideoHistory={trackVideoHistory}
+          onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
           appVersion={updater.appVersion}
           updateState={updater.updateState}
           onCheckForUpdates={updater.handleCheckForUpdates}

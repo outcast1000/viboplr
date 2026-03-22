@@ -9,6 +9,7 @@ export function usePlayback(
   peekNextRef: React.RefObject<() => Track | null>,
   crossfadeSecsRef: React.RefObject<number>,
   advanceIndexRef: React.RefObject<() => void>,
+  trackVideoHistoryRef: React.RefObject<boolean>,
 ) {
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -411,8 +412,8 @@ export function usePlayback(
 
     setPositionSecs(el.currentTime);
 
-    // Scrobble threshold check (Last.FM rules) — skip video tracks
-    if (!scrobbledRef.current && currentTrack && !isVideoTrack(currentTrack)) {
+    // Scrobble threshold check (Last.FM rules) — optionally skip video tracks
+    if (!scrobbledRef.current && currentTrack && (trackVideoHistoryRef.current || !isVideoTrack(currentTrack))) {
       if (shouldScrobble(el.currentTime, currentTrack.duration_secs)) {
         scrobbledRef.current = true;
         invoke("record_play", { trackId: currentTrack.id }).catch(console.error);
