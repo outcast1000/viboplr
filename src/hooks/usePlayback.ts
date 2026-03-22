@@ -38,9 +38,10 @@ export function usePlayback(
 
   // Crossfade state
   const isCrossfadingRef = useRef(false);
-  const crossfadeRafRef = useRef<number | null>(null);
+  const crossfadeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const crossfadeOutgoingRef = useRef<HTMLAudioElement | null>(null);
   const volumeRef = useRef(volume);
+  const wasPlayingBeforeHideRef = useRef(false);
 
   function getActiveAudioElement(): HTMLAudioElement | null {
     return activeSlotRef.current === "A" ? audioRefA.current : audioRefB.current;
@@ -86,6 +87,28 @@ export function usePlayback(
   }, [currentTrack]);
 
   // Persist state
+  // Resume playback if the browser auto-paused it when the page became hidden (e.g. window minimized)
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        const el = activeSlotRef.current === "A" ? audioRefA.current : audioRefB.current;
+        const vid = videoRef.current;
+        const anyPlaying = (el && !el.paused) || (vid && !vid.paused);
+        wasPlayingBeforeHideRef.current = !!anyPlaying;
+      } else if (document.visibilityState === "visible") {
+        if (wasPlayingBeforeHideRef.current) {
+          wasPlayingBeforeHideRef.current = false;
+          const el = activeSlotRef.current === "A" ? audioRefA.current : audioRefB.current;
+          const vid = videoRef.current;
+          if (el && el.paused && el.src) el.play().catch(console.error);
+          if (vid && vid.paused && vid.src) vid.play().catch(console.error);
+        }
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
   useEffect(() => { if (restoredRef.current) store.set("currentTrackId", currentTrack?.id ?? null); }, [currentTrack]);
   useEffect(() => { if (restoredRef.current) store.set("positionSecs", positionSecs); }, [positionSecs]);
   useEffect(() => { if (restoredRef.current) store.set("volume", volume); }, [volume]);
@@ -152,17 +175,20 @@ export function usePlayback(
     const activeEl = getActiveAudioElement();
     if (activeEl) activeEl.volume = volumeRef.current;
 
+    if (crossfadeTimerRef.current !== null) {
+      clearInterval(crossfadeTimerRef.current);
+      crossfadeTimerRef.current = null;
+    }
     isCrossfadingRef.current = false;
-    crossfadeRafRef.current = null;
     crossfadeOutgoingRef.current = null;
   }
 
   function cancelCrossfade() {
     if (!isCrossfadingRef.current) return;
 
-    if (crossfadeRafRef.current !== null) {
-      cancelAnimationFrame(crossfadeRafRef.current);
-      crossfadeRafRef.current = null;
+    if (crossfadeTimerRef.current !== null) {
+      clearInterval(crossfadeTimerRef.current);
+      crossfadeTimerRef.current = null;
     }
 
     const outgoing = crossfadeOutgoingRef.current;
@@ -220,11 +246,11 @@ export function usePlayback(
     preloadedTrackRef.current = null;
     preloadReadyRef.current = false;
 
-    // rAF crossfade loop
+    // setInterval crossfade loop (works when page is hidden, unlike rAF)
     const startTime = performance.now();
     const fadeDuration = crossfadeSecsRef.current * 1000;
 
-    function tick() {
+    crossfadeTimerRef.current = setInterval(() => {
       const elapsed = performance.now() - startTime;
       const progress = Math.min(elapsed / fadeDuration, 1);
 
@@ -236,12 +262,8 @@ export function usePlayback(
 
       if (progress >= 1) {
         finishCrossfade();
-      } else {
-        crossfadeRafRef.current = requestAnimationFrame(tick);
       }
-    }
-
-    crossfadeRafRef.current = requestAnimationFrame(tick);
+    }, 16);
   }
 
   function handleGaplessNext(): boolean {
@@ -477,7 +499,9 @@ export function usePlayback(
   }
 
   function onPlay() { setPlaying(true); }
-  function onPause() { setPlaying(false); }
+  function onPause() {
+    if (!wasPlayingBeforeHideRef.current) setPlaying(false);
+  }
 
   // Slot-safe event handlers that use activeSlotRef (not stale state)
   function onEndedSlotA(callback: () => void) {
