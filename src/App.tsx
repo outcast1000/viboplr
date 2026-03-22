@@ -1116,7 +1116,7 @@ function App() {
   async function handleToggleLike(track: Track) {
     const newLiked = !track.liked;
     try {
-      await invoke("toggle_track_liked", { trackId: track.id, liked: newLiked });
+      await invoke("toggle_liked", { kind: "track", id: track.id, liked: newLiked });
       library.setTracks(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
       if (playback.currentTrack?.id === track.id) {
         playback.setCurrentTrack({ ...playback.currentTrack, liked: newLiked });
@@ -1132,7 +1132,7 @@ function App() {
     if (!artist) return;
     const newLiked = !artist.liked;
     try {
-      await invoke("toggle_artist_liked", { artistId, liked: newLiked });
+      await invoke("toggle_liked", { kind: "artist", id: artistId, liked: newLiked });
       library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked: newLiked } : a));
     } catch (e) {
       console.error("Failed to toggle artist like:", e);
@@ -1144,7 +1144,7 @@ function App() {
     if (!album) return;
     const newLiked = !album.liked;
     try {
-      await invoke("toggle_album_liked", { albumId, liked: newLiked });
+      await invoke("toggle_liked", { kind: "album", id: albumId, liked: newLiked });
       library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: newLiked } : a));
     } catch (e) {
       console.error("Failed to toggle album like:", e);
@@ -1156,7 +1156,7 @@ function App() {
     if (!tag) return;
     const newLiked = !tag.liked;
     try {
-      await invoke("toggle_tag_liked", { tagId, liked: newLiked });
+      await invoke("toggle_liked", { kind: "tag", id: tagId, liked: newLiked });
       library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked: newLiked } : t));
     } catch (e) {
       console.error("Failed to toggle tag like:", e);

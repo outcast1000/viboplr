@@ -958,15 +958,6 @@ impl Database {
 
     // --- Liked tracks ---
 
-    pub fn toggle_track_liked(&self, track_id: i64, liked: bool) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE tracks SET liked = ?2 WHERE id = ?1",
-            params![track_id, liked as i32],
-        )?;
-        Ok(())
-    }
-
     pub fn set_track_youtube_url(&self, track_id: i64, url: &str) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -985,29 +976,11 @@ impl Database {
         Ok(())
     }
 
-    pub fn toggle_artist_liked(&self, artist_id: i64, liked: bool) -> SqlResult<()> {
+    pub fn toggle_liked(&self, table: &str, id: i64, liked: bool) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE artists SET liked = ?2 WHERE id = ?1",
-            params![artist_id, liked as i32],
-        )?;
-        Ok(())
-    }
-
-    pub fn toggle_album_liked(&self, album_id: i64, liked: bool) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE albums SET liked = ?2 WHERE id = ?1",
-            params![album_id, liked as i32],
-        )?;
-        Ok(())
-    }
-
-    pub fn toggle_tag_liked(&self, tag_id: i64, liked: bool) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE tags SET liked = ?2 WHERE id = ?1",
-            params![tag_id, liked as i32],
+            &format!("UPDATE {} SET liked = ?2 WHERE id = ?1", table),
+            params![id, liked as i32],
         )?;
         Ok(())
     }
@@ -1344,7 +1317,7 @@ mod tests {
         let t1 = insert_track(&db, "/a1.mp3", "Song Alpha", Some(artist1), Some(album1));
         insert_track(&db, "/a2.mp3", "Song Alpha Two", Some(artist2), None);
         db.add_track_tag(t1, tag_rock).unwrap();
-        db.toggle_track_liked(t1, true).unwrap();
+        db.toggle_liked("tracks", t1, true).unwrap();
 
         db.rebuild_fts().unwrap();
 

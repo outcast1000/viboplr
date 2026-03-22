@@ -495,51 +495,20 @@ pub fn get_tracks_by_tag(
 }
 
 #[tauri::command]
-pub fn toggle_track_liked(
+pub fn toggle_liked(
     state: State<'_, AppState>,
-    track_id: i64,
+    kind: String,
+    id: i64,
     liked: bool,
 ) -> Result<(), String> {
-    state
-        .db
-        .toggle_track_liked(track_id, liked)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn toggle_artist_liked(
-    state: State<'_, AppState>,
-    artist_id: i64,
-    liked: bool,
-) -> Result<(), String> {
-    state
-        .db
-        .toggle_artist_liked(artist_id, liked)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn toggle_album_liked(
-    state: State<'_, AppState>,
-    album_id: i64,
-    liked: bool,
-) -> Result<(), String> {
-    state
-        .db
-        .toggle_album_liked(album_id, liked)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn toggle_tag_liked(
-    state: State<'_, AppState>,
-    tag_id: i64,
-    liked: bool,
-) -> Result<(), String> {
-    state
-        .db
-        .toggle_tag_liked(tag_id, liked)
-        .map_err(|e| e.to_string())
+    let table = match kind.as_str() {
+        "track" => "tracks",
+        "artist" => "artists",
+        "album" => "albums",
+        "tag" => "tags",
+        _ => return Err(format!("Unknown kind: {}", kind)),
+    };
+    state.db.toggle_liked(table, id, liked).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1397,22 +1366,22 @@ mod tests {
         let track_id = insert_track(&state, "/t.mp3", "Track", Some(artist_id), Some(album_id));
 
         // Track liked
-        state.db.toggle_track_liked(track_id, true).unwrap();
+        state.db.toggle_liked("tracks", track_id, true).unwrap();
         let track = state.db.get_track_by_id(track_id).unwrap();
         assert!(track.liked);
-        state.db.toggle_track_liked(track_id, false).unwrap();
+        state.db.toggle_liked("tracks", track_id, false).unwrap();
         let track = state.db.get_track_by_id(track_id).unwrap();
         assert!(!track.liked);
 
         // Artist liked — need recompute_counts for artist to show up (track_count > 0 filter)
-        state.db.toggle_artist_liked(artist_id, true).unwrap();
+        state.db.toggle_liked("artists", artist_id, true).unwrap();
         state.db.recompute_counts().unwrap();
         let artists = state.db.get_artists().unwrap();
         assert!(!artists.is_empty());
         assert!(artists.iter().any(|a| a.id == artist_id && a.liked));
 
         // Album liked
-        state.db.toggle_album_liked(album_id, true).unwrap();
+        state.db.toggle_liked("albums", album_id, true).unwrap();
         state.db.recompute_counts().unwrap();
         let albums = state.db.get_albums(None).unwrap();
         assert!(albums.iter().any(|a| a.id == album_id && a.liked));
