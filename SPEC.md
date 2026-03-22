@@ -4,7 +4,7 @@
 
 Viboplr is a lightweight, cross-platform **media player** for macOS and Windows. It plays audio and video files from local folders and Subsonic/Navidrome servers, scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
 
-**Non-goals (v1):** playlists/queues, equalizer/DSP, lyrics, mobile.
+**Non-goals (v1):** equalizer/DSP, lyrics, mobile.
 
 ## 2. Tech Stack
 
@@ -103,22 +103,35 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 ### 4.6 Library Browsing
 
 - Browse by **artist**, **album**, **tag**, **liked tracks**, **history**, **TIDAL** (when a tidal collection exists), or **all tracks** (flat list).
-- List view (table) with columns: like (heart icon), track number, title, artist, album, duration.
+- List view (table) with columns: like (heart icon), track number, title, artist, album, year, quality (bitrate), duration, file size, collection, path. Columns are togglable via a column menu; default visible: like, number, title, artist, album, duration.
 - **Multi-selection:** Click to select a single track. Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range to the existing selection. Selected rows are visually highlighted. Selection is cleared on view/track-list change and on double-click.
 - Tracks from all enabled collections (local and server) are unified in a single library.
 - **Breadcrumb actions:** Artist detail and tag detail views show "Play All" and "Queue All" buttons in the breadcrumb bar. The All Tracks view does not show these bulk-play buttons.
 
+**View modes:** Artists, Albums, Tags, All Tracks, and Liked views each support three view modes, toggled via a `ViewModeToggle` component in the sort bar:
+- **Basic** — compact table with sortable column headers.
+- **List** — row-based list with images/art, like buttons, and metadata.
+- **Tiles** — card grid with large artwork, like overlays, and metadata below.
+
+View mode selections are persisted per entity (`artistViewMode`, `albumViewMode`, `tagViewMode`, `trackViewMode`, `likedViewMode`).
+
 **Artist list sort controls:** A sort bar above the artist list offers Name, Tracks (track count), and Shuffle buttons, plus a heart toggle to float liked artists to the top. Name and Tracks cycle through ascending → descending → unsorted on repeated clicks. Shuffle re-randomizes each click (Fisher-Yates).
 
-**Album grid sort controls:** A sort bar above the album grid offers Name, Year, and Shuffle buttons, plus a heart toggle to float liked albums to the top. Name and Year cycle asc → desc → unsorted. Shuffle re-randomizes each click.
+**Album grid sort controls:** A sort bar above the album grid offers Name, Artist, Year, Tracks, and Shuffle buttons, plus a heart toggle to float liked albums to the top. Name, Artist, Year, and Tracks cycle asc → desc → unsorted. Shuffle re-randomizes each click.
 
-**Tag list sort controls:** A sort bar above the tag list offers Name, Tracks (track count), and Shuffle buttons. Name and Tracks cycle asc → desc → unsorted. Shuffle re-randomizes each click (Fisher-Yates).
+**Tag list sort controls:** A sort bar above the tag list offers Name, Tracks (track count), and Shuffle buttons, plus a heart toggle to float liked tags to the top. Name and Tracks cycle asc → desc → unsorted. Shuffle re-randomizes each click (Fisher-Yates).
+
+**All Tracks sort controls:** A sort bar above the track list offers Title, Artist, Album, Year, Quality, Duration, Size, Collection, and Shuffle buttons. Sort fields cycle asc → desc → unsorted. A heart toggle floats liked tracks to the top. A YouTube filter button (`YT`) shows only tracks with a `youtube_url`.
 
 **Performance:** Track counts for artists, albums, and tags are precomputed and stored in `track_count` columns (see §5). Counts are recomputed after every scan, sync, collection toggle, and FTS rebuild. The `get_artists`, `get_albums`, and `get_tags` queries use simple `WHERE track_count > 0` filters instead of JOIN/GROUP BY/HAVING, making sidebar navigation instant. The frontend skips fetching tracks when only the album grid or tag list is displayed (no track table rendered), and does not re-fetch the full album list when navigating to the Albums view (already loaded by `loadLibrary`).
 
 ### 4.7 Tags
 
-Tags replace the previous single-genre-per-track model. A track can have **multiple tags** via a many-to-many relationship (`track_tags` junction table). Genre metadata read from file tags or Subsonic metadata is stored as tags. The Tags view in the sidebar lists all tags with track counts; clicking one filters the track list.
+Tags replace the previous single-genre-per-track model. A track can have **multiple tags** via a many-to-many relationship (`track_tags` junction table). Genre metadata read from file tags or Subsonic metadata is stored as tags. The Tags view in the sidebar lists all tags with track counts; clicking one shows a tag detail header and the tag's tracks.
+
+**Liked tags:** Each tag has a `liked` boolean attribute. Like buttons appear in all three tag view modes (heart icon). The tag detail header also shows a like button. The sort bar has a heart toggle to float liked tags to the top.
+
+**Tag images:** Tags support manual image management (set from file, paste from clipboard, remove) — the same system as artists and albums. Images are stored as files in `{app_dir}/tag_images/{tag_id}.{ext}`. Unlike artists/albums, tags have no auto-fetch from external providers. A `TagCardArt` component renders the tag image (or initial letter fallback) in list and tiles views, with lazy-loading via IntersectionObserver.
 
 ### 4.8 Search
 
@@ -168,13 +181,14 @@ The player uses a **dual audio element (A/B)** architecture to achieve gapless t
 - `crossfadeSecs` is configurable via a slider in Settings (0–10 seconds, 0.5s steps). A value of 0 means "off" (gapless mode). Default: 3 seconds.
 - Persisted to the app store under the `crossfadeSecs` key.
 
-### 4.10 Liked Tracks, Artists & Albums
+### 4.10 Liked Tracks, Artists, Albums & Tags
 
 - **Tracks:** Each track has a `liked` boolean attribute (stored as `INTEGER DEFAULT 0` in SQLite). A heart icon column appears in the track list: filled heart (♥) when liked, outline heart (♡) when not. Clicking the heart toggles the liked state via `toggle_track_liked` and updates local state immediately (tracks list, current track, and queue). The **Now Playing bar** also shows a like button next to the current track info, allowing users to like/unlike the playing track without scrolling to it in the list. The sidebar has a "Liked" view that shows all liked tracks via `get_liked_tracks`. Search in this view is scoped to liked tracks only (`liked_only` flag passed to `search`).
 - **Artists:** Each artist has a `liked` boolean. In the All Artists list, a heart icon per row toggles the like via `toggle_artist_liked`. The artist detail header also shows a heart icon next to the artist name. The sort bar's heart toggle floats liked artists to the top.
 - **Albums:** Each album has a `liked` boolean. In the All Albums grid, a heart overlay appears on hover (top-right corner of the album card) and toggles via `toggle_album_liked`. Liked albums show the heart permanently. The album detail header also shows a heart icon next to the album title. The sort bar's heart toggle floats liked albums to the top.
-- **Scan-safe:** the `liked` column on tracks is excluded from the `upsert_track` ON CONFLICT clause, so re-scanning or re-syncing a collection preserves the user's likes. Artist and album likes are never touched by scanning.
-- **Migration:** existing databases gain `liked` columns via `ALTER TABLE` for `tracks`, `artists`, and `albums` (all `INTEGER NOT NULL DEFAULT 0`).
+- **Tags:** Each tag has a `liked` boolean. Like buttons appear in all three tag view modes (basic, list, tiles) and in the tag detail header, toggling via `toggle_tag_liked`. The sort bar's heart toggle floats liked tags to the top.
+- **Scan-safe:** the `liked` column on tracks is excluded from the `upsert_track` ON CONFLICT clause, so re-scanning or re-syncing a collection preserves the user's likes. Artist, album, and tag likes are never touched by scanning.
+- **Migration:** existing databases gain `liked` columns via `ALTER TABLE` for `tracks`, `artists`, `albums` (all `INTEGER NOT NULL DEFAULT 0`), and `tags` (migration version 5).
 
 ### 4.11 Auto Continue
 
@@ -292,6 +306,11 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `autoContinueEnabled` | `boolean` | `false` |
 | `autoContinueWeights` | `{ random, sameArtist, sameTag, mostPlayed, liked }` | `{ 40, 20, 20, 10, 10 }` |
 | `miniMode` | `boolean` | `false` |
+| `artistViewMode` | `string` (`"basic"`, `"list"`, `"tiles"`) | `"tiles"` |
+| `albumViewMode` | `string` (`"basic"`, `"list"`, `"tiles"`) | `"tiles"` |
+| `tagViewMode` | `string` (`"basic"`, `"list"`, `"tiles"`) | `"tiles"` |
+| `trackViewMode` | `string` (`"basic"`, `"list"`, `"tiles"`) | `"basic"` |
+| `likedViewMode` | `string` (`"basic"`, `"list"`, `"tiles"`) | `"basic"` |
 | `miniWindowX` | `number \| null` | `null` |
 | `miniWindowY` | `number \| null` | `null` |
 | `fullWindowWidth` | `number \| null` | `null` |
@@ -416,7 +435,7 @@ VIBOPLR_DATA_DIR=/path/to/data npm run tauri dev
 ./Viboplr --data-dir=/path/to/data
 ```
 
-The environment variable takes precedence if both are set. The directory is created automatically if it doesn't exist. All app data (database, artist images, album images) is stored under the specified directory.
+The environment variable takes precedence if both are set. The directory is created automatically if it doesn't exist. All app data (database, artist images, album images, tag images) is stored under the specified directory.
 
 ### 4.20 Playlist Panel
 
@@ -464,7 +483,8 @@ CREATE TABLE albums (
 CREATE TABLE tags (
     id          INTEGER PRIMARY KEY,
     name        TEXT NOT NULL UNIQUE,
-    track_count INTEGER NOT NULL DEFAULT 0   -- precomputed, updated by recompute_counts()
+    track_count INTEGER NOT NULL DEFAULT 0,  -- precomputed, updated by recompute_counts()
+    liked       INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE collections (
@@ -535,7 +555,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 );
 ```
 
-**Migration:** A `db_version` table tracks the schema version (starting at 1). On startup, `run_migrations()` checks the version and applies any needed ALTER TABLE statements. Migrations include: `folders` → `collections` with `kind='local'` (path prefix matching); `deleted` on tracks; `liked` on artists/albums/tracks; `auto_update`/`auto_update_interval_mins`/`enabled`/`last_sync_duration_secs` on collections; `track_count` on artists/albums/tags (version 2). After migrations, `recompute_counts()` runs on every startup to ensure counts are correct even after a crash or interrupted scan.
+**Migration:** A `db_version` table tracks the schema version (starting at 1). On startup, `run_migrations()` checks the version and applies any needed ALTER TABLE statements. Migrations include: `folders` → `collections` with `kind='local'` (path prefix matching); `deleted` on tracks; `liked` on artists/albums/tracks; `auto_update`/`auto_update_interval_mins`/`enabled`/`last_sync_duration_secs` on collections; `track_count` on artists/albums/tags (version 2); `youtube_url` on tracks (version 3); `last_sync_error` on collections (version 4); `liked` on tags (version 5). After migrations, `recompute_counts()` runs on every startup to ensure counts are correct even after a crash or interrupted scan.
 
 ## 6. Architecture
 
@@ -612,6 +632,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `toggle_track_liked`    | `track_id: i64, liked: bool`| `()`                     |
 | `toggle_artist_liked`   | `artist_id: i64, liked: bool`| `()`                    |
 | `toggle_album_liked`    | `album_id: i64, liked: bool`| `()`                     |
+| `toggle_tag_liked`      | `tag_id: i64, liked: bool`  | `()`                     |
 | `get_liked_tracks`      | —                           | `Vec<Track>`             |
 | `search`                | `query, artist_id?, album_id?, tag_id?, liked_only?` | `Vec<Track>`   |
 | `get_track_path`        | `track_id: i64`             | `String` (path or URL)   |
@@ -649,6 +670,10 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `set_album_image`       | `album_id: i64, source_path: String` | `String` (dest path)   |
 | `paste_album_image`     | `album_id: i64, image_data: Vec<u8>` | `String` (dest path)   |
 | `remove_album_image`    | `album_id: i64`             | `()`                     |
+| `get_tag_image`         | `tag_id: i64`               | `Option<String>` (path)  |
+| `set_tag_image`         | `tag_id: i64, source_path: String` | `String` (dest path)  |
+| `paste_tag_image`       | `tag_id: i64, image_data: Vec<u8>` | `String` (dest path)  |
+| `remove_tag_image`      | `tag_id: i64`               | `()`                     |
 | `clear_image_failures`  | —                           | `()`                     |
 
 ### TIDAL Commands
@@ -789,9 +814,11 @@ Artist and album image fetching is handled by a single background worker thread 
 - Respects the same deduplication guards (fetched/failed sets) so images are only requested once per session.
 
 **Manual image management:**
-- `set_artist_image` / `set_album_image` — copy an image from a local file path to the app's image directory.
-- `paste_artist_image` / `paste_album_image` — write raw image bytes (e.g., from clipboard paste) to the app's image directory. Image format (PNG/JPG) is auto-detected from magic bytes.
-- `remove_artist_image` / `remove_album_image` — delete an image from the app's image directory.
+- `set_artist_image` / `set_album_image` / `set_tag_image` — copy an image from a local file path to the app's image directory.
+- `paste_artist_image` / `paste_album_image` / `paste_tag_image` — write raw image bytes (e.g., from clipboard paste) to the app's image directory. Image format (PNG/JPG) is auto-detected from magic bytes.
+- `remove_artist_image` / `remove_album_image` / `remove_tag_image` — delete an image from the app's image directory.
+
+Tags have no auto-fetch from external providers (no `fetch_tag_image` command). Tag images are managed manually only (set, paste, remove). Image files are stored in `{app_dir}/tag_images/`. The `tag_image.rs` module provides `get_image_path()` and `remove_image()` helpers, mirroring `artist_image.rs` and `album_image.rs`.
 
 ### 12.4 Playback Resolution
 
