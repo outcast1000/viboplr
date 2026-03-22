@@ -70,6 +70,13 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::set_track_youtube_url,
         commands::clear_track_youtube_url,
         commands::get_track_audio_properties,
+        commands::lastfm_get_auth_url,
+        commands::lastfm_authenticate,
+        commands::lastfm_set_session,
+        commands::lastfm_disconnect,
+        commands::lastfm_get_status,
+        commands::lastfm_now_playing,
+        commands::lastfm_scrobble,
     ]
 }
 
@@ -122,6 +129,13 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::set_track_youtube_url,
         commands::clear_track_youtube_url,
         commands::get_track_audio_properties,
+        commands::lastfm_get_auth_url,
+        commands::lastfm_authenticate,
+        commands::lastfm_set_session,
+        commands::lastfm_disconnect,
+        commands::lastfm_get_status,
+        commands::lastfm_now_playing,
+        commands::lastfm_scrobble,
     ]
 }
 
@@ -174,9 +188,9 @@ pub fn run() {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
-            // Check argv for subsonic:// deep link URLs (Windows/Linux)
+            // Check argv for subsonic:// and viboplr:// deep link URLs (Windows/Linux)
             for arg in &argv {
-                if arg.starts_with("subsonic://") {
+                if arg.starts_with("subsonic://") || arg.starts_with("viboplr://") {
                     let _ = app.emit("deep-link-received", arg.clone());
                     break;
                 }
@@ -399,7 +413,15 @@ pub fn run() {
                 }
             });
 
-            timer.time("manage_app_state", || { app.manage(AppState { db, app_dir, download_queue }); });
+            timer.time("manage_app_state", || {
+                app.manage(AppState {
+                    db,
+                    app_dir,
+                    download_queue,
+                    lastfm: crate::lastfm::LastfmClient::new(crate::commands::LASTFM_API_KEY, crate::commands::LASTFM_API_SECRET),
+                    lastfm_session: Mutex::new(None),
+                });
+            });
 
             Ok(())
         })

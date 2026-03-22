@@ -45,7 +45,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["subsonic"]
+        "schemes": ["subsonic", "viboplr"]
       }
     },
     "updater": {

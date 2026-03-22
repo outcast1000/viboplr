@@ -188,3 +188,9 @@ pub struct TidalArtistDetail {
     pub picture_id: Option<String>,
     pub albums: Vec<TidalSearchAlbum>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LastfmStatus {
+    pub connected: bool,
+    pub username: Option<String>,
+}

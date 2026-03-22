@@ -3,10 +3,14 @@ use std::thread;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::db::Database;
+use crate::lastfm::LastfmClient;
 use crate::models::*;
 use crate::scanner;
 use crate::subsonic::SubsonicClient;
 use crate::tidal::TidalClient;
+
+pub const LASTFM_API_KEY: &str = "YOUR_API_KEY_HERE";
+pub const LASTFM_API_SECRET: &str = "YOUR_API_SECRET_HERE";
 
 pub enum ImageDownloadRequest {
     Artist { id: i64, name: String },
@@ -22,6 +26,8 @@ pub struct AppState {
     pub db: Arc<Database>,
     pub app_dir: std::path::PathBuf,
     pub download_queue: Arc<DownloadQueue>,
+    pub lastfm: LastfmClient,
+    pub lastfm_session: Mutex<Option<(String, String)>>,  // (session_key, username)
 }
 
 fn detect_image_format(data: &[u8]) -> &'static str {
@@ -1152,6 +1158,99 @@ pub fn get_track_audio_properties(
     })
 }
 
+// --- Last.fm commands ---
+
+#[tauri::command]
+pub fn lastfm_get_auth_url(state: State<'_, AppState>) -> Result<String, String> {
+    Ok(state.lastfm.get_auth_url("viboplr://lastfm-callback"))
+}
+
+#[tauri::command]
+pub fn lastfm_authenticate(state: State<'_, AppState>, token: String) -> Result<(LastfmStatus, String), String> {
+    let (session_key, username) = state.lastfm.get_session(&token).map_err(|e| e.to_string())?;
+    *state.lastfm_session.lock().unwrap() = Some((session_key.clone(), username.clone()));
+    Ok((LastfmStatus { connected: true, username: Some(username) }, session_key))
+}
+
+#[tauri::command]
+pub fn lastfm_set_session(state: State<'_, AppState>, session_key: String, username: String) {
+    *state.lastfm_session.lock().unwrap() = Some((session_key, username));
+}
+
+#[tauri::command]
+pub fn lastfm_disconnect(state: State<'_, AppState>) {
+    *state.lastfm_session.lock().unwrap() = None;
+}
+
+#[tauri::command]
+pub fn lastfm_get_status(state: State<'_, AppState>) -> LastfmStatus {
+    let session = state.lastfm_session.lock().unwrap();
+    match session.as_ref() {
+        Some((_, username)) => LastfmStatus { connected: true, username: Some(username.clone()) },
+        None => LastfmStatus { connected: false, username: None },
+    }
+}
+
+#[tauri::command]
+pub fn lastfm_now_playing(state: State<'_, AppState>, app: AppHandle, track_id: i64) {
+    let session = state.lastfm_session.lock().unwrap().clone();
+    let Some((session_key, _)) = session else { return };
+
+    let track = match state.db.get_track_by_id(track_id) {
+        Ok(t) => t,
+        _ => return,
+    };
+    let Some(artist) = track.artist_name.as_deref() else { return };
+
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    let title = track.title.clone();
+    let artist_str = artist.to_string();
+    let album = track.album_title.clone();
+    let duration = track.duration_secs;
+    let app_handle = app.clone();
+
+    thread::spawn(move || {
+        if let Err(e) = lastfm.update_now_playing(
+            &session_key, &artist_str, &title, album.as_deref(), duration,
+        ) {
+            log::warn!("Last.fm now_playing error: {}", e);
+            if e.to_string().starts_with("auth_error:") {
+                let _ = app_handle.emit("lastfm-auth-error", ());
+            }
+        }
+    });
+}
+
+#[tauri::command]
+pub fn lastfm_scrobble(state: State<'_, AppState>, app: AppHandle, track_id: i64, started_at: i64) {
+    let session = state.lastfm_session.lock().unwrap().clone();
+    let Some((session_key, _)) = session else { return };
+
+    let track = match state.db.get_track_by_id(track_id) {
+        Ok(t) => t,
+        _ => return,
+    };
+    let Some(artist) = track.artist_name.as_deref() else { return };
+
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    let title = track.title.clone();
+    let artist_str = artist.to_string();
+    let album = track.album_title.clone();
+    let duration = track.duration_secs;
+    let app_handle = app.clone();
+
+    thread::spawn(move || {
+        if let Err(e) = lastfm.scrobble(
+            &session_key, &artist_str, &title, started_at, album.as_deref(), duration,
+        ) {
+            log::warn!("Last.fm scrobble error: {}", e);
+            if e.to_string().starts_with("auth_error:") {
+                let _ = app_handle.emit("lastfm-auth-error", ());
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1166,6 +1265,8 @@ mod tests {
                 queue: Mutex::new(Vec::new()),
                 condvar: Condvar::new(),
             }),
+            lastfm: LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET),
+            lastfm_session: Mutex::new(None),
         }
     }
 
