@@ -30,6 +30,8 @@ export const store = new LazyStore("app-state.json", {
     trackColumns: null,
     trackSortField: null,
     trackSortDir: "asc",
+    lastfmSessionKey: null,
+    lastfmUsername: null,
     trackVideoHistory: false,
     videoSplitHeight: 300,
   },

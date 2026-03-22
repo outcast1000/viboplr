@@ -100,6 +100,8 @@ function App() {
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
   const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
+  const [lastfmConnected, setLastfmConnected] = useState(false);
+  const [lastfmUsername, setLastfmUsername] = useState<string | null>(null);
 
   // Updater
   const updater = useAppUpdater(addLog);
@@ -192,6 +194,27 @@ function App() {
   useEffect(() => {
     function handleDeepLink(urls: string[]) {
       for (const raw of urls) {
+        // Handle Last.fm callback
+        if (raw.startsWith("viboplr://lastfm-callback")) {
+          try {
+            const url = new URL(raw);
+            const token = url.searchParams.get("token");
+            if (token) {
+              invoke<[{ connected: boolean; username: string | null }, string]>("lastfm_authenticate", { token })
+                .then(async ([status, sessionKey]) => {
+                  setLastfmConnected(status.connected);
+                  setLastfmUsername(status.username ?? null);
+                  await store.set("lastfmSessionKey", sessionKey);
+                  await store.set("lastfmUsername", status.username);
+                })
+                .catch((e: unknown) => console.error("Last.fm auth failed:", e));
+            }
+          } catch (e) {
+            console.error("Failed to parse Last.fm callback URL:", e);
+          }
+          break;
+        }
+        // Handle Subsonic deep links
         const parsed = parseSubsonicUrl(raw);
         if (parsed) {
           setDeepLinkServer({ url: parsed.serverUrl, username: parsed.username, password: parsed.password });
@@ -215,7 +238,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight] = await timeAsync("store.restore (29 keys)", () => Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername] = await timeAsync("store.restore (31 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -245,6 +268,8 @@ function App() {
           store.get<string | null>("trackViewMode"),
           store.get<string | null>("likedViewMode"),
           store.get<number | null>("videoSplitHeight"),
+          store.get<string | null>("lastfmSessionKey"),
+          store.get<string | null>("lastfmUsername"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history", "tidal"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -256,6 +281,11 @@ function App() {
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory) setTrackVideoHistory(true);
+        if (savedLastfmSessionKey && savedLastfmUsername) {
+          setLastfmConnected(true);
+          setLastfmUsername(savedLastfmUsername);
+          invoke("lastfm_set_session", { sessionKey: savedLastfmSessionKey, username: savedLastfmUsername }).catch(console.error);
+        }
         if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
         if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
         if (tCols && Array.isArray(tCols) && tCols.length > 0) {
@@ -303,6 +333,16 @@ function App() {
       restoredRef.current = true;
       await timeAsync("loadLibrary", () => library.loadLibrary());
     })();
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen("lastfm-auth-error", async () => {
+      setLastfmConnected(false);
+      setLastfmUsername(null);
+      await store.set("lastfmSessionKey", null);
+      await store.set("lastfmUsername", null);
+    });
+    return () => { unlisten.then(f => f()); };
   }, []);
 
   // Fetch images for selected entities
@@ -801,6 +841,23 @@ function App() {
     store.set("trackVideoHistory", enabled);
   }
 
+  async function handleLastfmConnect() {
+    try {
+      const url = await invoke<string>("lastfm_get_auth_url");
+      await openUrl(url);
+    } catch (e) {
+      console.error("Failed to get Last.fm auth URL:", e);
+    }
+  }
+
+  async function handleLastfmDisconnect() {
+    await invoke("lastfm_disconnect").catch(console.error);
+    setLastfmConnected(false);
+    setLastfmUsername(null);
+    await store.set("lastfmSessionKey", null);
+    await store.set("lastfmUsername", null);
+  }
+
   async function handleResyncCollection(collectionId: number) {
     await invoke("resync_collection", { collectionId });
   }
@@ -1037,6 +1094,10 @@ function App() {
           backendTimings={backendTimings}
           frontendTimings={getTimingEntries()}
           onFetchBackendTimings={() => invoke<TimingEntry[]>("get_startup_timings").then(setBackendTimings)}
+          lastfmConnected={lastfmConnected}
+          lastfmUsername={lastfmUsername}
+          onLastfmConnect={handleLastfmConnect}
+          onLastfmDisconnect={handleLastfmDisconnect}
         />
       )}
 

@@ -63,6 +63,10 @@ interface SettingsPanelProps {
   backendTimings: TimingEntry[];
   frontendTimings: TimingEntry[];
   onFetchBackendTimings: () => void;
+  lastfmConnected: boolean;
+  lastfmUsername: string | null;
+  onLastfmConnect: () => void;
+  onLastfmDisconnect: () => void;
 }
 
 interface ProviderFormData {
@@ -88,6 +92,10 @@ export function SettingsPanel({
   backendTimings,
   frontendTimings,
   onFetchBackendTimings,
+  lastfmConnected,
+  lastfmUsername,
+  onLastfmConnect,
+  onLastfmDisconnect,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<"main" | "providers" | "about" | "debug">("main");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -201,6 +209,32 @@ export function SettingsPanel({
               >
                 {trackVideoHistory ? "On" : "Off"}
               </button>
+            </div>
+            <div className="settings-row" style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 12 }}>
+              {lastfmConnected ? (
+                <>
+                  <label className="settings-label">Last.fm</label>
+                  <span className="settings-value" style={{ color: "#d51007" }}>{lastfmUsername}</span>
+                  <button
+                    className="provider-toggle"
+                    onClick={onLastfmDisconnect}
+                    style={{ marginLeft: "auto" }}
+                  >
+                    Disconnect
+                  </button>
+                </>
+              ) : (
+                <>
+                  <label className="settings-label">Last.fm</label>
+                  <button
+                    className="provider-toggle provider-toggle-on"
+                    onClick={onLastfmConnect}
+                    style={{ marginLeft: "auto", background: "#d51007", borderColor: "#d51007" }}
+                  >
+                    Connect
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
