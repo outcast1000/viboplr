@@ -2,10 +2,6 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
-import { getVersion } from "@tauri-apps/api/app";
-import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { listen } from "@tauri-apps/api/event";
@@ -26,12 +22,15 @@ import { useImageCache } from "./hooks/useImageCache";
 import { useAutoContinue } from "./hooks/useAutoContinue";
 import { usePasteImage } from "./hooks/usePasteImage";
 import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistory";
+import { useSessionLog } from "./hooks/useSessionLog";
+import { useAppUpdater } from "./hooks/useAppUpdater";
+import { useMiniMode } from "./hooks/useMiniMode";
 
 import { Sidebar } from "./components/Sidebar";
 import { TrackList } from "./components/TrackList";
 import { NowPlayingBar } from "./components/NowPlayingBar";
 import { QueuePanel } from "./components/QueuePanel";
-import { SettingsPanel, type UpdateState } from "./components/SettingsPanel";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { AddServerModal } from "./components/AddServerModal";
 import { ContextMenu } from "./components/ContextMenu";
 import type { ContextMenuState } from "./components/ContextMenu";
@@ -51,22 +50,6 @@ import { StatusBar } from "./components/StatusBar";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-const MINI_HEIGHT = 40;
-const MINI_MIN_WIDTH = 280;
-const MINI_MAX_WIDTH = 550;
-const MINI_INITIAL_WIDTH = 500;
-
-function measureMiniFooter(): number {
-  const footer = document.querySelector(".now-playing-mini") as HTMLElement;
-  if (!footer) return MINI_INITIAL_WIDTH;
-  const clone = footer.cloneNode(true) as HTMLElement;
-  clone.style.cssText = "position:fixed;top:-9999px;left:-9999px;visibility:hidden;width:max-content;pointer-events:none;";
-  document.body.appendChild(clone);
-  const width = clone.offsetWidth;
-  document.body.removeChild(clone);
-  return Math.max(MINI_MIN_WIDTH, Math.min(width + 16, MINI_MAX_WIDTH));
-}
-
 function App() {
   const restoredRef = useRef(false);
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -74,11 +57,6 @@ function App() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HistoryViewHandle>(null);
   const previousVolumeRef = useRef(1.0);
-
-  // Mini mode state
-  const [miniMode, setMiniMode] = useState(false);
-  const miniModeRef = useRef(false);
-  const fullSizeRef = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
 
   // Core hooks
   const peekNextRef = useRef<() => Track | null>(() => null);
@@ -91,6 +69,7 @@ function App() {
   const library = useLibrary(restoredRef, () => beforeNavRef.current());
   const queueHook = useQueue(restoredRef, playback.handlePlay);
   const autoContinue = useAutoContinue(restoredRef);
+  const mini = useMiniMode(restoredRef, playback.currentTrack);
   peekNextRef.current = queueHook.peekNext;
   advanceIndexRef.current = queueHook.advanceIndex;
 
@@ -105,8 +84,7 @@ function App() {
   const [showAddTidal, setShowAddTidal] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [sessionLog, setSessionLog] = useState<{ time: Date; message: string }[]>([]);
-  const [statusHint, setStatusHint] = useState<string | null>(null);
+  const { sessionLog, addLog, statusHint, setStatusHint } = useSessionLog();
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
   const [youtubeFeedback, setYoutubeFeedback] = useState<{
@@ -118,81 +96,13 @@ function App() {
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
   const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
 
-  // Update state
-  const [appVersion, setAppVersion] = useState("");
-  const [updateState, setUpdateState] = useState<UpdateState>({
-    available: null,
-    checking: false,
-    downloading: false,
-    progress: null,
-    upToDate: false,
-  });
-  const updateRef = useRef<Awaited<ReturnType<typeof check>>>(null);
+  // Updater
+  const updater = useAppUpdater(addLog);
 
   // Image caches
   const artistImageCache = useImageCache("artist", addLog);
   const albumImageCache = useImageCache("album", addLog);
   const tagImageCache = useImageCache("tag", addLog);
-
-  function addLog(message: string) {
-    setSessionLog(prev => [...prev, { time: new Date(), message }]);
-  }
-
-  // Toggle mini mode
-  const toggleMiniMode = useCallback(async () => {
-    const win = getCurrentWindow();
-    const factor = await win.scaleFactor();
-    if (!miniModeRef.current) {
-      // Entering mini mode — save current full geometry
-      const size = await win.innerSize();
-      const pos = await win.outerPosition();
-      const geo = { w: size.width / factor, h: size.height / factor, x: pos.x / factor, y: pos.y / factor };
-      fullSizeRef.current = geo;
-      store.set("fullWindowWidth", geo.w);
-      store.set("fullWindowHeight", geo.h);
-      store.set("fullWindowX", geo.x);
-      store.set("fullWindowY", geo.y);
-      await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_HEIGHT));
-      // Restore saved mini position if available
-      const [mx, my] = await Promise.all([
-        store.get<number | null>("miniWindowX"),
-        store.get<number | null>("miniWindowY"),
-      ]);
-      if (mx != null && my != null) {
-        await win.setPosition(new LogicalPosition(mx, my));
-      }
-      await win.setAlwaysOnTop(true);
-      await win.setDecorations(false);
-      setMiniMode(true);
-      miniModeRef.current = true;
-      store.set("miniMode", true);
-    } else {
-      // Exiting mini mode — save mini position, then restore full geometry
-      const pos = await win.outerPosition();
-      store.set("miniWindowX", pos.x / factor);
-      store.set("miniWindowY", pos.y / factor);
-      await win.setDecorations(true);
-      await win.setAlwaysOnTop(false);
-      const geo = fullSizeRef.current;
-      if (geo) {
-        await win.setSize(new LogicalSize(geo.w, geo.h));
-        await win.setPosition(new LogicalPosition(geo.x, geo.y));
-      } else {
-        // Fallback: read from store
-        const [fw, fh, fx, fy] = await Promise.all([
-          store.get<number | null>("fullWindowWidth"),
-          store.get<number | null>("fullWindowHeight"),
-          store.get<number | null>("fullWindowX"),
-          store.get<number | null>("fullWindowY"),
-        ]);
-        if (fw && fh) await win.setSize(new LogicalSize(fw, fh));
-        if (fx != null && fy != null) await win.setPosition(new LogicalPosition(fx, fy));
-      }
-      setMiniMode(false);
-      miniModeRef.current = false;
-      store.set("miniMode", false);
-    }
-  }, []);
 
   // Event listeners
   useEventListeners({
@@ -295,23 +205,6 @@ function App() {
     };
   }, []);
 
-  // Load app version and auto-check for updates on startup
-  useEffect(() => {
-    getVersion().then(setAppVersion);
-    const timer = setTimeout(async () => {
-      try {
-        const update = await check();
-        if (update) {
-          updateRef.current = update;
-          setUpdateState(s => ({ ...s, available: { version: update.version, body: update.body ?? "" } }));
-        }
-      } catch {
-        // Silently ignore — no update endpoint configured or network error
-      }
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, []);
-
   // Restore persisted state on mount
   useEffect(() => {
     (async () => {
@@ -387,9 +280,9 @@ function App() {
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {
-            if (fww && fwh) fullSizeRef.current = { w: fww, h: fwh, x: fwx ?? 0, y: fwy ?? 0 };
-            setMiniMode(true);
-            miniModeRef.current = true;
+            if (fww && fwh) mini.fullSizeRef.current = { w: fww, h: fwh, x: fwx ?? 0, y: fwy ?? 0 };
+            mini.setMiniMode(true);
+            mini.miniModeRef.current = true;
           }
           await getCurrentWindow().show();
         });
@@ -402,61 +295,6 @@ function App() {
       await timeAsync("loadLibrary", () => library.loadLibrary());
     })();
   }, []);
-
-  // Save window size and position on resize/move
-  useEffect(() => {
-    const win = getCurrentWindow();
-    let timer: ReturnType<typeof setTimeout>;
-    const save = async () => {
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
-        if (!restoredRef.current) return;
-        const factor = await win.scaleFactor();
-        const pos = await win.outerPosition();
-        if (miniModeRef.current) {
-          store.set("miniWindowX", pos.x / factor);
-          store.set("miniWindowY", pos.y / factor);
-        } else {
-          const size = await win.innerSize();
-          store.set("windowWidth", size.width / factor);
-          store.set("windowHeight", size.height / factor);
-          store.set("windowX", pos.x / factor);
-          store.set("windowY", pos.y / factor);
-        }
-      }, 500);
-    };
-    const unlistenResize = win.onResized(save);
-    const unlistenMove = win.onMoved(save);
-    return () => {
-      clearTimeout(timer);
-      unlistenResize.then(f => f());
-      unlistenMove.then(f => f());
-    };
-  }, []);
-
-  // Auto-resize mini window when track changes or mini mode is entered
-  const miniSettledRef = useRef(false);
-  useEffect(() => {
-    if (!miniMode) { miniSettledRef.current = false; return; }
-    const frame = requestAnimationFrame(async () => {
-      const win = getCurrentWindow();
-      const newWidth = measureMiniFooter();
-      if (miniSettledRef.current) {
-        // Track changed while in mini mode — pin right edge
-        const factor = await win.scaleFactor();
-        const size = await win.innerSize();
-        const pos = await win.outerPosition();
-        const rightEdge = pos.x / factor + size.width / factor;
-        await win.setSize(new LogicalSize(newWidth, MINI_HEIGHT));
-        await win.setPosition(new LogicalPosition(rightEdge - newWidth, pos.y / factor));
-      } else {
-        // Just entered mini mode — set size only, keep position
-        await win.setSize(new LogicalSize(newWidth, MINI_HEIGHT));
-        miniSettledRef.current = true;
-      }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [miniMode, playback.currentTrack]);
 
   // Fetch images for selected entities
   useEffect(() => {
@@ -576,7 +414,7 @@ function App() {
           break;
         case "M":
           e.preventDefault();
-          toggleMiniMode();
+          mini.toggleMiniMode();
           break;
         case "ArrowLeft": {
           e.preventDefault();
@@ -941,45 +779,6 @@ function App() {
     store.set("crossfadeSecs", secs);
   }
 
-  async function handleCheckForUpdates() {
-    setUpdateState(s => ({ ...s, checking: true, upToDate: false }));
-    try {
-      const update = await check();
-      if (update) {
-        updateRef.current = update;
-        setUpdateState(s => ({ ...s, checking: false, available: { version: update.version, body: update.body ?? "" } }));
-      } else {
-        setUpdateState(s => ({ ...s, checking: false, upToDate: true }));
-      }
-    } catch {
-      setUpdateState(s => ({ ...s, checking: false, upToDate: true }));
-    }
-  }
-
-  async function handleInstallUpdate() {
-    const update = updateRef.current;
-    if (!update) return;
-    setUpdateState(s => ({ ...s, downloading: true, progress: null }));
-    try {
-      await update.downloadAndInstall((event) => {
-        if (event.event === "Started" && event.data.contentLength) {
-          setUpdateState(s => ({ ...s, progress: { downloaded: 0, total: event.data.contentLength! } }));
-        } else if (event.event === "Progress") {
-          setUpdateState(s => ({
-            ...s,
-            progress: s.progress
-              ? { downloaded: s.progress.downloaded + event.data.chunkLength, total: s.progress.total }
-              : null,
-          }));
-        }
-      });
-      await relaunch();
-    } catch {
-      setUpdateState(s => ({ ...s, downloading: false, progress: null }));
-      addLog("Failed to install update.");
-    }
-  }
-
   async function handleResyncCollection(collectionId: number) {
     await invoke("resync_collection", { collectionId });
   }
@@ -1094,7 +893,7 @@ function App() {
   const hasTidal = !!tidalCollection;
 
   return (
-    <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${miniMode ? "mini-mode" : ""}`} onClick={() => setContextMenu(null)}>
+    <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${mini.miniMode ? "mini-mode" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -1169,7 +968,7 @@ function App() {
           library.setSearchQuery("");
         }}
         onShowSettings={() => setShowSettings(true)}
-        updateAvailable={updateState.available !== null}
+        updateAvailable={updater.updateState.available !== null}
       />
 
       {showAddServer && (
@@ -1207,10 +1006,10 @@ function App() {
           onSaveProviders={handleSaveProviders}
           crossfadeSecs={crossfadeSecs}
           onCrossfadeChange={handleCrossfadeChange}
-          appVersion={appVersion}
-          updateState={updateState}
-          onCheckForUpdates={handleCheckForUpdates}
-          onInstallUpdate={handleInstallUpdate}
+          appVersion={updater.appVersion}
+          updateState={updater.updateState}
+          onCheckForUpdates={updater.handleCheckForUpdates}
+          onInstallUpdate={updater.handleInstallUpdate}
           backendTimings={backendTimings}
           frontendTimings={getTimingEntries()}
           onFetchBackendTimings={() => invoke<TimingEntry[]>("get_startup_timings").then(setBackendTimings)}
@@ -2279,8 +2078,8 @@ function App() {
           || (playback.currentTrack?.artist_id && artistImageCache.images[playback.currentTrack.artist_id])
           || null
         }
-        miniMode={miniMode}
-        onToggleMiniMode={toggleMiniMode}
+        miniMode={mini.miniMode}
+        onToggleMiniMode={mini.toggleMiniMode}
         onClose={() => getCurrentWindow().close()}
         onPause={playback.handlePause}
         onStop={playback.handleStop}

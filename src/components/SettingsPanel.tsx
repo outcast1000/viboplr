@@ -3,14 +3,7 @@ import type { SearchProviderConfig } from "../searchProviders";
 import { DEFAULT_PROVIDERS, getDomainFromUrl } from "../searchProviders";
 import { IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
 import type { TimingEntry } from "../startupTiming";
-
-export interface UpdateState {
-  available: { version: string; body: string } | null;
-  checking: boolean;
-  downloading: boolean;
-  progress: { downloaded: number; total: number } | null;
-  upToDate: boolean;
-}
+import type { UpdateState } from "../hooks/useAppUpdater";
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
   google: IconGoogle,
