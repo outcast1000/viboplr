@@ -20,6 +20,7 @@ Viboplr is a lightweight, cross-platform **media player** for macOS and Windows.
 | File watching    | `notify`                            | Cross-platform filesystem events         |
 | Database         | SQLite via `rusqlite`               | Embedded media library                   |
 | Search           | SQLite FTS5                         | Sub-millisecond full-text search         |
+| Scrobbling       | Last.fm API (`ws.audioscrobbler.com`)| Now-playing & scrobble reporting         |
 | State persistence| `tauri-plugin-store` v2              | Save/restore UI state across restarts    |
 
 All Rust dependencies are MIT or Apache-2.0 licensed. No GPL/LGPL.
@@ -150,9 +151,10 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - Media type (audio vs video) determined by file extension (video: mp4, m4v, mov, webm).
 - Transport controls: play, pause, stop, seek, volume.
 - Position and duration tracked via HTML5 media events (`timeupdate`, `loadedmetadata`, `play`, `pause`, `ended`) — no polling.
-- Video displayed inline in the main content area; audio plays with no visual.
+- Video displayed inline in the main content area with a **resizable splitter** between the video and track list. The splitter is draggable (default height: 300px, persisted as `videoSplitHeight`), has a collapse/expand button to minimize the video, and enforces a 150px minimum track list height. Double-click or `Cmd/Ctrl+F` on the video enters native fullscreen.
 - **Double-click:** Double-clicking a track in any view (All Tracks, Artist, Album, Tag, Liked) plays only that single track — the queue is replaced with just that one track. No additional tracks are queued or auto-played after it finishes (unless Auto Continue is enabled).
 - Keyboard navigation: arrow keys to navigate tracks, Enter to play.
+- **Minimized window:** Playback continues when the app window is minimized. A `visibilitychange` listener resumes playback if the browser auto-pauses media when the page becomes hidden. The crossfade loop uses `setInterval` instead of `requestAnimationFrame` so it runs while the page is hidden.
 
 #### Gapless Playback & Crossfading
 
@@ -226,10 +228,14 @@ When playback reaches the end of the queue in "normal" mode, the player normally
 
 ### 4.13 Play History
 
-Every track play is recorded in the `play_history` table with a timestamp. This powers the History view and the "Most Played" auto-continue strategy.
+Every track play is recorded in the `play_history` table with a timestamp. This powers the History view, the "Most Played" auto-continue strategy, and Last.fm scrobbling.
+
+**Scrobble threshold:** Play history is not recorded immediately on playback start. Instead, the frontend tracks elapsed time and calls `record_play` only after the **scrobble threshold** is met: the track must have played for at least **50% of its duration or 4 minutes**, whichever comes first. Tracks shorter than 30 seconds are never recorded. This follows the Last.fm scrobbling rules.
+
+**Video tracks:** By default, video track plays are **not** recorded in history. A "Track video history" toggle in Settings > Main allows users to opt in. When off (default), the frontend skips both `record_play` and Last.fm scrobbling for video tracks. Persisted as `trackVideoHistory` in the app store.
 
 **Backend:**
-- `record_play(track_id)` — inserts a row into `play_history` with the current timestamp. Called by the frontend when a track starts playing.
+- `record_play(track_id)` — inserts a row into `play_history` with the current timestamp, but only if the same track was not recorded within the last **30 seconds** (deduplication window). Called by the frontend when the scrobble threshold is met.
 - `get_recent_plays(limit)` — returns the most recent play history entries (joined with track/artist/album metadata).
 - `get_most_played(limit)` — returns tracks ranked by total play count (all time).
 - `get_most_played_since(since_ts, limit)` — returns tracks ranked by play count since a given timestamp.
@@ -311,6 +317,11 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `tagViewMode` | `string` (`"basic"`, `"list"`, `"tiles"`) | `"tiles"` |
 | `trackViewMode` | `string` (`"basic"`, `"list"`, `"tiles"`) | `"basic"` |
 | `likedViewMode` | `string` (`"basic"`, `"list"`, `"tiles"`) | `"basic"` |
+| `lastfmSessionKey` | `string \| null` | `null` |
+| `lastfmUsername` | `string \| null` | `null` |
+| `trackVideoHistory` | `boolean` | `false` |
+| `videoSplitHeight` | `number` | `300` |
+| `sidebarCollapsed` | `boolean` | `false` |
 | `miniWindowX` | `number \| null` | `null` |
 | `miniWindowY` | `number \| null` | `null` |
 | `fullWindowWidth` | `number \| null` | `null` |
@@ -371,6 +382,7 @@ All shortcuts use `Ctrl` on Windows/Linux and `Cmd` on macOS.
 | `Ctrl+7` | Show TIDAL view (when tidal collection exists) |
 | `Ctrl+M` | Toggle mute (mute/unmute volume) |
 | `Ctrl+Shift+M` | Toggle mini player mode |
+| `Ctrl+B` | Toggle sidebar collapse/expand |
 | `Ctrl+←` | Seek backward 15 seconds |
 | `Ctrl+→` | Seek forward 15 seconds |
 | `Ctrl+↑` | Volume up (+5%) |
@@ -459,6 +471,61 @@ A collapsible side panel for managing the current play queue as a playlist. Togg
 - **Load:** `load_playlist` command parses M3U/M3U8 files, resolves tracks by matching file paths against the database, and returns matched tracks. The playlist name is extracted from the filename.
 
 **State persistence:** `showQueue` (panel visibility) and `playlistName` are persisted to the app store and restored on startup.
+
+### 4.21 Last.fm Scrobbling
+
+Viboplr integrates with Last.fm to report "now playing" status and scrobble completed plays.
+
+**Authentication:**
+- Uses Last.fm's web authentication flow. The user clicks "Connect" in Settings, which opens the Last.fm authorization page in the browser with a callback URL (`viboplr://lastfm-callback`).
+- After the user authorizes, the app exchanges the auth token for a **session key** and **username** via `auth.getSession`.
+- Session key and username are persisted in the app store (`lastfmSessionKey`, `lastfmUsername`) and restored on startup via `lastfm_set_session`.
+- API key and secret are compiled into the binary via environment variables.
+
+**API client (`src-tauri/src/lastfm.rs`):**
+- `LastfmClient` struct with `api_key`, `api_secret`, and `reqwest::blocking::Client` (15s timeout).
+- Methods: `get_auth_url()`, `get_session()`, `update_now_playing()`, `scrobble()`.
+- All API calls use Last.fm's signed parameter protocol: params sorted alphabetically, concatenated as key-value pairs, appended with secret, then MD5 hashed.
+- Auth errors (codes 9, 14) are detected and emitted as `lastfm-auth-error` events so the frontend can disconnect the stale session.
+
+**Scrobbling behavior:**
+- When a new track starts playing, the frontend calls `lastfm_now_playing` to update the "now playing" status.
+- When the scrobble threshold is met (same as play history — 50% or 4 min), the frontend calls `lastfm_scrobble` with the track ID and the timestamp when playback started.
+- Both calls run on background threads (fire-and-forget) so they don't block playback.
+- Video tracks are excluded from scrobbling unless "Track video history" is enabled.
+
+**Scrobble confirmation:** When a track's play has been logged (history recorded), a checkmark indicator appears next to the time display in the Now Playing bar.
+
+**Settings UI (Settings > Last.fm tab):**
+- Shows connection status (connected username or disconnected).
+- "Connect to Last.fm" / "Disconnect" button.
+
+**Tauri commands:**
+
+| Command | Args | Returns |
+|---------|------|---------|
+| `lastfm_get_auth_url` | — | `String` (auth URL) |
+| `lastfm_authenticate` | `token: String` | `(LastfmStatus, String)` (status + session key) |
+| `lastfm_set_session` | `session_key: String, username: String` | `()` |
+| `lastfm_disconnect` | — | `()` |
+| `lastfm_get_status` | — | `LastfmStatus` |
+| `lastfm_now_playing` | `track_id: i64` | `()` (fire-and-forget) |
+| `lastfm_scrobble` | `track_id: i64, started_at: i64` | `()` (fire-and-forget) |
+
+**Events:**
+
+| Event | Payload |
+|-------|---------|
+| `lastfm-auth-error` | `()` |
+
+### 4.22 Collapsible Sidebar
+
+The left sidebar panel can be collapsed to save screen space.
+
+- A toggle button at the bottom of the sidebar collapses/expands the panel.
+- When collapsed, the sidebar shows icon-only navigation buttons with tooltips.
+- **Keyboard shortcut:** `Cmd/Ctrl+B` toggles the sidebar.
+- Collapsed state is persisted as `sidebarCollapsed` in the app store.
 
 ## 5. Database Schema
 
@@ -693,6 +760,18 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `tidal_get_album`         | `collection_id: i64, album_id: String`                   | `TidalAlbumDetail`   |
 | `tidal_get_artist`        | `collection_id: i64, artist_id: String`                  | `TidalArtistDetail`  |
 
+### Last.fm Commands
+
+| Command                   | Args                                        | Returns                        |
+| ------------------------- | ------------------------------------------- | ------------------------------ |
+| `lastfm_get_auth_url`     | —                                           | `String` (auth URL)            |
+| `lastfm_authenticate`     | `token: String`                             | `(LastfmStatus, String)`       |
+| `lastfm_set_session`      | `session_key: String, username: String`      | `()`                           |
+| `lastfm_disconnect`       | —                                           | `()`                           |
+| `lastfm_get_status`       | —                                           | `LastfmStatus`                 |
+| `lastfm_now_playing`      | `track_id: i64`                             | `()` (fire-and-forget)         |
+| `lastfm_scrobble`         | `track_id: i64, started_at: i64`            | `()` (fire-and-forget)         |
+
 ### Debug-Only Commands
 
 | Command                 | Args                        | Returns                  |
@@ -712,6 +791,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `artist-image-error` | `{ artistId, error }`             |
 | `album-image-ready`  | `{ albumId, path }`               |
 | `album-image-error`  | `{ albumId, error }`              |
+| `lastfm-auth-error`  | `()`                                |
 
 ## 8. Performance Targets
 
@@ -737,7 +817,9 @@ A static showcase website lives in `docs/` and is hosted via **GitHub Pages** at
 - `features.html` — Detailed feature breakdowns (playback, library, search, servers, mini player, keyboard shortcuts, discovery).
 - `download.html` — Platform download cards (macOS/Windows), system requirements, changelog, auto-update note.
 
-**Stack:** Plain HTML/CSS/JS (no framework). Outfit font via Google Fonts. Shared `css/style.css` and `js/main.js` (scroll animations, mobile nav hamburger).
+**Dynamic version badge:** The website fetches the latest release tag from the GitHub Releases API (`api.github.com/repos/outcast1000/viboplr/releases/latest`) and displays it on the homepage hero badge and the download page subtitle. Falls back to no version display if the API is unavailable.
+
+**Stack:** Plain HTML/CSS/JS (no framework). Outfit font via Google Fonts. Shared `css/style.css` and `js/main.js` (scroll animations, mobile nav hamburger, version fetch).
 
 **Hosting:** GitHub Pages from `/docs` on `main` branch. Custom domain configured via `docs/CNAME`.
 
