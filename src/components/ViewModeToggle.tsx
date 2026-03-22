@@ -11,8 +11,8 @@ export function ViewModeToggle({ mode, onChange }: ViewModeToggleProps) {
       <button
         className={`view-mode-btn${mode === "basic" ? " active" : ""}`}
         onClick={() => onChange("basic")}
-        title="Basic view"
-      >{"\u2261"}</button>
+        title="Table view"
+      >{"\u25A5"}</button>
       <button
         className={`view-mode-btn${mode === "list" ? " active" : ""}`}
         onClick={() => onChange("list")}

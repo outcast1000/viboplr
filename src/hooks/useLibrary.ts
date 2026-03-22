@@ -58,6 +58,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   // Track filters
   const [filterYoutubeOnly, setFilterYoutubeOnly] = useState(false);
+  const [trackLikedFirst, setTrackLikedFirst] = useState(false);
 
   // Tag sort state
   const [tagSortField, setTagSortField] = useState<TagSortField | null>(null);
@@ -68,6 +69,8 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [artistViewMode, setArtistViewMode] = useState<ViewMode>("tiles");
   const [albumViewMode, setAlbumViewMode] = useState<ViewMode>("tiles");
   const [tagViewMode, setTagViewMode] = useState<ViewMode>("tiles");
+  const [trackViewMode, setTrackViewMode] = useState<ViewMode>("basic");
+  const [likedViewMode, setLikedViewMode] = useState<ViewMode>("basic");
 
   // Artist-filtered albums for artist detail view (derived, never mutates albums state)
   const artistAlbums = useMemo(() => {
@@ -87,6 +90,8 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   useEffect(() => { if (restoredRef.current) store.set("artistViewMode", artistViewMode); }, [artistViewMode]);
   useEffect(() => { if (restoredRef.current) store.set("albumViewMode", albumViewMode); }, [albumViewMode]);
   useEffect(() => { if (restoredRef.current) store.set("tagViewMode", tagViewMode); }, [tagViewMode]);
+  useEffect(() => { if (restoredRef.current) store.set("trackViewMode", trackViewMode); }, [trackViewMode]);
+  useEffect(() => { if (restoredRef.current) store.set("likedViewMode", likedViewMode); }, [likedViewMode]);
 
   // Debounce search query to avoid firing a search on every keystroke
   useEffect(() => {
@@ -248,30 +253,35 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   }
 
   const sortedTracks = (() => {
-    if (isServerSorted) return tracks; // Server already sorted
-    if (!sortField) return tracks;
-    const sorted = [...tracks];
-    const dir = sortDir === "asc" ? 1 : -1;
-    sorted.sort((a, b) => {
-      switch (sortField) {
-        case "num": return ((a.track_number ?? 0) - (b.track_number ?? 0)) * dir;
-        case "title": return (a.title.localeCompare(b.title)) * dir;
-        case "artist": return ((a.artist_name ?? "").localeCompare(b.artist_name ?? "")) * dir;
-        case "album": return ((a.album_title ?? "").localeCompare(b.album_title ?? "")) * dir;
-        case "duration": return ((a.duration_secs ?? 0) - (b.duration_secs ?? 0)) * dir;
-        case "path": return (a.path.localeCompare(b.path)) * dir;
-        case "year": return ((a.year ?? 0) - (b.year ?? 0)) * dir;
-        case "quality": {
-          const bitrateA = (a.duration_secs && a.file_size) ? a.file_size * 8 / a.duration_secs / 1000 : 0;
-          const bitrateB = (b.duration_secs && b.file_size) ? b.file_size * 8 / b.duration_secs / 1000 : 0;
-          return (bitrateA - bitrateB) * dir;
+    let result = tracks;
+    if (!isServerSorted && sortField) {
+      const sorted = [...tracks];
+      const dir = sortDir === "asc" ? 1 : -1;
+      sorted.sort((a, b) => {
+        switch (sortField) {
+          case "num": return ((a.track_number ?? 0) - (b.track_number ?? 0)) * dir;
+          case "title": return (a.title.localeCompare(b.title)) * dir;
+          case "artist": return ((a.artist_name ?? "").localeCompare(b.artist_name ?? "")) * dir;
+          case "album": return ((a.album_title ?? "").localeCompare(b.album_title ?? "")) * dir;
+          case "duration": return ((a.duration_secs ?? 0) - (b.duration_secs ?? 0)) * dir;
+          case "path": return (a.path.localeCompare(b.path)) * dir;
+          case "year": return ((a.year ?? 0) - (b.year ?? 0)) * dir;
+          case "quality": {
+            const bitrateA = (a.duration_secs && a.file_size) ? a.file_size * 8 / a.duration_secs / 1000 : 0;
+            const bitrateB = (b.duration_secs && b.file_size) ? b.file_size * 8 / b.duration_secs / 1000 : 0;
+            return (bitrateA - bitrateB) * dir;
+          }
+          case "size": return ((a.file_size ?? 0) - (b.file_size ?? 0)) * dir;
+          case "collection": return ((a.collection_name ?? "").localeCompare(b.collection_name ?? "")) * dir;
+          default: return 0;
         }
-        case "size": return ((a.file_size ?? 0) - (b.file_size ?? 0)) * dir;
-        case "collection": return ((a.collection_name ?? "").localeCompare(b.collection_name ?? "")) * dir;
-        default: return 0;
-      }
-    });
-    return sorted;
+      });
+      result = sorted;
+    }
+    if (trackLikedFirst) {
+      result = [...result].sort((a, b) => (a.liked === b.liked ? 0 : a.liked ? -1 : 1));
+    }
+    return result;
   })();
 
   // Fisher-Yates shuffle helper
@@ -487,9 +497,11 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     sortedArtists, artistSortField, artistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,
     sortedAlbums, albumSortField, albumSortDir, albumLikedFirst, setAlbumLikedFirst, handleAlbumSort,
     sortedTags, tagSortField, tagSortDir, handleTagSort,
-    filterYoutubeOnly, setFilterYoutubeOnly,
+    filterYoutubeOnly, setFilterYoutubeOnly, trackLikedFirst, setTrackLikedFirst,
     artistViewMode, setArtistViewMode,
     albumViewMode, setAlbumViewMode,
     tagViewMode, setTagViewMode,
+    trackViewMode, setTrackViewMode,
+    likedViewMode, setLikedViewMode,
   };
 }

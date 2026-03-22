@@ -1997,6 +1997,18 @@ body {
   display: flex;
   gap: 4px;
 }
+.sort-bar-group {
+  display: flex;
+  gap: 4px;
+  padding-right: 8px;
+  margin-right: 4px;
+  border-right: 1px solid var(--border);
+}
+.sort-bar-group:last-child {
+  border-right: none;
+  padding-right: 0;
+  margin-right: 0;
+}
 
 .sort-btn {
   background: none;

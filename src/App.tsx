@@ -12,7 +12,7 @@ import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 
 import type { Album, Collection, Track, View, ViewMode, ColumnConfig, SortField, SortDir } from "./types";
-import { isVideoTrack, getInitials, parseSubsonicUrl } from "./utils";
+import { isVideoTrack, getInitials, parseSubsonicUrl, formatDuration } from "./utils";
 import { store } from "./store";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
@@ -324,7 +324,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode] = await timeAsync("store.restore (25 keys)", () => Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode] = await timeAsync("store.restore (27 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -350,6 +350,8 @@ function App() {
           store.get<string | null>("artistViewMode"),
           store.get<string | null>("albumViewMode"),
           store.get<string | null>("tagViewMode"),
+          store.get<string | null>("trackViewMode"),
+          store.get<string | null>("likedViewMode"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history", "tidal"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -387,6 +389,8 @@ function App() {
         if (savedArtistViewMode && ["basic", "list", "tiles"].includes(savedArtistViewMode)) library.setArtistViewMode(savedArtistViewMode as ViewMode);
         if (savedAlbumViewMode && ["basic", "list", "tiles"].includes(savedAlbumViewMode)) library.setAlbumViewMode(savedAlbumViewMode as ViewMode);
         if (savedTagViewMode && ["basic", "list", "tiles"].includes(savedTagViewMode)) library.setTagViewMode(savedTagViewMode as ViewMode);
+        if (savedTrackViewMode && ["basic", "list", "tiles"].includes(savedTrackViewMode)) library.setTrackViewMode(savedTrackViewMode as ViewMode);
+        if (savedLikedViewMode && ["basic", "list", "tiles"].includes(savedLikedViewMode)) library.setLikedViewMode(savedLikedViewMode as ViewMode);
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {
@@ -1442,10 +1446,6 @@ function App() {
             onSetView={library.setView}
             onPlayAll={queueHook.playTracks}
             onEnqueueAll={handleEnqueue}
-            onShuffle={() => library.handleSort("random")}
-            isShuffled={library.sortField === "random"}
-            filterYoutubeOnly={library.filterYoutubeOnly}
-            onToggleYoutubeFilter={() => library.setFilterYoutubeOnly(v => !v)}
           />
 
           {/* Artist list */}
@@ -1902,7 +1902,142 @@ function App() {
           })()}
 
           {/* All tracks view */}
-          {(view === "all" || (view === "artists" && selectedAlbum !== null)) && (
+          {view === "all" && (
+            <>
+              <div className="sort-bar">
+                <div className="sort-options">
+                  <div className="sort-bar-group">
+                    <button className={`sort-btn${library.sortField === "title" ? " active" : ""}`} onClick={() => library.handleSort("title")}>
+                      Title{library.sortIndicator("title")}
+                    </button>
+                    <button className={`sort-btn${library.sortField === "artist" ? " active" : ""}`} onClick={() => library.handleSort("artist")}>
+                      Artist{library.sortIndicator("artist")}
+                    </button>
+                    <button className={`sort-btn${library.sortField === "album" ? " active" : ""}`} onClick={() => library.handleSort("album")}>
+                      Album{library.sortIndicator("album")}
+                    </button>
+                    <button className={`sort-btn${library.sortField === "year" ? " active" : ""}`} onClick={() => library.handleSort("year")}>
+                      Year{library.sortIndicator("year")}
+                    </button>
+                    <button className={`sort-btn${library.sortField === "duration" ? " active" : ""}`} onClick={() => library.handleSort("duration")}>
+                      Duration{library.sortIndicator("duration")}
+                    </button>
+                    <button className={`sort-btn${library.sortField === "random" ? " active" : ""}`} onClick={() => library.handleSort("random")}>
+                      Shuffle
+                    </button>
+                  </div>
+                  <div className="sort-bar-group">
+                    <button className={`sort-btn${library.filterYoutubeOnly ? " active" : ""}`} onClick={() => library.setFilterYoutubeOnly(v => !v)}>
+                      YouTube
+                    </button>
+                  </div>
+                </div>
+                <div className="sort-bar-right">
+                  <button
+                    className={`sort-btn liked-first-btn${library.trackLikedFirst ? " active" : ""}`}
+                    onClick={() => library.setTrackLikedFirst(v => !v)}
+                    title="Liked first"
+                  >{"\u2665"}</button>
+                  <ViewModeToggle mode={library.trackViewMode} onChange={library.setTrackViewMode} />
+                </div>
+              </div>
+
+              {/* Tracks: Basic view */}
+              {library.trackViewMode === "basic" && (
+                <TrackList
+                  tracks={sortedTracks}
+                  currentTrack={playback.currentTrack}
+                  highlightedIndex={highlightedIndex}
+                  sortField={sortField}
+                  trackListRef={trackListRef}
+                  columns={library.trackColumns}
+                  onColumnsChange={library.setTrackColumns}
+                  onDoubleClick={queueHook.playTracks}
+                  onContextMenu={handleTrackContextMenu}
+                  onArtistClick={library.handleArtistClick}
+                  onAlbumClick={library.handleAlbumClick}
+                  onSort={library.handleSort}
+                  sortIndicator={library.sortIndicator}
+                  onToggleLike={handleToggleLike}
+                  onTrackDragStart={handleTrackDragStart}
+                  emptyMessage="No tracks found. Add a folder or server to start building your library."
+                  hasMore={library.hasMore}
+                  loadingMore={library.loadingMore}
+                  onLoadMore={library.loadMore}
+                />
+              )}
+
+              {/* Tracks: List view */}
+              {library.trackViewMode === "list" && (
+                <div className="entity-list">
+                  {sortedTracks.map((t, i) => (
+                    <div
+                      key={t.id}
+                      className={`entity-list-item${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
+                      onDoubleClick={() => queueHook.playTracks(sortedTracks, i)}
+                      onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
+                    >
+                      <span
+                        className="entity-list-like"
+                        onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
+                      >{t.liked ? "\u2665" : "\u2661"}</span>
+                      {t.album_id ? (
+                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={fetchAlbumImageOnDemand} />
+                      ) : (
+                        <div className="entity-list-img">{t.title[0]?.toUpperCase() ?? "?"}</div>
+                      )}
+                      <span className="entity-list-name">{t.title}</span>
+                      <span className="entity-list-secondary">
+                        {t.artist_name && <>{t.artist_name}</>}
+                        {t.album_title && <> {"\u00B7"} {t.album_title}</>}
+                      </span>
+                      <span className="entity-list-count">{formatDuration(t.duration_secs)}</span>
+                    </div>
+                  ))}
+                  {sortedTracks.length === 0 && (
+                    <div className="empty">No tracks found. Add a folder or server to start building your library.</div>
+                  )}
+                </div>
+              )}
+
+              {/* Tracks: Tiles view */}
+              {library.trackViewMode === "tiles" && (
+                <div className="album-grid" style={{ padding: 16 }}>
+                  {sortedTracks.map((t, i) => (
+                    <div
+                      key={t.id}
+                      className={`album-card${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
+                      onDoubleClick={() => queueHook.playTracks(sortedTracks, i)}
+                      onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
+                    >
+                      {t.album_id ? (
+                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={fetchAlbumImageOnDemand} />
+                      ) : (
+                        <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
+                      )}
+                      <div
+                        className={`album-card-like${t.liked ? " liked" : ""}`}
+                        onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
+                      >{t.liked ? "\u2665" : "\u2661"}</div>
+                      <div className="album-card-body">
+                        <div className="album-card-title" title={t.title}>{t.title}</div>
+                        <div className="album-card-info">
+                          {t.artist_name && <>{t.artist_name} {"\u00B7"} </>}
+                          {formatDuration(t.duration_secs)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {sortedTracks.length === 0 && (
+                    <div className="empty">No tracks found. Add a folder or server to start building your library.</div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Artist album detail - always basic TrackList */}
+          {(view === "artists" && selectedAlbum !== null) && (
             <TrackList
               tracks={sortedTracks}
               currentTrack={playback.currentTrack}
@@ -1919,33 +2054,128 @@ function App() {
               sortIndicator={library.sortIndicator}
               onToggleLike={handleToggleLike}
               onTrackDragStart={handleTrackDragStart}
-              emptyMessage="No tracks found. Add a folder or server to start building your library."
-              hasMore={library.hasMore}
-              loadingMore={library.loadingMore}
-              onLoadMore={library.loadMore}
+              emptyMessage="No tracks found."
             />
           )}
 
           {/* Liked tracks view */}
           {view === "liked" && (
-            <TrackList
-              tracks={sortedTracks}
-              currentTrack={playback.currentTrack}
-              highlightedIndex={highlightedIndex}
-              sortField={sortField}
-              trackListRef={trackListRef}
-              columns={library.trackColumns}
-              onColumnsChange={library.setTrackColumns}
-              onDoubleClick={queueHook.playTracks}
-              onContextMenu={handleTrackContextMenu}
-              onArtistClick={library.handleArtistClick}
-              onAlbumClick={library.handleAlbumClick}
-              onSort={library.handleSort}
-              sortIndicator={library.sortIndicator}
-              onToggleLike={handleToggleLike}
-              onTrackDragStart={handleTrackDragStart}
-              emptyMessage="No liked tracks yet. Click the heart icon on any track to like it."
-            />
+            <>
+              <div className="sort-bar">
+                <div className="sort-options">
+                  <button className={`sort-btn${library.sortField === "title" ? " active" : ""}`} onClick={() => library.handleSort("title")}>
+                    Title{library.sortIndicator("title")}
+                  </button>
+                  <button className={`sort-btn${library.sortField === "artist" ? " active" : ""}`} onClick={() => library.handleSort("artist")}>
+                    Artist{library.sortIndicator("artist")}
+                  </button>
+                  <button className={`sort-btn${library.sortField === "album" ? " active" : ""}`} onClick={() => library.handleSort("album")}>
+                    Album{library.sortIndicator("album")}
+                  </button>
+                  <button className={`sort-btn${library.sortField === "year" ? " active" : ""}`} onClick={() => library.handleSort("year")}>
+                    Year{library.sortIndicator("year")}
+                  </button>
+                  <button className={`sort-btn${library.sortField === "duration" ? " active" : ""}`} onClick={() => library.handleSort("duration")}>
+                    Duration{library.sortIndicator("duration")}
+                  </button>
+                  <button className={`sort-btn${library.sortField === "random" ? " active" : ""}`} onClick={() => library.handleSort("random")}>
+                    Shuffle
+                  </button>
+                </div>
+                <div className="sort-bar-right">
+                  <ViewModeToggle mode={library.likedViewMode} onChange={library.setLikedViewMode} />
+                </div>
+              </div>
+
+              {/* Liked: Basic view */}
+              {library.likedViewMode === "basic" && (
+                <TrackList
+                  tracks={sortedTracks}
+                  currentTrack={playback.currentTrack}
+                  highlightedIndex={highlightedIndex}
+                  sortField={sortField}
+                  trackListRef={trackListRef}
+                  columns={library.trackColumns}
+                  onColumnsChange={library.setTrackColumns}
+                  onDoubleClick={queueHook.playTracks}
+                  onContextMenu={handleTrackContextMenu}
+                  onArtistClick={library.handleArtistClick}
+                  onAlbumClick={library.handleAlbumClick}
+                  onSort={library.handleSort}
+                  sortIndicator={library.sortIndicator}
+                  onToggleLike={handleToggleLike}
+                  onTrackDragStart={handleTrackDragStart}
+                  emptyMessage="No liked tracks yet. Click the heart icon on any track to like it."
+                />
+              )}
+
+              {/* Liked: List view */}
+              {library.likedViewMode === "list" && (
+                <div className="entity-list">
+                  {sortedTracks.map((t, i) => (
+                    <div
+                      key={t.id}
+                      className={`entity-list-item${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
+                      onDoubleClick={() => queueHook.playTracks(sortedTracks, i)}
+                      onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
+                    >
+                      <span
+                        className="entity-list-like"
+                        onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
+                      >{t.liked ? "\u2665" : "\u2661"}</span>
+                      {t.album_id ? (
+                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={fetchAlbumImageOnDemand} />
+                      ) : (
+                        <div className="entity-list-img">{t.title[0]?.toUpperCase() ?? "?"}</div>
+                      )}
+                      <span className="entity-list-name">{t.title}</span>
+                      <span className="entity-list-secondary">
+                        {t.artist_name && <>{t.artist_name}</>}
+                        {t.album_title && <> {"\u00B7"} {t.album_title}</>}
+                      </span>
+                      <span className="entity-list-count">{formatDuration(t.duration_secs)}</span>
+                    </div>
+                  ))}
+                  {sortedTracks.length === 0 && (
+                    <div className="empty">No liked tracks yet. Click the heart icon on any track to like it.</div>
+                  )}
+                </div>
+              )}
+
+              {/* Liked: Tiles view */}
+              {library.likedViewMode === "tiles" && (
+                <div className="album-grid" style={{ padding: 16 }}>
+                  {sortedTracks.map((t, i) => (
+                    <div
+                      key={t.id}
+                      className={`album-card${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
+                      onDoubleClick={() => queueHook.playTracks(sortedTracks, i)}
+                      onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
+                    >
+                      {t.album_id ? (
+                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={fetchAlbumImageOnDemand} />
+                      ) : (
+                        <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
+                      )}
+                      <div
+                        className={`album-card-like${t.liked ? " liked" : ""}`}
+                        onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
+                      >{t.liked ? "\u2665" : "\u2661"}</div>
+                      <div className="album-card-body">
+                        <div className="album-card-title" title={t.title}>{t.title}</div>
+                        <div className="album-card-info">
+                          {t.artist_name && <>{t.artist_name} {"\u00B7"} </>}
+                          {formatDuration(t.duration_secs)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {sortedTracks.length === 0 && (
+                    <div className="empty">No liked tracks yet. Click the heart icon on any track to like it.</div>
+                  )}
+                </div>
+              )}
+            </>
           )}
 
           {/* History view */}

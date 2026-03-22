@@ -16,10 +16,6 @@ interface BreadcrumbProps {
   onSetView: (view: View) => void;
   onPlayAll: (tracks: Track[], startIndex: number) => void;
   onEnqueueAll: (tracks: Track[]) => void;
-  onShuffle?: () => void;
-  isShuffled?: boolean;
-  filterYoutubeOnly?: boolean;
-  onToggleYoutubeFilter?: () => void;
 }
 
 export function Breadcrumb({
@@ -27,7 +23,7 @@ export function Breadcrumb({
   artists, albums, tags, tracks, sortedTracks,
   onSetSelectedArtist, onSetSelectedAlbum, onSetSelectedTag,
   onSetView,
-  onPlayAll, onEnqueueAll, onShuffle, isShuffled, filterYoutubeOnly, onToggleYoutubeFilter,
+  onPlayAll, onEnqueueAll,
 }: BreadcrumbProps) {
   return (
     <div className="breadcrumb">
@@ -71,12 +67,6 @@ export function Breadcrumb({
         <span>Collections</span>
       ) : (
         <span>All Tracks</span>
-      )}
-      {tracks.length > 0 && view === "all" && (
-        <div className="breadcrumb-actions">
-          {onShuffle && <button className={`sort-btn${isShuffled ? " active" : ""}`} onClick={onShuffle}>Shuffle</button>}
-          {onToggleYoutubeFilter && <button className={`sort-btn${filterYoutubeOnly ? " active" : ""}`} onClick={onToggleYoutubeFilter}>YouTube</button>}
-        </div>
       )}
       {tracks.length > 0 && (selectedTag !== null || (view === "artists" && selectedArtist !== null)) && (
         <div className="breadcrumb-actions">
