@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
-import { isVideoTrack } from "../utils";
+import { isVideoTrack, shouldScrobble } from "../utils";
 import { store } from "../store";
 
 export function usePlayback(
@@ -26,6 +26,7 @@ export function usePlayback(
   const pendingSrcRef = useRef<string | null>(null);
   const pendingAutoPlayRef = useRef(true);
   const pendingSeekRef = useRef(0);
+  const scrobbledRef = useRef(false);
 
   // Preload state (refs for use in event handlers without stale closures)
   const preloadedTrackRef = useRef<Track | null>(null);
@@ -201,12 +202,12 @@ export function usePlayback(
     setCurrentTrack(nextTrack);
     setPositionSecs(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
+    scrobbledRef.current = false;
 
     // Start incoming element
     incoming.volume = 0;
     incoming.play().catch(console.error);
 
-    invoke("record_play", { trackId: nextTrack.id }).catch(console.error);
     advanceIndexRef.current();
 
     // Clear preload state
@@ -268,12 +269,12 @@ export function usePlayback(
     setCurrentTrack(nextTrack);
     setPositionSecs(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
+    scrobbledRef.current = false;
 
     // Clear preload state
     preloadedTrackRef.current = null;
     preloadReadyRef.current = false;
 
-    invoke("record_play", { trackId: nextTrack.id }).catch(console.error);
     return true;
   }
 
@@ -298,6 +299,7 @@ export function usePlayback(
       setCurrentTrack(track);
       setPositionSecs(0);
       setDurationSecs(track.duration_secs ?? 0);
+      scrobbledRef.current = false;
 
       // Always reset to slot A on explicit play
       setActiveSlot("A");
@@ -318,8 +320,6 @@ export function usePlayback(
           await audioRefA.current.play();
         }
       }
-
-      invoke("record_play", { trackId: track.id }).catch(console.error);
     } catch (e) {
       console.error("Playback error:", e);
     }
@@ -344,6 +344,7 @@ export function usePlayback(
       setCurrentTrack(track);
       setPositionSecs(position);
       setDurationSecs(track.duration_secs ?? 0);
+      scrobbledRef.current = false;
 
       // Always restore to slot A
       setActiveSlot("A");
@@ -409,6 +410,14 @@ export function usePlayback(
     if (!isActiveElement(el)) return;
 
     setPositionSecs(el.currentTime);
+
+    // Scrobble threshold check (Last.FM rules)
+    if (!scrobbledRef.current && currentTrack) {
+      if (shouldScrobble(el.currentTime, currentTrack.duration_secs)) {
+        scrobbledRef.current = true;
+        invoke("record_play", { trackId: currentTrack.id }).catch(console.error);
+      }
+    }
 
     if (el.duration > 0 && el.duration - el.currentTime > 0) {
       const remaining = el.duration - el.currentTime;
