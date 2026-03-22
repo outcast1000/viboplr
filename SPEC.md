@@ -131,7 +131,7 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 
 **Liked tags:** Each tag has a `liked` boolean attribute. Like buttons appear in all three tag view modes (heart icon). The tag detail header also shows a like button. The sort bar has a heart toggle to float liked tags to the top.
 
-**Tag images:** Tags support manual image management (set from file, paste from clipboard, remove) — the same system as artists and albums. Images are stored as files in `{app_dir}/tag_images/{tag_id}.{ext}`. Unlike artists/albums, tags have no auto-fetch from external providers. A `TagCardArt` component renders the tag image (or initial letter fallback) in list and tiles views, with lazy-loading via IntersectionObserver.
+**Tag images:** Tags support manual image management (set from file, paste from clipboard, remove) via the generic entity image commands (`set_entity_image`, `paste_entity_image`, `remove_entity_image` with `kind: "tag"`). Images are stored as files in `{app_dir}/tag_images/{tag_id}.{ext}`. Unlike artists/albums, tags have no auto-fetch from external providers. A `TagCardArt` component renders the tag image (or initial letter fallback) in list and tiles views, with lazy-loading via IntersectionObserver.
 
 ### 4.8 Search
 
@@ -183,10 +183,10 @@ The player uses a **dual audio element (A/B)** architecture to achieve gapless t
 
 ### 4.10 Liked Tracks, Artists, Albums & Tags
 
-- **Tracks:** Each track has a `liked` boolean attribute (stored as `INTEGER DEFAULT 0` in SQLite). A heart icon column appears in the track list: filled heart (♥) when liked, outline heart (♡) when not. Clicking the heart toggles the liked state via `toggle_track_liked` and updates local state immediately (tracks list, current track, and queue). The **Now Playing bar** also shows a like button next to the current track info, allowing users to like/unlike the playing track without scrolling to it in the list. The sidebar has a "Liked" view that shows all liked tracks via `get_liked_tracks`. Search in this view is scoped to liked tracks only (`liked_only` flag passed to `search`).
-- **Artists:** Each artist has a `liked` boolean. In the All Artists list, a heart icon per row toggles the like via `toggle_artist_liked`. The artist detail header also shows a heart icon next to the artist name. The sort bar's heart toggle floats liked artists to the top.
-- **Albums:** Each album has a `liked` boolean. In the All Albums grid, a heart overlay appears on hover (top-right corner of the album card) and toggles via `toggle_album_liked`. Liked albums show the heart permanently. The album detail header also shows a heart icon next to the album title. The sort bar's heart toggle floats liked albums to the top.
-- **Tags:** Each tag has a `liked` boolean. Like buttons appear in all three tag view modes (basic, list, tiles) and in the tag detail header, toggling via `toggle_tag_liked`. The sort bar's heart toggle floats liked tags to the top.
+- **Tracks:** Each track has a `liked` boolean attribute (stored as `INTEGER DEFAULT 0` in SQLite). A heart icon column appears in the track list: filled heart (♥) when liked, outline heart (♡) when not. Clicking the heart toggles the liked state via `toggle_liked` (with `kind: "track"`) and updates local state immediately (tracks list, current track, and queue). The **Now Playing bar** also shows a like button next to the current track info, allowing users to like/unlike the playing track without scrolling to it in the list. The sidebar has a "Liked" view that shows all liked tracks via `get_liked_tracks`. Search in this view is scoped to liked tracks only (`liked_only` flag in `TrackQuery`).
+- **Artists:** Each artist has a `liked` boolean. In the All Artists list, a heart icon per row toggles the like via `toggle_liked` (with `kind: "artist"`). The artist detail header also shows a heart icon next to the artist name. The sort bar's heart toggle floats liked artists to the top.
+- **Albums:** Each album has a `liked` boolean. In the All Albums grid, a heart overlay appears on hover (top-right corner of the album card) and toggles via `toggle_liked` (with `kind: "album"`). Liked albums show the heart permanently. The album detail header also shows a heart icon next to the album title. The sort bar's heart toggle floats liked albums to the top.
+- **Tags:** Each tag has a `liked` boolean. Like buttons appear in all three tag view modes (basic, list, tiles) and in the tag detail header, toggling via `toggle_liked` (with `kind: "tag"`). The sort bar's heart toggle floats liked tags to the top.
 - **Scan-safe:** the `liked` column on tracks is excluded from the `upsert_track` ON CONFLICT clause, so re-scanning or re-syncing a collection preserves the user's likes. Artist, album, and tag likes are never touched by scanning.
 - **Migration:** existing databases gain `liked` columns via `ALTER TABLE` for `tracks`, `artists`, `albums` (all `INTEGER NOT NULL DEFAULT 0`), and `tags` (migration version 5).
 
@@ -581,7 +581,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 │  update_collection, get_collections,        │
 │  resync_collection,                         │
 │  get_artists, get_albums, get_tracks,       │
-│  get_tags, search, toggle_track_liked,      │
+│  get_tags, toggle_liked,                    │
 │  show_in_folder, get_track_path,            │
 │  tidal_search, tidal_save_track,            │
 │  record_play, get_recent_plays,             │
@@ -621,7 +621,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | ----------------------- | --------------------------- | ------------------------ |
 | `get_artists`           | —                           | `Vec<Artist>`            |
 | `get_albums`            | `artist_id: Option<i64>`    | `Vec<Album>`             |
-| `get_tracks`            | `album_id: Option<i64>`     | `Vec<Track>`             |
+| `get_tracks`            | `opts: TrackQuery`          | `Vec<Track>`             |
 | `get_track_count`       | —                           | `i64`                    |
 | `get_track_by_id`       | `track_id: i64`             | `Track`                  |
 | `get_tracks_by_ids`     | `ids: Vec<i64>`             | `Vec<Track>`             |
@@ -629,16 +629,31 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `get_tags`              | —                           | `Vec<Tag>`               |
 | `get_tags_for_track`    | `track_id: i64`             | `Vec<Tag>`               |
 | `get_tracks_by_tag`     | `tag_id: i64`               | `Vec<Track>`             |
-| `toggle_track_liked`    | `track_id: i64, liked: bool`| `()`                     |
-| `toggle_artist_liked`   | `artist_id: i64, liked: bool`| `()`                    |
-| `toggle_album_liked`    | `album_id: i64, liked: bool`| `()`                     |
-| `toggle_tag_liked`      | `tag_id: i64, liked: bool`  | `()`                     |
+| `toggle_liked`          | `kind: String, id: i64, liked: bool` | `()`              |
 | `get_liked_tracks`      | —                           | `Vec<Track>`             |
-| `search`                | `query, artist_id?, album_id?, tag_id?, liked_only?` | `Vec<Track>`   |
 | `get_track_path`        | `track_id: i64`             | `String` (path or URL)   |
 | `show_in_folder`        | `track_id: i64`             | `()`                     |
 | `rebuild_search_index`  | —                           | `()`                     |
 | `get_auto_continue_track` | `strategy: String, current_track_id: i64` | `Option<Track>` |
+
+**`TrackQuery` struct:** Unified query parameters for `get_tracks`. When `query` is present and non-empty, FTS search is used. When `album_id` is set without a query, returns album tracks ordered by track number (no pagination). Otherwise, returns paginated tracks with optional sort/filter.
+
+| Field            | Type            | Default |
+|------------------|-----------------|---------|
+| `album_id`       | `Option<i64>`   | `null`  |
+| `artist_id`      | `Option<i64>`   | `null`  |
+| `tag_id`         | `Option<i64>`   | `null`  |
+| `query`          | `Option<String>`| `null`  |
+| `liked_only`     | `bool`          | `false` |
+| `has_youtube_url` | `bool`         | `false` |
+| `sort_field`     | `Option<String>`| `null`  |
+| `sort_dir`       | `Option<String>`| `null`  |
+| `limit`          | `Option<i64>`   | `100`   |
+| `offset`         | `Option<i64>`   | `0`     |
+
+**`toggle_liked` kind values:** `"track"`, `"artist"`, `"album"`, `"tag"`. Table name is validated via match arm at the command layer (no SQL injection risk).
+
+**`get_entity_image` / `set_entity_image` / `paste_entity_image` / `remove_entity_image` kind values:** `"artist"`, `"album"`, `"tag"`.
 
 ### Playlist Commands
 
@@ -660,20 +675,12 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 
 | Command                 | Args                        | Returns                  |
 | ----------------------- | --------------------------- | ------------------------ |
-| `get_artist_image`      | `artist_id: i64`            | `Option<String>` (path)  |
+| `get_entity_image`      | `kind: String, id: i64`     | `Option<String>` (path)  |
+| `set_entity_image`      | `kind: String, id: i64, source_path: String` | `String` (dest path)  |
+| `paste_entity_image`    | `kind: String, id: i64, image_data: Vec<u8>` | `String` (dest path)  |
+| `remove_entity_image`   | `kind: String, id: i64`     | `()`                     |
 | `fetch_artist_image`    | `artist_id: i64, artist_name: String` | `()` (fire-and-forget) |
-| `set_artist_image`      | `artist_id: i64, source_path: String` | `String` (dest path)  |
-| `paste_artist_image`    | `artist_id: i64, image_data: Vec<u8>` | `String` (dest path)  |
-| `remove_artist_image`   | `artist_id: i64`            | `()`                     |
-| `get_album_image`       | `album_id: i64`             | `Option<String>` (path)  |
 | `fetch_album_image`     | `album_id: i64, album_title: String, artist_name?: String` | `()` (fire-and-forget) |
-| `set_album_image`       | `album_id: i64, source_path: String` | `String` (dest path)   |
-| `paste_album_image`     | `album_id: i64, image_data: Vec<u8>` | `String` (dest path)   |
-| `remove_album_image`    | `album_id: i64`             | `()`                     |
-| `get_tag_image`         | `tag_id: i64`               | `Option<String>` (path)  |
-| `set_tag_image`         | `tag_id: i64, source_path: String` | `String` (dest path)  |
-| `paste_tag_image`       | `tag_id: i64, image_data: Vec<u8>` | `String` (dest path)  |
-| `remove_tag_image`      | `tag_id: i64`               | `()`                     |
 | `clear_image_failures`  | —                           | `()`                     |
 
 ### TIDAL Commands
@@ -810,15 +817,17 @@ Artist and album image fetching is handled by a single background worker thread 
 **Now Playing bar image fetching:**
 - When the current track changes, the frontend proactively requests the album image (and artist image as fallback) for the playing track.
 - This ensures the Now Playing bar displays artwork even if the user has not browsed to the track's album or artist view.
-- Uses the same on-demand fetch pattern: checks local cache first (`get_album_image` / `get_artist_image`), then fires off a background download (`fetch_album_image` / `fetch_artist_image`) if no local image exists.
+- Uses the same on-demand fetch pattern: checks local cache first (`get_entity_image`), then fires off a background download (`fetch_album_image` / `fetch_artist_image`) if no local image exists.
 - Respects the same deduplication guards (fetched/failed sets) so images are only requested once per session.
 
 **Manual image management:**
-- `set_artist_image` / `set_album_image` / `set_tag_image` — copy an image from a local file path to the app's image directory.
-- `paste_artist_image` / `paste_album_image` / `paste_tag_image` — write raw image bytes (e.g., from clipboard paste) to the app's image directory. Image format (PNG/JPG) is auto-detected from magic bytes.
-- `remove_artist_image` / `remove_album_image` / `remove_tag_image` — delete an image from the app's image directory.
+- `set_entity_image(kind, id, source_path)` — copy an image from a local file path to the app's image directory (`{app_dir}/{kind}_images/`).
+- `paste_entity_image(kind, id, image_data)` — write raw image bytes (e.g., from clipboard paste) to the app's image directory. Image format (PNG/JPG) is auto-detected from magic bytes.
+- `remove_entity_image(kind, id)` — delete an image from the app's image directory.
 
-Tags have no auto-fetch from external providers (no `fetch_tag_image` command). Tag images are managed manually only (set, paste, remove). Image files are stored in `{app_dir}/tag_images/`. The `tag_image.rs` module provides `get_image_path()` and `remove_image()` helpers, mirroring `artist_image.rs` and `album_image.rs`.
+All three commands are generic, accepting `kind` = `"artist"`, `"album"`, or `"tag"`. A single `entity_image.rs` module provides `image_dir()`, `get_image_path()`, and `remove_image()` helpers parameterized by kind.
+
+Tags have no auto-fetch from external providers (no `fetch_tag_image` command). Tag images are managed manually only (set, paste, remove). Image files are stored in `{app_dir}/tag_images/`.
 
 ### 12.4 Playback Resolution
 
@@ -863,7 +872,7 @@ Two traits rather than one combined trait because providers may only support one
 **Wiring (`lib.rs`):**
 - At app startup, fallback chains are constructed with all providers in the specified order.
 - The chains are passed as `Arc<dyn ArtistImageProvider>` / `Arc<dyn AlbumImageProvider>` into the worker thread.
-- `artist_image.rs` and `album_image.rs` only retain `get_image_path()` and `remove_image()` (used by commands).
+- `entity_image.rs` provides generic `image_dir()`, `get_image_path()`, and `remove_image()` helpers parameterized by `kind` (used by commands).
 
 **Adding a new provider:**
 1. Create `src-tauri/src/image_provider/newprovider.rs`.
