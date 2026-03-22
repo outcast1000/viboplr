@@ -351,7 +351,7 @@ export function usePlayback(
 
       const loadInto = (el: HTMLMediaElement) => {
         el.src = src;
-        el.volume = volume;
+        el.volume = volumeRef.current;
         el.currentTime = position;
       };
 
