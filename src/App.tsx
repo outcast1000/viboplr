@@ -102,6 +102,7 @@ function App() {
   const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
   const [lastfmConnected, setLastfmConnected] = useState(false);
   const [lastfmUsername, setLastfmUsername] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Updater
   const updater = useAppUpdater(addLog);
@@ -238,7 +239,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername] = await timeAsync("store.restore (31 keys)", () => Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed] = await timeAsync("store.restore (32 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -270,6 +271,7 @@ function App() {
           store.get<number | null>("videoSplitHeight"),
           store.get<string | null>("lastfmSessionKey"),
           store.get<string | null>("lastfmUsername"),
+          store.get<boolean>("sidebarCollapsed"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history", "tidal"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -316,6 +318,7 @@ function App() {
         if (savedTrackViewMode && ["basic", "list", "tiles"].includes(savedTrackViewMode)) library.setTrackViewMode(savedTrackViewMode as ViewMode);
         if (savedLikedViewMode && ["basic", "list", "tiles"].includes(savedLikedViewMode)) library.setLikedViewMode(savedLikedViewMode as ViewMode);
         if (savedVideoSplitHeight && savedVideoSplitHeight > 0) videoSplit.setVideoHeight(savedVideoSplitHeight);
+        if (savedSidebarCollapsed) setSidebarCollapsed(true);
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {
@@ -500,6 +503,10 @@ function App() {
         case "<":
           e.preventDefault();
           queueHook.playPrevious();
+          break;
+        case "b":
+          e.preventDefault();
+          handleToggleSidebar();
           break;
         case "[":
           e.preventDefault();
@@ -841,6 +848,14 @@ function App() {
     store.set("trackVideoHistory", enabled);
   }
 
+  function handleToggleSidebar() {
+    setSidebarCollapsed(prev => {
+      const next = !prev;
+      store.set("sidebarCollapsed", next);
+      return next;
+    });
+  }
+
   async function handleLastfmConnect() {
     try {
       const url = await invoke<string>("lastfm_get_auth_url");
@@ -972,7 +987,7 @@ function App() {
   const hasTidal = !!tidalCollection;
 
   return (
-    <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${mini.miniMode ? "mini-mode" : ""}`} onClick={() => setContextMenu(null)}>
+    <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -996,6 +1011,8 @@ function App() {
         selectedAlbum={selectedAlbum}
         selectedArtist={selectedArtist}
         hasTidal={hasTidal}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={handleToggleSidebar}
         onNavHover={setStatusHint}
         onShowAll={library.handleShowAll}
         onShowArtists={() => {

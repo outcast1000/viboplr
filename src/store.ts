@@ -34,5 +34,6 @@ export const store = new LazyStore("app-state.json", {
     lastfmUsername: null,
     trackVideoHistory: false,
     videoSplitHeight: 300,
+    sidebarCollapsed: false,
   },
 });

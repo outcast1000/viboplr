@@ -22,6 +22,8 @@ interface SidebarProps {
   selectedAlbum: number | null;
   selectedArtist: number | null;
   hasTidal: boolean;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
   onNavHover: (hint: string | null) => void;
   onShowAll: () => void;
   onShowArtists: () => void;
@@ -39,6 +41,7 @@ export function Sidebar({
   view,
   selectedAlbum, selectedArtist,
   hasTidal,
+  collapsed, onToggleCollapse,
   onNavHover,
   onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowTidal, onShowCollections, onShowSettings,
   updateAvailable,
@@ -55,7 +58,21 @@ export function Sidebar({
   ];
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
+      <button
+        className="sidebar-toggle"
+        onClick={onToggleCollapse}
+        onMouseEnter={() => onNavHover(collapsed ? "Expand sidebar" : "Collapse sidebar")}
+        onMouseLeave={() => onNavHover(null)}
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          {collapsed
+            ? <polyline points="9 18 15 12 9 6" />
+            : <polyline points="15 18 9 12 15 6" />
+          }
+        </svg>
+      </button>
       <nav className="nav">
         {navItems.map((item) => (
           <button
@@ -64,14 +81,15 @@ export function Sidebar({
             onClick={item.onClick}
             onMouseEnter={() => onNavHover(item.hint)}
             onMouseLeave={() => onNavHover(null)}
+            title={collapsed ? item.label : undefined}
           >
-            <span className="nav-btn-label">{item.icon} {item.label}</span>
+            <span className="nav-btn-label">{item.icon} {!collapsed && item.label}</span>
           </button>
         ))}
       </nav>
 
-      <button className="settings-btn" onClick={onShowSettings}>
-        {icons.settings} Settings
+      <button className="settings-btn" onClick={onShowSettings} title={collapsed ? "Settings" : undefined}>
+        {icons.settings} {!collapsed && "Settings"}
         {updateAvailable && <span className="update-badge" />}
       </button>
     </aside>
