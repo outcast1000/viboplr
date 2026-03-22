@@ -1048,6 +1048,17 @@ impl Database {
 
     pub fn record_play(&self, track_id: i64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
+        let dominated: bool = conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM play_history
+                WHERE track_id = ?1 AND played_at > strftime('%s', 'now') - 30
+            )",
+            params![track_id],
+            |row| row.get(0),
+        )?;
+        if dominated {
+            return Ok(());
+        }
         conn.execute(
             "INSERT INTO play_history (track_id) VALUES (?1)",
             params![track_id],
@@ -1343,22 +1354,38 @@ mod tests {
         let t2 = insert_track(&db, "/b.mp3", "Song B", None, None);
 
         db.record_play(t1).unwrap();
-        db.record_play(t1).unwrap();
+        db.record_play(t1).unwrap(); // deduplicated (same track within 30s)
         db.record_play(t2).unwrap();
 
         let recent = db.get_recent_plays(10).unwrap();
-        assert_eq!(recent.len(), 3);
-        // Verify all plays recorded (ordering within same second is non-deterministic)
+        assert_eq!(recent.len(), 2); // was 3, now 2 due to dedup
         let t1_plays = recent.iter().filter(|r| r.track_id == t1).count();
         let t2_plays = recent.iter().filter(|r| r.track_id == t2).count();
-        assert_eq!(t1_plays, 2);
+        assert_eq!(t1_plays, 1); // was 2, now 1 due to dedup
         assert_eq!(t2_plays, 1);
 
         let most = db.get_most_played(10).unwrap();
-        assert_eq!(most[0].track_id, t1);
-        assert_eq!(most[0].play_count, 2);
-        assert_eq!(most[1].track_id, t2);
-        assert_eq!(most[1].play_count, 1);
+        assert_eq!(most.len(), 2);
+        // Both have 1 play each now, order may vary
+        assert!(most.iter().all(|m| m.play_count == 1));
+    }
+
+    #[test]
+    fn test_play_history_dedup() {
+        let db = test_db();
+        let t1 = insert_track(&db, "/a.mp3", "Song A", None, None);
+        let t2 = insert_track(&db, "/b.mp3", "Song B", None, None);
+
+        // Same track twice in quick succession → deduplicated
+        db.record_play(t1).unwrap();
+        db.record_play(t1).unwrap();
+        let recent = db.get_recent_plays(10).unwrap();
+        assert_eq!(recent.iter().filter(|r| r.track_id == t1).count(), 1);
+
+        // Different tracks are NOT deduplicated
+        db.record_play(t2).unwrap();
+        let recent = db.get_recent_plays(10).unwrap();
+        assert_eq!(recent.len(), 2);
     }
 
     #[test]

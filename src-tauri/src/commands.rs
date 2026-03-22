@@ -1247,19 +1247,20 @@ mod tests {
         let t2 = insert_track(&state, "/b.mp3", "Song B", None, None);
 
         state.db.record_play(t1).unwrap();
-        state.db.record_play(t1).unwrap();
+        state.db.record_play(t1).unwrap(); // deduplicated (same track within 30s)
         state.db.record_play(t2).unwrap();
 
         let recent = state.db.get_recent_plays(10).unwrap();
-        assert_eq!(recent.len(), 3);
+        assert_eq!(recent.len(), 2); // was 3, now 2 due to dedup
         let t1_plays = recent.iter().filter(|r| r.track_id == t1).count();
         let t2_plays = recent.iter().filter(|r| r.track_id == t2).count();
-        assert_eq!(t1_plays, 2);
+        assert_eq!(t1_plays, 1); // was 2, now 1 due to dedup
         assert_eq!(t2_plays, 1);
 
         let most = state.db.get_most_played(10).unwrap();
-        assert_eq!(most[0].track_id, t1);
-        assert_eq!(most[0].play_count, 2);
+        // Both tracks have 1 play each now, order may vary
+        assert_eq!(most.len(), 2);
+        assert!(most.iter().all(|m| m.play_count == 1));
     }
 
     #[test]
