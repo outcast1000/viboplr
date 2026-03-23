@@ -67,6 +67,8 @@ interface SettingsPanelProps {
   lastfmUsername: string | null;
   onLastfmConnect: () => void;
   onLastfmDisconnect: () => void;
+  downloadFormat: string;
+  onDownloadFormatChange: (format: string) => void;
 }
 
 interface ProviderFormData {
@@ -96,6 +98,8 @@ export function SettingsPanel({
   lastfmUsername,
   onLastfmConnect,
   onLastfmDisconnect,
+  downloadFormat,
+  onDownloadFormatChange,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<"main" | "providers" | "about" | "debug">("main");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -235,6 +239,18 @@ export function SettingsPanel({
                   </button>
                 </>
               )}
+            </div>
+            <div className="settings-row" style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 12 }}>
+              <label className="settings-label">Download format</label>
+              <select
+                value={downloadFormat}
+                onChange={(e) => onDownloadFormatChange(e.target.value)}
+                className="settings-select"
+              >
+                <option value="flac">FLAC (Lossless)</option>
+                <option value="aac">AAC</option>
+                <option value="mp3">MP3</option>
+              </select>
             </div>
           </div>
         )}

@@ -109,6 +109,7 @@ function App() {
   const [lastfmConnected, setLastfmConnected] = useState(false);
   const [lastfmUsername, setLastfmUsername] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [downloadFormat, setDownloadFormat] = useState("flac");
   const [downloadStatus, setDownloadStatus] = useState<{
     active: { id: number; track_title: string; artist_name: string; progress_pct: number } | null;
     queued: { id: number; track_title: string; artist_name: string }[];
@@ -278,7 +279,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed] = await timeAsync("store.restore (32 keys)", () => Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedDownloadFormat] = await timeAsync("store.restore (33 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -311,6 +312,7 @@ function App() {
           store.get<string | null>("lastfmSessionKey"),
           store.get<string | null>("lastfmUsername"),
           store.get<boolean>("sidebarCollapsed"),
+          store.get<string | null>("downloadFormat"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history", "tidal"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -358,6 +360,7 @@ function App() {
         if (savedLikedViewMode && ["basic", "list", "tiles"].includes(savedLikedViewMode)) library.setLikedViewMode(savedLikedViewMode as ViewMode);
         if (savedVideoSplitHeight && savedVideoSplitHeight > 0) videoSplit.setVideoHeight(savedVideoSplitHeight);
         if (savedSidebarCollapsed) setSidebarCollapsed(true);
+        if (savedDownloadFormat && ["flac", "aac", "mp3"].includes(savedDownloadFormat)) setDownloadFormat(savedDownloadFormat);
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {
@@ -933,8 +936,12 @@ function App() {
     store.set("trackVideoHistory", enabled);
   }
 
+  function handleDownloadFormatChange(format: string) {
+    setDownloadFormat(format);
+    store.set("downloadFormat", format);
+  }
+
   async function handleDownloadAlbum(albumId: string, sourceCollectionId: number) {
-    const downloadFormat = await store.get<string>("downloadFormat") ?? "flac";
     if (localCollections.length === 0) {
       addLog("No local collections available for download");
       return;
@@ -954,7 +961,6 @@ function App() {
   }
 
   async function handleDownloadTrack(trackId: number, destCollectionId: number) {
-    const downloadFormat = await store.get<string>("downloadFormat") ?? "flac";
     const track = tracks.find(t => t.id === trackId);
     if (!track?.subsonic_id || !track.collection_id) return;
     try {
@@ -1269,6 +1275,8 @@ function App() {
           lastfmUsername={lastfmUsername}
           onLastfmConnect={handleLastfmConnect}
           onLastfmDisconnect={handleLastfmDisconnect}
+          downloadFormat={downloadFormat}
+          onDownloadFormatChange={handleDownloadFormatChange}
         />
       )}
 
