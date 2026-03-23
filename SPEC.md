@@ -62,8 +62,9 @@ Every track belongs to a collection via `collection_id`. The sidebar displays al
 
 - User selects a folder via native directory picker → creates a `local` collection.
 - A background Rust thread walks the folder tree recursively.
-- For each audio or video file, reads tags via `lofty`.
-- If tags are missing or empty, falls back to **regex-based filename parsing** (see §4.3).
+- Skips files with 0-byte size.
+- For each audio file, reads tags via `lofty`. **Video files** (mp4, m4v, mov, webm) skip tag reading entirely — the filename is used as the title with no artist/album/genre metadata.
+- For audio files, if tags are missing or empty, falls back to **regex-based filename parsing** (see §4.3).
 - Genre metadata from file tags is stored as **tags** (many-to-many relationship with tracks).
 - Inserts/updates rows in SQLite (`artists`, `albums`, `tags`, `track_tags`, `tracks`).
 - Reports scan progress to the frontend via Tauri events.
@@ -122,7 +123,7 @@ View mode selections are persisted per entity (`artistViewMode`, `albumViewMode`
 
 **Tag list sort controls:** A sort bar above the tag list offers Name, Tracks (track count), and Shuffle buttons, plus a heart toggle to float liked tags to the top. Name and Tracks cycle asc → desc → unsorted. Shuffle re-randomizes each click (Fisher-Yates).
 
-**All Tracks sort controls:** A sort bar above the track list offers Title, Artist, Album, Year, Quality, Duration, Size, Collection, and Shuffle buttons. Sort fields cycle asc → desc → unsorted. A heart toggle floats liked tracks to the top. A YouTube filter button (`YT`) shows only tracks with a `youtube_url`.
+**All Tracks sort controls:** A sort bar above the track list offers Title, Artist, Album, Year, Quality, Duration, Size, Collection, and Shuffle buttons. Sort fields cycle asc → desc → unsorted. A heart toggle floats liked tracks to the top. A YouTube filter button (`YT`) shows only tracks with a `youtube_url`. A **media type filter** (All / Audio / Video) filters tracks by format — video formats are mp4, m4v, mov, webm; everything else is audio.
 
 **Performance:** Track counts for artists, albums, and tags are precomputed and stored in `track_count` columns (see §5). Counts are recomputed after every scan, sync, collection toggle, and FTS rebuild. The `get_artists`, `get_albums`, and `get_tags` queries use simple `WHERE track_count > 0` filters instead of JOIN/GROUP BY/HAVING, making sidebar navigation instant. The frontend skips fetching tracks when only the album grid or tag list is displayed (no track table rendered), and does not re-fetch the full album list when navigating to the Albums view (already loaded by `loadLibrary`).
 
@@ -151,8 +152,9 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - Media type (audio vs video) determined by file extension (video: mp4, m4v, mov, webm).
 - Transport controls: play, pause, stop, seek, volume.
 - Position and duration tracked via HTML5 media events (`timeupdate`, `loadedmetadata`, `play`, `pause`, `ended`) — no polling.
-- Video displayed inline in the main content area with a **resizable splitter** between the video and track list. The splitter is draggable (default height: 300px, persisted as `videoSplitHeight`), has a collapse/expand button to minimize the video, and enforces a 150px minimum track list height. Double-click or `Cmd/Ctrl+F` on the video enters native fullscreen.
+- Video displayed **below the content area** (between the track list and the now-playing bar) with a **resizable splitter**. The splitter is draggable (default height: 300px, persisted as `videoSplitHeight`), has a collapse/expand button to minimize the video, and enforces a 150px minimum track list height. A **fullscreen button overlay** appears on hover in the bottom-right corner of the video, with a tooltip showing the keyboard shortcut (`Cmd/Ctrl+F`) and how to exit (`Esc`). Double-click or `Cmd/Ctrl+F` on the video enters native fullscreen.
 - **Double-click:** Double-clicking a track in any view (All Tracks, Artist, Album, Tag, Liked) plays only that single track — the queue is replaced with just that one track. No additional tracks are queued or auto-played after it finishes (unless Auto Continue is enabled).
+- **Playback error handling:** Error event handlers on `<audio>` and `<video>` elements detect unsupported codecs, network errors, and decode errors. A red error banner appears above the now-playing bar with a descriptive message and dismiss button. The error clears automatically when a new track starts playing.
 - Keyboard navigation: arrow keys to navigate tracks, Enter to play.
 - **Minimized window:** Playback continues when the app window is minimized. A `visibilitychange` listener resumes playback if the browser auto-pauses media when the page becomes hidden. The crossfade loop uses `setInterval` instead of `requestAnimationFrame` so it runs while the page is hidden.
 
@@ -210,6 +212,8 @@ When playback reaches the end of the queue in "normal" mode, the player normally
 | Most Played | 10% | Random pick from the top 50 most-played tracks |
 | Liked | 10% | Random liked track |
 
+**Same Format filter:** A "Same format" toggle in the auto continue popover restricts all strategies to only pick tracks of the same media type (audio or video) as the currently playing track. This passes a `format_filter` parameter (`"audio"` or `"video"`) to the backend `get_auto_continue_track` command. Persisted as `autoContinueSameFormat` in the app store.
+
 **Selection logic:**
 1. A random number 0–99 is rolled and mapped to a strategy based on cumulative weights.
 2. The backend `get_auto_continue_track` command executes the chosen strategy's SQL query (all exclude the current track via `t.id != ?`).
@@ -224,6 +228,7 @@ When playback reaches the end of the queue in "normal" mode, the player normally
 - **Multi-track context menu:** When multiple tracks are selected, right-clicking shows a context menu with "Play N tracks" and "Enqueue N tracks" actions. Search providers and Locate File are hidden for multi-track selections.
 - **Play** / **Enqueue**: Play immediately or add to queue.
 - **Locate File** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer via `raw_arg` for proper path quoting, or Linux xdg-open).
+- **Delete** (local tracks only): Deletes the file from disk and soft-deletes the track from the database. Shows a confirmation dialog before proceeding. Supports single and multi-track deletion. If the currently playing track is deleted, playback stops. Only available for local (non-subsonic, non-tidal) tracks.
 - **Search providers**: Dynamic list of enabled search providers (see §4.14). Each provider appears with its icon and a "Search on {name}" label. Clicking opens the provider's URL with `{artist}` and `{title}` placeholders filled in. Only providers with a URL template for the current context (artist/album/track) are shown.
 
 ### 4.13 Play History
@@ -311,6 +316,7 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `crossfadeSecs` | `number` | `3` |
 | `autoContinueEnabled` | `boolean` | `false` |
 | `autoContinueWeights` | `{ random, sameArtist, sameTag, mostPlayed, liked }` | `{ 40, 20, 20, 10, 10 }` |
+| `autoContinueSameFormat` | `boolean` | `false` |
 | `miniMode` | `boolean` | `false` |
 | `artistViewMode` | `string` (`"basic"`, `"list"`, `"tiles"`) | `"tiles"` |
 | `albumViewMode` | `string` (`"basic"`, `"list"`, `"tiles"`) | `"tiles"` |
@@ -369,7 +375,19 @@ When exiting mini mode:
 
 ### 4.17 Keyboard Shortcuts
 
-All shortcuts use `Ctrl` on Windows/Linux and `Cmd` on macOS.
+Shortcuts use `Ctrl` on Windows/Linux and `Cmd` on macOS unless noted otherwise.
+
+**No modifier (only when not focused on a text input):**
+
+| Shortcut | Action |
+|----------|--------|
+| `Space` | Play / Pause |
+| `←` | Seek backward 15 seconds |
+| `→` | Seek forward 15 seconds |
+| `↑` | Volume up (+10%) |
+| `↓` | Volume down (-10%) |
+
+**With Ctrl/Cmd modifier:**
 
 | Shortcut | Action |
 |----------|--------|
@@ -380,15 +398,21 @@ All shortcuts use `Ctrl` on Windows/Linux and `Cmd` on macOS.
 | `Ctrl+5` | Show Liked Tracks view |
 | `Ctrl+6` | Show History view |
 | `Ctrl+7` | Show TIDAL view (when tidal collection exists) |
+| `Ctrl+F` | Toggle fullscreen (when playing video) |
+| `Ctrl+L` | Like/unlike current track |
+| `Ctrl+P` | Toggle playlist panel |
 | `Ctrl+M` | Toggle mute (mute/unmute volume) |
 | `Ctrl+Shift+M` | Toggle mini player mode |
 | `Ctrl+B` | Toggle sidebar collapse/expand |
-| `Ctrl+←` | Seek backward 15 seconds |
-| `Ctrl+→` | Seek forward 15 seconds |
-| `Ctrl+↑` | Volume up (+5%) |
-| `Ctrl+↓` | Volume down (-5%) |
-| `Ctrl+>` | Next track |
-| `Ctrl+<` | Previous track |
+| `Ctrl+←` | Previous track |
+| `Ctrl+→` | Next track |
+
+**Alt modifier:**
+
+| Shortcut | Action |
+|----------|--------|
+| `Alt+←` | Navigation history: go back |
+| `Alt+→` | Navigation history: go forward |
 
 Track list keyboard navigation (without modifier): arrow keys to navigate tracks, Enter to play, Shift+Enter to enqueue.
 
@@ -701,7 +725,8 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `get_track_path`        | `track_id: i64`             | `String` (path or URL)   |
 | `show_in_folder`        | `track_id: i64`             | `()`                     |
 | `rebuild_search_index`  | —                           | `()`                     |
-| `get_auto_continue_track` | `strategy: String, current_track_id: i64` | `Option<Track>` |
+| `get_auto_continue_track` | `strategy: String, current_track_id: i64, format_filter: Option<String>` | `Option<Track>` |
+| `delete_tracks`           | `track_ids: Vec<i64>`                     | `Vec<i64>` (deleted IDs) |
 
 **`TrackQuery` struct:** Unified query parameters for `get_tracks`. When `query` is present and non-empty, FTS search is used. When `album_id` is set without a query, returns album tracks ordered by track number (no pagination). Otherwise, returns paginated tracks with optional sort/filter.
 
@@ -713,6 +738,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `query`          | `Option<String>`| `null`  |
 | `liked_only`     | `bool`          | `false` |
 | `has_youtube_url` | `bool`         | `false` |
+| `media_type`     | `Option<String>`| `null`  |
 | `sort_field`     | `Option<String>`| `null`  |
 | `sort_dir`       | `Option<String>`| `null`  |
 | `limit`          | `Option<i64>`   | `100`   |
