@@ -1669,6 +1669,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 80px;
+  min-height: 80px;
 }
 
 .now-seek-bar {
