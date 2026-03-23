@@ -905,6 +905,21 @@ impl Database {
         Ok(())
     }
 
+    pub fn soft_delete_tracks_by_ids(&self, ids: &[i64]) -> SqlResult<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let conn = self.conn.lock().unwrap();
+        for chunk in ids.chunks(500) {
+            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!("UPDATE tracks SET deleted = 1 WHERE id IN ({})", placeholders);
+            let mut stmt = conn.prepare(&sql)?;
+            let params: Vec<&dyn rusqlite::types::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+            stmt.execute(params.as_slice())?;
+        }
+        Ok(())
+    }
+
     pub fn get_tracks_by_ids(&self, ids: &[i64]) -> SqlResult<Vec<Track>> {
         if ids.is_empty() {
             return Ok(vec![]);

@@ -524,6 +524,27 @@ pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), S
     Ok(())
 }
 
+#[tauri::command]
+pub fn delete_tracks(state: State<'_, AppState>, track_ids: Vec<i64>) -> Result<Vec<i64>, String> {
+    let tracks = state.db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())?;
+    let mut deleted_ids = Vec::new();
+    for track in &tracks {
+        if track.subsonic_id.is_some() {
+            continue;
+        }
+        let path = std::path::Path::new(&track.path);
+        if path.exists() {
+            if let Err(e) = std::fs::remove_file(path) {
+                log::warn!("Failed to delete file {}: {}", track.path, e);
+                continue;
+            }
+        }
+        deleted_ids.push(track.id);
+    }
+    state.db.soft_delete_tracks_by_ids(&deleted_ids).map_err(|e| e.to_string())?;
+    Ok(deleted_ids)
+}
+
 // --- Entity image commands (generic) ---
 
 #[tauri::command]

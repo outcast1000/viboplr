@@ -1226,6 +1226,19 @@ body {
 }
 
 .context-menu-item:hover svg,
+.context-menu-item-danger {
+  color: #e74c3c;
+}
+
+.context-menu-item-danger:hover {
+  background: rgba(231, 76, 60, 0.15);
+  color: #e74c3c;
+}
+
+.context-menu-item-danger:hover svg {
+  color: #e74c3c;
+}
+
 .context-menu-item:hover img {
   opacity: 1;
 }
@@ -2841,6 +2854,21 @@ body {
 
 .modal-btn-confirm:hover {
   background: var(--accent-dim);
+}
+
+.modal-btn-danger {
+  background: #c0392b;
+  color: #fff;
+}
+
+.modal-btn-danger:hover {
+  background: #e74c3c;
+}
+
+.delete-confirm-warning {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 16px;
 }
 
 .modal-field-static {

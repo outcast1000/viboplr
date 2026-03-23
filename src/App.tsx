@@ -97,6 +97,7 @@ function App() {
     trackId: number; url: string; videoTitle: string;
   } | null>(null);
   const [propertiesTrack, setPropertiesTrack] = useState<Track | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
@@ -766,6 +767,32 @@ function App() {
     const track = library.tracks.find(t => t.id === trackId);
     if (track) setPropertiesTrack(track);
     setContextMenu(null);
+  }
+
+  function handleDeleteRequest() {
+    if (!contextMenu) return;
+    const { target } = contextMenu;
+    if (target.kind === "track" && !target.subsonic) {
+      setDeleteConfirm({ trackIds: [target.trackId], title: target.title });
+    } else if (target.kind === "multi-track") {
+      setDeleteConfirm({ trackIds: target.trackIds, title: `${target.trackIds.length} tracks` });
+    }
+    setContextMenu(null);
+  }
+
+  async function handleDeleteConfirm() {
+    if (!deleteConfirm) return;
+    try {
+      const deletedIds: number[] = await invoke("delete_tracks", { trackIds: deleteConfirm.trackIds });
+      const deletedSet = new Set(deletedIds);
+      library.setTracks(prev => prev.filter(t => !deletedSet.has(t.id)));
+      if (playback.currentTrack && deletedSet.has(playback.currentTrack.id)) {
+        playback.handleStop();
+      }
+    } catch (e) {
+      console.error("Failed to delete tracks:", e);
+    }
+    setDeleteConfirm(null);
   }
 
   async function handleWatchOnYoutube() {
@@ -2207,6 +2234,7 @@ function App() {
           onShowInFolder={handleShowInFolder}
           onWatchOnYoutube={handleWatchOnYoutube}
           onShowProperties={handleShowProperties}
+          onDelete={handleDeleteRequest}
           onRemoveFromQueue={handleQueueRemove}
           onMoveToTop={handleQueueMoveToTop}
           onMoveToBottom={handleQueueMoveToBottom}
@@ -2224,6 +2252,19 @@ function App() {
             setPropertiesTrack(prev => prev && prev.id === trackId ? { ...prev, youtube_url: url } : prev);
           }}
         />
+      )}
+
+      {deleteConfirm && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Delete {deleteConfirm.title}?</h2>
+            <p className="delete-confirm-warning">This will permanently delete the file{deleteConfirm.trackIds.length > 1 ? "s" : ""} from disk.</p>
+            <div className="modal-actions">
+              <button className="modal-btn modal-btn-cancel" onClick={() => setDeleteConfirm(null)}>Cancel</button>
+              <button className="modal-btn modal-btn-danger" onClick={handleDeleteConfirm}>Delete</button>
+            </div>
+          </div>
+        </div>
       )}
 
       <NowPlayingBar

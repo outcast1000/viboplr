@@ -1,7 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl, getDomainFromUrl } from "../searchProviders";
-import { IconPlay, IconEnqueue, IconFolder, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius, IconInfo } from "./Icons";
+import { IconPlay, IconEnqueue, IconFolder, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius, IconInfo, IconTrash } from "./Icons";
 import { useState, type ReactNode } from "react";
 
 export type ContextMenuTarget =
@@ -25,6 +25,7 @@ interface ContextMenuProps {
   onShowInFolder: () => void;
   onWatchOnYoutube?: () => void;
   onShowProperties?: () => void;
+  onDelete?: () => void;
   onRemoveFromQueue?: () => void;
   onMoveToTop?: () => void;
   onMoveToBottom?: () => void;
@@ -72,7 +73,7 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
 
 export function ContextMenu({
   menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onShowProperties,
-  onRemoveFromQueue, onMoveToTop, onMoveToBottom, onClose,
+  onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onClose,
 }: ContextMenuProps) {
   const { target } = menu;
 
@@ -139,6 +140,14 @@ export function ContextMenu({
         <div className="context-menu-item" onClick={() => { onShowProperties(); onClose(); }}>
           <IconInfo size={14} /><span>Properties</span>
         </div>
+      )}
+      {onDelete && (target.kind === "track" && !target.subsonic || target.kind === "multi-track") && (
+        <>
+          <div className="context-menu-separator" />
+          <div className="context-menu-item context-menu-item-danger" onClick={() => { onDelete(); onClose(); }}>
+            <IconTrash size={14} /><span>{isMulti ? `Delete ${target.trackIds.length} tracks` : "Delete"}</span>
+          </div>
+        </>
       )}
       {contextProviders.length > 0 && (
         <>
