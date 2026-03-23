@@ -26,7 +26,7 @@
   document.querySelectorAll('a[href^="#"]').forEach(function (anchor) {
     anchor.addEventListener('click', function (e) {
       var targetId = this.getAttribute('href');
-      if (targetId === '#') return;
+      if (!targetId || targetId === '#' || !targetId.startsWith('#')) return;
       var target = document.querySelector(targetId);
       if (target) {
         e.preventDefault();
