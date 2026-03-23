@@ -209,16 +209,21 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
 
     let file_size = metadata.map(|m| m.len() as i64);
 
-    // For video files, just use the filename as title — skip tag reading
+    // For video files, use filename as title but try to read duration from file properties
     if is_video_file(path) {
         let title = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown").to_string();
+        let duration_secs = Probe::open(path)
+            .and_then(|p| p.read())
+            .ok()
+            .map(|f| f.properties().duration().as_secs_f64())
+            .filter(|&d| d > 0.0);
         let _ = db.upsert_track(
             &path_str,
             &title,
             None,
             None,
             None,
-            None,
+            duration_secs,
             format.as_deref(),
             file_size,
             modified_at,
