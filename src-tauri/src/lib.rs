@@ -10,6 +10,7 @@ mod subsonic;
 mod sync;
 mod timing;
 mod tidal;
+mod downloader;
 mod lastfm;
 
 use commands::{AppState, DownloadQueue, ImageDownloadRequest};
