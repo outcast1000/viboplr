@@ -20,9 +20,10 @@ interface TidalViewProps {
   collectionId: number;
   onPlayTracks: (tracks: Track[], startIndex: number) => void;
   onEnqueueTracks: (tracks: Track[]) => void;
+  onDownloadAlbum?: (albumId: string, sourceCollectionId: number) => void;
 }
 
-export function TidalView({ collectionId, onPlayTracks, onEnqueueTracks }: TidalViewProps) {
+export function TidalView({ collectionId, onPlayTracks, onEnqueueTracks, onDownloadAlbum }: TidalViewProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<TidalSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -202,6 +203,7 @@ export function TidalView({ collectionId, onPlayTracks, onEnqueueTracks }: Tidal
           onEnqueueTrack={handleEnqueueTrack}
           onPlayAlbum={handlePlayAlbum}
           onArtistClick={handleArtistClick}
+          onDownloadAlbum={onDownloadAlbum ? (albumId: string) => onDownloadAlbum(albumId, collectionId) : undefined}
         />
       )}
 
@@ -347,6 +349,7 @@ function AlbumDetailView({
   onEnqueueTrack,
   onPlayAlbum,
   onArtistClick,
+  onDownloadAlbum,
 }: {
   album: TidalAlbumDetail;
   savingId: string | null;
@@ -355,6 +358,7 @@ function AlbumDetailView({
   onEnqueueTrack: (t: TidalSearchTrack) => void;
   onPlayAlbum: (tracks: TidalSearchTrack[]) => void;
   onArtistClick: (id: string) => void;
+  onDownloadAlbum?: (albumId: string) => void;
 }) {
   return (
     <div className="tidal-detail">
@@ -378,6 +382,15 @@ function AlbumDetailView({
           >
             {savingId === "album" ? "Loading..." : "\u25B6 Play Album"}
           </button>
+          {onDownloadAlbum && (
+            <button
+              className="tidal-btn tidal-btn-play-all"
+              onClick={() => onDownloadAlbum(album.tidal_id)}
+              style={{ marginLeft: 8 }}
+            >
+              {"\u2B07"} Download Album
+            </button>
+          )}
         </div>
       </div>
       <div className="tidal-track-list">

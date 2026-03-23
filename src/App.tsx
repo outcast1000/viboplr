@@ -901,6 +901,26 @@ function App() {
     store.set("trackVideoHistory", enabled);
   }
 
+  async function handleDownloadAlbum(albumId: string, sourceCollectionId: number) {
+    const downloadFormat = await store.get<string>("downloadFormat") ?? "flac";
+    if (localCollections.length === 0) {
+      addLog("No local collections available for download");
+      return;
+    }
+    const destId = localCollections[0].id;
+    try {
+      const ids = await invoke<number[]>("download_album", {
+        sourceCollectionId,
+        albumId,
+        destCollectionId: destId,
+        format: downloadFormat,
+      });
+      addLog(`Queued ${ids.length} tracks for download`);
+    } catch (e) {
+      addLog(`Album download failed: ${e}`);
+    }
+  }
+
   async function handleDownloadTrack(trackId: number, destCollectionId: number) {
     const downloadFormat = await store.get<string>("downloadFormat") ?? "flac";
     const track = tracks.find(t => t.id === trackId);
@@ -2197,6 +2217,7 @@ function App() {
               collectionId={tidalCollection.id}
               onPlayTracks={queueHook.playTracks}
               onEnqueueTracks={handleEnqueue}
+              onDownloadAlbum={handleDownloadAlbum}
             />
           )}
 
