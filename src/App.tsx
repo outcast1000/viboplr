@@ -32,6 +32,7 @@ import { TrackList } from "./components/TrackList";
 import { NowPlayingBar } from "./components/NowPlayingBar";
 import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { FullscreenControls } from "./components/FullscreenControls";
 import { AddServerModal } from "./components/AddServerModal";
 import { ContextMenu } from "./components/ContextMenu";
 import type { ContextMenuState } from "./components/ContextMenu";
@@ -2229,18 +2230,47 @@ function App() {
             onClick={playback.handlePause}
             onDoubleClick={playback.toggleFullscreen}
           />
-          <button
-            className="video-fullscreen-btn"
-            onClick={playback.toggleFullscreen}
-            title={`Fullscreen (${navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+"}F) \u2014 Esc to exit`}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 3 21 3 21 9" />
-              <polyline points="9 21 3 21 3 15" />
-              <line x1="21" y1="3" x2="14" y2="10" />
-              <line x1="3" y1="21" x2="10" y2="14" />
-            </svg>
-          </button>
+          <FullscreenControls
+            currentTrack={playback.currentTrack}
+            playing={playback.playing}
+            positionSecs={playback.positionSecs}
+            durationSecs={playback.durationSecs}
+            scrobbled={playback.scrobbled}
+            volume={playback.volume}
+            queueMode={queueHook.queueMode}
+            autoContinueEnabled={autoContinue.enabled}
+            autoContinueSameFormat={autoContinue.sameFormat}
+            showAutoContinuePopover={autoContinue.showPopover}
+            autoContinueWeights={autoContinue.weights}
+            imagePath={
+              (playback.currentTrack?.album_id && albumImageCache.images[playback.currentTrack.album_id])
+              || (playback.currentTrack?.artist_id && artistImageCache.images[playback.currentTrack.artist_id])
+              || null
+            }
+            onPause={playback.handlePause}
+            onStop={playback.handleStop}
+            onNext={handleNext}
+            onPrevious={queueHook.playPrevious}
+            onSeek={playback.handleSeek}
+            onVolume={playback.handleVolume}
+            onMute={() => {
+              if (playback.volume > 0) {
+                previousVolumeRef.current = playback.volume;
+                playback.handleVolume(0);
+              } else {
+                playback.handleVolume(previousVolumeRef.current || 1.0);
+              }
+            }}
+            onToggleQueueMode={queueHook.toggleQueueMode}
+            onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
+            onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
+            onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
+            onAdjustAutoContinueWeight={autoContinue.adjustWeight}
+            onToggleLike={() => playback.currentTrack && handleToggleLike(playback.currentTrack)}
+            onToggleFullscreen={playback.toggleFullscreen}
+            onArtistClick={library.handleArtistClick}
+            onAlbumClick={library.handleAlbumClick}
+          />
         </div>
       </main>
 
