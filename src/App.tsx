@@ -1046,6 +1046,7 @@ function App() {
         onPlay={playback.onPlaySlotA}
         onPause={playback.onPauseSlotA}
         onEnded={() => playback.onEndedSlotA(onEnded)}
+        onError={playback.onMediaError}
       />
       <audio
         ref={playback.audioRefB}
@@ -1054,6 +1055,7 @@ function App() {
         onPlay={playback.onPlaySlotB}
         onPause={playback.onPauseSlotB}
         onEnded={() => playback.onEndedSlotB(onEnded)}
+        onError={playback.onMediaError}
       />
 
       <Sidebar
@@ -2177,6 +2179,7 @@ function App() {
             onLoadedMetadata={playback.onLoadedMetadata}
             onPlay={playback.onPlay}
             onPause={playback.onPause}
+            onError={playback.onMediaError}
             onClick={playback.handlePause}
             onDoubleClick={playback.toggleFullscreen}
           />
@@ -2270,6 +2273,13 @@ function App() {
               <button className="modal-btn modal-btn-danger" onClick={handleDeleteConfirm}>Delete</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {playback.playbackError && (
+        <div className="playback-error-banner">
+          <span>{playback.playbackError}</span>
+          <button onClick={playback.clearPlaybackError}>{"\u2715"}</button>
         </div>
       )}
 

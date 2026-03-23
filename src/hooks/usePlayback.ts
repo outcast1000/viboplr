@@ -29,6 +29,7 @@ export function usePlayback(
   const pendingSeekRef = useRef(0);
   const scrobbledRef = useRef(false);
   const [scrobbled, setScrobbled] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
   const playStartedAtRef = useRef(0);
 
   // Preload state (refs for use in event handlers without stale closures)
@@ -312,6 +313,7 @@ export function usePlayback(
   async function handlePlay(track: Track) {
     cancelCrossfade();
     invalidatePreload();
+    setPlaybackError(null);
 
     try {
       const pathOrUrl = await invoke<string>("get_track_path", { trackId: track.id });
@@ -420,6 +422,26 @@ export function usePlayback(
     }
     setPlaying(false);
     setPositionSecs(0);
+  }
+
+  function onMediaError(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
+    const el = e.currentTarget;
+    const err = el.error;
+    if (!err) return;
+    const messages: Record<number, string> = {
+      1: "Playback aborted",
+      2: "Network error during playback",
+      3: "File could not be decoded — format may not be supported",
+      4: "File format not supported",
+    };
+    const msg = messages[err.code] || `Playback error (code ${err.code})`;
+    console.error("Media error:", msg, err.message);
+    setPlaybackError(msg);
+    setPlaying(false);
+  }
+
+  function clearPlaybackError() {
+    setPlaybackError(null);
   }
 
   function handleVolume(level: number) {
@@ -545,11 +567,12 @@ export function usePlayback(
     handlePlay, handlePause, handleStop, handleRestore,
     handleVolume, handleSeek,
     handleGaplessNext, invalidatePreload,
-    onTimeUpdate, onLoadedMetadata, onPlay, onPause,
+    onTimeUpdate, onLoadedMetadata, onPlay, onPause, onMediaError,
     isActiveElement,
     onEndedSlotA, onEndedSlotB,
     onPlaySlotA, onPlaySlotB,
     onPauseSlotA, onPauseSlotB,
     toggleFullscreen,
+    playbackError, clearPlaybackError,
   };
 }
