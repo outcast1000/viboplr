@@ -1371,15 +1371,17 @@ function App() {
             <>
               <div className="sort-bar">
                 <div className="sort-options">
-                  <button className={`sort-btn${library.artistSortField === "name" ? " active" : ""}`} onClick={() => library.handleArtistSort("name")}>
-                    Name{library.artistSortField === "name" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                  </button>
-                  <button className={`sort-btn${library.artistSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleArtistSort("tracks")}>
-                    Tracks{library.artistSortField === "tracks" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                  </button>
-                  <button className={`sort-btn${library.artistSortField === "random" ? " active" : ""}`} onClick={() => library.handleArtistSort("random")}>
-                    Shuffle
-                  </button>
+                  <div className="sort-bar-group">
+                    <button className={`sort-btn${library.artistSortField === "name" ? " active" : ""}`} onClick={() => library.handleArtistSort("name")}>
+                      Name{library.artistSortField === "name" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </button>
+                    <button className={`sort-btn${library.artistSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleArtistSort("tracks")}>
+                      Tracks{library.artistSortField === "tracks" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </button>
+                    <button className={`sort-btn${library.artistSortField === "random" ? " active" : ""}`} onClick={() => library.handleArtistSort("random")}>
+                      Shuffle
+                    </button>
+                  </div>
                 </div>
                 <div className="sort-bar-right">
                   <button
@@ -1563,21 +1565,23 @@ function App() {
             <>
               <div className="sort-bar">
                 <div className="sort-options">
-                  <button className={`sort-btn${library.albumSortField === "name" ? " active" : ""}`} onClick={() => library.handleAlbumSort("name")}>
-                    Name{library.albumSortField === "name" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                  </button>
-                  <button className={`sort-btn${library.albumSortField === "artist" ? " active" : ""}`} onClick={() => library.handleAlbumSort("artist")}>
-                    Artist{library.albumSortField === "artist" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                  </button>
-                  <button className={`sort-btn${library.albumSortField === "year" ? " active" : ""}`} onClick={() => library.handleAlbumSort("year")}>
-                    Year{library.albumSortField === "year" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                  </button>
-                  <button className={`sort-btn${library.albumSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleAlbumSort("tracks")}>
-                    Tracks{library.albumSortField === "tracks" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                  </button>
-                  <button className={`sort-btn${library.albumSortField === "random" ? " active" : ""}`} onClick={() => library.handleAlbumSort("random")}>
-                    Shuffle
-                  </button>
+                  <div className="sort-bar-group">
+                    <button className={`sort-btn${library.albumSortField === "name" ? " active" : ""}`} onClick={() => library.handleAlbumSort("name")}>
+                      Name{library.albumSortField === "name" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </button>
+                    <button className={`sort-btn${library.albumSortField === "artist" ? " active" : ""}`} onClick={() => library.handleAlbumSort("artist")}>
+                      Artist{library.albumSortField === "artist" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </button>
+                    <button className={`sort-btn${library.albumSortField === "year" ? " active" : ""}`} onClick={() => library.handleAlbumSort("year")}>
+                      Year{library.albumSortField === "year" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </button>
+                    <button className={`sort-btn${library.albumSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleAlbumSort("tracks")}>
+                      Tracks{library.albumSortField === "tracks" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </button>
+                    <button className={`sort-btn${library.albumSortField === "random" ? " active" : ""}`} onClick={() => library.handleAlbumSort("random")}>
+                      Shuffle
+                    </button>
+                  </div>
                 </div>
                 <div className="sort-bar-right">
                   <button
@@ -1690,15 +1694,17 @@ function App() {
             <>
               <div className="sort-bar">
                 <div className="sort-options">
-                  <button className={`sort-btn${library.tagSortField === "name" ? " active" : ""}`} onClick={() => library.handleTagSort("name")}>
-                    Name{library.tagSortField === "name" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                  </button>
-                  <button className={`sort-btn${library.tagSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleTagSort("tracks")}>
-                    Tracks{library.tagSortField === "tracks" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                  </button>
-                  <button className={`sort-btn${library.tagSortField === "random" ? " active" : ""}`} onClick={() => library.handleTagSort("random")}>
-                    Shuffle
-                  </button>
+                  <div className="sort-bar-group">
+                    <button className={`sort-btn${library.tagSortField === "name" ? " active" : ""}`} onClick={() => library.handleTagSort("name")}>
+                      Name{library.tagSortField === "name" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </button>
+                    <button className={`sort-btn${library.tagSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleTagSort("tracks")}>
+                      Tracks{library.tagSortField === "tracks" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    </button>
+                    <button className={`sort-btn${library.tagSortField === "random" ? " active" : ""}`} onClick={() => library.handleTagSort("random")}>
+                      Shuffle
+                    </button>
+                  </div>
                 </div>
                 <div className="sort-bar-right">
                   <button
@@ -1897,7 +1903,7 @@ function App() {
                       Shuffle
                     </button>
                   </div>
-                  <div className="sort-bar-group">
+                  <div className="sort-bar-group sort-bar-group-filter">
                     <button className={`sort-btn${library.mediaTypeFilter === "all" ? " active" : ""}`} onClick={() => library.setMediaTypeFilter("all")}>
                       All
                     </button>
