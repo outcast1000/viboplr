@@ -9,21 +9,23 @@ import { AutoContinuePopover } from "./AutoContinuePopover";
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
 
 const shortcuts = [
+  { keys: "Space", action: "Play / Pause" },
+  { keys: "\u2190", action: "Seek Back 15s" },
+  { keys: "\u2192", action: "Seek Forward 15s" },
+  { keys: "\u2191", action: "Volume Up 10%" },
+  { keys: "\u2193", action: "Volume Down 10%" },
+  { keys: `${mod}\u2190`, action: "Previous Track" },
+  { keys: `${mod}\u2192`, action: "Next Track" },
+  { keys: `${mod}L`, action: "Like / Unlike" },
+  { keys: `${mod}P`, action: "Toggle Playlist" },
   { keys: `${mod}1`, action: "All Tracks" },
   { keys: `${mod}2`, action: "Artists" },
   { keys: `${mod}3`, action: "Albums" },
   { keys: `${mod}4`, action: "Tags" },
   { keys: `${mod}5`, action: "Liked" },
   { keys: `${mod}6`, action: "History" },
-  { keys: `${mod}7`, action: "Toggle Playlist" },
   { keys: `${mod}M`, action: "Mute / Unmute" },
   { keys: `${mod}\u21E7M`, action: "Mini Player" },
-  { keys: `${mod}\u2190`, action: "Seek Back 15s" },
-  { keys: `${mod}\u2192`, action: "Seek Forward 15s" },
-  { keys: `${mod}\u2191`, action: "Volume Up" },
-  { keys: `${mod}\u2193`, action: "Volume Down" },
-  { keys: `${mod}>`, action: "Next Track" },
-  { keys: `${mod}<`, action: "Previous Track" },
 ];
 
 
@@ -143,17 +145,17 @@ export function NowPlayingBar({
             <span
               className={`now-like-btn${currentTrack.liked ? " liked" : ""}`}
               onClick={onToggleLike}
-              title={currentTrack.liked ? "Unlike" : "Like"}
+              title={`${currentTrack.liked ? "Unlike" : "Like"} (${mod}L)`}
             >{currentTrack.liked ? "\u2665" : "\u2661"}</span>
           )}
         </div>
         <div className="now-controls">
-          <button className="ctrl-btn" onClick={onPrevious} title="Previous">{"\u23EE"}</button>
-          <button className="ctrl-btn play-btn" onClick={onPause}>
+          <button className="ctrl-btn" onClick={onPrevious} title={`Previous (${mod}\u2190)`}>{"\u23EE"}</button>
+          <button className="ctrl-btn play-btn" onClick={onPause} title="Play / Pause (Space)">
             {playing ? "\u23F8" : "\u25B6"}
           </button>
-          <button className="ctrl-btn" onClick={onNext} title="Next">{"\u23ED"}</button>
-          <button className="ctrl-btn" onClick={onStop}>{"\u23F9"}</button>
+          <button className="ctrl-btn" onClick={onNext} title={`Next (${mod}\u2192)`}>{"\u23ED"}</button>
+          <button className="ctrl-btn" onClick={onStop} title="Stop">{"\u23F9"}</button>
           <span className="now-time">
             {formatDuration(positionSecs)} / {formatDuration(durationSecs)}
             {scrobbled && <span className="now-scrobbled" title="Logged to play history">{"\u2713"}</span>}
@@ -187,7 +189,7 @@ export function NowPlayingBar({
           )}
         </div>
         <div className="now-volume">
-          <span className="volume-icon" onClick={onMute} dangerouslySetInnerHTML={{ __html: volume === 0
+          <span className="volume-icon" onClick={onMute} title={`Mute (${mod}M)`} dangerouslySetInnerHTML={{ __html: volume === 0
             ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`
             : volume < 0.5
             ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>`
@@ -207,7 +209,7 @@ export function NowPlayingBar({
         <button
           className={`ctrl-btn queue-toggle-btn ${showQueue ? "active" : ""}`}
           onClick={onToggleQueue}
-          title="Playlist"
+          title={`Playlist (${mod}P)`}
         >
           {"\u2630"}
         </button>

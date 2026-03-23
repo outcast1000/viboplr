@@ -390,19 +390,51 @@ function App() {
     handleSeek: playback.handleSeek,
     currentTrack: playback.currentTrack,
   };
+  const handleToggleLikeRef = useRef((_track: Track) => {});
 
   // Global keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
+      const s = shortcutStateRef.current;
+      const isInput = (e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA";
+
       // Alt+Arrow: navigation history
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
         if (e.key === "ArrowLeft") { e.preventDefault(); goBackRef.current(); return; }
         if (e.key === "ArrowRight") { e.preventDefault(); goForwardRef.current(); return; }
       }
 
-      if (!(e.ctrlKey || e.metaKey)) return;
+      // Non-modifier shortcuts (only when not typing in an input)
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && !isInput) {
+        switch (e.key) {
+          case " ":
+            e.preventDefault();
+            playback.handlePause();
+            return;
+          case "ArrowLeft": {
+            e.preventDefault();
+            const el = s.getMediaElement();
+            if (el) s.handleSeek(Math.max(0, el.currentTime - 15));
+            return;
+          }
+          case "ArrowRight": {
+            e.preventDefault();
+            const el = s.getMediaElement();
+            if (el) s.handleSeek(Math.min(el.duration || 0, el.currentTime + 15));
+            return;
+          }
+          case "ArrowUp":
+            e.preventDefault();
+            playback.handleVolume(Math.min(1, s.volume + 0.1));
+            return;
+          case "ArrowDown":
+            e.preventDefault();
+            playback.handleVolume(Math.max(0, s.volume - 0.1));
+            return;
+        }
+      }
 
-      const s = shortcutStateRef.current;
+      if (!(e.ctrlKey || e.metaKey)) return;
 
       switch (e.key) {
         case "1":
@@ -454,15 +486,19 @@ function App() {
           library.setSearchQuery("");
           searchInputRef.current?.focus();
           break;
-        case "7":
-          e.preventDefault();
-          queueHook.setShowQueue(!s.showQueue);
-          break;
         case "f":
           if (s.currentTrack && isVideoTrack(s.currentTrack)) {
             e.preventDefault();
             playback.toggleFullscreen();
           }
+          break;
+        case "l":
+          e.preventDefault();
+          if (s.currentTrack) handleToggleLikeRef.current(s.currentTrack);
+          break;
+        case "p":
+          e.preventDefault();
+          queueHook.setShowQueue(!s.showQueue);
           break;
         case "m":
           e.preventDefault();
@@ -477,33 +513,13 @@ function App() {
           e.preventDefault();
           mini.toggleMiniMode();
           break;
-        case "ArrowLeft": {
-          e.preventDefault();
-          const el = s.getMediaElement();
-          if (el) s.handleSeek(Math.max(0, el.currentTime - 15));
-          break;
-        }
-        case "ArrowRight": {
-          e.preventDefault();
-          const el = s.getMediaElement();
-          if (el) s.handleSeek(Math.min(el.duration || 0, el.currentTime + 15));
-          break;
-        }
-        case "ArrowUp":
-          e.preventDefault();
-          playback.handleVolume(Math.min(1, s.volume + 0.05));
-          break;
-        case "ArrowDown":
-          e.preventDefault();
-          playback.handleVolume(Math.max(0, s.volume - 0.05));
-          break;
-        case ">":
-          e.preventDefault();
-          handleNext();
-          break;
-        case "<":
+        case "ArrowLeft":
           e.preventDefault();
           queueHook.playPrevious();
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          handleNext();
           break;
         case "b":
           e.preventDefault();
@@ -921,6 +937,7 @@ function App() {
       console.error("Failed to toggle like:", e);
     }
   }
+  handleToggleLikeRef.current = handleToggleLike;
 
   async function handleToggleArtistLike(artistId: number) {
     const artist = artists.find(a => a.id === artistId);
