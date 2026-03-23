@@ -30,6 +30,8 @@ interface CollectionsViewProps {
   onResync: (collectionId: number) => void;
   checkingConnectionId: number | null;
   connectionResult: { collectionId: number; ok: boolean; message: string } | null;
+  onEdit: (collection: Collection) => void;
+  onRemove: (collection: Collection) => void;
   onAddFolder: () => void;
   onShowAddServer: () => void;
   onShowAddTidal: () => void;
@@ -42,6 +44,8 @@ export function CollectionsView({
   onResync,
   checkingConnectionId,
   connectionResult,
+  onEdit,
+  onRemove,
   onAddFolder,
   onShowAddServer,
   onShowAddTidal,
@@ -115,6 +119,20 @@ export function CollectionsView({
                       {checkingConnectionId === c.id ? "Checking..." : "Check Connection"}
                     </button>
                   )}
+                  <button
+                    className="collections-view-action-btn"
+                    onClick={() => onEdit(c)}
+                    title="Edit"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="collections-view-action-btn collections-view-action-btn-danger"
+                    onClick={() => onRemove(c)}
+                    title="Remove"
+                  >
+                    Remove
+                  </button>
                 </div>
                 {connectionResult && connectionResult.collectionId === c.id && (
                   <div className={`collections-view-feedback ${connectionResult.ok ? "collections-view-feedback-ok" : "collections-view-feedback-err"}`}>

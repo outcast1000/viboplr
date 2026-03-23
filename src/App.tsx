@@ -46,6 +46,7 @@ import type { HistoryViewHandle } from "./components/HistoryView";
 import { TidalView } from "./components/TidalView";
 import { AddTidalModal } from "./components/AddTidalModal";
 import { CollectionsView } from "./components/CollectionsView";
+import { EditCollectionModal } from "./components/EditCollectionModal";
 import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
 import { StatusBar } from "./components/StatusBar";
 
@@ -102,6 +103,8 @@ function App() {
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
   const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
+  const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
+  const [removeCollectionConfirm, setRemoveCollectionConfirm] = useState<Collection | null>(null);
   const [lastfmConnected, setLastfmConnected] = useState(false);
   const [lastfmUsername, setLastfmUsername] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -951,6 +954,35 @@ function App() {
       library.loadLibrary();
       setTimeout(() => setConnectionResult(null), 5000);
     }
+  }
+
+  async function handleSaveCollection(id: number, name: string, autoUpdate: boolean, autoUpdateIntervalMins: number, enabled: boolean) {
+    await invoke("update_collection", {
+      collectionId: id,
+      name,
+      autoUpdate,
+      autoUpdateIntervalMins,
+      enabled,
+    });
+    setEditingCollection(null);
+    library.loadLibrary();
+    library.loadTracks();
+  }
+
+  async function handleRemoveCollectionConfirm() {
+    if (!removeCollectionConfirm) return;
+    try {
+      await invoke("remove_collection", { collectionId: removeCollectionConfirm.id });
+      if (playback.currentTrack && playback.currentTrack.collection_id === removeCollectionConfirm.id) {
+        playback.handleStop();
+      }
+      queueHook.setQueue(prev => prev.filter(t => t.collection_id !== removeCollectionConfirm.id));
+      library.loadLibrary();
+      library.loadTracks();
+    } catch (e) {
+      console.error("Failed to remove collection:", e);
+    }
+    setRemoveCollectionConfirm(null);
   }
 
   async function handleToggleLike(track: Track) {
@@ -2158,6 +2190,8 @@ function App() {
               onResync={handleResyncCollection}
               checkingConnectionId={checkingConnectionId}
               connectionResult={connectionResult}
+              onEdit={(c) => setEditingCollection(c)}
+              onRemove={(c) => setRemoveCollectionConfirm(c)}
               onAddFolder={handleAddFolder}
               onShowAddServer={() => setShowAddServer(true)}
               onShowAddTidal={() => setShowAddTidal(true)}
@@ -2283,6 +2317,27 @@ function App() {
             <div className="modal-actions">
               <button className="modal-btn modal-btn-cancel" onClick={() => setDeleteConfirm(null)}>Cancel</button>
               <button className="modal-btn modal-btn-danger" onClick={handleDeleteConfirm}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingCollection && (
+        <EditCollectionModal
+          collection={editingCollection}
+          onSave={handleSaveCollection}
+          onClose={() => setEditingCollection(null)}
+        />
+      )}
+
+      {removeCollectionConfirm && (
+        <div className="modal-overlay" onClick={() => setRemoveCollectionConfirm(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Remove &ldquo;{removeCollectionConfirm.name}&rdquo;?</h2>
+            <p className="delete-confirm-warning">This will permanently remove this collection and all its tracks from the library.</p>
+            <div className="modal-actions">
+              <button className="modal-btn modal-btn-cancel" onClick={() => setRemoveCollectionConfirm(null)}>Cancel</button>
+              <button className="modal-btn modal-btn-danger" onClick={handleRemoveCollectionConfirm}>Remove</button>
             </div>
           </div>
         </div>

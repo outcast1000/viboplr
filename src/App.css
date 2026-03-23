@@ -526,6 +526,11 @@ body {
   color: var(--accent);
 }
 
+.collections-view-action-btn-danger:hover {
+  border-color: #ff5555;
+  color: #ff5555;
+}
+
 .collections-view-action-btn:disabled {
   opacity: 0.5;
   cursor: default;
