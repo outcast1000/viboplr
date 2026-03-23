@@ -976,8 +976,12 @@ body {
   z-index: 100;
   opacity: 0;
   transform: translateY(100%);
-  transition: opacity 0.3s, transform 0.3s;
+  transition: opacity 0.3s, transform 0.3s, left 0.2s ease;
   pointer-events: none;
+}
+
+.app.sidebar-collapsed .status-bar {
+  left: 56px;
 }
 
 .status-bar.status-bar-visible {
