@@ -1841,8 +1841,8 @@ body {
   -webkit-appearance: none;
   appearance: none;
   width: 90px;
-  height: 4px;
-  border-radius: 2px;
+  height: 6px;
+  border-radius: 3px;
   outline: none;
   cursor: pointer;
 }
@@ -1850,8 +1850,11 @@ body {
 .volume-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 0;
-  height: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
   border: none;
 }
 
