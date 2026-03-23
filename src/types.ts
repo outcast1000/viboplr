@@ -39,7 +39,6 @@ export interface Track {
   collection_name: string | null;
   subsonic_id: string | null;
   liked: boolean;
-  deleted: boolean;
   youtube_url: string | null;
   added_at: number | null;
   modified_at: number | null;

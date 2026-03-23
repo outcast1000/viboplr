@@ -164,8 +164,8 @@ pub fn scan_folder(
         if let Ok(db_paths) = db.get_local_track_paths_for_collection(cid) {
             let missing: Vec<String> = db_paths.into_iter().filter(|p| !seen_paths.contains(p)).collect();
             if !missing.is_empty() {
-                info!("Soft-deleting {} tracks no longer on disk", missing.len());
-                let _ = db.mark_tracks_deleted_by_paths(&missing);
+                info!("Deleting {} tracks no longer on disk", missing.len());
+                let _ = db.delete_tracks_by_paths(&missing);
             }
         }
     }

@@ -63,7 +63,6 @@ pub struct Track {
     pub collection_name: Option<String>,
     pub subsonic_id: Option<String>,
     pub liked: bool,
-    pub deleted: bool,
     pub youtube_url: Option<String>,
     pub added_at: Option<i64>,
     pub modified_at: Option<i64>,

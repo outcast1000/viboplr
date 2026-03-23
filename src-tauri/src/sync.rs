@@ -113,12 +113,12 @@ pub fn sync_collection(
         }
     }
 
-    // Soft-delete tracks that are no longer on the server
+    // Delete tracks that are no longer on the server
     let removed: Vec<String> = existing_paths
         .into_iter()
         .filter(|p| !seen_paths.contains(p))
         .collect();
-    db.mark_tracks_deleted_by_paths(&removed)
+    db.delete_tracks_by_paths(&removed)
         .map_err(|e| e.to_string())?;
 
     db.rebuild_fts().map_err(|e| e.to_string())?;

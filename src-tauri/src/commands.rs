@@ -541,7 +541,8 @@ pub fn delete_tracks(state: State<'_, AppState>, track_ids: Vec<i64>) -> Result<
         }
         deleted_ids.push(track.id);
     }
-    state.db.soft_delete_tracks_by_ids(&deleted_ids).map_err(|e| e.to_string())?;
+    state.db.delete_tracks_by_ids(&deleted_ids).map_err(|e| e.to_string())?;
+    state.db.recompute_counts().map_err(|e| e.to_string())?;
     Ok(deleted_ids)
 }
 
