@@ -630,9 +630,14 @@ impl Database {
         };
 
         let youtube_filter = if opts.has_youtube_url { "AND t.youtube_url IS NOT NULL AND t.youtube_url != ''" } else { "" };
+        let media_type_filter = match opts.media_type.as_deref() {
+            Some("audio") => "AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))",
+            Some("video") => "AND LOWER(t.format) IN ('mp4','m4v','mov','webm')",
+            _ => "",
+        };
         let limit = opts.limit.unwrap_or(100);
         let offset = opts.offset.unwrap_or(0);
-        let sql = format!("{} WHERE t.deleted = 0 {} {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, ENABLED_COLLECTION_FILTER, youtube_filter, order_by);
+        let sql = format!("{} WHERE t.deleted = 0 {} {} {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, ENABLED_COLLECTION_FILTER, youtube_filter, media_type_filter, order_by);
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![limit, offset], |row| track_from_row(row))?;
         rows.collect()
@@ -695,6 +700,11 @@ impl Database {
         }
         if opts.has_youtube_url {
             sql.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''");
+        }
+        match opts.media_type.as_deref() {
+            Some("audio") => sql.push_str(" AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))"),
+            Some("video") => sql.push_str(" AND LOWER(t.format) IN ('mp4','m4v','mov','webm')"),
+            _ => {}
         }
 
         if let Some(col) = sort_column_sql(opts.sort_field.as_deref()) {

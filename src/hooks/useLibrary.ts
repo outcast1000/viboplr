@@ -58,6 +58,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   // Track filters
   const [filterYoutubeOnly, setFilterYoutubeOnly] = useState(false);
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "audio" | "video">("all");
   const [trackLikedFirst, setTrackLikedFirst] = useState(false);
 
   // Tag sort state
@@ -143,6 +144,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
             limit: PAGE_SIZE,
             offset,
             hasYoutubeUrl: filterYoutubeOnly,
+            mediaType: mediaTypeFilter !== "all" ? mediaTypeFilter : undefined,
           },
         });
         if (append) {
@@ -187,6 +189,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
             limit: PAGE_SIZE,
             offset,
             hasYoutubeUrl: filterYoutubeOnly,
+            mediaType: mediaTypeFilter !== "all" ? mediaTypeFilter : undefined,
           },
         });
         if (append) {
@@ -202,7 +205,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     } catch (e) {
       console.error("Failed to load tracks:", e);
     }
-  }, [debouncedSearchQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir, trackShuffleKey, filterYoutubeOnly]);
+  }, [debouncedSearchQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir, trackShuffleKey, filterYoutubeOnly, mediaTypeFilter]);
 
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
@@ -504,7 +507,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     sortedArtists, artistSortField, artistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,
     sortedAlbums, albumSortField, albumSortDir, albumLikedFirst, setAlbumLikedFirst, handleAlbumSort,
     sortedTags, tagSortField, tagSortDir, tagLikedFirst, setTagLikedFirst, handleTagSort,
-    filterYoutubeOnly, setFilterYoutubeOnly, trackLikedFirst, setTrackLikedFirst,
+    filterYoutubeOnly, setFilterYoutubeOnly, mediaTypeFilter, setMediaTypeFilter, trackLikedFirst, setTrackLikedFirst,
     artistViewMode, setArtistViewMode,
     albumViewMode, setAlbumViewMode,
     tagViewMode, setTagViewMode,

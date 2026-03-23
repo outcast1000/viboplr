@@ -1869,6 +1869,15 @@ function App() {
                     </button>
                   </div>
                   <div className="sort-bar-group">
+                    <button className={`sort-btn${library.mediaTypeFilter === "all" ? " active" : ""}`} onClick={() => library.setMediaTypeFilter("all")}>
+                      All
+                    </button>
+                    <button className={`sort-btn${library.mediaTypeFilter === "audio" ? " active" : ""}`} onClick={() => library.setMediaTypeFilter("audio")}>
+                      Audio
+                    </button>
+                    <button className={`sort-btn${library.mediaTypeFilter === "video" ? " active" : ""}`} onClick={() => library.setMediaTypeFilter("video")}>
+                      Video
+                    </button>
                     <button className={`sort-btn${library.filterYoutubeOnly ? " active" : ""}`} onClick={() => library.setFilterYoutubeOnly(v => !v)}>
                       YouTube
                     </button>
