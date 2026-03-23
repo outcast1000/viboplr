@@ -1404,7 +1404,7 @@ impl Database {
                      LEFT JOIN artists ar ON t.artist_id = ar.id
                      WHERE strip_diacritics(unicode_lower(t.title)) = ht.canonical_title
                      AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ha.canonical_name
-                     AND t.deleted = 0 LIMIT 1) as library_track_id
+                     AND t.deleted = 0 AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1)) LIMIT 1) as library_track_id
              FROM history_plays hp
              JOIN history_tracks ht ON ht.id = hp.history_track_id
              JOIN history_artists ha ON ha.id = ht.history_artist_id
@@ -1433,7 +1433,7 @@ impl Database {
                      LEFT JOIN artists ar ON t.artist_id = ar.id
                      WHERE strip_diacritics(unicode_lower(t.title)) = ht.canonical_title
                      AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ha.canonical_name
-                     AND t.deleted = 0 LIMIT 1) as library_track_id
+                     AND t.deleted = 0 AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1)) LIMIT 1) as library_track_id
              FROM history_tracks ht
              JOIN history_artists ha ON ha.id = ht.history_artist_id
              WHERE ht.play_count > 0
@@ -1460,7 +1460,7 @@ impl Database {
                      LEFT JOIN artists ar ON t.artist_id = ar.id
                      WHERE strip_diacritics(unicode_lower(t.title)) = ht.canonical_title
                      AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ha.canonical_name
-                     AND t.deleted = 0 LIMIT 1) as library_track_id
+                     AND t.deleted = 0 AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1)) LIMIT 1) as library_track_id
              FROM history_plays hp
              JOIN history_tracks ht ON ht.id = hp.history_track_id
              JOIN history_artists ha ON ha.id = ht.history_artist_id
