@@ -26,15 +26,15 @@ export function useVideoSplit(restoredRef: React.RefObject<boolean>) {
     const mainEl = (e.currentTarget as HTMLElement).parentElement;
     if (!mainEl) return;
 
-    // Compute available space for video (main height minus non-resizable elements)
-    const mainRect = mainEl.getBoundingClientRect();
-    const videoContainer = mainEl.querySelector(".video-container") as HTMLElement | null;
-    const videoTop = videoContainer ? videoContainer.getBoundingClientRect().top - mainRect.top : 0;
-    const availableHeight = mainEl.clientHeight - videoTop - SPLITTER_HEIGHT - MIN_CONTENT_HEIGHT;
+    // Compute available space for video (main height minus content min height and non-resizable elements)
+    const contentEl = mainEl.querySelector(".content") as HTMLElement | null;
+    const contentMinHeight = contentEl ? Math.max(MIN_CONTENT_HEIGHT, contentEl.scrollHeight > contentEl.clientHeight ? MIN_CONTENT_HEIGHT : MIN_CONTENT_HEIGHT) : MIN_CONTENT_HEIGHT;
+    const availableHeight = mainEl.clientHeight - contentMinHeight - SPLITTER_HEIGHT;
 
     function onMouseMove(ev: MouseEvent) {
       const delta = ev.clientY - startY;
-      const clamped = Math.min(availableHeight, Math.max(MIN_VIDEO_HEIGHT, startHeight + delta));
+      // Dragging down = smaller video (video is below splitter)
+      const clamped = Math.min(availableHeight, Math.max(MIN_VIDEO_HEIGHT, startHeight - delta));
       setVideoHeight(clamped);
     }
 

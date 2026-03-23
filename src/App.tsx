@@ -1303,49 +1303,6 @@ function App() {
           />
         </div>
 
-        {/* Video player area */}
-        <div
-          className={`video-container${videoSplit.isCollapsed ? " collapsed" : ""}`}
-          style={{
-            display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',
-            height: videoSplit.isCollapsed ? 0 : videoSplit.videoHeight,
-          }}
-        >
-          <video
-            ref={playback.videoRef}
-            onTimeUpdate={playback.onTimeUpdate}
-            onLoadedMetadata={playback.onLoadedMetadata}
-            onPlay={playback.onPlay}
-            onPause={playback.onPause}
-            onClick={playback.handlePause}
-            onDoubleClick={playback.toggleFullscreen}
-          />
-          <button
-            className="video-fullscreen-btn"
-            onClick={playback.toggleFullscreen}
-            title={`Fullscreen (${navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+"}F) \u2014 Esc to exit`}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="15 3 21 3 21 9" />
-              <polyline points="9 21 3 21 3 15" />
-              <line x1="21" y1="3" x2="14" y2="10" />
-              <line x1="3" y1="21" x2="10" y2="14" />
-            </svg>
-          </button>
-        </div>
-        {playback.currentTrack && isVideoTrack(playback.currentTrack) && (
-          <div className="video-splitter" onMouseDown={videoSplit.onSplitterMouseDown}>
-            <div className="splitter-handle" />
-            <button
-              className="splitter-collapse-btn"
-              onClick={videoSplit.toggleCollapse}
-              title={videoSplit.isCollapsed ? "Expand video" : "Collapse video"}
-            >
-              {videoSplit.isCollapsed ? "\u25B2" : "\u25BC"}
-            </button>
-          </div>
-        )}
-
         {/* Content area */}
         <div className="content" ref={contentRef} style={{ minHeight: playback.currentTrack && isVideoTrack(playback.currentTrack) ? 150 : undefined }}>
           <Breadcrumb
@@ -2192,6 +2149,49 @@ function App() {
               onShowAddTidal={() => setShowAddTidal(true)}
             />
           )}
+        </div>
+
+        {/* Video splitter + player area (below content, above now-playing) */}
+        {playback.currentTrack && isVideoTrack(playback.currentTrack) && (
+          <div className="video-splitter" onMouseDown={videoSplit.onSplitterMouseDown}>
+            <div className="splitter-handle" />
+            <button
+              className="splitter-collapse-btn"
+              onClick={videoSplit.toggleCollapse}
+              title={videoSplit.isCollapsed ? "Expand video" : "Collapse video"}
+            >
+              {videoSplit.isCollapsed ? "\u25BC" : "\u25B2"}
+            </button>
+          </div>
+        )}
+        <div
+          className={`video-container${videoSplit.isCollapsed ? " collapsed" : ""}`}
+          style={{
+            display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',
+            height: videoSplit.isCollapsed ? 0 : videoSplit.videoHeight,
+          }}
+        >
+          <video
+            ref={playback.videoRef}
+            onTimeUpdate={playback.onTimeUpdate}
+            onLoadedMetadata={playback.onLoadedMetadata}
+            onPlay={playback.onPlay}
+            onPause={playback.onPause}
+            onClick={playback.handlePause}
+            onDoubleClick={playback.toggleFullscreen}
+          />
+          <button
+            className="video-fullscreen-btn"
+            onClick={playback.toggleFullscreen}
+            title={`Fullscreen (${navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+"}F) \u2014 Esc to exit`}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 3 21 3 21 9" />
+              <polyline points="9 21 3 21 3 15" />
+              <line x1="21" y1="3" x2="14" y2="10" />
+              <line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          </button>
         </div>
       </main>
 
