@@ -122,7 +122,8 @@ function App() {
   });
 
   const statusActivity = scanning
-    ? `Scanning... ${scanProgress.scanned}/${scanProgress.total}`
+    ? (scanProgress.total > 0 ? `Scanning... ${scanProgress.scanned}/${scanProgress.total}` : "Scanning... preparing")
+
     : syncing
     ? `Syncing ${syncProgress.collection}... ${syncProgress.synced}/${syncProgress.total} albums`
     : null;
@@ -793,6 +794,9 @@ function App() {
     const selected = await open({ directory: true, multiple: false });
     if (selected) {
       const folderName = selected.split("/").pop() || selected.split("\\").pop() || selected;
+      setScanning(true);
+      setScanProgress({ scanned: 0, total: 0 });
+      addLog("Adding folder: " + folderName);
       await invoke("add_collection", { kind: "local", name: folderName, path: selected });
       library.loadLibrary();
     }
