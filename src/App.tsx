@@ -89,7 +89,7 @@ function App() {
   const [showAddTidal, setShowAddTidal] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const { sessionLog, addLog, statusHint, setStatusHint } = useSessionLog();
+  const { sessionLog, addLog } = useSessionLog();
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
   const [youtubeFeedback, setYoutubeFeedback] = useState<{
@@ -1017,7 +1017,6 @@ function App() {
         hasTidal={hasTidal}
         collapsed={sidebarCollapsed}
         onToggleCollapse={handleToggleSidebar}
-        onNavHover={setStatusHint}
         onShowAll={library.handleShowAll}
         onShowArtists={() => {
           pushAndScroll();
@@ -2235,7 +2234,6 @@ function App() {
 
       <StatusBar
         sessionLog={sessionLog}
-        hint={statusHint}
         activity={statusActivity}
         feedback={youtubeFeedback ? {
           message: `Was "${youtubeFeedback.videoTitle}" the right video?`,

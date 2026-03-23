@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from "react";
 
 interface StatusBarProps {
   sessionLog: { time: Date; message: string }[];
-  hint?: string | null;
   activity?: string | null;
   feedback?: {
     message: string;
@@ -11,7 +10,7 @@ interface StatusBarProps {
   } | null;
 }
 
-export function StatusBar({ sessionLog, hint, activity, feedback }: StatusBarProps) {
+export function StatusBar({ sessionLog, activity, feedback }: StatusBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [activeMessage, setActiveMessage] = useState<{ message: string; time: Date; isError: boolean } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -38,7 +37,7 @@ export function StatusBar({ sessionLog, hint, activity, feedback }: StatusBarPro
     return () => document.removeEventListener("mousedown", handler);
   }, [expanded]);
 
-  const visible = activeMessage !== null || expanded || !!hint || !!activity || !!feedback;
+  const visible = activeMessage !== null || expanded || !!activity || !!feedback;
 
   return (
     <div className={`status-bar ${visible ? "status-bar-visible" : ""}`} ref={panelRef}>
@@ -54,8 +53,6 @@ export function StatusBar({ sessionLog, hint, activity, feedback }: StatusBarPro
             <span className="status-bar-icon status-bar-icon-spin">{"\u27F3"}</span>
             <span className="status-bar-text">{activity}</span>
           </>
-        ) : hint ? (
-          <span className="status-bar-text">{hint}</span>
         ) : activeMessage ? (
           <>
             <span className={`status-bar-icon ${activeMessage.isError ? "status-bar-icon-error" : ""}`}>

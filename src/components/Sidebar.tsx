@@ -24,7 +24,6 @@ interface SidebarProps {
   hasTidal: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  onNavHover: (hint: string | null) => void;
   onShowAll: () => void;
   onShowArtists: () => void;
   onShowAlbums: () => void;
@@ -42,7 +41,6 @@ export function Sidebar({
   selectedAlbum, selectedArtist,
   hasTidal,
   collapsed, onToggleCollapse,
-  onNavHover,
   onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowTidal, onShowCollections, onShowSettings,
   updateAvailable,
 }: SidebarProps) {
@@ -77,8 +75,6 @@ export function Sidebar({
         <button
           className="sidebar-collapse-btn"
           onClick={onToggleCollapse}
-          onMouseEnter={() => onNavHover(collapsed ? "Expand sidebar" : "Collapse sidebar")}
-          onMouseLeave={() => onNavHover(null)}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
@@ -97,9 +93,7 @@ export function Sidebar({
             key={item.key}
             className={`nav-btn ${item.active ? "active" : ""}`}
             onClick={item.onClick}
-            onMouseEnter={() => onNavHover(item.hint)}
-            onMouseLeave={() => onNavHover(null)}
-            title={collapsed ? item.label : undefined}
+            title={item.hint}
           >
             <span className="nav-btn-label">{item.icon} {!collapsed && item.label}</span>
           </button>
