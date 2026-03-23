@@ -6,7 +6,7 @@ Add a download manager that lets users download tracks from TIDAL and Subsonic s
 
 ## Architecture
 
-Backend-driven download queue running as a background Rust thread (same pattern as the existing image download worker and scanner). The pipeline: resolve stream URL -> download to temp file -> write metadata tags via lofty -> embed cover art -> move to organized path -> notify library.
+Backend-driven download queue running as a background Rust thread (similar to the existing image download worker and scanner). Uses `Mutex<VecDeque> + Condvar` for FIFO ordering (the existing image worker uses `Mutex<Vec>` with LIFO pop — FIFO is more appropriate for downloads where users expect first-queued to download first). The download worker thread receives `Arc<Database>` and `AppHandle` at spawn time for DB access and event emission. API clients (`TidalClient`, `SubsonicClient`) are constructed fresh per download on the worker thread. The pipeline: resolve stream URL -> download to temp file -> write metadata tags via lofty -> embed cover art -> move to organized path -> notify library.
 
 ```
 Frontend (context menu / TIDAL view)
@@ -168,7 +168,7 @@ Removes a pending item from the queue by ID. Cannot cancel an active download (i
 ### Step 1: Resolve stream URL
 
 - **TIDAL**: `TidalClient::get_stream_url(remote_track_id, quality)` where quality is derived from `DownloadFormat`
-- **Subsonic**: `SubsonicClient::stream_url(remote_track_id)` with optional `&format=` and `&maxBitRate=` params appended
+- **Subsonic**: Requires modifying `SubsonicClient::stream_url()` (currently takes only `track_id`) to accept optional `format` and `max_bit_rate` parameters. The Subsonic `stream.view` endpoint supports `format=raw` (original file), `format=mp3`, etc. and `maxBitRate` for server-side transcoding. Note: transcoding support depends on the server's configuration and installed codecs.
 
 ### Step 2: Download to temp file
 
@@ -179,18 +179,20 @@ Removes a pending item from the queue by ID. Cannot cancel an active download (i
 
 ### Step 3: Write metadata tags
 
-- Open the temp file with `lofty::Probe::open().read()`
-- Get or create the primary tag (ID3v2 for MP3, VorbisComments for FLAC, MP4Ilst for M4A)
-- Set: title, artist, album, track number, genre, year
-- Save via `tag.save_to()`
+This introduces tag **writing** with lofty — the codebase currently only reads tags. The lofty 0.22 API supports writing:
+
+- Open the temp file with `lofty::Probe::open().read()` to get a `TaggedFile`
+- Get or create the primary tag via `tagged_file.tag_mut(TagType::VorbisComments)` (FLAC), `TagType::Id3v2` (MP3), or `TagType::Mp4Ilst` (M4A). If the downloaded file has no existing tags (common for TIDAL streams), use `tagged_file.insert_tag(Tag::new(tag_type))` first.
+- Set fields: `tag.set_title()`, `tag.set_artist()`, `tag.set_album()`, `tag.set_track()`, `tag.set_genre()`, `tag.set_year()`
+- Save via `tagged_file.save()`
 
 ### Step 4: Embed cover art
 
 - If `cover_url` is set, HTTP GET the image
-- For TIDAL: fetch `https://resources.tidal.com/images/{cover_id}/1280x1280.jpg`
+- For TIDAL: use existing `TidalClient::cover_url(cover_id, 1280)` helper (handles dash-to-slash conversion in cover ID)
 - For Subsonic: fetch `{base_url}/rest/getCoverArt.view?id={album_id}&{auth_params}`
-- Create a `lofty::Picture` with `PictureType::CoverFront` and the image bytes
-- Add to the tag and save
+- Create a `lofty::Picture` via `Picture::new(PictureType::CoverFront, MimeType::Jpeg, image_bytes)`
+- Add to the tag via `tag.push_picture(picture)` and save
 - Also save as `cover.jpg` in the album directory for the existing image provider
 
 ### Step 5: Move to final path
@@ -202,10 +204,11 @@ Removes a pending item from the queue by ID. Cannot cancel an active download (i
 
 ### Step 6: Register in library
 
-- Call `scanner::process_media_file(db, &final_path, Some(dest_collection_id))` directly
+- Call `scanner::process_media_file(db, &final_path, Some(dest_collection_id))` directly (signature: `&Arc<Database>, &Path, Option<i64>`). Note: this function checks `modified_at` timestamps and skips unchanged files — newly created files will always be imported.
 - This reads the tags we just wrote and creates the track in the database
 - No full rescan needed
-- Rebuild FTS index after each download (or batch after album downloads)
+- For single-track downloads: rebuild FTS (`db.rebuild_fts()`) and recompute counts (`db.recompute_counts()`) immediately
+- For album downloads: batch FTS rebuild and recompute counts once after all tracks complete
 
 ## Frontend Changes
 
@@ -251,7 +254,7 @@ Modified files:
 - `src/components/TidalView.tsx` — add "Download Album" button
 - `src/components/StatusBar.tsx` — add download status indicator + popover
 - `src/components/SettingsPanel.tsx` — add default download format setting
-- `src/store.ts` — add downloadFormat default
+- `src/store.ts` — add `downloadFormat: "flac"` default
 - `src/App.tsx` — wire up download event listeners, pass download state to components
 
 ## Edge Cases
@@ -260,5 +263,6 @@ Modified files:
 - **Incomplete downloads**: Temp files (.viboplr-download-*.tmp) are cleaned up on error. On app startup, clean any stale temp files.
 - **Disabled source collection**: If the source TIDAL/Subsonic collection is disabled, still allow downloads (credentials are still stored).
 - **Missing metadata**: If artist/album is unknown, use "Unknown Artist" / "Unknown Album" for folder names.
-- **Network errors**: Log the error, emit download-error event, move to next item in queue. No automatic retry.
-- **FTS rebuild**: Batch FTS rebuild after album downloads complete (not per-track) to avoid performance issues.
+- **Network errors**: Log the error, emit download-error event, clean up temp file, move to next item in queue. No automatic retry.
+- **Disk space**: If a write fails mid-download (e.g., disk full), clean up the temp file and emit download-error. No pre-flight disk space check (handle write errors gracefully instead).
+- **Subsonic transcoding**: Server-side format transcoding depends on server configuration. If the server doesn't support the requested format, it may return the original format — detect via Content-Type header and adjust file extension accordingly.
