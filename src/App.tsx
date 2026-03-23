@@ -901,6 +901,23 @@ function App() {
     store.set("trackVideoHistory", enabled);
   }
 
+  async function handleDownloadTrack(trackId: number, destCollectionId: number) {
+    const downloadFormat = await store.get<string>("downloadFormat") ?? "flac";
+    const track = tracks.find(t => t.id === trackId);
+    if (!track?.subsonic_id || !track.collection_id) return;
+    try {
+      await invoke("download_track", {
+        sourceCollectionId: track.collection_id,
+        remoteTrackId: track.subsonic_id,
+        destCollectionId,
+        format: downloadFormat,
+      });
+      addLog(`Downloading: ${track.title}`);
+    } catch (e) {
+      addLog(`Download failed: ${e}`);
+    }
+  }
+
   function handleToggleSidebar() {
     setSidebarCollapsed(prev => {
       const next = !prev;
@@ -1068,6 +1085,7 @@ function App() {
   const isHistoryView = view === "history";
   const tidalCollection = library.collections.find(c => c.kind === "tidal" && c.enabled);
   const hasTidal = !!tidalCollection;
+  const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name }));
 
   return (
     <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
@@ -2323,6 +2341,8 @@ function App() {
           onRemoveFromQueue={handleQueueRemove}
           onMoveToTop={handleQueueMoveToTop}
           onMoveToBottom={handleQueueMoveToBottom}
+          onDownload={contextMenu.target.kind === "track" ? (destId: number) => { const t = contextMenu.target; if (t.kind === "track") handleDownloadTrack(t.trackId, destId); } : undefined}
+          localCollections={localCollections}
           onClose={() => setContextMenu(null)}
         />
       )}

@@ -1253,6 +1253,29 @@ body {
   margin: 4px 0;
 }
 
+/* Download submenu */
+.context-menu-submenu {
+  position: relative;
+}
+
+.context-menu-submenu-list {
+  display: none;
+  position: absolute;
+  left: 100%;
+  top: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  min-width: 160px;
+  padding: 4px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 10001;
+}
+
+.context-menu-submenu:hover .context-menu-submenu-list {
+  display: block;
+}
+
 /* Video player */
 .video-container {
   background: #000;

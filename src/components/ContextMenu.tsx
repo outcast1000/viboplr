@@ -29,6 +29,8 @@ interface ContextMenuProps {
   onRemoveFromQueue?: () => void;
   onMoveToTop?: () => void;
   onMoveToBottom?: () => void;
+  onDownload?: (destCollectionId: number) => void;
+  localCollections?: { id: number; name: string }[];
   onClose: () => void;
 }
 
@@ -73,7 +75,7 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
 
 export function ContextMenu({
   menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onShowProperties,
-  onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onClose,
+  onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onDownload, localCollections, onClose,
 }: ContextMenuProps) {
   const { target } = menu;
 
@@ -147,6 +149,29 @@ export function ContextMenu({
           <div className="context-menu-item context-menu-item-danger" onClick={() => { onDelete(); onClose(); }}>
             <IconTrash size={14} /><span>{isMulti ? `Delete ${target.trackIds.length} tracks` : "Delete"}</span>
           </div>
+        </>
+      )}
+      {target.kind === "track" && target.subsonic && onDownload && localCollections && localCollections.length > 0 && (
+        <>
+          <div className="context-menu-separator" />
+          {localCollections.length === 1 ? (
+            <div className="context-menu-item" onClick={() => { onDownload(localCollections[0].id); onClose(); }}>
+              <IconFolder size={14} /><span>Download to {localCollections[0].name}</span>
+            </div>
+          ) : (
+            <div className="context-menu-submenu">
+              <div className="context-menu-item">
+                <IconFolder size={14} /><span>Download to...</span>
+              </div>
+              <div className="context-menu-submenu-list">
+                {localCollections.map(c => (
+                  <div key={c.id} className="context-menu-item" onClick={() => { onDownload(c.id); onClose(); }}>
+                    <span>{c.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
       {contextProviders.length > 0 && (
