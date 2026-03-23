@@ -2891,6 +2891,37 @@ body {
   width: 440px;
 }
 
+.properties-main-field {
+  margin-bottom: 16px;
+}
+
+.properties-main-field label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.properties-main-path {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+  line-height: 1.5;
+  user-select: all;
+}
+
+.properties-main-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .properties-subtitle {
   font-size: 12px;
   color: var(--text-secondary);

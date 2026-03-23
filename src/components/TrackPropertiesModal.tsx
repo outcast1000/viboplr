@@ -17,7 +17,7 @@ interface AudioProperties {
   bitrate: number | null;
 }
 
-type PropertiesTab = "tags" | "format" | "other";
+type PropertiesTab = "main" | "tags" | "format" | "other";
 
 function formatFileSize(bytes: number | null): string {
   if (!bytes) return "—";
@@ -36,7 +36,8 @@ export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrl
   const [audioProps, setAudioProps] = useState<AudioProperties | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState(track.youtube_url ?? "");
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<PropertiesTab>("tags");
+  const [tab, setTab] = useState<PropertiesTab>("main");
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     invoke<Tag[]>("get_tags_for_track", { trackId: track.id }).then(setTags);
@@ -70,11 +71,11 @@ export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrl
         <div className="properties-subtitle">{track.artist_name ?? "Unknown"}{track.album_title ? ` — ${track.album_title}` : ""}</div>
 
         <div className="properties-tabs">
-          {(["tags", "format", "other"] as PropertiesTab[]).map(t => (
+          {(["main", "tags", "format", "other"] as PropertiesTab[]).map(t => (
             <button
               key={t}
               className={`properties-tab${tab === t ? " active" : ""}`}
-              onClick={() => setTab(t)}
+              onClick={() => { setTab(t); setCopied(false); }}
             >
               {t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
@@ -82,6 +83,40 @@ export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrl
         </div>
 
         <div className="properties-tab-content">
+          {tab === "main" && (
+            <div className="properties-main">
+              <div className="properties-main-field">
+                <label>{track.subsonic_id ? "Source" : "File Path"}</label>
+                <div className="properties-main-path">{track.subsonic_id
+                  ? `${(collections.find(c => c.id === track.collection_id)?.url ?? "").replace(/\/+$/, "")}/rest/stream.view?id=${track.subsonic_id}`
+                  : track.path}</div>
+              </div>
+              <div className="properties-main-actions">
+                <button
+                  className="modal-btn modal-btn-cancel"
+                  onClick={() => {
+                    const text = track.subsonic_id
+                      ? `${(collections.find(c => c.id === track.collection_id)?.url ?? "").replace(/\/+$/, "")}/rest/stream.view?id=${track.subsonic_id}`
+                      : track.path;
+                    navigator.clipboard.writeText(text);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                >
+                  {copied ? "Copied!" : "Copy Path"}
+                </button>
+                {!track.subsonic_id && (
+                  <button
+                    className="modal-btn modal-btn-cancel"
+                    onClick={() => invoke("show_in_folder", { trackId: track.id })}
+                  >
+                    Locate File
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {tab === "tags" && (
             <>
               <div className="properties-grid">
