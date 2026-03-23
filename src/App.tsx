@@ -109,6 +109,11 @@ function App() {
   const [lastfmConnected, setLastfmConnected] = useState(false);
   const [lastfmUsername, setLastfmUsername] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState<{
+    active: { id: number; track_title: string; artist_name: string; progress_pct: number } | null;
+    queued: { id: number; track_title: string; artist_name: string }[];
+    completed: { id: number; track_title: string; status: string; error?: string }[];
+  } | null>(null);
 
   // Updater
   const updater = useAppUpdater(addLog);
@@ -126,6 +131,33 @@ function App() {
     setScanning, setScanProgress,
     setSyncing, setSyncProgress,
   });
+
+  // Download event listeners
+  useEffect(() => {
+    const unlisten1 = listen<{ id: number; track_title: string; artist_name: string; progress_pct: number }>(
+      "download-progress",
+      () => { invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus); }
+    );
+    const unlisten2 = listen<{ id: number; trackTitle: string; destPath: string }>(
+      "download-complete",
+      (event) => {
+        addLog(`Downloaded: ${event.payload.trackTitle}`);
+        invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus);
+      }
+    );
+    const unlisten3 = listen<{ id: number; trackTitle: string; error: string }>(
+      "download-error",
+      (event) => {
+        addLog(`Download error: ${event.payload.trackTitle} - ${event.payload.error}`);
+        invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus);
+      }
+    );
+    return () => {
+      unlisten1.then((f) => f());
+      unlisten2.then((f) => f());
+      unlisten3.then((f) => f());
+    };
+  }, []);
 
   const statusActivity = scanning
     ? (scanProgress.total > 0 ? `Scanning... ${scanProgress.scanned}/${scanProgress.total}` : "Scanning... preparing")
@@ -2475,6 +2507,8 @@ function App() {
           onYes: () => handleYoutubeFeedback(true),
           onNo: () => handleYoutubeFeedback(false),
         } : null}
+        downloadStatus={downloadStatus}
+        onCancelDownload={async (id) => { await invoke("cancel_download", { downloadId: id }); invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus); }}
       />
 
     </div>
