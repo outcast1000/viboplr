@@ -194,15 +194,6 @@ export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrl
           {tab === "other" && (
             <>
               <div className="modal-field">
-                <label>{track.subsonic_id ? "Source" : "File Path"}</label>
-                <div className="modal-field-static modal-field-path" title={track.path}>
-                  {track.subsonic_id
-                    ? `${(collections.find(c => c.id === track.collection_id)?.url ?? "").replace(/\/+$/, "")}/rest/stream.view?id=${track.subsonic_id}`
-                    : track.path}
-                </div>
-              </div>
-
-              <div className="modal-field">
                 <label>YouTube URL</label>
                 <div className="properties-youtube-row">
                   <input
