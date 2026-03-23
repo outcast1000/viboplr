@@ -28,6 +28,13 @@ fn is_media_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn is_video_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| VIDEO_EXTENSIONS.contains(&e.to_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
 struct ParsedTags {
     title: String,
     artist: Option<String>,
@@ -195,14 +202,33 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
         info!("New file: {}", path_str);
     }
 
-    let tags = read_tags(path);
-
     let format = path
         .extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase());
 
     let file_size = metadata.map(|m| m.len() as i64);
+
+    // For video files, just use the filename as title — skip tag reading
+    if is_video_file(path) {
+        let title = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown").to_string();
+        let _ = db.upsert_track(
+            &path_str,
+            &title,
+            None,
+            None,
+            None,
+            None,
+            format.as_deref(),
+            file_size,
+            modified_at,
+            collection_id,
+            None,
+        );
+        return;
+    }
+
+    let tags = read_tags(path);
 
     let artist_id = tags
         .artist
