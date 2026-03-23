@@ -176,7 +176,8 @@ pub fn add_collection(
             Ok(collection)
         }
         "tidal" => {
-            let api_url = url.as_deref().ok_or("URL is required for TIDAL collections")?;
+            // URL is optional — auto-discovers instances from uptime API
+            let api_url = url.as_deref().filter(|u| !u.is_empty());
 
             // Test connection
             let client = TidalClient::new(api_url);
@@ -186,7 +187,7 @@ pub fn add_collection(
 
             let collection = state
                 .db
-                .add_collection("tidal", &name, None, Some(api_url), None, None, None, None)
+                .add_collection("tidal", &name, None, api_url, None, None, None, None)
                 .map_err(|e| e.to_string())?;
 
             Ok(collection)
@@ -398,11 +399,7 @@ pub fn get_track_path(state: State<'_, AppState>, track_id: i64) -> Result<Strin
                 Ok(client.stream_url(remote_id))
             }
             "tidal" => {
-                let base_url = collection
-                    .url
-                    .as_deref()
-                    .ok_or("TIDAL collection has no URL")?;
-                let client = TidalClient::new(base_url);
+                let client = TidalClient::new(collection.url.as_deref());
                 client
                     .get_stream_url(remote_id, "LOSSLESS")
                     .map_err(|e| e.to_string())
@@ -835,8 +832,7 @@ pub fn tidal_search(
         .db
         .get_collection_by_id(collection_id)
         .map_err(|e| e.to_string())?;
-    let base_url = collection.url.as_deref().ok_or("Collection has no URL")?;
-    let client = TidalClient::new(base_url);
+    let client = TidalClient::new(collection.url.as_deref());
 
     let tracks = client
         .search_tracks(&query, limit, offset)
@@ -894,8 +890,7 @@ pub fn tidal_save_track(
         .db
         .get_collection_by_id(collection_id)
         .map_err(|e| e.to_string())?;
-    let base_url = collection.url.as_deref().ok_or("Collection has no URL")?;
-    let client = TidalClient::new(base_url);
+    let client = TidalClient::new(collection.url.as_deref());
 
     let info = client
         .get_track_info(&tidal_track_id)
@@ -961,8 +956,7 @@ pub fn tidal_get_album(
         .db
         .get_collection_by_id(collection_id)
         .map_err(|e| e.to_string())?;
-    let base_url = collection.url.as_deref().ok_or("Collection has no URL")?;
-    let client = TidalClient::new(base_url);
+    let client = TidalClient::new(collection.url.as_deref());
 
     let album = client.get_album(&album_id).map_err(|e| e.to_string())?;
 
@@ -1000,8 +994,7 @@ pub fn tidal_get_artist(
         .db
         .get_collection_by_id(collection_id)
         .map_err(|e| e.to_string())?;
-    let base_url = collection.url.as_deref().ok_or("Collection has no URL")?;
-    let client = TidalClient::new(base_url);
+    let client = TidalClient::new(collection.url.as_deref());
 
     let artist = client.get_artist(&artist_id).map_err(|e| e.to_string())?;
     let albums = client
@@ -1374,11 +1367,7 @@ pub fn download_album(
     // Fetch album tracks from remote API
     let tracks_info = match collection.kind.as_str() {
         "tidal" => {
-            let base_url = collection
-                .url
-                .as_deref()
-                .ok_or("TIDAL collection has no URL")?;
-            let client = TidalClient::new(base_url);
+            let client = TidalClient::new(collection.url.as_deref());
             let album = client.get_album(&album_id).map_err(|e| e.to_string())?;
             let cover_url = album
                 .cover_id

@@ -242,11 +242,7 @@ pub fn process_download(
 
     let stream_url = match collection.kind.as_str() {
         "tidal" => {
-            let base_url = collection
-                .url
-                .as_deref()
-                .ok_or("TIDAL collection has no URL")?;
-            let client = TidalClient::new(base_url);
+            let client = TidalClient::new(collection.url.as_deref());
             client
                 .get_stream_url(&request.remote_track_id, request.format.tidal_quality())
                 .map_err(|e| e.to_string())?

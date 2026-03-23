@@ -1,6 +1,8 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::Value;
 use std::fmt;
+use std::sync::Mutex;
+use std::time::Instant;
 
 #[derive(Debug)]
 pub struct TidalError(pub String);
@@ -13,8 +15,101 @@ impl fmt::Display for TidalError {
 
 impl std::error::Error for TidalError {}
 
+// --- Instance failover cache ---
+
+const UPTIME_URLS: &[&str] = &[
+    "https://tidal-uptime.jiffy-puffs-1j.workers.dev/",
+    "https://tidal-uptime.props-76styles.workers.dev/",
+];
+const CACHE_TTL_SECS: u64 = 300;
+
+struct InstanceCache {
+    api_urls: Vec<String>,
+    streaming_urls: Vec<String>,
+    fetched_at: Instant,
+}
+
+static INSTANCE_CACHE: Mutex<Option<InstanceCache>> = Mutex::new(None);
+
+fn fetch_instance_list(client: &reqwest::blocking::Client) -> Option<InstanceCache> {
+    for uptime_url in UPTIME_URLS {
+        let resp = client
+            .get(*uptime_url)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .ok()?;
+        if !resp.status().is_success() {
+            continue;
+        }
+        let json: Value = resp.json().ok()?;
+
+        let parse_urls = |key: &str| -> Vec<String> {
+            json[key]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|item| {
+                            item["url"].as_str().map(|u| u.trim_end_matches('/').to_string())
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        let api_urls = parse_urls("api");
+        let streaming_urls = parse_urls("streaming");
+
+        if !api_urls.is_empty() || !streaming_urls.is_empty() {
+            return Some(InstanceCache {
+                api_urls,
+                streaming_urls,
+                fetched_at: Instant::now(),
+            });
+        }
+    }
+    None
+}
+
+fn get_fallback_urls(
+    client: &reqwest::blocking::Client,
+    path: &str,
+    exclude: &str,
+) -> Vec<String> {
+    let mut cache = INSTANCE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+
+    let needs_refresh = match &*cache {
+        Some(c) => c.fetched_at.elapsed().as_secs() > CACHE_TTL_SECS,
+        None => true,
+    };
+
+    if needs_refresh {
+        if let Some(new_cache) = fetch_instance_list(client) {
+            *cache = Some(new_cache);
+        }
+    }
+
+    let is_streaming = path.starts_with("/track") || path.starts_with("/video");
+
+    match &*cache {
+        Some(c) => {
+            let urls = if is_streaming {
+                &c.streaming_urls
+            } else {
+                &c.api_urls
+            };
+            urls.iter()
+                .filter(|u| u.as_str() != exclude)
+                .cloned()
+                .collect()
+        }
+        None => Vec::new(),
+    }
+}
+
+// --- TidalClient ---
+
 pub struct TidalClient {
-    base_url: String,
+    override_url: Option<String>,
     client: reqwest::blocking::Client,
 }
 
@@ -46,20 +141,24 @@ pub struct TidalArtistInfo {
 }
 
 impl TidalClient {
-    pub fn new(url: &str) -> Self {
-        let base_url = url.trim_end_matches('/').to_string();
+    pub fn new(url: Option<&str>) -> Self {
+        let override_url = url
+            .filter(|u| !u.is_empty())
+            .map(|u| u.trim_end_matches('/').to_string());
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
             .build()
             .unwrap_or_else(|_| reqwest::blocking::Client::new());
-        Self { base_url, client }
+        Self {
+            override_url,
+            client,
+        }
     }
 
-    fn get_json(&self, path: &str) -> Result<Value, TidalError> {
-        let url = format!("{}{}", self.base_url, path);
+    fn fetch_json(&self, url: &str) -> Result<Value, TidalError> {
         let resp = self
             .client
-            .get(&url)
+            .get(url)
             .send()
             .map_err(|e| TidalError(format!("HTTP error: {}", e)))?;
         let status = resp.status();
@@ -82,6 +181,46 @@ impl TidalClient {
                 &body[..body.len().min(200)]
             ))
         })
+    }
+
+    fn get_json(&self, path: &str) -> Result<Value, TidalError> {
+        // If user set an override URL, try it first
+        if let Some(ref base) = self.override_url {
+            let url = format!("{}{}", base, path);
+            match self.fetch_json(&url) {
+                Ok(json) => return Ok(json),
+                Err(e) => {
+                    eprintln!("TIDAL: override instance {} failed ({}), trying auto-discovery", base, e);
+                }
+            }
+        }
+
+        // Try instances from the uptime API
+        let exclude = self.override_url.as_deref().unwrap_or("");
+        let instances = get_fallback_urls(&self.client, path, exclude);
+        if instances.is_empty() && self.override_url.is_none() {
+            return Err(TidalError(
+                "No TIDAL instances available (uptime API unreachable and no override URL set)".to_string(),
+            ));
+        }
+
+        let mut last_err = None;
+        for instance in &instances {
+            let url = format!("{}{}", instance, path);
+            match self.fetch_json(&url) {
+                Ok(json) => {
+                    eprintln!("TIDAL: succeeded with {}", instance);
+                    return Ok(json);
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| {
+            TidalError("All TIDAL instances failed".to_string())
+        }))
     }
 
     pub fn ping(&self) -> Result<String, TidalError> {
@@ -206,7 +345,12 @@ impl TidalClient {
     pub fn get_album(&self, id: &str) -> Result<TidalAlbumInfo, TidalError> {
         let json = self.get_json(&format!("/album/?id={}", id))?;
         let data = &json["data"];
-        let album_data = &data["album"];
+        // Album metadata is directly on data (not nested under data.album)
+        let album_data = if data["album"].is_object() {
+            &data["album"]
+        } else {
+            data
+        };
 
         let tracks = data["items"]
             .as_array()
@@ -249,12 +393,21 @@ impl TidalClient {
 
     pub fn get_artist(&self, id: &str) -> Result<TidalArtistInfo, TidalError> {
         let json = self.get_json(&format!("/artist/?id={}", id))?;
-        Ok(parse_artist(&json["data"]))
+        // Response may have artist under "data" or "artist"
+        let artist_data = if json["artist"].is_object() {
+            &json["artist"]
+        } else {
+            &json["data"]
+        };
+        Ok(parse_artist(artist_data))
     }
 
     pub fn get_artist_albums(&self, id: &str) -> Result<Vec<TidalAlbumInfo>, TidalError> {
         let json = self.get_json(&format!("/artist/?f={}&skip_tracks=true", id))?;
-        let items = json["data"]["albums"].as_array();
+        // Response may have albums at "albums.items" or "data.albums"
+        let items = json["albums"]["items"]
+            .as_array()
+            .or_else(|| json["data"]["albums"].as_array());
         Ok(items
             .map(|arr| {
                 arr.iter()

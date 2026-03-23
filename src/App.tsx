@@ -941,17 +941,12 @@ function App() {
     store.set("downloadFormat", format);
   }
 
-  async function handleDownloadAlbum(albumId: string, sourceCollectionId: number) {
-    if (localCollections.length === 0) {
-      addLog("No local collections available for download");
-      return;
-    }
-    const destId = localCollections[0].id;
+  async function handleDownloadAlbum(albumId: string, sourceCollectionId: number, destCollectionId: number) {
     try {
       const ids = await invoke<number[]>("download_album", {
         sourceCollectionId,
         albumId,
-        destCollectionId: destId,
+        destCollectionId,
         format: downloadFormat,
       });
       addLog(`Queued ${ids.length} tracks for download`);
@@ -2258,6 +2253,7 @@ function App() {
               onPlayTracks={queueHook.playTracks}
               onEnqueueTracks={handleEnqueue}
               onDownloadAlbum={handleDownloadAlbum}
+              localCollections={localCollections}
             />
           )}
 
