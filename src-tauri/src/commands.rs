@@ -632,23 +632,7 @@ pub fn clear_image_failures(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn record_play(state: State<'_, AppState>, track_id: i64) -> Result<(), String> {
-    state.db.record_play(track_id).map_err(|e| e.to_string())?;
-    state.db.record_history_play(track_id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_recent_plays(state: State<'_, AppState>, limit: i64) -> Result<Vec<PlayHistoryEntry>, String> {
-    state.db.get_recent_plays(limit).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_most_played(state: State<'_, AppState>, limit: i64) -> Result<Vec<MostPlayedTrack>, String> {
-    state.db.get_most_played(limit).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_most_played_since(state: State<'_, AppState>, since_ts: i64, limit: i64) -> Result<Vec<MostPlayedTrack>, String> {
-    state.db.get_most_played_since(since_ts, limit).map_err(|e| e.to_string())
+    state.db.record_play(track_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1404,15 +1388,10 @@ mod tests {
         state.db.record_play(t1).unwrap(); // deduplicated (same track within 30s)
         state.db.record_play(t2).unwrap();
 
-        let recent = state.db.get_recent_plays(10).unwrap();
-        assert_eq!(recent.len(), 2); // was 3, now 2 due to dedup
-        let t1_plays = recent.iter().filter(|r| r.track_id == t1).count();
-        let t2_plays = recent.iter().filter(|r| r.track_id == t2).count();
-        assert_eq!(t1_plays, 1); // was 2, now 1 due to dedup
-        assert_eq!(t2_plays, 1);
+        let recent = state.db.get_history_recent(10).unwrap();
+        assert_eq!(recent.len(), 2); // deduped: Song A once + Song B once
 
-        let most = state.db.get_most_played(10).unwrap();
-        // Both tracks have 1 play each now, order may vary
+        let most = state.db.get_history_most_played(10).unwrap();
         assert_eq!(most.len(), 2);
         assert!(most.iter().all(|m| m.play_count == 1));
     }

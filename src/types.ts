@@ -61,25 +61,6 @@ export interface Collection {
 
 export type View = "all" | "artists" | "albums" | "tags" | "liked" | "history" | "tidal" | "collections";
 
-export interface PlayHistoryEntry {
-  id: number;
-  track_id: number;
-  played_at: number;
-  track_title: string;
-  artist_name: string | null;
-  album_title: string | null;
-  duration_secs: number | null;
-}
-
-export interface MostPlayedTrack {
-  track_id: number;
-  play_count: number;
-  track_title: string;
-  artist_name: string | null;
-  album_title: string | null;
-  duration_secs: number | null;
-}
-
 export interface HistoryEntry {
   id: number;
   history_track_id: number;
