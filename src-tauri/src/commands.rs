@@ -3,6 +3,7 @@ use std::thread;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::db::Database;
+use crate::downloader::{DownloadFormat, DownloadManager, DownloadRequest};
 use crate::lastfm::LastfmClient;
 use crate::models::*;
 use crate::scanner;
@@ -35,6 +36,7 @@ pub struct AppState {
     pub db: Arc<Database>,
     pub app_dir: std::path::PathBuf,
     pub download_queue: Arc<DownloadQueue>,
+    pub track_download_manager: Arc<DownloadManager>,
     pub lastfm: LastfmClient,
     pub lastfm_session: Mutex<Option<(String, String)>>,  // (session_key, username)
 }
@@ -1288,6 +1290,172 @@ pub fn lastfm_scrobble(state: State<'_, AppState>, app: AppHandle, track_id: i64
     });
 }
 
+// --- Download commands ---
+
+#[tauri::command]
+pub fn download_track(
+    state: State<'_, AppState>,
+    source_collection_id: i64,
+    remote_track_id: String,
+    dest_collection_id: i64,
+    format: String,
+) -> Result<u64, String> {
+    let fmt = DownloadFormat::from_str(&format)?;
+
+    // Look up track metadata from DB
+    let tracks = state
+        .db
+        .get_tracks_by_subsonic_id(&remote_track_id, source_collection_id)
+        .map_err(|e| e.to_string())?;
+    let track = tracks.first().ok_or("Track not found in database")?;
+
+    // Look up destination collection path
+    let dest_collection = state
+        .db
+        .get_collection_by_id(dest_collection_id)
+        .map_err(|e| e.to_string())?;
+    let dest_path = dest_collection
+        .path
+        .ok_or("Destination collection has no path")?;
+
+    // Resolve cover URL
+    let cover_url = resolve_cover_url(&state.db, track, source_collection_id);
+
+    let id = state.track_download_manager.next_id();
+    let request = DownloadRequest {
+        id,
+        track_title: track.title.clone(),
+        artist_name: track
+            .artist_name
+            .clone()
+            .unwrap_or_else(|| "Unknown Artist".to_string()),
+        album_title: track
+            .album_title
+            .clone()
+            .unwrap_or_else(|| "Unknown Album".to_string()),
+        track_number: track.track_number.map(|n| n as u32),
+        genre: None, // tags not stored on Track struct directly
+        year: track.year,
+        cover_url,
+        source_collection_id,
+        remote_track_id,
+        dest_collection_id,
+        dest_collection_path: dest_path,
+        format: fmt,
+        is_batch_last: true, // single track = always rebuild FTS
+    };
+
+    state.track_download_manager.enqueue(request);
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn download_album(
+    state: State<'_, AppState>,
+    source_collection_id: i64,
+    album_id: String,
+    dest_collection_id: i64,
+    format: String,
+) -> Result<Vec<u64>, String> {
+    let fmt = DownloadFormat::from_str(&format)?;
+
+    let collection = state
+        .db
+        .get_collection_by_id(source_collection_id)
+        .map_err(|e| e.to_string())?;
+    let dest_collection = state
+        .db
+        .get_collection_by_id(dest_collection_id)
+        .map_err(|e| e.to_string())?;
+    let dest_path = dest_collection
+        .path
+        .ok_or("Destination collection has no path")?;
+
+    // Fetch album tracks from remote API
+    let tracks_info = match collection.kind.as_str() {
+        "tidal" => {
+            let base_url = collection
+                .url
+                .as_deref()
+                .ok_or("TIDAL collection has no URL")?;
+            let client = TidalClient::new(base_url);
+            let album = client.get_album(&album_id).map_err(|e| e.to_string())?;
+            let cover_url = album
+                .cover_id
+                .as_deref()
+                .map(|id| TidalClient::cover_url(id, 1280));
+            album
+                .tracks
+                .into_iter()
+                .map(|t| {
+                    (
+                        t.id,
+                        t.title,
+                        t.artist_name.unwrap_or_default(),
+                        album.title.clone(),
+                        t.track_number.map(|n| n as u32),
+                        album.year,
+                        cover_url.clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        }
+        _ => {
+            return Err("Album download currently only supported for TIDAL".to_string());
+        }
+    };
+
+    let count = tracks_info.len();
+    let mut ids = Vec::with_capacity(count);
+
+    for (i, (remote_id, title, artist, album_title, track_num, year, cover_url)) in
+        tracks_info.into_iter().enumerate()
+    {
+        let id = state.track_download_manager.next_id();
+        let request = DownloadRequest {
+            id,
+            track_title: title,
+            artist_name: artist,
+            album_title,
+            track_number: track_num,
+            genre: None,
+            year,
+            cover_url,
+            source_collection_id,
+            remote_track_id: remote_id,
+            dest_collection_id,
+            dest_collection_path: dest_path.clone(),
+            format: fmt,
+            is_batch_last: i == count - 1,
+        };
+        state.track_download_manager.enqueue(request);
+        ids.push(id);
+    }
+
+    Ok(ids)
+}
+
+#[tauri::command]
+pub fn get_download_status(
+    state: State<'_, AppState>,
+) -> Result<crate::downloader::DownloadQueueInfo, String> {
+    Ok(state.track_download_manager.get_status())
+}
+
+#[tauri::command]
+pub fn cancel_download(state: State<'_, AppState>, download_id: u64) -> Result<bool, String> {
+    Ok(state.track_download_manager.cancel(download_id))
+}
+
+fn resolve_cover_url(db: &Arc<Database>, track: &Track, collection_id: i64) -> Option<String> {
+    // For TIDAL tracks, try to find cover_id from the track path pattern tidal://{coll_id}/{tidal_id}
+    // The cover_id isn't stored in the tracks table, so we look it up from the album
+    // For now, return None -- the download pipeline will still work without embedded art
+    // TODO: store cover_id in a metadata field or look up via TIDAL API
+    let _ = (db, track, collection_id);
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1302,6 +1470,7 @@ mod tests {
                 queue: Mutex::new(Vec::new()),
                 condvar: Condvar::new(),
             }),
+            track_download_manager: Arc::new(DownloadManager::new()),
             lastfm: LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET),
             lastfm_session: Mutex::new(None),
         }

@@ -15,6 +15,7 @@ mod lastfm;
 
 use commands::{AppState, DownloadQueue, ImageDownloadRequest};
 use db::Database;
+use downloader::DownloadManager;
 use image_provider::{
     AlbumImageFallbackChain, AlbumImageProvider, ArtistImageFallbackChain, ArtistImageProvider,
 };
@@ -80,6 +81,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::lastfm_get_status,
         commands::lastfm_now_playing,
         commands::lastfm_scrobble,
+        commands::download_track,
+        commands::download_album,
+        commands::get_download_status,
+        commands::cancel_download,
     ]
 }
 
@@ -141,6 +146,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::lastfm_get_status,
         commands::lastfm_now_playing,
         commands::lastfm_scrobble,
+        commands::download_track,
+        commands::download_album,
+        commands::get_download_status,
+        commands::cancel_download,
     ]
 }
 
@@ -338,6 +347,70 @@ pub fn run() {
                 }
             }); });
 
+            // Spawn the track download worker thread
+            let dl_manager = Arc::new(DownloadManager::new());
+            let dl_worker_manager = dl_manager.clone();
+            let dl_worker_db = db.clone();
+            let dl_app_handle = app.handle().clone();
+            timer.time("spawn_download_worker", || { std::thread::spawn(move || {
+                loop {
+                    let request = dl_worker_manager.wait_for_next();
+                    let status = crate::downloader::DownloadStatus {
+                        id: request.id,
+                        track_title: request.track_title.clone(),
+                        artist_name: request.artist_name.clone(),
+                        status: "downloading".to_string(),
+                        progress_pct: 0,
+                        error: None,
+                    };
+                    dl_worker_manager.set_active(Some(status.clone()));
+                    let _ = dl_app_handle.emit("download-progress", &status);
+
+                    match crate::downloader::process_download(&request, &dl_worker_db, &dl_app_handle, &dl_worker_manager) {
+                        Ok(dest_path) => {
+                            let complete = crate::downloader::DownloadStatus {
+                                id: request.id,
+                                track_title: request.track_title.clone(),
+                                artist_name: request.artist_name.clone(),
+                                status: "complete".to_string(),
+                                progress_pct: 100,
+                                error: None,
+                            };
+                            dl_worker_manager.set_active(None);
+                            dl_worker_manager.push_completed(complete.clone());
+                            let _ = dl_app_handle.emit("download-complete", serde_json::json!({
+                                "id": request.id,
+                                "trackTitle": request.track_title,
+                                "destPath": dest_path.to_string_lossy(),
+                            }));
+
+                            // Emit scan-complete so frontend refreshes library
+                            let _ = dl_app_handle.emit("scan-complete", serde_json::json!({
+                                "folder": request.dest_collection_path,
+                            }));
+                        }
+                        Err(e) => {
+                            log::error!("Download failed for {}: {}", request.track_title, e);
+                            let error_status = crate::downloader::DownloadStatus {
+                                id: request.id,
+                                track_title: request.track_title.clone(),
+                                artist_name: request.artist_name.clone(),
+                                status: "error".to_string(),
+                                progress_pct: 0,
+                                error: Some(e.clone()),
+                            };
+                            dl_worker_manager.set_active(None);
+                            dl_worker_manager.push_completed(error_status);
+                            let _ = dl_app_handle.emit("download-error", serde_json::json!({
+                                "id": request.id,
+                                "trackTitle": request.track_title,
+                                "error": e,
+                            }));
+                        }
+                    }
+                }
+            }); });
+
             // Restore window size/position from store before showing, to avoid IPC round-trips
             timer.time("restore_window", || {
                 let window = app.get_webview_window("main").unwrap();
@@ -423,6 +496,7 @@ pub fn run() {
                     db,
                     app_dir,
                     download_queue,
+                    track_download_manager: dl_manager,
                     lastfm: crate::lastfm::LastfmClient::new(crate::commands::LASTFM_API_KEY, crate::commands::LASTFM_API_SECRET),
                     lastfm_session: Mutex::new(None),
                 });

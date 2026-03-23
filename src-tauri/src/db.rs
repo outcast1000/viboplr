@@ -1038,6 +1038,25 @@ impl Database {
         Ok(())
     }
 
+    pub fn get_tracks_by_subsonic_id(
+        &self,
+        subsonic_id: &str,
+        collection_id: i64,
+    ) -> SqlResult<Vec<Track>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&format!(
+            "{} WHERE t.subsonic_id = ?1 AND t.collection_id = ?2",
+            TRACK_SELECT
+        ))?;
+        let tracks = stmt
+            .query_map(params![subsonic_id, collection_id], |row| {
+                track_from_row(row)
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(tracks)
+    }
+
     pub fn get_tracks_by_ids(&self, ids: &[i64]) -> SqlResult<Vec<Track>> {
         if ids.is_empty() {
             return Ok(vec![]);
