@@ -1,7 +1,15 @@
 use serde::Serialize;
 use std::collections::VecDeque;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
+use tauri::{AppHandle, Emitter};
+
+use crate::db::Database;
+use crate::scanner;
+use crate::subsonic::SubsonicClient;
+use crate::tidal::TidalClient;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DownloadFormat {
@@ -161,4 +169,275 @@ impl DownloadManager {
         }
         queue.pop_front().unwrap()
     }
+}
+
+// --- Filesystem helpers ---
+
+/// Sanitize a string for use as a filename/directory name
+pub fn sanitize_filename(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect();
+    let trimmed = sanitized.trim().trim_matches('.');
+    if trimmed.is_empty() {
+        "Unknown".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Build the destination path: {dest_root}/{Artist}/{Album}/{TrackNum} - {Title}.{ext}
+pub fn build_dest_path(request: &DownloadRequest) -> PathBuf {
+    let artist_dir = sanitize_filename(&request.artist_name);
+    let album_dir = sanitize_filename(&request.album_title);
+    let filename = match request.track_number {
+        Some(num) => format!(
+            "{:02} - {}.{}",
+            num,
+            sanitize_filename(&request.track_title),
+            request.format.extension()
+        ),
+        None => format!(
+            "{}.{}",
+            sanitize_filename(&request.track_title),
+            request.format.extension()
+        ),
+    };
+    Path::new(&request.dest_collection_path)
+        .join(artist_dir)
+        .join(album_dir)
+        .join(filename)
+}
+
+// --- Download pipeline ---
+
+/// Run a single download: fetch stream -> write to file -> tag -> move -> register
+pub fn process_download(
+    request: &DownloadRequest,
+    db: &Arc<Database>,
+    app: &AppHandle,
+    manager: &Arc<DownloadManager>,
+) -> Result<PathBuf, String> {
+    let dest_path = build_dest_path(request);
+
+    // Check for duplicates
+    if dest_path.exists() {
+        return Err(format!("File already exists: {}", dest_path.display()));
+    }
+
+    // Create parent directories
+    if let Some(parent) = dest_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directories: {}", e))?;
+    }
+
+    // Step 1: Resolve stream URL
+    let collection = db
+        .get_collection_by_id(request.source_collection_id)
+        .map_err(|e| e.to_string())?;
+
+    let stream_url = match collection.kind.as_str() {
+        "tidal" => {
+            let base_url = collection
+                .url
+                .as_deref()
+                .ok_or("TIDAL collection has no URL")?;
+            let client = TidalClient::new(base_url);
+            client
+                .get_stream_url(&request.remote_track_id, request.format.tidal_quality())
+                .map_err(|e| e.to_string())?
+        }
+        "subsonic" => {
+            let creds = db
+                .get_collection_credentials(request.source_collection_id)
+                .map_err(|e| e.to_string())?;
+            let client = SubsonicClient::from_stored(
+                &creds.url,
+                &creds.username,
+                &creds.password_token,
+                creds.salt.as_deref(),
+                &creds.auth_method,
+            );
+            client.stream_url_with_format(
+                &request.remote_track_id,
+                request.format.subsonic_format_param(),
+            )
+        }
+        _ => return Err(format!("Unsupported collection kind: {}", collection.kind)),
+    };
+
+    // Step 2: Download to temp file
+    let temp_path = dest_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join(format!(".viboplr-download-{}.tmp", request.id));
+
+    let http_client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let resp = http_client
+        .get(&stream_url)
+        .send()
+        .map_err(|e| format!("Download failed: {}", e))?;
+
+    let total_bytes = resp.content_length().unwrap_or(0);
+    let mut downloaded: u64 = 0;
+    let mut last_emit = std::time::Instant::now();
+
+    let mut file = std::fs::File::create(&temp_path)
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+
+    let mut reader = std::io::BufReader::new(resp);
+    let mut buf = [0u8; 8192];
+    loop {
+        use std::io::Read;
+        let n = reader.read(&mut buf).map_err(|e| {
+            let _ = std::fs::remove_file(&temp_path);
+            format!("Read error: {}", e)
+        })?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n]).map_err(|e| {
+            let _ = std::fs::remove_file(&temp_path);
+            format!("Write error: {}", e)
+        })?;
+        downloaded += n as u64;
+
+        // Emit progress every 500ms
+        if last_emit.elapsed() >= std::time::Duration::from_millis(500) {
+            let pct = if total_bytes > 0 {
+                ((downloaded as f64 / total_bytes as f64) * 100.0) as u8
+            } else {
+                0
+            };
+            let status = DownloadStatus {
+                id: request.id,
+                track_title: request.track_title.clone(),
+                artist_name: request.artist_name.clone(),
+                status: "downloading".to_string(),
+                progress_pct: pct,
+                error: None,
+            };
+            manager.set_active(Some(status.clone()));
+            let _ = app.emit("download-progress", &status);
+            last_emit = std::time::Instant::now();
+        }
+    }
+    file.flush().map_err(|e| format!("Flush error: {}", e))?;
+    drop(file);
+
+    // Step 3 & 4: Write tags + cover art
+    let tag_status = DownloadStatus {
+        id: request.id,
+        track_title: request.track_title.clone(),
+        artist_name: request.artist_name.clone(),
+        status: "writing_tags".to_string(),
+        progress_pct: 100,
+        error: None,
+    };
+    manager.set_active(Some(tag_status.clone()));
+    let _ = app.emit("download-progress", &tag_status);
+
+    if let Err(e) = write_tags(&temp_path, request, &http_client) {
+        log::warn!("Failed to write tags: {}", e);
+        // Non-fatal: continue even if tagging fails
+    }
+
+    // Step 5: Move to final path
+    std::fs::rename(&temp_path, &dest_path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        format!("Failed to move file: {}", e)
+    })?;
+
+    // Step 6: Register in library
+    scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id));
+
+    if request.is_batch_last {
+        let _ = db.rebuild_fts();
+        let _ = db.recompute_counts();
+    }
+
+    Ok(dest_path)
+}
+
+fn write_tags(
+    path: &Path,
+    request: &DownloadRequest,
+    http_client: &reqwest::blocking::Client,
+) -> Result<(), String> {
+    use lofty::config::WriteOptions;
+    use lofty::picture::{MimeType, Picture, PictureType};
+    use lofty::prelude::*;
+    use lofty::probe::Probe;
+
+    let mut tagged_file = Probe::open(path)
+        .map_err(|e| format!("Probe open: {}", e))?
+        .read()
+        .map_err(|e| format!("Probe read: {}", e))?;
+
+    let tag_type = tagged_file.primary_tag_type();
+    let tag = match tagged_file.tag_mut(tag_type) {
+        Some(t) => t,
+        None => {
+            tagged_file.insert_tag(lofty::tag::Tag::new(tag_type));
+            tagged_file.tag_mut(tag_type).unwrap()
+        }
+    };
+
+    tag.set_title(request.track_title.clone());
+    tag.set_artist(request.artist_name.clone());
+    tag.set_album(request.album_title.clone());
+    if let Some(num) = request.track_number {
+        tag.set_track(num);
+    }
+    if let Some(genre) = &request.genre {
+        tag.set_genre(genre.clone());
+    }
+    if let Some(year) = request.year {
+        tag.set_year(year as u32);
+    }
+
+    // Embed cover art
+    if let Some(cover_url) = &request.cover_url {
+        match http_client.get(cover_url).send() {
+            Ok(resp) => {
+                if let Ok(bytes) = resp.bytes() {
+                    let mime = if cover_url.contains(".png") {
+                        MimeType::Png
+                    } else {
+                        MimeType::Jpeg
+                    };
+                    let picture = Picture::new_unchecked(
+                        PictureType::CoverFront,
+                        Some(mime),
+                        None,
+                        bytes.to_vec(),
+                    );
+                    tag.push_picture(picture);
+
+                    // Also save as cover.jpg alongside the file
+                    if let Some(parent) = path.parent() {
+                        let cover_path = parent.join("cover.jpg");
+                        if !cover_path.exists() {
+                            let _ = std::fs::write(&cover_path, &bytes);
+                        }
+                    }
+                }
+            }
+            Err(e) => log::warn!("Failed to fetch cover art: {}", e),
+        }
+    }
+
+    tagged_file
+        .save_to_path(path, WriteOptions::default())
+        .map_err(|e| format!("Save tags: {}", e))?;
+
+    Ok(())
 }

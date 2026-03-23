@@ -260,4 +260,15 @@ impl SubsonicClient {
     pub fn stream_url(&self, track_id: &str) -> String {
         format!("{}/rest/stream.view?id={}&{}", self.base_url, track_id, self.auth_params)
     }
+
+    pub fn stream_url_with_format(&self, track_id: &str, format: Option<&str>) -> String {
+        let mut url = format!(
+            "{}/rest/stream.view?id={}&{}",
+            self.base_url, track_id, self.auth_params
+        );
+        if let Some(fmt) = format {
+            url.push_str(&format!("&format={}", fmt));
+        }
+        url
+    }
 }
