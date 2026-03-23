@@ -1566,6 +1566,13 @@ body {
   color: var(--text-secondary);
 }
 
+.col-added,
+.col-modified {
+  width: 90px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
 /* Sortable column headers */
 .track-header .sortable {
   cursor: pointer;

@@ -16,6 +16,8 @@ const COLUMN_DISPLAY_NAMES: Record<TrackColumnId, string> = {
   quality: "Quality",
   size: "Size",
   collection: "Collection",
+  added: "Added",
+  modified: "Modified",
 };
 
 const COLUMN_SORT_FIELDS: Partial<Record<TrackColumnId, SortField>> = {
@@ -29,6 +31,8 @@ const COLUMN_SORT_FIELDS: Partial<Record<TrackColumnId, SortField>> = {
   quality: "quality",
   size: "size",
   collection: "collection",
+  added: "added",
+  modified: "modified",
 };
 
 function formatFileSize(bytes: number | null): string {
@@ -46,6 +50,11 @@ function formatQuality(track: Track): string {
     return fmt ? `${fmt} ${kbps}kbps` : `${kbps}kbps`;
   }
   return fmt;
+}
+
+function formatDate(epochSecs: number | null): string {
+  if (!epochSecs) return "";
+  return new Date(epochSecs * 1000).toLocaleDateString();
 }
 
 function filenameFromPath(path: string): string {
@@ -395,6 +404,10 @@ export function TrackList({
         return <span key="size" className="col-size">{formatFileSize(t.file_size)}</span>;
       case "collection":
         return <span key="collection" className="col-collection">{t.collection_name ?? ""}</span>;
+      case "added":
+        return <span key="added" className="col-added">{formatDate(t.added_at)}</span>;
+      case "modified":
+        return <span key="modified" className="col-modified">{formatDate(t.modified_at)}</span>;
     }
   }
 

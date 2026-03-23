@@ -65,6 +65,8 @@ pub struct Track {
     pub liked: bool,
     pub deleted: bool,
     pub youtube_url: Option<String>,
+    pub added_at: Option<i64>,
+    pub modified_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

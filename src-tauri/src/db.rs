@@ -14,7 +14,8 @@ pub fn strip_diacritics(s: &str) -> String {
 
 const TRACK_SELECT: &str =
     "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, al.year, \
-     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.deleted, t.youtube_url \
+     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.deleted, t.youtube_url, \
+     t.added_at, t.modified_at \
      FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id \
      LEFT JOIN collections co ON t.collection_id = co.id";
 
@@ -41,6 +42,8 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
         liked: row.get::<_, i32>(15).unwrap_or(0) != 0,
         deleted: row.get::<_, i32>(16).unwrap_or(0) != 0,
         youtube_url: row.get(17)?,
+        added_at: row.get(18)?,
+        modified_at: row.get(19)?,
     })
 }
 
@@ -85,6 +88,8 @@ fn sort_column_sql(field: Option<&str>) -> Option<String> {
         Some("year") => Some("COALESCE(al.year, 0)".to_string()),
         Some("quality") => Some("(CASE WHEN t.duration_secs > 0 AND t.file_size > 0 THEN t.file_size * 8.0 / t.duration_secs / 1000.0 ELSE 0 END)".to_string()),
         Some("collection") => Some("COALESCE(co.name, '')".to_string()),
+        Some("added") => Some("COALESCE(t.added_at, 0)".to_string()),
+        Some("modified") => Some("COALESCE(t.modified_at, 0)".to_string()),
         Some("random") => Some("RANDOM()".to_string()),
         _ => None,
     }
@@ -667,7 +672,8 @@ impl Database {
 
         let mut sql = String::from(
             "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, al.year, \
-             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.deleted, t.youtube_url \
+             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.deleted, t.youtube_url, \
+             t.added_at, t.modified_at \
              FROM tracks_fts fts \
              JOIN tracks t ON fts.rowid = t.id \
              LEFT JOIN artists ar ON t.artist_id = ar.id \

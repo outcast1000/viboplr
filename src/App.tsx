@@ -291,7 +291,7 @@ function App() {
           setLastfmUsername(savedLastfmUsername);
           invoke("lastfm_set_session", { sessionKey: savedLastfmSessionKey, username: savedLastfmUsername }).catch(console.error);
         }
-        if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
+        if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "added", "modified", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
         if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
         if (tCols && Array.isArray(tCols) && tCols.length > 0) {
           // Merge in any new columns that weren't in the saved config
@@ -1858,6 +1858,12 @@ function App() {
                     <button className={`sort-btn${library.sortField === "duration" ? " active" : ""}`} onClick={() => library.handleSort("duration")}>
                       Duration{library.sortIndicator("duration")}
                     </button>
+                    <button className={`sort-btn${library.sortField === "added" ? " active" : ""}`} onClick={() => library.handleSort("added")}>
+                      Added{library.sortIndicator("added")}
+                    </button>
+                    <button className={`sort-btn${library.sortField === "modified" ? " active" : ""}`} onClick={() => library.handleSort("modified")}>
+                      Modified{library.sortIndicator("modified")}
+                    </button>
                     <button className={`sort-btn${library.sortField === "random" ? " active" : ""}`} onClick={() => library.handleSort("random")}>
                       Shuffle
                     </button>
@@ -2022,6 +2028,12 @@ function App() {
                   </button>
                   <button className={`sort-btn${library.sortField === "duration" ? " active" : ""}`} onClick={() => library.handleSort("duration")}>
                     Duration{library.sortIndicator("duration")}
+                  </button>
+                  <button className={`sort-btn${library.sortField === "added" ? " active" : ""}`} onClick={() => library.handleSort("added")}>
+                    Added{library.sortIndicator("added")}
+                  </button>
+                  <button className={`sort-btn${library.sortField === "modified" ? " active" : ""}`} onClick={() => library.handleSort("modified")}>
+                    Modified{library.sortIndicator("modified")}
                   </button>
                   <button className={`sort-btn${library.sortField === "random" ? " active" : ""}`} onClick={() => library.handleSort("random")}>
                     Shuffle

@@ -41,6 +41,8 @@ export interface Track {
   liked: boolean;
   deleted: boolean;
   youtube_url: string | null;
+  added_at: number | null;
+  modified_at: number | null;
 }
 
 export interface Collection {
@@ -85,10 +87,10 @@ export interface PlaylistLoadResult {
   playlist_name: string;
 }
 
-export type SortField = "num" | "title" | "artist" | "album" | "duration" | "path" | "year" | "quality" | "size" | "collection" | "random";
+export type SortField = "num" | "title" | "artist" | "album" | "duration" | "path" | "year" | "quality" | "size" | "collection" | "added" | "modified" | "random";
 export type SortDir = "asc" | "desc";
 
-export type TrackColumnId = "like" | "num" | "title" | "artist" | "album" | "duration" | "path" | "year" | "quality" | "size" | "collection";
+export type TrackColumnId = "like" | "num" | "title" | "artist" | "album" | "duration" | "path" | "year" | "quality" | "size" | "collection" | "added" | "modified";
 export interface ColumnConfig {
   id: TrackColumnId;
   visible: boolean;
