@@ -130,7 +130,7 @@ pub fn scan_folder(
     let total: u64 = WalkDir::new(&root)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file() && is_media_file(e.path()))
+        .filter(|e| e.file_type().is_file() && is_media_file(e.path()) && e.metadata().map(|m| m.len() > 0).unwrap_or(false))
         .count() as u64;
 
     info!("Scan started: {} ({} media files found)", folder_path, total);
@@ -141,7 +141,7 @@ pub fn scan_folder(
     for entry in WalkDir::new(&root)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file() && is_media_file(e.path()))
+        .filter(|e| e.file_type().is_file() && is_media_file(e.path()) && e.metadata().map(|m| m.len() > 0).unwrap_or(false))
     {
         let path = entry.path();
         seen_paths.insert(path.to_string_lossy().to_string());
@@ -171,6 +171,11 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
     let path_str = path.to_string_lossy().to_string();
 
     let metadata = std::fs::metadata(path).ok();
+
+    // Skip 0-byte files
+    if metadata.as_ref().map(|m| m.len() == 0).unwrap_or(false) {
+        return;
+    }
     let modified_at = metadata
         .as_ref()
         .and_then(|m| m.modified().ok())
