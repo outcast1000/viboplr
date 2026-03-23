@@ -1,6 +1,6 @@
 import { useEffect, useState, forwardRef, useImperativeHandle, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Track, PlayHistoryEntry, MostPlayedTrack } from "../types";
+import type { Track, HistoryEntry, HistoryMostPlayed, HistoryArtistStats } from "../types";
 
 export interface HistoryViewHandle {
   count: number;
@@ -25,13 +25,6 @@ function formatRelativeTime(unixSecs: number): string {
   return new Date(unixSecs * 1000).toLocaleDateString();
 }
 
-function formatDuration(secs: number | null): string {
-  if (secs === null) return "";
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
 function matchesQuery(q: string, title: string, artist: string | null): boolean {
   const lower = q.toLowerCase();
   return title.toLowerCase().includes(lower) || (artist?.toLowerCase().includes(lower) ?? false);
@@ -39,52 +32,60 @@ function matchesQuery(q: string, title: string, artist: string | null): boolean 
 
 export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
   function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack }, ref) {
-  const [mostPlayedAllTime, setMostPlayedAllTime] = useState<MostPlayedTrack[]>([]);
-  const [mostPlayedRecent, setMostPlayedRecent] = useState<MostPlayedTrack[]>([]);
-  const [recentPlays, setRecentPlays] = useState<PlayHistoryEntry[]>([]);
+  const [mostPlayedAllTime, setMostPlayedAllTime] = useState<HistoryMostPlayed[]>([]);
+  const [mostPlayedRecent, setMostPlayedRecent] = useState<HistoryMostPlayed[]>([]);
+  const [recentPlays, setRecentPlays] = useState<HistoryEntry[]>([]);
+  const [topArtists, setTopArtists] = useState<HistoryArtistStats[]>([]);
 
   useEffect(() => {
     const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 86400;
     Promise.all([
-      invoke<MostPlayedTrack[]>("get_most_played", { limit: 20 }),
-      invoke<MostPlayedTrack[]>("get_most_played_since", { sinceTs: thirtyDaysAgo, limit: 20 }),
-      invoke<PlayHistoryEntry[]>("get_recent_plays", { limit: 50 }),
-    ]).then(([allTime, recent, history]) => {
+      invoke<HistoryMostPlayed[]>("get_history_most_played", { limit: 20 }),
+      invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs: thirtyDaysAgo, limit: 20 }),
+      invoke<HistoryEntry[]>("get_history_recent", { limit: 50 }),
+      invoke<HistoryArtistStats[]>("get_history_most_played_artists", { limit: 20 }),
+    ]).then(([allTime, recent, history, artists]) => {
       setMostPlayedAllTime(allTime);
       setMostPlayedRecent(recent);
       setRecentPlays(history);
+      setTopArtists(artists);
     }).catch(console.error);
   }, []);
 
   const q = searchQuery.trim();
   const filteredAllTime = mostPlayedAllTime
     .map((t, i) => ({ ...t, rank: i + 1 }))
-    .filter(t => !q || matchesQuery(q, t.track_title, t.artist_name));
+    .filter(t => !q || matchesQuery(q, t.display_title, t.display_artist));
   const filteredRecent30 = mostPlayedRecent
     .map((t, i) => ({ ...t, rank: i + 1 }))
-    .filter(t => !q || matchesQuery(q, t.track_title, t.artist_name));
-  const filteredPlays = q ? recentPlays.filter(t => matchesQuery(q, t.track_title, t.artist_name)) : recentPlays;
+    .filter(t => !q || matchesQuery(q, t.display_title, t.display_artist));
+  const filteredPlays = q ? recentPlays.filter(t => matchesQuery(q, t.display_title, t.display_artist)) : recentPlays;
+  const filteredArtists = topArtists
+    .map((a, i) => ({ ...a, rank: i + 1 }))
+    .filter(a => !q || a.display_name.toLowerCase().includes(q.toLowerCase()));
 
-  const flatTrackIds = useMemo(() => {
-    const ids: number[] = [];
-    for (const t of filteredAllTime) ids.push(t.track_id);
-    for (const t of filteredRecent30) ids.push(t.track_id);
-    for (const t of filteredPlays) ids.push(t.track_id);
-    return ids;
+  const flatItems = useMemo(() => {
+    const items: (number | null)[] = [];
+    for (const t of filteredAllTime) items.push(t.library_track_id);
+    for (const t of filteredRecent30) items.push(t.library_track_id);
+    for (const t of filteredPlays) items.push(t.library_track_id);
+    return items;
   }, [filteredAllTime, filteredRecent30, filteredPlays]);
 
-  async function playTrackById(trackId: number) {
+  async function playTrackById(libraryTrackId: number | null) {
+    if (libraryTrackId == null) return;
     try {
-      const track = await invoke<Track>("get_track_by_id", { trackId });
+      const track = await invoke<Track>("get_track_by_id", { trackId: libraryTrackId });
       onPlayTrack([track], 0);
     } catch (e) {
       console.error("Failed to play track:", e);
     }
   }
 
-  async function enqueueTrackById(trackId: number) {
+  async function enqueueTrackById(libraryTrackId: number | null) {
+    if (libraryTrackId == null) return;
     try {
-      const track = await invoke<Track>("get_track_by_id", { trackId });
+      const track = await invoke<Track>("get_track_by_id", { trackId: libraryTrackId });
       onEnqueueTrack([track]);
     } catch (e) {
       console.error("Failed to enqueue track:", e);
@@ -92,18 +93,18 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
   }
 
   useImperativeHandle(ref, () => ({
-    count: flatTrackIds.length,
+    count: flatItems.length,
     playItem(index: number) {
-      if (index >= 0 && index < flatTrackIds.length) {
-        playTrackById(flatTrackIds[index]);
+      if (index >= 0 && index < flatItems.length) {
+        playTrackById(flatItems[index]);
       }
     },
     enqueueItem(index: number) {
-      if (index >= 0 && index < flatTrackIds.length) {
-        enqueueTrackById(flatTrackIds[index]);
+      if (index >= 0 && index < flatItems.length) {
+        enqueueTrackById(flatItems[index]);
       }
     },
-  }), [flatTrackIds]);
+  }), [flatItems]);
 
   let flatIndex = 0;
 
@@ -113,6 +114,28 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
 
   return (
     <div className="history-view">
+      {filteredArtists.length > 0 && (
+        <div className="history-section">
+          <div className="section-title">Most Played Artists</div>
+          <div className="history-list">
+            {filteredArtists.map((a) => (
+              <div
+                key={`artist-${a.history_artist_id}`}
+                className={`history-row${a.library_artist_id == null ? " ghost" : ""}`}
+              >
+                <span className="history-rank">{a.rank}</span>
+                <div className="history-info">
+                  <span className="history-title">{a.display_name}</span>
+                  <span className="history-artist">{a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
+                </div>
+                {a.library_artist_id == null && <span className="history-ghost-label">Removed</span>}
+                <span className="history-play-count">{a.play_count} play{a.play_count !== 1 ? "s" : ""}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {filteredAllTime.length > 0 && (
         <div className="history-section">
           <div className="section-title">Most Played — All Time</div>
@@ -121,17 +144,17 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
               const idx = nextFlatIndex();
               return (
                 <div
-                  key={`alltime-${t.track_id}`}
-                  className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
+                  key={`alltime-${t.history_track_id}`}
+                  className={`history-row${idx === highlightedIndex ? " highlighted" : ""}${t.library_track_id == null ? " ghost" : ""}`}
                   data-history-index={idx}
-                  onClick={() => playTrackById(t.track_id)}
+                  onClick={() => playTrackById(t.library_track_id)}
                 >
                   <span className="history-rank">{t.rank}</span>
                   <div className="history-info">
-                    <span className="history-title">{t.track_title}</span>
-                    <span className="history-artist">{t.artist_name ?? "Unknown"}</span>
+                    <span className="history-title">{t.display_title}</span>
+                    <span className="history-artist">{t.display_artist ?? "Unknown"}</span>
                   </div>
-                  <span className="history-duration">{formatDuration(t.duration_secs)}</span>
+                  {t.library_track_id == null && <span className="history-ghost-label">Removed</span>}
                   <span className="history-play-count">{t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
                 </div>
               );
@@ -148,17 +171,17 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
               const idx = nextFlatIndex();
               return (
                 <div
-                  key={`recent30-${t.track_id}`}
-                  className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
+                  key={`recent30-${t.history_track_id}`}
+                  className={`history-row${idx === highlightedIndex ? " highlighted" : ""}${t.library_track_id == null ? " ghost" : ""}`}
                   data-history-index={idx}
-                  onClick={() => playTrackById(t.track_id)}
+                  onClick={() => playTrackById(t.library_track_id)}
                 >
                   <span className="history-rank">{t.rank}</span>
                   <div className="history-info">
-                    <span className="history-title">{t.track_title}</span>
-                    <span className="history-artist">{t.artist_name ?? "Unknown"}</span>
+                    <span className="history-title">{t.display_title}</span>
+                    <span className="history-artist">{t.display_artist ?? "Unknown"}</span>
                   </div>
-                  <span className="history-duration">{formatDuration(t.duration_secs)}</span>
+                  {t.library_track_id == null && <span className="history-ghost-label">Removed</span>}
                   <span className="history-play-count">{t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
                 </div>
               );
@@ -175,16 +198,16 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
             return (
               <div
                 key={entry.id}
-                className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
+                className={`history-row${idx === highlightedIndex ? " highlighted" : ""}${entry.library_track_id == null ? " ghost" : ""}`}
                 data-history-index={idx}
-                onClick={() => playTrackById(entry.track_id)}
+                onClick={() => playTrackById(entry.library_track_id)}
               >
                 <span className="history-time">{formatRelativeTime(entry.played_at)}</span>
                 <div className="history-info">
-                  <span className="history-title">{entry.track_title}</span>
-                  <span className="history-artist">{entry.artist_name ?? "Unknown"}</span>
+                  <span className="history-title">{entry.display_title}</span>
+                  <span className="history-artist">{entry.display_artist ?? "Unknown"}</span>
                 </div>
-                <span className="history-duration">{formatDuration(entry.duration_secs)}</span>
+                {entry.library_track_id == null && <span className="history-ghost-label">Removed</span>}
               </div>
             );
           })}

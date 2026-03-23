@@ -81,6 +81,32 @@ export interface MostPlayedTrack {
   duration_secs: number | null;
 }
 
+export interface HistoryEntry {
+  id: number;
+  history_track_id: number;
+  played_at: number;
+  display_title: string;
+  display_artist: string | null;
+  play_count: number;
+  library_track_id: number | null;
+}
+
+export interface HistoryMostPlayed {
+  history_track_id: number;
+  play_count: number;
+  display_title: string;
+  display_artist: string | null;
+  library_track_id: number | null;
+}
+
+export interface HistoryArtistStats {
+  history_artist_id: number;
+  play_count: number;
+  track_count: number;
+  display_name: string;
+  library_artist_id: number | null;
+}
+
 export interface PlaylistLoadResult {
   tracks: Track[];
   not_found_count: number;

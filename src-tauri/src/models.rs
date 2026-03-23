@@ -130,6 +130,35 @@ pub struct MostPlayedTrack {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    pub id: i64,
+    pub history_track_id: i64,
+    pub played_at: i64,
+    pub display_title: String,
+    pub display_artist: Option<String>,
+    pub play_count: i64,
+    pub library_track_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryMostPlayed {
+    pub history_track_id: i64,
+    pub play_count: i64,
+    pub display_title: String,
+    pub display_artist: Option<String>,
+    pub library_track_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryArtistStats {
+    pub history_artist_id: i64,
+    pub play_count: i64,
+    pub track_count: i64,
+    pub display_name: String,
+    pub library_artist_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaylistLoadResult {
     pub tracks: Vec<Track>,
     pub not_found_count: usize,

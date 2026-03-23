@@ -631,7 +631,8 @@ pub fn clear_image_failures(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn record_play(state: State<'_, AppState>, track_id: i64) -> Result<(), String> {
-    state.db.record_play(track_id).map_err(|e| e.to_string())
+    state.db.record_play(track_id).map_err(|e| e.to_string())?;
+    state.db.record_history_play(track_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -647,6 +648,26 @@ pub fn get_most_played(state: State<'_, AppState>, limit: i64) -> Result<Vec<Mos
 #[tauri::command]
 pub fn get_most_played_since(state: State<'_, AppState>, since_ts: i64, limit: i64) -> Result<Vec<MostPlayedTrack>, String> {
     state.db.get_most_played_since(since_ts, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_history_recent(state: State<'_, AppState>, limit: i64) -> Result<Vec<HistoryEntry>, String> {
+    state.db.get_history_recent(limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_history_most_played(state: State<'_, AppState>, limit: i64) -> Result<Vec<HistoryMostPlayed>, String> {
+    state.db.get_history_most_played(limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_history_most_played_since(state: State<'_, AppState>, since_ts: i64, limit: i64) -> Result<Vec<HistoryMostPlayed>, String> {
+    state.db.get_history_most_played_since(since_ts, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_history_most_played_artists(state: State<'_, AppState>, limit: i64) -> Result<Vec<HistoryArtistStats>, String> {
+    state.db.get_history_most_played_artists(limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

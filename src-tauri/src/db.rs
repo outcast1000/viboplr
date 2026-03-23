@@ -264,6 +264,34 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_play_history_track ON play_history(track_id);
             CREATE INDEX IF NOT EXISTS idx_play_history_time  ON play_history(played_at);
 
+            CREATE TABLE IF NOT EXISTS history_artists (
+                id              INTEGER PRIMARY KEY,
+                canonical_name  TEXT NOT NULL UNIQUE,
+                display_name    TEXT,
+                first_played_at INTEGER,
+                last_played_at  INTEGER,
+                play_count      INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS history_tracks (
+                id                INTEGER PRIMARY KEY,
+                history_artist_id INTEGER NOT NULL REFERENCES history_artists(id),
+                canonical_title   TEXT NOT NULL,
+                display_title     TEXT,
+                first_played_at   INTEGER,
+                last_played_at    INTEGER,
+                play_count        INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(history_artist_id, canonical_title)
+            );
+
+            CREATE TABLE IF NOT EXISTS history_plays (
+                id               INTEGER PRIMARY KEY,
+                history_track_id INTEGER NOT NULL REFERENCES history_tracks(id),
+                played_at        INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_history_plays_track ON history_plays(history_track_id);
+            CREATE INDEX IF NOT EXISTS idx_history_plays_time  ON history_plays(played_at);
+
             CREATE TABLE IF NOT EXISTS image_fetch_failures (
                 kind       TEXT NOT NULL,
                 item_id    INTEGER NOT NULL,
@@ -318,6 +346,53 @@ impl Database {
         if version < 5 {
             let _ = conn.execute_batch("ALTER TABLE tags ADD COLUMN liked INTEGER NOT NULL DEFAULT 0");
             conn.execute("UPDATE db_version SET version = 5 WHERE rowid = 1", [])?;
+        }
+
+        if version < 6 {
+            // Migrate existing play_history into decoupled history tables.
+            // Tables are created in init_tables() via CREATE IF NOT EXISTS.
+            // Step 1: Extract unique artists
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count)
+                 SELECT
+                   strip_diacritics(unicode_lower(COALESCE(ar.name, ''))),
+                   ar.name,
+                   MIN(ph.played_at),
+                   MAX(ph.played_at),
+                   COUNT(*)
+                 FROM play_history ph
+                 JOIN tracks t ON t.id = ph.track_id
+                 LEFT JOIN artists ar ON t.artist_id = ar.id
+                 GROUP BY strip_diacritics(unicode_lower(COALESCE(ar.name, '')))"
+            )?;
+            // Step 2: Extract unique tracks grouped by (artist, title)
+            conn.execute_batch(
+                "INSERT OR IGNORE INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count)
+                 SELECT
+                   ha.id,
+                   strip_diacritics(unicode_lower(t.title)),
+                   t.title,
+                   MIN(ph.played_at),
+                   MAX(ph.played_at),
+                   COUNT(*)
+                 FROM play_history ph
+                 JOIN tracks t ON t.id = ph.track_id
+                 LEFT JOIN artists ar ON t.artist_id = ar.id
+                 JOIN history_artists ha ON ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, '')))
+                 GROUP BY ha.id, strip_diacritics(unicode_lower(t.title))"
+            )?;
+            // Step 3: Copy individual play records
+            conn.execute_batch(
+                "INSERT INTO history_plays (history_track_id, played_at)
+                 SELECT ht.id, ph.played_at
+                 FROM play_history ph
+                 JOIN tracks t ON t.id = ph.track_id
+                 LEFT JOIN artists ar ON t.artist_id = ar.id
+                 JOIN history_artists ha ON ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, '')))
+                 JOIN history_tracks ht ON ht.history_artist_id = ha.id
+                   AND ht.canonical_title = strip_diacritics(unicode_lower(t.title))"
+            )?;
+            conn.execute("UPDATE db_version SET version = 6 WHERE rowid = 1", [])?;
         }
 
         drop(conn);
@@ -538,6 +613,9 @@ impl Database {
              DELETE FROM artists;
              DELETE FROM tags;
              DELETE FROM play_history;
+             DELETE FROM history_plays;
+             DELETE FROM history_tracks;
+             DELETE FROM history_artists;
              DELETE FROM collections;
              DROP TABLE IF EXISTS tracks_fts;
              CREATE VIRTUAL TABLE tracks_fts USING fts5(
@@ -1191,8 +1269,13 @@ impl Database {
             "most_played" => {
                 let sql = format!(
                     "{} WHERE t.id != ?1 AND t.deleted = 0 {}{} AND t.id IN (\
-                        SELECT track_id FROM play_history \
-                        GROUP BY track_id ORDER BY COUNT(*) DESC LIMIT 50\
+                        SELECT sub_t.id FROM history_tracks ht \
+                        JOIN history_artists ha ON ha.id = ht.history_artist_id \
+                        JOIN tracks sub_t ON strip_diacritics(unicode_lower(sub_t.title)) = ht.canonical_title \
+                        LEFT JOIN artists sub_ar ON sub_t.artist_id = sub_ar.id \
+                        WHERE strip_diacritics(unicode_lower(COALESCE(sub_ar.name, ''))) = ha.canonical_name \
+                        AND sub_t.deleted = 0 \
+                        ORDER BY ht.play_count DESC LIMIT 50\
                     ) ORDER BY RANDOM() LIMIT 1",
                     TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause
                 );
@@ -1227,6 +1310,198 @@ impl Database {
                 artist_name: row.get(3)?,
                 album_title: row.get(4)?,
                 duration_secs: row.get(5)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    // --- Decoupled history ---
+
+    pub fn record_history_play(&self, track_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+
+        // Fetch track metadata
+        let (title, artist_name): (String, Option<String>) = conn.query_row(
+            "SELECT t.title, ar.name FROM tracks t
+             LEFT JOIN artists ar ON t.artist_id = ar.id
+             WHERE t.id = ?1",
+            params![track_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        let canonical_artist = strip_diacritics(&artist_name.as_deref().unwrap_or("").to_lowercase());
+        let canonical_title = strip_diacritics(&title.to_lowercase());
+
+        // Dedup: skip if same canonical key played within 30 seconds
+        let dominated: bool = conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM history_plays hp
+                JOIN history_tracks ht ON ht.id = hp.history_track_id
+                JOIN history_artists ha ON ha.id = ht.history_artist_id
+                WHERE ha.canonical_name = ?1 AND ht.canonical_title = ?2
+                AND hp.played_at > strftime('%s', 'now') - 30
+            )",
+            params![canonical_artist, canonical_title],
+            |row| row.get(0),
+        )?;
+        if dominated {
+            return Ok(());
+        }
+
+        // Upsert history_artists
+        conn.execute(
+            "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count)
+             VALUES (?1, ?2, strftime('%s', 'now'), strftime('%s', 'now'), 0)
+             ON CONFLICT(canonical_name) DO UPDATE SET
+               display_name = excluded.display_name",
+            params![canonical_artist, artist_name],
+        )?;
+        let history_artist_id: i64 = conn.query_row(
+            "SELECT id FROM history_artists WHERE canonical_name = ?1",
+            params![canonical_artist],
+            |row| row.get(0),
+        )?;
+
+        // Upsert history_tracks
+        conn.execute(
+            "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count)
+             VALUES (?1, ?2, ?3, strftime('%s', 'now'), strftime('%s', 'now'), 0)
+             ON CONFLICT(history_artist_id, canonical_title) DO UPDATE SET
+               display_title = excluded.display_title",
+            params![history_artist_id, canonical_title, title],
+        )?;
+        let history_track_id: i64 = conn.query_row(
+            "SELECT id FROM history_tracks WHERE history_artist_id = ?1 AND canonical_title = ?2",
+            params![history_artist_id, canonical_title],
+            |row| row.get(0),
+        )?;
+
+        // Insert play record
+        conn.execute(
+            "INSERT INTO history_plays (history_track_id) VALUES (?1)",
+            params![history_track_id],
+        )?;
+
+        // Update denormalized counts
+        conn.execute(
+            "UPDATE history_tracks SET play_count = play_count + 1, last_played_at = strftime('%s', 'now') WHERE id = ?1",
+            params![history_track_id],
+        )?;
+        conn.execute(
+            "UPDATE history_artists SET play_count = play_count + 1, last_played_at = strftime('%s', 'now') WHERE id = ?1",
+            params![history_artist_id],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_history_recent(&self, limit: i64) -> SqlResult<Vec<HistoryEntry>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT hp.id, ht.id, hp.played_at, ht.display_title, ha.display_name,
+                    ht.play_count,
+                    (SELECT t.id FROM tracks t
+                     LEFT JOIN artists ar ON t.artist_id = ar.id
+                     WHERE strip_diacritics(unicode_lower(t.title)) = ht.canonical_title
+                     AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ha.canonical_name
+                     AND t.deleted = 0 LIMIT 1) as library_track_id
+             FROM history_plays hp
+             JOIN history_tracks ht ON ht.id = hp.history_track_id
+             JOIN history_artists ha ON ha.id = ht.history_artist_id
+             ORDER BY hp.played_at DESC
+             LIMIT ?1"
+        )?;
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(HistoryEntry {
+                id: row.get(0)?,
+                history_track_id: row.get(1)?,
+                played_at: row.get(2)?,
+                display_title: row.get(3)?,
+                display_artist: row.get(4)?,
+                play_count: row.get(5)?,
+                library_track_id: row.get(6)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_history_most_played(&self, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT ht.id, ht.play_count, ht.display_title, ha.display_name,
+                    (SELECT t.id FROM tracks t
+                     LEFT JOIN artists ar ON t.artist_id = ar.id
+                     WHERE strip_diacritics(unicode_lower(t.title)) = ht.canonical_title
+                     AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ha.canonical_name
+                     AND t.deleted = 0 LIMIT 1) as library_track_id
+             FROM history_tracks ht
+             JOIN history_artists ha ON ha.id = ht.history_artist_id
+             WHERE ht.play_count > 0
+             ORDER BY ht.play_count DESC
+             LIMIT ?1"
+        )?;
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(HistoryMostPlayed {
+                history_track_id: row.get(0)?,
+                play_count: row.get(1)?,
+                display_title: row.get(2)?,
+                display_artist: row.get(3)?,
+                library_track_id: row.get(4)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_history_most_played_since(&self, since_ts: i64, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT ht.id, COUNT(*) as cnt, ht.display_title, ha.display_name,
+                    (SELECT t.id FROM tracks t
+                     LEFT JOIN artists ar ON t.artist_id = ar.id
+                     WHERE strip_diacritics(unicode_lower(t.title)) = ht.canonical_title
+                     AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ha.canonical_name
+                     AND t.deleted = 0 LIMIT 1) as library_track_id
+             FROM history_plays hp
+             JOIN history_tracks ht ON ht.id = hp.history_track_id
+             JOIN history_artists ha ON ha.id = ht.history_artist_id
+             WHERE hp.played_at >= ?1
+             GROUP BY ht.id
+             ORDER BY cnt DESC
+             LIMIT ?2"
+        )?;
+        let rows = stmt.query_map(params![since_ts, limit], |row| {
+            Ok(HistoryMostPlayed {
+                history_track_id: row.get(0)?,
+                play_count: row.get(1)?,
+                display_title: row.get(2)?,
+                display_artist: row.get(3)?,
+                library_track_id: row.get(4)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_history_most_played_artists(&self, limit: i64) -> SqlResult<Vec<HistoryArtistStats>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT ha.id, ha.play_count,
+                    (SELECT COUNT(*) FROM history_tracks ht WHERE ht.history_artist_id = ha.id) as track_count,
+                    ha.display_name,
+                    (SELECT a.id FROM artists a
+                     WHERE strip_diacritics(unicode_lower(a.name)) = ha.canonical_name
+                     LIMIT 1) as library_artist_id
+             FROM history_artists ha
+             WHERE ha.play_count > 0 AND ha.canonical_name != ''
+             ORDER BY ha.play_count DESC
+             LIMIT ?1"
+        )?;
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(HistoryArtistStats {
+                history_artist_id: row.get(0)?,
+                play_count: row.get(1)?,
+                track_count: row.get(2)?,
+                display_name: row.get(3)?,
+                library_artist_id: row.get(4)?,
             })
         })?;
         rows.collect()
@@ -1458,5 +1733,202 @@ mod tests {
         assert_eq!(strip_diacritics("Sigur Rós"), "Sigur Ros");
         assert_eq!(strip_diacritics("hello"), "hello");
         assert_eq!(strip_diacritics(""), "");
+    }
+
+    #[test]
+    fn test_history_record_and_query() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Radiohead").unwrap();
+        let track_id = insert_track(&db, "/music/creep.mp3", "Creep", Some(artist_id), None);
+
+        db.record_history_play(track_id).unwrap();
+
+        let recent = db.get_history_recent(10).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].display_title, "Creep");
+        assert_eq!(recent[0].display_artist.as_deref(), Some("Radiohead"));
+        assert_eq!(recent[0].play_count, 1);
+        assert_eq!(recent[0].library_track_id, Some(track_id));
+    }
+
+    #[test]
+    fn test_history_ghost_entries() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Nirvana").unwrap();
+        let track_id = insert_track(&db, "/music/smells.mp3", "Smells Like Teen Spirit", Some(artist_id), None);
+
+        db.record_history_play(track_id).unwrap();
+
+        // Soft-delete the track
+        db.soft_delete_tracks_by_ids(&[track_id]).unwrap();
+
+        let recent = db.get_history_recent(10).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].display_title, "Smells Like Teen Spirit");
+        assert!(recent[0].library_track_id.is_none(), "should be ghost after deletion");
+    }
+
+    #[test]
+    fn test_history_reconnect() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Björk").unwrap();
+        let track_id = insert_track(&db, "/music/army.mp3", "Army of Me", Some(artist_id), None);
+
+        db.record_history_play(track_id).unwrap();
+        db.soft_delete_tracks_by_ids(&[track_id]).unwrap();
+
+        // Verify ghost
+        let recent = db.get_history_recent(10).unwrap();
+        assert!(recent[0].library_track_id.is_none());
+
+        // Re-add with same artist+title but different path
+        let artist_id2 = db.get_or_create_artist("Björk").unwrap();
+        let track_id2 = insert_track(&db, "/new_music/army.mp3", "Army of Me", Some(artist_id2), None);
+
+        // Should reconnect
+        let recent = db.get_history_recent(10).unwrap();
+        assert_eq!(recent[0].library_track_id, Some(track_id2));
+        assert_eq!(recent[0].play_count, 1);
+    }
+
+    #[test]
+    fn test_history_dedup() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Tool").unwrap();
+        let track_id = insert_track(&db, "/music/lateralus.mp3", "Lateralus", Some(artist_id), None);
+
+        db.record_history_play(track_id).unwrap();
+        // Second call within 30 seconds should be deduplicated
+        db.record_history_play(track_id).unwrap();
+
+        let recent = db.get_history_recent(10).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].play_count, 1);
+    }
+
+    #[test]
+    fn test_history_most_played() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Daft Punk").unwrap();
+        let t1 = insert_track(&db, "/music/around.mp3", "Around the World", Some(artist_id), None);
+        let t2 = insert_track(&db, "/music/harder.mp3", "Harder Better Faster", Some(artist_id), None);
+
+        // Record plays with manual SQL to bypass dedup
+        {
+            let conn = db.conn.lock().unwrap();
+            // t1: 3 plays
+            for i in 0..3 {
+                conn.execute(
+                    "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count)
+                     VALUES ('daft punk', 'Daft Punk', 1000, 1000, 0)
+                     ON CONFLICT(canonical_name) DO NOTHING",
+                    [],
+                ).unwrap();
+                let ha_id: i64 = conn.query_row("SELECT id FROM history_artists WHERE canonical_name = 'daft punk'", [], |r| r.get(0)).unwrap();
+                conn.execute(
+                    "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count)
+                     VALUES (?1, 'around the world', 'Around the World', 1000, 1000, 0)
+                     ON CONFLICT(history_artist_id, canonical_title) DO NOTHING",
+                    params![ha_id],
+                ).unwrap();
+                conn.execute(
+                    "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count)
+                     VALUES (?1, 'harder better faster', 'Harder Better Faster', 1000, 1000, 0)
+                     ON CONFLICT(history_artist_id, canonical_title) DO NOTHING",
+                    params![ha_id],
+                ).unwrap();
+                let ht1_id: i64 = conn.query_row(
+                    "SELECT id FROM history_tracks WHERE canonical_title = 'around the world'", [], |r| r.get(0),
+                ).unwrap();
+                let ht2_id: i64 = conn.query_row(
+                    "SELECT id FROM history_tracks WHERE canonical_title = 'harder better faster'", [], |r| r.get(0),
+                ).unwrap();
+                conn.execute("INSERT INTO history_plays (history_track_id, played_at) VALUES (?1, ?2)", params![ht1_id, 1000 + i]).unwrap();
+                if i < 1 {
+                    conn.execute("INSERT INTO history_plays (history_track_id, played_at) VALUES (?1, ?2)", params![ht2_id, 2000 + i]).unwrap();
+                }
+            }
+            // Update denormalized counts
+            conn.execute_batch(
+                "UPDATE history_tracks SET play_count = (SELECT COUNT(*) FROM history_plays WHERE history_track_id = history_tracks.id);
+                 UPDATE history_artists SET play_count = (SELECT COALESCE(SUM(ht.play_count), 0) FROM history_tracks ht WHERE ht.history_artist_id = history_artists.id);"
+            ).unwrap();
+        }
+
+        let most = db.get_history_most_played(10).unwrap();
+        assert!(most.len() >= 2);
+        assert_eq!(most[0].display_title, "Around the World");
+        assert_eq!(most[0].play_count, 3);
+        assert_eq!(most[1].display_title, "Harder Better Faster");
+        assert_eq!(most[1].play_count, 1);
+    }
+
+    #[test]
+    fn test_history_artist_stats() {
+        let db = test_db();
+        let a1 = db.get_or_create_artist("Artist A").unwrap();
+        let a2 = db.get_or_create_artist("Artist B").unwrap();
+        let t1 = insert_track(&db, "/music/t1.mp3", "Track 1", Some(a1), None);
+        let t2 = insert_track(&db, "/music/t2.mp3", "Track 2", Some(a1), None);
+        let t3 = insert_track(&db, "/music/t3.mp3", "Track 3", Some(a2), None);
+
+        // Record via SQL to bypass dedup
+        {
+            let conn = db.conn.lock().unwrap();
+            for (canonical_artist, display, canonical_title, disp_title, count) in [
+                ("artist a", "Artist A", "track 1", "Track 1", 5),
+                ("artist a", "Artist A", "track 2", "Track 2", 3),
+                ("artist b", "Artist B", "track 3", "Track 3", 2),
+            ] {
+                conn.execute(
+                    "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count)
+                     VALUES (?1, ?2, 1000, 1000, 0) ON CONFLICT(canonical_name) DO NOTHING",
+                    params![canonical_artist, display],
+                ).unwrap();
+                let ha_id: i64 = conn.query_row(
+                    "SELECT id FROM history_artists WHERE canonical_name = ?1", params![canonical_artist], |r| r.get(0),
+                ).unwrap();
+                conn.execute(
+                    "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count)
+                     VALUES (?1, ?2, ?3, 1000, 1000, ?4) ON CONFLICT(history_artist_id, canonical_title) DO NOTHING",
+                    params![ha_id, canonical_title, disp_title, count],
+                ).unwrap();
+            }
+            conn.execute_batch(
+                "UPDATE history_artists SET play_count = (SELECT COALESCE(SUM(ht.play_count), 0) FROM history_tracks ht WHERE ht.history_artist_id = history_artists.id);"
+            ).unwrap();
+        }
+
+        let artists = db.get_history_most_played_artists(10).unwrap();
+        assert_eq!(artists.len(), 2);
+        assert_eq!(artists[0].display_name, "Artist A");
+        assert_eq!(artists[0].play_count, 8); // 5 + 3
+        assert_eq!(artists[0].track_count, 2);
+        assert!(artists[0].library_artist_id.is_some());
+        assert_eq!(artists[1].display_name, "Artist B");
+        assert_eq!(artists[1].play_count, 2);
+    }
+
+    #[test]
+    fn test_history_unicode_canonical() {
+        let db = test_db();
+        // Greek artist
+        let a1 = db.get_or_create_artist("Σωκράτης").unwrap();
+        let t1 = insert_track(&db, "/music/greek.mp3", "Τραγούδι", Some(a1), None);
+        db.record_history_play(t1).unwrap();
+
+        let recent = db.get_history_recent(10).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].display_artist.as_deref(), Some("Σωκράτης"));
+        assert_eq!(recent[0].display_title, "Τραγούδι");
+
+        // Cyrillic artist
+        let a2 = db.get_or_create_artist("Кино").unwrap();
+        let t2 = insert_track(&db, "/music/russian.mp3", "Группа крови", Some(a2), None);
+        db.record_history_play(t2).unwrap();
+
+        let recent = db.get_history_recent(10).unwrap();
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].display_artist.as_deref(), Some("Кино"));
     }
 }

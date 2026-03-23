@@ -3416,6 +3416,25 @@ body {
   font-weight: 600;
 }
 
+.history-row.ghost {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.history-row.ghost:hover {
+  background: transparent;
+}
+
+.history-ghost-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+}
+
 /* Mini player mode */
 .app.mini-mode {
   grid-template-columns: 1fr;
