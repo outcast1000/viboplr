@@ -1118,11 +1118,18 @@ impl Database {
         rows.collect()
     }
 
-    pub fn get_auto_continue_track(&self, strategy: &str, current_track_id: i64) -> SqlResult<Option<Track>> {
+    pub fn get_auto_continue_track(&self, strategy: &str, current_track_id: i64, format_filter: Option<&str>) -> SqlResult<Option<Track>> {
         let conn = self.conn.lock().unwrap();
+
+        let format_clause = match format_filter {
+            Some("video") => " AND LOWER(t.format) IN ('mp4','m4v','mov','webm')",
+            Some("audio") => " AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))",
+            _ => "",
+        };
+
         match strategy {
             "random" => {
-                let sql = format!("{} WHERE t.id != ?1 AND t.deleted = 0 {} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
+                let sql = format!("{} WHERE t.id != ?1 AND t.deleted = 0 {}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause);
                 conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
             }
             "same_artist" => {
@@ -1133,7 +1140,7 @@ impl Database {
                 ).optional()?.flatten();
                 match artist_id {
                     Some(aid) => {
-                        let sql = format!("{} WHERE t.id != ?1 AND t.artist_id = ?2 AND t.deleted = 0 {} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
+                        let sql = format!("{} WHERE t.id != ?1 AND t.artist_id = ?2 AND t.deleted = 0 {}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause);
                         conn.query_row(&sql, params![current_track_id, aid], |row| track_from_row(row)).optional()
                     }
                     None => Ok(None),
@@ -1141,27 +1148,27 @@ impl Database {
             }
             "same_tag" => {
                 let sql = format!(
-                    "{} WHERE t.id != ?1 AND t.deleted = 0 {} AND t.id IN (\
+                    "{} WHERE t.id != ?1 AND t.deleted = 0 {}{} AND t.id IN (\
                         SELECT tt2.track_id FROM track_tags tt1 \
                         JOIN track_tags tt2 ON tt1.tag_id = tt2.tag_id \
                         WHERE tt1.track_id = ?1 AND tt2.track_id != ?1\
                     ) ORDER BY RANDOM() LIMIT 1",
-                    TRACK_SELECT, ENABLED_COLLECTION_FILTER
+                    TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause
                 );
                 conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
             }
             "most_played" => {
                 let sql = format!(
-                    "{} WHERE t.id != ?1 AND t.deleted = 0 {} AND t.id IN (\
+                    "{} WHERE t.id != ?1 AND t.deleted = 0 {}{} AND t.id IN (\
                         SELECT track_id FROM play_history \
                         GROUP BY track_id ORDER BY COUNT(*) DESC LIMIT 50\
                     ) ORDER BY RANDOM() LIMIT 1",
-                    TRACK_SELECT, ENABLED_COLLECTION_FILTER
+                    TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause
                 );
                 conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
             }
             "liked" => {
-                let sql = format!("{} WHERE t.id != ?1 AND t.liked = 1 AND t.deleted = 0 {} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
+                let sql = format!("{} WHERE t.id != ?1 AND t.liked = 1 AND t.deleted = 0 {}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause);
                 conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
             }
             _ => Ok(None),

@@ -633,10 +633,11 @@ pub fn get_auto_continue_track(
     state: State<'_, AppState>,
     strategy: String,
     current_track_id: i64,
+    format_filter: Option<String>,
 ) -> Result<Option<Track>, String> {
     state
         .db
-        .get_auto_continue_track(&strategy, current_track_id)
+        .get_auto_continue_track(&strategy, current_track_id, format_filter.as_deref())
         .map_err(|e| e.to_string())
 }
 

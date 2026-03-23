@@ -37,6 +37,7 @@ interface NowPlayingBarProps {
   queueMode: "normal" | "loop" | "shuffle";
   showQueue: boolean;
   autoContinueEnabled: boolean;
+  autoContinueSameFormat: boolean;
   showAutoContinuePopover: boolean;
   autoContinueWeights: AutoContinueWeights;
   imagePath: string | null;
@@ -53,6 +54,7 @@ interface NowPlayingBarProps {
   onToggleQueueMode: () => void;
   onToggleQueue: () => void;
   onToggleAutoContinue: () => void;
+  onToggleAutoContinueSameFormat: () => void;
   onToggleAutoContinuePopover: () => void;
   onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
   onToggleLike: () => void;
@@ -64,11 +66,11 @@ export function NowPlayingBar({
   currentTrack, playing,
   positionSecs, durationSecs, scrobbled,
   volume, queueMode, showQueue,
-  autoContinueEnabled, showAutoContinuePopover, autoContinueWeights,
+  autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
   imagePath, miniMode, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode, onToggleQueue,
-  onToggleAutoContinue, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
+  onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
   onToggleLike, onArtistClick, onAlbumClick,
 }: NowPlayingBarProps) {
   const [showHelp, setShowHelp] = useState(false);
@@ -176,8 +178,10 @@ export function NowPlayingBar({
           {showAutoContinuePopover && (
             <AutoContinuePopover
               enabled={autoContinueEnabled}
+              sameFormat={autoContinueSameFormat}
               weights={autoContinueWeights}
               onToggle={onToggleAutoContinue}
+              onToggleSameFormat={onToggleAutoContinueSameFormat}
               onAdjust={onAdjustAutoContinueWeight}
             />
           )}

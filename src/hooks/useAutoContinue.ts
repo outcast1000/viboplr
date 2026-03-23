@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import { store } from "../store";
+import { isVideoTrack } from "../utils";
 
 export interface AutoContinueWeights {
   random: number;
@@ -29,18 +30,21 @@ const DEFAULT_WEIGHTS: AutoContinueWeights = {
 
 export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
   const [enabled, setEnabled] = useState(false);
+  const [sameFormat, setSameFormat] = useState(false);
   const [weights, setWeights] = useState<AutoContinueWeights>(DEFAULT_WEIGHTS);
   const [showPopover, setShowPopover] = useState(false);
 
   // Restore from store
   useEffect(() => {
     (async () => {
-      const [en, w] = await Promise.all([
+      const [en, w, sf] = await Promise.all([
         store.get<boolean>("autoContinueEnabled"),
         store.get<AutoContinueWeights>("autoContinueWeights"),
+        store.get<boolean>("autoContinueSameFormat"),
       ]);
       if (en !== undefined && en !== null) setEnabled(en);
       if (w) setWeights(w);
+      if (sf !== undefined && sf !== null) setSameFormat(sf);
     })();
   }, []);
 
@@ -51,6 +55,9 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
   useEffect(() => {
     if (restoredRef.current) store.set("autoContinueWeights", weights);
   }, [weights]);
+  useEffect(() => {
+    if (restoredRef.current) store.set("autoContinueSameFormat", sameFormat);
+  }, [sameFormat]);
 
   function pickStrategy(): string {
     const roll = Math.floor(Math.random() * 100);
@@ -64,10 +71,12 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
 
   async function fetchTrack(currentTrack: Track): Promise<Track | null> {
     const strategy = pickStrategy();
+    const formatFilter = sameFormat ? (isVideoTrack(currentTrack) ? "video" : "audio") : null;
     try {
       const track = await invoke<Track | null>("get_auto_continue_track", {
         strategy,
         currentTrackId: currentTrack.id,
+        formatFilter,
       });
       if (track) return track;
       // Fallback to random if strategy returned nothing
@@ -75,6 +84,7 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
         return await invoke<Track | null>("get_auto_continue_track", {
           strategy: "random",
           currentTrackId: currentTrack.id,
+          formatFilter,
         });
       }
       return null;
@@ -126,6 +136,7 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
 
   return {
     enabled, setEnabled,
+    sameFormat, setSameFormat,
     weights, adjustWeight,
     showPopover, setShowPopover,
     fetchTrack,

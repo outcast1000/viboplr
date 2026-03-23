@@ -2197,6 +2197,7 @@ function App() {
         queueMode={queueHook.queueMode}
         showQueue={queueHook.showQueue}
         autoContinueEnabled={autoContinue.enabled}
+        autoContinueSameFormat={autoContinue.sameFormat}
         showAutoContinuePopover={autoContinue.showPopover}
         autoContinueWeights={autoContinue.weights}
         imagePath={
@@ -2224,6 +2225,7 @@ function App() {
         onToggleQueueMode={queueHook.toggleQueueMode}
         onToggleQueue={() => queueHook.setShowQueue(!queueHook.showQueue)}
         onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
+        onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
         onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
         onToggleLike={() => playback.currentTrack && handleToggleLike(playback.currentTrack)}

@@ -10,13 +10,15 @@ const SLIDERS: { key: keyof AutoContinueWeights; label: string }[] = [
 
 interface AutoContinuePopoverProps {
   enabled: boolean;
+  sameFormat: boolean;
   weights: AutoContinueWeights;
   onToggle: () => void;
+  onToggleSameFormat: () => void;
   onAdjust: (key: keyof AutoContinueWeights, value: number) => void;
 }
 
 export function AutoContinuePopover({
-  enabled, weights, onToggle, onAdjust,
+  enabled, sameFormat, weights, onToggle, onToggleSameFormat, onAdjust,
 }: AutoContinuePopoverProps) {
   return (
     <div className="auto-continue-popover" onClick={(e) => e.stopPropagation()}>
@@ -24,6 +26,12 @@ export function AutoContinuePopover({
         <span>Auto Continue</span>
         <span className={`ac-toggle-indicator ${enabled ? "ac-on" : ""}`}>
           {enabled ? "ON" : "OFF"}
+        </span>
+      </div>
+      <div className="ac-toggle" onClick={onToggleSameFormat}>
+        <span>Same format (audio/video)</span>
+        <span className={`ac-toggle-indicator ${sameFormat ? "ac-on" : ""}`}>
+          {sameFormat ? "ON" : "OFF"}
         </span>
       </div>
       {SLIDERS.map(({ key, label }) => (
