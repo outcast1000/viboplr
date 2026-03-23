@@ -52,6 +52,12 @@ body {
   grid-template-columns: 56px 1fr;
 }
 
+.app.app-restoring .sidebar,
+.app.app-restoring .status-bar,
+.app.app-restoring {
+  transition: none !important;
+}
+
 .app.sidebar-collapsed.queue-open {
   grid-template-columns: 56px 1fr 300px;
 }

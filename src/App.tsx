@@ -53,6 +53,7 @@ const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/
 
 function App() {
   const restoredRef = useRef(false);
+  const [appRestoring, setAppRestoring] = useState(true);
   const trackListRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -335,6 +336,7 @@ function App() {
       }
       await timeAsync("loadProviders", () => loadProviders(store).then(setSearchProviders));
       restoredRef.current = true;
+      setAppRestoring(false);
       await timeAsync("loadLibrary", () => library.loadLibrary());
     })();
   }, []);
@@ -1008,7 +1010,7 @@ function App() {
   const hasTidal = !!tidalCollection;
 
   return (
-    <div className={`app ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
