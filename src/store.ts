@@ -36,6 +36,7 @@ export const store = new LazyStore("app-state.json", {
     trackVideoHistory: false,
     videoSplitHeight: 300,
     sidebarCollapsed: false,
+    queueCollapsed: false,
     downloadFormat: "flac",
     tidalEnabled: false,
     tidalOverrideUrl: "",
