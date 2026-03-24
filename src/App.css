@@ -995,12 +995,22 @@ body {
   z-index: 100;
   opacity: 0;
   transform: translateY(100%);
-  transition: opacity 0.3s, transform 0.3s, left 0.2s ease;
+  transition: opacity 0.3s, transform 0.3s, left 0.2s ease, right 0.2s ease;
   pointer-events: none;
+  display: flex;
+  align-items: center;
 }
 
 .app.sidebar-collapsed .status-bar {
   left: 56px;
+}
+
+.app.queue-open .status-bar {
+  right: 300px;
+}
+
+.app.queue-open.queue-collapsed .status-bar {
+  right: 56px;
 }
 
 .status-bar.status-bar-visible {
@@ -1014,6 +1024,8 @@ body {
   align-items: center;
   gap: 8px;
   padding: 0 12px;
+  flex: 1;
+  min-width: 0;
   height: 100%;
   cursor: pointer;
   font-size: 11px;
