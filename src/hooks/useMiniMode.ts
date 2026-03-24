@@ -8,6 +8,8 @@ const MINI_HEIGHT = 40;
 const MINI_MIN_WIDTH = 280;
 const MINI_MAX_WIDTH = 550;
 const MINI_INITIAL_WIDTH = 500;
+const FULL_MIN_WIDTH = 300;
+const FULL_MIN_HEIGHT = 400;
 
 function measureMiniFooter(): number {
   const footer = document.querySelector(".now-playing-mini") as HTMLElement;
@@ -38,6 +40,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
       store.set("fullWindowHeight", geo.h);
       store.set("fullWindowX", geo.x);
       store.set("fullWindowY", geo.y);
+      await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_HEIGHT));
       await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_HEIGHT));
       // Restore saved mini position if available
       const [mx, my] = await Promise.all([
@@ -59,6 +62,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
       store.set("miniWindowY", pos.y / factor);
       await win.setDecorations(true);
       await win.setAlwaysOnTop(false);
+      await win.setMinSize(new LogicalSize(FULL_MIN_WIDTH, FULL_MIN_HEIGHT));
       const geo = fullSizeRef.current;
       if (geo) {
         await win.setSize(new LogicalSize(geo.w, geo.h));
