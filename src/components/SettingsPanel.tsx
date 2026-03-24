@@ -13,6 +13,15 @@ const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
   genius: IconGenius,
 };
 
+const iconProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+
+const navIcons = {
+  general: <svg {...iconProps}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1.08z"/></svg>,
+  providers: <svg {...iconProps}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
+  about: <svg {...iconProps}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
+  debug: <svg {...iconProps}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>,
+};
+
 function SettingsProviderIcon({ provider }: { provider: SearchProviderConfig }) {
   const [imgError, setImgError] = useState(false);
 
@@ -41,6 +50,19 @@ function SettingsProviderIcon({ provider }: { provider: SearchProviderConfig }) 
     <span className="provider-icon-fallback">
       {provider.name[0]?.toUpperCase() ?? "?"}
     </span>
+  );
+}
+
+function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      className={`toggle-switch ${checked ? "toggle-switch-on" : ""}`}
+      onClick={() => onChange(!checked)}
+      role="switch"
+      aria-checked={checked}
+    >
+      <span className="toggle-switch-thumb" />
+    </button>
   );
 }
 
@@ -82,6 +104,8 @@ interface ProviderFormData {
   trackUrl: string;
 }
 
+type SettingsTab = "general" | "providers" | "about" | "debug";
+
 export function SettingsPanel({
   searchProviders,
   onClose,
@@ -109,7 +133,7 @@ export function SettingsPanel({
   tidalOverrideUrl,
   onTidalOverrideUrlChange,
 }: SettingsPanelProps) {
-  const [settingsTab, setSettingsTab] = useState<"main" | "providers" | "about" | "debug">("main");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<ProviderFormData>({ name: "", artistUrl: "", albumUrl: "", trackUrl: "" });
@@ -183,274 +207,336 @@ export function SettingsPanel({
 
   const isEditing = editingId !== null || adding;
 
+  const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
+    { key: "general", label: "General", icon: navIcons.general },
+    { key: "providers", label: "Providers", icon: navIcons.providers },
+    { key: "about", label: "About", icon: navIcons.about },
+    { key: "debug", label: "Debug", icon: navIcons.debug },
+  ];
+
   return (
-    <div className="settings-overlay">
+    <div className="settings-overlay" onClick={onClose}>
       <div className="settings-panel" onClick={e => e.stopPropagation()}>
-        <div className="settings-header">
-          <h2>Settings</h2>
-          <button className="settings-close" onClick={onClose}>{"\u00D7"}</button>
+        <div className="settings-sidebar">
+          <div className="settings-sidebar-title">Settings</div>
+          <nav className="settings-nav">
+            {navItems.map(item => (
+              <button
+                key={item.key}
+                className={`settings-nav-item ${settingsTab === item.key ? "active" : ""}`}
+                onClick={() => {
+                  setSettingsTab(item.key);
+                  if (item.key === "debug") onFetchBackendTimings();
+                }}
+              >
+                <span className="settings-nav-icon">{item.icon}</span>
+                {item.label}
+              </button>
+            ))}
+          </nav>
         </div>
 
-        <div className="settings-tabs">
-          <button className={`settings-tab ${settingsTab === "main" ? "active" : ""}`} onClick={() => setSettingsTab("main")}>Main</button>
-          <button className={`settings-tab ${settingsTab === "providers" ? "active" : ""}`} onClick={() => setSettingsTab("providers")}>Providers</button>
-          <button className={`settings-tab ${settingsTab === "about" ? "active" : ""}`} onClick={() => setSettingsTab("about")}>About</button>
-          <button className={`settings-tab ${settingsTab === "debug" ? "active" : ""}`} onClick={() => { setSettingsTab("debug"); onFetchBackendTimings(); }}>Debug</button>
-        </div>
-
-        {settingsTab === "main" && (
-          <div className="settings-section">
-            <div className="settings-row">
-              <label className="settings-label">Crossfade</label>
-              <input
-                type="range"
-                min={0}
-                max={10}
-                step={0.5}
-                value={crossfadeSecs}
-                onChange={e => onCrossfadeChange(parseFloat(e.target.value))}
-                className="settings-slider"
-              />
-              <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
-            </div>
-            <div className="settings-row">
-              <label className="settings-label">Track video history</label>
-              <button
-                className={`provider-toggle ${trackVideoHistory ? "provider-toggle-on" : ""}`}
-                onClick={() => onTrackVideoHistoryChange(!trackVideoHistory)}
-              >
-                {trackVideoHistory ? "On" : "Off"}
-              </button>
-            </div>
-            <div className="settings-row" style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 12 }}>
-              {lastfmConnected ? (
-                <>
-                  <label className="settings-label">Last.fm</label>
-                  <span className="settings-value" style={{ color: "#d51007" }}>{lastfmUsername}</span>
-                  <button
-                    className="provider-toggle"
-                    onClick={onLastfmDisconnect}
-                    style={{ marginLeft: "auto" }}
-                  >
-                    Disconnect
-                  </button>
-                </>
-              ) : (
-                <>
-                  <label className="settings-label">Last.fm</label>
-                  <button
-                    className="provider-toggle provider-toggle-on"
-                    onClick={onLastfmConnect}
-                    style={{ marginLeft: "auto", background: "#d51007", borderColor: "#d51007" }}
-                  >
-                    Connect
-                  </button>
-                </>
-              )}
-            </div>
-            <div className="settings-row" style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 12 }}>
-              <label className="settings-label">Download format</label>
-              <select
-                value={downloadFormat}
-                onChange={(e) => onDownloadFormatChange(e.target.value)}
-                className="settings-select"
-              >
-                <option value="flac">FLAC (Lossless)</option>
-                <option value="aac">AAC</option>
-                <option value="mp3">MP3</option>
-              </select>
-            </div>
-            <div className="settings-row" style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 12 }}>
-              <label className="settings-label">TIDAL</label>
-              <button
-                className={`provider-toggle ${tidalEnabled ? "provider-toggle-on" : ""}`}
-                onClick={() => onTidalEnabledChange(!tidalEnabled)}
-              >
-                {tidalEnabled ? "On" : "Off"}
-              </button>
-            </div>
-            {tidalEnabled && (
-              <div className="settings-row">
-                <label className="settings-label">Override URL</label>
-                <input
-                  type="text"
-                  value={tidalOverrideUrl}
-                  onChange={(e) => onTidalOverrideUrlChange(e.target.value)}
-                  placeholder="Auto-discover (leave blank)"
-                  style={{ flex: 1, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-primary)", padding: "6px 8px", borderRadius: 4, fontSize: 12 }}
-                />
-              </div>
-            )}
+        <div className="settings-content">
+          <div className="settings-content-header">
+            <h2>{navItems.find(n => n.key === settingsTab)?.label}</h2>
+            <button className="settings-close" onClick={onClose}>{"\u00D7"}</button>
           </div>
-        )}
 
-        {settingsTab === "providers" && (
-          <div className="settings-section">
-            {isEditing ? (
-              <div className="provider-form">
-                <h3>{adding ? "Add Provider" : "Edit Provider"}</h3>
-                <div className="provider-form-field">
-                  <label>Name</label>
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="Provider name"
-                  />
-                </div>
-                <div className="provider-form-field">
-                  <label>Artist URL Template</label>
-                  <input
-                    type="text"
-                    value={form.artistUrl}
-                    onChange={(e) => setForm({ ...form, artistUrl: e.target.value })}
-                    placeholder="https://example.com/search?q={artist}"
-                  />
-                </div>
-                <div className="provider-form-field">
-                  <label>Album URL Template</label>
-                  <input
-                    type="text"
-                    value={form.albumUrl}
-                    onChange={(e) => setForm({ ...form, albumUrl: e.target.value })}
-                    placeholder="https://example.com/search?q={artist}+{title}"
-                  />
-                </div>
-                <div className="provider-form-field">
-                  <label>Track URL Template</label>
-                  <input
-                    type="text"
-                    value={form.trackUrl}
-                    onChange={(e) => setForm({ ...form, trackUrl: e.target.value })}
-                    placeholder="https://example.com/search?q={artist}+{title}"
-                  />
-                </div>
-                <div className="provider-form-hint">
-                  Use {"{artist}"} and {"{title}"} as placeholders. Leave a URL blank to hide this provider for that context.
-                </div>
-                <div className="provider-form-actions">
-                  <button className="modal-btn modal-btn-cancel" onClick={cancelEdit}>Cancel</button>
-                  <button className="modal-btn modal-btn-confirm" onClick={saveEdit}>Save</button>
-                </div>
-              </div>
-            ) : (
+          <div className="settings-content-body">
+            {settingsTab === "general" && (
               <>
-                <div className="provider-list">
-                  {searchProviders.map((provider) => (
-                    <div key={provider.id} className={`provider-item ${!provider.enabled ? "provider-disabled" : ""}`}>
-                      <div className="provider-icon">
-                        <SettingsProviderIcon provider={provider} />
+                <div className="settings-group">
+                  <div className="settings-group-title">Playback</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Crossfade</span>
+                        <span className="settings-description">Smooth transition between tracks</span>
                       </div>
-                      <span className="provider-name">{provider.name}</span>
-                      <div className="provider-contexts">
-                        {provider.artistUrl && <span className="provider-context-chip">Artist</span>}
-                        {provider.albumUrl && <span className="provider-context-chip">Album</span>}
-                        {provider.trackUrl && <span className="provider-context-chip">Track</span>}
+                      <div className="settings-row-control settings-row-slider">
+                        <input
+                          type="range"
+                          min={0}
+                          max={10}
+                          step={0.5}
+                          value={crossfadeSecs}
+                          onChange={e => onCrossfadeChange(parseFloat(e.target.value))}
+                          className="settings-slider"
+                        />
+                        <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
                       </div>
-                      <button
-                        className={`provider-toggle ${provider.enabled ? "provider-toggle-on" : ""}`}
-                        onClick={() => toggleEnabled(provider.id)}
-                        title={provider.enabled ? "Disable" : "Enable"}
-                      >
-                        {provider.enabled ? "On" : "Off"}
-                      </button>
-                      <button
-                        className="provider-action"
-                        onClick={() => startEdit(provider)}
-                        title="Edit"
-                      >
-                        {"\u270E"}
-                      </button>
-                      {!provider.id.startsWith("builtin-") && (
-                        <button
-                          className="provider-action provider-delete"
-                          onClick={() => deleteProvider(provider.id)}
-                          title="Delete"
-                        >
-                          {"\u00D7"}
-                        </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="settings-group">
+                  <div className="settings-group-title">History</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Track video history</span>
+                        <span className="settings-description">Record playback of video files</span>
+                      </div>
+                      <ToggleSwitch checked={trackVideoHistory} onChange={onTrackVideoHistoryChange} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="settings-group">
+                  <div className="settings-group-title">Integrations</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Last.fm</span>
+                        <span className="settings-description">
+                          {lastfmConnected
+                            ? <>Scrobbling as <strong style={{ color: "#d51007" }}>{lastfmUsername}</strong></>
+                            : "Connect to scrobble your plays"
+                          }
+                        </span>
+                      </div>
+                      {lastfmConnected ? (
+                        <button className="settings-btn-secondary" onClick={onLastfmDisconnect}>Disconnect</button>
+                      ) : (
+                        <button className="settings-btn-accent" onClick={onLastfmConnect} style={{ background: "#d51007", borderColor: "#d51007" }}>Connect</button>
                       )}
                     </div>
-                  ))}
+                    <div className="settings-card-divider" />
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">TIDAL</span>
+                        <span className="settings-description">Stream from TIDAL catalog</span>
+                      </div>
+                      <ToggleSwitch checked={tidalEnabled} onChange={onTidalEnabledChange} />
+                    </div>
+                    {tidalEnabled && (
+                      <div className="settings-row settings-row-sub">
+                        <div className="settings-row-info">
+                          <span className="settings-label">Override URL</span>
+                        </div>
+                        <input
+                          type="text"
+                          className="settings-text-input"
+                          value={tidalOverrideUrl}
+                          onChange={(e) => onTidalOverrideUrlChange(e.target.value)}
+                          placeholder="Auto-discover (leave blank)"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <button className="add-folder-btn" onClick={startAdd}>
-                  + Add Provider
-                </button>
-                <button className="add-folder-btn" onClick={resetToDefaults}>
-                  Reset to Defaults
-                </button>
+
+                <div className="settings-group">
+                  <div className="settings-group-title">Downloads</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Format</span>
+                        <span className="settings-description">Preferred format for downloaded tracks</span>
+                      </div>
+                      <select
+                        value={downloadFormat}
+                        onChange={(e) => onDownloadFormatChange(e.target.value)}
+                        className="settings-select"
+                      >
+                        <option value="flac">FLAC (Lossless)</option>
+                        <option value="aac">AAC</option>
+                        <option value="mp3">MP3</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
               </>
             )}
-          </div>
-        )}
 
-        {settingsTab === "about" && (
-          <div className="settings-section settings-about">
-            <span className="settings-version">Viboplr v{appVersion}</span>
-
-            {updateState.available && !updateState.downloading && (
-              <div className="update-available">
-                <span className="update-version">v{updateState.available.version} available</span>
-                {updateState.available.body && (
-                  <p className="update-notes">{updateState.available.body}</p>
+            {settingsTab === "providers" && (
+              <div className="settings-group">
+                <div className="settings-group-title">Search Providers</div>
+                {isEditing ? (
+                  <div className="settings-card">
+                    <div className="provider-form">
+                      <h3>{adding ? "Add Provider" : "Edit Provider"}</h3>
+                      <div className="provider-form-field">
+                        <label>Name</label>
+                        <input
+                          type="text"
+                          value={form.name}
+                          onChange={(e) => setForm({ ...form, name: e.target.value })}
+                          placeholder="Provider name"
+                        />
+                      </div>
+                      <div className="provider-form-field">
+                        <label>Artist URL Template</label>
+                        <input
+                          type="text"
+                          value={form.artistUrl}
+                          onChange={(e) => setForm({ ...form, artistUrl: e.target.value })}
+                          placeholder="https://example.com/search?q={artist}"
+                        />
+                      </div>
+                      <div className="provider-form-field">
+                        <label>Album URL Template</label>
+                        <input
+                          type="text"
+                          value={form.albumUrl}
+                          onChange={(e) => setForm({ ...form, albumUrl: e.target.value })}
+                          placeholder="https://example.com/search?q={artist}+{title}"
+                        />
+                      </div>
+                      <div className="provider-form-field">
+                        <label>Track URL Template</label>
+                        <input
+                          type="text"
+                          value={form.trackUrl}
+                          onChange={(e) => setForm({ ...form, trackUrl: e.target.value })}
+                          placeholder="https://example.com/search?q={artist}+{title}"
+                        />
+                      </div>
+                      <div className="provider-form-hint">
+                        Use {"{artist}"} and {"{title}"} as placeholders. Leave a URL blank to hide this provider for that context.
+                      </div>
+                      <div className="provider-form-actions">
+                        <button className="settings-btn-secondary" onClick={cancelEdit}>Cancel</button>
+                        <button className="settings-btn-accent" onClick={saveEdit}>Save</button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="settings-card settings-card-flush">
+                      <div className="provider-list">
+                        {searchProviders.map((provider) => (
+                          <div key={provider.id} className={`provider-item ${!provider.enabled ? "provider-disabled" : ""}`}>
+                            <div className="provider-icon">
+                              <SettingsProviderIcon provider={provider} />
+                            </div>
+                            <span className="provider-name">{provider.name}</span>
+                            <div className="provider-contexts">
+                              {provider.artistUrl && <span className="provider-context-chip">Artist</span>}
+                              {provider.albumUrl && <span className="provider-context-chip">Album</span>}
+                              {provider.trackUrl && <span className="provider-context-chip">Track</span>}
+                            </div>
+                            <ToggleSwitch checked={provider.enabled} onChange={() => toggleEnabled(provider.id)} />
+                            <button
+                              className="provider-action"
+                              onClick={() => startEdit(provider)}
+                              title="Edit"
+                            >
+                              {"\u270E"}
+                            </button>
+                            {!provider.id.startsWith("builtin-") && (
+                              <button
+                                className="provider-action provider-delete"
+                                onClick={() => deleteProvider(provider.id)}
+                                title="Delete"
+                              >
+                                {"\u00D7"}
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="settings-actions-row">
+                      <button className="settings-btn-secondary" onClick={startAdd}>+ Add Provider</button>
+                      <button className="settings-btn-secondary" onClick={resetToDefaults}>Reset to Defaults</button>
+                    </div>
+                  </>
                 )}
-                <button className="add-folder-btn update-install-btn" onClick={onInstallUpdate}>
-                  Download &amp; Install
-                </button>
               </div>
             )}
 
-            {updateState.downloading && (
-              <div className="update-progress">
-                <span>Downloading update...</span>
-                {updateState.progress && updateState.progress.total > 0 && (
-                  <div className="update-progress-bar">
-                    <div
-                      className="update-progress-fill"
-                      style={{ width: `${Math.round((updateState.progress.downloaded / updateState.progress.total) * 100)}%` }}
-                    />
+            {settingsTab === "about" && (
+              <div className="settings-about-content">
+                <div className="settings-about-logo">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+                  </svg>
+                </div>
+                <span className="settings-about-name">Viboplr</span>
+                <span className="settings-about-version">v{appVersion}</span>
+
+                {updateState.available && !updateState.downloading && (
+                  <div className="update-available">
+                    <span className="update-version">v{updateState.available.version} available</span>
+                    {updateState.available.body && (
+                      <p className="update-notes">{updateState.available.body}</p>
+                    )}
+                    <button className="settings-btn-accent update-install-btn" onClick={onInstallUpdate}>
+                      Download &amp; Install
+                    </button>
                   </div>
                 )}
-              </div>
-            )}
 
-            {!updateState.available && !updateState.downloading && (
-              <>
-                {updateState.upToDate && (
-                  <span className="update-up-to-date">You're up to date!</span>
+                {updateState.downloading && (
+                  <div className="update-progress">
+                    <span>Downloading update...</span>
+                    {updateState.progress && updateState.progress.total > 0 && (
+                      <div className="update-progress-bar">
+                        <div
+                          className="update-progress-fill"
+                          style={{ width: `${Math.round((updateState.progress.downloaded / updateState.progress.total) * 100)}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
-                <button
-                  className="add-folder-btn"
-                  onClick={onCheckForUpdates}
-                  disabled={updateState.checking}
-                >
-                  {updateState.checking ? "Checking..." : "Check for Updates"}
-                </button>
-              </>
-            )}
-          </div>
-        )}
 
-        {settingsTab === "debug" && (
-          <div className="settings-section">
-            <button className="add-folder-btn" onClick={onClearImageFailures} style={{ marginBottom: 16 }}>
-              Retry Failed Image Downloads
-            </button>
-            {import.meta.env.DEV && (
-              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                <button className="add-folder-btn" onClick={onSeedDatabase}>
-                  Seed Test Data
-                </button>
-                <button className="add-folder-btn" onClick={onClearDatabase} disabled={clearing}>
-                  {clearing ? "Clearing..." : "Clear Database"}
-                </button>
+                {!updateState.available && !updateState.downloading && (
+                  <>
+                    {updateState.upToDate && (
+                      <span className="update-up-to-date">Up to date</span>
+                    )}
+                    <button
+                      className="settings-btn-secondary"
+                      onClick={onCheckForUpdates}
+                      disabled={updateState.checking}
+                    >
+                      {updateState.checking ? "Checking..." : "Check for Updates"}
+                    </button>
+                  </>
+                )}
               </div>
             )}
-            <TimingTable title="Backend" entries={backendTimings} />
-            <TimingTable title="Frontend" entries={frontendTimings} />
-          </div>
-        )}
 
+            {settingsTab === "debug" && (
+              <div className="settings-group">
+                <div className="settings-group-title">Maintenance</div>
+                <div className="settings-card">
+                  <div className="settings-row">
+                    <div className="settings-row-info">
+                      <span className="settings-label">Image cache</span>
+                      <span className="settings-description">Retry previously failed image downloads</span>
+                    </div>
+                    <button className="settings-btn-secondary" onClick={onClearImageFailures}>Retry</button>
+                  </div>
+                </div>
+                {import.meta.env.DEV && (
+                  <>
+                    <div className="settings-group-title" style={{ marginTop: 20 }}>Development</div>
+                    <div className="settings-card">
+                      <div className="settings-row">
+                        <div className="settings-row-info">
+                          <span className="settings-label">Test data</span>
+                          <span className="settings-description">Seed or clear the database</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button className="settings-btn-secondary" onClick={onSeedDatabase}>Seed</button>
+                          <button className="settings-btn-secondary" onClick={onClearDatabase} disabled={clearing}>
+                            {clearing ? "Clearing..." : "Clear"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+                <div className="settings-group-title" style={{ marginTop: 20 }}>Startup Timings</div>
+                <TimingTable title="Backend" entries={backendTimings} />
+                <TimingTable title="Frontend" entries={frontendTimings} />
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
