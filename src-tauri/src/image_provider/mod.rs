@@ -8,17 +8,19 @@ use std::path::Path;
 
 pub trait ArtistImageProvider: Send + Sync {
     fn name(&self) -> &str;
-    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<(), String>;
+    /// Returns the provider name that succeeded on Ok.
+    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<String, String>;
 }
 
 pub trait AlbumImageProvider: Send + Sync {
     fn name(&self) -> &str;
+    /// Returns the provider name that succeeded on Ok.
     fn fetch_album_image(
         &self,
         title: &str,
         artist_name: Option<&str>,
         dest_path: &Path,
-    ) -> Result<(), String>;
+    ) -> Result<String, String>;
 }
 
 pub struct ArtistImageFallbackChain {
@@ -36,11 +38,11 @@ impl ArtistImageProvider for ArtistImageFallbackChain {
         "FallbackChain"
     }
 
-    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<(), String> {
+    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<String, String> {
         let mut last_err = String::from("No artist image providers configured");
         for provider in &self.providers {
             match provider.fetch_artist_image(artist_name, dest_path) {
-                Ok(()) => return Ok(()),
+                Ok(source) => return Ok(source),
                 Err(e) => {
                     log::warn!(
                         "Artist image provider '{}' failed for '{}': {}",
@@ -76,11 +78,11 @@ impl AlbumImageProvider for AlbumImageFallbackChain {
         title: &str,
         artist_name: Option<&str>,
         dest_path: &Path,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         let mut last_err = String::from("No album image providers configured");
         for provider in &self.providers {
             match provider.fetch_album_image(title, artist_name, dest_path) {
-                Ok(()) => return Ok(()),
+                Ok(source) => return Ok(source),
                 Err(e) => {
                     log::warn!(
                         "Album image provider '{}' failed for '{}': {}",

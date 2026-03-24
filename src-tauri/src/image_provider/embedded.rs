@@ -28,7 +28,7 @@ impl AlbumImageProvider for EmbeddedArtworkProvider {
         album_title: &str,
         artist_name: Option<&str>,
         dest_path: &Path,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         let track_path = self
             .db
             .get_track_path_for_album(album_title, artist_name)
@@ -64,6 +64,7 @@ impl AlbumImageProvider for EmbeddedArtworkProvider {
         // Replace the .jpg extension in dest_path with the correct one
         let actual_dest = dest_path.with_extension(ext);
 
-        write_image(&actual_dest, picture.data())
+        write_image(&actual_dest, picture.data())?;
+        Ok(self.name().to_string())
     }
 }

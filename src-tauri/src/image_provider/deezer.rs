@@ -9,7 +9,7 @@ impl ArtistImageProvider for DeezerArtistProvider {
         "Deezer"
     }
 
-    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<(), String> {
+    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<String, String> {
         let client = http_client()?;
 
         let url = format!(
@@ -39,7 +39,8 @@ impl ArtistImageProvider for DeezerArtistProvider {
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;
 
-        write_image(dest_path, &bytes)
+        write_image(dest_path, &bytes)?;
+        Ok(self.name().to_string())
     }
 }
 
@@ -55,7 +56,7 @@ impl AlbumImageProvider for DeezerAlbumProvider {
         album_title: &str,
         artist_name: Option<&str>,
         dest_path: &Path,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         let client = http_client()?;
 
         let query = match artist_name {
@@ -89,6 +90,7 @@ impl AlbumImageProvider for DeezerAlbumProvider {
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;
 
-        write_image(dest_path, &bytes)
+        write_image(dest_path, &bytes)?;
+        Ok(self.name().to_string())
     }
 }

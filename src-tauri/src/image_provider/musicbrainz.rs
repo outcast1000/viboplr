@@ -9,7 +9,7 @@ impl ArtistImageProvider for MusicBrainzArtistProvider {
         "MusicBrainz"
     }
 
-    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<(), String> {
+    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<String, String> {
         let client = http_client()?;
 
         // Step 1: Search for artist on MusicBrainz
@@ -79,7 +79,8 @@ impl ArtistImageProvider for MusicBrainzArtistProvider {
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;
 
-        write_image(dest_path, &bytes)
+        write_image(dest_path, &bytes)?;
+        Ok(self.name().to_string())
     }
 }
 
@@ -95,7 +96,7 @@ impl AlbumImageProvider for MusicBrainzAlbumProvider {
         album_title: &str,
         artist_name: Option<&str>,
         dest_path: &Path,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         let client = http_client()?;
 
         // Step 1: Search for release-group on MusicBrainz
@@ -149,7 +150,8 @@ impl AlbumImageProvider for MusicBrainzAlbumProvider {
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;
 
-        write_image(dest_path, &bytes)
+        write_image(dest_path, &bytes)?;
+        Ok(self.name().to_string())
     }
 }
 

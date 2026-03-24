@@ -63,7 +63,9 @@ export function useImageCache(
     const unlistenReady = listen<Record<string, unknown>>(readyEvent, (event) => {
       const id = event.payload[eventIdKey] as number;
       const path = event.payload.path as string;
-      addLog?.(`${kind.charAt(0).toUpperCase() + kind.slice(1)} image ready (id=${id})`);
+      const entityName = (event.payload.name ?? event.payload.title ?? `id=${id}`) as string;
+      const source = event.payload.source as string | undefined;
+      addLog?.(`${kind.charAt(0).toUpperCase() + kind.slice(1)} image downloaded for "${entityName}"${source ? ` from ${source}` : ""}`);
       setImages((prev) => ({ ...prev, [id]: path }));
     });
 

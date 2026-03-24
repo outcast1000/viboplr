@@ -296,12 +296,12 @@ pub fn run() {
                             }
                             log::info!("Downloading image for artist: {} (id={})", name, id);
                             match worker_artist_provider.fetch_artist_image(name, &dest) {
-                                Ok(()) => {
+                                Ok(source) => {
                                     let path = dest.to_string_lossy().to_string();
-                                    log::info!("Downloaded image for artist: {} (id={})", name, id);
+                                    log::info!("Downloaded image for artist: {} (id={}) from {}", name, id, source);
                                     let _ = app_handle.emit(
                                         "artist-image-ready",
-                                        serde_json::json!({ "artistId": id, "path": &path }),
+                                        serde_json::json!({ "artistId": id, "path": &path, "name": name, "source": &source }),
                                     );
                                 }
                                 Err(e) => {
@@ -326,12 +326,12 @@ pub fn run() {
                             }
                             log::info!("Downloading image for album: {} (id={})", title, id);
                             match worker_album_provider.fetch_album_image(title, artist_name.as_deref(), &dest) {
-                                Ok(()) => {
+                                Ok(source) => {
                                     let path = dest.to_string_lossy().to_string();
-                                    log::info!("Downloaded image for album: {} (id={})", title, id);
+                                    log::info!("Downloaded image for album: {} (id={}) from {}", title, id, source);
                                     let _ = app_handle.emit(
                                         "album-image-ready",
-                                        serde_json::json!({ "albumId": id, "path": &path }),
+                                        serde_json::json!({ "albumId": id, "path": &path, "title": title, "source": &source }),
                                     );
                                 }
                                 Err(e) => {

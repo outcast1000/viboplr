@@ -9,7 +9,7 @@ impl ArtistImageProvider for ITunesArtistProvider {
         "iTunes"
     }
 
-    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<(), String> {
+    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<String, String> {
         let client = http_client()?;
 
         let url = format!(
@@ -40,7 +40,8 @@ impl ArtistImageProvider for ITunesArtistProvider {
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;
 
-        write_image(dest_path, &bytes)
+        write_image(dest_path, &bytes)?;
+        Ok(self.name().to_string())
     }
 }
 
@@ -56,7 +57,7 @@ impl AlbumImageProvider for ITunesAlbumProvider {
         album_title: &str,
         artist_name: Option<&str>,
         dest_path: &Path,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         let client = http_client()?;
 
         let term = match artist_name {
@@ -91,6 +92,7 @@ impl AlbumImageProvider for ITunesAlbumProvider {
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;
 
-        write_image(dest_path, &bytes)
+        write_image(dest_path, &bytes)?;
+        Ok(self.name().to_string())
     }
 }

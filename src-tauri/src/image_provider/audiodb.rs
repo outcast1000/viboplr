@@ -9,7 +9,7 @@ impl ArtistImageProvider for AudioDbArtistProvider {
         "TheAudioDB"
     }
 
-    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<(), String> {
+    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<String, String> {
         let client = http_client()?;
 
         let url = format!(
@@ -40,6 +40,7 @@ impl ArtistImageProvider for AudioDbArtistProvider {
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;
 
-        write_image(dest_path, &bytes)
+        write_image(dest_path, &bytes)?;
+        Ok(self.name().to_string())
     }
 }
