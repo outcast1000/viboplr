@@ -21,6 +21,7 @@
     "core:window:allow-unminimize",
     "updater:default",
     "process:default",
-    "deep-link:default"
+    "deep-link:default",
+    "global-shortcut:default"
   ]
 }

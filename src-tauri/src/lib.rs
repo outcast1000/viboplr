@@ -219,6 +219,7 @@ pub fn run() {
     let builder = timer.time("plugin: store", || builder.plugin(tauri_plugin_store::Builder::new().build()));
     let builder = timer.time("plugin: updater", || builder.plugin(tauri_plugin_updater::Builder::new().build()));
     let builder = timer.time("plugin: process", || builder.plugin(tauri_plugin_process::init()));
+    let builder = timer.time("plugin: global_shortcut", || builder.plugin(tauri_plugin_global_shortcut::Builder::new().build()));
 
     builder
         .setup(|app| {
