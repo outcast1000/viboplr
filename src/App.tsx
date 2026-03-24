@@ -2494,6 +2494,10 @@ function App() {
           onRemoveFromQueue={handleQueueRemove}
           onMoveToTop={handleQueueMoveToTop}
           onMoveToBottom={handleQueueMoveToBottom}
+          onLocateTrack={contextMenu.target.kind === "queue-multi" && contextMenu.target.indices.length === 1 ? () => {
+            const track = queueHook.queue[contextMenu.target.kind === "queue-multi" ? contextMenu.target.indices[0] : 0];
+            if (track?.artist_id) library.handleLocateTrack(track.id, track.artist_id);
+          } : undefined}
           onDownload={contextMenu.target.kind === "track" ? (destId: number) => { const t = contextMenu.target; if (t.kind === "track") handleDownloadTrack(t.trackId, destId); } : undefined}
           localCollections={localCollections}
           onClose={() => setContextMenu(null)}

@@ -29,6 +29,7 @@ interface ContextMenuProps {
   onRemoveFromQueue?: () => void;
   onMoveToTop?: () => void;
   onMoveToBottom?: () => void;
+  onLocateTrack?: () => void;
   onDownload?: (destCollectionId: number) => void;
   localCollections?: { id: number; name: string }[];
   onClose: () => void;
@@ -75,7 +76,7 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
 
 export function ContextMenu({
   menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onShowProperties,
-  onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onDownload, localCollections, onClose,
+  onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, localCollections, onClose,
 }: ContextMenuProps) {
   const { target } = menu;
 
@@ -112,6 +113,14 @@ export function ContextMenu({
           <div className="context-menu-item" onClick={() => { onMoveToBottom(); onClose(); }}>
             <IconEnqueue size={14} /><span>Move to bottom</span>
           </div>
+        )}
+        {onLocateTrack && count === 1 && (
+          <>
+            <div className="context-menu-separator" />
+            <div className="context-menu-item" onClick={() => { onLocateTrack(); onClose(); }}>
+              <IconFolder size={14} /><span>Go to Artist</span>
+            </div>
+          </>
         )}
       </div>
     );

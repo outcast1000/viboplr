@@ -28,6 +28,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [highlightedListIndex, setHighlightedListIndex] = useState(-1);
+  const pendingLocateTrackIdRef = useRef<number | null>(null);
 
   // Pagination state
   const [hasMore, setHasMore] = useState(false);
@@ -293,6 +294,22 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     return result;
   })();
 
+  // Resolve pending locate-track after sortedTracks updates
+  useEffect(() => {
+    const locateId = pendingLocateTrackIdRef.current;
+    if (locateId == null) return;
+    pendingLocateTrackIdRef.current = null;
+    const idx = sortedTracks.findIndex(t => t.id === locateId);
+    if (idx >= 0) {
+      setHighlightedIndex(idx);
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-track-id="${locateId}"]`) ??
+                   document.querySelector(`.track-row:nth-child(${idx + 1})`);
+        el?.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+    }
+  }, [sortedTracks]);
+
   // Fisher-Yates shuffle helper
   function shuffle<T>(arr: T[]): T[] {
     const a = [...arr];
@@ -466,6 +483,11 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     }
   }
 
+  function handleLocateTrack(trackId: number, artistId: number) {
+    pendingLocateTrackIdRef.current = trackId;
+    handleArtistClick(artistId);
+  }
+
   function handleShowAll() {
     onBeforeNavigate?.();
     setView("all");
@@ -503,7 +525,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     handleSort, sortIndicator,
     trackColumns, setTrackColumns,
     artistAlbums,
-    handleArtistClick, handleAlbumClick, handleShowAll, handleShowLiked,
+    handleArtistClick, handleAlbumClick, handleLocateTrack, handleShowAll, handleShowLiked,
     loadLibrary, loadTracks,
     hasMore, loadingMore, loadMore,
     sortedArtists, artistSortField, artistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,
