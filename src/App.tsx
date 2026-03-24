@@ -118,6 +118,7 @@ function App() {
   const [lastfmConnected, setLastfmConnected] = useState(false);
   const [lastfmUsername, setLastfmUsername] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState("flac");
   const [tidalEnabled, setTidalEnabled] = useState(false);
   const [tidalOverrideUrl, setTidalOverrideUrl] = useState("");
@@ -290,7 +291,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedDownloadFormat, savedTidalEnabled, savedTidalOverrideUrl] = await timeAsync("store.restore (35 keys)", () => Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedTidalOverrideUrl] = await timeAsync("store.restore (36 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -323,6 +324,7 @@ function App() {
           store.get<string | null>("lastfmSessionKey"),
           store.get<string | null>("lastfmUsername"),
           store.get<boolean>("sidebarCollapsed"),
+          store.get<boolean>("queueCollapsed"),
           store.get<string | null>("downloadFormat"),
           store.get<boolean>("tidalEnabled"),
           store.get<string | null>("tidalOverrideUrl"),
@@ -373,6 +375,7 @@ function App() {
         if (savedLikedViewMode && ["basic", "list", "tiles"].includes(savedLikedViewMode)) library.setLikedViewMode(savedLikedViewMode as ViewMode);
         if (savedVideoSplitHeight && savedVideoSplitHeight > 0) videoSplit.setVideoHeight(savedVideoSplitHeight);
         if (savedSidebarCollapsed) setSidebarCollapsed(true);
+        if (savedQueueCollapsed) setQueueCollapsed(true);
         if (savedDownloadFormat && ["flac", "aac", "mp3"].includes(savedDownloadFormat)) setDownloadFormat(savedDownloadFormat);
         if (savedTidalEnabled) setTidalEnabled(true);
         if (savedTidalOverrideUrl) setTidalOverrideUrl(savedTidalOverrideUrl);
@@ -1068,6 +1071,14 @@ function App() {
     });
   }
 
+  function handleToggleQueueCollapsed() {
+    setQueueCollapsed(prev => {
+      const next = !prev;
+      store.set("queueCollapsed", next);
+      return next;
+    });
+  }
+
   async function handleLastfmConnect() {
     try {
       const url = await invoke<string>("lastfm_get_auth_url");
@@ -1229,7 +1240,7 @@ function App() {
   const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name }));
 
   return (
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -2465,6 +2476,8 @@ function App() {
             setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "queue-multi", indices } });
           }}
           externalDropTarget={externalDropTarget}
+          collapsed={queueCollapsed}
+          onToggleCollapsed={handleToggleQueueCollapsed}
         />
       )}
 
