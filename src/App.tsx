@@ -26,6 +26,7 @@ import { useSessionLog } from "./hooks/useSessionLog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
 import { useMiniMode } from "./hooks/useMiniMode";
 import { useVideoSplit } from "./hooks/useVideoSplit";
+import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 
 import { Sidebar } from "./components/Sidebar";
 import { TrackList } from "./components/TrackList";
@@ -628,6 +629,13 @@ function App() {
       handleStopRef.current();
     }
   }, []);
+
+  useGlobalShortcuts({
+    togglePlayPause: playback.handlePause,
+    playNext: () => handleNext(),
+    playPrevious: () => queueHook.playPrevious(),
+    stop: playback.handleStop,
+  });
 
   const onEnded = useCallback(async () => {
     if (playback.handleGaplessNext()) {
