@@ -1377,6 +1377,7 @@ function App() {
             ref={searchInputRef}
             type="text"
             placeholder={
+              view === "tidal" ? "Search TIDAL..." :
               view === "liked" ? "Search liked tracks..." :
               view === "history" ? "Search history..." :
               view === "artists" && selectedArtist === null ? "Search artists..." :
@@ -2323,6 +2324,7 @@ function App() {
           {/* TIDAL view */}
           {view === "tidal" && tidalEnabled && (
             <TidalView
+              searchQuery={searchQuery}
               overrideUrl={tidalOverrideUrl || undefined}
               onPlayTrack={handleTidalPlay}
               onEnqueueTrack={handleTidalEnqueue}

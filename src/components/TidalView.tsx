@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
   TidalSearchResult,
@@ -16,6 +16,7 @@ type TidalSubView =
   | { kind: "artist"; artist: TidalArtistDetail };
 
 interface TidalViewProps {
+  searchQuery: string;
   overrideUrl?: string;
   onPlayTrack: (tidalTrackId: string, trackInfo: TidalSearchTrack) => void;
   onEnqueueTrack: (tidalTrackId: string, trackInfo: TidalSearchTrack) => void;
@@ -23,42 +24,39 @@ interface TidalViewProps {
   localCollections?: { id: number; name: string }[];
 }
 
-export function TidalView({ overrideUrl, onPlayTrack, onEnqueueTrack, onDownloadAlbum, localCollections }: TidalViewProps) {
-  const [query, setQuery] = useState("");
+export function TidalView({ searchQuery, overrideUrl, onPlayTrack, onEnqueueTrack, onDownloadAlbum, localCollections }: TidalViewProps) {
   const [results, setResults] = useState<TidalSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [subView, setSubView] = useState<TidalSubView>({ kind: "search" });
   const [savingId] = useState<string | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  async function doSearch(q: string) {
-    if (!q.trim()) {
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    const q = searchQuery.trim();
+    if (!q) {
       setResults(null);
       return;
     }
-    setLoading(true);
-    try {
-      const res = await invoke<TidalSearchResult>("tidal_search", {
-        overrideUrl: overrideUrl || null,
-        query: q.trim(),
-        limit: 25,
-        offset: 0,
-      });
-      setResults(res);
-    } catch (e) {
-      console.error("TIDAL search failed:", e);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function handleQueryChange(value: string) {
-    setQuery(value);
     setSubView({ kind: "search" });
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => doSearch(value), 400);
-  }
+    debounceRef.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await invoke<TidalSearchResult>("tidal_search", {
+          overrideUrl: overrideUrl || null,
+          query: q,
+          limit: 25,
+          offset: 0,
+        });
+        setResults(res);
+      } catch (e) {
+        console.error("TIDAL search failed:", e);
+      } finally {
+        setLoading(false);
+      }
+    }, 400);
+    return () => clearTimeout(debounceRef.current);
+  }, [searchQuery, overrideUrl]);
 
   function handlePlayTrack(track: TidalSearchTrack) {
     onPlayTrack(track.tidal_id, track);
@@ -114,20 +112,7 @@ export function TidalView({ overrideUrl, onPlayTrack, onEnqueueTrack, onDownload
 
   return (
     <div className="tidal-view">
-      <div className="tidal-search-bar">
-        <input
-          ref={searchRef}
-          type="text"
-          placeholder="Search TIDAL..."
-          value={query}
-          onChange={(e) => handleQueryChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") doSearch(query);
-          }}
-          autoFocus
-        />
-        {loading && <span className="tidal-loading">Loading...</span>}
-      </div>
+      {loading && <div className="tidal-loading-bar">Loading...</div>}
 
       {subView.kind === "search" && results && (
         <div className="tidal-results">
@@ -163,7 +148,7 @@ export function TidalView({ overrideUrl, onPlayTrack, onEnqueueTrack, onDownload
       )}
 
       {subView.kind === "search" && !results && !loading && (
-        <div className="tidal-empty">Search TIDAL's catalog above</div>
+        <div className="tidal-empty">Type in the search bar to search TIDAL</div>
       )}
 
       {subView.kind === "album" && (
