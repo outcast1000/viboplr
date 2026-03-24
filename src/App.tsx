@@ -1371,7 +1371,7 @@ function App() {
       {/* Main content */}
       <main className="main">
         {/* Search bar */}
-        <div className="search-bar">
+        <div className="search-bar" data-tauri-drag-region>
           <button
             className="nav-history-btn"
             disabled={!canGoBack}

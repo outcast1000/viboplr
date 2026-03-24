@@ -57,6 +57,7 @@ export function Sidebar({
 
   return (
     <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
+      <div className="sidebar-drag-region" data-tauri-drag-region />
       <div className="sidebar-brand">
         <div className="sidebar-logo" title="Viboplr">
           <svg width={28} height={28} viewBox="0 0 512 512" fill="none">
