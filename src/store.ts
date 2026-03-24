@@ -37,5 +37,7 @@ export const store = new LazyStore("app-state.json", {
     videoSplitHeight: 300,
     sidebarCollapsed: false,
     downloadFormat: "flac",
+    tidalEnabled: false,
+    tidalOverrideUrl: "",
   },
 });

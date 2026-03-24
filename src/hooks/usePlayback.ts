@@ -318,46 +318,61 @@ export function usePlayback(
     try {
       const pathOrUrl = await invoke<string>("get_track_path", { trackId: track.id });
       const src = track.subsonic_id ? pathOrUrl : convertFileSrc(pathOrUrl);
-
-      // Stop all elements
-      [audioRefA.current, audioRefB.current].forEach(el => {
-        if (el) { el.pause(); el.removeAttribute("src"); el.load(); }
-      });
-      if (videoRef.current) {
-        videoRef.current.pause();
-        videoRef.current.removeAttribute("src");
-        videoRef.current.load();
-      }
-
-      setCurrentTrack(track);
-      setPositionSecs(0);
-      setDurationSecs(track.duration_secs ?? 0);
-      scrobbledRef.current = false;
-      setScrobbled(false);
-      playStartedAtRef.current = Math.floor(Date.now() / 1000);
-      invoke("lastfm_now_playing", { trackId: track.id }).catch(console.error);
-
-      // Always reset to slot A on explicit play
-      setActiveSlot("A");
-      activeSlotRef.current = "A";
-
-      if (isVideoTrack(track)) {
-        if (videoRef.current) {
-          videoRef.current.src = src;
-          videoRef.current.volume = volume;
-          await videoRef.current.play();
-        } else {
-          pendingSrcRef.current = src;
-        }
-      } else {
-        if (audioRefA.current) {
-          audioRefA.current.src = src;
-          audioRefA.current.volume = volume;
-          await audioRefA.current.play();
-        }
-      }
+      await playWithSrc(track, src);
     } catch (e) {
       console.error("Playback error:", e);
+    }
+  }
+
+  async function handlePlayUrl(track: Track, url: string) {
+    cancelCrossfade();
+    invalidatePreload();
+    setPlaybackError(null);
+
+    try {
+      await playWithSrc(track, url);
+    } catch (e) {
+      console.error("Playback error:", e);
+    }
+  }
+
+  async function playWithSrc(track: Track, src: string) {
+    // Stop all elements
+    [audioRefA.current, audioRefB.current].forEach(el => {
+      if (el) { el.pause(); el.removeAttribute("src"); el.load(); }
+    });
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.removeAttribute("src");
+      videoRef.current.load();
+    }
+
+    setCurrentTrack(track);
+    setPositionSecs(0);
+    setDurationSecs(track.duration_secs ?? 0);
+    scrobbledRef.current = false;
+    setScrobbled(false);
+    playStartedAtRef.current = Math.floor(Date.now() / 1000);
+    if (track.id > 0) invoke("lastfm_now_playing", { trackId: track.id }).catch(console.error);
+
+    // Always reset to slot A on explicit play
+    setActiveSlot("A");
+    activeSlotRef.current = "A";
+
+    if (isVideoTrack(track)) {
+      if (videoRef.current) {
+        videoRef.current.src = src;
+        videoRef.current.volume = volume;
+        await videoRef.current.play();
+      } else {
+        pendingSrcRef.current = src;
+      }
+    } else {
+      if (audioRefA.current) {
+        audioRefA.current.src = src;
+        audioRefA.current.volume = volume;
+        await audioRefA.current.play();
+      }
     }
   }
 
@@ -564,7 +579,7 @@ export function usePlayback(
     activeSlot,
     audioRefA, audioRefB, videoRef,
     getMediaElement,
-    handlePlay, handlePause, handleStop, handleRestore,
+    handlePlay, handlePlayUrl, handlePause, handleStop, handleRestore,
     handleVolume, handleSeek,
     handleGaplessNext, invalidatePreload,
     onTimeUpdate, onLoadedMetadata, onPlay, onPause, onMediaError,

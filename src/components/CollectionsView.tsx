@@ -17,7 +17,7 @@ function formatTimeAgo(ts: number): string {
 }
 
 function getConnectionStatus(c: Collection): "connected" | "error" | "unknown" | null {
-  if (c.kind !== "subsonic" && c.kind !== "tidal") return null;
+  if (c.kind !== "subsonic") return null;
   if (c.last_sync_error) return "error";
   if (c.last_synced_at !== null) return "connected";
   return "unknown";
@@ -34,7 +34,6 @@ interface CollectionsViewProps {
   onRemove: (collection: Collection) => void;
   onAddFolder: () => void;
   onShowAddServer: () => void;
-  onShowAddTidal: () => void;
 }
 
 export function CollectionsView({
@@ -48,13 +47,12 @@ export function CollectionsView({
   onRemove,
   onAddFolder,
   onShowAddServer,
-  onShowAddTidal,
 }: CollectionsViewProps) {
   return (
     <div className="collections-view">
       {collections.length === 0 ? (
         <div className="collections-empty">
-          <p>No collections yet. Add a folder, server, or TIDAL connection to get started.</p>
+          <p>No collections yet. Add a folder or server to get started.</p>
         </div>
       ) : (
         <div className="collections-grid">
@@ -109,7 +107,7 @@ export function CollectionsView({
                   >
                     Resync
                   </button>
-                  {(c.kind === "subsonic" || c.kind === "tidal") && (
+                  {c.kind === "subsonic" && (
                     <button
                       className={`collections-view-action-btn ${checkingConnectionId === c.id ? "collections-view-action-checking" : ""}`}
                       onClick={() => onCheckConnection(c.id)}
@@ -147,7 +145,6 @@ export function CollectionsView({
       <div className="collections-view-add-buttons">
         <button className="add-folder-btn" onClick={onAddFolder}>+ Add Folder</button>
         <button className="add-folder-btn" onClick={onShowAddServer}>+ Add Server</button>
-        <button className="add-folder-btn" onClick={onShowAddTidal}>+ Add TIDAL</button>
       </div>
     </div>
   );

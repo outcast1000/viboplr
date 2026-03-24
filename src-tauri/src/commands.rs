@@ -176,21 +176,7 @@ pub fn add_collection(
             Ok(collection)
         }
         "tidal" => {
-            // URL is optional — auto-discovers instances from uptime API
-            let api_url = url.as_deref().filter(|u| !u.is_empty());
-
-            // Test connection
-            let client = TidalClient::new(api_url);
-            client
-                .ping()
-                .map_err(|e| format!("Failed to connect: {}", e))?;
-
-            let collection = state
-                .db
-                .add_collection("tidal", &name, None, api_url, None, None, None, None)
-                .map_err(|e| e.to_string())?;
-
-            Ok(collection)
+            Err("TIDAL is configured as an integration in Settings, not as a collection".to_string())
         }
         "seed" => {
             #[cfg(debug_assertions)]
@@ -397,12 +383,6 @@ pub fn get_track_path(state: State<'_, AppState>, track_id: i64) -> Result<Strin
                     &creds.auth_method,
                 );
                 Ok(client.stream_url(remote_id))
-            }
-            "tidal" => {
-                let client = TidalClient::new(collection.url.as_deref());
-                client
-                    .get_stream_url(remote_id, "LOSSLESS")
-                    .map_err(|e| e.to_string())
             }
             _ => Err(format!("Unknown collection kind: {}", collection.kind)),
         }
@@ -822,17 +802,13 @@ pub async fn tidal_test_connection(url: String) -> Result<String, String> {
 
 #[tauri::command]
 pub fn tidal_search(
-    state: State<'_, AppState>,
-    collection_id: i64,
+    _state: State<'_, AppState>,
+    override_url: Option<String>,
     query: String,
     limit: u32,
     offset: u32,
 ) -> Result<TidalSearchResult, String> {
-    let collection = state
-        .db
-        .get_collection_by_id(collection_id)
-        .map_err(|e| e.to_string())?;
-    let client = TidalClient::new(collection.url.as_deref());
+    let client = TidalClient::new(override_url.as_deref());
 
     let tracks = client
         .search_tracks(&query, limit, offset)
@@ -883,80 +859,79 @@ pub fn tidal_search(
 #[tauri::command]
 pub fn tidal_save_track(
     state: State<'_, AppState>,
-    collection_id: i64,
+    override_url: Option<String>,
     tidal_track_id: String,
-) -> Result<Track, String> {
-    let collection = state
-        .db
-        .get_collection_by_id(collection_id)
-        .map_err(|e| e.to_string())?;
-    let client = TidalClient::new(collection.url.as_deref());
+    dest_collection_id: i64,
+    format: String,
+) -> Result<u64, String> {
+    let fmt = DownloadFormat::from_str(&format)?;
+    let client = TidalClient::new(override_url.as_deref());
 
     let info = client
         .get_track_info(&tidal_track_id)
         .map_err(|e| e.to_string())?;
 
-    let artist_id = if let Some(artist_name) = &info.artist_name {
-        Some(
-            state
-                .db
-                .get_or_create_artist(artist_name)
-                .map_err(|e| e.to_string())?,
-        )
-    } else {
-        None
-    };
-
-    let album_id = if let Some(album_title) = &info.album_title {
-        Some(
-            state
-                .db
-                .get_or_create_album(album_title, artist_id, None)
-                .map_err(|e| e.to_string())?,
-        )
-    } else {
-        None
-    };
-
-    let path = format!("tidal://{}/{}", collection_id, tidal_track_id);
-    let format_str = "flac"; // TIDAL streams are typically FLAC
-
-    let track_id = state
+    let dest_collection = state
         .db
-        .upsert_track(
-            &path,
-            &info.title,
-            artist_id,
-            album_id,
-            info.track_number,
-            info.duration_secs,
-            Some(format_str),
-            None, // file_size
-            None, // modified_at
-            Some(collection_id),
-            Some(&tidal_track_id),
-        )
+        .get_collection_by_id(dest_collection_id)
         .map_err(|e| e.to_string())?;
+    let dest_path = dest_collection
+        .path
+        .ok_or("Destination collection has no path")?;
 
-    let _ = state.db.rebuild_fts();
+    let cover_url = info
+        .cover_id
+        .as_deref()
+        .map(|id| TidalClient::cover_url(id, 1280));
 
-    state
-        .db
-        .get_track_by_id(track_id)
+    let id = state.track_download_manager.next_id();
+    let request = DownloadRequest {
+        id,
+        track_title: info.title,
+        artist_name: info
+            .artist_name
+            .unwrap_or_else(|| "Unknown Artist".to_string()),
+        album_title: info
+            .album_title
+            .unwrap_or_else(|| "Unknown Album".to_string()),
+        track_number: info.track_number.map(|n| n as u32),
+        genre: None,
+        year: None,
+        cover_url,
+        source_kind: "tidal".to_string(),
+        source_collection_id: None,
+        source_override_url: override_url,
+        remote_track_id: tidal_track_id,
+        dest_collection_id,
+        dest_collection_path: dest_path,
+        format: fmt,
+        is_batch_last: true,
+    };
+
+    state.track_download_manager.enqueue(request);
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn tidal_get_stream_url(
+    _state: State<'_, AppState>,
+    override_url: Option<String>,
+    tidal_track_id: String,
+    quality: Option<String>,
+) -> Result<String, String> {
+    let client = TidalClient::new(override_url.as_deref());
+    client
+        .get_stream_url(&tidal_track_id, quality.as_deref().unwrap_or("LOSSLESS"))
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn tidal_get_album(
-    state: State<'_, AppState>,
-    collection_id: i64,
+    _state: State<'_, AppState>,
+    override_url: Option<String>,
     album_id: String,
 ) -> Result<TidalAlbumDetail, String> {
-    let collection = state
-        .db
-        .get_collection_by_id(collection_id)
-        .map_err(|e| e.to_string())?;
-    let client = TidalClient::new(collection.url.as_deref());
+    let client = TidalClient::new(override_url.as_deref());
 
     let album = client.get_album(&album_id).map_err(|e| e.to_string())?;
 
@@ -986,15 +961,11 @@ pub fn tidal_get_album(
 
 #[tauri::command]
 pub fn tidal_get_artist(
-    state: State<'_, AppState>,
-    collection_id: i64,
+    _state: State<'_, AppState>,
+    override_url: Option<String>,
     artist_id: String,
 ) -> Result<TidalArtistDetail, String> {
-    let collection = state
-        .db
-        .get_collection_by_id(collection_id)
-        .map_err(|e| e.to_string())?;
-    let client = TidalClient::new(collection.url.as_deref());
+    let client = TidalClient::new(override_url.as_deref());
 
     let artist = client.get_artist(&artist_id).map_err(|e| e.to_string())?;
     let albums = client
@@ -1314,6 +1285,11 @@ pub fn download_track(
     // Resolve cover URL
     let cover_url = resolve_cover_url(&state.db, track, source_collection_id);
 
+    let collection = state
+        .db
+        .get_collection_by_id(source_collection_id)
+        .map_err(|e| e.to_string())?;
+
     let id = state.track_download_manager.next_id();
     let request = DownloadRequest {
         id,
@@ -1327,15 +1303,17 @@ pub fn download_track(
             .clone()
             .unwrap_or_else(|| "Unknown Album".to_string()),
         track_number: track.track_number.map(|n| n as u32),
-        genre: None, // tags not stored on Track struct directly
+        genre: None,
         year: track.year,
         cover_url,
-        source_collection_id,
+        source_kind: collection.kind.clone(),
+        source_collection_id: Some(source_collection_id),
+        source_override_url: collection.url.clone(),
         remote_track_id,
         dest_collection_id,
         dest_collection_path: dest_path,
         format: fmt,
-        is_batch_last: true, // single track = always rebuild FTS
+        is_batch_last: true,
     };
 
     state.track_download_manager.enqueue(request);
@@ -1345,17 +1323,13 @@ pub fn download_track(
 #[tauri::command]
 pub fn download_album(
     state: State<'_, AppState>,
-    source_collection_id: i64,
+    override_url: Option<String>,
     album_id: String,
     dest_collection_id: i64,
     format: String,
 ) -> Result<Vec<u64>, String> {
     let fmt = DownloadFormat::from_str(&format)?;
 
-    let collection = state
-        .db
-        .get_collection_by_id(source_collection_id)
-        .map_err(|e| e.to_string())?;
     let dest_collection = state
         .db
         .get_collection_by_id(dest_collection_id)
@@ -1364,54 +1338,31 @@ pub fn download_album(
         .path
         .ok_or("Destination collection has no path")?;
 
-    // Fetch album tracks from remote API
-    let tracks_info = match collection.kind.as_str() {
-        "tidal" => {
-            let client = TidalClient::new(collection.url.as_deref());
-            let album = client.get_album(&album_id).map_err(|e| e.to_string())?;
-            let cover_url = album
-                .cover_id
-                .as_deref()
-                .map(|id| TidalClient::cover_url(id, 1280));
-            album
-                .tracks
-                .into_iter()
-                .map(|t| {
-                    (
-                        t.id,
-                        t.title,
-                        t.artist_name.unwrap_or_default(),
-                        album.title.clone(),
-                        t.track_number.map(|n| n as u32),
-                        album.year,
-                        cover_url.clone(),
-                    )
-                })
-                .collect::<Vec<_>>()
-        }
-        _ => {
-            return Err("Album download currently only supported for TIDAL".to_string());
-        }
-    };
+    let client = TidalClient::new(override_url.as_deref());
+    let album = client.get_album(&album_id).map_err(|e| e.to_string())?;
+    let cover_url = album
+        .cover_id
+        .as_deref()
+        .map(|id| TidalClient::cover_url(id, 1280));
 
-    let count = tracks_info.len();
+    let count = album.tracks.len();
     let mut ids = Vec::with_capacity(count);
 
-    for (i, (remote_id, title, artist, album_title, track_num, year, cover_url)) in
-        tracks_info.into_iter().enumerate()
-    {
+    for (i, t) in album.tracks.into_iter().enumerate() {
         let id = state.track_download_manager.next_id();
         let request = DownloadRequest {
             id,
-            track_title: title,
-            artist_name: artist,
-            album_title,
-            track_number: track_num,
+            track_title: t.title,
+            artist_name: t.artist_name.unwrap_or_default(),
+            album_title: album.title.clone(),
+            track_number: t.track_number.map(|n| n as u32),
             genre: None,
-            year,
-            cover_url,
-            source_collection_id,
-            remote_track_id: remote_id,
+            year: album.year,
+            cover_url: cover_url.clone(),
+            source_kind: "tidal".to_string(),
+            source_collection_id: None,
+            source_override_url: override_url.clone(),
+            remote_track_id: t.id,
             dest_collection_id,
             dest_collection_path: dest_path.clone(),
             format: fmt,

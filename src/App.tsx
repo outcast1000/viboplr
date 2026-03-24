@@ -45,7 +45,7 @@ import { ImageActions } from "./components/ImageActions";
 import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
 import { TidalView } from "./components/TidalView";
-import { AddTidalModal } from "./components/AddTidalModal";
+import type { TidalSearchTrack } from "./types";
 import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
@@ -72,9 +72,18 @@ function App() {
   trackVideoHistoryRef.current = trackVideoHistory;
   const advanceIndexRef = useRef<() => void>(() => {});
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef);
+  const tidalStreamUrls = useRef<Map<number, string>>(new Map());
+  const handlePlayWithTidal = useCallback((track: Track) => {
+    const url = tidalStreamUrls.current.get(track.id);
+    if (url) {
+      playback.handlePlayUrl(track, url);
+    } else {
+      playback.handlePlay(track);
+    }
+  }, [playback.handlePlay, playback.handlePlayUrl]);
   const beforeNavRef = useRef<() => void>(() => {});
   const library = useLibrary(restoredRef, () => beforeNavRef.current());
-  const queueHook = useQueue(restoredRef, playback.handlePlay);
+  const queueHook = useQueue(restoredRef, handlePlayWithTidal);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
   const videoSplit = useVideoSplit(restoredRef);
@@ -89,7 +98,6 @@ function App() {
   const [syncProgress, setSyncProgress] = useState({ synced: 0, total: 0, collection: "" });
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [showAddServer, setShowAddServer] = useState(false);
-  const [showAddTidal, setShowAddTidal] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const { sessionLog, addLog } = useSessionLog();
@@ -110,6 +118,8 @@ function App() {
   const [lastfmUsername, setLastfmUsername] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState("flac");
+  const [tidalEnabled, setTidalEnabled] = useState(false);
+  const [tidalOverrideUrl, setTidalOverrideUrl] = useState("");
   const [downloadStatus, setDownloadStatus] = useState<{
     active: { id: number; track_title: string; artist_name: string; progress_pct: number } | null;
     queued: { id: number; track_title: string; artist_name: string }[];
@@ -279,7 +289,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedDownloadFormat] = await timeAsync("store.restore (33 keys)", () => Promise.all([
+        const [v, sq, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedDownloadFormat, savedTidalEnabled, savedTidalOverrideUrl] = await timeAsync("store.restore (35 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -313,6 +323,8 @@ function App() {
           store.get<string | null>("lastfmUsername"),
           store.get<boolean>("sidebarCollapsed"),
           store.get<string | null>("downloadFormat"),
+          store.get<boolean>("tidalEnabled"),
+          store.get<string | null>("tidalOverrideUrl"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history", "tidal"].includes(v)) library.setView(v as View);
         if (sq) library.setSearchQuery(sq);
@@ -361,6 +373,8 @@ function App() {
         if (savedVideoSplitHeight && savedVideoSplitHeight > 0) videoSplit.setVideoHeight(savedVideoSplitHeight);
         if (savedSidebarCollapsed) setSidebarCollapsed(true);
         if (savedDownloadFormat && ["flac", "aac", "mp3"].includes(savedDownloadFormat)) setDownloadFormat(savedDownloadFormat);
+        if (savedTidalEnabled) setTidalEnabled(true);
+        if (savedTidalOverrideUrl) setTidalOverrideUrl(savedTidalOverrideUrl);
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {
@@ -941,10 +955,20 @@ function App() {
     store.set("downloadFormat", format);
   }
 
-  async function handleDownloadAlbum(albumId: string, sourceCollectionId: number, destCollectionId: number) {
+  function handleTidalEnabledChange(enabled: boolean) {
+    setTidalEnabled(enabled);
+    store.set("tidalEnabled", enabled);
+  }
+
+  function handleTidalOverrideUrlChange(url: string) {
+    setTidalOverrideUrl(url);
+    store.set("tidalOverrideUrl", url);
+  }
+
+  async function handleDownloadAlbum(albumId: string, destCollectionId: number) {
     try {
       const ids = await invoke<number[]>("download_album", {
-        sourceCollectionId,
+        overrideUrl: tidalOverrideUrl || null,
         albumId,
         destCollectionId,
         format: downloadFormat,
@@ -952,6 +976,63 @@ function App() {
       addLog(`Queued ${ids.length} tracks for download`);
     } catch (e) {
       addLog(`Album download failed: ${e}`);
+    }
+  }
+
+  const tidalIdCounter = useRef(-1);
+
+  function tidalTrackToTrack(info: TidalSearchTrack): Track {
+    const id = tidalIdCounter.current--;
+    return {
+      id,
+      path: "",
+      title: info.title,
+      artist_id: null,
+      artist_name: info.artist_name,
+      album_id: null,
+      album_title: info.album_title,
+      year: null,
+      track_number: info.track_number,
+      duration_secs: info.duration_secs,
+      format: null,
+      file_size: null,
+      collection_id: null,
+      collection_name: null,
+      subsonic_id: info.tidal_id,
+      liked: false,
+      youtube_url: null,
+      added_at: null,
+      modified_at: null,
+    };
+  }
+
+  async function handleTidalPlay(tidalTrackId: string, trackInfo: TidalSearchTrack) {
+    try {
+      const streamUrl = await invoke<string>("tidal_get_stream_url", {
+        overrideUrl: tidalOverrideUrl || null,
+        tidalTrackId,
+        quality: null,
+      });
+      const track = tidalTrackToTrack(trackInfo);
+      tidalStreamUrls.current.set(track.id, streamUrl);
+      queueHook.playTracks([track], 0);
+    } catch (e) {
+      addLog(`TIDAL playback failed: ${e}`);
+    }
+  }
+
+  async function handleTidalEnqueue(tidalTrackId: string, trackInfo: TidalSearchTrack) {
+    try {
+      const streamUrl = await invoke<string>("tidal_get_stream_url", {
+        overrideUrl: tidalOverrideUrl || null,
+        tidalTrackId,
+        quality: null,
+      });
+      const track = tidalTrackToTrack(trackInfo);
+      tidalStreamUrls.current.set(track.id, streamUrl);
+      queueHook.enqueueTracks([track]);
+    } catch (e) {
+      addLog(`TIDAL enqueue failed: ${e}`);
     }
   }
 
@@ -1136,8 +1217,7 @@ function App() {
 
   const isListView = (view === "artists" && selectedArtist === null) || view === "albums" || (view === "tags" && selectedTag === null);
   const isHistoryView = view === "history";
-  const tidalCollection = library.collections.find(c => c.kind === "tidal" && c.enabled);
-  const hasTidal = !!tidalCollection;
+  const hasTidal = tidalEnabled;
   const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name }));
 
   return (
@@ -1236,16 +1316,6 @@ function App() {
         />
       )}
 
-      {showAddTidal && (
-        <AddTidalModal
-          onAdded={() => {
-            setShowAddTidal(false);
-            library.loadLibrary();
-          }}
-          onClose={() => setShowAddTidal(false)}
-        />
-      )}
-
       {showSettings && (
         <SettingsPanel
           searchProviders={searchProviders}
@@ -1272,6 +1342,10 @@ function App() {
           onLastfmDisconnect={handleLastfmDisconnect}
           downloadFormat={downloadFormat}
           onDownloadFormatChange={handleDownloadFormatChange}
+          tidalEnabled={tidalEnabled}
+          onTidalEnabledChange={handleTidalEnabledChange}
+          tidalOverrideUrl={tidalOverrideUrl}
+          onTidalOverrideUrlChange={handleTidalOverrideUrlChange}
         />
       )}
 
@@ -2247,11 +2321,11 @@ function App() {
           )}
 
           {/* TIDAL view */}
-          {view === "tidal" && tidalCollection && (
+          {view === "tidal" && tidalEnabled && (
             <TidalView
-              collectionId={tidalCollection.id}
-              onPlayTracks={queueHook.playTracks}
-              onEnqueueTracks={handleEnqueue}
+              overrideUrl={tidalOverrideUrl || undefined}
+              onPlayTrack={handleTidalPlay}
+              onEnqueueTrack={handleTidalEnqueue}
               onDownloadAlbum={handleDownloadAlbum}
               localCollections={localCollections}
             />
@@ -2260,7 +2334,7 @@ function App() {
           {/* Collections view */}
           {view === "collections" && (
             <CollectionsView
-              collections={library.collections}
+              collections={library.collections.filter(c => c.kind !== "tidal")}
               onToggleEnabled={handleToggleCollectionEnabled}
               onCheckConnection={handleCheckConnection}
               onResync={handleResyncCollection}
@@ -2270,7 +2344,6 @@ function App() {
               onRemove={(c) => setRemoveCollectionConfirm(c)}
               onAddFolder={handleAddFolder}
               onShowAddServer={() => setShowAddServer(true)}
-              onShowAddTidal={() => setShowAddTidal(true)}
             />
           )}
         </div>

@@ -62,7 +62,9 @@ pub struct DownloadRequest {
     pub genre: Option<String>,
     pub year: Option<i32>,
     pub cover_url: Option<String>,
-    pub source_collection_id: i64,
+    pub source_kind: String,                  // "tidal" or "subsonic"
+    pub source_collection_id: Option<i64>,    // needed for subsonic credentials
+    pub source_override_url: Option<String>,  // optional override URL for tidal
     pub remote_track_id: String,
     pub dest_collection_id: i64,
     pub dest_collection_path: String,
@@ -236,20 +238,18 @@ pub fn process_download(
     }
 
     // Step 1: Resolve stream URL
-    let collection = db
-        .get_collection_by_id(request.source_collection_id)
-        .map_err(|e| e.to_string())?;
-
-    let stream_url = match collection.kind.as_str() {
+    let stream_url = match request.source_kind.as_str() {
         "tidal" => {
-            let client = TidalClient::new(collection.url.as_deref());
+            let client = TidalClient::new(request.source_override_url.as_deref());
             client
                 .get_stream_url(&request.remote_track_id, request.format.tidal_quality())
                 .map_err(|e| e.to_string())?
         }
         "subsonic" => {
+            let collection_id = request.source_collection_id
+                .ok_or("Subsonic download requires source_collection_id")?;
             let creds = db
-                .get_collection_credentials(request.source_collection_id)
+                .get_collection_credentials(collection_id)
                 .map_err(|e| e.to_string())?;
             let client = SubsonicClient::from_stored(
                 &creds.url,
@@ -263,7 +263,7 @@ pub fn process_download(
                 request.format.subsonic_format_param(),
             )
         }
-        _ => return Err(format!("Unsupported collection kind: {}", collection.kind)),
+        _ => return Err(format!("Unsupported source kind: {}", request.source_kind)),
     };
 
     // Step 2: Download to temp file

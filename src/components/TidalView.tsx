@@ -1,7 +1,6 @@
 import { useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
-  Track,
   TidalSearchResult,
   TidalSearchTrack,
   TidalSearchAlbum,
@@ -17,19 +16,19 @@ type TidalSubView =
   | { kind: "artist"; artist: TidalArtistDetail };
 
 interface TidalViewProps {
-  collectionId: number;
-  onPlayTracks: (tracks: Track[], startIndex: number) => void;
-  onEnqueueTracks: (tracks: Track[]) => void;
-  onDownloadAlbum?: (albumId: string, sourceCollectionId: number, destCollectionId: number) => void;
+  overrideUrl?: string;
+  onPlayTrack: (tidalTrackId: string, trackInfo: TidalSearchTrack) => void;
+  onEnqueueTrack: (tidalTrackId: string, trackInfo: TidalSearchTrack) => void;
+  onDownloadAlbum?: (albumId: string, destCollectionId: number) => void;
   localCollections?: { id: number; name: string }[];
 }
 
-export function TidalView({ collectionId, onPlayTracks, onEnqueueTracks, onDownloadAlbum, localCollections }: TidalViewProps) {
+export function TidalView({ overrideUrl, onPlayTrack, onEnqueueTrack, onDownloadAlbum, localCollections }: TidalViewProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<TidalSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [subView, setSubView] = useState<TidalSubView>({ kind: "search" });
-  const [savingId, setSavingId] = useState<string | null>(null);
+  const [savingId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -41,7 +40,7 @@ export function TidalView({ collectionId, onPlayTracks, onEnqueueTracks, onDownl
     setLoading(true);
     try {
       const res = await invoke<TidalSearchResult>("tidal_search", {
-        collectionId,
+        overrideUrl: overrideUrl || null,
         query: q.trim(),
         limit: 25,
         offset: 0,
@@ -61,38 +60,19 @@ export function TidalView({ collectionId, onPlayTracks, onEnqueueTracks, onDownl
     debounceRef.current = setTimeout(() => doSearch(value), 400);
   }
 
-  async function handlePlayTrack(track: TidalSearchTrack) {
-    setSavingId(track.tidal_id);
-    try {
-      const saved = await invoke<Track>("tidal_save_track", {
-        collectionId,
-        tidalTrackId: track.tidal_id,
-      });
-      onPlayTracks([saved], 0);
-    } catch (e) {
-      console.error("Failed to play TIDAL track:", e);
-    } finally {
-      setSavingId(null);
-    }
+  function handlePlayTrack(track: TidalSearchTrack) {
+    onPlayTrack(track.tidal_id, track);
   }
 
-  async function handleEnqueueTrack(track: TidalSearchTrack) {
-    try {
-      const saved = await invoke<Track>("tidal_save_track", {
-        collectionId,
-        tidalTrackId: track.tidal_id,
-      });
-      onEnqueueTracks([saved]);
-    } catch (e) {
-      console.error("Failed to enqueue TIDAL track:", e);
-    }
+  function handleEnqueueTrack(track: TidalSearchTrack) {
+    onEnqueueTrack(track.tidal_id, track);
   }
 
   async function handleAlbumClick(albumId: string) {
     setLoading(true);
     try {
       const album = await invoke<TidalAlbumDetail>("tidal_get_album", {
-        collectionId,
+        overrideUrl: overrideUrl || null,
         albumId,
       });
       setSubView({ kind: "album", album });
@@ -107,7 +87,7 @@ export function TidalView({ collectionId, onPlayTracks, onEnqueueTracks, onDownl
     setLoading(true);
     try {
       const artist = await invoke<TidalArtistDetail>("tidal_get_artist", {
-        collectionId,
+        overrideUrl: overrideUrl || null,
         artistId,
       });
       setSubView({ kind: "artist", artist });
@@ -118,22 +98,13 @@ export function TidalView({ collectionId, onPlayTracks, onEnqueueTracks, onDownl
     }
   }
 
-  async function handlePlayAlbum(tracks: TidalSearchTrack[]) {
-    setSavingId("album");
-    try {
-      const saved: Track[] = [];
-      for (const t of tracks) {
-        const s = await invoke<Track>("tidal_save_track", {
-          collectionId,
-          tidalTrackId: t.tidal_id,
-        });
-        saved.push(s);
+  function handlePlayAlbum(tracks: TidalSearchTrack[]) {
+    // Play first track, rest are enqueued
+    if (tracks.length > 0) {
+      onPlayTrack(tracks[0].tidal_id, tracks[0]);
+      for (let i = 1; i < tracks.length; i++) {
+        onEnqueueTrack(tracks[i].tidal_id, tracks[i]);
       }
-      onPlayTracks(saved, 0);
-    } catch (e) {
-      console.error("Failed to play album:", e);
-    } finally {
-      setSavingId(null);
     }
   }
 
@@ -204,7 +175,7 @@ export function TidalView({ collectionId, onPlayTracks, onEnqueueTracks, onDownl
           onEnqueueTrack={handleEnqueueTrack}
           onPlayAlbum={handlePlayAlbum}
           onArtistClick={handleArtistClick}
-          onDownloadAlbum={onDownloadAlbum ? (albumId: string, destCollectionId: number) => onDownloadAlbum(albumId, collectionId, destCollectionId) : undefined}
+          onDownloadAlbum={onDownloadAlbum}
           localCollections={localCollections}
         />
       )}

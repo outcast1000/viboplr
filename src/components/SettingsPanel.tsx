@@ -69,6 +69,10 @@ interface SettingsPanelProps {
   onLastfmDisconnect: () => void;
   downloadFormat: string;
   onDownloadFormatChange: (format: string) => void;
+  tidalEnabled: boolean;
+  onTidalEnabledChange: (enabled: boolean) => void;
+  tidalOverrideUrl: string;
+  onTidalOverrideUrlChange: (url: string) => void;
 }
 
 interface ProviderFormData {
@@ -100,6 +104,10 @@ export function SettingsPanel({
   onLastfmDisconnect,
   downloadFormat,
   onDownloadFormatChange,
+  tidalEnabled,
+  onTidalEnabledChange,
+  tidalOverrideUrl,
+  onTidalOverrideUrlChange,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<"main" | "providers" | "about" | "debug">("main");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -252,6 +260,27 @@ export function SettingsPanel({
                 <option value="mp3">MP3</option>
               </select>
             </div>
+            <div className="settings-row" style={{ borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 12 }}>
+              <label className="settings-label">TIDAL</label>
+              <button
+                className={`provider-toggle ${tidalEnabled ? "provider-toggle-on" : ""}`}
+                onClick={() => onTidalEnabledChange(!tidalEnabled)}
+              >
+                {tidalEnabled ? "On" : "Off"}
+              </button>
+            </div>
+            {tidalEnabled && (
+              <div className="settings-row">
+                <label className="settings-label">Override URL</label>
+                <input
+                  type="text"
+                  value={tidalOverrideUrl}
+                  onChange={(e) => onTidalOverrideUrlChange(e.target.value)}
+                  placeholder="Auto-discover (leave blank)"
+                  style={{ flex: 1, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-primary)", padding: "6px 8px", borderRadius: 4, fontSize: 12 }}
+                />
+              </div>
+            )}
           </div>
         )}
 
