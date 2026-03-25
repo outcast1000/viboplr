@@ -249,6 +249,7 @@ pub fn run() {
             let (artist_provider, album_provider) = timer.time("build_image_providers", || {
                 let artist_provider: Arc<dyn ArtistImageProvider> = Arc::new(
                     ArtistImageFallbackChain::new(vec![
+                        Box::new(image_provider::tidal::TidalArtistProvider),
                         Box::new(image_provider::deezer::DeezerArtistProvider),
                         Box::new(image_provider::itunes::ITunesArtistProvider),
                         Box::new(image_provider::audiodb::AudioDbArtistProvider),
@@ -258,6 +259,7 @@ pub fn run() {
                 let album_provider: Arc<dyn AlbumImageProvider> = Arc::new(
                     AlbumImageFallbackChain::new(vec![
                         Box::new(image_provider::embedded::EmbeddedArtworkProvider::new(db.clone())),
+                        Box::new(image_provider::tidal::TidalAlbumProvider),
                         Box::new(image_provider::itunes::ITunesAlbumProvider),
                         Box::new(image_provider::deezer::DeezerAlbumProvider),
                         Box::new(image_provider::musicbrainz::MusicBrainzAlbumProvider),
