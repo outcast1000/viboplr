@@ -120,6 +120,11 @@ export function NowPlayingBar({
         }}
       >
         <div className="now-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
+        <span className="now-seek-time now-seek-elapsed">{formatDuration(positionSecs)}</span>
+        <span className="now-seek-time now-seek-total">
+          {formatDuration(durationSecs)}
+          {scrobbled && <span className="now-scrobbled" title="Logged to play history">{"\u2713"}</span>}
+        </span>
       </div>
       <div className="now-main">
         <div className="now-info">
@@ -154,10 +159,6 @@ export function NowPlayingBar({
           </button>
           <button className="ctrl-btn" onClick={onNext} title={`Next (${mod}\u2192)`}>{"\u23ED"}</button>
           <button className="ctrl-btn" onClick={onStop} title="Stop">{"\u23F9"}</button>
-          <span className="now-time">
-            {formatDuration(positionSecs)} / {formatDuration(durationSecs)}
-            {scrobbled && <span className="now-scrobbled" title="Logged to play history">{"\u2713"}</span>}
-          </span>
         </div>
       <div className="now-right">
         <button

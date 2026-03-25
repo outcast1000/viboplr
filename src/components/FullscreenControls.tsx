@@ -143,6 +143,11 @@ export function FullscreenControls({
         }}
       >
         <div className="fs-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
+        <span className="fs-seek-time fs-seek-elapsed">{formatDuration(positionSecs)}</span>
+        <span className="fs-seek-time fs-seek-total">
+          {formatDuration(durationSecs)}
+          {scrobbled && <span className="fs-scrobbled" title="Logged to play history">{"\u2713"}</span>}
+        </span>
       </div>
       <div className="fs-main">
         <div className="fs-info">
@@ -175,10 +180,6 @@ export function FullscreenControls({
           </button>
           <button className="ctrl-btn" onClick={onNext} title="Next">{"\u23ED"}</button>
           <button className="ctrl-btn" onClick={onStop} title="Stop">{"\u23F9"}</button>
-          <span className="fs-time">
-            {formatDuration(positionSecs)} / {formatDuration(durationSecs)}
-            {scrobbled && <span className="fs-scrobbled" title="Logged to play history">{"\u2713"}</span>}
-          </span>
         </div>
         <div className="fs-right">
           <button
