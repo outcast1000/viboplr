@@ -26,6 +26,7 @@ import { useSessionLog } from "./hooks/useSessionLog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
 import { useMiniMode } from "./hooks/useMiniMode";
 import { useVideoSplit } from "./hooks/useVideoSplit";
+import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { WindowControls } from "./components/WindowControls";
 
@@ -75,6 +76,13 @@ function App() {
   trackVideoHistoryRef.current = trackVideoHistory;
   const advanceIndexRef = useRef<() => void>(() => {});
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef);
+  const waveformPeaks = useWaveform(
+    playback.currentTrack?.id ?? null,
+    playback.currentTrack?.file_size ?? null,
+    playback.currentTrack?.subsonic_id ?? null,
+    playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
+    playback.currentAssetUrl,
+  );
   const tidalStreamUrls = useRef<Map<number, string>>(new Map());
   const handlePlayWithTidal = useCallback((track: Track) => {
     const url = tidalStreamUrls.current.get(track.id);
@@ -2514,6 +2522,7 @@ function App() {
             onDoubleClick={playback.toggleFullscreen}
           />
           <FullscreenControls
+            waveformPeaks={waveformPeaks}
             currentTrack={playback.currentTrack}
             playing={playback.playing}
             positionSecs={playback.positionSecs}
@@ -2691,6 +2700,7 @@ function App() {
       )}
 
       <NowPlayingBar
+        waveformPeaks={waveformPeaks}
         currentTrack={playback.currentTrack}
         playing={playback.playing}
         positionSecs={playback.positionSecs}

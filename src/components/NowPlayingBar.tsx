@@ -5,6 +5,7 @@ import type { Track } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
 import { AutoContinuePopover } from "./AutoContinuePopover";
+import { WaveformSeekBar } from "./WaveformSeekBar";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
 
@@ -30,6 +31,7 @@ const shortcuts = [
 
 
 interface NowPlayingBarProps {
+  waveformPeaks: number[] | null;
   currentTrack: Track | null;
   playing: boolean;
   positionSecs: number;
@@ -64,6 +66,7 @@ interface NowPlayingBarProps {
 }
 
 export function NowPlayingBar({
+  waveformPeaks,
   currentTrack, playing,
   positionSecs, durationSecs, scrobbled,
   volume, queueMode,
@@ -120,7 +123,16 @@ export function NowPlayingBar({
           onSeek(pct * durationSecs);
         }}
       >
-        <div className="now-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
+        {waveformPeaks ? (
+          <WaveformSeekBar
+            peaks={waveformPeaks}
+            progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
+            accentColor="rgba(83, 168, 255, 0.7)"
+            dimColor="rgba(255, 255, 255, 0.15)"
+          />
+        ) : (
+          <div className="now-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
+        )}
         <span className="now-seek-time now-seek-elapsed">{formatDuration(positionSecs)}</span>
         <span className="now-seek-time now-seek-total">
           {formatDuration(durationSecs)}

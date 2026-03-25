@@ -4,8 +4,10 @@ import type { Track } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
 import { AutoContinuePopover } from "./AutoContinuePopover";
+import { WaveformSeekBar } from "./WaveformSeekBar";
 
 interface FullscreenControlsProps {
+  waveformPeaks: number[] | null;
   currentTrack: Track | null;
   playing: boolean;
   positionSecs: number;
@@ -42,6 +44,7 @@ interface FullscreenControlsProps {
 const IDLE_TIMEOUT = 3000;
 
 export function FullscreenControls({
+  waveformPeaks,
   currentTrack, playing,
   positionSecs, durationSecs, scrobbled,
   volume, queueMode,
@@ -143,7 +146,16 @@ export function FullscreenControls({
           onSeek(pct * durationSecs);
         }}
       >
-        <div className="fs-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
+        {waveformPeaks ? (
+          <WaveformSeekBar
+            peaks={waveformPeaks}
+            progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
+            accentColor="rgba(83, 168, 255, 0.8)"
+            dimColor="rgba(255, 255, 255, 0.2)"
+          />
+        ) : (
+          <div className="fs-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
+        )}
         <span className="fs-seek-time fs-seek-elapsed">{formatDuration(positionSecs)}</span>
         <span className="fs-seek-time fs-seek-total">
           {formatDuration(durationSecs)}
