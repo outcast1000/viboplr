@@ -21,10 +21,11 @@ interface TidalViewProps {
   onPlayTrack: (tidalTrackId: string, trackInfo: TidalSearchTrack) => void;
   onEnqueueTrack: (tidalTrackId: string, trackInfo: TidalSearchTrack) => void;
   onDownloadAlbum?: (albumId: string, destCollectionId: number) => void;
+  onDownloadTrack?: (tidalTrackId: string, destCollectionId: number) => void;
   localCollections?: { id: number; name: string }[];
 }
 
-export function TidalView({ searchQuery, overrideUrl, onPlayTrack, onEnqueueTrack, onDownloadAlbum, localCollections }: TidalViewProps) {
+export function TidalView({ searchQuery, overrideUrl, onPlayTrack, onEnqueueTrack, onDownloadAlbum, onDownloadTrack, localCollections }: TidalViewProps) {
   const [results, setResults] = useState<TidalSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [subView, setSubView] = useState<TidalSubView>({ kind: "search" });
@@ -126,6 +127,8 @@ export function TidalView({ searchQuery, overrideUrl, onPlayTrack, onEnqueueTrac
                 onEnqueue={handleEnqueueTrack}
                 onAlbumClick={handleAlbumClick}
                 onArtistClick={handleArtistClick}
+                onDownloadTrack={onDownloadTrack}
+                localCollections={localCollections}
               />
             </div>
           )}
@@ -161,6 +164,7 @@ export function TidalView({ searchQuery, overrideUrl, onPlayTrack, onEnqueueTrac
           onPlayAlbum={handlePlayAlbum}
           onArtistClick={handleArtistClick}
           onDownloadAlbum={onDownloadAlbum}
+          onDownloadTrack={onDownloadTrack}
           localCollections={localCollections}
         />
       )}
@@ -183,6 +187,8 @@ function TrackResults({
   onEnqueue,
   onAlbumClick,
   onArtistClick,
+  onDownloadTrack,
+  localCollections,
 }: {
   tracks: TidalSearchTrack[];
   savingId: string | null;
@@ -190,7 +196,10 @@ function TrackResults({
   onEnqueue: (t: TidalSearchTrack) => void;
   onAlbumClick: (id: string) => void;
   onArtistClick: (id: string) => void;
+  onDownloadTrack?: (tidalTrackId: string, destCollectionId: number) => void;
+  localCollections?: { id: number; name: string }[];
 }) {
+  const canDownload = onDownloadTrack && localCollections && localCollections.length > 0;
   return (
     <div className="tidal-track-list">
       {tracks.map((t) => (
@@ -242,6 +251,34 @@ function TrackResults({
           >
             +
           </button>
+          {canDownload && (
+            localCollections.length === 1 ? (
+              <button
+                className="tidal-btn tidal-btn-download"
+                onClick={() => onDownloadTrack(t.tidal_id, localCollections[0].id)}
+                title="Download"
+              >
+                {"\u2B07"}
+              </button>
+            ) : (
+              <select
+                className="tidal-btn tidal-btn-download"
+                onChange={(e) => {
+                  if (e.target.value) {
+                    onDownloadTrack(t.tidal_id, Number(e.target.value));
+                    e.target.value = "";
+                  }
+                }}
+                defaultValue=""
+                title="Download to..."
+              >
+                <option value="" disabled>{"\u2B07"}</option>
+                {localCollections.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            )
+          )}
         </div>
       ))}
     </div>
@@ -308,6 +345,7 @@ function AlbumDetailView({
   onPlayAlbum,
   onArtistClick,
   onDownloadAlbum,
+  onDownloadTrack,
   localCollections,
 }: {
   album: TidalAlbumDetail;
@@ -318,8 +356,10 @@ function AlbumDetailView({
   onPlayAlbum: (tracks: TidalSearchTrack[]) => void;
   onArtistClick: (id: string) => void;
   onDownloadAlbum?: (albumId: string, destCollectionId: number) => void;
+  onDownloadTrack?: (tidalTrackId: string, destCollectionId: number) => void;
   localCollections?: { id: number; name: string }[];
 }) {
+  const canDownloadTrack = onDownloadTrack && localCollections && localCollections.length > 0;
   return (
     <div className="tidal-detail">
       <button className="tidal-back" onClick={onBack}>{"\u2190"} Back</button>
@@ -404,6 +444,34 @@ function AlbumDetailView({
             >
               +
             </button>
+            {canDownloadTrack && (
+              localCollections.length === 1 ? (
+                <button
+                  className="tidal-btn tidal-btn-download"
+                  onClick={() => onDownloadTrack(t.tidal_id, localCollections[0].id)}
+                  title="Download"
+                >
+                  {"\u2B07"}
+                </button>
+              ) : (
+                <select
+                  className="tidal-btn tidal-btn-download"
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      onDownloadTrack(t.tidal_id, Number(e.target.value));
+                      e.target.value = "";
+                    }
+                  }}
+                  defaultValue=""
+                  title="Download to..."
+                >
+                  <option value="" disabled>{"\u2B07"}</option>
+                  {localCollections.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              )
+            )}
           </div>
         ))}
       </div>
