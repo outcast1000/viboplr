@@ -187,10 +187,12 @@ The player uses a **dual audio element (A/B)** architecture to achieve gapless t
 
 ### 4.10 Liked Tracks, Artists, Albums & Tags
 
-- **Tracks:** Each track has a `liked` boolean attribute (stored as `INTEGER DEFAULT 0` in SQLite). A heart icon column appears in the track list: filled heart (♥) when liked, outline heart (♡) when not. Clicking the heart toggles the liked state via `toggle_liked` (with `kind: "track"`) and updates local state immediately (tracks list, current track, and queue). The **Now Playing bar** also shows a like button next to the current track info, allowing users to like/unlike the playing track without scrolling to it in the list. The sidebar has a "Liked" view that shows all liked tracks via `get_liked_tracks`. Search in this view is scoped to liked tracks only (`liked_only` flag in `TrackQuery`).
-- **Artists:** Each artist has a `liked` boolean. In the All Artists list, a heart icon per row toggles the like via `toggle_liked` (with `kind: "artist"`). The artist detail header also shows a heart icon next to the artist name. The sort bar's heart toggle floats liked artists to the top.
-- **Albums:** Each album has a `liked` boolean. In the All Albums grid, a heart overlay appears on hover (top-right corner of the album card) and toggles via `toggle_liked` (with `kind: "album"`). Liked albums show the heart permanently. The album detail header also shows a heart icon next to the album title. The sort bar's heart toggle floats liked albums to the top.
-- **Tags:** Each tag has a `liked` boolean. Like buttons appear in all three tag view modes (basic, list, tiles) and in the tag detail header, toggling via `toggle_liked` (with `kind: "tag"`). The sort bar's heart toggle floats liked tags to the top.
+- **Tracks — tri-state liked:** Each track has a `liked` integer attribute with three states: **-1** (disliked), **0** (neutral), **1** (loved). In the track list, a heart icon column shows: filled heart (♥) when loved, outline heart (♡) when neutral or disliked. A separate **dislike button** (⊘ when neutral/loved, ✖ when disliked) appears alongside the heart in track lists, the Now Playing bar, and fullscreen controls. Clicking toggles between disliked (-1) and neutral (0). The `toggle_liked` command accepts an `i32` value. **Disliked tracks are excluded from Auto Continue** (all strategies add `AND t.liked != -1`) **and from Play All / Queue All operations**.
+- The **Now Playing bar** shows both like and dislike buttons next to the current track info, allowing users to love/dislike the playing track without scrolling to it.
+- The sidebar has a "Liked" view that shows all loved tracks (`liked = 1`) via `get_liked_tracks`. Search in this view is scoped to liked tracks only (`liked_only` flag in `TrackQuery`).
+- **Artists:** Each artist has a `liked` integer (0 or 1). In the All Artists list, a heart icon per row toggles the like via `toggle_liked` (with `kind: "artist"`). The artist detail header also shows a heart icon next to the artist name. The sort bar's heart toggle floats liked artists to the top.
+- **Albums:** Each album has a `liked` integer (0 or 1). In the All Albums grid, a heart overlay appears on hover (top-right corner of the album card) and toggles via `toggle_liked` (with `kind: "album"`). Liked albums show the heart permanently. The album detail header also shows a heart icon next to the album title. The sort bar's heart toggle floats liked albums to the top.
+- **Tags:** Each tag has a `liked` integer (0 or 1). Like buttons appear in all three tag view modes (basic, list, tiles) and in the tag detail header, toggling via `toggle_liked` (with `kind: "tag"`). The sort bar's heart toggle floats liked tags to the top.
 - **Scan-safe:** the `liked` column on tracks is excluded from the `upsert_track` ON CONFLICT clause, so re-scanning or re-syncing a collection preserves the user's likes. Artist, album, and tag likes are never touched by scanning.
 - **Migration:** existing databases gain `liked` columns via `ALTER TABLE` for `tracks`, `artists`, `albums` (all `INTEGER NOT NULL DEFAULT 0`), and `tags` (migration version 5).
 
@@ -229,6 +231,7 @@ When playback reaches the end of the queue in "normal" mode, the player normally
 - **Play** / **Enqueue**: Play immediately or add to queue.
 - **Locate File** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer via `raw_arg` for proper path quoting, or Linux xdg-open).
 - **Delete** (local tracks only): Deletes the file from disk and soft-deletes the track from the database. Shows a confirmation dialog before proceeding. Supports single and multi-track deletion. If the currently playing track is deleted, playback stops. Only available for local (non-subsonic, non-tidal) tracks.
+- **Upgrade via TIDAL** (local tracks only, when TIDAL is configured): Opens a modal to replace the local file with a higher-quality version from TIDAL (see §4.23).
 - **Search providers**: Dynamic list of enabled search providers (see §4.14). Each provider appears with its icon and a "Search on {name}" label. Clicking opens the provider's URL with `{artist}` and `{title}` placeholders filled in. Only providers with a URL template for the current context (artist/album/track) are shown.
 
 ### 4.13 Play History
@@ -432,8 +435,9 @@ Viboplr can search and stream from TIDAL's catalog via the **Hi-Fi API** (the ba
 - The TIDAL view appears in the sidebar (diamond icon, `Ctrl/Cmd+7`) when a tidal collection exists.
 - Search bar with 400ms debounce queries the Hi-Fi API (`GET /search/?s={query}`).
 - Results displayed in 3 sections: Tracks, Albums, Artists.
-- Album cards are clickable → loads album detail with full track listing and "Play Album" button.
+- Album cards are clickable → loads album detail with full track listing and "Play Album" button. Each track row has a download button (⬇) to save the track to a local collection.
 - Artist cards are clickable → loads artist detail with discography (album grid).
+- **Per-track download:** Each track in search results and album detail views has a download button. If only one local collection exists, clicking downloads directly to it. If multiple local collections exist, a picker appears. The download uses `tidal_save_track` to persist metadata, then streams the audio file to the local collection's folder.
 - Cover art loaded directly from TIDAL's CDN: `https://resources.tidal.com/images/{uuid_with_slashes}/{size}x{size}.jpg`.
 
 **Playback (on-demand save):**
@@ -444,7 +448,7 @@ Viboplr can search and stream from TIDAL's catalog via the **Hi-Fi API** (the ba
   3. Upserts the track with `path = "tidal://{collection_id}/{tidal_id}"` and `subsonic_id = tidal_id`.
   4. Returns the persisted `Track` object, which is then played via the normal playback path.
 - Stream URLs are fetched at play time (not enqueue time) to avoid CDN token expiration. `get_track_path` detects the `tidal` collection kind and calls the Hi-Fi API's `/track/?id={id}&quality=LOSSLESS` endpoint.
-- **BTS manifest decoding:** The stream endpoint returns `{ manifest: "<base64>", manifestMimeType: "application/vnd.tidal.bts" }`. The manifest is base64-decoded to JSON `{ urls: ["https://cdn..."] }` and the first URL is returned. DASH manifests (`application/dash+xml`) are not supported; quality is capped at `LOSSLESS`.
+- **BTS manifest decoding:** The stream endpoint returns `{ manifest: "<base64>", manifestMimeType: "application/vnd.tidal.bts" }`. The manifest is base64-decoded to JSON `{ urls: ["https://cdn..."], mimeType: "audio/flac" }` and the first URL is returned. The `mimeType` field is extracted to determine the actual audio format (FLAC, AAC/M4A, MP3) — this is used to set the correct file extension when downloading. DASH manifests (`application/dash+xml`) are not supported; quality is capped at `LOSSLESS`.
 
 **Reusing `subsonic_id` column:**
 
@@ -550,6 +554,22 @@ The left sidebar panel can be collapsed to save screen space.
 - When collapsed, the sidebar shows icon-only navigation buttons with tooltips.
 - **Keyboard shortcut:** `Cmd/Ctrl+B` toggles the sidebar.
 - Collapsed state is persisted as `sidebarCollapsed` in the app store.
+
+### 4.23 Upgrade Track via TIDAL
+
+Local tracks can be replaced with higher-quality versions from TIDAL. Available via the context menu "Upgrade via TIDAL" option (only for local, non-subsonic tracks when a TIDAL collection is configured).
+
+**Flow (`UpgradeTrackModal` component):**
+
+1. **Search** — On open, auto-searches TIDAL using the track's title + artist name. Displays clickable results with cover art, title, artist, album, and duration.
+2. **Download preview** — When the user selects a match, `tidal_download_preview` downloads the TIDAL version to a temporary file (`{stem}.upgrade.{ext}`) next to the original, writes tags via `lofty`, and returns comparison info.
+3. **Compare** — Shows old vs new file side-by-side: format and file size. The user can confirm (replace) or cancel.
+4. **Confirm** — `confirm_track_upgrade` deletes the old file, renames the `.upgrade.` file to the final name, removes the old DB entry, re-scans the new file, and rebuilds FTS.
+5. **Cancel** — `cancel_track_upgrade` deletes the temporary preview file. Also called if the user navigates back to search from the compare step.
+
+### 4.24 Custom Window Controls
+
+On Windows and Linux, Viboplr uses a custom title bar with window control buttons (minimize, maximize, close) implemented as a `WindowControls` component. This replaces native window decorations to provide a consistent look across platforms. On macOS, native traffic-light controls are used instead (the component is not rendered).
 
 ## 5. Database Schema
 
@@ -720,7 +740,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `get_tags`              | —                           | `Vec<Tag>`               |
 | `get_tags_for_track`    | `track_id: i64`             | `Vec<Tag>`               |
 | `get_tracks_by_tag`     | `tag_id: i64`               | `Vec<Track>`             |
-| `toggle_liked`          | `kind: String, id: i64, liked: bool` | `()`              |
+| `toggle_liked`          | `kind: String, id: i64, liked: i32` | `()`              |
 | `get_liked_tracks`      | —                           | `Vec<Track>`             |
 | `get_track_path`        | `track_id: i64`             | `String` (path or URL)   |
 | `show_in_folder`        | `track_id: i64`             | `()`                     |
@@ -744,7 +764,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `limit`          | `Option<i64>`   | `100`   |
 | `offset`         | `Option<i64>`   | `0`     |
 
-**`toggle_liked` kind values:** `"track"`, `"artist"`, `"album"`, `"tag"`. Table name is validated via match arm at the command layer (no SQL injection risk).
+**`toggle_liked` kind values:** `"track"`, `"artist"`, `"album"`, `"tag"`. Table name is validated via match arm at the command layer (no SQL injection risk). The `liked` parameter is an `i32`: -1 (dislike), 0 (neutral), 1 (loved). Artists, albums, and tags only use 0/1.
 
 **`get_entity_image` / `set_entity_image` / `paste_entity_image` / `remove_entity_image` kind values:** `"artist"`, `"album"`, `"tag"`.
 
@@ -785,6 +805,9 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `tidal_save_track`        | `collection_id: i64, tidal_track_id: String`             | `Track`              |
 | `tidal_get_album`         | `collection_id: i64, album_id: String`                   | `TidalAlbumDetail`   |
 | `tidal_get_artist`        | `collection_id: i64, artist_id: String`                  | `TidalArtistDetail`  |
+| `tidal_download_preview`  | `override_url: Option<String>, track_id: i64, tidal_track_id: String, format: String` | `UpgradePreviewInfo` |
+| `confirm_track_upgrade`   | `track_id: i64, new_path: String`                        | `()`                 |
+| `cancel_track_upgrade`    | `new_path: String`                                       | `()`                 |
 
 ### Last.fm Commands
 
@@ -962,6 +985,7 @@ Two traits rather than one combined trait because providers may only support one
 
 | Provider | File | Artist | Album | Notes |
 |----------|------|--------|-------|-------|
+| TIDAL | `tidal.rs` | Yes | Yes | Searches TIDAL via Hi-Fi API; downloads artist pictures (750px) and album covers (1280px). Only active when a TIDAL collection is configured. |
 | Deezer | `deezer.rs` | Yes | Yes | Searches Deezer API for artist photos and album covers |
 | iTunes | `itunes.rs` | Yes | Yes | Searches iTunes Search API |
 | AudioDB | `audiodb.rs` | Yes | No | Searches TheAudioDB for artist images |
@@ -969,8 +993,8 @@ Two traits rather than one combined trait because providers may only support one
 | Embedded | `embedded.rs` | No | Yes | Extracts embedded artwork from the first local audio file of the album using `lofty` |
 
 **Default fallback order:**
-- Artists: Deezer → iTunes → AudioDB → MusicBrainz
-- Albums: Embedded → iTunes → Deezer → MusicBrainz
+- Artists: TIDAL → Deezer → iTunes → AudioDB → MusicBrainz
+- Albums: Embedded → TIDAL → iTunes → Deezer → MusicBrainz
 
 **Shared utilities (`image_provider/mod.rs`):**
 - `urlencoded()` — percent-encodes strings for API queries.
