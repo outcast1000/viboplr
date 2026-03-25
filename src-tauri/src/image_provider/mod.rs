@@ -3,6 +3,7 @@ pub mod deezer;
 pub mod embedded;
 pub mod itunes;
 pub mod musicbrainz;
+pub mod tidal;
 
 use std::path::Path;
 
