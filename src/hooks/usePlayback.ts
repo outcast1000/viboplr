@@ -30,6 +30,7 @@ export function usePlayback(
   const scrobbledRef = useRef(false);
   const [scrobbled, setScrobbled] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [currentAssetUrl, setCurrentAssetUrl] = useState<string | null>(null);
   const playStartedAtRef = useRef(0);
 
   // Preload state (refs for use in event handlers without stale closures)
@@ -348,6 +349,7 @@ export function usePlayback(
     }
 
     setCurrentTrack(track);
+    setCurrentAssetUrl(src);
     setPositionSecs(0);
     setDurationSecs(track.duration_secs ?? 0);
     scrobbledRef.current = false;
@@ -393,6 +395,7 @@ export function usePlayback(
       const src = track.subsonic_id ? pathOrUrl : convertFileSrc(pathOrUrl);
 
       setCurrentTrack(track);
+      setCurrentAssetUrl(src);
       setPositionSecs(position);
       setDurationSecs(track.duration_secs ?? 0);
       scrobbledRef.current = false;
@@ -437,6 +440,7 @@ export function usePlayback(
     }
     setPlaying(false);
     setPositionSecs(0);
+    setCurrentAssetUrl(null);
   }
 
   function onMediaError(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
@@ -572,6 +576,7 @@ export function usePlayback(
 
   return {
     currentTrack, setCurrentTrack,
+    currentAssetUrl,
     playing, setPlaying, scrobbled,
     positionSecs, setPositionSecs,
     durationSecs, setDurationSecs,

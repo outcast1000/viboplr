@@ -89,6 +89,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::tidal_download_preview,
         commands::confirm_track_upgrade,
         commands::cancel_track_upgrade,
+        commands::get_cached_waveform,
+        commands::cache_waveform,
     ]
 }
 
@@ -158,6 +160,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::tidal_download_preview,
         commands::confirm_track_upgrade,
         commands::cancel_track_upgrade,
+        commands::get_cached_waveform,
+        commands::cache_waveform,
     ]
 }
 
