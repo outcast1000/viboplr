@@ -74,6 +74,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [tagViewMode, setTagViewMode] = useState<ViewMode>("tiles");
   const [trackViewMode, setTrackViewMode] = useState<ViewMode>("basic");
   const [likedViewMode, setLikedViewMode] = useState<ViewMode>("basic");
+  const [sortBarCollapsed, setSortBarCollapsed] = useState(false);
 
   // Artist-filtered albums for artist detail view (derived, never mutates albums state)
   const artistAlbums = useMemo(() => {
@@ -94,6 +95,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   useEffect(() => { if (restoredRef.current) store.set("tagViewMode", tagViewMode); }, [tagViewMode]);
   useEffect(() => { if (restoredRef.current) store.set("trackViewMode", trackViewMode); }, [trackViewMode]);
   useEffect(() => { if (restoredRef.current) store.set("likedViewMode", likedViewMode); }, [likedViewMode]);
+  useEffect(() => { if (restoredRef.current) store.set("sortBarCollapsed", sortBarCollapsed); }, [sortBarCollapsed]);
 
   // Debounce search query to avoid firing a search on every keystroke
   useEffect(() => {
@@ -536,5 +538,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     tagViewMode, setTagViewMode,
     trackViewMode, setTrackViewMode,
     likedViewMode, setLikedViewMode,
+    sortBarCollapsed, setSortBarCollapsed,
   };
 }

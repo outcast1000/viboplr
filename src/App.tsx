@@ -291,7 +291,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, , sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedTidalOverrideUrl] = await timeAsync("store.restore (36 keys)", () => Promise.all([
+        const [v, , sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedTidalOverrideUrl, savedSortBarCollapsed] = await timeAsync("store.restore (37 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
@@ -328,6 +328,7 @@ function App() {
           store.get<string | null>("downloadFormat"),
           store.get<boolean>("tidalEnabled"),
           store.get<string | null>("tidalOverrideUrl"),
+          store.get<boolean>("sortBarCollapsed"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history", "tidal"].includes(v)) library.setView(v as View);
         if (sa !== undefined && sa !== null) {
@@ -378,6 +379,7 @@ function App() {
         if (savedDownloadFormat && ["flac", "aac", "mp3"].includes(savedDownloadFormat)) setDownloadFormat(savedDownloadFormat);
         if (savedTidalEnabled) setTidalEnabled(true);
         if (savedTidalOverrideUrl) setTidalOverrideUrl(savedTidalOverrideUrl);
+        if (savedSortBarCollapsed) library.setSortBarCollapsed(true);
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {
@@ -1527,7 +1529,8 @@ function App() {
           {/* Artist list */}
           {view === "artists" && selectedArtist === null && (
             <>
-              <div className="sort-bar">
+              <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
+                {!library.sortBarCollapsed && (
                 <div className="sort-options">
                   <div className="sort-bar-group">
                     <button className={`sort-btn${library.artistSortField === "name" ? " active" : ""}`} onClick={() => library.handleArtistSort("name")}>
@@ -1541,13 +1544,19 @@ function App() {
                     </button>
                   </div>
                 </div>
+                )}
                 <div className="sort-bar-right">
+                  {!library.sortBarCollapsed && (
+                  <>
                   <button
                     className={`sort-btn liked-first-btn${library.artistLikedFirst ? " active" : ""}`}
                     onClick={() => library.setArtistLikedFirst(v => !v)}
                     title="Liked first"
                   >{"\u2665"}</button>
                   <ViewModeToggle mode={library.artistViewMode} onChange={library.setArtistViewMode} />
+                  </>
+                  )}
+                  <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
                 </div>
               </div>
 
@@ -1721,7 +1730,8 @@ function App() {
           {/* All albums view */}
           {view === "albums" && (
             <>
-              <div className="sort-bar">
+              <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
+                {!library.sortBarCollapsed && (
                 <div className="sort-options">
                   <div className="sort-bar-group">
                     <button className={`sort-btn${library.albumSortField === "name" ? " active" : ""}`} onClick={() => library.handleAlbumSort("name")}>
@@ -1741,13 +1751,19 @@ function App() {
                     </button>
                   </div>
                 </div>
+                )}
                 <div className="sort-bar-right">
+                  {!library.sortBarCollapsed && (
+                  <>
                   <button
                     className={`sort-btn liked-first-btn${library.albumLikedFirst ? " active" : ""}`}
                     onClick={() => library.setAlbumLikedFirst(v => !v)}
                     title="Liked first"
                   >{"\u2665"}</button>
                   <ViewModeToggle mode={library.albumViewMode} onChange={library.setAlbumViewMode} />
+                  </>
+                  )}
+                  <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
                 </div>
               </div>
 
@@ -1850,7 +1866,8 @@ function App() {
           {/* Tags list view */}
           {view === "tags" && selectedTag === null && (
             <>
-              <div className="sort-bar">
+              <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
+                {!library.sortBarCollapsed && (
                 <div className="sort-options">
                   <div className="sort-bar-group">
                     <button className={`sort-btn${library.tagSortField === "name" ? " active" : ""}`} onClick={() => library.handleTagSort("name")}>
@@ -1864,13 +1881,19 @@ function App() {
                     </button>
                   </div>
                 </div>
+                )}
                 <div className="sort-bar-right">
+                  {!library.sortBarCollapsed && (
+                  <>
                   <button
                     className={`sort-btn liked-first-btn${library.tagLikedFirst ? " active" : ""}`}
                     onClick={() => library.setTagLikedFirst(v => !v)}
                     title="Liked first"
                   >{"\u2665"}</button>
                   <ViewModeToggle mode={library.tagViewMode} onChange={library.setTagViewMode} />
+                  </>
+                  )}
+                  <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
                 </div>
               </div>
 
@@ -2039,7 +2062,8 @@ function App() {
           {/* All tracks view */}
           {view === "all" && (
             <>
-              <div className="sort-bar">
+              <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
+                {!library.sortBarCollapsed && (
                 <div className="sort-options">
                   <div className="sort-bar-group">
                     <button className={`sort-btn${library.sortField === "title" ? " active" : ""}`} onClick={() => library.handleSort("title")}>
@@ -2082,13 +2106,19 @@ function App() {
                     </button>
                   </div>
                 </div>
+                )}
                 <div className="sort-bar-right">
+                  {!library.sortBarCollapsed && (
+                  <>
                   <button
                     className={`sort-btn liked-first-btn${library.trackLikedFirst ? " active" : ""}`}
                     onClick={() => library.setTrackLikedFirst(v => !v)}
                     title="Liked first"
                   >{"\u2665"}</button>
                   <ViewModeToggle mode={library.trackViewMode} onChange={library.setTrackViewMode} />
+                  </>
+                  )}
+                  <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
                 </div>
               </div>
 
@@ -2211,7 +2241,8 @@ function App() {
           {/* Liked tracks view */}
           {view === "liked" && (
             <>
-              <div className="sort-bar">
+              <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
+                {!library.sortBarCollapsed && (
                 <div className="sort-options">
                   <button className={`sort-btn${library.sortField === "title" ? " active" : ""}`} onClick={() => library.handleSort("title")}>
                     Title{library.sortIndicator("title")}
@@ -2238,8 +2269,12 @@ function App() {
                     Shuffle
                   </button>
                 </div>
+                )}
                 <div className="sort-bar-right">
+                  {!library.sortBarCollapsed && (
                   <ViewModeToggle mode={library.likedViewMode} onChange={library.setLikedViewMode} />
+                  )}
+                  <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
                 </div>
               </div>
 

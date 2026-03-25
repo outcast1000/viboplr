@@ -2703,6 +2703,21 @@ body {
   border-color: #e44;
 }
 
+.sort-bar-collapsed {
+  padding: 2px 12px;
+  justify-content: flex-end;
+}
+
+.sort-bar-toggle {
+  font-size: 10px !important;
+  padding: 2px 6px !important;
+  opacity: 0.5;
+}
+
+.sort-bar-toggle:hover {
+  opacity: 1;
+}
+
 /* Sort bar right group */
 .sort-bar-right {
   display: flex;
