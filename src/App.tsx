@@ -1391,6 +1391,7 @@ function App() {
               <polyline points="9 6 15 12 9 18" />
             </svg>
           </button>
+          <div className="search-input-wrapper">
           <input
             ref={searchInputRef}
             type="text"
@@ -1502,6 +1503,20 @@ function App() {
               }
             }}
           />
+          {searchQuery && (
+            <button
+              className="search-clear-btn"
+              onClick={() => { library.setSearchQuery(""); searchInputRef.current?.focus(); }}
+              title="Clear search"
+              tabIndex={-1}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          )}
+          </div>
         </div>
 
         {/* Content area */}
