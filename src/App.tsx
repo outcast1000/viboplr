@@ -996,6 +996,20 @@ function App() {
     }
   }
 
+  async function handleTidalDownloadTrack(tidalTrackId: string, destCollectionId: number) {
+    try {
+      await invoke<number>("tidal_save_track", {
+        overrideUrl: tidalOverrideUrl || null,
+        tidalTrackId,
+        destCollectionId,
+        format: downloadFormat,
+      });
+      addLog(`Queued track for download`);
+    } catch (e) {
+      addLog(`Track download failed: ${e}`);
+    }
+  }
+
   const tidalIdCounter = useRef(-1);
 
   function tidalTrackToTrack(info: TidalSearchTrack): Track {
@@ -2403,6 +2417,7 @@ function App() {
               onPlayTrack={handleTidalPlay}
               onEnqueueTrack={handleTidalEnqueue}
               onDownloadAlbum={handleDownloadAlbum}
+              onDownloadTrack={handleTidalDownloadTrack}
               localCollections={localCollections}
             />
           )}
