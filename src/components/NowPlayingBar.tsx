@@ -37,7 +37,6 @@ interface NowPlayingBarProps {
   scrobbled: boolean;
   volume: number;
   queueMode: "normal" | "loop" | "shuffle";
-  showQueue: boolean;
   autoContinueEnabled: boolean;
   autoContinueSameFormat: boolean;
   showAutoContinuePopover: boolean;
@@ -54,7 +53,6 @@ interface NowPlayingBarProps {
   onVolume: (level: number) => void;
   onMute: () => void;
   onToggleQueueMode: () => void;
-  onToggleQueue: () => void;
   onToggleAutoContinue: () => void;
   onToggleAutoContinueSameFormat: () => void;
   onToggleAutoContinuePopover: () => void;
@@ -67,11 +65,11 @@ interface NowPlayingBarProps {
 export function NowPlayingBar({
   currentTrack, playing,
   positionSecs, durationSecs, scrobbled,
-  volume, queueMode, showQueue,
+  volume, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
   imagePath, miniMode, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
-  onSeek, onVolume, onMute, onToggleQueueMode, onToggleQueue,
+  onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
   onToggleLike, onArtistClick, onAlbumClick,
 }: NowPlayingBarProps) {
@@ -206,13 +204,6 @@ export function NowPlayingBar({
             onChange={(e) => onVolume(parseFloat(e.target.value))}
           />
         </div>
-        <button
-          className={`ctrl-btn queue-toggle-btn ${showQueue ? "active" : ""}`}
-          onClick={onToggleQueue}
-          title={`Playlist (${mod}P)`}
-        >
-          {"\u2630"}
-        </button>
         <button
           className="ctrl-btn mini-mode-btn"
           onClick={onToggleMiniMode}

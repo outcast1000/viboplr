@@ -32,6 +32,8 @@ interface FullscreenControlsProps {
   onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
   onToggleLike: () => void;
   onToggleFullscreen: () => void;
+  showQueue: boolean;
+  onToggleQueue: () => void;
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
 }
@@ -47,7 +49,7 @@ export function FullscreenControls({
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
-  onToggleLike, onToggleFullscreen, onArtistClick, onAlbumClick,
+  onToggleLike, onToggleFullscreen, showQueue, onToggleQueue, onArtistClick, onAlbumClick,
 }: FullscreenControlsProps) {
   const [visible, setVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -225,6 +227,13 @@ export function FullscreenControls({
               onMouseUp={handleDragEnd}
             />
           </div>
+          <button
+            className={`ctrl-btn queue-toggle-btn ${showQueue ? "active" : ""}`}
+            onClick={onToggleQueue}
+            title="Playlist"
+          >
+            {"\u2630"}
+          </button>
           <button
             className="ctrl-btn fs-exit-btn"
             onClick={onToggleFullscreen}

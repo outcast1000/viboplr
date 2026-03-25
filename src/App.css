@@ -63,11 +63,11 @@ body {
 }
 
 .app.queue-open.queue-collapsed {
-  grid-template-columns: 220px 1fr 56px;
+  grid-template-columns: 220px 1fr 40px;
 }
 
 .app.sidebar-collapsed.queue-open.queue-collapsed {
-  grid-template-columns: 56px 1fr 56px;
+  grid-template-columns: 56px 1fr 40px;
 }
 
 /* Sidebar */
@@ -3604,6 +3604,15 @@ body {
 }
 
 .queue-collapsed-count {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.queue-collapsed-duration {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
   font-size: 11px;
   color: var(--text-secondary);
 }

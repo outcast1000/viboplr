@@ -60,7 +60,6 @@ interface QueuePanelProps {
   onRemove: (index: number) => void;
   onMoveMultiple: (indices: number[], targetIndex: number) => void;
   onClear: () => void;
-  onClose: () => void;
   onSavePlaylist: () => void;
   onLoadPlaylist: () => void;
   onContextMenu: (e: React.MouseEvent, indices: number[]) => void;
@@ -74,7 +73,7 @@ const AUTO_APPROVE_SECS = 10;
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistName,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
-  onPlay, onRemove, onMoveMultiple, onClear, onClose, onSavePlaylist, onLoadPlaylist, onContextMenu, externalDropTarget,
+  onPlay, onRemove, onMoveMultiple, onClear, onSavePlaylist, onLoadPlaylist, onContextMenu, externalDropTarget,
   collapsed, onToggleCollapsed,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
@@ -243,7 +242,8 @@ export function QueuePanel({
       {collapsed ? (
         <div className="queue-collapsed-strip" onClick={onToggleCollapsed}>
           <span className="queue-collapsed-label">Playlist</span>
-          <span className="queue-collapsed-count">{queue.length}</span>
+          <span className="queue-collapsed-count">{queue.length} track{queue.length !== 1 ? "s" : ""}</span>
+          {queue.length > 0 && <span className="queue-collapsed-duration">{formatTotalDuration(queue)}</span>}
         </div>
       ) : (
       <>
@@ -260,7 +260,6 @@ export function QueuePanel({
               <polyline points="11 9 8 12 11 15" />
             </svg>
           </button>
-          <button className="ctrl-btn" onClick={onClose} title="Close">{"\u00D7"}</button>
         </div>
       </div>
       {pendingEnqueue && (

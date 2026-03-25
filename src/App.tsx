@@ -2486,6 +2486,8 @@ function App() {
             onAdjustAutoContinueWeight={autoContinue.adjustWeight}
             onToggleLike={() => playback.currentTrack && handleToggleLike(playback.currentTrack)}
             onToggleFullscreen={playback.toggleFullscreen}
+            showQueue={queueHook.showQueue}
+            onToggleQueue={() => queueHook.setShowQueue(!queueHook.showQueue)}
             onArtistClick={library.handleArtistClick}
             onAlbumClick={library.handleAlbumClick}
           />
@@ -2518,7 +2520,6 @@ function App() {
           onRemove={queueHook.removeFromQueue}
           onMoveMultiple={queueHook.moveMultiple}
           onClear={queueHook.clearQueue}
-          onClose={() => queueHook.setShowQueue(false)}
           onSavePlaylist={queueHook.savePlaylist}
           onLoadPlaylist={queueHook.loadPlaylist}
           onContextMenu={(e, indices) => {
@@ -2614,7 +2615,6 @@ function App() {
         scrobbled={playback.scrobbled}
         volume={playback.volume}
         queueMode={queueHook.queueMode}
-        showQueue={queueHook.showQueue}
         autoContinueEnabled={autoContinue.enabled}
         autoContinueSameFormat={autoContinue.sameFormat}
         showAutoContinuePopover={autoContinue.showPopover}
@@ -2642,7 +2642,6 @@ function App() {
           }
         }}
         onToggleQueueMode={queueHook.toggleQueueMode}
-        onToggleQueue={() => queueHook.setShowQueue(!queueHook.showQueue)}
         onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
         onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
         onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
