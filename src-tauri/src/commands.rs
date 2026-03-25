@@ -922,6 +922,7 @@ pub fn tidal_get_stream_url(
     let client = TidalClient::new(override_url.as_deref());
     client
         .get_stream_url(&tidal_track_id, quality.as_deref().unwrap_or("LOSSLESS"))
+        .map(|info| info.url)
         .map_err(|e| e.to_string())
 }
 

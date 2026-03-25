@@ -193,7 +193,9 @@ pub fn sanitize_filename(name: &str) -> String {
 }
 
 /// Build the destination path: {dest_root}/{Artist}/{Album}/{TrackNum} - {Title}.{ext}
-pub fn build_dest_path(request: &DownloadRequest) -> PathBuf {
+/// If `ext_override` is provided, it is used instead of the request's format extension.
+pub fn build_dest_path(request: &DownloadRequest, ext_override: Option<&str>) -> PathBuf {
+    let ext = ext_override.unwrap_or_else(|| request.format.extension());
     let artist_dir = sanitize_filename(&request.artist_name);
     let album_dir = sanitize_filename(&request.album_title);
     let filename = match request.track_number {
@@ -201,12 +203,12 @@ pub fn build_dest_path(request: &DownloadRequest) -> PathBuf {
             "{:02} - {}.{}",
             num,
             sanitize_filename(&request.track_title),
-            request.format.extension()
+            ext
         ),
         None => format!(
             "{}.{}",
             sanitize_filename(&request.track_title),
-            request.format.extension()
+            ext
         ),
     };
     Path::new(&request.dest_collection_path)
@@ -224,26 +226,15 @@ pub fn process_download(
     app: &AppHandle,
     manager: &Arc<DownloadManager>,
 ) -> Result<PathBuf, String> {
-    let dest_path = build_dest_path(request);
-
-    // Check for duplicates
-    if dest_path.exists() {
-        return Err(format!("File already exists: {}", dest_path.display()));
-    }
-
-    // Create parent directories
-    if let Some(parent) = dest_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directories: {}", e))?;
-    }
-
-    // Step 1: Resolve stream URL
-    let stream_url = match request.source_kind.as_str() {
+    // Step 1: Resolve stream URL (and actual format for TIDAL)
+    let (stream_url, actual_ext) = match request.source_kind.as_str() {
         "tidal" => {
             let client = TidalClient::new(request.source_override_url.as_deref());
-            client
+            let stream_info = client
                 .get_stream_url(&request.remote_track_id, request.format.tidal_quality())
-                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
+            let ext = stream_info.extension().to_string();
+            (stream_info.url, Some(ext))
         }
         "subsonic" => {
             let collection_id = request.source_collection_id
@@ -258,13 +249,26 @@ pub fn process_download(
                 creds.salt.as_deref(),
                 &creds.auth_method,
             );
-            client.stream_url_with_format(
+            (client.stream_url_with_format(
                 &request.remote_track_id,
                 request.format.subsonic_format_param(),
-            )
+            ), None)
         }
         _ => return Err(format!("Unsupported source kind: {}", request.source_kind)),
     };
+
+    let dest_path = build_dest_path(request, actual_ext.as_deref());
+
+    // Check for duplicates
+    if dest_path.exists() {
+        return Err(format!("File already exists: {}", dest_path.display()));
+    }
+
+    // Create parent directories
+    if let Some(parent) = dest_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directories: {}", e))?;
+    }
 
     // Step 2: Download to temp file
     let temp_path = dest_path
