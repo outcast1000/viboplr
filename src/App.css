@@ -1359,12 +1359,20 @@ body {
   -webkit-app-region: no-drag;
 }
 
+.search-input-wrapper {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
 .search-bar input {
   flex: 1;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   color: var(--text-primary);
   padding: 8px 12px;
+  padding-right: 32px;
   border-radius: 6px;
   font-size: 13px;
   outline: none;
@@ -1373,6 +1381,26 @@ body {
 
 .search-bar input:focus {
   border-color: var(--accent);
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.search-clear-btn:hover {
+  opacity: 1;
 }
 
 .nav-history-btn {
