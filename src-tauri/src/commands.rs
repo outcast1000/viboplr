@@ -528,9 +528,15 @@ pub fn delete_tracks(state: State<'_, AppState>, track_ids: Vec<i64>) -> Result<
 
 // --- Entity image commands (generic) ---
 
+fn resolve_entity_slug(state: &AppState, kind: &str, id: i64) -> Result<String, String> {
+    let (name, artist_name) = state.db.get_entity_image_name(kind, id).map_err(|e| e.to_string())?;
+    Ok(crate::entity_image::entity_image_slug(kind, &name, artist_name.as_deref()))
+}
+
 #[tauri::command]
 pub fn get_entity_image(state: State<'_, AppState>, kind: String, id: i64) -> Option<String> {
-    crate::entity_image::get_image_path(&state.app_dir, &kind, id)
+    let slug = resolve_entity_slug(&state, &kind, id).ok()?;
+    crate::entity_image::get_image_path(&state.app_dir, &kind, &slug)
         .map(|p| p.to_string_lossy().to_string())
 }
 
@@ -541,16 +547,17 @@ pub fn set_entity_image(
     id: i64,
     source_path: String,
 ) -> Result<String, String> {
+    let slug = resolve_entity_slug(&state, &kind, id)?;
     let source = std::path::Path::new(&source_path);
     let ext = source
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("jpg")
         .to_lowercase();
-    crate::entity_image::remove_image(&state.app_dir, &kind, id);
+    crate::entity_image::remove_image(&state.app_dir, &kind, &slug);
     let dest_dir = crate::entity_image::image_dir(&state.app_dir, &kind);
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
-    let dest = dest_dir.join(format!("{}.{}", id, ext));
+    let dest = dest_dir.join(format!("{}.{}", slug, ext));
     std::fs::copy(source, &dest).map_err(|e| format!("Failed to copy image: {}", e))?;
     Ok(dest.to_string_lossy().to_string())
 }
@@ -562,18 +569,21 @@ pub fn paste_entity_image(
     id: i64,
     image_data: Vec<u8>,
 ) -> Result<String, String> {
+    let slug = resolve_entity_slug(&state, &kind, id)?;
     let ext = detect_image_format(&image_data);
-    crate::entity_image::remove_image(&state.app_dir, &kind, id);
+    crate::entity_image::remove_image(&state.app_dir, &kind, &slug);
     let dest_dir = crate::entity_image::image_dir(&state.app_dir, &kind);
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
-    let dest = dest_dir.join(format!("{}.{}", id, ext));
+    let dest = dest_dir.join(format!("{}.{}", slug, ext));
     std::fs::write(&dest, &image_data).map_err(|e| format!("Failed to write image: {}", e))?;
     Ok(dest.to_string_lossy().to_string())
 }
 
 #[tauri::command]
 pub fn remove_entity_image(state: State<'_, AppState>, kind: String, id: i64) {
-    crate::entity_image::remove_image(&state.app_dir, &kind, id);
+    if let Ok(slug) = resolve_entity_slug(&state, &kind, id) {
+        crate::entity_image::remove_image(&state.app_dir, &kind, &slug);
+    }
 }
 
 // --- Artist/album image fetch commands ---

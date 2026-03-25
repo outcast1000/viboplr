@@ -1180,6 +1180,39 @@ impl Database {
 
     // --- Image helpers ---
 
+    /// Look up the entity name (and artist name for albums) by kind and id.
+    pub fn get_entity_image_name(&self, kind: &str, id: i64) -> SqlResult<(String, Option<String>)> {
+        let conn = self.conn.lock().unwrap();
+        match kind {
+            "artist" => {
+                let name: String = conn.query_row(
+                    "SELECT COALESCE(name, '') FROM artists WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )?;
+                Ok((name, None))
+            }
+            "album" => {
+                let (title, artist_name): (String, Option<String>) = conn.query_row(
+                    "SELECT COALESCE(a.title, ''), ar.name FROM albums a \
+                     LEFT JOIN artists ar ON a.artist_id = ar.id WHERE a.id = ?1",
+                    params![id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                Ok((title, artist_name))
+            }
+            "tag" => {
+                let name: String = conn.query_row(
+                    "SELECT COALESCE(name, '') FROM tags WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )?;
+                Ok((name, None))
+            }
+            _ => Ok(("_unknown".to_string(), None))
+        }
+    }
+
     pub fn get_track_path_for_album(
         &self,
         album_title: &str,

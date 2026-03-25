@@ -297,7 +297,8 @@ pub fn run() {
                                 log::info!("Skipping previously failed artist image: {} (id={})", name, id);
                                 continue;
                             }
-                            let dest = worker_app_dir.join("artist_images").join(format!("{}.jpg", id));
+                            let slug = entity_image::entity_image_slug("artist", name, None);
+                            let dest = worker_app_dir.join("artist_images").join(format!("{}.jpg", slug));
                             if dest.exists() {
                                 log::info!("Artist image already exists for {} (id={}), skipping", name, id);
                                 continue;
@@ -327,7 +328,8 @@ pub fn run() {
                                 log::info!("Skipping previously failed album image: {} (id={})", title, id);
                                 continue;
                             }
-                            let dest = worker_app_dir.join("album_images").join(format!("{}.jpg", id));
+                            let slug = entity_image::entity_image_slug("album", title, artist_name.as_deref());
+                            let dest = worker_app_dir.join("album_images").join(format!("{}.jpg", slug));
                             if dest.exists() {
                                 log::info!("Album image already exists for {} (id={}), skipping", title, id);
                                 continue;
