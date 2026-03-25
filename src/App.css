@@ -1197,7 +1197,7 @@ body {
 /* Status bar */
 .status-bar {
   position: fixed;
-  bottom: 80px;
+  bottom: 100px;
   left: 220px;
   right: 0;
   background: var(--bg-secondary);
@@ -1627,20 +1627,48 @@ body {
 
 .fs-seek-bar {
   width: 100%;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.2);
+  height: 28px;
+  background: rgba(255, 255, 255, 0.12);
   cursor: pointer;
-  transition: height 0.15s;
+  border-radius: 6px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  transition: filter 0.15s;
 }
-
 .fs-seek-bar:hover {
-  height: 6px;
+  filter: brightness(1.15);
 }
 
 .fs-seek-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
   height: 100%;
   background: var(--accent);
-  border-radius: 2px;
+  border-radius: 6px;
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.fs-seek-time {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+  user-select: none;
+  padding: 0 10px;
+  line-height: 28px;
+}
+.fs-seek-elapsed {
+  flex-shrink: 0;
+}
+.fs-seek-total {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .fs-main {
@@ -1735,13 +1763,6 @@ body {
 
 .fs-play-btn {
   font-size: 28px !important;
-}
-
-.fs-time {
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 12px;
-  white-space: nowrap;
-  margin-left: 4px;
 }
 
 .fs-scrobbled {
@@ -2182,23 +2203,55 @@ body {
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  height: 80px;
-  min-height: 80px;
+  height: 100px;
+  min-height: 100px;
 }
 
 .now-seek-bar {
   width: 100%;
-  height: 7px;
+  height: 28px;
   background: rgba(255, 255, 255, 0.08);
   cursor: pointer;
   flex-shrink: 0;
-  border-radius: 3.5px;
+  border-radius: 6px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  transition: filter 0.15s;
+}
+.now-seek-bar:hover {
+  filter: brightness(1.15);
 }
 
 .now-seek-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
   height: 100%;
   background: var(--accent);
-  border-radius: 3.5px;
+  border-radius: 6px;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.now-seek-time {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  pointer-events: none;
+  user-select: none;
+  padding: 0 10px;
+  line-height: 28px;
+}
+.now-seek-elapsed {
+  flex-shrink: 0;
+}
+.now-seek-total {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .now-main {
@@ -2208,13 +2261,6 @@ body {
   padding: 0 20px;
   gap: 16px;
   min-height: 0;
-}
-
-.now-time {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  margin-left: 4px;
 }
 
 .now-scrobbled {
