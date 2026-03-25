@@ -79,7 +79,7 @@ export function usePlayback(
       const seekTo = pendingSeekRef.current;
       pendingSeekRef.current = 0;
       videoRef.current.src = src;
-      videoRef.current.volume = volume;
+      videoRef.current.volume = volumeRef.current;
       if (seekTo > 0) videoRef.current.currentTime = seekTo;
       if (autoPlay) {
         videoRef.current.play().catch(e => console.error("Video play error:", e));
@@ -145,7 +145,7 @@ export function usePlayback(
       if (!inactiveEl) return;
 
       inactiveEl.src = src;
-      inactiveEl.volume = volume;
+      inactiveEl.volume = volumeRef.current;
       inactiveEl.preload = "auto";
 
       preloadedTrackRef.current = nextTrack;
@@ -287,7 +287,7 @@ export function usePlayback(
     }
 
     // Play the preloaded element immediately
-    inactiveEl.volume = volume;
+    inactiveEl.volume = volumeRef.current;
     inactiveEl.play().catch(console.error);
 
     // Swap active slot
@@ -362,7 +362,7 @@ export function usePlayback(
     if (isVideoTrack(track)) {
       if (videoRef.current) {
         videoRef.current.src = src;
-        videoRef.current.volume = volume;
+        videoRef.current.volume = volumeRef.current;
         await videoRef.current.play();
       } else {
         pendingSrcRef.current = src;
@@ -370,7 +370,7 @@ export function usePlayback(
     } else {
       if (audioRefA.current) {
         audioRefA.current.src = src;
-        audioRefA.current.volume = volume;
+        audioRefA.current.volume = volumeRef.current;
         await audioRefA.current.play();
       }
     }
