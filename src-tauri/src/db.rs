@@ -1444,6 +1444,94 @@ impl Database {
         })?;
         rows.collect()
     }
+
+    /// Attempt to reconnect a ghost history track to a library track by canonical title+artist match.
+    /// Returns the matched Track if found, or None if no match exists.
+    pub fn reconnect_history_track(&self, history_track_id: i64) -> SqlResult<Option<Track>> {
+        let conn = self.conn.lock().unwrap();
+
+        // Look up the history track's canonical info
+        let (canonical_title, history_artist_id): (String, i64) = conn.query_row(
+            "SELECT canonical_title, history_artist_id FROM history_tracks WHERE id = ?1",
+            params![history_track_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let canonical_name: String = conn.query_row(
+            "SELECT canonical_name FROM history_artists WHERE id = ?1",
+            params![history_artist_id],
+            |row| row.get(0),
+        )?;
+
+        // Search for a matching library track
+        let maybe_track_id: Option<i64> = conn.query_row(
+            "SELECT t.id FROM tracks t
+             LEFT JOIN artists ar ON t.artist_id = ar.id
+             WHERE strip_diacritics(unicode_lower(t.title)) = ?1
+             AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ?2
+             LIMIT 1",
+            params![canonical_title, canonical_name],
+            |row| row.get(0),
+        ).optional()?;
+
+        let track_id = match maybe_track_id {
+            Some(id) => id,
+            None => return Ok(None),
+        };
+
+        // Reconnect: update library_track_id
+        conn.execute(
+            "UPDATE history_tracks SET library_track_id = ?1 WHERE id = ?2",
+            params![track_id, history_track_id],
+        )?;
+
+        // Also reconnect the artist
+        let artist_id: Option<i64> = conn.query_row(
+            "SELECT artist_id FROM tracks WHERE id = ?1",
+            params![track_id],
+            |row| row.get(0),
+        )?;
+        if let Some(aid) = artist_id {
+            conn.execute(
+                "UPDATE history_artists SET library_artist_id = ?1 WHERE id = ?2",
+                params![aid, history_artist_id],
+            )?;
+        }
+
+        // Return the full track
+        let sql = format!("{} WHERE t.id = ?1", TRACK_SELECT);
+        let track = conn.query_row(&sql, params![track_id], |row| track_from_row(row))?;
+        Ok(Some(track))
+    }
+
+    /// Attempt to reconnect a ghost history artist to a library artist by canonical name match.
+    /// Returns the library artist_id if found, or None.
+    pub fn reconnect_history_artist(&self, history_artist_id: i64) -> SqlResult<Option<i64>> {
+        let conn = self.conn.lock().unwrap();
+
+        let canonical_name: String = conn.query_row(
+            "SELECT canonical_name FROM history_artists WHERE id = ?1",
+            params![history_artist_id],
+            |row| row.get(0),
+        )?;
+
+        let maybe_artist_id: Option<i64> = conn.query_row(
+            "SELECT id FROM artists
+             WHERE strip_diacritics(unicode_lower(name)) = ?1
+             LIMIT 1",
+            params![canonical_name],
+            |row| row.get(0),
+        ).optional()?;
+
+        if let Some(artist_id) = maybe_artist_id {
+            conn.execute(
+                "UPDATE history_artists SET library_artist_id = ?1 WHERE id = ?2",
+                params![artist_id, history_artist_id],
+            )?;
+            Ok(Some(artist_id))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1722,6 +1810,94 @@ mod tests {
         let recent = db.get_history_recent(10).unwrap();
         assert_eq!(recent[0].library_track_id, Some(track_id2));
         assert_eq!(recent[0].play_count, 1); // deduped within 30s, count unchanged
+    }
+
+    #[test]
+    fn test_reconnect_history_track() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Radiohead").unwrap();
+        let track_id = insert_track(&db, "/music/creep.mp3", "Creep", Some(artist_id), None);
+
+        db.record_history_play(track_id).unwrap();
+        let recent = db.get_history_recent(10).unwrap();
+        let ht_id = recent[0].history_track_id;
+
+        // Delete track — becomes ghost
+        db.delete_tracks_by_ids(&[track_id]).unwrap();
+        let recent = db.get_history_recent(10).unwrap();
+        assert!(recent[0].library_track_id.is_none());
+
+        // Re-add same song with different path
+        let artist_id2 = db.get_or_create_artist("Radiohead").unwrap();
+        let track_id2 = insert_track(&db, "/new/creep.flac", "Creep", Some(artist_id2), None);
+
+        // Dynamic reconnection
+        let result = db.reconnect_history_track(ht_id).unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().id, track_id2);
+
+        // Verify DB was updated
+        let recent = db.get_history_recent(10).unwrap();
+        assert_eq!(recent[0].library_track_id, Some(track_id2));
+    }
+
+    #[test]
+    fn test_reconnect_history_track_not_found() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Missing Artist").unwrap();
+        let track_id = insert_track(&db, "/music/gone.mp3", "Gone Song", Some(artist_id), None);
+
+        db.record_history_play(track_id).unwrap();
+        let recent = db.get_history_recent(10).unwrap();
+        let ht_id = recent[0].history_track_id;
+
+        db.delete_tracks_by_ids(&[track_id]).unwrap();
+
+        // No matching track in library — should return None
+        let result = db.reconnect_history_track(ht_id).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_reconnect_history_artist() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Portishead").unwrap();
+        let track_id = insert_track(&db, "/music/glory.mp3", "Glory Box", Some(artist_id), None);
+
+        db.record_history_play(track_id).unwrap();
+
+        // Get history artist id
+        let artists = db.get_history_most_played_artists(10).unwrap();
+        let ha_id = artists[0].history_artist_id;
+        assert!(artists[0].library_artist_id.is_some());
+
+        // Delete track (artist stays but history link breaks via ON DELETE SET NULL on track)
+        db.delete_tracks_by_ids(&[track_id]).unwrap();
+
+        // Reconnect artist — artist still exists in library
+        let result = db.reconnect_history_artist(ha_id).unwrap();
+        assert_eq!(result, Some(artist_id));
+    }
+
+    #[test]
+    fn test_reconnect_history_artist_not_found() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Ephemeral Band").unwrap();
+        let track_id = insert_track(&db, "/music/temp.mp3", "Temp Song", Some(artist_id), None);
+
+        db.record_history_play(track_id).unwrap();
+        let artists = db.get_history_most_played_artists(10).unwrap();
+        let ha_id = artists[0].history_artist_id;
+
+        // Delete track and artist
+        db.delete_tracks_by_ids(&[track_id]).unwrap();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("DELETE FROM artists WHERE id = ?1", params![artist_id]).unwrap();
+        }
+
+        let result = db.reconnect_history_artist(ha_id).unwrap();
+        assert!(result.is_none());
     }
 
     #[test]

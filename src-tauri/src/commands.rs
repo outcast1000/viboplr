@@ -636,6 +636,16 @@ pub fn get_history_most_played_artists(state: State<'_, AppState>, limit: i64) -
 }
 
 #[tauri::command]
+pub fn reconnect_history_track(state: State<'_, AppState>, history_track_id: i64) -> Result<Option<Track>, String> {
+    state.db.reconnect_history_track(history_track_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reconnect_history_artist(state: State<'_, AppState>, history_artist_id: i64) -> Result<Option<i64>, String> {
+    state.db.reconnect_history_artist(history_artist_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_auto_continue_track(
     state: State<'_, AppState>,
     strategy: String,
