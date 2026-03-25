@@ -86,6 +86,9 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::download_album,
         commands::get_download_status,
         commands::cancel_download,
+        commands::tidal_download_preview,
+        commands::confirm_track_upgrade,
+        commands::cancel_track_upgrade,
     ]
 }
 
@@ -152,6 +155,9 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::download_album,
         commands::get_download_status,
         commands::cancel_download,
+        commands::tidal_download_preview,
+        commands::confirm_track_upgrade,
+        commands::cancel_track_upgrade,
     ]
 }
 

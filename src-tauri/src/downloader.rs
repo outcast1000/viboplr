@@ -367,7 +367,7 @@ pub fn process_download(
     Ok(dest_path)
 }
 
-fn write_tags(
+pub fn write_tags(
     path: &Path,
     request: &DownloadRequest,
     http_client: &reqwest::blocking::Client,
