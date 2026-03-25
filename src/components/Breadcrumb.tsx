@@ -65,6 +65,8 @@ export function Breadcrumb({
         <span>History</span>
       ) : view === "collections" ? (
         <span>Collections</span>
+      ) : view === "tidal" ? (
+        <span>TIDAL</span>
       ) : (
         <span>All Tracks</span>
       )}
