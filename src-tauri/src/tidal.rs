@@ -140,6 +140,24 @@ pub struct TidalArtistInfo {
     pub picture_id: Option<String>,
 }
 
+pub struct TidalStreamInfo {
+    pub url: String,
+    /// MIME type from the manifest, e.g. "audio/flac", "audio/mp4", "audio/mpeg"
+    pub mime_type: Option<String>,
+}
+
+impl TidalStreamInfo {
+    /// Map the actual TIDAL stream MIME type to a file extension.
+    pub fn extension(&self) -> &'static str {
+        match self.mime_type.as_deref() {
+            Some("audio/flac") => "flac",
+            Some("audio/mpeg") => "mp3",
+            Some("audio/mp4") | Some("audio/m4a") | Some("audio/aac") => "m4a",
+            _ => "flac", // default to flac if unknown
+        }
+    }
+}
+
 impl TidalClient {
     pub fn new(url: Option<&str>) -> Self {
         let override_url = url
@@ -309,7 +327,7 @@ impl TidalClient {
         Ok(parse_track(&json["data"]))
     }
 
-    pub fn get_stream_url(&self, id: &str, quality: &str) -> Result<String, TidalError> {
+    pub fn get_stream_url(&self, id: &str, quality: &str) -> Result<TidalStreamInfo, TidalError> {
         let json = self.get_json(&format!("/track/?id={}&quality={}", id, quality))?;
         let data = &json["data"];
 
@@ -322,7 +340,7 @@ impl TidalClient {
             .unwrap_or("application/vnd.tidal.bts");
 
         if manifest_type == "application/vnd.tidal.bts" {
-            // BTS: base64-decode to JSON, extract urls[0]
+            // BTS: base64-decode to JSON, extract urls[0] and mimeType
             let decoded = STANDARD
                 .decode(manifest_b64)
                 .map_err(|e| TidalError(format!("Base64 decode error: {}", e)))?;
@@ -333,7 +351,13 @@ impl TidalClient {
                 .and_then(|arr| arr.first())
                 .and_then(|u| u.as_str())
                 .ok_or_else(|| TidalError("No URLs in manifest".to_string()))?;
-            Ok(url.to_string())
+            let mime_type = manifest_json["mimeType"]
+                .as_str()
+                .map(|s| s.to_string());
+            Ok(TidalStreamInfo {
+                url: url.to_string(),
+                mime_type,
+            })
         } else {
             Err(TidalError(format!(
                 "Unsupported manifest type: {}. Only BTS manifests are supported (try LOSSLESS or HIGH quality).",
