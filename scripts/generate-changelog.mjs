@@ -58,13 +58,13 @@ function generateChangelog(commits) {
     if (!parsed) {
       // Skip release commits and merge commits
       if (msg.startsWith('release:') || msg.startsWith('Merge ')) continue;
-      uncategorized.push(msg);
+      if (!uncategorized.includes(msg)) uncategorized.push(msg);
       continue;
     }
 
     const category = CATEGORIES.find(c => c.prefix === parsed.type);
     if (!category) {
-      if (!msg.startsWith('release:')) uncategorized.push(msg);
+      if (!msg.startsWith('release:') && !uncategorized.includes(msg)) uncategorized.push(msg);
       continue;
     }
 
@@ -73,7 +73,10 @@ function generateChangelog(commits) {
     }
 
     const scopePrefix = parsed.scope ? `**${parsed.scope}**: ` : '';
-    categorized.get(category.title).push(`${scopePrefix}${parsed.description}`);
+    const entry = `${scopePrefix}${parsed.description}`;
+    if (!categorized.get(category.title).includes(entry)) {
+      categorized.get(category.title).push(entry);
+    }
   }
 
   const lines = [];
