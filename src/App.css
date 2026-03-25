@@ -2807,17 +2807,30 @@ body {
 .sort-bar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  gap: 8px;
 }
 
-.sort-options {
+.sort-bar-row {
   display: flex;
+  align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
 }
+
+.sort-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  user-select: none;
+}
+
 .sort-bar-group {
   display: flex;
   gap: 3px;
@@ -2825,6 +2838,7 @@ body {
   border-radius: 6px;
   background: rgba(108, 92, 231, 0.08);
   border: 1px solid rgba(108, 92, 231, 0.2);
+  flex-wrap: wrap;
 }
 .sort-bar-group-filter {
   background: rgba(0, 184, 148, 0.08);
@@ -2860,7 +2874,7 @@ body {
 
 .liked-first-btn {
   color: #666;
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .liked-first-btn.active {
@@ -2889,7 +2903,7 @@ body {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  margin-left: 8px;
+  margin-left: auto;
 }
 
 /* View mode toggle */
