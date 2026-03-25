@@ -326,7 +326,7 @@ pub fn run() {
                                     let _ = worker_db.record_image_failure("artist", *id);
                                     let _ = app_handle.emit(
                                         "artist-image-error",
-                                        serde_json::json!({ "artistId": id, "error": e.to_string() }),
+                                        serde_json::json!({ "artistId": id, "name": name, "error": e.to_string() }),
                                     );
                                 }
                             }
@@ -357,7 +357,7 @@ pub fn run() {
                                     let _ = worker_db.record_image_failure("album", *id);
                                     let _ = app_handle.emit(
                                         "album-image-error",
-                                        serde_json::json!({ "albumId": id, "error": e.to_string() }),
+                                        serde_json::json!({ "albumId": id, "title": title, "error": e.to_string() }),
                                     );
                                 }
                             }

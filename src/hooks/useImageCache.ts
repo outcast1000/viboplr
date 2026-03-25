@@ -72,7 +72,8 @@ export function useImageCache(
     const unlistenError = listen<Record<string, unknown>>(errorEvent, (event) => {
       const id = event.payload[eventIdKey] as number;
       const error = event.payload.error as string;
-      addLog?.(`${kind.charAt(0).toUpperCase() + kind.slice(1)} image error (id=${id}): ${error}`);
+      const entityName = (event.payload.name ?? event.payload.title ?? `id=${id}`) as string;
+      addLog?.(`${kind.charAt(0).toUpperCase() + kind.slice(1)} image failed for "${entityName}": ${error}`);
       failed.current = new Set(failed.current).add(id);
     });
 
