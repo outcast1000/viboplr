@@ -43,6 +43,11 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function inlineMd(text) {
+  // Convert **bold** to <strong>, then escape the rest
+  return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+
 function markdownToHtml(body) {
   if (!body) return '';
   const lines = body.trim().split('\n');
@@ -57,15 +62,18 @@ function markdownToHtml(body) {
     }
 
     const listMatch = trimmed.match(/^[-*]\s+(.+)/);
+    const headingMatch = trimmed.match(/^###\s+(.+)/);
     if (listMatch) {
       if (!inList) { htmlParts.push('<ul>'); inList = true; }
-      htmlParts.push(`<li>${escapeHtml(listMatch[1])}</li>`);
-    } else if (trimmed.startsWith('## ') || trimmed.startsWith('### ')) {
+      htmlParts.push(`<li>${inlineMd(listMatch[1])}</li>`);
+    } else if (headingMatch) {
       if (inList) { htmlParts.push('</ul>'); inList = false; }
-      // Skip headings that just repeat the version name
+      htmlParts.push(`<h4>${escapeHtml(headingMatch[1])}</h4>`);
+    } else if (trimmed.startsWith('## ')) {
+      if (inList) { htmlParts.push('</ul>'); inList = false; }
     } else {
       if (inList) { htmlParts.push('</ul>'); inList = false; }
-      htmlParts.push(`<p>${escapeHtml(trimmed)}</p>`);
+      htmlParts.push(`<p>${inlineMd(trimmed)}</p>`);
     }
   }
   if (inList) htmlParts.push('</ul>');

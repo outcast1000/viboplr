@@ -852,6 +852,20 @@ p {
   color: var(--color-text-muted);
 }
 
+.timeline-body h4 {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text);
+  margin-top: var(--space-sm);
+}
+
+.timeline-body h4:first-child {
+  margin-top: 0;
+}
+
 .timeline-body ul {
   margin-top: var(--space-xs);
   display: flex;
