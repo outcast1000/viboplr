@@ -22,10 +22,26 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG=${GITHUB_REF#refs/tags/}
+          else
+            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          fi
+          if [ -n "$TAG" ]; then
+            node scripts/generate-changelog.mjs "$TAG" > /tmp/release-body.md
+          else
+            echo "Initial release." > /tmp/release-body.md
+          fi
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -45,10 +61,20 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: 'Viboplr v__VERSION__'
-          releaseBody: 'See the assets below to download and install Viboplr.'
+          releaseBody: ''
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Update release body with changelog
+        if: matrix.platform == 'macos-latest'
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG=${GITHUB_REF#refs/tags/}
+            gh release edit "$TAG" --notes-file /tmp/release-body.md
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   update-history:
     needs: release
