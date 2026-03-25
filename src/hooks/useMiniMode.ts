@@ -10,6 +10,7 @@ const MINI_MAX_WIDTH = 550;
 const MINI_INITIAL_WIDTH = 500;
 const FULL_MIN_WIDTH = 300;
 const FULL_MIN_HEIGHT = 400;
+const isMac = navigator.platform.includes("Mac");
 
 function measureMiniFooter(): number {
   const footer = document.querySelector(".now-playing-mini") as HTMLElement;
@@ -60,7 +61,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
       const pos = await win.outerPosition();
       store.set("miniWindowX", pos.x / factor);
       store.set("miniWindowY", pos.y / factor);
-      await win.setDecorations(true);
+      if (isMac) await win.setDecorations(true);
       await win.setAlwaysOnTop(false);
       await win.setMinSize(new LogicalSize(FULL_MIN_WIDTH, FULL_MIN_HEIGHT));
       const geo = fullSizeRef.current;

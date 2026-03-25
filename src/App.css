@@ -1375,6 +1375,35 @@ body {
   border-color: var(--accent);
 }
 
+/* Custom window controls for Windows/Linux */
+.window-controls {
+  position: fixed;
+  top: 0;
+  right: 0;
+  display: flex;
+  z-index: 9999;
+  -webkit-app-region: no-drag;
+}
+.window-control-btn {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  width: 46px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.window-control-btn:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+}
+.window-control-close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
 .nav-history-btn {
   background: none;
   border: 1px solid var(--border);

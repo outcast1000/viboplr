@@ -27,6 +27,7 @@ import { useAppUpdater } from "./hooks/useAppUpdater";
 import { useMiniMode } from "./hooks/useMiniMode";
 import { useVideoSplit } from "./hooks/useVideoSplit";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
+import { WindowControls } from "./components/WindowControls";
 
 import { Sidebar } from "./components/Sidebar";
 import { TrackList } from "./components/TrackList";
@@ -385,6 +386,10 @@ function App() {
             if (fww && fwh) mini.fullSizeRef.current = { w: fww, h: fwh, x: fwx ?? 0, y: fwy ?? 0 };
             mini.setMiniMode(true);
             mini.miniModeRef.current = true;
+          }
+          // On Windows/Linux, remove native title bar before showing the window
+          if (!navigator.platform.includes("Mac")) {
+            await getCurrentWindow().setDecorations(false);
           }
           await getCurrentWindow().show();
         });
@@ -1503,6 +1508,7 @@ function App() {
               }
             }}
           />
+          <WindowControls />
         </div>
 
         {/* Content area */}
