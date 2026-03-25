@@ -123,7 +123,7 @@ View mode selections are persisted per entity (`artistViewMode`, `albumViewMode`
 
 **Tag list sort controls:** A sort bar above the tag list offers Name, Tracks (track count), and Shuffle buttons, plus a heart toggle to float liked tags to the top. Name and Tracks cycle asc → desc → unsorted. Shuffle re-randomizes each click (Fisher-Yates).
 
-**All Tracks sort controls:** A sort bar above the track list offers Title, Artist, Album, Year, Quality, Duration, Size, Collection, and Shuffle buttons. Sort fields cycle asc → desc → unsorted. A heart toggle floats liked tracks to the top. A YouTube filter button (`YT`) shows only tracks with a `youtube_url`. A **media type filter** (All / Audio / Video) filters tracks by format — video formats are mp4, m4v, mov, webm; everything else is audio.
+**All Tracks sort controls:** The sort bar is split into two labeled rows: a **Sort** row (Title, Artist, Album, Year, Quality, Duration, Size, Collection, Shuffle, and a heart toggle to float liked tracks to the top) and a **Filter** row (YouTube filter `YT`, media type filter All/Audio/Video). Sort fields cycle asc → desc → unsorted. The view mode toggle and collapse button remain visible when the sort bar is collapsed.
 
 **Performance:** Track counts for artists, albums, and tags are precomputed and stored in `track_count` columns (see §5). Counts are recomputed after every scan, sync, collection toggle, and FTS rebuild. The `get_artists`, `get_albums`, and `get_tags` queries use simple `WHERE track_count > 0` filters instead of JOIN/GROUP BY/HAVING, making sidebar navigation instant. The frontend skips fetching tracks when only the album grid or tag list is displayed (no track table rendered), and does not re-fetch the full album list when navigating to the Albums view (already loaded by `loadLibrary`).
 
@@ -133,7 +133,7 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 
 **Liked tags:** Each tag has a `liked` boolean attribute. Like buttons appear in all three tag view modes (heart icon). The tag detail header also shows a like button. The sort bar has a heart toggle to float liked tags to the top.
 
-**Tag images:** Tags support manual image management (set from file, paste from clipboard, remove) via the generic entity image commands (`set_entity_image`, `paste_entity_image`, `remove_entity_image` with `kind: "tag"`). Images are stored as files in `{app_dir}/tag_images/{tag_id}.{ext}`. Unlike artists/albums, tags have no auto-fetch from external providers. A `TagCardArt` component renders the tag image (or initial letter fallback) in list and tiles views, with lazy-loading via IntersectionObserver.
+**Tag images:** Tags support manual image management (set from file, paste from clipboard, remove) via the generic entity image commands (`set_entity_image`, `paste_entity_image`, `remove_entity_image` with `kind: "tag"`). Images are stored as files in `{app_dir}/tag_images/{canonical_slug}.{ext}` (see §12.3 for canonical slug format). Unlike artists/albums, tags have no auto-fetch from external providers. A `TagCardArt` component renders the tag image (or initial letter fallback) in list and tiles views, with lazy-loading via IntersectionObserver.
 
 ### 4.8 Search
 
@@ -155,6 +155,7 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - Video displayed **below the content area** (between the track list and the now-playing bar) with a **resizable splitter**. The splitter is draggable (default height: 300px, persisted as `videoSplitHeight`), has a collapse/expand button to minimize the video, and enforces a 150px minimum track list height. A **fullscreen button overlay** appears on hover in the bottom-right corner of the video, with a tooltip showing the keyboard shortcut (`Cmd/Ctrl+F`) and how to exit (`Esc`). Double-click or `Cmd/Ctrl+F` on the video enters native fullscreen.
 - **Double-click:** Double-clicking a track in any view (All Tracks, Artist, Album, Tag, Liked) plays only that single track — the queue is replaced with just that one track. No additional tracks are queued or auto-played after it finishes (unless Auto Continue is enabled).
 - **Playback error handling:** Error event handlers on `<audio>` and `<video>` elements detect unsupported codecs, network errors, and decode errors. A red error banner appears above the now-playing bar with a descriptive message and dismiss button. The error clears automatically when a new track starts playing.
+- **Waveform seek bar:** Audio tracks display a waveform visualization inside the seek bar (both the Now Playing bar and fullscreen controls). Audio files are analyzed using the Web Audio API and waveform peak data is cached as JSON files in `{app_dir}/waveforms/{track_id}.json` for instant display on subsequent plays. Graceful degradation: a plain seek bar is shown for video tracks, remote/subsonic tracks, files over 10 MB, or when Web Audio decoding fails.
 - Keyboard navigation: arrow keys to navigate tracks, Enter to play.
 - **Minimized window:** Playback continues when the app window is minimized. A `visibilitychange` listener resumes playback if the browser auto-pauses media when the page becomes hidden. The crossfade loop uses `setInterval` instead of `requestAnimationFrame` so it runs while the page is hidden.
 
@@ -255,6 +256,8 @@ The History view (`Ctrl/Cmd+6`) displays three sections:
 3. **Recent History** — last 50 individual plays with relative timestamps (e.g., "5m ago", "2h ago", "3d ago").
 
 All sections support search filtering by title and artist name. Clicking a row plays the track.
+
+**Ghost entry reconnection:** History entries for tracks or artists that no longer exist in the library ("ghost" entries) can be dynamically reconnected. Double-clicking a disconnected history track or artist attempts to match it to a current library entry by canonical title and artist name. If a match is found, the history entry is reconnected and the track plays (or the artist view opens). If no match is found, a status bar warning is displayed.
 
 ### 4.14 Configurable Search Providers
 
@@ -361,7 +364,7 @@ A compact, always-on-top floating player that replaces the full window with a mi
 - A thin progress bar at the bottom showing playback position.
 - Draggable: clicking and dragging anywhere on the bar (except buttons) moves the window via `getCurrentWindow().startDragging()`.
 
-**Toggle:** `Ctrl+Shift+M` (or `Cmd+Shift+M` on macOS). When entering mini mode:
+**Toggle:** A mini player button (en-dash `–`) in the **caption bar** (next to the window controls), or `Ctrl+Shift+M` (or `Cmd+Shift+M` on macOS). When entering mini mode:
 1. Current full window geometry (size + position) is saved to the store.
 2. Window resizes to mini dimensions.
 3. Mini window position is restored from store (if previously saved), otherwise stays at current position.
@@ -486,7 +489,7 @@ A collapsible side panel for managing the current play queue as a playlist. Togg
 - Track list showing title, artist, duration, and a remove (×) button per track. The currently playing track is highlighted.
 - Footer info bar showing playlist name (if loaded/saved), track count, and total duration.
 
-**Multi-selection:** Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range. Right-click context menu offers Play, Remove, Move to top, and Move to bottom for selected tracks.
+**Multi-selection:** Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range. Right-click context menu offers Play, Remove, Locate Track (navigates to the track's artist in the library), Move to top, and Move to bottom for selected tracks.
 
 **Drag and drop reorder:** Mouse-event-based drag (not HTML5 DnD, for Tauri compatibility). Dragging single or multiple selected tracks shows a ghost element with track count and a drop position indicator line. Tracks are reordered on drop via `moveMultiple`.
 
@@ -747,6 +750,10 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `rebuild_search_index`  | —                           | `()`                     |
 | `get_auto_continue_track` | `strategy: String, current_track_id: i64, format_filter: Option<String>` | `Option<Track>` |
 | `delete_tracks`           | `track_ids: Vec<i64>`                     | `Vec<i64>` (deleted IDs) |
+| `get_cached_waveform`     | `track_id: i64`                           | `Option<Vec<f32>>`       |
+| `cache_waveform`          | `track_id: i64, peaks: Vec<f32>`          | `()`                     |
+| `reconnect_history_track` | `history_track_id: i64`                   | `Option<Track>`          |
+| `reconnect_history_artist`| `history_artist_id: i64`                  | `Option<i64>`            |
 
 **`TrackQuery` struct:** Unified query parameters for `get_tracks`. When `query` is present and non-empty, FTS search is used. When `album_id` is set without a query, returns album tracks ordered by track number (no pagination). Otherwise, returns paginated tracks with optional sort/filter.
 
@@ -837,9 +844,9 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `sync-complete`    | `{ collectionId }`                  |
 | `sync-error`       | `{ collectionId, error }`           |
 | `artist-image-ready` | `{ artistId, path }`              |
-| `artist-image-error` | `{ artistId, error }`             |
+| `artist-image-error` | `{ artistId, name, error }`       |
 | `album-image-ready`  | `{ albumId, path }`               |
-| `album-image-error`  | `{ albumId, error }`              |
+| `album-image-error`  | `{ albumId, title, error }`       |
 | `lastfm-auth-error`  | `()`                                |
 
 ## 8. Performance Targets
@@ -951,14 +958,19 @@ Artist and album image fetching is handled by a single background worker thread 
 - Uses the same on-demand fetch pattern: checks local cache first (`get_entity_image`), then fires off a background download (`fetch_album_image` / `fetch_artist_image`) if no local image exists.
 - Respects the same deduplication guards (fetched/failed sets) so images are only requested once per session.
 
+**Canonical name-based image storage:** Entity images are stored using filesystem-safe canonical slugs derived from entity names instead of numeric database IDs. This decouples images from the database so they persist across DB recreations. The `canonical_slug()` function strips diacritics, lowercases, removes unsafe filesystem characters, collapses whitespace, and truncates to 200 bytes. Image paths:
+- Artist images: `{app_dir}/artist_images/{canonical_slug(name)}.{ext}`
+- Album images: `{app_dir}/album_images/{canonical_slug(artist)} - {canonical_slug(title)}.{ext}`
+- Tag images: `{app_dir}/tag_images/{canonical_slug(name)}.{ext}`
+
 **Manual image management:**
-- `set_entity_image(kind, id, source_path)` — copy an image from a local file path to the app's image directory (`{app_dir}/{kind}_images/`).
+- `set_entity_image(kind, id, source_path)` — copy an image from a local file path to the app's image directory.
 - `paste_entity_image(kind, id, image_data)` — write raw image bytes (e.g., from clipboard paste) to the app's image directory. Image format (PNG/JPG) is auto-detected from magic bytes.
 - `remove_entity_image(kind, id)` — delete an image from the app's image directory.
 
-All three commands are generic, accepting `kind` = `"artist"`, `"album"`, or `"tag"`. A single `entity_image.rs` module provides `image_dir()`, `get_image_path()`, and `remove_image()` helpers parameterized by kind.
+All three commands are generic, accepting `kind` = `"artist"`, `"album"`, or `"tag"`. A single `entity_image.rs` module provides `image_dir()`, `get_image_path()`, `remove_image()`, `canonical_slug()`, and `entity_image_slug()` helpers parameterized by kind.
 
-Tags have no auto-fetch from external providers (no `fetch_tag_image` command). Tag images are managed manually only (set, paste, remove). Image files are stored in `{app_dir}/tag_images/`.
+Tags have no auto-fetch from external providers (no `fetch_tag_image` command). Tag images are managed manually only (set, paste, remove).
 
 ### 12.4 Playback Resolution
 
