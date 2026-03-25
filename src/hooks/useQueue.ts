@@ -38,10 +38,12 @@ export function useQueue(
 
   // Auto-scroll queue panel to current track
   useEffect(() => {
-    if (showQueue && queueIndex >= 0 && queuePanelRef.current) {
-      const list = queuePanelRef.current.querySelector(".queue-list");
-      const item = list?.children[queueIndex] as HTMLElement | undefined;
-      item?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    if (showQueue && queueIndex >= 0) {
+      requestAnimationFrame(() => {
+        const list = queuePanelRef.current?.querySelector(".queue-list");
+        const item = list?.children[queueIndex] as HTMLElement | undefined;
+        item?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
     }
   }, [queueIndex, showQueue]);
 

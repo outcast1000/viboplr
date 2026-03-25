@@ -89,6 +89,17 @@ export function QueuePanel({
   // Clear selection when queue changes (add/remove/reorder)
   useEffect(() => { setSelectedIndices(new Set()); }, [queue]);
 
+  // Scroll to currently playing track when panel opens or un-collapses
+  useEffect(() => {
+    if (!collapsed && queueIndex >= 0 && queuePanelRef.current) {
+      requestAnimationFrame(() => {
+        const list = queuePanelRef.current?.querySelector(".queue-list");
+        const item = list?.children[queueIndex] as HTMLElement | undefined;
+        item?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      });
+    }
+  }, [collapsed]);
+
   // Auto-approve countdown for duplicate warning
   useEffect(() => {
     if (!pendingEnqueue) { setCountdown(AUTO_APPROVE_SECS); return; }
