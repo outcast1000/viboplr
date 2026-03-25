@@ -84,6 +84,8 @@ static FALLBACK_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         Regex::new(r"^[^/]*/[^/]*/(?P<artist>.+?)\s*-\s*(?P<album>.+?)\s*-\s*(?P<track>\d+)\s*-\s*(?P<title>.+)$").unwrap(),
         // Artist - Album/03 - Title  (artist-album in parent, track-title in filename)
         Regex::new(r"^[^/]*/(?P<artist>[^/]+?)\s*-\s*(?P<album>[^/]+)/(?P<track>\d+)[\s._-]+(?P<title>.+)$").unwrap(),
+        // */03 - Title  (track number + title in filename, no artist)
+        Regex::new(r"^[^/]*/[^/]*/(?P<track>\d+)\s*-\s*(?P<title>.+)$").unwrap(),
         // */Artist - Title  (artist-title in filename)
         Regex::new(r"^[^/]*/[^/]*/(?P<artist>.+?)\s*-\s*(?P<title>.+)$").unwrap(),
     ]
@@ -354,4 +356,26 @@ mod tests {
         assert!(tags.album.is_none());
         assert!(tags.track_number.is_none());
     }
+
+    #[test]
+    fn test_fallback_trackno_title_not_artist() {
+        // "01 - MYSTERY.mp3" in a flat folder should NOT be parsed as Artist: 01, Title: MYSTERY
+        // This simulates a file at the root of a scanned folder with no meaningful parent structure
+        let path = Path::new("/root/01 - MYSTERY.mp3");
+        let tags = fallback_from_filename(path, None);
+        assert_eq!(tags.title, "MYSTERY");
+        assert!(tags.artist.is_none(), "numeric prefix should not be treated as artist, got: {:?}", tags.artist);
+        assert_eq!(tags.track_number, Some(1));
+    }
+
+    #[test]
+    fn test_fallback_trackno_title_two_digits() {
+        // Same pattern with 2-digit track number
+        let path = Path::new("/root/12 - Song Name.mp3");
+        let tags = fallback_from_filename(path, None);
+        assert_eq!(tags.title, "Song Name");
+        assert!(tags.artist.is_none(), "numeric prefix should not be treated as artist, got: {:?}", tags.artist);
+        assert_eq!(tags.track_number, Some(12));
+    }
+
 }
