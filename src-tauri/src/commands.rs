@@ -1,3 +1,4 @@
+use serde::Serialize;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter, State};
@@ -1386,6 +1387,158 @@ pub fn get_download_status(
 #[tauri::command]
 pub fn cancel_download(state: State<'_, AppState>, download_id: u64) -> Result<bool, String> {
     Ok(state.track_download_manager.cancel(download_id))
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UpgradePreviewInfo {
+    pub old_path: String,
+    pub old_format: Option<String>,
+    pub old_file_size: Option<i64>,
+    pub new_path: String,
+    pub new_format: Option<String>,
+    pub new_file_size: Option<i64>,
+}
+
+#[tauri::command]
+pub fn tidal_download_preview(
+    state: State<'_, AppState>,
+    override_url: Option<String>,
+    track_id: i64,
+    tidal_track_id: String,
+    format: String,
+) -> Result<UpgradePreviewInfo, String> {
+    let fmt = DownloadFormat::from_str(&format)?;
+    let track = state.db.get_track_by_id(track_id).map_err(|e| e.to_string())?;
+
+    let client = TidalClient::new(override_url.as_deref());
+    let stream_info = client
+        .get_stream_url(&tidal_track_id, fmt.tidal_quality())
+        .map_err(|e| e.to_string())?;
+    let actual_ext = stream_info.extension();
+
+    // Build temp path next to original file
+    let old_path = std::path::Path::new(&track.path);
+    let parent = old_path.parent().ok_or("Track has no parent directory")?;
+    let stem = old_path.file_stem().and_then(|s| s.to_str()).unwrap_or("track");
+    let new_filename = format!("{}.upgrade.{}", stem, actual_ext);
+    let new_path = parent.join(&new_filename);
+
+    if new_path.exists() {
+        std::fs::remove_file(&new_path)
+            .map_err(|e| format!("Failed to remove existing preview: {}", e))?;
+    }
+
+    // Download to temp path
+    let http_client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let resp = http_client
+        .get(&stream_info.url)
+        .send()
+        .map_err(|e| format!("Download failed: {}", e))?;
+
+    let bytes = resp.bytes().map_err(|e| format!("Read failed: {}", e))?;
+    std::fs::write(&new_path, &bytes)
+        .map_err(|e| format!("Write failed: {}", e))?;
+
+    // Write tags to the new file
+    let info = client
+        .get_track_info(&tidal_track_id)
+        .map_err(|e| e.to_string())?;
+    let cover_url = info
+        .cover_id
+        .as_deref()
+        .map(|id| TidalClient::cover_url(id, 1280));
+    let request = DownloadRequest {
+        id: 0,
+        track_title: info.title,
+        artist_name: info.artist_name.unwrap_or_else(|| "Unknown Artist".to_string()),
+        album_title: info.album_title.unwrap_or_else(|| "Unknown Album".to_string()),
+        track_number: info.track_number.map(|n| n as u32),
+        genre: None,
+        year: None,
+        cover_url,
+        source_kind: "tidal".to_string(),
+        source_collection_id: None,
+        source_override_url: override_url,
+        remote_track_id: tidal_track_id,
+        dest_collection_id: 0,
+        dest_collection_path: String::new(),
+        format: fmt,
+        is_batch_last: true,
+    };
+    if let Err(e) = crate::downloader::write_tags(&new_path, &request, &http_client) {
+        log::warn!("Failed to write tags to upgrade preview: {}", e);
+    }
+
+    let new_file_size = std::fs::metadata(&new_path).ok().map(|m| m.len() as i64);
+    let new_format = Some(actual_ext.to_string());
+
+    Ok(UpgradePreviewInfo {
+        old_path: track.path.clone(),
+        old_format: track.format.clone(),
+        old_file_size: track.file_size,
+        new_path: new_path.to_string_lossy().to_string(),
+        new_format,
+        new_file_size,
+    })
+}
+
+#[tauri::command]
+pub fn confirm_track_upgrade(
+    state: State<'_, AppState>,
+    track_id: i64,
+    new_path: String,
+) -> Result<(), String> {
+    let track = state.db.get_track_by_id(track_id).map_err(|e| e.to_string())?;
+    let old_path = std::path::Path::new(&track.path);
+    let new_file = std::path::Path::new(&new_path);
+
+    if !new_file.exists() {
+        return Err("Preview file not found".to_string());
+    }
+
+    // Delete old file
+    if old_path.exists() {
+        std::fs::remove_file(old_path)
+            .map_err(|e| format!("Failed to delete old file: {}", e))?;
+    }
+
+    // Rename: remove ".upgrade" from filename
+    let parent = new_file.parent().ok_or("No parent directory")?;
+    let filename = new_file.file_name().and_then(|f| f.to_str()).ok_or("Invalid filename")?;
+    let final_filename = filename.replace(".upgrade.", ".");
+    let final_path = parent.join(&final_filename);
+
+    // If final path already exists (same extension as old), remove it
+    if final_path.exists() && final_path != new_file {
+        std::fs::remove_file(&final_path)
+            .map_err(|e| format!("Failed to remove existing file at target: {}", e))?;
+    }
+
+    std::fs::rename(new_file, &final_path)
+        .map_err(|e| format!("Failed to rename file: {}", e))?;
+
+    // Remove old track from DB and re-scan the new file
+    let _ = state.db.remove_track_by_path(&track.path);
+    let collection_id = track.collection_id;
+    crate::scanner::process_media_file(&state.db, &final_path, collection_id);
+    let _ = state.db.rebuild_fts();
+    let _ = state.db.recompute_counts();
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cancel_track_upgrade(new_path: String) -> Result<(), String> {
+    let path = std::path::Path::new(&new_path);
+    if path.exists() {
+        std::fs::remove_file(path)
+            .map_err(|e| format!("Failed to remove preview file: {}", e))?;
+    }
+    Ok(())
 }
 
 fn resolve_cover_url(db: &Arc<Database>, track: &Track, collection_id: i64) -> Option<String> {

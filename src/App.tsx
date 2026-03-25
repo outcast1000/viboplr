@@ -51,6 +51,7 @@ import type { TidalSearchTrack } from "./types";
 import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
+import { UpgradeTrackModal } from "./components/UpgradeTrackModal";
 import { StatusBar } from "./components/StatusBar";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -109,6 +110,7 @@ function App() {
     trackId: number; url: string; videoTitle: string;
   } | null>(null);
   const [propertiesTrack, setPropertiesTrack] = useState<Track | null>(null);
+  const [upgradeTrack, setUpgradeTrack] = useState<Track | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
@@ -2613,8 +2615,25 @@ function App() {
             if (track?.artist_id) library.handleLocateTrack(track.id, track.artist_id);
           } : undefined}
           onDownload={contextMenu.target.kind === "track" ? (destId: number) => { const t = contextMenu.target; if (t.kind === "track") handleDownloadTrack(t.trackId, destId); } : undefined}
+          onUpgradeViaTidal={tidalEnabled && contextMenu.target.kind === "track" && !contextMenu.target.subsonic ? () => {
+            const t = contextMenu.target;
+            if (t.kind === "track") {
+              const track = tracks.find(tr => tr.id === t.trackId);
+              if (track) setUpgradeTrack(track);
+            }
+          } : undefined}
           localCollections={localCollections}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {upgradeTrack && (
+        <UpgradeTrackModal
+          track={upgradeTrack}
+          tidalOverrideUrl={tidalOverrideUrl}
+          downloadFormat={downloadFormat}
+          onClose={() => setUpgradeTrack(null)}
+          onUpgraded={() => { setUpgradeTrack(null); library.loadTracks(); }}
         />
       )}
 
