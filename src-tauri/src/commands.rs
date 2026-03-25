@@ -445,7 +445,7 @@ pub fn toggle_liked(
     state: State<'_, AppState>,
     kind: String,
     id: i64,
-    liked: bool,
+    liked: i32,
 ) -> Result<(), String> {
     let table = match kind.as_str() {
         "track" => "tracks",
@@ -1467,25 +1467,33 @@ mod tests {
         let track_id = insert_track(&state, "/t.mp3", "Track", Some(artist_id), Some(album_id));
 
         // Track liked
-        state.db.toggle_liked("tracks", track_id, true).unwrap();
+        state.db.toggle_liked("tracks", track_id, 1).unwrap();
         let track = state.db.get_track_by_id(track_id).unwrap();
-        assert!(track.liked);
-        state.db.toggle_liked("tracks", track_id, false).unwrap();
+        assert_eq!(track.liked, 1);
+        state.db.toggle_liked("tracks", track_id, 0).unwrap();
         let track = state.db.get_track_by_id(track_id).unwrap();
-        assert!(!track.liked);
+        assert_eq!(track.liked, 0);
+
+        // Track disliked
+        state.db.toggle_liked("tracks", track_id, -1).unwrap();
+        let track = state.db.get_track_by_id(track_id).unwrap();
+        assert_eq!(track.liked, -1);
+        state.db.toggle_liked("tracks", track_id, 0).unwrap();
+        let track = state.db.get_track_by_id(track_id).unwrap();
+        assert_eq!(track.liked, 0);
 
         // Artist liked — need recompute_counts for artist to show up (track_count > 0 filter)
-        state.db.toggle_liked("artists", artist_id, true).unwrap();
+        state.db.toggle_liked("artists", artist_id, 1).unwrap();
         state.db.recompute_counts().unwrap();
         let artists = state.db.get_artists().unwrap();
         assert!(!artists.is_empty());
-        assert!(artists.iter().any(|a| a.id == artist_id && a.liked));
+        assert!(artists.iter().any(|a| a.id == artist_id && a.liked == 1));
 
         // Album liked
-        state.db.toggle_liked("albums", album_id, true).unwrap();
+        state.db.toggle_liked("albums", album_id, 1).unwrap();
         state.db.recompute_counts().unwrap();
         let albums = state.db.get_albums(None).unwrap();
-        assert!(albums.iter().any(|a| a.id == album_id && a.liked));
+        assert!(albums.iter().any(|a| a.id == album_id && a.liked == 1));
     }
 
     #[test]

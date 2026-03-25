@@ -31,6 +31,7 @@ interface FullscreenControlsProps {
   onToggleAutoContinuePopover: () => void;
   onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
   onToggleLike: () => void;
+  onToggleDislike?: () => void;
   onToggleFullscreen: () => void;
   showQueue: boolean;
   onToggleQueue: () => void;
@@ -49,7 +50,7 @@ export function FullscreenControls({
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
-  onToggleLike, onToggleFullscreen, showQueue, onToggleQueue, onArtistClick, onAlbumClick,
+  onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, onArtistClick, onAlbumClick,
 }: FullscreenControlsProps) {
   const [visible, setVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -166,11 +167,18 @@ export function FullscreenControls({
             ) : null}
           </div>
           {currentTrack && (
-            <span
-              className={`fs-like-btn${currentTrack.liked ? " liked" : ""}`}
-              onClick={onToggleLike}
-              title={currentTrack.liked ? "Unlike" : "Like"}
-            >{currentTrack.liked ? "\u2665" : "\u2661"}</span>
+            <>
+              <span
+                className={`fs-like-btn${currentTrack.liked === 1 ? " liked" : ""}`}
+                onClick={onToggleLike}
+                title={currentTrack.liked === 1 ? "Unlike" : "Like"}
+              >{currentTrack.liked === 1 ? "\u2665" : "\u2661"}</span>
+              {onToggleDislike && <span
+                className={`fs-dislike-btn${currentTrack.liked === -1 ? " disliked" : ""}`}
+                onClick={onToggleDislike}
+                title={currentTrack.liked === -1 ? "Remove dislike" : "Dislike"}
+              >{currentTrack.liked === -1 ? "\u2716" : "\u2298"}</span>}
+            </>
           )}
         </div>
         <div className="fs-center">

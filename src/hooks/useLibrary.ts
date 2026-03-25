@@ -290,7 +290,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       result = sorted;
     }
     if (trackLikedFirst) {
-      result = [...result].sort((a, b) => (a.liked === b.liked ? 0 : a.liked ? -1 : 1));
+      result = [...result].sort((a, b) => (b.liked - a.liked));
     }
     return result;
   })();
@@ -336,7 +336,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       result = artists;
     }
     if (artistLikedFirst) {
-      result = [...result].sort((a, b) => (a.liked === b.liked ? 0 : a.liked ? -1 : 1));
+      result = [...result].sort((a, b) => (b.liked - a.liked));
     }
     return result;
   }, [artists, artistSortField, artistSortDir, artistLikedFirst, artistShuffleKey]);
@@ -362,7 +362,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       result = albums;
     }
     if (albumLikedFirst) {
-      result = [...result].sort((a, b) => (a.liked === b.liked ? 0 : a.liked ? -1 : 1));
+      result = [...result].sort((a, b) => (b.liked - a.liked));
     }
     return result;
   }, [albums, albumSortField, albumSortDir, albumLikedFirst, albumShuffleKey]);
@@ -382,7 +382,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       result = tags;
     }
     if (tagLikedFirst) {
-      result = [...result].sort((a, b) => (a.liked === b.liked ? 0 : a.liked ? -1 : 1));
+      result = [...result].sort((a, b) => (b.liked - a.liked));
     }
     return result;
   }, [tags, tagSortField, tagSortDir, tagLikedFirst, tagShuffleKey]);

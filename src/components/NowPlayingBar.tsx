@@ -58,6 +58,7 @@ interface NowPlayingBarProps {
   onToggleAutoContinuePopover: () => void;
   onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
   onToggleLike: () => void;
+  onToggleDislike?: () => void;
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
 }
@@ -71,7 +72,7 @@ export function NowPlayingBar({
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
-  onToggleLike, onArtistClick, onAlbumClick,
+  onToggleLike, onToggleDislike, onArtistClick, onAlbumClick,
 }: NowPlayingBarProps) {
   const [showHelp, setShowHelp] = useState(false);
 
@@ -145,11 +146,18 @@ export function NowPlayingBar({
             )}
           </div>
           {currentTrack && (
-            <span
-              className={`now-like-btn${currentTrack.liked ? " liked" : ""}`}
-              onClick={onToggleLike}
-              title={`${currentTrack.liked ? "Unlike" : "Like"} (${mod}L)`}
-            >{currentTrack.liked ? "\u2665" : "\u2661"}</span>
+            <>
+              <span
+                className={`now-like-btn${currentTrack.liked === 1 ? " liked" : ""}`}
+                onClick={onToggleLike}
+                title={`${currentTrack.liked === 1 ? "Unlike" : "Like"} (${mod}L)`}
+              >{currentTrack.liked === 1 ? "\u2665" : "\u2661"}</span>
+              {onToggleDislike && <span
+                className={`now-dislike-btn${currentTrack.liked === -1 ? " disliked" : ""}`}
+                onClick={onToggleDislike}
+                title={currentTrack.liked === -1 ? "Remove dislike" : "Dislike"}
+              >{currentTrack.liked === -1 ? "\u2716" : "\u2298"}</span>}
+            </>
           )}
         </div>
         <div className="now-controls">

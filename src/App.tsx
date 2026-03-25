@@ -1030,7 +1030,7 @@ function App() {
       collection_id: null,
       collection_name: null,
       subsonic_id: info.tidal_id,
-      liked: false,
+      liked: 0,
       youtube_url: null,
       added_at: null,
       modified_at: null,
@@ -1177,7 +1177,7 @@ function App() {
   }
 
   async function handleToggleLike(track: Track) {
-    const newLiked = !track.liked;
+    const newLiked = track.liked === 1 ? 0 : 1;
     try {
       await invoke("toggle_liked", { kind: "track", id: track.id, liked: newLiked });
       library.setTracks(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
@@ -1189,12 +1189,26 @@ function App() {
       console.error("Failed to toggle like:", e);
     }
   }
+
+  async function handleToggleDislike(track: Track) {
+    const newLiked = track.liked === -1 ? 0 : -1;
+    try {
+      await invoke("toggle_liked", { kind: "track", id: track.id, liked: newLiked });
+      library.setTracks(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
+      if (playback.currentTrack?.id === track.id) {
+        playback.setCurrentTrack({ ...playback.currentTrack, liked: newLiked });
+      }
+      queueHook.setQueue(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
+    } catch (e) {
+      console.error("Failed to toggle dislike:", e);
+    }
+  }
   handleToggleLikeRef.current = handleToggleLike;
 
   async function handleToggleArtistLike(artistId: number) {
     const artist = artists.find(a => a.id === artistId);
     if (!artist) return;
-    const newLiked = !artist.liked;
+    const newLiked = artist.liked === 1 ? 0 : 1;
     try {
       await invoke("toggle_liked", { kind: "artist", id: artistId, liked: newLiked });
       library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked: newLiked } : a));
@@ -1206,7 +1220,7 @@ function App() {
   async function handleToggleAlbumLike(albumId: number) {
     const album = albums.find(a => a.id === albumId);
     if (!album) return;
-    const newLiked = !album.liked;
+    const newLiked = album.liked === 1 ? 0 : 1;
     try {
       await invoke("toggle_liked", { kind: "album", id: albumId, liked: newLiked });
       library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: newLiked } : a));
@@ -1218,7 +1232,7 @@ function App() {
   async function handleToggleTagLike(tagId: number) {
     const tag = tags.find(t => t.id === tagId);
     if (!tag) return;
-    const newLiked = !tag.liked;
+    const newLiked = tag.liked === 1 ? 0 : 1;
     try {
       await invoke("toggle_liked", { kind: "tag", id: tagId, liked: newLiked });
       library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked: newLiked } : t));
@@ -1617,7 +1631,7 @@ function App() {
                       <span
                         className="entity-table-like"
                         onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
-                      >{a.liked ? "\u2665" : "\u2661"}</span>
+                      >{a.liked === 1 ? "\u2665" : "\u2661"}</span>
                       <span className="entity-table-name">{a.name}</span>
                       <span className="entity-table-count">{a.track_count}</span>
                     </div>
@@ -1641,7 +1655,7 @@ function App() {
                       <span
                         className="entity-list-like"
                         onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
-                      >{a.liked ? "\u2665" : "\u2661"}</span>
+                      >{a.liked === 1 ? "\u2665" : "\u2661"}</span>
                       <ArtistCardArt artist={a} imagePath={artistImageCache.images[a.id]} onVisible={artistImageCache.fetchOnDemand} className="entity-list-img circular" />
                       <span className="entity-list-name">{a.name}</span>
                       <span className="entity-list-count">{a.track_count} tracks</span>
@@ -1665,9 +1679,9 @@ function App() {
                     >
                       <ArtistCardArt artist={a} imagePath={artistImageCache.images[a.id]} onVisible={artistImageCache.fetchOnDemand} />
                       <div
-                        className={`artist-card-like${a.liked ? " liked" : ""}`}
+                        className={`artist-card-like${a.liked === 1 ? " liked" : ""}`}
                         onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
-                      >{a.liked ? "\u2665" : "\u2661"}</div>
+                      >{a.liked === 1 ? "\u2665" : "\u2661"}</div>
                       <div className="artist-card-body">
                         <div className="artist-card-name" title={a.name}>{a.name}</div>
                         <div className="artist-card-info">{a.track_count} tracks</div>
@@ -1700,10 +1714,10 @@ function App() {
                     <h2>
                       {artist?.name ?? "Unknown"}
                       <span
-                        className={`detail-like-btn${artist?.liked ? " liked" : ""}`}
+                        className={`detail-like-btn${artist?.liked === 1 ? " liked" : ""}`}
                         onClick={() => handleToggleArtistLike(selectedArtist)}
-                        title={artist?.liked ? "Unlike artist" : "Like artist"}
-                      >{artist?.liked ? "\u2665" : "\u2661"}</span>
+                        title={artist?.liked === 1 ? "Unlike artist" : "Like artist"}
+                      >{artist?.liked === 1 ? "\u2665" : "\u2661"}</span>
                     </h2>
                     <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
                     <ImageActions
@@ -1754,6 +1768,7 @@ function App() {
                     onSort={library.handleSort}
                     sortIndicator={library.sortIndicator}
                     onToggleLike={handleToggleLike}
+                    onToggleDislike={handleToggleDislike}
                     onTrackDragStart={handleTrackDragStart}
                     emptyMessage="No tracks found for this artist."
                   />
@@ -1830,7 +1845,7 @@ function App() {
                       <span
                         className="entity-table-like"
                         onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
-                      >{a.liked ? "\u2665" : "\u2661"}</span>
+                      >{a.liked === 1 ? "\u2665" : "\u2661"}</span>
                       <span className="entity-table-name">{a.title}</span>
                       <span className="entity-table-secondary">{a.artist_name ?? ""}</span>
                       <span className="entity-table-year">{a.year ?? ""}</span>
@@ -1856,7 +1871,7 @@ function App() {
                       <span
                         className="entity-list-like"
                         onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
-                      >{a.liked ? "\u2665" : "\u2661"}</span>
+                      >{a.liked === 1 ? "\u2665" : "\u2661"}</span>
                       <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
                       <span className="entity-list-name">{a.title}</span>
                       <span className="entity-list-secondary">
@@ -1878,9 +1893,9 @@ function App() {
                     <div key={a.id} className={`album-card${i === highlightedListIndex ? " highlighted" : ""}`} onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
                       <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
                       <div
-                        className={`album-card-like${a.liked ? " liked" : ""}`}
+                        className={`album-card-like${a.liked === 1 ? " liked" : ""}`}
                         onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
-                      >{a.liked ? "\u2665" : "\u2661"}</div>
+                      >{a.liked === 1 ? "\u2665" : "\u2661"}</div>
                       <div className="album-card-body">
                         <div className="album-card-title" title={a.title}>{a.title}</div>
                         <div className="album-card-info">
@@ -1953,7 +1968,7 @@ function App() {
                       <span
                         className="entity-table-like"
                         onClick={(e) => { e.stopPropagation(); handleToggleTagLike(t.id); }}
-                      >{t.liked ? "\u2665" : "\u2661"}</span>
+                      >{t.liked === 1 ? "\u2665" : "\u2661"}</span>
                       <span className="entity-table-name">{t.name}</span>
                       <span className="entity-table-count">{t.track_count}</span>
                     </div>
@@ -1976,7 +1991,7 @@ function App() {
                       <span
                         className="entity-list-like"
                         onClick={(e) => { e.stopPropagation(); handleToggleTagLike(t.id); }}
-                      >{t.liked ? "\u2665" : "\u2661"}</span>
+                      >{t.liked === 1 ? "\u2665" : "\u2661"}</span>
                       <TagCardArt tag={t} imagePath={tagImageCache.images[t.id]} onVisible={tagImageCache.fetchOnDemand} className="entity-list-img" />
                       <span className="entity-list-name">{t.name}</span>
                       <span className="entity-list-count">{t.track_count} tracks</span>
@@ -1999,9 +2014,9 @@ function App() {
                     >
                       <TagCardArt tag={t} imagePath={tagImageCache.images[t.id]} onVisible={tagImageCache.fetchOnDemand} />
                       <div
-                        className={`artist-card-like${t.liked ? " liked" : ""}`}
+                        className={`artist-card-like${t.liked === 1 ? " liked" : ""}`}
                         onClick={(e) => { e.stopPropagation(); handleToggleTagLike(t.id); }}
-                      >{t.liked ? "\u2665" : "\u2661"}</div>
+                      >{t.liked === 1 ? "\u2665" : "\u2661"}</div>
                       <div className="tag-card-body">
                         <div className="tag-card-name" title={t.name}>{t.name}</div>
                         <div className="tag-card-info">{t.track_count} tracks</div>
@@ -2033,10 +2048,10 @@ function App() {
                   <h2>
                     {tag?.name ?? "Unknown"}
                     <span
-                      className={`detail-like-btn${tag?.liked ? " liked" : ""}`}
+                      className={`detail-like-btn${tag?.liked === 1 ? " liked" : ""}`}
                       onClick={() => handleToggleTagLike(selectedTag)}
-                      title={tag?.liked ? "Unlike tag" : "Like tag"}
-                    >{tag?.liked ? "\u2665" : "\u2661"}</span>
+                      title={tag?.liked === 1 ? "Unlike tag" : "Like tag"}
+                    >{tag?.liked === 1 ? "\u2665" : "\u2661"}</span>
                   </h2>
                   <span className="artist-meta">{tag?.track_count ?? 0} tracks</span>
                   <ImageActions
@@ -2070,10 +2085,10 @@ function App() {
                   <h2>
                     {album?.title ?? "Unknown"}
                     <span
-                      className={`detail-like-btn${album?.liked ? " liked" : ""}`}
+                      className={`detail-like-btn${album?.liked === 1 ? " liked" : ""}`}
                       onClick={() => handleToggleAlbumLike(selectedAlbum)}
-                      title={album?.liked ? "Unlike album" : "Like album"}
-                    >{album?.liked ? "\u2665" : "\u2661"}</span>
+                      title={album?.liked === 1 ? "Unlike album" : "Like album"}
+                    >{album?.liked === 1 ? "\u2665" : "\u2661"}</span>
                   </h2>
                   <span className="artist-meta">
                     {album?.artist_name && <>{album.artist_name} {"\u00B7"} </>}
@@ -2174,6 +2189,7 @@ function App() {
                   onSort={library.handleSort}
                   sortIndicator={library.sortIndicator}
                   onToggleLike={handleToggleLike}
+                    onToggleDislike={handleToggleDislike}
                   onTrackDragStart={handleTrackDragStart}
                   emptyMessage="No tracks found. Add a folder or server to start building your library."
                   hasMore={library.hasMore}
@@ -2192,10 +2208,16 @@ function App() {
                       onDoubleClick={() => queueHook.playTracks(sortedTracks, i)}
                       onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
                     >
-                      <span
-                        className="entity-list-like"
-                        onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
-                      >{t.liked ? "\u2665" : "\u2661"}</span>
+                      <span className="entity-list-like-group">
+                        <span
+                          className={`entity-list-like${t.liked === 1 ? " active" : ""}`}
+                          onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
+                        >{t.liked === 1 ? "\u2665" : "\u2661"}</span>
+                        <span
+                          className={`entity-list-dislike${t.liked === -1 ? " active" : ""}`}
+                          onClick={(e) => { e.stopPropagation(); handleToggleDislike(t); }}
+                        >{t.liked === -1 ? "\u2716" : "\u2298"}</span>
+                      </span>
                       {t.album_id ? (
                         <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImageCache.images[t.album_id]} onVisible={albumImageCache.fetchOnDemand} />
                       ) : (
@@ -2230,10 +2252,16 @@ function App() {
                       ) : (
                         <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
                       )}
-                      <div
-                        className={`album-card-like${t.liked ? " liked" : ""}`}
-                        onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
-                      >{t.liked ? "\u2665" : "\u2661"}</div>
+                      <div className="album-card-like-group">
+                        <div
+                          className={`album-card-like${t.liked === 1 ? " liked" : ""}`}
+                          onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
+                        >{t.liked === 1 ? "\u2665" : "\u2661"}</div>
+                        <div
+                          className={`album-card-dislike${t.liked === -1 ? " disliked" : ""}`}
+                          onClick={(e) => { e.stopPropagation(); handleToggleDislike(t); }}
+                        >{t.liked === -1 ? "\u2716" : "\u2298"}</div>
+                      </div>
                       <div className="album-card-body">
                         <div className="album-card-title" title={t.title}>{t.title}</div>
                         <div className="album-card-info">
@@ -2268,6 +2296,7 @@ function App() {
               onSort={library.handleSort}
               sortIndicator={library.sortIndicator}
               onToggleLike={handleToggleLike}
+                    onToggleDislike={handleToggleDislike}
               onTrackDragStart={handleTrackDragStart}
               emptyMessage="No tracks found."
             />
@@ -2330,6 +2359,7 @@ function App() {
                   onSort={library.handleSort}
                   sortIndicator={library.sortIndicator}
                   onToggleLike={handleToggleLike}
+                    onToggleDislike={handleToggleDislike}
                   onTrackDragStart={handleTrackDragStart}
                   emptyMessage="No liked tracks yet. Click the heart icon on any track to like it."
                 />
@@ -2345,10 +2375,16 @@ function App() {
                       onDoubleClick={() => queueHook.playTracks(sortedTracks, i)}
                       onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
                     >
-                      <span
-                        className="entity-list-like"
-                        onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
-                      >{t.liked ? "\u2665" : "\u2661"}</span>
+                      <span className="entity-list-like-group">
+                        <span
+                          className={`entity-list-like${t.liked === 1 ? " active" : ""}`}
+                          onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
+                        >{t.liked === 1 ? "\u2665" : "\u2661"}</span>
+                        <span
+                          className={`entity-list-dislike${t.liked === -1 ? " active" : ""}`}
+                          onClick={(e) => { e.stopPropagation(); handleToggleDislike(t); }}
+                        >{t.liked === -1 ? "\u2716" : "\u2298"}</span>
+                      </span>
                       {t.album_id ? (
                         <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImageCache.images[t.album_id]} onVisible={albumImageCache.fetchOnDemand} />
                       ) : (
@@ -2383,10 +2419,16 @@ function App() {
                       ) : (
                         <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
                       )}
-                      <div
-                        className={`album-card-like${t.liked ? " liked" : ""}`}
-                        onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
-                      >{t.liked ? "\u2665" : "\u2661"}</div>
+                      <div className="album-card-like-group">
+                        <div
+                          className={`album-card-like${t.liked === 1 ? " liked" : ""}`}
+                          onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
+                        >{t.liked === 1 ? "\u2665" : "\u2661"}</div>
+                        <div
+                          className={`album-card-dislike${t.liked === -1 ? " disliked" : ""}`}
+                          onClick={(e) => { e.stopPropagation(); handleToggleDislike(t); }}
+                        >{t.liked === -1 ? "\u2716" : "\u2298"}</div>
+                      </div>
                       <div className="album-card-body">
                         <div className="album-card-title" title={t.title}>{t.title}</div>
                         <div className="album-card-info">
@@ -2506,6 +2548,7 @@ function App() {
             onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
             onAdjustAutoContinueWeight={autoContinue.adjustWeight}
             onToggleLike={() => playback.currentTrack && handleToggleLike(playback.currentTrack)}
+            onToggleDislike={() => playback.currentTrack && handleToggleDislike(playback.currentTrack)}
             onToggleFullscreen={playback.toggleFullscreen}
             showQueue={queueHook.showQueue}
             onToggleQueue={() => queueHook.setShowQueue(!queueHook.showQueue)}
@@ -2668,6 +2711,7 @@ function App() {
         onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
         onToggleLike={() => playback.currentTrack && handleToggleLike(playback.currentTrack)}
+        onToggleDislike={() => playback.currentTrack && handleToggleDislike(playback.currentTrack)}
         onArtistClick={library.handleArtistClick}
         onAlbumClick={library.handleAlbumClick}
       />

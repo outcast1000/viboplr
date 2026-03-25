@@ -2,7 +2,7 @@ export interface Artist {
   id: number;
   name: string;
   track_count: number;
-  liked: boolean;
+  liked: number;
 }
 
 export interface Album {
@@ -12,14 +12,14 @@ export interface Album {
   artist_name: string | null;
   year: number | null;
   track_count: number;
-  liked: boolean;
+  liked: number;
 }
 
 export interface Tag {
   id: number;
   name: string;
   track_count: number;
-  liked: boolean;
+  liked: number;
 }
 
 export interface Track {
@@ -38,7 +38,7 @@ export interface Track {
   collection_id: number | null;
   collection_name: string | null;
   subsonic_id: string | null;
-  liked: boolean;
+  liked: number;
   youtube_url: string | null;
   added_at: number | null;
   modified_at: number | null;

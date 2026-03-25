@@ -109,6 +109,7 @@ interface TrackListProps {
   onSort: (field: SortField) => void;
   sortIndicator: (field: SortField) => string;
   onToggleLike: (track: Track) => void;
+  onToggleDislike?: (track: Track) => void;
   onTrackDragStart?: (tracks: Track[]) => void;
   emptyMessage?: string;
   hasMore?: boolean;
@@ -120,7 +121,7 @@ export function TrackList({
   tracks, currentTrack, highlightedIndex,
   sortField, trackListRef, columns, onColumnsChange,
   onDoubleClick, onContextMenu, onArtistClick, onAlbumClick,
-  onSort, sortIndicator, onToggleLike, onTrackDragStart,
+  onSort, sortIndicator, onToggleLike, onToggleDislike, onTrackDragStart,
   emptyMessage = "No tracks found.",
   hasMore = false, loadingMore = false, onLoadMore,
 }: TrackListProps) {
@@ -351,8 +352,9 @@ export function TrackList({
     switch (col.id) {
       case "like":
         return (
-          <span key="like" className="col-like" onClick={(e) => { e.stopPropagation(); onToggleLike(t); }}>
-            {t.liked ? "\u2665" : "\u2661"}
+          <span key="like" className="col-like">
+            <span className={`like-btn${t.liked === 1 ? " active" : ""}`} onClick={(e) => { e.stopPropagation(); onToggleLike(t); }} title={t.liked === 1 ? "Unlike" : "Like"}>{t.liked === 1 ? "\u2665" : "\u2661"}</span>
+            {onToggleDislike && <span className={`dislike-btn${t.liked === -1 ? " active" : ""}`} onClick={(e) => { e.stopPropagation(); onToggleDislike(t); }} title={t.liked === -1 ? "Remove dislike" : "Dislike"}>{t.liked === -1 ? "\u2716" : "\u2298"}</span>}
           </span>
         );
       case "num":

@@ -23,7 +23,7 @@ pub struct Artist {
     pub id: i64,
     pub name: String,
     pub track_count: i64,
-    pub liked: bool,
+    pub liked: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,7 +34,7 @@ pub struct Album {
     pub artist_name: Option<String>,
     pub year: Option<i32>,
     pub track_count: i64,
-    pub liked: bool,
+    pub liked: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +42,7 @@ pub struct Tag {
     pub id: i64,
     pub name: String,
     pub track_count: i64,
-    pub liked: bool,
+    pub liked: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +62,7 @@ pub struct Track {
     pub collection_id: Option<i64>,
     pub collection_name: Option<String>,
     pub subsonic_id: Option<String>,
-    pub liked: bool,
+    pub liked: i32,
     pub youtube_url: Option<String>,
     pub added_at: Option<i64>,
     pub modified_at: Option<i64>,

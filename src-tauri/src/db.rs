@@ -39,7 +39,7 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
         collection_id: row.get(12)?,
         collection_name: row.get(13)?,
         subsonic_id: row.get(14)?,
-        liked: row.get::<_, i32>(15).unwrap_or(0) != 0,
+        liked: row.get::<_, i32>(15).unwrap_or(0),
         youtube_url: row.get(16)?,
         added_at: row.get(17)?,
         modified_at: row.get(18)?,
@@ -71,7 +71,7 @@ fn album_from_row(row: &rusqlite::Row) -> rusqlite::Result<Album> {
         artist_name: row.get(3)?,
         year: row.get(4)?,
         track_count: row.get(5)?,
-        liked: row.get::<_, i32>(6).unwrap_or(0) != 0,
+        liked: row.get::<_, i32>(6).unwrap_or(0),
     })
 }
 
@@ -464,7 +464,7 @@ impl Database {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 track_count: row.get(2)?,
-                liked: row.get::<_, i32>(3).unwrap_or(0) != 0,
+                liked: row.get::<_, i32>(3).unwrap_or(0),
             })
         })?;
         rows.collect()
@@ -553,7 +553,7 @@ impl Database {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 track_count: row.get(2)?,
-                liked: row.get::<_, i32>(3).unwrap_or(0) != 0,
+                liked: row.get::<_, i32>(3).unwrap_or(0),
             })
         })?;
         rows.collect()
@@ -576,7 +576,7 @@ impl Database {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 track_count: row.get(2)?,
-                liked: row.get::<_, i32>(3).unwrap_or(0) != 0,
+                liked: row.get::<_, i32>(3).unwrap_or(0),
             })
         })?;
         rows.collect()
@@ -1134,11 +1134,11 @@ impl Database {
         Ok(())
     }
 
-    pub fn toggle_liked(&self, table: &str, id: i64, liked: bool) -> SqlResult<()> {
+    pub fn toggle_liked(&self, table: &str, id: i64, liked: i32) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             &format!("UPDATE {} SET liked = ?2 WHERE id = ?1", table),
-            params![id, liked as i32],
+            params![id, liked],
         )?;
         Ok(())
     }
@@ -1221,9 +1221,11 @@ impl Database {
             _ => "",
         };
 
+        let dislike_clause = " AND t.liked != -1";
+
         match strategy {
             "random" => {
-                let sql = format!("{} WHERE t.id != ?1 {}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause);
+                let sql = format!("{} WHERE t.id != ?1 {}{}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, dislike_clause);
                 conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
             }
             "same_artist" => {
@@ -1234,7 +1236,7 @@ impl Database {
                 ).optional()?.flatten();
                 match artist_id {
                     Some(aid) => {
-                        let sql = format!("{} WHERE t.id != ?1 AND t.artist_id = ?2 {}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause);
+                        let sql = format!("{} WHERE t.id != ?1 AND t.artist_id = ?2 {}{}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, dislike_clause);
                         conn.query_row(&sql, params![current_track_id, aid], |row| track_from_row(row)).optional()
                     }
                     None => Ok(None),
@@ -1242,23 +1244,23 @@ impl Database {
             }
             "same_tag" => {
                 let sql = format!(
-                    "{} WHERE t.id != ?1 {}{} AND t.id IN (\
+                    "{} WHERE t.id != ?1 {}{}{} AND t.id IN (\
                         SELECT tt2.track_id FROM track_tags tt1 \
                         JOIN track_tags tt2 ON tt1.tag_id = tt2.tag_id \
                         WHERE tt1.track_id = ?1 AND tt2.track_id != ?1\
                     ) ORDER BY RANDOM() LIMIT 1",
-                    TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause
+                    TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, dislike_clause
                 );
                 conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
             }
             "most_played" => {
                 let sql = format!(
-                    "{} WHERE t.id != ?1 {}{} AND t.id IN (\
+                    "{} WHERE t.id != ?1 {}{}{} AND t.id IN (\
                         SELECT ht.library_track_id FROM history_tracks ht \
                         WHERE ht.library_track_id IS NOT NULL \
                         ORDER BY ht.play_count DESC LIMIT 50\
                     ) ORDER BY RANDOM() LIMIT 1",
-                    TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause
+                    TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, dislike_clause
                 );
                 conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
             }
@@ -1476,7 +1478,7 @@ mod tests {
         assert_eq!(track.duration_secs, Some(413.0));
         assert_eq!(track.format.as_deref(), Some("mp3"));
         assert_eq!(track.year, Some(1973));
-        assert!(!track.liked);
+        assert_eq!(track.liked, 0);
     }
 
     #[test]
@@ -1572,7 +1574,7 @@ mod tests {
         let t1 = insert_track(&db, "/a1.mp3", "Song Alpha", Some(artist1), Some(album1));
         insert_track(&db, "/a2.mp3", "Song Alpha Two", Some(artist2), None);
         db.add_track_tag(t1, tag_rock).unwrap();
-        db.toggle_liked("tracks", t1, true).unwrap();
+        db.toggle_liked("tracks", t1, 1).unwrap();
 
         db.rebuild_fts().unwrap();
 
