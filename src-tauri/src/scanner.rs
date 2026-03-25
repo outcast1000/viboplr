@@ -1,3 +1,4 @@
+use encoding_rs::{WINDOWS_1251, WINDOWS_1252, WINDOWS_1253, WINDOWS_1254, WINDOWS_1255, WINDOWS_1256};
 use log::info;
 use lofty::prelude::*;
 use lofty::probe::Probe;
@@ -45,6 +46,68 @@ struct ParsedTags {
     duration_secs: Option<f64>,
 }
 
+/// Fix misencoded tag strings from ID3v1 or Latin-1-declared ID3v2 frames.
+///
+/// Lofty reads non-Unicode tag strings as Latin-1 (ISO 8859-1). If the actual
+/// encoding was a different codepage (e.g. Windows-1253 for Greek, Windows-1251
+/// for Cyrillic), the resulting string will contain garbled Latin characters.
+///
+/// This function detects that case by checking if all characters are ≤ U+00FF
+/// with high-byte characters present, then tries UTF-8 and common Windows
+/// codepages. It picks the decoding that produces the most Unicode letters.
+fn fix_encoding(s: &str) -> String {
+    // If the string is pure ASCII, or already contains characters > U+00FF
+    // (i.e. real Unicode from a properly encoded tag), return as-is.
+    let has_high = s.chars().any(|c| c as u32 > 0x7F);
+    if !has_high {
+        return s.to_string();
+    }
+    let all_latin1 = s.chars().all(|c| (c as u32) <= 0x00FF);
+    if !all_latin1 {
+        return s.to_string();
+    }
+
+    // Extract the raw bytes (Latin-1: each char maps 1:1 to a byte)
+    let bytes: Vec<u8> = s.chars().map(|c| c as u8).collect();
+
+    // Try UTF-8 first — many modern taggers write UTF-8 into legacy fields
+    if let Ok(decoded) = std::str::from_utf8(&bytes) {
+        if decoded.chars().any(|c| c as u32 > 0x7F) {
+            return decoded.to_string();
+        }
+    }
+
+    // Try common Windows codepages and pick the best result.
+    // Score = number of chars above U+00FF. The garbled Latin-1 text always
+    // scores 0 (all chars ≤ 0xFF). A correct decoding into Greek, Cyrillic,
+    // etc. scores > 0 because those scripts live above U+00FF.
+    let codepages = [
+        WINDOWS_1253, // Greek
+        WINDOWS_1251, // Cyrillic
+        WINDOWS_1256, // Arabic
+        WINDOWS_1255, // Hebrew
+        WINDOWS_1254, // Turkish
+        WINDOWS_1252, // Western European
+    ];
+
+    let mut best = s.to_string();
+    let mut best_score: usize = 0; // original garbled text always scores 0
+
+    for encoding in &codepages {
+        let (decoded, _, had_errors) = encoding.decode(&bytes);
+        if had_errors {
+            continue;
+        }
+        let score = decoded.chars().filter(|&c| c as u32 > 0xFF).count();
+        if score > best_score {
+            best_score = score;
+            best = decoded.into_owned();
+        }
+    }
+
+    best
+}
+
 fn read_tags(path: &Path) -> ParsedTags {
     if let Ok(tagged_file) = Probe::open(path).and_then(|p| p.read()) {
         let tag = tagged_file.primary_tag().or_else(|| tagged_file.first_tag());
@@ -53,10 +116,10 @@ fn read_tags(path: &Path) -> ParsedTags {
         let duration_secs = Some(duration.as_secs_f64()).filter(|&d| d > 0.0);
 
         if let Some(tag) = tag {
-            let title = tag.title().map(|s| s.to_string());
-            let artist = tag.artist().map(|s| s.to_string());
-            let album = tag.album().map(|s| s.to_string());
-            let genre = tag.genre().map(|s| s.to_string());
+            let title = tag.title().map(|s| fix_encoding(&s));
+            let artist = tag.artist().map(|s| fix_encoding(&s));
+            let album = tag.album().map(|s| fix_encoding(&s));
+            let genre = tag.genre().map(|s| fix_encoding(&s));
             let year = tag.year().map(|y| y as i32);
             let track_number = tag.track().map(|t| t as i32);
 
@@ -378,4 +441,39 @@ mod tests {
         assert_eq!(tags.track_number, Some(12));
     }
 
+    #[test]
+    fn test_fix_encoding_ascii_unchanged() {
+        assert_eq!(fix_encoding("Hello World"), "Hello World");
+    }
+
+    #[test]
+    fn test_fix_encoding_real_unicode_unchanged() {
+        // Already proper Unicode (e.g. from a UTF-16 ID3v2 tag) — leave as-is
+        assert_eq!(fix_encoding("Θεοί Του Φόβου"), "Θεοί Του Φόβου");
+    }
+
+    #[test]
+    fn test_fix_encoding_greek_cp1253() {
+        // Simulate: "Θεοί" in Windows-1253 is bytes [0xC8, 0xE5, 0xEF, 0xDF]
+        // Lofty reads them as Latin-1: "Èåïß"
+        let (encoded, _, _) = WINDOWS_1253.encode("Θεοί");
+        let garbled: String = encoded.iter().map(|&b| b as char).collect();
+        assert_eq!(fix_encoding(&garbled), "Θεοί");
+    }
+
+    #[test]
+    fn test_fix_encoding_cyrillic_cp1251() {
+        // Simulate: "Тест" in Windows-1251 (Т=0xD2 is undefined in CP1253, so Greek is skipped)
+        let (encoded, _, _) = WINDOWS_1251.encode("Тест");
+        let garbled: String = encoded.iter().map(|&b| b as char).collect();
+        assert_eq!(fix_encoding(&garbled), "Тест");
+    }
+
+    #[test]
+    fn test_fix_encoding_utf8_in_latin1() {
+        // Simulate: UTF-8 bytes for "café" read as Latin-1
+        let utf8_bytes = "café".as_bytes();
+        let garbled: String = utf8_bytes.iter().map(|&b| b as char).collect();
+        assert_eq!(fix_encoding(&garbled), "café");
+    }
 }
