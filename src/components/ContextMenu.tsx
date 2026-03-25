@@ -119,7 +119,7 @@ export function ContextMenu({
           <>
             <div className="context-menu-separator" />
             <div className="context-menu-item" onClick={() => { onLocateTrack(); onClose(); }}>
-              <IconFolder size={14} /><span>Go to Artist</span>
+              <IconFolder size={14} /><span>Locate Track</span>
             </div>
           </>
         )}
