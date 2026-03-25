@@ -1432,6 +1432,28 @@ body {
   color: #fff;
 }
 
+.caption-mini-mode-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  -webkit-app-region: no-drag;
+}
+.caption-mini-mode-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 .nav-history-btn {
   background: none;
   border: 1px solid var(--border);

@@ -1561,6 +1561,13 @@ function App() {
               </svg>
             </button>
           )}
+          <button
+            className="caption-mini-mode-btn"
+            onClick={mini.toggleMiniMode}
+            title={`Mini player (${navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+"}⇧M)`}
+          >
+            {"\u2013"}
+          </button>
           <WindowControls />
           </div>
         </div>

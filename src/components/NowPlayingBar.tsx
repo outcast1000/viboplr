@@ -226,13 +226,6 @@ export function NowPlayingBar({
           />
         </div>
         <button
-          className="ctrl-btn mini-mode-btn"
-          onClick={onToggleMiniMode}
-          title="Mini player"
-        >
-          {"\u2013"}
-        </button>
-        <button
           className="ctrl-btn help-btn"
           onClick={() => setShowHelp(!showHelp)}
           title="Keyboard shortcuts"
