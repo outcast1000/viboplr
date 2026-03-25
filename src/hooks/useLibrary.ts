@@ -83,7 +83,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   // Persist state
   useEffect(() => { if (restoredRef.current) store.set("view", view); }, [view]);
-  useEffect(() => { if (restoredRef.current) store.set("searchQuery", searchQuery); }, [searchQuery]);
   useEffect(() => { if (restoredRef.current) store.set("selectedArtist", selectedArtist); }, [selectedArtist]);
   useEffect(() => { if (restoredRef.current) store.set("selectedAlbum", selectedAlbum); }, [selectedAlbum]);
   useEffect(() => { if (restoredRef.current) store.set("selectedTag", selectedTag); }, [selectedTag]);
