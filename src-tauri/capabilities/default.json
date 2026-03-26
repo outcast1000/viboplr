@@ -26,6 +26,7 @@
     "core:window:allow-set-focus",
     "core:window:allow-unminimize",
     "core:window:allow-is-maximized",
+    "core:window:allow-is-focused",
     "updater:default",
     "process:default",
     "deep-link:default",

@@ -398,10 +398,6 @@ function App() {
             mini.setMiniMode(true);
             mini.miniModeRef.current = true;
           }
-          // On Windows/Linux, remove native title bar before showing the window
-          if (!navigator.platform.includes("Mac")) {
-            await getCurrentWindow().setDecorations(false);
-          }
           await getCurrentWindow().show();
         });
       } catch (e) {

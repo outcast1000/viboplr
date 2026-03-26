@@ -3846,7 +3846,6 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 8px 8px 8px 16px;
-  padding-top: 42px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
