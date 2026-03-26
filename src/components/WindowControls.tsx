@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const isMac = navigator.platform.includes("Mac");
@@ -8,26 +8,37 @@ interface WindowControlsProps {
 }
 
 export function WindowControls({ position }: WindowControlsProps) {
-  // Skip rendering entirely for platform/position combos that return null
   const shouldRender = (isMac && position === "left") || (!isMac && position === "right");
 
   const [maximized, setMaximized] = useState(false);
   const [focused, setFocused] = useState(true);
+  const cleanupRef = useRef<(() => void)[]>([]);
 
   useEffect(() => {
     if (!shouldRender) return;
+    let cancelled = false;
     const win = getCurrentWindow();
-    win.isMaximized().then(setMaximized).catch(() => {});
-    win.isFocused().then(setFocused).catch(() => {});
-    const unResize = win.onResized(() => {
-      win.isMaximized().then(setMaximized).catch(() => {});
+    win.isMaximized().then(v => { if (!cancelled) setMaximized(v); }).catch(() => {});
+    win.isFocused().then(v => { if (!cancelled) setFocused(v); }).catch(() => {});
+
+    win.onResized(() => {
+      if (!cancelled) win.isMaximized().then(v => { if (!cancelled) setMaximized(v); }).catch(() => {});
+    }).then(unlisten => {
+      if (cancelled) unlisten();
+      else cleanupRef.current.push(unlisten);
     });
-    const unFocus = win.onFocusChanged(({ payload }) => {
-      setFocused(payload);
+
+    win.onFocusChanged(({ payload }) => {
+      if (!cancelled) setFocused(payload);
+    }).then(unlisten => {
+      if (cancelled) unlisten();
+      else cleanupRef.current.push(unlisten);
     });
+
     return () => {
-      unResize.then(f => f());
-      unFocus.then(f => f());
+      cancelled = true;
+      cleanupRef.current.forEach(fn => fn());
+      cleanupRef.current = [];
     };
   }, [shouldRender]);
 
@@ -35,7 +46,6 @@ export function WindowControls({ position }: WindowControlsProps) {
 
   const win = getCurrentWindow();
 
-  // macOS: traffic lights on left only
   if (isMac && position === "left") {
     return (
       <div className={`traffic-lights ${focused ? "" : "unfocused"}`}>
@@ -58,7 +68,6 @@ export function WindowControls({ position }: WindowControlsProps) {
     );
   }
 
-  // Windows/Linux: controls on right only
   if (!isMac && position === "right") {
     return (
       <div className="window-controls">

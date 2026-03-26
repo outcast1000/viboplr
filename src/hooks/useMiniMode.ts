@@ -108,12 +108,14 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
 
   // Save window size and position on resize/move
   useEffect(() => {
+    let cancelled = false;
+    const cleanups: (() => void)[] = [];
     const win = getCurrentWindow();
     let timer: ReturnType<typeof setTimeout>;
     const save = async () => {
       clearTimeout(timer);
       timer = setTimeout(async () => {
-        if (!restoredRef.current) return;
+        if (cancelled || !restoredRef.current) return;
         const factor = await win.scaleFactor();
         const pos = await win.outerPosition();
         if (miniModeRef.current) {
@@ -128,12 +130,18 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         }
       }, 500);
     };
-    const unlistenResize = win.onResized(save);
-    const unlistenMove = win.onMoved(save);
+    win.onResized(save).then(unlisten => {
+      if (cancelled) unlisten();
+      else cleanups.push(unlisten);
+    });
+    win.onMoved(save).then(unlisten => {
+      if (cancelled) unlisten();
+      else cleanups.push(unlisten);
+    });
     return () => {
+      cancelled = true;
       clearTimeout(timer);
-      unlistenResize.then(f => f());
-      unlistenMove.then(f => f());
+      cleanups.forEach(fn => fn());
     };
   }, []);
 
