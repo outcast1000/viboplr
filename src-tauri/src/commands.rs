@@ -1572,14 +1572,14 @@ fn resolve_cover_url(db: &Arc<Database>, track: &Track, collection_id: i64) -> O
 
 #[tauri::command]
 pub fn get_cached_waveform(state: State<'_, AppState>, track_id: i64) -> Option<Vec<f32>> {
-    let path = state.app_dir.join("waveforms").join(format!("{}.json", track_id));
+    let path = state.app_dir.join("waveforms").join("v2").join(format!("{}.json", track_id));
     let data = std::fs::read_to_string(&path).ok()?;
     serde_json::from_str(&data).ok()
 }
 
 #[tauri::command]
 pub fn cache_waveform(state: State<'_, AppState>, track_id: i64, peaks: Vec<f32>) -> Result<(), String> {
-    let dir = state.app_dir.join("waveforms");
+    let dir = state.app_dir.join("waveforms").join("v2");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("{}.json", track_id));
     let json = serde_json::to_string(&peaks).map_err(|e| e.to_string())?;

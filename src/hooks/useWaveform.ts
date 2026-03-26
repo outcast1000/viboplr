@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-const NUM_BUCKETS = 200;
+const MAX_BUCKETS = 400;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 export function useWaveform(
@@ -54,28 +54,32 @@ export function useWaveform(
         if (cancelled) return;
 
         const channelData = audioBuffer.getChannelData(0);
-        const bucketSize = Math.floor(channelData.length / NUM_BUCKETS);
+        const numBuckets = Math.min(Math.ceil(audioBuffer.duration), MAX_BUCKETS);
+        const bucketSize = Math.floor(channelData.length / numBuckets);
         if (bucketSize === 0) return;
 
-        const result: number[] = new Array(NUM_BUCKETS);
-        let maxPeak = 0;
-        for (let i = 0; i < NUM_BUCKETS; i++) {
-          let max = 0;
+        // Compute RMS per bucket (captures average energy, not just peak)
+        const result: number[] = new Array(numBuckets);
+        for (let i = 0; i < numBuckets; i++) {
+          let sumSq = 0;
           const start = i * bucketSize;
           const end = Math.min(start + bucketSize, channelData.length);
           for (let j = start; j < end; j++) {
-            const abs = Math.abs(channelData[j]);
-            if (abs > max) max = abs;
+            sumSq += channelData[j] * channelData[j];
           }
-          result[i] = max;
-          if (max > maxPeak) maxPeak = max;
+          result[i] = Math.sqrt(sumSq / (end - start));
         }
 
-        // Normalize to 0..1
-        if (maxPeak > 0) {
-          for (let i = 0; i < NUM_BUCKETS; i++) {
-            result[i] /= maxPeak;
-          }
+        // Normalize using 95th percentile (prevents loud sections from squashing the rest)
+        const sorted = [...result].sort((a, b) => a - b);
+        const p95 = sorted[Math.floor(sorted.length * 0.95)] || 1;
+        for (let i = 0; i < numBuckets; i++) {
+          result[i] = Math.min(result[i] / p95, 1.0);
+        }
+
+        // Apply power curve to spread out lower values for better visual range
+        for (let i = 0; i < numBuckets; i++) {
+          result[i] = Math.pow(result[i], 0.6);
         }
 
         if (cancelled) return;

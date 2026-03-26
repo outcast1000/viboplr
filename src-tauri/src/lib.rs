@@ -254,6 +254,22 @@ pub fn run() {
                 let _ = std::fs::create_dir_all(app_dir.join("tag_images"));
             });
 
+            // Migrate waveform cache to v2 (new RMS-based algorithm)
+            timer.time("migrate_waveform_cache", || {
+                let waveform_v2 = app_dir.join("waveforms").join("v2");
+                if !waveform_v2.exists() {
+                    let _ = std::fs::create_dir_all(&waveform_v2);
+                    // Clean up old v1 cache files
+                    if let Ok(entries) = std::fs::read_dir(app_dir.join("waveforms")) {
+                        for entry in entries.flatten() {
+                            if entry.path().extension().map_or(false, |e| e == "json") {
+                                let _ = std::fs::remove_file(entry.path());
+                            }
+                        }
+                    }
+                }
+            });
+
             let download_queue = timer.time("setup_download_queue", || Arc::new(DownloadQueue {
                 queue: Mutex::new(Vec::new()),
                 condvar: Condvar::new(),
