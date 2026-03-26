@@ -1,7 +1,42 @@
-import { useState, useEffect, useRef } from "react";
+import { useSyncExternalStore } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const isMac = navigator.platform.includes("Mac");
+
+// Module-level singleton listeners to avoid strict mode / HMR listener leaks.
+// Tauri event listeners are registered once and shared across all subscribers.
+let listenersInitialized = false;
+let maximized = false;
+let focused = true;
+const subscribers = new Set<() => void>();
+
+function notify() {
+  subscribers.forEach(fn => fn());
+}
+
+function initListeners() {
+  if (listenersInitialized) return;
+  listenersInitialized = true;
+  const win = getCurrentWindow();
+  win.isMaximized().then(v => { maximized = v; notify(); }).catch(() => {});
+  win.isFocused().then(v => { focused = v; notify(); }).catch(() => {});
+  win.onResized(() => {
+    win.isMaximized().then(v => { maximized = v; notify(); }).catch(() => {});
+  });
+  win.onFocusChanged(({ payload }) => {
+    focused = payload;
+    notify();
+  });
+}
+
+function subscribe(cb: () => void) {
+  initListeners();
+  subscribers.add(cb);
+  return () => { subscribers.delete(cb); };
+}
+
+function getMaximized() { return maximized; }
+function getFocused() { return focused; }
 
 interface WindowControlsProps {
   position: "left" | "right";
@@ -9,38 +44,8 @@ interface WindowControlsProps {
 
 export function WindowControls({ position }: WindowControlsProps) {
   const shouldRender = (isMac && position === "left") || (!isMac && position === "right");
-
-  const [maximized, setMaximized] = useState(false);
-  const [focused, setFocused] = useState(true);
-  const cleanupRef = useRef<(() => void)[]>([]);
-
-  useEffect(() => {
-    if (!shouldRender) return;
-    let cancelled = false;
-    const win = getCurrentWindow();
-    win.isMaximized().then(v => { if (!cancelled) setMaximized(v); }).catch(() => {});
-    win.isFocused().then(v => { if (!cancelled) setFocused(v); }).catch(() => {});
-
-    win.onResized(() => {
-      if (!cancelled) win.isMaximized().then(v => { if (!cancelled) setMaximized(v); }).catch(() => {});
-    }).then(unlisten => {
-      if (cancelled) unlisten();
-      else cleanupRef.current.push(unlisten);
-    });
-
-    win.onFocusChanged(({ payload }) => {
-      if (!cancelled) setFocused(payload);
-    }).then(unlisten => {
-      if (cancelled) unlisten();
-      else cleanupRef.current.push(unlisten);
-    });
-
-    return () => {
-      cancelled = true;
-      cleanupRef.current.forEach(fn => fn());
-      cleanupRef.current = [];
-    };
-  }, [shouldRender]);
+  const isMaximized = useSyncExternalStore(shouldRender ? subscribe : noopSubscribe, getMaximized);
+  const isFocused = useSyncExternalStore(shouldRender ? subscribe : noopSubscribe, getFocused);
 
   if (!shouldRender) return null;
 
@@ -48,7 +53,7 @@ export function WindowControls({ position }: WindowControlsProps) {
 
   if (isMac && position === "left") {
     return (
-      <div className={`traffic-lights ${focused ? "" : "unfocused"}`}>
+      <div className={`traffic-lights ${isFocused ? "" : "unfocused"}`}>
         <button
           className="traffic-light traffic-close"
           onClick={() => win.close()}
@@ -62,7 +67,7 @@ export function WindowControls({ position }: WindowControlsProps) {
         <button
           className="traffic-light traffic-maximize"
           onClick={() => win.toggleMaximize()}
-          title={maximized ? "Restore" : "Maximize"}
+          title={isMaximized ? "Restore" : "Maximize"}
         />
       </div>
     );
@@ -83,9 +88,9 @@ export function WindowControls({ position }: WindowControlsProps) {
         <button
           className="window-control-btn window-control-maximize"
           onClick={() => win.toggleMaximize()}
-          title={maximized ? "Restore" : "Maximize"}
+          title={isMaximized ? "Restore" : "Maximize"}
         >
-          {maximized ? (
+          {isMaximized ? (
             <svg width="10" height="10" viewBox="0 0 10 10">
               <path d="M2 0h6v2h2v6H8v2H0V4h2V0zm1 1v2h5v5h1V2H3zM1 5v4h6V5H1z" fill="currentColor" />
             </svg>
@@ -110,3 +115,5 @@ export function WindowControls({ position }: WindowControlsProps) {
 
   return null;
 }
+
+function noopSubscribe() { return () => {}; }
