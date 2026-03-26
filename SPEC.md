@@ -155,7 +155,7 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - Video displayed **below the content area** (between the track list and the now-playing bar) with a **resizable splitter**. The splitter is draggable (default height: 300px, persisted as `videoSplitHeight`), has a collapse/expand button to minimize the video, and enforces a 150px minimum track list height. A **fullscreen button overlay** appears on hover in the bottom-right corner of the video, with a tooltip showing the keyboard shortcut (`Cmd/Ctrl+F`) and how to exit (`Esc`). Double-click or `Cmd/Ctrl+F` on the video enters native fullscreen.
 - **Double-click:** Double-clicking a track in any view (All Tracks, Artist, Album, Tag, Liked) plays only that single track — the queue is replaced with just that one track. No additional tracks are queued or auto-played after it finishes (unless Auto Continue is enabled).
 - **Playback error handling:** Error event handlers on `<audio>` and `<video>` elements detect unsupported codecs, network errors, and decode errors. A red error banner appears above the now-playing bar with a descriptive message and dismiss button. The error clears automatically when a new track starts playing.
-- **Waveform seek bar:** Audio tracks display a waveform visualization inside the seek bar (both the Now Playing bar and fullscreen controls). Audio files are analyzed using the Web Audio API and waveform peak data is cached as JSON files in `{app_dir}/waveforms/{track_id}.json` for instant display on subsequent plays. Graceful degradation: a plain seek bar is shown for video tracks, remote/subsonic tracks, files over 10 MB, or when Web Audio decoding fails.
+- **Waveform seek bar:** Audio tracks display a waveform visualization inside the seek bar (both the Now Playing bar and fullscreen controls). Audio files are analyzed using the Web Audio API with RMS-based amplitude calculation and 95th-percentile normalization (power curve) to prevent flat-wall waveforms. Bucket count is dynamic (1 per second, capped at 400). Waveform peak data is cached as versioned JSON files in `{app_dir}/waveforms/v2/{track_id}.json` for instant display on subsequent plays; old cache entries are cleaned up on first launch. Graceful degradation: a plain seek bar is shown for video tracks, remote/subsonic tracks, files over 10 MB, or when Web Audio decoding fails.
 - Keyboard navigation: arrow keys to navigate tracks, Enter to play.
 - **Minimized window:** Playback continues when the app window is minimized. A `visibilitychange` listener resumes playback if the browser auto-pauses media when the page becomes hidden. The crossfade loop uses `setInterval` instead of `requestAnimationFrame` so it runs while the page is hidden.
 
@@ -364,7 +364,7 @@ A compact, always-on-top floating player that replaces the full window with a mi
 - A thin progress bar at the bottom showing playback position.
 - Draggable: clicking and dragging anywhere on the bar (except buttons) moves the window via `getCurrentWindow().startDragging()`.
 
-**Toggle:** A mini player button (en-dash `–`) in the **caption bar** (next to the window controls), or `Ctrl+Shift+M` (or `Cmd+Shift+M` on macOS). When entering mini mode:
+**Toggle:** A labeled "Mini Player" button in the **caption bar** (to the right of the search bar), or `Ctrl+Shift+M` (or `Cmd+Shift+M` on macOS). When entering mini mode:
 1. Current full window geometry (size + position) is saved to the store.
 2. Window resizes to mini dimensions.
 3. Mini window position is restored from store (if previously saved), otherwise stays at current position.
@@ -489,7 +489,7 @@ A collapsible side panel for managing the current play queue as a playlist. Togg
 - Track list showing title, artist, duration, and a remove (×) button per track. The currently playing track is highlighted.
 - Footer info bar showing playlist name (if loaded/saved), track count, and total duration.
 
-**Multi-selection:** Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range. Right-click context menu offers Play, Remove, Locate Track (navigates to the track's artist in the library), Move to top, and Move to bottom for selected tracks.
+**Multi-selection:** Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range. Right-click context menu offers Play, Remove, Locate Track (navigates to the track's album view if available, otherwise the artist view), Move to top, and Move to bottom for selected tracks.
 
 **Drag and drop reorder:** Mouse-event-based drag (not HTML5 DnD, for Tauri compatibility). Dragging single or multiple selected tracks shows a ghost element with track count and a drop position indicator line. Tracks are reordered on drop via `moveMultiple`.
 
@@ -570,9 +570,22 @@ Local tracks can be replaced with higher-quality versions from TIDAL. Available 
 4. **Confirm** — `confirm_track_upgrade` deletes the old file, renames the `.upgrade.` file to the final name, removes the old DB entry, re-scans the new file, and rebuilds FTS.
 5. **Cancel** — `cancel_track_upgrade` deletes the temporary preview file. Also called if the user navigates back to search from the compare step.
 
-### 4.24 Custom Window Controls
+### 4.24 Custom Caption Bar & Window Controls
 
-On Windows and Linux, Viboplr uses a custom title bar with window control buttons (minimize, maximize, close) implemented as a `WindowControls` component. This replaces native window decorations to provide a consistent look across platforms. On macOS, native traffic-light controls are used instead (the component is not rendered).
+Viboplr uses a custom caption bar across all platforms (native window decorations are disabled). The caption bar is a full-width row at the top of the window grid, spanning above both the sidebar and content area.
+
+**Layout (left to right):**
+- **Window controls (left):** macOS traffic-light–style buttons (close, minimize, maximize) on the left. On Windows/Linux, a `WindowControls` component renders minimize, maximize, and close buttons instead.
+- **Navigation history buttons:** Back and forward arrows for view navigation history.
+- **Draggable spacer:** Flexible empty space that acts as a window drag region (double-click to maximize/restore).
+- **Search input:** A pill-shaped input with a magnifying glass icon (left) and a clear button (right, shown when query is non-empty). Max width 400px. The search placeholder text is contextual (e.g., "Search artists...", "Search in {album}...", "What do you want to play?").
+- **Draggable spacer:** Another flexible drag region.
+- **Mini player button:** Labeled "Mini Player" with an icon, positioned to the right of the search bar.
+- **Window controls (right):** On Windows/Linux, a second `WindowControls` instance on the right side. Not rendered on macOS.
+
+**Drag region:** The caption bar itself is a Tauri drag region (`data-tauri-drag-region`). All interactive children opt out of drag via `-webkit-app-region: no-drag`. The spacers between elements are also drag regions.
+
+**Rounded corners:** The app container has `border-radius: 10px` for rounded window corners on all platforms.
 
 ## 5. Database Schema
 
@@ -861,7 +874,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 
 ## 9. Platform Notes
 
-- **macOS:** `.dmg` distribution, native title bar, media key support via `souvlaki` crate. Transparent window background for mini player rounded corners.
+- **macOS:** `.dmg` distribution, custom caption bar with traffic-light window controls, media key support via `souvlaki` crate. Transparent window background for mini player rounded corners.
 - **Windows:** `.msi` / `.exe` installer, taskbar controls, media key support via `souvlaki` crate.
 
 ## 10. Showcase Website
