@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { isPositionOnScreen, clampToNearestMonitor } from "../hooks/useMiniMode";
 
 // --- Extracted pure functions from hooks ---
 
@@ -109,5 +110,71 @@ describe("generateShuffleOrder", () => {
     expect(order[0]).toBe(2);
     expect(order.length).toBe(3);
     expect([...order].sort()).toEqual([0, 1, 2]);
+  });
+});
+
+const singleMonitor = [{ x: 0, y: 0, w: 1920, h: 1080 }];
+const dualMonitors = [
+  { x: 0, y: 0, w: 1920, h: 1080 },
+  { x: 1920, y: 0, w: 2560, h: 1440 },
+];
+
+describe("isPositionOnScreen", () => {
+  it("returns true when point is within a monitor", () => {
+    expect(isPositionOnScreen(100, 100, singleMonitor)).toBe(true);
+  });
+
+  it("returns false when point is outside all monitors", () => {
+    expect(isPositionOnScreen(3000, 500, singleMonitor)).toBe(false);
+  });
+
+  it("returns true for top-left edge (inclusive)", () => {
+    expect(isPositionOnScreen(0, 0, singleMonitor)).toBe(true);
+  });
+
+  it("returns false for right/bottom edge (exclusive)", () => {
+    expect(isPositionOnScreen(1920, 1080, singleMonitor)).toBe(false);
+  });
+
+  it("returns true for point on second monitor", () => {
+    expect(isPositionOnScreen(2000, 500, dualMonitors)).toBe(true);
+  });
+
+  it("returns true for negative coordinates on a monitor", () => {
+    const leftMonitor = [{ x: -1920, y: 0, w: 1920, h: 1080 }];
+    expect(isPositionOnScreen(-500, 500, leftMonitor)).toBe(true);
+  });
+
+  it("returns true when monitors array is empty (graceful fallback)", () => {
+    expect(isPositionOnScreen(9999, 9999, [])).toBe(true);
+  });
+});
+
+describe("clampToNearestMonitor", () => {
+  it("returns unchanged position when already on-screen", () => {
+    expect(clampToNearestMonitor(100, 100, 500, 40, singleMonitor)).toEqual({ x: 100, y: 100 });
+  });
+
+  it("clamps position off-screen to the right", () => {
+    const result = clampToNearestMonitor(2000, 500, 500, 40, singleMonitor);
+    expect(result.x).toBe(1420); // 1920 - 500
+    expect(result.y).toBe(500);
+  });
+
+  it("clamps position off-screen above", () => {
+    const result = clampToNearestMonitor(100, -200, 500, 40, singleMonitor);
+    expect(result.x).toBe(100);
+    expect(result.y).toBe(0);
+  });
+
+  it("snaps to nearest monitor in dual setup", () => {
+    // Point closer to second monitor
+    const result = clampToNearestMonitor(5000, 500, 500, 40, dualMonitors);
+    expect(result.x).toBe(3980); // 1920 + 2560 - 500
+    expect(result.y).toBe(500);
+  });
+
+  it("returns original coordinates when monitors is empty", () => {
+    expect(clampToNearestMonitor(9999, 9999, 500, 40, [])).toEqual({ x: 9999, y: 9999 });
   });
 });
