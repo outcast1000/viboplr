@@ -10,7 +10,6 @@ const MINI_MAX_WIDTH = 550;
 const MINI_INITIAL_WIDTH = 500;
 const FULL_MIN_WIDTH = 300;
 const FULL_MIN_HEIGHT = 400;
-const isMac = navigator.platform.includes("Mac");
 
 function measureMiniFooter(): number {
   const footer = document.querySelector(".now-playing-mini") as HTMLElement;
@@ -29,59 +28,57 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
   const fullSizeRef = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
 
   const toggleMiniMode = useCallback(async () => {
-    const win = getCurrentWindow();
-    const factor = await win.scaleFactor();
-    if (!miniModeRef.current) {
-      // Entering mini mode — save current full geometry
-      const size = await win.innerSize();
-      const pos = await win.outerPosition();
-      const geo = { w: size.width / factor, h: size.height / factor, x: pos.x / factor, y: pos.y / factor };
-      fullSizeRef.current = geo;
-      store.set("fullWindowWidth", geo.w);
-      store.set("fullWindowHeight", geo.h);
-      store.set("fullWindowX", geo.x);
-      store.set("fullWindowY", geo.y);
-      await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_HEIGHT));
-      await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_HEIGHT));
-      // Restore saved mini position if available
-      const [mx, my] = await Promise.all([
-        store.get<number | null>("miniWindowX"),
-        store.get<number | null>("miniWindowY"),
-      ]);
-      if (mx != null && my != null) {
-        await win.setPosition(new LogicalPosition(mx, my));
-      }
-      await win.setAlwaysOnTop(true);
-      await win.setDecorations(false);
-      setMiniMode(true);
-      miniModeRef.current = true;
-      store.set("miniMode", true);
-    } else {
-      // Exiting mini mode — save mini position, then restore full geometry
-      const pos = await win.outerPosition();
-      store.set("miniWindowX", pos.x / factor);
-      store.set("miniWindowY", pos.y / factor);
-      if (isMac) await win.setDecorations(true);
-      await win.setAlwaysOnTop(false);
-      await win.setMinSize(new LogicalSize(FULL_MIN_WIDTH, FULL_MIN_HEIGHT));
-      const geo = fullSizeRef.current;
-      if (geo) {
-        await win.setSize(new LogicalSize(geo.w, geo.h));
-        await win.setPosition(new LogicalPosition(geo.x, geo.y));
-      } else {
-        // Fallback: read from store
-        const [fw, fh, fx, fy] = await Promise.all([
-          store.get<number | null>("fullWindowWidth"),
-          store.get<number | null>("fullWindowHeight"),
-          store.get<number | null>("fullWindowX"),
-          store.get<number | null>("fullWindowY"),
+    try {
+      const win = getCurrentWindow();
+      const factor = await win.scaleFactor();
+      if (!miniModeRef.current) {
+        const size = await win.innerSize();
+        const pos = await win.outerPosition();
+        const geo = { w: size.width / factor, h: size.height / factor, x: pos.x / factor, y: pos.y / factor };
+        fullSizeRef.current = geo;
+        store.set("fullWindowWidth", geo.w);
+        store.set("fullWindowHeight", geo.h);
+        store.set("fullWindowX", geo.x);
+        store.set("fullWindowY", geo.y);
+        await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_HEIGHT));
+        await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_HEIGHT));
+        const [mx, my] = await Promise.all([
+          store.get<number | null>("miniWindowX"),
+          store.get<number | null>("miniWindowY"),
         ]);
-        if (fw && fh) await win.setSize(new LogicalSize(fw, fh));
-        if (fx != null && fy != null) await win.setPosition(new LogicalPosition(fx, fy));
+        if (mx != null && my != null) {
+          await win.setPosition(new LogicalPosition(mx, my));
+        }
+        await win.setAlwaysOnTop(true);
+        setMiniMode(true);
+        miniModeRef.current = true;
+        store.set("miniMode", true);
+      } else {
+        const pos = await win.outerPosition();
+        store.set("miniWindowX", pos.x / factor);
+        store.set("miniWindowY", pos.y / factor);
+        await win.setAlwaysOnTop(false);
+        await win.setMinSize(new LogicalSize(FULL_MIN_WIDTH, FULL_MIN_HEIGHT));
+        const geo = fullSizeRef.current;
+        if (geo) {
+          await win.setSize(new LogicalSize(geo.w, geo.h));
+          await win.setPosition(new LogicalPosition(geo.x, geo.y));
+        } else {
+          const [fw, fh, fx, fy] = await Promise.all([
+            store.get<number | null>("fullWindowWidth"),
+            store.get<number | null>("fullWindowHeight"),
+            store.get<number | null>("fullWindowX"),
+            store.get<number | null>("fullWindowY"),
+          ]);
+          if (fw && fh) await win.setSize(new LogicalSize(fw, fh));
+          if (fx != null && fy != null) await win.setPosition(new LogicalPosition(fx, fy));
+        }
+        setMiniMode(false);
+        miniModeRef.current = false;
+        store.set("miniMode", false);
       }
-      setMiniMode(false);
-      miniModeRef.current = false;
-      store.set("miniMode", false);
+    } catch (err) {
+      console.error("toggleMiniMode failed:", err);
     }
   }, []);
 
