@@ -79,81 +79,15 @@ body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding: 0 12px 16px;
+  padding: 12px 12px 16px;
   transition: width 0.2s ease, padding 0.2s ease;
   width: 220px;
 }
 
 .sidebar.collapsed {
   width: 56px;
-  padding: 0 8px 16px;
+  padding: 12px 8px 16px;
   align-items: center;
-}
-
-/* Drag region spacer for macOS traffic lights */
-.sidebar-drag-region {
-  height: 38px;
-  flex-shrink: 0;
-  -webkit-app-region: drag;
-}
-
-/* Brand header */
-.sidebar-brand {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-  min-height: 36px;
-}
-
-.sidebar-logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.sidebar-brand-text {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #FF6B6B, #E91E8A);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.sidebar-collapse-btn {
-  background: none;
-  border: 1px solid transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 5px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s;
-  flex-shrink: 0;
-}
-
-.sidebar-collapse-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
-  border-color: var(--border);
-}
-
-.sidebar.collapsed .sidebar-brand {
-  flex-direction: column;
-  gap: 8px;
-  justify-content: center;
-  align-items: center;
-}
-
-.sidebar.collapsed .sidebar-logo svg {
-  width: 24px;
-  height: 24px;
 }
 
 .sidebar.collapsed .nav-btn {
@@ -1347,16 +1281,81 @@ body {
 }
 
 .search-bar {
-  padding: 12px 16px;
-  padding-top: 42px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   -webkit-app-region: drag;
 }
 .search-bar > * {
   -webkit-app-region: no-drag;
+}
+
+.caption-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.caption-brand-text {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, #FF6B6B, #E91E8A);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.caption-sidebar-toggle {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.caption-sidebar-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* macOS traffic lights */
+.traffic-lights {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-right: 4px;
+}
+
+.traffic-light {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: opacity 0.15s;
+}
+.traffic-light:hover {
+  opacity: 0.8;
+}
+
+.traffic-close { background: #ff5f57; }
+.traffic-minimize { background: #febc2e; }
+.traffic-maximize { background: #28c840; }
+.traffic-mini-player { background: #E91E8A; }
+
+.traffic-lights.unfocused .traffic-light {
+  background: #555 !important;
 }
 
 .search-input-wrapper {
@@ -1405,11 +1404,8 @@ body {
 
 /* Custom window controls for Windows/Linux */
 .window-controls {
-  position: fixed;
-  top: 0;
-  right: 0;
   display: flex;
-  z-index: 9999;
+  flex-shrink: 0;
   -webkit-app-region: no-drag;
 }
 .window-control-btn {
@@ -1431,27 +1427,11 @@ body {
   background: #e81123;
   color: #fff;
 }
-
-.caption-mini-mode-btn {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  font-weight: 700;
-  flex-shrink: 0;
-  transition: all 0.15s;
-  -webkit-app-region: no-drag;
+.window-control-mini-player {
+  color: #E91E8A;
 }
-.caption-mini-mode-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+.window-control-mini-player:hover {
+  background: rgba(233, 30, 138, 0.15);
 }
 
 .nav-history-btn {
@@ -4169,6 +4149,13 @@ body {
 .app.mini-mode .main,
 .app.mini-mode .queue-panel,
 .app.mini-mode .status-bar {
+  display: none;
+}
+
+.app.mini-mode .traffic-lights,
+.app.mini-mode .window-controls,
+.app.mini-mode .caption-brand,
+.app.mini-mode .caption-sidebar-toggle {
   display: none;
 }
 
