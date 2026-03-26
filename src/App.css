@@ -1395,9 +1395,6 @@ body {
 .traffic-minimize { background: #febc2e; }
 .traffic-maximize { background: #28c840; }
 
-.traffic-lights.unfocused .traffic-light {
-  background: #555 !important;
-}
 
 .search-input-wrapper {
   position: relative;
