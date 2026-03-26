@@ -484,9 +484,13 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     }
   }
 
-  function handleLocateTrack(trackId: number, artistId: number) {
+  function handleLocateTrack(trackId: number, artistId: number, albumId?: number | null) {
     pendingLocateTrackIdRef.current = trackId;
-    handleArtistClick(artistId);
+    if (albumId) {
+      handleAlbumClick(albumId, artistId);
+    } else {
+      handleArtistClick(artistId);
+    }
   }
 
   function handleShowAll() {
