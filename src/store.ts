@@ -4,7 +4,6 @@ export const store = new LazyStore("app-state.json", {
   autoSave: 500,
   defaults: {
     view: "all",
-    searchQuery: "",
     selectedArtist: null,
     selectedAlbum: null,
     selectedTag: null,
