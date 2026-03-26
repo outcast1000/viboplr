@@ -8,10 +8,14 @@ interface WindowControlsProps {
 }
 
 export function WindowControls({ position }: WindowControlsProps) {
+  // Skip rendering entirely for platform/position combos that return null
+  const shouldRender = (isMac && position === "left") || (!isMac && position === "right");
+
   const [maximized, setMaximized] = useState(false);
   const [focused, setFocused] = useState(true);
 
   useEffect(() => {
+    if (!shouldRender) return;
     const win = getCurrentWindow();
     win.isMaximized().then(setMaximized).catch(() => {});
     win.isFocused().then(setFocused).catch(() => {});
@@ -25,7 +29,9 @@ export function WindowControls({ position }: WindowControlsProps) {
       unResize.then(f => f());
       unFocus.then(f => f());
     };
-  }, []);
+  }, [shouldRender]);
+
+  if (!shouldRender) return null;
 
   const win = getCurrentWindow();
 
@@ -93,6 +99,5 @@ export function WindowControls({ position }: WindowControlsProps) {
     );
   }
 
-  // macOS right or Windows left: render nothing
   return null;
 }

@@ -33,6 +33,7 @@ interface SidebarProps {
   onShowCollections: () => void;
   onShowSettings: () => void;
   updateAvailable: boolean;
+  onToggleCollapse: () => void;
 }
 
 export function Sidebar({
@@ -41,7 +42,7 @@ export function Sidebar({
   hasTidal,
   collapsed,
   onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowTidal, onShowCollections, onShowSettings,
-  updateAvailable,
+  updateAvailable, onToggleCollapse,
 }: SidebarProps) {
   const navItems: { key: string; label: string; icon: ReactNode; active: boolean; onClick: () => void; hint: string }[] = [
     { key: "tracks", label: "Tracks", icon: icons.tracks, active: view === "all" && !selectedAlbum, onClick: onShowAll, hint: `Tracks \u2014 ${mod}1` },
@@ -72,6 +73,20 @@ export function Sidebar({
       <button className="settings-btn" onClick={onShowSettings} title={collapsed ? "Settings" : undefined}>
         {icons.settings} {!collapsed && "Settings"}
         {updateAvailable && <span className="update-badge" />}
+      </button>
+      <button
+        className="sidebar-collapse-btn"
+        onClick={onToggleCollapse}
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <line x1="9" y1="3" x2="9" y2="21" />
+          {collapsed
+            ? <polyline points="13 15 16 12 13 9" />
+            : <polyline points="16 15 13 12 16 9" />
+          }
+        </svg>
       </button>
     </aside>
   );
