@@ -5,10 +5,9 @@ const isMac = navigator.platform.includes("Mac");
 
 interface WindowControlsProps {
   position: "left" | "right";
-  onToggleMiniMode: () => void;
 }
 
-export function WindowControls({ position, onToggleMiniMode }: WindowControlsProps) {
+export function WindowControls({ position }: WindowControlsProps) {
   const [maximized, setMaximized] = useState(false);
   const [focused, setFocused] = useState(true);
 
@@ -49,11 +48,6 @@ export function WindowControls({ position, onToggleMiniMode }: WindowControlsPro
           onClick={() => win.toggleMaximize()}
           title={maximized ? "Restore" : "Maximize"}
         />
-        <button
-          className="traffic-light traffic-mini-player"
-          onClick={onToggleMiniMode}
-          title="Mini Player"
-        />
       </div>
     );
   }
@@ -62,15 +56,6 @@ export function WindowControls({ position, onToggleMiniMode }: WindowControlsPro
   if (!isMac && position === "right") {
     return (
       <div className="window-controls">
-        <button
-          className="window-control-btn window-control-mini-player"
-          onClick={onToggleMiniMode}
-          title="Mini Player"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10">
-            <rect x="0" y="8" width="6" height="2" fill="currentColor" rx="0.5" />
-          </svg>
-        </button>
         <button
           className="window-control-btn window-control-minimize"
           onClick={() => win.minimize()}
