@@ -4191,7 +4191,7 @@ body {
 .app.mini-mode .now-playing {
   grid-column: 1;
   grid-row: 1;
-  height: 100%;
+  height: 100vh;
   min-height: 0;
   border-top: none;
   background: rgba(13, 27, 42, 0.82);
@@ -4199,6 +4199,8 @@ body {
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   position: relative;
+  flex-direction: row;
+  align-items: center;
 }
 
 .now-playing-mini {
@@ -4221,10 +4223,10 @@ body {
 
 .now-playing-mini .now-info {
   width: auto;
-  flex: none;
+  flex: 1;
   min-width: 0;
   max-width: none;
-  align-items: flex-end;
+  align-items: baseline;
 }
 
 .now-playing-mini .now-artist {
