@@ -22,6 +22,7 @@
 html, body, #root {
   height: 100%;
   overflow: hidden;
+  border-radius: 10px;
 }
 
 body {
@@ -38,8 +39,6 @@ body {
   height: 100vh;
   user-select: none;
   background: var(--bg-primary);
-  border-radius: 10px;
-  overflow: hidden;
 }
 
 .app > audio {
@@ -543,23 +542,36 @@ body {
 }
 
 .sidebar-collapse-btn {
-  background: none;
-  border: none;
+  grid-column: 1;
+  grid-row: 2;
+  position: relative;
+  z-index: 10;
+  align-self: center;
+  justify-self: end;
+  margin-right: -12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
   cursor: pointer;
-  padding: 6px;
-  margin-top: 8px;
-  border-radius: 6px;
+  padding: 4px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.15s;
-  width: 100%;
+  width: 24px;
+  height: 24px;
+  pointer-events: auto;
 }
 
 .sidebar-collapse-btn:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
+  border-color: var(--accent-dim);
+}
+
+.app.sidebar-collapsed .sidebar-collapse-btn {
+  margin-right: -12px;
 }
 
 .update-badge {
