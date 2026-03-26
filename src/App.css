@@ -34,10 +34,12 @@ body {
 .app {
   display: grid;
   grid-template-columns: 220px 1fr;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   height: 100vh;
   user-select: none;
   background: var(--bg-primary);
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 .app > audio {
@@ -73,7 +75,7 @@ body {
 /* Sidebar */
 .sidebar {
   grid-column: 1;
-  grid-row: 1 / 3;
+  grid-row: 2 / 3;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
   display: flex;
@@ -1275,12 +1277,15 @@ body {
 /* Main content */
 .main {
   grid-column: 2;
+  grid-row: 2;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
 .search-bar {
+  grid-column: 1 / -1;
+  grid-row: 1;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   display: flex;
@@ -1327,6 +1332,29 @@ body {
   background: var(--bg-hover);
 }
 
+.caption-spacer {
+  flex: 1;
+}
+
+.caption-mini-player-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.caption-mini-player-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
 /* macOS traffic lights */
 .traffic-lights {
   display: flex;
@@ -1352,17 +1380,17 @@ body {
 .traffic-close { background: #ff5f57; }
 .traffic-minimize { background: #febc2e; }
 .traffic-maximize { background: #28c840; }
-.traffic-mini-player { background: #E91E8A; }
 
 .traffic-lights.unfocused .traffic-light {
   background: #555 !important;
 }
 
 .search-input-wrapper {
-  flex: 1;
   position: relative;
   display: flex;
   align-items: center;
+  max-width: 300px;
+  width: 100%;
 }
 
 .search-bar input {
@@ -1427,13 +1455,6 @@ body {
   background: #e81123;
   color: #fff;
 }
-.window-control-mini-player {
-  color: #E91E8A;
-}
-.window-control-mini-player:hover {
-  background: rgba(233, 30, 138, 0.15);
-}
-
 .nav-history-btn {
   background: none;
   border: 1px solid var(--border);
@@ -3801,7 +3822,7 @@ body {
 /* Queue panel */
 .queue-panel {
   grid-column: 3;
-  grid-row: 1 / 2;
+  grid-row: 2 / 3;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
   display: flex;
@@ -4157,14 +4178,8 @@ body {
 .app.mini-mode .sidebar,
 .app.mini-mode .main,
 .app.mini-mode .queue-panel,
-.app.mini-mode .status-bar {
-  display: none;
-}
-
-.app.mini-mode .traffic-lights,
-.app.mini-mode .window-controls,
-.app.mini-mode .caption-brand,
-.app.mini-mode .caption-sidebar-toggle {
+.app.mini-mode .status-bar,
+.app.mini-mode .search-bar {
   display: none;
 }
 
