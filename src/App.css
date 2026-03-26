@@ -1318,7 +1318,7 @@ body {
 .search-bar {
   grid-column: 1 / -1;
   grid-row: 1;
-  padding: 8px 12px;
+  padding: 14px 12px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -1329,39 +1329,26 @@ body {
   -webkit-app-region: no-drag;
 }
 
-.caption-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.caption-brand-text {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #FF6B6B, #E91E8A);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
 .caption-spacer {
   flex: 1;
+  -webkit-app-region: drag;
 }
+
 
 .caption-mini-player-btn {
   background: none;
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
-  padding: 4px;
+  padding: 4px 8px;
   border-radius: 6px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
   transition: all 0.15s;
   flex-shrink: 0;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .caption-mini-player-btn:hover {
@@ -1400,8 +1387,16 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  max-width: 300px;
+  max-width: 400px;
   width: 100%;
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-secondary);
+  pointer-events: none;
+  flex-shrink: 0;
 }
 
 .search-bar input {
@@ -1409,10 +1404,9 @@ body {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   color: var(--text-primary);
-  padding: 8px 12px;
-  padding-right: 32px;
-  border-radius: 6px;
-  font-size: 13px;
+  padding: 10px 36px 10px 36px;
+  border-radius: 20px;
+  font-size: 15px;
   outline: none;
   transition: border-color 0.15s;
 }
@@ -1423,7 +1417,7 @@ body {
 
 .search-clear-btn {
   position: absolute;
-  right: 6px;
+  right: 10px;
   background: none;
   border: none;
   color: var(--text-secondary);

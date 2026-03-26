@@ -1428,30 +1428,6 @@ function App() {
       {/* Caption bar - full width */}
       <div className="search-bar" data-tauri-drag-region onDoubleClick={handleCaptionDoubleClick}>
         <WindowControls position="left" />
-          <div className="caption-brand">
-            <svg width={22} height={22} viewBox="0 0 512 512" fill="none">
-              <defs>
-                <linearGradient id="captionVGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#FF6B6B"/>
-                  <stop offset="100%" stopColor="#E91E8A"/>
-                </linearGradient>
-              </defs>
-              <path d="M 110,90 L 256,410 L 402,90" fill="none" stroke="url(#captionVGrad)" strokeWidth="58" strokeLinecap="round" strokeLinejoin="round"/>
-              <line x1="30" y1="165" x2="100" y2="165" stroke="#FF5C7A" strokeWidth="16" strokeLinecap="round" opacity="0.85"/>
-              <line x1="412" y1="165" x2="482" y2="165" stroke="#FF5C7A" strokeWidth="16" strokeLinecap="round" opacity="0.85"/>
-            </svg>
-            <span className="caption-brand-text">ViboPLR</span>
-          </div>
-          <button
-            className="caption-mini-player-btn"
-            onClick={mini.toggleMiniMode}
-            title="Mini Player"
-          >
-            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="14" width="10" height="8" rx="1" />
-              <path d="M12 8h8a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h2" />
-            </svg>
-          </button>
           <button
             className="nav-history-btn"
             disabled={!canGoBack}
@@ -1474,6 +1450,10 @@ function App() {
           </button>
           <div className="caption-spacer" />
           <div className="search-input-wrapper">
+            <svg className="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
             <input
               ref={searchInputRef}
               type="text"
@@ -1487,7 +1467,7 @@ function App() {
                 selectedArtist !== null && selectedAlbum === null ? `Search in ${artists.find(a => a.id === selectedArtist)?.name ?? "artist"}...` :
                 selectedAlbum !== null ? `Search in ${albums.find(a => a.id === selectedAlbum)?.title ?? "album"}...` :
                 selectedTag !== null ? `Search in ${tags.find(t => t.id === selectedTag)?.name ?? "tag"}...` :
-                "Search tracks..."
+                "What do you want to play?"
               }
               title=""
               autoComplete="off"
@@ -1592,13 +1572,25 @@ function App() {
                 title="Clear search"
                 tabIndex={-1}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18" />
                   <line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
               </button>
             )}
           </div>
+          <div className="caption-spacer" />
+          <button
+            className="caption-mini-player-btn"
+            onClick={mini.toggleMiniMode}
+            title="Mini Player"
+          >
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="14" width="10" height="8" rx="1" />
+              <path d="M12 8h8a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h2" />
+            </svg>
+            <span>Mini Player</span>
+          </button>
           <WindowControls position="right" />
         </div>
 
