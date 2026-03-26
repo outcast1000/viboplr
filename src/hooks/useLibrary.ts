@@ -12,15 +12,13 @@ export const DEFAULT_TRACK_COLUMNS: ColumnConfig[] = ALL_COLUMN_IDS.map(id => ({
   visible: DEFAULT_VISIBLE.has(id),
 }));
 
-export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNavigate?: () => void) {
+export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNavigate?: () => void, debouncedTrackQuery?: string) {
   const [view, setView] = useState<View>("all");
   const [artists, setArtists] = useState<Artist[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [trackCount, setTrackCount] = useState(0);
   const [albumCount, setAlbumCount] = useState(0);
   const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
@@ -97,12 +95,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   useEffect(() => { if (restoredRef.current) store.set("likedViewMode", likedViewMode); }, [likedViewMode]);
   useEffect(() => { if (restoredRef.current) store.set("sortBarCollapsed", sortBarCollapsed); }, [sortBarCollapsed]);
 
-  // Debounce search query to avoid firing a search on every keystroke
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearchQuery(searchQuery), 200);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
   const loadLibrary = useCallback(async () => {
     try {
       const [a, al, c, t, tc] = await Promise.all([
@@ -127,16 +119,16 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     try {
       // No tracks rendered on album grid or tag list
       if ((view === "albums" && selectedAlbum === null) || (view === "tags" && selectedTag === null)) {
-        if (!debouncedSearchQuery.trim()) { setTracks([]); tracksRef.current = []; setHasMore(false); return; }
+        if (!(debouncedTrackQuery ?? "").trim()) { setTracks([]); tracksRef.current = []; setHasMore(false); return; }
       }
 
       const offset = append ? tracksRef.current.length : 0;
 
-      if (debouncedSearchQuery.trim()) {
+      if ((debouncedTrackQuery ?? "").trim()) {
         // Paginated path: search
         const results = await invoke<Track[]>("get_tracks", {
           opts: {
-            query: debouncedSearchQuery,
+            query: debouncedTrackQuery ?? "",
             artistId: selectedArtist,
             albumId: selectedAlbum,
             tagId: selectedTag,
@@ -207,7 +199,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     } catch (e) {
       console.error("Failed to load tracks:", e);
     }
-  }, [debouncedSearchQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir, trackShuffleKey, filterYoutubeOnly, mediaTypeFilter]);
+  }, [debouncedTrackQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir, trackShuffleKey, filterYoutubeOnly, mediaTypeFilter]);
 
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
@@ -218,7 +210,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   }, [tracks]);
 
   // Reset list highlight when search or view changes
-  useEffect(() => { setHighlightedListIndex(-1); }, [searchQuery, view, selectedArtist, selectedAlbum, selectedTag]);
+  useEffect(() => { setHighlightedListIndex(-1); }, [debouncedTrackQuery, view, selectedArtist, selectedAlbum, selectedTag]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
@@ -228,7 +220,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   }, [loadTracks, loadingMore, hasMore]);
 
   // Server handles sorting for paginated views; skip client-side sort
-  const isServerSorted = debouncedSearchQuery.trim() !== "" ||
+  const isServerSorted = (debouncedTrackQuery ?? "").trim() !== "" ||
     (selectedTag === null && selectedAlbum === null && selectedArtist === null && view !== "liked");
 
   function handleSort(field: SortField) {
@@ -464,7 +456,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     setSelectedArtist(artistId);
     setSelectedAlbum(null);
     setSelectedTag(null);
-    setSearchQuery("");
     setView("artists");
   }
 
@@ -472,7 +463,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     onBeforeNavigate?.();
     setSelectedAlbum(albumId);
     setSelectedTag(null);
-    setSearchQuery("");
     const resolvedArtistId = artistId !== undefined ? artistId
       : albums.find(a => a.id === albumId)?.artist_id ?? null;
     if (resolvedArtistId) {
@@ -499,7 +489,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     setSelectedArtist(null);
     setSelectedAlbum(null);
     setSelectedTag(null);
-    setSearchQuery("");
   }
 
   function handleShowLiked() {
@@ -508,7 +497,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     setSelectedArtist(null);
     setSelectedAlbum(null);
     setSelectedTag(null);
-    setSearchQuery("");
   }
 
   return {
@@ -518,7 +506,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     tracks, setTracks,
     collections, setCollections,
     tags, setTags,
-    searchQuery, setSearchQuery,
     trackCount, albumCount,
     selectedArtist, setSelectedArtist,
     selectedAlbum, setSelectedAlbum,
