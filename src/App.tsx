@@ -29,6 +29,10 @@ import { useVideoSplit } from "./hooks/useVideoSplit";
 import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { WindowControls } from "./components/WindowControls";
+import { useViewSearchState } from "./hooks/useViewSearchState";
+import { useCentralSearch } from "./hooks/useCentralSearch";
+import { CentralSearchDropdown } from "./components/CentralSearchDropdown";
+import { ViewSearchBar } from "./components/ViewSearchBar";
 
 import { Sidebar } from "./components/Sidebar";
 import { TrackList } from "./components/TrackList";
@@ -93,11 +97,29 @@ function App() {
     }
   }, [playback.handlePlay, playback.handlePlayUrl]);
   const beforeNavRef = useRef<() => void>(() => {});
-  const library = useLibrary(restoredRef, () => beforeNavRef.current());
+  const viewSearch = useViewSearchState();
+  const [currentView, setCurrentView] = useState<View>("all");
+  const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery(currentView));
   const queueHook = useQueue(restoredRef, handlePlayWithTidal);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
   const videoSplit = useVideoSplit(restoredRef);
+  // Sync currentView with library.view so debouncedTrackQuery stays up to date
+  useEffect(() => { setCurrentView(library.view); }, [library.view]);
+
+  const centralSearch = useCentralSearch({
+    onPlayTrack: (track) => {
+      queueHook.playTracks([track], 0);
+    },
+    onCommitSearch: (query) => {
+      library.setView("all");
+      library.setSelectedArtist(null);
+      library.setSelectedAlbum(null);
+      library.setSelectedTag(null);
+      viewSearch.setQuery("all", query);
+    },
+  });
+
   peekNextRef.current = queueHook.peekNext;
   advanceIndexRef.current = queueHook.advanceIndex;
 
@@ -196,7 +218,7 @@ function App() {
     selectedArtist: library.selectedArtist,
     selectedAlbum: library.selectedAlbum,
     selectedTag: library.selectedTag,
-    searchQuery: library.searchQuery,
+    searchQuery: viewSearch.getQuery(library.view),
     artists: library.artists,
     albums: library.albums,
     tags: library.tags,
@@ -211,12 +233,12 @@ function App() {
     library.setSelectedArtist(s.selectedArtist);
     library.setSelectedAlbum(s.selectedAlbum);
     library.setSelectedTag(s.selectedTag);
-    library.setSearchQuery(s.searchQuery);
+    viewSearch.restore(s.viewSearchQueries);
     // Restore scroll position after React renders the new view
     requestAnimationFrame(() => {
       if (contentRef.current) contentRef.current.scrollTop = s.scrollTop;
     });
-  }, [library.setView, library.setSelectedArtist, library.setSelectedAlbum, library.setSelectedTag, library.setSearchQuery]);
+  }, [library.setView, library.setSelectedArtist, library.setSelectedAlbum, library.setSelectedTag, viewSearch.restore]);
 
   const getScrollTop = useCallback(() => contentRef.current?.scrollTop ?? 0, []);
 
@@ -226,7 +248,7 @@ function App() {
       selectedArtist: library.selectedArtist,
       selectedAlbum: library.selectedAlbum,
       selectedTag: library.selectedTag,
-      searchQuery: library.searchQuery,
+      viewSearchQueries: viewSearch.snapshot(),
     },
     applyNavState,
     getScrollTop,
@@ -302,9 +324,8 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, , sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedTidalOverrideUrl, savedSortBarCollapsed] = await timeAsync("store.restore (37 keys)", () => Promise.all([
+        const [v, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedTidalOverrideUrl, savedSortBarCollapsed] = await timeAsync("store.restore (36 keys)", () => Promise.all([
           store.get<string>("view"),
-          store.get<string>("searchQuery"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
           store.get<number | null>("selectedTag"),
@@ -508,11 +529,17 @@ function App() {
 
       if (!(e.ctrlKey || e.metaKey)) return;
 
+      // Cmd/Ctrl+K: focus central search
+      if (e.key === "k") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
       switch (e.key) {
         case "1":
           e.preventDefault();
           library.handleShowAll();
-          searchInputRef.current?.focus();
           break;
         case "2":
           e.preventDefault();
@@ -521,8 +548,6 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
-          library.setSearchQuery("");
-          searchInputRef.current?.focus();
           break;
         case "3":
           e.preventDefault();
@@ -530,8 +555,6 @@ function App() {
           library.setView("albums");
           library.setSelectedArtist(null);
           library.setSelectedTag(null);
-          library.setSearchQuery("");
-          searchInputRef.current?.focus();
           break;
         case "4":
           e.preventDefault();
@@ -540,13 +563,10 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
-          library.setSearchQuery("");
-          searchInputRef.current?.focus();
           break;
         case "5":
           e.preventDefault();
           library.handleShowLiked();
-          searchInputRef.current?.focus();
           break;
         case "6":
           e.preventDefault();
@@ -555,8 +575,6 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
-          library.setSearchQuery("");
-          searchInputRef.current?.focus();
           break;
         case "f":
           if (s.currentTrack && isVideoTrack(s.currentTrack)) {
@@ -1254,18 +1272,18 @@ function App() {
   }
 
   const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags, tracks,
-    searchQuery, sortedTracks, sortField, highlightedIndex, highlightedListIndex } = library;
+    sortedTracks, sortField, highlightedIndex, highlightedListIndex } = library;
 
   // Filtered lists for keyboard navigation
   const filteredArtists = (() => {
     if (view !== "artists" || selectedArtist !== null) return [];
-    const q = searchQuery.trim().toLowerCase();
+    const q = viewSearch.getQuery("artists").trim().toLowerCase();
     return q ? library.sortedArtists.filter(a => stripAccents(a.name.toLowerCase()).includes(stripAccents(q))) : library.sortedArtists;
   })();
 
   const filteredAlbums = (() => {
     if (view !== "albums") return [];
-    const q = searchQuery.trim().toLowerCase();
+    const q = viewSearch.getQuery("albums").trim().toLowerCase();
     if (!q) return library.sortedAlbums;
     const sq = stripAccents(q);
     return library.sortedAlbums.filter(a =>
@@ -1276,12 +1294,10 @@ function App() {
 
   const filteredTags = (() => {
     if (view !== "tags" || selectedTag !== null) return [];
-    const q = searchQuery.trim().toLowerCase();
+    const q = viewSearch.getQuery("tags").trim().toLowerCase();
     return q ? library.sortedTags.filter(t => stripAccents(t.name.toLowerCase()).includes(stripAccents(q))) : library.sortedTags;
   })();
 
-  const isListView = (view === "artists" && selectedArtist === null) || view === "albums" || (view === "tags" && selectedTag === null);
-  const isHistoryView = view === "history";
   const hasTidal = tidalEnabled;
   const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name }));
 
@@ -1320,14 +1336,12 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
-          library.setSearchQuery("");
         }}
         onShowAlbums={() => {
           pushAndScroll();
           library.setView("albums");
           library.setSelectedArtist(null);
           library.setSelectedTag(null);
-          library.setSearchQuery("");
         }}
         onShowTags={() => {
           pushAndScroll();
@@ -1335,7 +1349,6 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
-          library.setSearchQuery("");
         }}
         onShowLiked={library.handleShowLiked}
         onShowHistory={() => {
@@ -1344,7 +1357,6 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
-          library.setSearchQuery("");
         }}
         onShowTidal={() => {
           pushAndScroll();
@@ -1352,7 +1364,6 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
-          library.setSearchQuery("");
         }}
         onShowCollections={() => {
           pushAndScroll();
@@ -1360,7 +1371,6 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
-          library.setSearchQuery("");
         }}
         onShowSettings={() => setShowSettings(true)}
         updateAvailable={updater.updateState.available !== null}
@@ -1449,136 +1459,17 @@ function App() {
             </svg>
           </button>
           <div className="caption-spacer" />
-          <div className="search-input-wrapper">
-            <svg className="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder={
-                view === "tidal" ? "Search TIDAL..." :
-                view === "liked" ? "Search liked tracks..." :
-                view === "history" ? "Search history..." :
-                view === "artists" && selectedArtist === null ? "Search artists..." :
-                view === "albums" && selectedAlbum === null ? "Search albums..." :
-                view === "tags" && selectedTag === null ? "Search tags..." :
-                selectedArtist !== null && selectedAlbum === null ? `Search in ${artists.find(a => a.id === selectedArtist)?.name ?? "artist"}...` :
-                selectedAlbum !== null ? `Search in ${albums.find(a => a.id === selectedAlbum)?.title ?? "album"}...` :
-                selectedTag !== null ? `Search in ${tags.find(t => t.id === selectedTag)?.name ?? "tag"}...` :
-                "What do you want to play?"
-              }
-              title=""
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
-              value={searchQuery}
-              onChange={(e) => library.setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.ctrlKey || e.metaKey || e.altKey) return;
-                if (isHistoryView) {
-                  const count = historyRef.current?.count ?? 0;
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    library.setHighlightedListIndex((prev) => {
-                      const next = Math.min(prev + 1, count - 1);
-                      document.querySelector(`.history-row[data-history-index="${next}"]`)?.scrollIntoView({ block: "nearest" });
-                      return next;
-                    });
-                  } else if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    library.setHighlightedListIndex((prev) => {
-                      const next = Math.max(prev - 1, 0);
-                      document.querySelector(`.history-row[data-history-index="${next}"]`)?.scrollIntoView({ block: "nearest" });
-                      return next;
-                    });
-                  } else if (e.key === "Enter" && highlightedListIndex >= 0 && highlightedListIndex < count) {
-                    e.preventDefault();
-                    if (e.shiftKey) {
-                      historyRef.current?.enqueueItem(highlightedListIndex);
-                    } else {
-                      historyRef.current?.playItem(highlightedListIndex);
-                    }
-                  }
-                } else if (isListView) {
-                  const list = view === "artists" ? filteredArtists : view === "albums" ? filteredAlbums : filteredTags;
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    library.setHighlightedListIndex((prev) => {
-                      const next = Math.min(prev + 1, list.length - 1);
-                      if (view === "albums") {
-                        document.querySelector(`.album-grid .album-card:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
-                      } else {
-                        document.querySelector(`.list .list-item:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
-                      }
-                      return next;
-                    });
-                  } else if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    library.setHighlightedListIndex((prev) => {
-                      const next = Math.max(prev - 1, 0);
-                      if (view === "albums") {
-                        document.querySelector(`.album-grid .album-card:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
-                      } else {
-                        document.querySelector(`.list .list-item:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
-                      }
-                      return next;
-                    });
-                  } else if (e.key === "Enter" && highlightedListIndex >= 0 && highlightedListIndex < list.length) {
-                    e.preventDefault();
-                    const item = list[highlightedListIndex];
-                    if (view === "artists") {
-                      library.handleArtistClick(item.id);
-                    } else if (view === "albums") {
-                      library.handleAlbumClick(item.id);
-                    } else {
-                      pushAndScroll();
-                      library.setSelectedTag(item.id);
-                      library.setSearchQuery("");
-                      library.setView("all");
-                    }
-                  }
-                } else {
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    library.setHighlightedIndex((prev) => {
-                      const next = Math.min(prev + 1, tracks.length - 1);
-                      trackListRef.current?.children[next + 1]?.scrollIntoView({ block: "nearest" });
-                      return next;
-                    });
-                  } else if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    library.setHighlightedIndex((prev) => {
-                      const next = Math.max(prev - 1, 0);
-                      trackListRef.current?.children[next + 1]?.scrollIntoView({ block: "nearest" });
-                      return next;
-                    });
-                  } else if (e.key === "Enter" && highlightedIndex >= 0 && highlightedIndex < tracks.length) {
-                    e.preventDefault();
-                    if (e.shiftKey) {
-                      handleEnqueue([tracks[highlightedIndex]]);
-                    } else {
-                      queueHook.playTracks([tracks[highlightedIndex]], 0);
-                    }
-                  }
-                }
-              }}
-            />
-            {searchQuery && (
-              <button
-                className="search-clear-btn"
-                onClick={() => { library.setSearchQuery(""); searchInputRef.current?.focus(); }}
-                title="Clear search"
-                tabIndex={-1}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            )}
-          </div>
+          <CentralSearchDropdown
+            query={centralSearch.query}
+            onQueryChange={centralSearch.setQuery}
+            results={centralSearch.results}
+            isOpen={centralSearch.isOpen}
+            highlightedIndex={centralSearch.highlightedIndex}
+            onKeyDown={centralSearch.handleKeyDown}
+            onResultClick={centralSearch.handleResultClick}
+            onClose={centralSearch.close}
+            inputRef={searchInputRef}
+          />
           <div className="caption-spacer" />
           <button
             className="caption-mini-player-btn"
@@ -1619,6 +1510,11 @@ function App() {
           {/* Artist list */}
           {view === "artists" && selectedArtist === null && (
             <>
+              <ViewSearchBar
+                query={viewSearch.getQuery("artists")}
+                onQueryChange={(q) => viewSearch.setQuery("artists", q)}
+                placeholder="Search artists..."
+              />
               <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
                 {!library.sortBarCollapsed && (
                 <div className="sort-bar-row">
@@ -1675,7 +1571,7 @@ function App() {
                     </div>
                   ))}
                   {filteredArtists.length === 0 && (
-                    <div className="empty">{searchQuery.trim() ? `No artists matching "${searchQuery}"` : "No artists found. Add a folder or server to get started."}</div>
+                    <div className="empty">{viewSearch.getQuery("artists").trim() ? `No artists matching "${viewSearch.getQuery("artists")}"` : "No artists found. Add a folder or server to get started."}</div>
                   )}
                 </div>
               )}
@@ -1700,7 +1596,7 @@ function App() {
                     </div>
                   ))}
                   {filteredArtists.length === 0 && (
-                    <div className="empty">{searchQuery.trim() ? `No artists matching "${searchQuery}"` : "No artists found. Add a folder or server to get started."}</div>
+                    <div className="empty">{viewSearch.getQuery("artists").trim() ? `No artists matching "${viewSearch.getQuery("artists")}"` : "No artists found. Add a folder or server to get started."}</div>
                   )}
                 </div>
               )}
@@ -1727,7 +1623,7 @@ function App() {
                     </div>
                   ))}
                   {filteredArtists.length === 0 && (
-                    <div className="empty">{searchQuery.trim() ? `No artists matching "${searchQuery}"` : "No artists found. Add a folder or server to get started."}</div>
+                    <div className="empty">{viewSearch.getQuery("artists").trim() ? `No artists matching "${viewSearch.getQuery("artists")}"` : "No artists found. Add a folder or server to get started."}</div>
                   )}
                 </div>
               )}
@@ -1818,6 +1714,11 @@ function App() {
           {/* All albums view */}
           {view === "albums" && (
             <>
+              <ViewSearchBar
+                query={viewSearch.getQuery("albums")}
+                onQueryChange={(q) => viewSearch.setQuery("albums", q)}
+                placeholder="Search albums..."
+              />
               <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
                 {!library.sortBarCollapsed && (
                 <div className="sort-bar-row">
@@ -1888,7 +1789,7 @@ function App() {
                     </div>
                   ))}
                   {filteredAlbums.length === 0 && (
-                    <div className="empty">{searchQuery.trim() ? `No albums matching "${searchQuery}"` : "No albums found."}</div>
+                    <div className="empty">{viewSearch.getQuery("albums").trim() ? `No albums matching "${viewSearch.getQuery("albums")}"` : "No albums found."}</div>
                   )}
                 </div>
               )}
@@ -1916,7 +1817,7 @@ function App() {
                     </div>
                   ))}
                   {filteredAlbums.length === 0 && (
-                    <div className="empty">{searchQuery.trim() ? `No albums matching "${searchQuery}"` : "No albums found."}</div>
+                    <div className="empty">{viewSearch.getQuery("albums").trim() ? `No albums matching "${viewSearch.getQuery("albums")}"` : "No albums found."}</div>
                   )}
                 </div>
               )}
@@ -1941,7 +1842,7 @@ function App() {
                     </div>
                   ))}
                   {filteredAlbums.length === 0 && (
-                    <div className="empty">{searchQuery.trim() ? `No albums matching "${searchQuery}"` : "No albums found."}</div>
+                    <div className="empty">{viewSearch.getQuery("albums").trim() ? `No albums matching "${viewSearch.getQuery("albums")}"` : "No albums found."}</div>
                   )}
                 </div>
               )}
@@ -1951,6 +1852,11 @@ function App() {
           {/* Tags list view */}
           {view === "tags" && selectedTag === null && (
             <>
+              <ViewSearchBar
+                query={viewSearch.getQuery("tags")}
+                onQueryChange={(q) => viewSearch.setQuery("tags", q)}
+                placeholder="Search tags..."
+              />
               <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
                 {!library.sortBarCollapsed && (
                 <div className="sort-bar-row">
@@ -1995,7 +1901,7 @@ function App() {
                     <div
                       key={t.id}
                       className={`entity-table-row${i === highlightedListIndex ? " highlighted" : ""}`}
-                      onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
+                      onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setView("all"); }}
                     >
                       <span
                         className="entity-table-like"
@@ -2006,7 +1912,7 @@ function App() {
                     </div>
                   ))}
                   {filteredTags.length === 0 && (
-                    <div className="empty">{searchQuery.trim() ? `No tags matching "${searchQuery}"` : "No tags found. Add a folder or server to get started."}</div>
+                    <div className="empty">{viewSearch.getQuery("tags").trim() ? `No tags matching "${viewSearch.getQuery("tags")}"` : "No tags found. Add a folder or server to get started."}</div>
                   )}
                 </div>
               )}
@@ -2018,7 +1924,7 @@ function App() {
                     <div
                       key={t.id}
                       className={`entity-list-item${i === highlightedListIndex ? " highlighted" : ""}`}
-                      onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
+                      onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setView("all"); }}
                     >
                       <span
                         className="entity-list-like"
@@ -2030,7 +1936,7 @@ function App() {
                     </div>
                   ))}
                   {filteredTags.length === 0 && (
-                    <div className="empty">{searchQuery.trim() ? `No tags matching "${searchQuery}"` : "No tags found. Add a folder or server to get started."}</div>
+                    <div className="empty">{viewSearch.getQuery("tags").trim() ? `No tags matching "${viewSearch.getQuery("tags")}"` : "No tags found. Add a folder or server to get started."}</div>
                   )}
                 </div>
               )}
@@ -2042,7 +1948,7 @@ function App() {
                     <div
                       key={t.id}
                       className={`tag-card${i === highlightedListIndex ? " highlighted" : ""}`}
-                      onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setSearchQuery(""); library.setView("all"); }}
+                      onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setView("all"); }}
                     >
                       <TagCardArt tag={t} imagePath={tagImageCache.images[t.id]} onVisible={tagImageCache.fetchOnDemand} />
                       <div
@@ -2056,7 +1962,7 @@ function App() {
                     </div>
                   ))}
                   {filteredTags.length === 0 && (
-                    <div className="empty">{searchQuery.trim() ? `No tags matching "${searchQuery}"` : "No tags found. Add a folder or server to get started."}</div>
+                    <div className="empty">{viewSearch.getQuery("tags").trim() ? `No tags matching "${viewSearch.getQuery("tags")}"` : "No tags found. Add a folder or server to get started."}</div>
                   )}
                 </div>
               )}
@@ -2064,7 +1970,7 @@ function App() {
           )}
 
           {/* Tag detail header */}
-          {view === "all" && selectedTag !== null && !searchQuery.trim() && (() => {
+          {view === "all" && selectedTag !== null && !viewSearch.getQuery("all").trim() && (() => {
             const tag = tags.find(t => t.id === selectedTag);
             const tagImagePath = tagImageCache.images[selectedTag] ?? null;
             return (
@@ -2101,7 +2007,7 @@ function App() {
           })()}
 
           {/* Album detail header */}
-          {(view === "all" || view === "artists") && selectedAlbum !== null && !searchQuery.trim() && (() => {
+          {(view === "all" || view === "artists") && selectedAlbum !== null && !viewSearch.getQuery(view).trim() && (() => {
             const album = albums.find(a => a.id === selectedAlbum);
             const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
             return (
@@ -2144,6 +2050,11 @@ function App() {
           {/* All tracks view */}
           {view === "all" && (
             <>
+              <ViewSearchBar
+                query={viewSearch.getQuery("all")}
+                onQueryChange={(q) => viewSearch.setQuery("all", q)}
+                placeholder="Search tracks..."
+              />
               <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
                 {!library.sortBarCollapsed && (
                 <>
@@ -2339,6 +2250,11 @@ function App() {
           {/* Liked tracks view */}
           {view === "liked" && (
             <>
+              <ViewSearchBar
+                query={viewSearch.getQuery("liked")}
+                onQueryChange={(q) => viewSearch.setQuery("liked", q)}
+                placeholder="Search liked tracks..."
+              />
               <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
                 {!library.sortBarCollapsed && (
                 <div className="sort-bar-row">
@@ -2483,20 +2399,34 @@ function App() {
 
           {/* History view */}
           {view === "history" && (
-            <HistoryView ref={historyRef} searchQuery={searchQuery} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={handleEnqueue} addLog={addLog} onArtistClick={library.handleArtistClick} />
+            <>
+              <ViewSearchBar
+                query={viewSearch.getQuery("history")}
+                onQueryChange={(q) => viewSearch.setQuery("history", q)}
+                placeholder="Search history..."
+              />
+              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={handleEnqueue} addLog={addLog} onArtistClick={library.handleArtistClick} />
+            </>
           )}
 
           {/* TIDAL view */}
           {view === "tidal" && tidalEnabled && (
-            <TidalView
-              searchQuery={searchQuery}
-              overrideUrl={tidalOverrideUrl || undefined}
-              onPlayTrack={handleTidalPlay}
-              onEnqueueTrack={handleTidalEnqueue}
-              onDownloadAlbum={handleDownloadAlbum}
-              onDownloadTrack={handleTidalDownloadTrack}
-              localCollections={localCollections}
-            />
+            <>
+              <ViewSearchBar
+                query={viewSearch.getQuery("tidal")}
+                onQueryChange={(q) => viewSearch.setQuery("tidal", q)}
+                placeholder="Search TIDAL..."
+              />
+              <TidalView
+                searchQuery={viewSearch.getQuery("tidal")}
+                overrideUrl={tidalOverrideUrl || undefined}
+                onPlayTrack={handleTidalPlay}
+                onEnqueueTrack={handleTidalEnqueue}
+                onDownloadAlbum={handleDownloadAlbum}
+                onDownloadTrack={handleTidalDownloadTrack}
+                localCollections={localCollections}
+              />
+            </>
           )}
 
           {/* Collections view */}
