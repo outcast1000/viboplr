@@ -29,6 +29,5 @@ src-tauri/.cargo/
 
 .worktrees/
 worktrees/
-.superpowers/
-superpowers/
 .claude/skills/
+.superpowers/brainstorm/83471-1774513857/.server.pid
