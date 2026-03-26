@@ -1089,6 +1089,12 @@ function App() {
     }
   }
 
+  function handleCaptionDoubleClick(e: React.MouseEvent) {
+    const target = e.target as HTMLElement;
+    if (target.closest("button") || target.closest("input")) return;
+    getCurrentWindow().toggleMaximize();
+  }
+
   function handleToggleSidebar() {
     setSidebarCollapsed(prev => {
       const next = !prev;
@@ -1407,11 +1413,9 @@ function App() {
         />
       )}
 
-      {/* Main content */}
-      <main className="main">
-        {/* Search bar */}
-        <div className="search-bar" data-tauri-drag-region>
-          <WindowControls position="left" onToggleMiniMode={mini.toggleMiniMode} />
+      {/* Caption bar - full width */}
+      <div className="search-bar" data-tauri-drag-region onDoubleClick={handleCaptionDoubleClick}>
+        <WindowControls position="left" />
           <div className="caption-brand">
             <svg width={22} height={22} viewBox="0 0 512 512" fill="none">
               <defs>
@@ -1441,6 +1445,16 @@ function App() {
             </svg>
           </button>
           <button
+            className="caption-mini-player-btn"
+            onClick={mini.toggleMiniMode}
+            title="Mini Player"
+          >
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="14" width="10" height="8" rx="1" />
+              <path d="M12 8h8a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h2" />
+            </svg>
+          </button>
+          <button
             className="nav-history-btn"
             disabled={!canGoBack}
             onClick={goBack}
@@ -1460,6 +1474,7 @@ function App() {
               <polyline points="9 6 15 12 9 18" />
             </svg>
           </button>
+          <div className="caption-spacer" />
           <div className="search-input-wrapper">
             <input
               ref={searchInputRef}
@@ -1586,9 +1601,11 @@ function App() {
               </button>
             )}
           </div>
-          <WindowControls position="right" onToggleMiniMode={mini.toggleMiniMode} />
+          <WindowControls position="right" />
         </div>
 
+      {/* Main content */}
+      <main className="main">
         {/* Content area */}
         <div className="content" ref={contentRef} style={{ minHeight: playback.currentTrack && isVideoTrack(playback.currentTrack) ? 150 : undefined }}>
           <Breadcrumb
