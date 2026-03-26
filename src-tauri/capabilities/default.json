@@ -23,6 +23,7 @@
     "core:window:allow-inner-size",
     "core:window:allow-outer-position",
     "core:window:allow-set-min-size",
+    "core:window:allow-available-monitors",
     "core:window:allow-set-focus",
     "core:window:allow-unminimize",
     "core:window:allow-is-maximized",

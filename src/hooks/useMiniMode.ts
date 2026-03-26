@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, availableMonitors } from "@tauri-apps/api/window";
 import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import { store } from "../store";
 import type { Track } from "../types";
@@ -10,6 +10,48 @@ const MINI_MAX_WIDTH = 550;
 const MINI_INITIAL_WIDTH = 500;
 const FULL_MIN_WIDTH = 300;
 const FULL_MIN_HEIGHT = 400;
+
+type MonitorRect = { x: number; y: number; w: number; h: number };
+
+export function isPositionOnScreen(x: number, y: number, monitors: MonitorRect[]): boolean {
+  if (monitors.length === 0) return true;
+  return monitors.some(m => x >= m.x && x < m.x + m.w && y >= m.y && y < m.y + m.h);
+}
+
+export function clampToNearestMonitor(
+  x: number, y: number, winW: number, winH: number, monitors: MonitorRect[],
+): { x: number; y: number } {
+  if (monitors.length === 0) return { x, y };
+  let best = monitors[0];
+  let bestDist = Infinity;
+  for (const m of monitors) {
+    const cx = m.x + m.w / 2;
+    const cy = m.y + m.h / 2;
+    const d = (x - cx) ** 2 + (y - cy) ** 2;
+    if (d < bestDist) { bestDist = d; best = m; }
+  }
+  return {
+    x: Math.max(best.x, Math.min(x, best.x + best.w - winW)),
+    y: Math.max(best.y, Math.min(y, best.y + best.h - winH)),
+  };
+}
+
+async function getLogicalMonitorBounds(): Promise<MonitorRect[]> {
+  try {
+    const monitors = await availableMonitors();
+    return monitors.map(m => {
+      const sf = m.scaleFactor;
+      return {
+        x: m.position.x / sf,
+        y: m.position.y / sf,
+        w: m.size.width / sf,
+        h: m.size.height / sf,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
 
 function measureMiniFooter(): number {
   const footer = document.querySelector(".now-playing-mini") as HTMLElement;
@@ -47,7 +89,13 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
           store.get<number | null>("miniWindowY"),
         ]);
         if (mx != null && my != null) {
-          await win.setPosition(new LogicalPosition(mx, my));
+          const bounds = await getLogicalMonitorBounds();
+          if (isPositionOnScreen(mx, my, bounds)) {
+            await win.setPosition(new LogicalPosition(mx, my));
+          } else if (bounds.length > 0) {
+            const clamped = clampToNearestMonitor(mx, my, MINI_INITIAL_WIDTH, MINI_HEIGHT, bounds);
+            await win.setPosition(new LogicalPosition(clamped.x, clamped.y));
+          }
         }
         await win.setAlwaysOnTop(true);
         setMiniMode(true);
@@ -60,9 +108,15 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         await win.setAlwaysOnTop(false);
         await win.setMinSize(new LogicalSize(FULL_MIN_WIDTH, FULL_MIN_HEIGHT));
         const geo = fullSizeRef.current;
+        const bounds = await getLogicalMonitorBounds();
         if (geo) {
           await win.setSize(new LogicalSize(geo.w, geo.h));
-          await win.setPosition(new LogicalPosition(geo.x, geo.y));
+          if (isPositionOnScreen(geo.x, geo.y, bounds)) {
+            await win.setPosition(new LogicalPosition(geo.x, geo.y));
+          } else if (bounds.length > 0) {
+            const clamped = clampToNearestMonitor(geo.x, geo.y, geo.w, geo.h, bounds);
+            await win.setPosition(new LogicalPosition(clamped.x, clamped.y));
+          }
         } else {
           const [fw, fh, fx, fy] = await Promise.all([
             store.get<number | null>("fullWindowWidth"),
@@ -71,7 +125,14 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
             store.get<number | null>("fullWindowY"),
           ]);
           if (fw && fh) await win.setSize(new LogicalSize(fw, fh));
-          if (fx != null && fy != null) await win.setPosition(new LogicalPosition(fx, fy));
+          if (fx != null && fy != null) {
+            if (isPositionOnScreen(fx, fy, bounds)) {
+              await win.setPosition(new LogicalPosition(fx, fy));
+            } else if (bounds.length > 0) {
+              const clamped = clampToNearestMonitor(fx, fy, fw ?? FULL_MIN_WIDTH, fh ?? FULL_MIN_HEIGHT, bounds);
+              await win.setPosition(new LogicalPosition(clamped.x, clamped.y));
+            }
+          }
         }
         setMiniMode(false);
         miniModeRef.current = false;
