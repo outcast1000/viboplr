@@ -14,8 +14,7 @@
     "windows": [
       {
         "title": "Viboplr",
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
+        "decorations": false,
         "transparent": true,
         "width": 1024,
         "height": 700,

@@ -23,7 +23,6 @@ interface SidebarProps {
   selectedArtist: number | null;
   hasTidal: boolean;
   collapsed: boolean;
-  onToggleCollapse: () => void;
   onShowAll: () => void;
   onShowArtists: () => void;
   onShowAlbums: () => void;
@@ -40,7 +39,7 @@ export function Sidebar({
   view,
   selectedAlbum, selectedArtist,
   hasTidal,
-  collapsed, onToggleCollapse,
+  collapsed,
   onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowTidal, onShowCollections, onShowSettings,
   updateAvailable,
 }: SidebarProps) {
@@ -57,37 +56,6 @@ export function Sidebar({
 
   return (
     <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
-      <div className="sidebar-drag-region" data-tauri-drag-region />
-      <div className="sidebar-brand">
-        <div className="sidebar-logo" title="Viboplr">
-          <svg width={28} height={28} viewBox="0 0 512 512" fill="none">
-            <defs>
-              <linearGradient id="sidebarVGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#FF6B6B"/>
-                <stop offset="100%" stopColor="#E91E8A"/>
-              </linearGradient>
-            </defs>
-            <path d="M 110,90 L 256,410 L 402,90" fill="none" stroke="url(#sidebarVGrad)" strokeWidth="58" strokeLinecap="round" strokeLinejoin="round"/>
-            <line x1="30" y1="165" x2="100" y2="165" stroke="#FF5C7A" strokeWidth="16" strokeLinecap="round" opacity="0.85"/>
-            <line x1="412" y1="165" x2="482" y2="165" stroke="#FF5C7A" strokeWidth="16" strokeLinecap="round" opacity="0.85"/>
-          </svg>
-          {!collapsed && <span className="sidebar-brand-text">ViboPLR</span>}
-        </div>
-        <button
-          className="sidebar-collapse-btn"
-          onClick={onToggleCollapse}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <line x1="9" y1="3" x2="9" y2="21" />
-            {collapsed
-              ? <polyline points="13 15 16 12 13 9" />
-              : <polyline points="16 15 13 12 16 9" />
-            }
-          </svg>
-        </button>
-      </div>
       <nav className="nav">
         {navItems.map((item) => (
           <button

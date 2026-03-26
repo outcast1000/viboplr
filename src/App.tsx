@@ -398,10 +398,6 @@ function App() {
             mini.setMiniMode(true);
             mini.miniModeRef.current = true;
           }
-          // On Windows/Linux, remove native title bar before showing the window
-          if (!navigator.platform.includes("Mac")) {
-            await getCurrentWindow().setDecorations(false);
-          }
           await getCurrentWindow().show();
         });
       } catch (e) {
@@ -1311,7 +1307,6 @@ function App() {
         selectedArtist={selectedArtist}
         hasTidal={hasTidal}
         collapsed={sidebarCollapsed}
-        onToggleCollapse={handleToggleSidebar}
         onShowAll={library.handleShowAll}
         onShowArtists={() => {
           pushAndScroll();
@@ -1416,6 +1411,35 @@ function App() {
       <main className="main">
         {/* Search bar */}
         <div className="search-bar" data-tauri-drag-region>
+          <WindowControls position="left" onToggleMiniMode={mini.toggleMiniMode} />
+          <div className="caption-brand">
+            <svg width={22} height={22} viewBox="0 0 512 512" fill="none">
+              <defs>
+                <linearGradient id="captionVGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#FF6B6B"/>
+                  <stop offset="100%" stopColor="#E91E8A"/>
+                </linearGradient>
+              </defs>
+              <path d="M 110,90 L 256,410 L 402,90" fill="none" stroke="url(#captionVGrad)" strokeWidth="58" strokeLinecap="round" strokeLinejoin="round"/>
+              <line x1="30" y1="165" x2="100" y2="165" stroke="#FF5C7A" strokeWidth="16" strokeLinecap="round" opacity="0.85"/>
+              <line x1="412" y1="165" x2="482" y2="165" stroke="#FF5C7A" strokeWidth="16" strokeLinecap="round" opacity="0.85"/>
+            </svg>
+            <span className="caption-brand-text">ViboPLR</span>
+          </div>
+          <button
+            className="caption-sidebar-toggle"
+            onClick={handleToggleSidebar}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1="9" y1="3" x2="9" y2="21" />
+              {sidebarCollapsed
+                ? <polyline points="13 15 16 12 13 9" />
+                : <polyline points="16 15 13 12 16 9" />
+              }
+            </svg>
+          </button>
           <button
             className="nav-history-btn"
             disabled={!canGoBack}
@@ -1437,139 +1461,132 @@ function App() {
             </svg>
           </button>
           <div className="search-input-wrapper">
-          <input
-            ref={searchInputRef}
-            type="text"
-            placeholder={
-              view === "tidal" ? "Search TIDAL..." :
-              view === "liked" ? "Search liked tracks..." :
-              view === "history" ? "Search history..." :
-              view === "artists" && selectedArtist === null ? "Search artists..." :
-              view === "albums" && selectedAlbum === null ? "Search albums..." :
-              view === "tags" && selectedTag === null ? "Search tags..." :
-              selectedArtist !== null && selectedAlbum === null ? `Search in ${artists.find(a => a.id === selectedArtist)?.name ?? "artist"}...` :
-              selectedAlbum !== null ? `Search in ${albums.find(a => a.id === selectedAlbum)?.title ?? "album"}...` :
-              selectedTag !== null ? `Search in ${tags.find(t => t.id === selectedTag)?.name ?? "tag"}...` :
-              "Search tracks..."
-            }
-            title=""
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            value={searchQuery}
-            onChange={(e) => library.setSearchQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.ctrlKey || e.metaKey || e.altKey) return;
-              if (isHistoryView) {
-                const count = historyRef.current?.count ?? 0;
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  library.setHighlightedListIndex((prev) => {
-                    const next = Math.min(prev + 1, count - 1);
-                    document.querySelector(`.history-row[data-history-index="${next}"]`)?.scrollIntoView({ block: "nearest" });
-                    return next;
-                  });
-                } else if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  library.setHighlightedListIndex((prev) => {
-                    const next = Math.max(prev - 1, 0);
-                    document.querySelector(`.history-row[data-history-index="${next}"]`)?.scrollIntoView({ block: "nearest" });
-                    return next;
-                  });
-                } else if (e.key === "Enter" && highlightedListIndex >= 0 && highlightedListIndex < count) {
-                  e.preventDefault();
-                  if (e.shiftKey) {
-                    historyRef.current?.enqueueItem(highlightedListIndex);
-                  } else {
-                    historyRef.current?.playItem(highlightedListIndex);
-                  }
-                }
-              } else if (isListView) {
-                const list = view === "artists" ? filteredArtists : view === "albums" ? filteredAlbums : filteredTags;
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  library.setHighlightedListIndex((prev) => {
-                    const next = Math.min(prev + 1, list.length - 1);
-                    if (view === "albums") {
-                      document.querySelector(`.album-grid .album-card:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
-                    } else {
-                      document.querySelector(`.list .list-item:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
-                    }
-                    return next;
-                  });
-                } else if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  library.setHighlightedListIndex((prev) => {
-                    const next = Math.max(prev - 1, 0);
-                    if (view === "albums") {
-                      document.querySelector(`.album-grid .album-card:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
-                    } else {
-                      document.querySelector(`.list .list-item:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
-                    }
-                    return next;
-                  });
-                } else if (e.key === "Enter" && highlightedListIndex >= 0 && highlightedListIndex < list.length) {
-                  e.preventDefault();
-                  const item = list[highlightedListIndex];
-                  if (view === "artists") {
-                    library.handleArtistClick(item.id);
-                  } else if (view === "albums") {
-                    library.handleAlbumClick(item.id);
-                  } else {
-                    pushAndScroll();
-                    library.setSelectedTag(item.id);
-                    library.setSearchQuery("");
-                    library.setView("all");
-                  }
-                }
-              } else {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  library.setHighlightedIndex((prev) => {
-                    const next = Math.min(prev + 1, tracks.length - 1);
-                    trackListRef.current?.children[next + 1]?.scrollIntoView({ block: "nearest" });
-                    return next;
-                  });
-                } else if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  library.setHighlightedIndex((prev) => {
-                    const next = Math.max(prev - 1, 0);
-                    trackListRef.current?.children[next + 1]?.scrollIntoView({ block: "nearest" });
-                    return next;
-                  });
-                } else if (e.key === "Enter" && highlightedIndex >= 0 && highlightedIndex < tracks.length) {
-                  e.preventDefault();
-                  if (e.shiftKey) {
-                    handleEnqueue([tracks[highlightedIndex]]);
-                  } else {
-                    queueHook.playTracks([tracks[highlightedIndex]], 0);
-                  }
-                }
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder={
+                view === "tidal" ? "Search TIDAL..." :
+                view === "liked" ? "Search liked tracks..." :
+                view === "history" ? "Search history..." :
+                view === "artists" && selectedArtist === null ? "Search artists..." :
+                view === "albums" && selectedAlbum === null ? "Search albums..." :
+                view === "tags" && selectedTag === null ? "Search tags..." :
+                selectedArtist !== null && selectedAlbum === null ? `Search in ${artists.find(a => a.id === selectedArtist)?.name ?? "artist"}...` :
+                selectedAlbum !== null ? `Search in ${albums.find(a => a.id === selectedAlbum)?.title ?? "album"}...` :
+                selectedTag !== null ? `Search in ${tags.find(t => t.id === selectedTag)?.name ?? "tag"}...` :
+                "Search tracks..."
               }
-            }}
-          />
-          {searchQuery && (
-            <button
-              className="search-clear-btn"
-              onClick={() => { library.setSearchQuery(""); searchInputRef.current?.focus(); }}
-              title="Clear search"
-              tabIndex={-1}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          )}
-          <button
-            className="caption-mini-mode-btn"
-            onClick={mini.toggleMiniMode}
-            title={`Mini player (${navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+"}⇧M)`}
-          >
-            {"\u2013"}
-          </button>
-          <WindowControls />
+              title=""
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              value={searchQuery}
+              onChange={(e) => library.setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.ctrlKey || e.metaKey || e.altKey) return;
+                if (isHistoryView) {
+                  const count = historyRef.current?.count ?? 0;
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    library.setHighlightedListIndex((prev) => {
+                      const next = Math.min(prev + 1, count - 1);
+                      document.querySelector(`.history-row[data-history-index="${next}"]`)?.scrollIntoView({ block: "nearest" });
+                      return next;
+                    });
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    library.setHighlightedListIndex((prev) => {
+                      const next = Math.max(prev - 1, 0);
+                      document.querySelector(`.history-row[data-history-index="${next}"]`)?.scrollIntoView({ block: "nearest" });
+                      return next;
+                    });
+                  } else if (e.key === "Enter" && highlightedListIndex >= 0 && highlightedListIndex < count) {
+                    e.preventDefault();
+                    if (e.shiftKey) {
+                      historyRef.current?.enqueueItem(highlightedListIndex);
+                    } else {
+                      historyRef.current?.playItem(highlightedListIndex);
+                    }
+                  }
+                } else if (isListView) {
+                  const list = view === "artists" ? filteredArtists : view === "albums" ? filteredAlbums : filteredTags;
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    library.setHighlightedListIndex((prev) => {
+                      const next = Math.min(prev + 1, list.length - 1);
+                      if (view === "albums") {
+                        document.querySelector(`.album-grid .album-card:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
+                      } else {
+                        document.querySelector(`.list .list-item:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
+                      }
+                      return next;
+                    });
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    library.setHighlightedListIndex((prev) => {
+                      const next = Math.max(prev - 1, 0);
+                      if (view === "albums") {
+                        document.querySelector(`.album-grid .album-card:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
+                      } else {
+                        document.querySelector(`.list .list-item:nth-child(${next + 1})`)?.scrollIntoView({ block: "nearest" });
+                      }
+                      return next;
+                    });
+                  } else if (e.key === "Enter" && highlightedListIndex >= 0 && highlightedListIndex < list.length) {
+                    e.preventDefault();
+                    const item = list[highlightedListIndex];
+                    if (view === "artists") {
+                      library.handleArtistClick(item.id);
+                    } else if (view === "albums") {
+                      library.handleAlbumClick(item.id);
+                    } else {
+                      pushAndScroll();
+                      library.setSelectedTag(item.id);
+                      library.setSearchQuery("");
+                      library.setView("all");
+                    }
+                  }
+                } else {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    library.setHighlightedIndex((prev) => {
+                      const next = Math.min(prev + 1, tracks.length - 1);
+                      trackListRef.current?.children[next + 1]?.scrollIntoView({ block: "nearest" });
+                      return next;
+                    });
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    library.setHighlightedIndex((prev) => {
+                      const next = Math.max(prev - 1, 0);
+                      trackListRef.current?.children[next + 1]?.scrollIntoView({ block: "nearest" });
+                      return next;
+                    });
+                  } else if (e.key === "Enter" && highlightedIndex >= 0 && highlightedIndex < tracks.length) {
+                    e.preventDefault();
+                    if (e.shiftKey) {
+                      handleEnqueue([tracks[highlightedIndex]]);
+                    } else {
+                      queueHook.playTracks([tracks[highlightedIndex]], 0);
+                    }
+                  }
+                }
+              }}
+            />
+            {searchQuery && (
+              <button
+                className="search-clear-btn"
+                onClick={() => { library.setSearchQuery(""); searchInputRef.current?.focus(); }}
+                title="Clear search"
+                tabIndex={-1}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            )}
           </div>
+          <WindowControls position="right" onToggleMiniMode={mini.toggleMiniMode} />
         </div>
 
         {/* Content area */}
