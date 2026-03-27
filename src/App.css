@@ -1562,11 +1562,6 @@ body {
   color: var(--text-tertiary, #555);
 }
 
-.view-search-icon {
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-
 .view-search-bar {
   display: flex;
   align-items: center;
@@ -1576,19 +1571,39 @@ body {
   border-bottom: 1px solid var(--border-color, #1f2937);
 }
 
-.view-search-bar input {
+.view-search-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.view-search-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.view-search-input-wrap input {
   flex: 1;
   background: var(--bg-tertiary, #0d1b2a);
   border: 1px solid var(--border-color, #334);
   border-radius: 5px;
-  padding: 6px 10px;
+  padding: 6px 10px 6px 30px;
   color: inherit;
   font-size: 13px;
   outline: none;
 }
 
-.view-search-bar input:focus {
+.view-search-input-wrap input:focus {
   border-color: var(--accent-color, #58f);
+}
+
+.view-search-input-wrap .search-clear-btn {
+  position: absolute;
+  right: 6px;
 }
 
 /* Custom window controls for Windows/Linux */
@@ -3023,7 +3038,6 @@ body {
 /* Sort bar */
 .sort-bar {
   display: flex;
-  justify-content: space-between;
   align-items: flex-start;
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
@@ -3099,11 +3113,6 @@ body {
   border-color: #e44;
 }
 
-.sort-bar-collapsed {
-  padding: 2px 12px;
-  justify-content: flex-end;
-}
-
 .sort-bar-toggle {
   font-size: 10px !important;
   padding: 2px 6px !important;
@@ -3112,15 +3121,6 @@ body {
 
 .sort-bar-toggle:hover {
   opacity: 1;
-}
-
-/* Sort bar right group */
-.sort-bar-right {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  margin-left: auto;
 }
 
 /* View mode toggle */
@@ -4228,11 +4228,17 @@ body {
   color: var(--accent);
 }
 
-/* Breadcrumb actions */
+/* Breadcrumb right group */
+.breadcrumb-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .breadcrumb-actions {
   display: flex;
   gap: 6px;
-  margin-left: auto;
   padding-right: 16px;
 }
 

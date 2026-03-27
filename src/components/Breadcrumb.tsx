@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Artist, Album, Tag, Track, View } from "../types";
 
 interface BreadcrumbProps {
@@ -16,6 +17,7 @@ interface BreadcrumbProps {
   onSetView: (view: View) => void;
   onPlayAll: (tracks: Track[], startIndex: number) => void;
   onEnqueueAll: (tracks: Track[]) => void;
+  children?: ReactNode;
 }
 
 export function Breadcrumb({
@@ -24,6 +26,7 @@ export function Breadcrumb({
   onSetSelectedArtist, onSetSelectedAlbum, onSetSelectedTag,
   onSetView,
   onPlayAll, onEnqueueAll,
+  children,
 }: BreadcrumbProps) {
   return (
     <div className="breadcrumb">
@@ -70,12 +73,15 @@ export function Breadcrumb({
       ) : (
         <span>All Tracks</span>
       )}
-      {tracks.length > 0 && (selectedTag !== null || (view === "artists" && selectedArtist !== null)) && (
-        <div className="breadcrumb-actions">
-          <button className="action-btn" onClick={() => onPlayAll(sortedTracks.filter(t => t.liked !== -1), 0)}>Play All</button>
-          <button className="action-btn action-btn-secondary" onClick={() => onEnqueueAll(sortedTracks.filter(t => t.liked !== -1))}>Queue All</button>
-        </div>
-      )}
+      <div className="breadcrumb-right">
+        {tracks.length > 0 && (selectedTag !== null || (view === "artists" && selectedArtist !== null)) && (
+          <div className="breadcrumb-actions">
+            <button className="action-btn" onClick={() => onPlayAll(sortedTracks.filter(t => t.liked !== -1), 0)}>Play All</button>
+            <button className="action-btn action-btn-secondary" onClick={() => onEnqueueAll(sortedTracks.filter(t => t.liked !== -1))}>Queue All</button>
+          </div>
+        )}
+        {children}
+      </div>
     </div>
   );
 }

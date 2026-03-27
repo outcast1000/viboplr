@@ -1569,18 +1569,22 @@ function App() {
             onSetView={library.setView}
             onPlayAll={queueHook.playTracks}
             onEnqueueAll={handleEnqueue}
-          />
+          >
+            {view === "all" && <ViewModeToggle mode={library.trackViewMode} onChange={library.setTrackViewMode} />}
+            {view === "artists" && selectedArtist === null && <ViewModeToggle mode={library.artistViewMode} onChange={library.setArtistViewMode} />}
+            {view === "albums" && <ViewModeToggle mode={library.albumViewMode} onChange={library.setAlbumViewMode} />}
+            {view === "tags" && selectedTag === null && <ViewModeToggle mode={library.tagViewMode} onChange={library.setTagViewMode} />}
+            {view === "liked" && <ViewModeToggle mode={library.likedViewMode} onChange={library.setLikedViewMode} />}
+            {(view === "all" || view === "artists" || view === "albums" || view === "tags" || view === "liked") && !(view === "artists" && selectedArtist !== null) && !(view === "tags" && selectedTag !== null) && (
+              <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
+            )}
+          </Breadcrumb>
 
           {/* Artist list */}
           {view === "artists" && selectedArtist === null && (
             <>
-              <ViewSearchBar
-                query={viewSearch.getQuery("artists")}
-                onQueryChange={(q) => viewSearch.setQuery("artists", q)}
-                placeholder="Search artists..."
-              />
-              <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
-                {!library.sortBarCollapsed && (
+              {!library.sortBarCollapsed && (
+              <div className="sort-bar">
                 <div className="sort-bar-row">
                   <span className="sort-bar-label">Sort:</span>
                   <div className="sort-bar-group">
@@ -1600,12 +1604,13 @@ function App() {
                     >{"\u2665"} Liked first</button>
                   </div>
                 </div>
-                )}
-                <div className="sort-bar-right">
-                  <ViewModeToggle mode={library.artistViewMode} onChange={library.setArtistViewMode} />
-                  <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
-                </div>
               </div>
+              )}
+              <ViewSearchBar
+                query={viewSearch.getQuery("artists")}
+                onQueryChange={(q) => viewSearch.setQuery("artists", q)}
+                placeholder="Search artists..."
+              />
 
               {/* Artists: Basic view */}
               {library.artistViewMode === "basic" && (
@@ -1780,13 +1785,8 @@ function App() {
           {/* All albums view */}
           {view === "albums" && (
             <>
-              <ViewSearchBar
-                query={viewSearch.getQuery("albums")}
-                onQueryChange={(q) => viewSearch.setQuery("albums", q)}
-                placeholder="Search albums..."
-              />
-              <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
-                {!library.sortBarCollapsed && (
+              {!library.sortBarCollapsed && (
+              <div className="sort-bar">
                 <div className="sort-bar-row">
                   <span className="sort-bar-label">Sort:</span>
                   <div className="sort-bar-group">
@@ -1812,12 +1812,13 @@ function App() {
                     >{"\u2665"} Liked first</button>
                   </div>
                 </div>
-                )}
-                <div className="sort-bar-right">
-                  <ViewModeToggle mode={library.albumViewMode} onChange={library.setAlbumViewMode} />
-                  <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
-                </div>
               </div>
+              )}
+              <ViewSearchBar
+                query={viewSearch.getQuery("albums")}
+                onQueryChange={(q) => viewSearch.setQuery("albums", q)}
+                placeholder="Search albums..."
+              />
 
               {/* Albums: Basic view */}
               {library.albumViewMode === "basic" && (
@@ -1920,13 +1921,8 @@ function App() {
           {/* Tags list view */}
           {view === "tags" && selectedTag === null && (
             <>
-              <ViewSearchBar
-                query={viewSearch.getQuery("tags")}
-                onQueryChange={(q) => viewSearch.setQuery("tags", q)}
-                placeholder="Search tags..."
-              />
-              <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
-                {!library.sortBarCollapsed && (
+              {!library.sortBarCollapsed && (
+              <div className="sort-bar">
                 <div className="sort-bar-row">
                   <span className="sort-bar-label">Sort:</span>
                   <div className="sort-bar-group">
@@ -1946,12 +1942,13 @@ function App() {
                     >{"\u2665"} Liked first</button>
                   </div>
                 </div>
-                )}
-                <div className="sort-bar-right">
-                  <ViewModeToggle mode={library.tagViewMode} onChange={library.setTagViewMode} />
-                  <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
-                </div>
               </div>
+              )}
+              <ViewSearchBar
+                query={viewSearch.getQuery("tags")}
+                onQueryChange={(q) => viewSearch.setQuery("tags", q)}
+                placeholder="Search tags..."
+              />
 
               {/* Tags: Basic view */}
               {library.tagViewMode === "basic" && (
@@ -2120,14 +2117,8 @@ function App() {
           {/* All tracks view */}
           {view === "all" && (
             <>
-              <ViewSearchBar
-                query={viewSearch.getQuery("all")}
-                onQueryChange={(q) => viewSearch.setQuery("all", q)}
-                placeholder="Search tracks..."
-              />
-              <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
-                {!library.sortBarCollapsed && (
-                <>
+              {!library.sortBarCollapsed && (
+              <div className="sort-bar">
                 <div className="sort-bar-row">
                   <span className="sort-bar-label">Sort:</span>
                   <div className="sort-bar-group">
@@ -2179,13 +2170,13 @@ function App() {
                     </button>
                   </div>
                 </div>
-                </>
-                )}
-                <div className="sort-bar-right">
-                  <ViewModeToggle mode={library.trackViewMode} onChange={library.setTrackViewMode} />
-                  <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
-                </div>
               </div>
+              )}
+              <ViewSearchBar
+                query={viewSearch.getQuery("all")}
+                onQueryChange={(q) => viewSearch.setQuery("all", q)}
+                placeholder="Search tracks..."
+              />
 
               {/* Tracks: Basic view */}
               {library.trackViewMode === "basic" && (
@@ -2322,13 +2313,8 @@ function App() {
           {/* Liked tracks view */}
           {view === "liked" && (
             <>
-              <ViewSearchBar
-                query={viewSearch.getQuery("liked")}
-                onQueryChange={(q) => viewSearch.setQuery("liked", q)}
-                placeholder="Search liked tracks..."
-              />
-              <div className={`sort-bar${library.sortBarCollapsed ? " sort-bar-collapsed" : ""}`}>
-                {!library.sortBarCollapsed && (
+              {!library.sortBarCollapsed && (
+              <div className="sort-bar">
                 <div className="sort-bar-row">
                   <span className="sort-bar-label">Sort:</span>
                   <div className="sort-bar-group">
@@ -2358,12 +2344,13 @@ function App() {
                     </button>
                   </div>
                 </div>
-                )}
-                <div className="sort-bar-right">
-                  <ViewModeToggle mode={library.likedViewMode} onChange={library.setLikedViewMode} />
-                  <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
-                </div>
               </div>
+              )}
+              <ViewSearchBar
+                query={viewSearch.getQuery("liked")}
+                onQueryChange={(q) => viewSearch.setQuery("liked", q)}
+                placeholder="Search liked tracks..."
+              />
 
               {/* Liked: Basic view */}
               {library.likedViewMode === "basic" && (
