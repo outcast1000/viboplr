@@ -2480,6 +2480,7 @@ body {
   padding: 0 20px;
   gap: 16px;
   min-height: 0;
+  position: relative;
 }
 
 .now-scrobbled {
@@ -2495,6 +2496,7 @@ body {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  z-index: 1;
 }
 
 .now-art {
@@ -2579,9 +2581,11 @@ body {
 .now-controls {
   display: flex;
   gap: 8px;
-  flex: 0 0 auto;
-  justify-content: center;
   align-items: center;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .ctrl-btn {
@@ -2617,12 +2621,13 @@ body {
 }
 
 .now-right {
-  flex: 1 1 0;
+  margin-left: auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  min-width: 0;
+  flex-shrink: 0;
+  z-index: 1;
 }
 
 .now-volume {
