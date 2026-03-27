@@ -86,27 +86,40 @@ export function NowPlayingBar({
     };
     const progress = durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0;
     return (
-      <footer className="now-playing now-playing-mini" onMouseDown={handleDrag}>
+      <footer className="now-playing now-playing-mini" onMouseDown={handleDrag} onDoubleClick={(e) => {
+          if (!(e.target as HTMLElement).closest("button")) onToggleMiniMode();
+        }}>
         <div className="now-info">
-          {currentTrack ? (
-            <>
-              <span className="now-title">{currentTrack.title}</span>
-              <span className="now-artist">{currentTrack.artist_name || "Unknown"}</span>
-            </>
-          ) : (
-            <span className="now-title">No track playing</span>
+          {imagePath && <img className="now-mini-art" src={convertFileSrc(imagePath)} alt="" />}
+          {!imagePath && currentTrack && (
+            <span className="now-mini-art-fallback">{(currentTrack.title[0] ?? "?").toUpperCase()}</span>
           )}
+          <div className="now-mini-info-text">
+            {currentTrack ? (
+              <>
+                <span className="now-title">{currentTrack.title}</span>
+                <span className="now-artist">
+                  {currentTrack.artist_name || "Unknown"}
+                  {currentTrack.album_title && ` · ${currentTrack.album_title}`}
+                </span>
+              </>
+            ) : (
+              <span className="now-title">No track playing</span>
+            )}
+          </div>
         </div>
-        <div className="now-controls">
-          <button className="ctrl-btn" onClick={onPrevious} title="Previous">{"\u23EE"}</button>
-          <button className="ctrl-btn play-btn" onClick={onPause}>
-            {playing ? "\u23F8" : "\u25B6"}
-          </button>
-          <button className="ctrl-btn" onClick={onNext} title="Next">{"\u23ED"}</button>
+        <div className="mini-right">
+          <div className="now-controls">
+            <button className="ctrl-btn" onClick={onPrevious} title="Previous">{"\u23EE"}</button>
+            <button className="ctrl-btn play-btn" onClick={onPause}>
+              {playing ? "\u23F8" : "\u25B6"}
+            </button>
+            <button className="ctrl-btn" onClick={onNext} title="Next">{"\u23ED"}</button>
+          </div>
+          <span className="mini-separator" />
+          <button className="ctrl-btn mini-expand-btn" onClick={onToggleMiniMode} title="Exit mini mode">{"\u29C9"}</button>
+          <button className="ctrl-btn mini-close-btn" onClick={onClose} title="Close">{"\u23FB"}</button>
         </div>
-        <span className="mini-separator" />
-        <button className="ctrl-btn mini-expand-btn" onClick={onToggleMiniMode} title="Exit mini mode">{"\u26F6"}</button>
-        <button className="ctrl-btn mini-close-btn" onClick={onClose} title="Close">{"\u2715"}</button>
         <div className="mini-progress" style={{ width: `${progress}%` }} />
       </footer>
     );
