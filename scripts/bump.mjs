@@ -135,12 +135,18 @@ function updateVersionBadge(html) {
 }
 
 function updateDownloadUrls(html) {
-  // Replace links ending with #download-macos (from index.html: download.html#download-macos)
+  // Replace existing versioned GitHub release URLs
+  html = html.replace(
+    /https:\/\/github\.com\/outcast1000\/viboplr\/releases\/download\/v[^/]+\/Viboplr_[^"]*_aarch64\.dmg/g,
+    DMG_URL
+  );
+  html = html.replace(
+    /https:\/\/github\.com\/outcast1000\/viboplr\/releases\/download\/v[^/]+\/Viboplr_[^"]*_x64_en-US\.msi/g,
+    MSI_URL
+  );
+  // Replace placeholder anchor links (first-time setup)
   html = html.replace(/href="download\.html#download-macos"/g, `href="${DMG_URL}"`);
-  // Replace links ending with #download-windows (from index.html: download.html#download-windows)
   html = html.replace(/href="download\.html#download-windows"/g, `href="${MSI_URL}"`);
-  // Replace anchor-only download links in download.html (but not the id anchors on divs)
-  // Only match <a> tags with href="#download-macos" or href="#download-windows"
   html = html.replace(/(<a\b[^>]*?)href="#download-macos"/g, `$1href="${DMG_URL}"`);
   html = html.replace(/(<a\b[^>]*?)href="#download-windows"/g, `$1href="${MSI_URL}"`);
   return html;
