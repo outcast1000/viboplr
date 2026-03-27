@@ -86,6 +86,7 @@ fn sort_column_sql(field: Option<&str>) -> Option<String> {
         Some("path") => Some("t.path".to_string()),
         Some("year") => Some("COALESCE(al.year, 0)".to_string()),
         Some("quality") => Some("(CASE WHEN t.duration_secs > 0 AND t.file_size > 0 THEN t.file_size * 8.0 / t.duration_secs / 1000.0 ELSE 0 END)".to_string()),
+        Some("size") => Some("COALESCE(t.file_size, 0)".to_string()),
         Some("collection") => Some("COALESCE(co.name, '')".to_string()),
         Some("added") => Some("COALESCE(t.added_at, 0)".to_string()),
         Some("modified") => Some("COALESCE(t.modified_at, 0)".to_string()),
