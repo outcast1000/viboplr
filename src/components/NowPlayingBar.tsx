@@ -37,6 +37,8 @@ interface NowPlayingBarProps {
   positionSecs: number;
   durationSecs: number;
   scrobbled: boolean;
+  trackRank: number | null;
+  artistRank: number | null;
   volume: number;
   queueMode: "normal" | "loop" | "shuffle";
   autoContinueEnabled: boolean;
@@ -69,6 +71,7 @@ export function NowPlayingBar({
   waveformPeaks,
   currentTrack, playing,
   positionSecs, durationSecs, scrobbled,
+  trackRank, artistRank,
   volume, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
   imagePath, miniMode, onToggleMiniMode, onClose,
@@ -97,7 +100,10 @@ export function NowPlayingBar({
           <div className="now-mini-info-text">
             {currentTrack ? (
               <>
-                <span className="now-title">{currentTrack.title}</span>
+                <span className="now-title">
+                  {currentTrack.title}
+                  {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
+                </span>
                 <span className="now-artist">
                   {currentTrack.artist_name || "Unknown"}
                   {currentTrack.album_title && ` · ${currentTrack.album_title}`}
@@ -158,9 +164,13 @@ export function NowPlayingBar({
           <div className="now-info-text">
             {currentTrack ? (
               <>
-                <span className={`now-title${currentTrack.album_id ? " now-link" : ""}`} onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id) : undefined}>{currentTrack.title}</span>
+                <span className={`now-title${currentTrack.album_id ? " now-link" : ""}`} onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id) : undefined}>
+                  {currentTrack.title}
+                  {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
+                </span>
                 <span className="now-subtitle">
                   <span className="now-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : undefined}>{currentTrack.artist_name || "Unknown"}</span>
+                  {artistRank != null && artistRank <= 100 && <span className="now-rank-badge" title={`Artist rank #${artistRank}`}>#{artistRank}</span>}
                   {currentTrack.album_id && currentTrack.album_title && (
                     <><span className="now-sep"> — </span><span className="now-link" onClick={() => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id)}>{currentTrack.album_title}</span></>
                   )}

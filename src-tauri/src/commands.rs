@@ -691,6 +691,16 @@ pub fn reconnect_history_artist(state: State<'_, AppState>, history_artist_id: i
 }
 
 #[tauri::command]
+pub fn get_track_rank(state: State<'_, AppState>, track_id: i64) -> Result<Option<i64>, String> {
+    state.db.get_track_rank(track_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_artist_rank(state: State<'_, AppState>, artist_id: i64) -> Result<Option<i64>, String> {
+    state.db.get_artist_rank(artist_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_auto_continue_track(
     state: State<'_, AppState>,
     strategy: String,

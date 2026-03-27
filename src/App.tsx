@@ -87,6 +87,42 @@ function App() {
     playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
     playback.currentAssetUrl,
   );
+  const [trackRank, setTrackRank] = useState<number | null>(null);
+  const [artistRank, setArtistRank] = useState<number | null>(null);
+
+  useEffect(() => {
+    setTrackRank(null);
+    setArtistRank(null);
+    const track = playback.currentTrack;
+    if (!track) return;
+    let cancelled = false;
+    Promise.all([
+      invoke<number | null>("get_track_rank", { trackId: track.id }),
+      track.artist_id
+        ? invoke<number | null>("get_artist_rank", { artistId: track.artist_id })
+        : Promise.resolve(null),
+    ]).then(([tRank, aRank]) => {
+      if (!cancelled) { setTrackRank(tRank); setArtistRank(aRank); }
+    }).catch(console.error);
+    return () => { cancelled = true; };
+  }, [playback.currentTrack]);
+
+  useEffect(() => {
+    if (!playback.scrobbled) return;
+    const track = playback.currentTrack;
+    if (!track) return;
+    let cancelled = false;
+    Promise.all([
+      invoke<number | null>("get_track_rank", { trackId: track.id }),
+      track.artist_id
+        ? invoke<number | null>("get_artist_rank", { artistId: track.artist_id })
+        : Promise.resolve(null),
+    ]).then(([tRank, aRank]) => {
+      if (!cancelled) { setTrackRank(tRank); setArtistRank(aRank); }
+    }).catch(console.error);
+    return () => { cancelled = true; };
+  }, [playback.scrobbled]);
+
   const tidalStreamUrls = useRef<Map<number, string>>(new Map());
   const handlePlayWithTidal = useCallback((track: Track) => {
     const url = tidalStreamUrls.current.get(track.id);
@@ -2697,6 +2733,8 @@ function App() {
         positionSecs={playback.positionSecs}
         durationSecs={playback.durationSecs}
         scrobbled={playback.scrobbled}
+        trackRank={trackRank}
+        artistRank={artistRank}
         volume={playback.volume}
         queueMode={queueHook.queueMode}
         autoContinueEnabled={autoContinue.enabled}

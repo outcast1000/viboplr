@@ -1556,6 +1556,28 @@ impl Database {
         rows.collect()
     }
 
+    pub fn get_track_rank(&self, track_id: i64) -> SqlResult<Option<i64>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT (SELECT COUNT(*) + 1 FROM history_tracks ht2 WHERE ht2.play_count > ht.play_count) as rank
+             FROM history_tracks ht
+             WHERE ht.library_track_id = ?1 AND ht.play_count > 0",
+            params![track_id],
+            |row| row.get(0),
+        ).optional()
+    }
+
+    pub fn get_artist_rank(&self, artist_id: i64) -> SqlResult<Option<i64>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT (SELECT COUNT(*) + 1 FROM history_artists ha2 WHERE ha2.play_count > ha.play_count) as rank
+             FROM history_artists ha
+             WHERE ha.library_artist_id = ?1 AND ha.play_count > 0",
+            params![artist_id],
+            |row| row.get(0),
+        ).optional()
+    }
+
     /// Attempt to reconnect a ghost history track to a library track by canonical title+artist match.
     /// Returns the matched Track if found, or None if no match exists.
     pub fn reconnect_history_track(&self, history_track_id: i64) -> SqlResult<Option<Track>> {
@@ -2150,5 +2172,78 @@ mod tests {
         let recent = db.get_history_recent(10).unwrap();
         assert_eq!(recent.len(), 2);
         assert_eq!(recent[0].display_artist.as_deref(), Some("Кино"));
+    }
+
+    #[test]
+    fn test_track_rank() {
+        let db = test_db();
+        let a1 = db.get_or_create_artist("Artist A").unwrap();
+        let t1 = insert_track(&db, "/music/r1.mp3", "Top Track", Some(a1), None);
+        let t2 = insert_track(&db, "/music/r2.mp3", "Mid Track", Some(a1), None);
+        let t3 = insert_track(&db, "/music/r3.mp3", "Low Track", Some(a1), None);
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count, library_artist_id)
+                 VALUES ('artist a', 'Artist A', 1000, 1000, 15, ?1)",
+                params![a1],
+            ).unwrap();
+            let ha_id: i64 = conn.query_row(
+                "SELECT id FROM history_artists WHERE canonical_name = 'artist a'", [], |r| r.get(0),
+            ).unwrap();
+            for (title, track_id, count) in [
+                ("top track", t1, 10),
+                ("mid track", t2, 5),
+                ("low track", t3, 2),
+            ] {
+                conn.execute(
+                    "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count, library_track_id)
+                     VALUES (?1, ?2, ?3, 1000, 1000, ?4, ?5)",
+                    params![ha_id, title, title, count, track_id],
+                ).unwrap();
+            }
+        }
+
+        assert_eq!(db.get_track_rank(t1).unwrap(), Some(1));
+        assert_eq!(db.get_track_rank(t2).unwrap(), Some(2));
+        assert_eq!(db.get_track_rank(t3).unwrap(), Some(3));
+    }
+
+    #[test]
+    fn test_track_rank_no_history() {
+        let db = test_db();
+        let a1 = db.get_or_create_artist("Artist A").unwrap();
+        let t1 = insert_track(&db, "/music/norank.mp3", "No History", Some(a1), None);
+
+        assert_eq!(db.get_track_rank(t1).unwrap(), None);
+    }
+
+    #[test]
+    fn test_artist_rank() {
+        let db = test_db();
+        let a1 = db.get_or_create_artist("Top Artist").unwrap();
+        let a2 = db.get_or_create_artist("Low Artist").unwrap();
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count, library_artist_id)
+                 VALUES ('top artist', 'Top Artist', 1000, 1000, 20, ?1)",
+                params![a1],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count, library_artist_id)
+                 VALUES ('low artist', 'Low Artist', 1000, 1000, 5, ?1)",
+                params![a2],
+            ).unwrap();
+        }
+
+        assert_eq!(db.get_artist_rank(a1).unwrap(), Some(1));
+        assert_eq!(db.get_artist_rank(a2).unwrap(), Some(2));
+
+        // No history artist
+        let a3 = db.get_or_create_artist("New Artist").unwrap();
+        assert_eq!(db.get_artist_rank(a3).unwrap(), None);
     }
 }
