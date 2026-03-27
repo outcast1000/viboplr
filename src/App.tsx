@@ -1604,8 +1604,10 @@ function App() {
                         onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
                       >{a.liked === 1 ? "\u2665" : "\u2661"}</span>
                       <ArtistCardArt artist={a} imagePath={artistImageCache.images[a.id]} onVisible={artistImageCache.fetchOnDemand} className="entity-list-img circular" />
-                      <span className="entity-list-name">{a.name}</span>
-                      <span className="entity-list-count">{a.track_count} tracks</span>
+                      <div className="entity-list-info">
+                        <span className="entity-list-name">{a.name}</span>
+                        <span className="entity-list-secondary">{a.track_count} tracks</span>
+                      </div>
                     </div>
                   ))}
                   {filteredArtists.length === 0 && (
@@ -1822,11 +1824,13 @@ function App() {
                         onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
                       >{a.liked === 1 ? "\u2665" : "\u2661"}</span>
                       <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
-                      <span className="entity-list-name">{a.title}</span>
-                      <span className="entity-list-secondary">
-                        {a.artist_name && <>{a.artist_name} {"\u00B7"} </>}
-                        {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
-                      </span>
+                      <div className="entity-list-info">
+                        <span className="entity-list-name">{a.title}</span>
+                        <span className="entity-list-secondary">
+                          {a.artist_name && <>{a.artist_name} {"\u00B7"} </>}
+                          {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
+                        </span>
+                      </div>
                     </div>
                   ))}
                   {filteredAlbums.length === 0 && (
@@ -1944,8 +1948,10 @@ function App() {
                         onClick={(e) => { e.stopPropagation(); handleToggleTagLike(t.id); }}
                       >{t.liked === 1 ? "\u2665" : "\u2661"}</span>
                       <TagCardArt tag={t} imagePath={tagImageCache.images[t.id]} onVisible={tagImageCache.fetchOnDemand} className="entity-list-img" />
-                      <span className="entity-list-name">{t.name}</span>
-                      <span className="entity-list-count">{t.track_count} tracks</span>
+                      <div className="entity-list-info">
+                        <span className="entity-list-name">{t.name}</span>
+                        <span className="entity-list-secondary">{t.track_count} tracks</span>
+                      </div>
                     </div>
                   ))}
                   {filteredTags.length === 0 && (
