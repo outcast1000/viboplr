@@ -4438,7 +4438,7 @@ body {
 .app.mini-mode .now-playing {
   grid-column: 1;
   grid-row: 1;
-  height: 100vh;
+  height: 52px;
   min-height: 0;
   border-top: none;
   background: rgba(13, 27, 42, 0.82);

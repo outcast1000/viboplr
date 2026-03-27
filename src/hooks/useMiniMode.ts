@@ -157,24 +157,29 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
   const miniSettledRef = useRef(false);
   useEffect(() => {
     if (!miniMode) { miniSettledRef.current = false; return; }
-    const frame = requestAnimationFrame(async () => {
-      const win = getCurrentWindow();
-      const newWidth = measureMiniFooter();
-      if (miniSettledRef.current) {
-        // Track changed while in mini mode — pin right edge
+    if (!miniSettledRef.current) {
+      // Just entered mini mode — delay measurement to let window resize settle (Windows/WebView2)
+      const timer = setTimeout(async () => {
+        const win = getCurrentWindow();
+        const newWidth = measureMiniFooter();
+        await win.setSize(new LogicalSize(newWidth, MINI_HEIGHT));
+        miniSettledRef.current = true;
+      }, 60);
+      return () => clearTimeout(timer);
+    } else {
+      // Track changed while in mini mode — pin right edge
+      const frame = requestAnimationFrame(async () => {
+        const win = getCurrentWindow();
+        const newWidth = measureMiniFooter();
         const factor = await win.scaleFactor();
         const size = await win.innerSize();
         const pos = await win.outerPosition();
         const rightEdge = pos.x / factor + size.width / factor;
         await win.setSize(new LogicalSize(newWidth, MINI_HEIGHT));
         await win.setPosition(new LogicalPosition(rightEdge - newWidth, pos.y / factor));
-      } else {
-        // Just entered mini mode — set size only, keep position
-        await win.setSize(new LogicalSize(newWidth, MINI_HEIGHT));
-        miniSettledRef.current = true;
-      }
-    });
-    return () => cancelAnimationFrame(frame);
+      });
+      return () => cancelAnimationFrame(frame);
+    }
   }, [miniMode, currentTrack]);
 
   // Save window size and position on resize/move
