@@ -135,6 +135,38 @@ impl LastfmClient {
         Ok(())
     }
 
+    /// Fetch a page of recent tracks for a user (public endpoint, no auth needed).
+    pub fn get_recent_tracks(
+        &self,
+        username: &str,
+        page: u32,
+        limit: u32,
+    ) -> Result<crate::models::LastfmRecentTracksResponse, LastfmError> {
+        let resp = self.client
+            .get(BASE_URL)
+            .query(&[
+                ("method", "user.getRecentTracks"),
+                ("user", username),
+                ("api_key", &self.api_key),
+                ("page", &page.to_string()),
+                ("limit", &limit.to_string()),
+                ("format", "json"),
+            ])
+            .send()
+            .map_err(|e| LastfmError(format!("HTTP error: {}", e)))?;
+
+        let body: serde_json::Value = resp.json()
+            .map_err(|e| LastfmError(format!("JSON error: {}", e)))?;
+
+        if let Some(err) = body.get("error") {
+            let msg = body.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
+            return Err(LastfmError(format!("Last.fm error {}: {}", err, msg)));
+        }
+
+        serde_json::from_value(body)
+            .map_err(|e| LastfmError(format!("Parse error: {}", e)))
+    }
+
     /// Scrobble a track to Last.fm.
     pub fn scrobble(
         &self,

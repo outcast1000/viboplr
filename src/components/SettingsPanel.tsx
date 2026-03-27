@@ -89,6 +89,12 @@ interface SettingsPanelProps {
   lastfmUsername: string | null;
   onLastfmConnect: () => void;
   onLastfmDisconnect: () => void;
+  onLastfmImportHistory: () => void;
+  onLastfmCancelImport: () => void;
+  lastfmImporting: boolean;
+  lastfmImportProgress: { page: number; total_pages: number; imported: number; skipped: number } | null;
+  lastfmImportResult: { imported: number; skipped: number } | null;
+  onLastfmImportResultDismiss: () => void;
   downloadFormat: string;
   onDownloadFormatChange: (format: string) => void;
   tidalEnabled: boolean;
@@ -104,7 +110,7 @@ interface ProviderFormData {
   trackUrl: string;
 }
 
-type SettingsTab = "general" | "providers" | "about" | "debug";
+type SettingsTab = "general" | "lastfm" | "providers" | "about" | "debug";
 
 export function SettingsPanel({
   searchProviders,
@@ -126,6 +132,12 @@ export function SettingsPanel({
   lastfmUsername,
   onLastfmConnect,
   onLastfmDisconnect,
+  onLastfmImportHistory,
+  onLastfmCancelImport,
+  lastfmImporting,
+  lastfmImportProgress,
+  lastfmImportResult,
+  onLastfmImportResultDismiss,
   downloadFormat,
   onDownloadFormatChange,
   tidalEnabled,
@@ -207,8 +219,11 @@ export function SettingsPanel({
 
   const isEditing = editingId !== null || adding;
 
+  const [showImportModal, setShowImportModal] = useState(false);
+
   const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
     { key: "general", label: "General", icon: navIcons.general },
+    { key: "lastfm", label: "Last.fm", icon: <>{IconLastfm({ size: 18 })}</> },
     { key: "providers", label: "Providers", icon: navIcons.providers },
     { key: "about", label: "About", icon: navIcons.about },
     { key: "debug", label: "Debug", icon: navIcons.debug },
@@ -287,23 +302,6 @@ export function SettingsPanel({
                   <div className="settings-card">
                     <div className="settings-row">
                       <div className="settings-row-info">
-                        <span className="settings-label">Last.fm</span>
-                        <span className="settings-description">
-                          {lastfmConnected
-                            ? <>Scrobbling as <strong style={{ color: "#d51007" }}>{lastfmUsername}</strong></>
-                            : "Connect to scrobble your plays"
-                          }
-                        </span>
-                      </div>
-                      {lastfmConnected ? (
-                        <button className="settings-btn-secondary" onClick={onLastfmDisconnect}>Disconnect</button>
-                      ) : (
-                        <button className="settings-btn-accent" onClick={onLastfmConnect} style={{ background: "#d51007", borderColor: "#d51007" }}>Connect</button>
-                      )}
-                    </div>
-                    <div className="settings-card-divider" />
-                    <div className="settings-row">
-                      <div className="settings-row-info">
                         <span className="settings-label">TIDAL</span>
                         <span className="settings-description">Stream from TIDAL catalog</span>
                       </div>
@@ -346,6 +344,105 @@ export function SettingsPanel({
                     </div>
                   </div>
                 </div>
+              </>
+            )}
+
+            {settingsTab === "lastfm" && (
+              <>
+                <div className="settings-group">
+                  <div className="settings-group-title">Account</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Connection</span>
+                        <span className="settings-description">
+                          {lastfmConnected
+                            ? <>Scrobbling as <strong style={{ color: "#d51007" }}>{lastfmUsername}</strong></>
+                            : "Connect to scrobble your plays"
+                          }
+                        </span>
+                      </div>
+                      {lastfmConnected ? (
+                        <button className="settings-btn-secondary" onClick={onLastfmDisconnect}>Disconnect</button>
+                      ) : (
+                        <button className="settings-btn-accent" onClick={onLastfmConnect} style={{ background: "#d51007", borderColor: "#d51007" }}>Connect</button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="settings-group">
+                  <div className="settings-group-title">History</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Import scrobble history</span>
+                        <span className="settings-description">
+                          Import your complete listening history from Last.fm
+                        </span>
+                      </div>
+                      <button
+                        className="settings-btn-secondary"
+                        onClick={() => { setShowImportModal(true); onLastfmImportHistory(); }}
+                        disabled={!lastfmConnected || lastfmImporting}
+                      >
+                        Import
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {showImportModal && (
+                  <div className="lastfm-import-modal-overlay" onClick={() => { if (!lastfmImporting) { setShowImportModal(false); onLastfmImportResultDismiss(); } }}>
+                    <div className="lastfm-import-modal" onClick={e => e.stopPropagation()}>
+                      <h3>Import Last.fm History</h3>
+
+                      {lastfmImporting && lastfmImportProgress && (
+                        <div className="lastfm-import-progress">
+                          <div className="lastfm-import-progress-bar">
+                            <div
+                              className="lastfm-import-progress-fill"
+                              style={{ width: `${Math.round((lastfmImportProgress.page / lastfmImportProgress.total_pages) * 100)}%` }}
+                            />
+                          </div>
+                          <div className="lastfm-import-stats">
+                            <span>Page {lastfmImportProgress.page} of {lastfmImportProgress.total_pages}</span>
+                            <span>{lastfmImportProgress.imported} imported, {lastfmImportProgress.skipped} skipped</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {lastfmImporting && !lastfmImportProgress && (
+                        <div className="lastfm-import-progress">
+                          <span className="lastfm-import-status">Connecting to Last.fm...</span>
+                        </div>
+                      )}
+
+                      {!lastfmImporting && lastfmImportResult && (
+                        <div className="lastfm-import-done">
+                          <span className="lastfm-import-status">Import complete</span>
+                          <span className="lastfm-import-stats-final">
+                            {lastfmImportResult.imported} imported, {lastfmImportResult.skipped} skipped
+                          </span>
+                        </div>
+                      )}
+
+                      {!lastfmImporting && !lastfmImportResult && (
+                        <div className="lastfm-import-done">
+                          <span className="lastfm-import-status">Import cancelled</span>
+                        </div>
+                      )}
+
+                      <div className="lastfm-import-modal-actions">
+                        {lastfmImporting ? (
+                          <button className="settings-btn-secondary" onClick={onLastfmCancelImport}>Cancel</button>
+                        ) : (
+                          <button className="settings-btn-accent" onClick={() => { setShowImportModal(false); onLastfmImportResultDismiss(); }}>Close</button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 

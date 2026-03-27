@@ -206,3 +206,69 @@ pub struct LastfmStatus {
     pub connected: bool,
     pub username: Option<String>,
 }
+
+// --- Last.fm user.getRecentTracks response ---
+
+#[derive(Debug, Deserialize)]
+pub struct LastfmRecentTracksResponse {
+    pub recenttracks: LastfmRecentTracks,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LastfmRecentTracks {
+    pub track: Vec<LastfmRecentTrack>,
+    #[serde(rename = "@attr")]
+    pub attr: LastfmRecentTracksAttr,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LastfmRecentTracksAttr {
+    pub page: String,
+    #[serde(rename = "totalPages")]
+    pub total_pages: String,
+    pub total: String,
+    #[serde(rename = "perPage")]
+    pub per_page: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LastfmRecentTrack {
+    pub artist: LastfmRecentTrackArtist,
+    pub name: String,
+    pub album: LastfmRecentTrackAlbum,
+    pub date: Option<LastfmRecentTrackDate>,
+    #[serde(rename = "@attr")]
+    pub attr: Option<LastfmRecentTrackNowPlaying>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LastfmRecentTrackArtist {
+    #[serde(rename = "#text")]
+    pub text: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LastfmRecentTrackAlbum {
+    #[serde(rename = "#text")]
+    pub text: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LastfmRecentTrackDate {
+    pub uts: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LastfmRecentTrackNowPlaying {
+    pub nowplaying: String,
+}
+
+// --- Last.fm import progress event ---
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LastfmImportProgress {
+    pub page: u32,
+    pub total_pages: u32,
+    pub imported: u64,
+    pub skipped: u64,
+}

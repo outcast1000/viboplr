@@ -1403,6 +1403,83 @@ impl Database {
         Ok(())
     }
 
+    /// Batch-insert history plays from Last.fm import.
+    /// Each entry is (artist_name, track_title, played_at_unix).
+    /// Returns (imported, skipped) counts.
+    pub fn record_history_plays_batch(&self, plays: &[(String, String, i64)]) -> SqlResult<(u64, u64)> {
+        let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+        let mut imported: u64 = 0;
+        let mut skipped: u64 = 0;
+
+        for (artist_name, track_title, played_at) in plays {
+            let canonical_artist = strip_diacritics(&artist_name.to_lowercase());
+            let canonical_title = strip_diacritics(&track_title.to_lowercase());
+
+            // Upsert history_artists with MIN/MAX for timestamps
+            tx.execute(
+                "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count, library_artist_id)
+                 VALUES (?1, ?2, ?3, ?3, 0, NULL)
+                 ON CONFLICT(canonical_name) DO UPDATE SET
+                   first_played_at = MIN(history_artists.first_played_at, excluded.first_played_at),
+                   last_played_at = MAX(history_artists.last_played_at, excluded.last_played_at)",
+                params![canonical_artist, artist_name, played_at],
+            )?;
+            let history_artist_id: i64 = tx.query_row(
+                "SELECT id FROM history_artists WHERE canonical_name = ?1",
+                params![canonical_artist],
+                |row| row.get(0),
+            )?;
+
+            // Upsert history_tracks with MIN/MAX for timestamps
+            tx.execute(
+                "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count, library_track_id)
+                 VALUES (?1, ?2, ?3, ?4, ?4, 0, NULL)
+                 ON CONFLICT(history_artist_id, canonical_title) DO UPDATE SET
+                   first_played_at = MIN(history_tracks.first_played_at, excluded.first_played_at),
+                   last_played_at = MAX(history_tracks.last_played_at, excluded.last_played_at)",
+                params![history_artist_id, canonical_title, track_title, played_at],
+            )?;
+            let history_track_id: i64 = tx.query_row(
+                "SELECT id FROM history_tracks WHERE history_artist_id = ?1 AND canonical_title = ?2",
+                params![history_artist_id, canonical_title],
+                |row| row.get(0),
+            )?;
+
+            // Exact-timestamp dedup: skip if this exact play already exists
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM history_plays WHERE history_track_id = ?1 AND played_at = ?2)",
+                params![history_track_id, played_at],
+                |row| row.get(0),
+            )?;
+            if exists {
+                skipped += 1;
+                continue;
+            }
+
+            // Insert play record with explicit timestamp
+            tx.execute(
+                "INSERT INTO history_plays (history_track_id, played_at) VALUES (?1, ?2)",
+                params![history_track_id, played_at],
+            )?;
+
+            // Update denormalized counts
+            tx.execute(
+                "UPDATE history_tracks SET play_count = play_count + 1, last_played_at = MAX(last_played_at, ?2) WHERE id = ?1",
+                params![history_track_id, played_at],
+            )?;
+            tx.execute(
+                "UPDATE history_artists SET play_count = play_count + 1, last_played_at = MAX(last_played_at, ?2) WHERE id = ?1",
+                params![history_artist_id, played_at],
+            )?;
+
+            imported += 1;
+        }
+
+        tx.commit()?;
+        Ok((imported, skipped))
+    }
+
     pub fn get_history_recent(&self, limit: i64) -> SqlResult<Vec<HistoryEntry>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(

@@ -953,6 +953,75 @@ body {
   transition: width 0.2s;
 }
 
+/* Last.fm import modal */
+.lastfm-import-modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+  border-radius: 12px;
+}
+.lastfm-import-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  width: 380px;
+  max-width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.lastfm-import-modal h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.lastfm-import-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lastfm-import-progress-bar {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.lastfm-import-progress-fill {
+  height: 100%;
+  background: #d51007;
+  transition: width 0.3s;
+  border-radius: 3px;
+}
+.lastfm-import-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.lastfm-import-status {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.lastfm-import-done {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lastfm-import-stats-final {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.lastfm-import-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* Debug timing table */
 .debug-timing-section {
   margin-bottom: 16px;

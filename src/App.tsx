@@ -191,6 +191,9 @@ function App() {
   const [removeCollectionConfirm, setRemoveCollectionConfirm] = useState<Collection | null>(null);
   const [lastfmConnected, setLastfmConnected] = useState(false);
   const [lastfmUsername, setLastfmUsername] = useState<string | null>(null);
+  const [lastfmImporting, setLastfmImporting] = useState(false);
+  const [lastfmImportProgress, setLastfmImportProgress] = useState<{ page: number; total_pages: number; imported: number; skipped: number } | null>(null);
+  const [lastfmImportResult, setLastfmImportResult] = useState<{ imported: number; skipped: number } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState("flac");
@@ -479,6 +482,28 @@ function App() {
       await store.set("lastfmUsername", null);
     });
     return () => { unlisten.then(f => f()); };
+  }, []);
+
+  useEffect(() => {
+    const u1 = listen<{ page: number; total_pages: number; imported: number; skipped: number }>("lastfm-import-progress", (e) => {
+      setLastfmImportProgress(e.payload);
+    });
+    const u2 = listen<{ imported: number; skipped: number }>("lastfm-import-complete", (e) => {
+      setLastfmImporting(false);
+      setLastfmImportProgress(null);
+      setLastfmImportResult(e.payload);
+      addLog(`Last.fm import complete: ${e.payload.imported} imported, ${e.payload.skipped} skipped`);
+      historyRef.current?.reload();
+    });
+    const u3 = listen<string>("lastfm-import-error", (e) => {
+      setLastfmImporting(false);
+      setLastfmImportProgress(null);
+      if (e.payload !== "cancelled") {
+        addLog(`Last.fm import error: ${e.payload}`);
+      }
+      historyRef.current?.reload();
+    });
+    return () => { u1.then(f => f()); u2.then(f => f()); u3.then(f => f()); };
   }, []);
 
   // Fetch images for selected entities
@@ -1187,6 +1212,20 @@ function App() {
     await store.set("lastfmUsername", null);
   }
 
+  function handleLastfmImportHistory() {
+    setLastfmImporting(true);
+    setLastfmImportProgress(null);
+    setLastfmImportResult(null);
+    invoke("lastfm_import_history").catch((e) => {
+      setLastfmImporting(false);
+      addLog(`Last.fm import failed: ${e}`);
+    });
+  }
+
+  function handleLastfmCancelImport() {
+    invoke("lastfm_cancel_import").catch(console.error);
+  }
+
   async function handleResyncCollection(collectionId: number) {
     await invoke("resync_collection", { collectionId });
   }
@@ -1468,6 +1507,12 @@ function App() {
           lastfmUsername={lastfmUsername}
           onLastfmConnect={handleLastfmConnect}
           onLastfmDisconnect={handleLastfmDisconnect}
+          onLastfmImportHistory={handleLastfmImportHistory}
+          onLastfmCancelImport={handleLastfmCancelImport}
+          lastfmImporting={lastfmImporting}
+          lastfmImportProgress={lastfmImportProgress}
+          lastfmImportResult={lastfmImportResult}
+          onLastfmImportResultDismiss={() => setLastfmImportResult(null)}
           downloadFormat={downloadFormat}
           onDownloadFormatChange={handleDownloadFormatChange}
           tidalEnabled={tidalEnabled}

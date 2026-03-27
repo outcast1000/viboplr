@@ -7,6 +7,7 @@ export interface HistoryViewHandle {
   count: number;
   playItem(index: number): void;
   enqueueItem(index: number): void;
+  reload(): void;
 }
 
 interface HistoryViewProps {
@@ -57,7 +58,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     });
   }, [artistImages]);
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 86400;
     Promise.all([
       invoke<HistoryMostPlayed[]>("get_history_most_played", { limit: 20 }),
@@ -71,6 +72,8 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
       setTopArtists(artists);
     }).catch(console.error);
   }, []);
+
+  useEffect(() => { loadData(); }, []);
 
   // Server-side search when query is active
   const [searchedArtists, setSearchedArtists] = useState<HistoryArtistStats[] | null>(null);
@@ -202,7 +205,8 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
         enqueueTrackById(item.libraryTrackId, item.historyTrackId);
       }
     },
-  }), [flatItems]);
+    reload: loadData,
+  }), [flatItems, loadData]);
 
   let flatIndex = 0;
 

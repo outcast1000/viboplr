@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter, State};
@@ -41,6 +42,7 @@ pub struct AppState {
     pub track_download_manager: Arc<DownloadManager>,
     pub lastfm: LastfmClient,
     pub lastfm_session: Mutex<Option<(String, String)>>,  // (session_key, username)
+    pub lastfm_importing: Arc<AtomicBool>,
 }
 
 fn detect_image_format(data: &[u8]) -> &'static str {
@@ -1321,6 +1323,111 @@ pub fn lastfm_scrobble(state: State<'_, AppState>, app: AppHandle, track_id: i64
             }
         }
     });
+}
+
+#[tauri::command]
+pub fn lastfm_import_history(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+    // Concurrency guard
+    if state.lastfm_importing.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+        return Err("Import already in progress".to_string());
+    }
+
+    let session = state.lastfm_session.lock().unwrap().clone();
+    let (_, username) = session.ok_or("Not connected to Last.fm")?;
+
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    let db = state.db.clone();
+    let app_handle = app.clone();
+    let importing_flag = state.lastfm_importing.clone();
+
+    thread::spawn(move || {
+        let mut total_imported: u64 = 0;
+        let mut total_skipped: u64 = 0;
+        let mut page: u32 = 1;
+        let limit: u32 = 200;
+
+        let result: Result<(), String> = (|| {
+            // First call to get total pages
+            let first_resp = lastfm.get_recent_tracks(&username, 1, limit)
+                .map_err(|e| e.to_string())?;
+            let total_pages: u32 = first_resp.recenttracks.attr.total_pages.parse().unwrap_or(1);
+
+            // Process first page
+            let plays: Vec<(String, String, i64)> = first_resp.recenttracks.track.iter()
+                .filter(|t| t.date.is_some()) // skip "now playing"
+                .filter_map(|t| {
+                    t.date.as_ref().and_then(|d| d.uts.parse::<i64>().ok())
+                        .map(|ts| (t.artist.text.clone(), t.name.clone(), ts))
+                })
+                .collect();
+
+            if !plays.is_empty() {
+                let (imp, skip) = db.record_history_plays_batch(&plays).map_err(|e| e.to_string())?;
+                total_imported += imp;
+                total_skipped += skip;
+            }
+
+            let _ = app_handle.emit("lastfm-import-progress", LastfmImportProgress {
+                page: 1, total_pages, imported: total_imported, skipped: total_skipped,
+            });
+
+            page = 2;
+            while page <= total_pages {
+                // Check for cancellation
+                if !importing_flag.load(Ordering::SeqCst) {
+                    return Err("cancelled".to_string());
+                }
+
+                std::thread::sleep(std::time::Duration::from_millis(200));
+
+                let resp = lastfm.get_recent_tracks(&username, page, limit)
+                    .map_err(|e| e.to_string())?;
+
+                let plays: Vec<(String, String, i64)> = resp.recenttracks.track.iter()
+                    .filter(|t| t.date.is_some())
+                    .filter_map(|t| {
+                        t.date.as_ref().and_then(|d| d.uts.parse::<i64>().ok())
+                            .map(|ts| (t.artist.text.clone(), t.name.clone(), ts))
+                    })
+                    .collect();
+
+                if !plays.is_empty() {
+                    let (imp, skip) = db.record_history_plays_batch(&plays).map_err(|e| e.to_string())?;
+                    total_imported += imp;
+                    total_skipped += skip;
+                }
+
+                let _ = app_handle.emit("lastfm-import-progress", LastfmImportProgress {
+                    page, total_pages, imported: total_imported, skipped: total_skipped,
+                });
+
+                page += 1;
+            }
+
+            Ok(())
+        })();
+
+        importing_flag.store(false, Ordering::SeqCst);
+
+        match result {
+            Ok(()) => {
+                let _ = app_handle.emit("lastfm-import-complete", serde_json::json!({
+                    "imported": total_imported,
+                    "skipped": total_skipped,
+                }));
+            }
+            Err(e) => {
+                let _ = app_handle.emit("lastfm-import-error", e);
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn lastfm_cancel_import(state: State<'_, AppState>) {
+    state.lastfm_importing.store(false, Ordering::SeqCst);
 }
 
 // --- Download commands ---

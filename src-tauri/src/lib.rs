@@ -91,6 +91,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::lastfm_get_status,
         commands::lastfm_now_playing,
         commands::lastfm_scrobble,
+        commands::lastfm_import_history,
+        commands::lastfm_cancel_import,
         commands::download_track,
         commands::download_album,
         commands::get_download_status,
@@ -171,6 +173,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::lastfm_get_status,
         commands::lastfm_now_playing,
         commands::lastfm_scrobble,
+        commands::lastfm_import_history,
+        commands::lastfm_cancel_import,
         commands::download_track,
         commands::download_album,
         commands::get_download_status,
@@ -610,6 +614,7 @@ pub fn run() {
                     track_download_manager: dl_manager,
                     lastfm: crate::lastfm::LastfmClient::new(crate::commands::LASTFM_API_KEY, crate::commands::LASTFM_API_SECRET),
                     lastfm_session: Mutex::new(None),
+                    lastfm_importing: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 });
             });
 
