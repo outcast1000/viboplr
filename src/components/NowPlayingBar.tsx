@@ -86,7 +86,9 @@ export function NowPlayingBar({
     };
     const progress = durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0;
     return (
-      <footer className="now-playing now-playing-mini" onMouseDown={handleDrag}>
+      <footer className="now-playing now-playing-mini" onMouseDown={handleDrag} onDoubleClick={(e) => {
+          if (!(e.target as HTMLElement).closest("button")) onToggleMiniMode();
+        }}>
         <div className="now-info">
           {imagePath && <img className="now-mini-art" src={convertFileSrc(imagePath)} alt="" />}
           {!imagePath && currentTrack && (
