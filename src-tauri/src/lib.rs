@@ -103,6 +103,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::save_track_as_copy,
         commands::get_cached_waveform,
         commands::cache_waveform,
+        commands::open_devtools,
     ]
 }
 
@@ -185,6 +186,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::save_track_as_copy,
         commands::get_cached_waveform,
         commands::cache_waveform,
+        commands::open_devtools,
     ]
 }
 

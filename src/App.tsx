@@ -553,6 +553,13 @@ function App() {
       const s = shortcutStateRef.current;
       const isInput = (e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA";
 
+      // F12 or Ctrl+Shift+I: open devtools
+      if (e.key === "F12" || (e.ctrlKey && e.shiftKey && e.key === "I")) {
+        e.preventDefault();
+        invoke("open_devtools");
+        return;
+      }
+
       // Alt+Arrow: navigation history
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
         if (e.key === "ArrowLeft") { e.preventDefault(); goBackRef.current(); return; }

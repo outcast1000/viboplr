@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::db::Database;
 use crate::downloader::{DownloadFormat, DownloadManager, DownloadRequest};
@@ -52,6 +52,15 @@ fn detect_image_format(data: &[u8]) -> &'static str {
         "jpg"
     } else {
         "png"
+    }
+}
+
+// --- Debug commands ---
+
+#[tauri::command]
+pub fn open_devtools(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        window.open_devtools();
     }
 }
 
