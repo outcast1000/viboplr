@@ -13,7 +13,6 @@ export function useQueue(
   const [queueMode, setQueueMode] = useState<"normal" | "loop" | "shuffle">("normal");
   const [shuffleOrder, setShuffleOrder] = useState<number[]>([]);
   const [shufflePosition, setShufflePosition] = useState(0);
-  const [showQueue, setShowQueue] = useState(false);
   const [playlistName, setPlaylistName] = useState<string | null>(null);
 
   const queueRef = useRef(queue);
@@ -33,19 +32,18 @@ export function useQueue(
   useEffect(() => { if (restoredRef.current) store.set("queueTrackIds", queue.map(t => t.id)); }, [queue]);
   useEffect(() => { if (restoredRef.current) store.set("queueIndex", queueIndex); }, [queueIndex]);
   useEffect(() => { if (restoredRef.current) store.set("queueMode", queueMode); }, [queueMode]);
-  useEffect(() => { if (restoredRef.current) store.set("showQueue", showQueue); }, [showQueue]);
   useEffect(() => { if (restoredRef.current) store.set("playlistName", playlistName); }, [playlistName]);
 
   // Auto-scroll queue panel to current track
   useEffect(() => {
-    if (showQueue && queueIndex >= 0) {
+    if (queueIndex >= 0) {
       requestAnimationFrame(() => {
         const list = queuePanelRef.current?.querySelector(".queue-list");
         const item = list?.children[queueIndex] as HTMLElement | undefined;
         item?.scrollIntoView({ block: "nearest", behavior: "smooth" });
       });
     }
-  }, [queueIndex, showQueue]);
+  }, [queueIndex]);
 
   function generateShuffleOrder(length: number, startIndex: number): number[] {
     const indices = Array.from({ length }, (_, i) => i).filter(i => i !== startIndex);
@@ -408,7 +406,6 @@ export function useQueue(
     queueMode, setQueueMode,
     shuffleOrder, setShuffleOrder,
     shufflePosition, setShufflePosition,
-    showQueue, setShowQueue,
     queuePanelRef, dragIndexRef,
     playTracks, enqueueTracks, findDuplicates,
     playNext, playPrevious,

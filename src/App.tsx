@@ -329,7 +329,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, wasShowQueue, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedTidalOverrideUrl, savedSortBarCollapsed] = await timeAsync("store.restore (36 keys)", () => Promise.all([
+        const [v, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedTidalOverrideUrl, savedSortBarCollapsed] = await timeAsync("store.restore (35 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -350,7 +350,6 @@ function App() {
           store.get<string | null>("trackSortField"),
           store.get<string>("trackSortDir"),
           store.get<ColumnConfig[] | null>("trackColumns"),
-          store.get<boolean>("showQueue"),
           store.get<string | null>("playlistName"),
           store.get<string | null>("artistViewMode"),
           store.get<string | null>("albumViewMode"),
@@ -403,7 +402,6 @@ function App() {
         if (qMode && ["normal", "loop", "shuffle"].includes(qMode)) {
           queueHook.setQueueMode(qMode as "normal" | "loop" | "shuffle");
         }
-        if (wasShowQueue) queueHook.setShowQueue(true);
         if (savedPlaylistName) queueHook.setPlaylistName(savedPlaylistName);
         if (savedArtistViewMode && ["basic", "list", "tiles"].includes(savedArtistViewMode)) library.setArtistViewMode(savedArtistViewMode as ViewMode);
         if (savedAlbumViewMode && ["basic", "list", "tiles"].includes(savedAlbumViewMode)) library.setAlbumViewMode(savedAlbumViewMode as ViewMode);
@@ -476,14 +474,12 @@ function App() {
   // Ref for keyboard shortcut handler to avoid stale closures
   const shortcutStateRef = useRef({
     volume: playback.volume,
-    showQueue: queueHook.showQueue,
     getMediaElement: playback.getMediaElement,
     handleSeek: playback.handleSeek,
     currentTrack: playback.currentTrack,
   });
   shortcutStateRef.current = {
     volume: playback.volume,
-    showQueue: queueHook.showQueue,
     getMediaElement: playback.getMediaElement,
     handleSeek: playback.handleSeek,
     currentTrack: playback.currentTrack,
@@ -597,7 +593,7 @@ function App() {
           break;
         case "p":
           e.preventDefault();
-          queueHook.setShowQueue(!s.showQueue);
+          handleToggleQueueCollapsed();
           break;
         case "m":
           e.preventDefault();
@@ -746,7 +742,7 @@ function App() {
     const { duplicates, unique } = queueHook.findDuplicates(tracks);
     if (duplicates.length > 0) {
       setPendingEnqueue({ all: tracks, duplicates, unique });
-      if (!queueHook.showQueue) queueHook.setShowQueue(true);
+      if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
     } else {
       queueHook.enqueueTracks(tracks);
     }
@@ -843,10 +839,10 @@ function App() {
         const { duplicates, unique } = queueHook.findDuplicates(dragTracks);
         if (duplicates.length > 0) {
           setPendingEnqueue({ all: dragTracks, duplicates, unique, position: pos });
-          if (!queueHook.showQueue) queueHook.setShowQueue(true);
+          if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
         } else {
           queueHook.insertAtPosition(dragTracks, pos);
-          if (!queueHook.showQueue) queueHook.setShowQueue(true);
+          if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
         }
       }
 
@@ -1312,7 +1308,7 @@ function App() {
   const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name }));
 
   return (
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${queueHook.showQueue ? "queue-open" : ""} ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -2540,16 +2536,15 @@ function App() {
             onToggleLike={() => playback.currentTrack && handleToggleLike(playback.currentTrack)}
             onToggleDislike={() => playback.currentTrack && handleToggleDislike(playback.currentTrack)}
             onToggleFullscreen={playback.toggleFullscreen}
-            showQueue={queueHook.showQueue}
-            onToggleQueue={() => queueHook.setShowQueue(!queueHook.showQueue)}
+            showQueue={!queueCollapsed}
+            onToggleQueue={handleToggleQueueCollapsed}
             onArtistClick={library.handleArtistClick}
             onAlbumClick={library.handleAlbumClick}
           />
         </div>
       </main>
 
-      {queueHook.showQueue && (
-        <QueuePanel
+      <QueuePanel
           queue={queueHook.queue}
           queueIndex={queueHook.queueIndex}
           queuePanelRef={queueHook.queuePanelRef}
@@ -2583,7 +2578,6 @@ function App() {
           collapsed={queueCollapsed}
           onToggleCollapsed={handleToggleQueueCollapsed}
         />
-      )}
 
       {contextMenu && (
         <ContextMenu
