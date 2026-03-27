@@ -77,6 +77,7 @@ export interface HistoryMostPlayed {
   display_title: string;
   display_artist: string | null;
   library_track_id: number | null;
+  rank: number;
 }
 
 export interface HistoryArtistStats {

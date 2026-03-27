@@ -1430,7 +1430,8 @@ impl Database {
     pub fn get_history_most_played(&self, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, ht.library_track_id
+            "SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, ht.library_track_id,
+                    (SELECT COUNT(*) + 1 FROM history_tracks ht2 WHERE ht2.play_count > ht.play_count) as rank
              FROM history_tracks ht
              JOIN history_artists ha ON ha.id = ht.history_artist_id
              WHERE ht.play_count > 0
@@ -1444,6 +1445,7 @@ impl Database {
                 display_title: row.get(2)?,
                 display_artist: row.get(3)?,
                 library_track_id: row.get(4)?,
+                rank: row.get(5)?,
             })
         })?;
         rows.collect()
@@ -1452,7 +1454,8 @@ impl Database {
     pub fn get_history_most_played_since(&self, since_ts: i64, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT ht.id, COUNT(*) as cnt, ht.display_title, ha.display_name, ht.library_track_id
+            "SELECT ht.id, COUNT(*) as cnt, ht.display_title, ha.display_name, ht.library_track_id,
+                    (SELECT COUNT(*) + 1 FROM history_tracks ht2 WHERE ht2.play_count > ht.play_count) as rank
              FROM history_plays hp
              JOIN history_tracks ht ON ht.id = hp.history_track_id
              JOIN history_artists ha ON ha.id = ht.history_artist_id
@@ -1468,6 +1471,34 @@ impl Database {
                 display_title: row.get(2)?,
                 display_artist: row.get(3)?,
                 library_track_id: row.get(4)?,
+                rank: row.get(5)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn search_history_tracks(&self, query: &str, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
+        let conn = self.conn.lock().unwrap();
+        let canonical_query = strip_diacritics(&query.to_lowercase());
+        let pattern = format!("%{}%", canonical_query);
+        let mut stmt = conn.prepare(
+            "SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, ht.library_track_id,
+                    (SELECT COUNT(*) + 1 FROM history_tracks ht2 WHERE ht2.play_count > ht.play_count) as rank
+             FROM history_tracks ht
+             JOIN history_artists ha ON ha.id = ht.history_artist_id
+             WHERE ht.play_count > 0
+               AND (ht.canonical_title LIKE ?1 OR ha.canonical_name LIKE ?1)
+             ORDER BY ht.play_count DESC
+             LIMIT ?2"
+        )?;
+        let rows = stmt.query_map(params![pattern, limit], |row| {
+            Ok(HistoryMostPlayed {
+                history_track_id: row.get(0)?,
+                play_count: row.get(1)?,
+                display_title: row.get(2)?,
+                display_artist: row.get(3)?,
+                library_track_id: row.get(4)?,
+                rank: row.get(5)?,
             })
         })?;
         rows.collect()

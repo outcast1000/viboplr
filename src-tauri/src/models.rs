@@ -125,6 +125,7 @@ pub struct HistoryMostPlayed {
     pub display_title: String,
     pub display_artist: Option<String>,
     pub library_track_id: Option<i64>,
+    pub rank: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

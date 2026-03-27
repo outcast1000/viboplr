@@ -28,11 +28,6 @@ function formatRelativeTime(unixSecs: number): string {
   return new Date(unixSecs * 1000).toLocaleDateString();
 }
 
-function matchesQuery(q: string, title: string, artist: string | null): boolean {
-  const lower = q.toLowerCase();
-  return title.toLowerCase().includes(lower) || (artist?.toLowerCase().includes(lower) ?? false);
-}
-
 function HistoryArt({ imagePath }: { imagePath: string | null | undefined }) {
   if (imagePath) {
     return <img className="history-art" src={convertFileSrc(imagePath)} alt="" />;
@@ -77,51 +72,57 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     }).catch(console.error);
   }, []);
 
-  // Server-side artist search when query is active
+  // Server-side search when query is active
   const [searchedArtists, setSearchedArtists] = useState<HistoryArtistStats[] | null>(null);
+  const [searchedTracks, setSearchedTracks] = useState<HistoryMostPlayed[] | null>(null);
 
   useEffect(() => {
     const q = searchQuery.trim();
     if (!q) {
       setSearchedArtists(null);
+      setSearchedTracks(null);
       return;
     }
     const timer = setTimeout(() => {
-      invoke<HistoryArtistStats[]>("search_history_artists", { query: q, limit: 50 })
-        .then(setSearchedArtists)
-        .catch(console.error);
+      Promise.all([
+        invoke<HistoryArtistStats[]>("search_history_artists", { query: q, limit: 50 }),
+        invoke<HistoryMostPlayed[]>("search_history_tracks", { query: q, limit: 50 }),
+      ]).then(([artists, tracks]) => {
+        setSearchedArtists(artists);
+        setSearchedTracks(tracks);
+      }).catch(console.error);
     }, 200);
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
   // Fetch artist images for all unique artist names
   const allArtists = searchedArtists ?? topArtists;
+  const allTracks = searchedTracks ?? [...mostPlayedAllTime, ...mostPlayedRecent];
   useEffect(() => {
     const names = new Set<string>();
     for (const a of allArtists) names.add(a.display_name);
-    for (const t of mostPlayedAllTime) if (t.display_artist) names.add(t.display_artist);
-    for (const t of mostPlayedRecent) if (t.display_artist) names.add(t.display_artist);
+    for (const t of allTracks) if (t.display_artist) names.add(t.display_artist);
     for (const t of recentPlays) if (t.display_artist) names.add(t.display_artist);
     for (const name of names) fetchArtistImage(name);
-  }, [allArtists, mostPlayedAllTime, mostPlayedRecent, recentPlays]);
+  }, [allArtists, allTracks, recentPlays]);
 
   const q = searchQuery.trim();
-  const filteredAllTime = mostPlayedAllTime
-    .map((t, i) => ({ ...t, rank: i + 1 }))
-    .filter(t => !q || matchesQuery(q, t.display_title, t.display_artist));
-  const filteredRecent30 = mostPlayedRecent
-    .map((t, i) => ({ ...t, rank: i + 1 }))
-    .filter(t => !q || matchesQuery(q, t.display_title, t.display_artist));
-  const filteredPlays = q ? recentPlays.filter(t => matchesQuery(q, t.display_title, t.display_artist)) : recentPlays;
   const filteredArtists = q ? (searchedArtists ?? []) : topArtists;
+  const filteredTracks = q ? (searchedTracks ?? []) : null;
 
   const flatItems = useMemo(() => {
     const items: { libraryTrackId: number | null; historyTrackId: number }[] = [];
-    for (const t of filteredAllTime) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
-    for (const t of filteredRecent30) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
-    for (const t of filteredPlays) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
+    if (filteredTracks) {
+      for (const t of filteredTracks) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
+    } else {
+      for (const t of mostPlayedAllTime) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
+      for (const t of mostPlayedRecent) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
+    }
+    if (!q) {
+      for (const t of recentPlays) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
+    }
     return items;
-  }, [filteredAllTime, filteredRecent30, filteredPlays]);
+  }, [filteredTracks, mostPlayedAllTime, mostPlayedRecent, recentPlays, q]);
 
   async function playTrackById(libraryTrackId: number | null, historyTrackId: number) {
     if (libraryTrackId != null) {
@@ -233,11 +234,37 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
         </div>
       )}
 
-      {filteredAllTime.length > 0 && (
+      {q && filteredTracks && filteredTracks.length > 0 && (
+        <div className="history-section">
+          <div className="section-title">Tracks</div>
+          <div className="history-list">
+            {filteredTracks.map((t) => {
+              const idx = nextFlatIndex();
+              return (
+                <div
+                  key={`search-${t.history_track_id}`}
+                  className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
+                  data-history-index={idx}
+                  onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
+                >
+                  <span className="history-rank">{t.rank}</span>
+                  <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
+                  <div className="history-info">
+                    <span className="history-title">{t.display_title}</span>
+                    <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {!q && mostPlayedAllTime.length > 0 && (
         <div className="history-section">
           <div className="section-title">Most Played — All Time</div>
           <div className="history-list">
-            {filteredAllTime.map((t) => {
+            {mostPlayedAllTime.map((t) => {
               const idx = nextFlatIndex();
               return (
                 <div
@@ -259,11 +286,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
         </div>
       )}
 
-      {filteredRecent30.length > 0 && (
+      {!q && mostPlayedRecent.length > 0 && (
         <div className="history-section">
           <div className="section-title">Most Played — Last 30 Days</div>
           <div className="history-list">
-            {filteredRecent30.map((t) => {
+            {mostPlayedRecent.map((t) => {
               const idx = nextFlatIndex();
               return (
                 <div
@@ -285,10 +312,10 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
         </div>
       )}
 
-      <div className="history-section">
+      {!q && <div className="history-section">
         <div className="section-title">Recent History</div>
         <div className="history-list">
-          {filteredPlays.map((entry) => {
+          {recentPlays.map((entry) => {
             const idx = nextFlatIndex();
             return (
               <div
@@ -305,11 +332,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
               </div>
             );
           })}
-          {filteredPlays.length === 0 && (
+          {recentPlays.length === 0 && (
             <div className="empty">No play history yet. Start listening to build your history.</div>
           )}
         </div>
-      </div>
+      </div>}
     </div>
   );
 });
