@@ -1,25 +1,63 @@
 # Viboplr
 
-A lightweight, cross-platform media player for macOS and Windows built with Tauri 2, React, and Rust.
+A cross-platform desktop music player for macOS and Windows built with Tauri 2, React, and Rust.
 
-Viboplr plays audio and video files, scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
+Viboplr plays audio and video from local folders, Subsonic/Navidrome servers, and TIDAL. It scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
 
 ## Features
 
-- **Fast Scanning**: Background folder scanning with progress reporting
+### Library Management
+- **Local Folders**: Scan folders with background progress reporting and real-time file watching
+- **Subsonic/Navidrome**: Connect to remote music servers with token or digest authentication
+- **TIDAL**: Search, browse, and stream from the TIDAL catalog with instance failover
 - **Smart Metadata**: Reads tags via `lofty`, with intelligent filename parsing fallback
 - **Full-Text Search**: SQLite FTS5-powered search across titles, artists, albums, genres, and filenames
-- **File Watching**: Automatic library updates when files change
-- **Native Playback**: HTML5 audio/video elements using OS-native codecs
-- **Cross-Platform**: macOS and Windows support
+- **Tags**: Genre metadata from files stored as tags with many-to-many track relationships
+
+### Playback
+- **Native Codecs**: HTML5 audio/video elements using OS-native codecs via Tauri's asset protocol
+- **Queue Management**: Drag-and-drop reorder, play next, shuffle
+- **Crossfade**: Configurable smooth transitions between tracks
+- **Auto-Continue**: Automatic playback continuation when queue ends (by artist, tag, most played, liked, or random)
+- **Mini Player**: Compact mode with essential controls
+- **Waveform Seek Bar**: Visual waveform display for seeking
+
+### Views
+- **All Tracks**: Full library with table, list, and tile view modes
+- **Artists / Albums / Tags**: Browsable with breadcrumb navigation and card art
+- **Liked Tracks**: Filtered view of liked tracks
+- **History**: Most played (all time / last 30 days), top artists, recent plays
+- **Collections**: Manage local folders, Subsonic servers, and TIDAL sources
+- **TIDAL**: Search and browse the TIDAL catalog
+
+### Integrations
+- **Last.fm Scrobbling**: Real-time now-playing updates and scrobble reporting
+- **Last.fm History Import**: Import complete scrobble history with progress tracking and cancellation
+- **TIDAL Streaming**: Search, browse albums/artists, and stream tracks
+- **Downloads**: Download tracks from Subsonic/TIDAL in FLAC, AAC, or MP3 with embedded tags and cover art
+- **YouTube URL Storage**: Associate YouTube URLs with tracks
+
+### Other
+- **Entity Images**: Automatic artist/album art from Tidal, Deezer, iTunes, AudioDB, MusicBrainz, and embedded tags
+- **Tag Composite Images**: Auto-generated from top artist images
+- **Search Providers**: Configurable external search (Google, Last.fm, YouTube, Genius, custom)
+- **Context Menu**: Right-click with "Open Containing Folder", search providers, properties
+- **Auto Updates**: Built-in update checking and installation
+- **Cross-Platform**: macOS and Windows
 
 ## Tech Stack
 
-- **Frontend**: React + TypeScript + Vite
-- **Backend**: Rust (Tauri 2)
-- **Database**: SQLite with FTS5
-- **Tag Reading**: lofty
-- **File Watching**: notify
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| App shell | Tauri 2 | Native window, small binary |
+| Backend | Rust | Scanning, DB, sync, downloads, API clients |
+| Frontend | TypeScript + React + Vite | UI, playback, state management |
+| Playback | HTML5 `<audio>` / `<video>` | OS-native codecs via webview |
+| Database | SQLite via `rusqlite` + FTS5 | Embedded media library with full-text search |
+| Tag reading | `lofty` | ID3v1/v2, Vorbis, FLAC, MP4, Opus tags |
+| File watching | `notify` | Cross-platform filesystem events |
+| Scrobbling | Last.fm API | Now-playing, scrobble, history import |
+| State persistence | `tauri-plugin-store` v2 | Save/restore UI state across restarts |
 
 ## Development
 
@@ -42,13 +80,21 @@ npm run tauri dev
 npm run tauri build
 ```
 
-## Implementation Notes
+### Useful Commands
 
-### Search Index
+```bash
+# Check Rust compilation only (faster iteration)
+cd src-tauri && cargo check
 
-The full-text search index uses a custom SQLite function `filename_from_path()` (implemented in Rust) to properly extract filenames from full paths. This ensures that filenames with characters appearing in directory paths are correctly indexed.
+# Check release build (verifies cfg(debug_assertions) gating)
+cd src-tauri && cargo check --release
 
-The search index is automatically rebuilt after folder scans, but can also be manually triggered via the `rebuild_search_index` command if needed.
+# Type-check frontend only
+npx tsc --noEmit
+
+# Run all tests
+npm run test:all
+```
 
 ### Supported Formats
 
@@ -60,23 +106,52 @@ The search index is automatically rebuilt after folder scans, but can also be ma
 
 ```text
 viboplr/
-├── src/              # React frontend
-├── src-tauri/        # Rust backend
+├── src/                    # React frontend
+│   ├── App.tsx             # Main app (state, views, layout)
+│   ├── App.css             # All styles
+│   ├── types.ts            # Shared TypeScript types
+│   ├── components/         # UI components (~28 files)
+│   │   ├── TrackList.tsx       # Track table/list/tile views
+│   │   ├── NowPlayingBar.tsx   # Playback footer controls
+│   │   ├── QueuePanel.tsx      # Queue management
+│   │   ├── Sidebar.tsx         # Navigation sidebar
+│   │   ├── SettingsPanel.tsx   # Settings (General, Last.fm, Providers, About, Debug)
+│   │   ├── HistoryView.tsx     # Play history view
+│   │   ├── TidalView.tsx       # TIDAL search/browse
+│   │   ├── CollectionsView.tsx # Collection management
+│   │   └── ...
+│   └── hooks/              # React hooks (~16 files)
+│       ├── usePlayback.ts      # Playback state
+│       ├── useQueue.ts         # Queue management
+│       ├── useLibrary.ts       # Library queries
+│       └── ...
+├── src-tauri/              # Rust backend
 │   ├── src/
-│   │   ├── main.rs   # Entry point
-│   │   ├── lib.rs    # Tauri setup
-│   │   ├── db.rs     # Database operations
-│   │   ├── scanner.rs # Folder scanning
-│   │   ├── watcher.rs # File watching
-│   │   ├── commands.rs # Tauri commands
-│   │   └── models.rs  # Data models
+│   │   ├── main.rs             # Entry point
+│   │   ├── lib.rs              # Tauri setup, plugin/command registration
+│   │   ├── commands.rs         # ~77 Tauri commands + AppState
+│   │   ├── db.rs               # SQLite operations (~63 public functions)
+│   │   ├── models.rs           # Shared data models
+│   │   ├── scanner.rs          # Folder scanning
+│   │   ├── watcher.rs          # File watching
+│   │   ├── lastfm.rs           # Last.fm API client
+│   │   ├── subsonic.rs         # Subsonic API client
+│   │   ├── tidal.rs            # TIDAL API client
+│   │   ├── sync.rs             # Subsonic collection sync
+│   │   ├── downloader.rs       # Track download manager
+│   │   ├── entity_image.rs     # Image slug management
+│   │   ├── composite_image.rs  # Tag composite image generation
+│   │   ├── image_provider/     # Image provider fallback chain (6 providers)
+│   │   ├── timing.rs           # Startup profiling
+│   │   └── seed.rs             # Debug-only test data seeding
 │   └── Cargo.toml
-└── SPEC.md          # Detailed specification
+├── SPEC.md                 # Detailed specification
+└── CLAUDE.md               # AI assistant guidance
 ```
 
 ## License
 
-See SPEC.md for dependency licenses (all MIT or Apache-2.0, no GPL/LGPL).
+All Rust dependencies are MIT or Apache-2.0 licensed (no GPL/LGPL). See SPEC.md for details.
 
 ## Recommended IDE Setup
 

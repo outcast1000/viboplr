@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Viboplr is a lightweight, cross-platform **media player** for macOS and Windows. It plays audio and video files from local folders and Subsonic/Navidrome servers, scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
+Viboplr is a lightweight, cross-platform **media player** for macOS and Windows. It plays audio and video files from local folders, Subsonic/Navidrome servers, and TIDAL. It scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
 
 **Non-goals (v1):** equalizer/DSP, lyrics, mobile.
 
@@ -11,7 +11,7 @@ Viboplr is a lightweight, cross-platform **media player** for macOS and Windows.
 | Layer            | Technology                          | Purpose                                  |
 | ---------------- | ----------------------------------- | ---------------------------------------- |
 | App shell        | Tauri 2                             | Native window, small binary, no Chromium |
-| Backend          | Rust                                | Scanning, DB, file watching, sync        |
+| Backend          | Rust                                | Scanning, DB, file watching, sync, downloads, API clients |
 | Frontend         | TypeScript + React                  | UI + playback via HTML5 media elements   |
 | Playback         | HTML5 `<audio>` / `<video>`         | OS-native codecs via webview             |
 | File serving     | Tauri asset protocol                | `asset://` serves local files to webview |
@@ -20,7 +20,9 @@ Viboplr is a lightweight, cross-platform **media player** for macOS and Windows.
 | File watching    | `notify`                            | Cross-platform filesystem events         |
 | Database         | SQLite via `rusqlite`               | Embedded media library                   |
 | Search           | SQLite FTS5                         | Sub-millisecond full-text search         |
-| Scrobbling       | Last.fm API (`ws.audioscrobbler.com`)| Now-playing & scrobble reporting         |
+| Scrobbling       | Last.fm API (`ws.audioscrobbler.com`)| Now-playing, scrobble, history import    |
+| TIDAL streaming  | Hi-Fi API (Monochrome)              | Search, browse, stream from TIDAL catalog|
+| Downloads        | `reqwest` + `lofty`                 | Track downloads with tag writing         |
 | State persistence| `tauri-plugin-store` v2              | Save/restore UI state across restarts    |
 
 All Rust dependencies are MIT or Apache-2.0 licensed. No GPL/LGPL.
@@ -47,6 +49,7 @@ All music sources are unified under a **Collections** abstraction. A collection 
 
 - **`local`** — a local folder scanned for media files.
 - **`subsonic`** — a Subsonic/Navidrome server synced via the Subsonic REST API.
+- **`tidal`** — a TIDAL instance connected via the Hi-Fi API (see §4.18).
 - **`seed`** — debug-only fake test data (gated behind `debug_assertions`).
 
 Every track belongs to a collection via `collection_id`. The sidebar displays all collections with kind badges, resync buttons, and remove buttons.
@@ -246,27 +249,50 @@ When playback reaches the end of the queue in "normal" mode, the player normally
 
 ### 4.13 Play History
 
-Every track play is recorded in the `play_history` table with a timestamp. This powers the History view, the "Most Played" auto-continue strategy, and Last.fm scrobbling.
+Play history is stored in a **decoupled 3-table system** (`history_artists`, `history_tracks`, `history_plays`) that is independent from the main library. This allows history to survive track deletions, library rebuilds, and imports from external sources like Last.fm. The history system powers the History view, the "Most Played" auto-continue strategy, and Last.fm scrobbling.
+
+**Schema:**
+- **`history_artists`** — canonical name (diacritics stripped + lowercase), display name, first/last played timestamps, play count, optional `library_artist_id` for reconnection.
+- **`history_tracks`** — linked to `history_artists`, canonical title, display title, first/last played timestamps, play count, optional `library_track_id` for reconnection.
+- **`history_plays`** — individual play entries with `history_track_id` and `played_at` timestamp.
+
+**Canonical matching:** Artist names and track titles are canonicalized by stripping diacritics and lowercasing before storage. This ensures that "Björk" and "bjork" merge into the same history entry.
 
 **Scrobble threshold:** Play history is not recorded immediately on playback start. Instead, the frontend tracks elapsed time and calls `record_play` only after the **scrobble threshold** is met: the track must have played for at least **50% of its duration or 4 minutes**, whichever comes first. Tracks shorter than 30 seconds are never recorded. This follows the Last.fm scrobbling rules.
 
-**Video tracks:** By default, video track plays are **not** recorded in history. A "Track video history" toggle in Settings > Main allows users to opt in. When off (default), the frontend skips both `record_play` and Last.fm scrobbling for video tracks. Persisted as `trackVideoHistory` in the app store.
+**Video tracks:** By default, video track plays are **not** recorded in history. A "Track video history" toggle in Settings > General allows users to opt in. When off (default), the frontend skips both `record_play` and Last.fm scrobbling for video tracks. Persisted as `trackVideoHistory` in the app store.
 
-**Backend:**
-- `record_play(track_id)` — inserts a row into `play_history` with the current timestamp, but only if the same track was not recorded within the last **30 seconds** (deduplication window). Called by the frontend when the scrobble threshold is met.
-- `get_recent_plays(limit)` — returns the most recent play history entries (joined with track/artist/album metadata).
-- `get_most_played(limit)` — returns tracks ranked by total play count (all time).
-- `get_most_played_since(since_ts, limit)` — returns tracks ranked by play count since a given timestamp.
+**Real-time recording (`record_play`):**
+- Looks up track metadata from the library, canonicalizes artist/title.
+- Upserts into `history_artists` and `history_tracks` (keeps `library_artist_id`/`library_track_id` current for reconnection).
+- **30-second dedup window:** Skips the play record if the same track was recorded within the last 30 seconds.
+- Inserts into `history_plays` and updates denormalized `play_count` on tracks and artists.
+
+**Backend commands:**
+- `record_play(track_id)` — records a play from the library (looks up metadata, 30-sec dedup).
+- `get_history_recent(limit)` — most recent individual plays with display metadata.
+- `get_history_most_played(limit)` — tracks ranked by total play count (all time) with rank.
+- `get_history_most_played_since(since_ts, limit)` — tracks ranked by play count since a timestamp.
+- `get_history_most_played_artists(limit)` — artists ranked by total play count with track count.
+- `search_history_artists(query, limit)` — search history artists by name.
+- `search_history_tracks(query, limit)` — search history tracks by title/artist.
+- `reconnect_history_track(history_track_id)` — attempt to match a disconnected history track to a library track.
+- `reconnect_history_artist(history_artist_id)` — attempt to match a disconnected history artist to a library artist.
+- `get_track_rank(history_track_id)` — get the rank of a specific track by play count.
+- `get_artist_rank(history_artist_id)` — get the rank of a specific artist by play count.
 
 **Frontend (HistoryView component):**
-The History view (`Ctrl/Cmd+6`) displays three sections:
-1. **Most Played — All Time** — top 20 tracks by total play count, showing rank, title, artist, duration, and play count.
-2. **Most Played — Last 30 Days** — top 20 tracks by play count in the last 30 days.
-3. **Recent History** — last 50 individual plays with relative timestamps (e.g., "5m ago", "2h ago", "3d ago").
+The History view (`Ctrl/Cmd+6`) displays four sections:
+1. **Most Played Artists** — top 20 artists by total play count, showing rank, artist image, name, play count, and track count.
+2. **Most Played — All Time** — top 20 tracks by total play count, showing rank, title, artist, and play count.
+3. **Most Played — Last 30 Days** — top 20 tracks by play count in the last 30 days.
+4. **Recent History** — last 50 individual plays with relative timestamps (e.g., "5m ago", "2h ago", "3d ago").
 
-All sections support search filtering by title and artist name. Clicking a row plays the track.
+All sections support server-side search filtering by title and artist name. Double-clicking a row plays the track (or navigates to the artist view for artist rows).
 
 **Ghost entry reconnection:** History entries for tracks or artists that no longer exist in the library ("ghost" entries) can be dynamically reconnected. Double-clicking a disconnected history track or artist attempts to match it to a current library entry by canonical title and artist name. If a match is found, the history entry is reconnected and the track plays (or the artist view opens). If no match is found, a status bar warning is displayed.
+
+**Rank display in Now Playing bar:** When a track is playing and has history data, its rank and the artist's rank are displayed in the Now Playing bar (e.g., "#5" for the track, "#3" for the artist).
 
 ### 4.14 Configurable Search Providers
 
@@ -527,8 +553,9 @@ Viboplr integrates with Last.fm to report "now playing" status and scrobble comp
 
 **API client (`src-tauri/src/lastfm.rs`):**
 - `LastfmClient` struct with `api_key`, `api_secret`, and `reqwest::blocking::Client` (15s timeout).
-- Methods: `get_auth_url()`, `get_session()`, `update_now_playing()`, `scrobble()`.
-- All API calls use Last.fm's signed parameter protocol: params sorted alphabetically, concatenated as key-value pairs, appended with secret, then MD5 hashed.
+- Methods: `get_auth_url()`, `get_session()`, `update_now_playing()`, `scrobble()`, `get_recent_tracks()`.
+- All signed API calls use Last.fm's parameter protocol: params sorted alphabetically, concatenated as key-value pairs, appended with secret, then MD5 hashed.
+- `get_recent_tracks(username, page, limit)` is a public (unsigned) GET request to `user.getRecentTracks`. Returns paginated scrobble history.
 - Auth errors (codes 9, 14) are detected and emitted as `lastfm-auth-error` events so the frontend can disconnect the stale session.
 
 **Scrobbling behavior:**
@@ -539,9 +566,31 @@ Viboplr integrates with Last.fm to report "now playing" status and scrobble comp
 
 **Scrobble confirmation:** When a track's play has been logged (history recorded), a checkmark indicator appears next to the time display in the Now Playing bar.
 
+**History import:**
+
+Users can import their complete Last.fm scrobble history into the local history system. The import is performed as a background task with progress reporting and cancellation support.
+
+- The `lastfm_import_history` command extracts the username from the active session, spawns a background thread, and loops through all pages (200 tracks/page) of `user.getRecentTracks`.
+- An `Arc<AtomicBool>` (`lastfm_importing`) on `AppState` serves as both a concurrency guard (prevents duplicate imports) and a cancellation flag.
+- Each page is processed via `record_history_plays_batch()` — a single-transaction batch insert into the decoupled history tables. Uses **exact-timestamp dedup** (not the 30-sec window used for real-time plays) so legitimate repeated plays are preserved while re-imports skip already-imported entries.
+- "Now playing" entries (no `date` field) are filtered out.
+- Progress events (`lastfm-import-progress`) are emitted after each page with page number, total pages, imported count, and skipped count.
+- 200ms sleep between API calls to respect Last.fm's rate limit (5 req/sec).
+- On completion, emits `lastfm-import-complete` with final counts. On error or cancellation, emits `lastfm-import-error`.
+- The `lastfm_cancel_import` command sets the `AtomicBool` to false; the import loop checks this flag each iteration and stops early.
+- The `HistoryView` component exposes a `reload()` method via its imperative handle, called automatically on import completion to refresh the display.
+
 **Settings UI (Settings > Last.fm tab):**
-- Shows connection status (connected username or disconnected).
-- "Connect to Last.fm" / "Disconnect" button.
+
+The Last.fm tab has two sections:
+
+- **Account** — Shows connection status (connected username or disconnected). "Connect" / "Disconnect" button.
+- **History** — "Import scrobble history" button (disabled when not connected or import already running). Clicking opens a **modal overlay** showing:
+  - A progress bar (page-based percentage) during import.
+  - Stats: "Page X of Y" and "N imported, N skipped".
+  - "Connecting to Last.fm..." state before the first progress event.
+  - Completion summary or "Import cancelled" message when done.
+  - **Cancel** button during import, **Close** button when finished.
 
 **Tauri commands:**
 
@@ -554,12 +603,17 @@ Viboplr integrates with Last.fm to report "now playing" status and scrobble comp
 | `lastfm_get_status` | — | `LastfmStatus` |
 | `lastfm_now_playing` | `track_id: i64` | `()` (fire-and-forget) |
 | `lastfm_scrobble` | `track_id: i64, started_at: i64` | `()` (fire-and-forget) |
+| `lastfm_import_history` | — | `Result<(), String>` (spawns background thread) |
+| `lastfm_cancel_import` | — | `()` |
 
 **Events:**
 
 | Event | Payload |
 |-------|---------|
 | `lastfm-auth-error` | `()` |
+| `lastfm-import-progress` | `{ page, total_pages, imported, skipped }` |
+| `lastfm-import-complete` | `{ imported, skipped }` |
+| `lastfm-import-error` | `String` (error message, or `"cancelled"`) |
 
 ### 4.22 Collapsible Sidebar
 
@@ -640,7 +694,8 @@ CREATE TABLE collections (
     auto_update                 INTEGER NOT NULL DEFAULT 0,
     auto_update_interval_mins   INTEGER NOT NULL DEFAULT 60,
     enabled                     INTEGER NOT NULL DEFAULT 1,
-    last_sync_duration_secs     REAL
+    last_sync_duration_secs     REAL,
+    last_sync_error             TEXT
 );
 
 CREATE TABLE tracks (
@@ -658,6 +713,7 @@ CREATE TABLE tracks (
     collection_id   INTEGER REFERENCES collections(id),
     subsonic_id     TEXT,                           -- remote ID (subsonic track ID or tidal track ID)
     liked           INTEGER NOT NULL DEFAULT 0,
+    youtube_url     TEXT,                           -- associated YouTube URL
     deleted         INTEGER NOT NULL DEFAULT 0
 );
 
@@ -667,13 +723,36 @@ CREATE TABLE track_tags (
     UNIQUE(track_id, tag_id)
 );
 
-CREATE TABLE play_history (
-    id        INTEGER PRIMARY KEY,
-    track_id  INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-    played_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+-- Decoupled history (independent from library)
+CREATE TABLE history_artists (
+    id              INTEGER PRIMARY KEY,
+    canonical_name  TEXT NOT NULL UNIQUE,             -- strip_diacritics(lowercase(name))
+    display_name    TEXT NOT NULL,
+    first_played_at INTEGER NOT NULL,
+    last_played_at  INTEGER NOT NULL,
+    play_count      INTEGER NOT NULL DEFAULT 0,       -- denormalized
+    library_artist_id INTEGER                         -- optional reconnection to library
 );
-CREATE INDEX idx_play_history_track ON play_history(track_id);
-CREATE INDEX idx_play_history_time  ON play_history(played_at);
+
+CREATE TABLE history_tracks (
+    id                INTEGER PRIMARY KEY,
+    history_artist_id INTEGER NOT NULL REFERENCES history_artists(id),
+    canonical_title   TEXT NOT NULL,                   -- strip_diacritics(lowercase(title))
+    display_title     TEXT NOT NULL,
+    first_played_at   INTEGER NOT NULL,
+    last_played_at    INTEGER NOT NULL,
+    play_count        INTEGER NOT NULL DEFAULT 0,      -- denormalized
+    library_track_id  INTEGER,                         -- optional reconnection to library
+    UNIQUE(history_artist_id, canonical_title)
+);
+
+CREATE TABLE history_plays (
+    id                INTEGER PRIMARY KEY,
+    history_track_id  INTEGER NOT NULL REFERENCES history_tracks(id),
+    played_at         INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+CREATE INDEX idx_history_plays_track ON history_plays(history_track_id);
+CREATE INDEX idx_history_plays_time  ON history_plays(played_at);
 
 CREATE TABLE image_fetch_failures (
     kind       TEXT NOT NULL,        -- 'artist' or 'album'
@@ -694,7 +773,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 );
 ```
 
-**Migration:** A `db_version` table tracks the schema version (starting at 1). On startup, `run_migrations()` checks the version and applies any needed ALTER TABLE statements. Migrations include: `folders` → `collections` with `kind='local'` (path prefix matching); `deleted` on tracks; `liked` on artists/albums/tracks; `auto_update`/`auto_update_interval_mins`/`enabled`/`last_sync_duration_secs` on collections; `track_count` on artists/albums/tags (version 2); `youtube_url` on tracks (version 3); `last_sync_error` on collections (version 4); `liked` on tags (version 5). After migrations, `recompute_counts()` runs on every startup to ensure counts are correct even after a crash or interrupted scan.
+**Migration:** A `db_version` table tracks the schema version (starting at 1). On startup, `run_migrations()` checks the version and applies any needed ALTER TABLE statements. Migrations include: `folders` → `collections` with `kind='local'` (path prefix matching); `deleted` on tracks; `liked` on artists/albums/tracks; `auto_update`/`auto_update_interval_mins`/`enabled`/`last_sync_duration_secs` on collections; `track_count` on artists/albums/tags (version 2); `youtube_url` on tracks (version 3); `last_sync_error` on collections (version 4); `liked` on tags (version 5); migrate `play_history` data into decoupled `history_artists`/`history_tracks`/`history_plays` tables (version 6); drop `deleted` column from tracks after hard-deleting soft-deleted rows (version 7); drop legacy `play_history` table (version 8); add `library_artist_id`/`library_track_id` cache columns to history tables with backfill (version 9). After migrations, `recompute_counts()` runs on every startup to ensure counts are correct even after a crash or interrupted scan.
 
 ## 6. Architecture
 
@@ -723,7 +802,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 │  get_tags, toggle_liked,                    │
 │  show_in_folder, get_track_path,            │
 │  tidal_search, tidal_save_track,            │
-│  record_play, get_recent_plays,             │
+│  record_play, get_history_recent,            │
 │  get_most_played, get_most_played_since     │
 └──┬───────────┬───────────┬─────────┬────────┘
    │           │           │         │
@@ -809,12 +888,19 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 
 ### Play History Commands
 
-| Command                 | Args                        | Returns                  |
-| ----------------------- | --------------------------- | ------------------------ |
-| `record_play`           | `track_id: i64`             | `()`                     |
-| `get_recent_plays`      | `limit: i64`                | `Vec<PlayHistoryEntry>`  |
-| `get_most_played`       | `limit: i64`                | `Vec<MostPlayedTrack>`   |
-| `get_most_played_since` | `since_ts: i64, limit: i64` | `Vec<MostPlayedTrack>`   |
+| Command                          | Args                                   | Returns                      |
+| -------------------------------- | -------------------------------------- | ---------------------------- |
+| `record_play`                    | `track_id: i64`                        | `()`                         |
+| `get_history_recent`             | `limit: i64`                           | `Vec<HistoryEntry>`          |
+| `get_history_most_played`        | `limit: i64`                           | `Vec<HistoryMostPlayed>`     |
+| `get_history_most_played_since`  | `since_ts: i64, limit: i64`            | `Vec<HistoryMostPlayed>`     |
+| `get_history_most_played_artists`| `limit: i64`                           | `Vec<HistoryArtistStats>`    |
+| `search_history_artists`         | `query: String, limit: i64`            | `Vec<HistoryArtistStats>`    |
+| `search_history_tracks`          | `query: String, limit: i64`            | `Vec<HistoryMostPlayed>`     |
+| `reconnect_history_track`        | `history_track_id: i64`                | `Option<Track>`              |
+| `reconnect_history_artist`       | `history_artist_id: i64`               | `Option<i64>`                |
+| `get_track_rank`                 | `track_id: i64`                        | `Option<i64>`                |
+| `get_artist_rank`                | `artist_id: i64`                       | `Option<i64>`                |
 
 ### Image Commands
 
@@ -853,6 +939,25 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `lastfm_get_status`       | —                                           | `LastfmStatus`                 |
 | `lastfm_now_playing`      | `track_id: i64`                             | `()` (fire-and-forget)         |
 | `lastfm_scrobble`         | `track_id: i64, started_at: i64`            | `()` (fire-and-forget)         |
+| `lastfm_import_history`   | —                                           | `()` (background thread)       |
+| `lastfm_cancel_import`    | —                                           | `()`                           |
+
+### Download Commands
+
+| Command                 | Args                                                                     | Returns              |
+| ----------------------- | ------------------------------------------------------------------------ | -------------------- |
+| `download_track`        | `source_collection_id: i64, remote_track_id: String, dest_collection_id: i64, format: String` | `u64` (download ID)  |
+| `download_album`        | `override_url: Option<String>, album_id: String, dest_collection_id: i64, format: String` | `Vec<u64>` (download IDs) |
+| `get_download_status`   | —                                                                        | `DownloadQueueInfo`  |
+| `cancel_download`       | `download_id: u64`                                                       | `bool`               |
+
+### YouTube Commands
+
+| Command                   | Args                                     | Returns              |
+| ------------------------- | ---------------------------------------- | -------------------- |
+| `search_youtube`          | `title: String, artist_name: Option<String>` | `YouTubeResult`      |
+| `set_track_youtube_url`   | `track_id: i64, url: String`             | `()`                 |
+| `clear_track_youtube_url` | `track_id: i64`                          | `()`                 |
 
 ### Debug-Only Commands
 
@@ -875,6 +980,13 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `album-image-error`  | `{ albumId, title, error }`       |
 | `tag-image-ready`    | `{ tagId, path }`                   |
 | `lastfm-auth-error`  | `()`                                |
+| `lastfm-import-progress` | `{ page, total_pages, imported, skipped }` |
+| `lastfm-import-complete` | `{ imported, skipped }`           |
+| `lastfm-import-error`    | `{ error }`                       |
+| `download-progress`  | `{ id, filename, status, progress_pct }` |
+| `download-complete`  | `{ id, filename, track_id }`        |
+| `download-error`     | `{ id, filename, error }`           |
+| `upgrade-download-progress` | `f64` (percentage)             |
 
 ## 8. Performance Targets
 
