@@ -99,7 +99,9 @@ function App() {
   const beforeNavRef = useRef<() => void>(() => {});
   const viewSearch = useViewSearchState();
   const [currentView, setCurrentView] = useState<View>("all");
-  const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery(currentView));
+  // Only pass debouncedTrackQuery for views that need server-side track search
+  const needsServerSearch = currentView === "all" || currentView === "liked";
+  const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "");
   const queueHook = useQueue(restoredRef, handlePlayWithTidal);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
@@ -523,6 +525,10 @@ function App() {
           case "ArrowDown":
             e.preventDefault();
             playback.handleVolume(Math.max(0, s.volume - 0.1));
+            return;
+          case "/":
+            e.preventDefault();
+            searchInputRef.current?.focus();
             return;
         }
       }
