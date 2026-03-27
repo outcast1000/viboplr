@@ -69,7 +69,6 @@ export interface HistoryEntry {
   display_artist: string | null;
   play_count: number;
   library_track_id: number | null;
-  library_album_id: number | null;
 }
 
 export interface HistoryMostPlayed {
@@ -78,7 +77,6 @@ export interface HistoryMostPlayed {
   display_title: string;
   display_artist: string | null;
   library_track_id: number | null;
-  library_album_id: number | null;
 }
 
 export interface HistoryArtistStats {

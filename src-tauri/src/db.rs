@@ -1406,11 +1406,10 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT hp.id, ht.id, hp.played_at, ht.display_title, ha.display_name,
-                    ht.play_count, ht.library_track_id, t.album_id
+                    ht.play_count, ht.library_track_id
              FROM history_plays hp
              JOIN history_tracks ht ON ht.id = hp.history_track_id
              JOIN history_artists ha ON ha.id = ht.history_artist_id
-             LEFT JOIN tracks t ON t.id = ht.library_track_id
              ORDER BY hp.played_at DESC
              LIMIT ?1"
         )?;
@@ -1423,7 +1422,6 @@ impl Database {
                 display_artist: row.get(4)?,
                 play_count: row.get(5)?,
                 library_track_id: row.get(6)?,
-                library_album_id: row.get(7)?,
             })
         })?;
         rows.collect()
@@ -1432,10 +1430,9 @@ impl Database {
     pub fn get_history_most_played(&self, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, ht.library_track_id, t.album_id
+            "SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, ht.library_track_id
              FROM history_tracks ht
              JOIN history_artists ha ON ha.id = ht.history_artist_id
-             LEFT JOIN tracks t ON t.id = ht.library_track_id
              WHERE ht.play_count > 0
              ORDER BY ht.play_count DESC
              LIMIT ?1"
@@ -1447,7 +1444,6 @@ impl Database {
                 display_title: row.get(2)?,
                 display_artist: row.get(3)?,
                 library_track_id: row.get(4)?,
-                library_album_id: row.get(5)?,
             })
         })?;
         rows.collect()
@@ -1456,11 +1452,10 @@ impl Database {
     pub fn get_history_most_played_since(&self, since_ts: i64, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT ht.id, COUNT(*) as cnt, ht.display_title, ha.display_name, ht.library_track_id, t.album_id
+            "SELECT ht.id, COUNT(*) as cnt, ht.display_title, ha.display_name, ht.library_track_id
              FROM history_plays hp
              JOIN history_tracks ht ON ht.id = hp.history_track_id
              JOIN history_artists ha ON ha.id = ht.history_artist_id
-             LEFT JOIN tracks t ON t.id = ht.library_track_id
              WHERE hp.played_at >= ?1
              GROUP BY ht.id
              ORDER BY cnt DESC
@@ -1473,7 +1468,6 @@ impl Database {
                 display_title: row.get(2)?,
                 display_artist: row.get(3)?,
                 library_track_id: row.get(4)?,
-                library_album_id: row.get(5)?,
             })
         })?;
         rows.collect()

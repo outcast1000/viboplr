@@ -2429,7 +2429,7 @@ function App() {
                 onQueryChange={(q) => viewSearch.setQuery("history", q)}
                 placeholder="Search history..."
               />
-              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={handleEnqueue} addLog={addLog} onArtistClick={library.handleArtistClick} albumImageCache={albumImageCache} artistImageCache={artistImageCache} />
+              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={handleEnqueue} addLog={addLog} onArtistClick={library.handleArtistClick} />
             </>
           )}
 

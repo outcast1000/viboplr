@@ -1,8 +1,7 @@
-import { useEffect, useState, forwardRef, useImperativeHandle, useMemo } from "react";
+import { useEffect, useState, useRef, useCallback, forwardRef, useImperativeHandle, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, HistoryEntry, HistoryMostPlayed, HistoryArtistStats } from "../types";
-import type { UseImageCacheReturn } from "../hooks/useImageCache";
 
 export interface HistoryViewHandle {
   count: number;
@@ -17,8 +16,6 @@ interface HistoryViewProps {
   onEnqueueTrack: (tracks: Track[]) => void;
   addLog: (message: string) => void;
   onArtistClick: (artistId: number) => void;
-  albumImageCache: UseImageCacheReturn;
-  artistImageCache: UseImageCacheReturn;
 }
 
 function formatRelativeTime(unixSecs: number): string {
@@ -44,11 +41,26 @@ function HistoryArt({ imagePath }: { imagePath: string | null | undefined }) {
 }
 
 export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
-  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, addLog, onArtistClick, albumImageCache, artistImageCache }, ref) {
+  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, addLog, onArtistClick }, ref) {
   const [mostPlayedAllTime, setMostPlayedAllTime] = useState<HistoryMostPlayed[]>([]);
   const [mostPlayedRecent, setMostPlayedRecent] = useState<HistoryMostPlayed[]>([]);
   const [recentPlays, setRecentPlays] = useState<HistoryEntry[]>([]);
   const [topArtists, setTopArtists] = useState<HistoryArtistStats[]>([]);
+
+  // Local artist image cache keyed by display name
+  const [artistImages, setArtistImages] = useState<Record<string, string | null>>({});
+  const artistImageFetched = useRef(new Set<string>());
+
+  const fetchArtistImage = useCallback((name: string) => {
+    if (artistImages[name] !== undefined) return;
+    if (artistImageFetched.current.has(name)) return;
+    artistImageFetched.current = new Set(artistImageFetched.current).add(name);
+    invoke<string | null>("get_entity_image_by_name", { kind: "artist", name }).then((path) => {
+      if (path) {
+        setArtistImages((prev) => ({ ...prev, [name]: path }));
+      }
+    });
+  }, [artistImages]);
 
   useEffect(() => {
     const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 86400;
@@ -65,24 +77,15 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     }).catch(console.error);
   }, []);
 
-  // Trigger image fetches for album art
+  // Fetch artist images for all unique artist names
   useEffect(() => {
-    const allTracks = [...mostPlayedAllTime, ...mostPlayedRecent, ...recentPlays];
-    for (const t of allTracks) {
-      if (t.library_album_id != null) {
-        albumImageCache.fetchOnDemand({ id: t.library_album_id });
-      }
-    }
-  }, [mostPlayedAllTime, mostPlayedRecent, recentPlays]);
-
-  // Trigger image fetches for artist art
-  useEffect(() => {
-    for (const a of topArtists) {
-      if (a.library_artist_id != null) {
-        artistImageCache.fetchOnDemand({ id: a.library_artist_id, name: a.display_name });
-      }
-    }
-  }, [topArtists]);
+    const names = new Set<string>();
+    for (const a of topArtists) names.add(a.display_name);
+    for (const t of mostPlayedAllTime) if (t.display_artist) names.add(t.display_artist);
+    for (const t of mostPlayedRecent) if (t.display_artist) names.add(t.display_artist);
+    for (const t of recentPlays) if (t.display_artist) names.add(t.display_artist);
+    for (const name of names) fetchArtistImage(name);
+  }, [topArtists, mostPlayedAllTime, mostPlayedRecent, recentPlays]);
 
   const q = searchQuery.trim();
   const filteredAllTime = mostPlayedAllTime
@@ -203,7 +206,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                 onDoubleClick={() => handleArtistDoubleClick(a.library_artist_id, a.history_artist_id)}
               >
                 <span className="history-rank">{a.rank}</span>
-                <HistoryArt imagePath={a.library_artist_id != null ? artistImageCache.images[a.library_artist_id] : null} />
+                <HistoryArt imagePath={artistImages[a.display_name]} />
                 <div className="history-info">
                   <span className="history-title">{a.display_name}</span>
                   <span className="history-artist">{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
@@ -228,7 +231,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
                 >
                   <span className="history-rank">{t.rank}</span>
-                  <HistoryArt imagePath={t.library_album_id != null ? albumImageCache.images[t.library_album_id] : null} />
+                  <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
                   <div className="history-info">
                     <span className="history-title">{t.display_title}</span>
                     <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
@@ -254,7 +257,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
                 >
                   <span className="history-rank">{t.rank}</span>
-                  <HistoryArt imagePath={t.library_album_id != null ? albumImageCache.images[t.library_album_id] : null} />
+                  <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
                   <div className="history-info">
                     <span className="history-title">{t.display_title}</span>
                     <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
@@ -278,7 +281,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                 data-history-index={idx}
                 onDoubleClick={() => playTrackById(entry.library_track_id, entry.history_track_id)}
               >
-                <HistoryArt imagePath={entry.library_album_id != null ? albumImageCache.images[entry.library_album_id] : null} />
+                <HistoryArt imagePath={entry.display_artist ? artistImages[entry.display_artist] : null} />
                 <div className="history-info">
                   <span className="history-title">{entry.display_title}</span>
                   <span className="history-artist">{entry.display_artist ?? "Unknown"} &middot; {formatRelativeTime(entry.played_at)}</span>

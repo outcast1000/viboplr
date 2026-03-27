@@ -542,6 +542,18 @@ pub fn get_entity_image(state: State<'_, AppState>, kind: String, id: i64) -> Op
 }
 
 #[tauri::command]
+pub fn get_entity_image_by_name(
+    state: State<'_, AppState>,
+    kind: String,
+    name: String,
+    artist_name: Option<String>,
+) -> Option<String> {
+    let slug = crate::entity_image::entity_image_slug(&kind, &name, artist_name.as_deref());
+    crate::entity_image::get_image_path(&state.app_dir, &kind, &slug)
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub fn set_entity_image(
     state: State<'_, AppState>,
     kind: String,
