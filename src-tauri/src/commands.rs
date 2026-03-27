@@ -26,6 +26,7 @@ pub const LASTFM_API_SECRET: &str = env_or_empty!("LASTFM_API_SECRET");
 pub enum ImageDownloadRequest {
     Artist { id: i64, name: String },
     Album { id: i64, title: String, artist_name: Option<String> },
+    Tag { id: i64, name: String },
 }
 
 pub struct DownloadQueue {
@@ -610,6 +611,18 @@ pub fn fetch_album_image(
     log::info!("Queued album image download: {} (id={})", album_title, album_id);
     let mut queue = state.download_queue.queue.lock().unwrap();
     queue.push(ImageDownloadRequest::Album { id: album_id, title: album_title, artist_name });
+    state.download_queue.condvar.notify_one();
+}
+
+#[tauri::command]
+pub fn fetch_tag_image(
+    state: State<'_, AppState>,
+    tag_id: i64,
+    tag_name: String,
+) {
+    log::info!("Queued tag image generation: {} (id={})", tag_name, tag_id);
+    let mut queue = state.download_queue.queue.lock().unwrap();
+    queue.push(ImageDownloadRequest::Tag { id: tag_id, name: tag_name });
     state.download_queue.condvar.notify_one();
 }
 

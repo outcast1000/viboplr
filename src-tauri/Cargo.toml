@@ -37,6 +37,7 @@ tauri-plugin-global-shortcut = "2"
 base64 = "0.22"
 urlencoding = "2"
 encoding_rs = "0.8"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"

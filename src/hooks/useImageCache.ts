@@ -34,8 +34,9 @@ export function useImageCache(
         invoke("fetch_artist_image", { artistId: entity.id, artistName: entity.name ?? "Unknown" });
       } else if (kind === "album") {
         invoke("fetch_album_image", { albumId: entity.id, albumTitle: entity.title ?? "", artistName: entity.artist_name });
+      } else if (kind === "tag") {
+        invoke("fetch_tag_image", { tagId: entity.id, tagName: entity.name ?? "Unknown" });
       }
-      // Tags have no auto-fetch — no-op
     });
   }, [kind]);
 
@@ -54,9 +55,7 @@ export function useImageCache(
 
   // Listen for image-ready and image-error events
   useEffect(() => {
-    if (kind === "tag") return; // Tags have no backend fetch events
-
-    const eventIdKey = kind === "artist" ? "artistId" : "albumId";
+    const eventIdKey = kind === "artist" ? "artistId" : kind === "album" ? "albumId" : "tagId";
     const readyEvent = `${kind}-image-ready`;
     const errorEvent = `${kind}-image-error`;
 

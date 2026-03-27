@@ -1,4 +1,5 @@
 mod commands;
+mod composite_image;
 mod db;
 mod entity_image;
 mod image_provider;
@@ -53,6 +54,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::remove_entity_image,
         commands::fetch_artist_image,
         commands::fetch_album_image,
+        commands::fetch_tag_image,
         commands::clear_image_failures,
         commands::record_play,
         commands::get_history_recent,
@@ -126,6 +128,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::remove_entity_image,
         commands::fetch_artist_image,
         commands::fetch_album_image,
+        commands::fetch_tag_image,
         commands::clear_image_failures,
         commands::record_play,
         commands::get_history_recent,
@@ -374,6 +377,64 @@ pub fn run() {
                                     let _ = app_handle.emit(
                                         "album-image-error",
                                         serde_json::json!({ "albumId": id, "title": title, "error": e.to_string() }),
+                                    );
+                                }
+                            }
+                        }
+                        ImageDownloadRequest::Tag { id, name } => {
+                            if worker_db.is_image_failed("tag", *id).unwrap_or(false) {
+                                log::info!("Skipping previously failed tag image: {} (id={})", name, id);
+                                continue;
+                            }
+                            let slug = entity_image::entity_image_slug("tag", name, None);
+                            if entity_image::get_image_path(&worker_app_dir, "tag", &slug).is_some() {
+                                log::info!("Tag image already exists for {} (id={}), skipping", name, id);
+                                continue;
+                            }
+                            let top_artists = match worker_db.get_top_artists_for_tag(*id, 3) {
+                                Ok(a) => a,
+                                Err(e) => {
+                                    log::warn!("Failed to get top artists for tag {}: {}", name, e);
+                                    let _ = worker_db.record_image_failure("tag", *id);
+                                    let _ = app_handle.emit(
+                                        "tag-image-error",
+                                        serde_json::json!({ "tagId": id, "name": name, "error": e.to_string() }),
+                                    );
+                                    continue;
+                                }
+                            };
+                            let artist_image_paths: Vec<std::path::PathBuf> = top_artists.iter()
+                                .filter_map(|(_, artist_name)| {
+                                    let artist_slug = entity_image::entity_image_slug("artist", artist_name, None);
+                                    entity_image::get_image_path(&worker_app_dir, "artist", &artist_slug)
+                                })
+                                .collect();
+                            if artist_image_paths.is_empty() {
+                                log::info!("No artist images available for tag {} (id={}), skipping composite", name, id);
+                                let _ = worker_db.record_image_failure("tag", *id);
+                                let _ = app_handle.emit(
+                                    "tag-image-error",
+                                    serde_json::json!({ "tagId": id, "name": name, "error": "No artist images available" }),
+                                );
+                                continue;
+                            }
+                            let dest = worker_app_dir.join("tag_images").join(format!("{}.png", slug));
+                            log::info!("Generating composite tag image for: {} (id={}) with {} artist images", name, id, artist_image_paths.len());
+                            match composite_image::generate_tag_composite(&artist_image_paths, &dest, 400) {
+                                Ok(()) => {
+                                    let path = dest.to_string_lossy().to_string();
+                                    log::info!("Generated composite tag image for: {} (id={})", name, id);
+                                    let _ = app_handle.emit(
+                                        "tag-image-ready",
+                                        serde_json::json!({ "tagId": id, "path": &path, "name": name, "source": "composite" }),
+                                    );
+                                }
+                                Err(e) => {
+                                    log::warn!("Failed to generate composite tag image for {}: {}", name, e);
+                                    let _ = worker_db.record_image_failure("tag", *id);
+                                    let _ = app_handle.emit(
+                                        "tag-image-error",
+                                        serde_json::json!({ "tagId": id, "name": name, "error": e.to_string() }),
                                     );
                                 }
                             }

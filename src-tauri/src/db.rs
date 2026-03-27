@@ -559,6 +559,24 @@ impl Database {
         rows.collect()
     }
 
+    pub fn get_top_artists_for_tag(&self, tag_id: i64, limit: usize) -> SqlResult<Vec<(i64, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT ar.id, ar.name, COUNT(DISTINCT t.id) as cnt
+             FROM track_tags tt
+             JOIN tracks t ON t.id = tt.track_id
+             JOIN artists ar ON ar.id = t.artist_id
+             WHERE tt.tag_id = ?1 AND t.artist_id IS NOT NULL
+             GROUP BY ar.id
+             ORDER BY cnt DESC
+             LIMIT ?2"
+        )?;
+        let rows = stmt.query_map(rusqlite::params![tag_id, limit as i64], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect()
+    }
+
     pub fn get_tags_for_track(&self, track_id: i64) -> SqlResult<Vec<Tag>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
