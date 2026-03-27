@@ -4419,7 +4419,11 @@ body {
 }
 
 /* Mini player mode */
-.app.mini-mode {
+.app.mini-mode,
+.app.mini-mode.queue-open,
+.app.mini-mode.queue-open.queue-collapsed,
+.app.mini-mode.sidebar-collapsed.queue-open,
+.app.mini-mode.sidebar-collapsed.queue-open.queue-collapsed {
   grid-template-columns: 1fr;
   grid-template-rows: 1fr;
   border-radius: 14px;

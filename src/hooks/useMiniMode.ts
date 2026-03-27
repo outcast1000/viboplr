@@ -65,9 +65,13 @@ function measureMiniFooter(): number {
   const artEl = footer.querySelector(".now-mini-art, .now-mini-art-fallback") as HTMLElement;
   const artWidth = artEl ? artEl.offsetWidth : 0;
 
-  // Measure natural text width (scrollWidth gives unconstrained width)
-  const textEl = footer.querySelector(".now-mini-info-text") as HTMLElement;
-  const textWidth = textEl ? textEl.scrollWidth : 0;
+  // Measure natural text width — must check individual spans since the container clips overflow
+  const titleEl = footer.querySelector(".now-title") as HTMLElement;
+  const artistEl = footer.querySelector(".now-artist") as HTMLElement;
+  const textWidth = Math.max(
+    titleEl ? titleEl.scrollWidth : 0,
+    artistEl ? artistEl.scrollWidth : 0,
+  );
 
   // padding (12px * 2) + gaps (8px info gap + 10px footer gap) + some breathing room
   const total = artWidth + textWidth + rightWidth + 24 + 8 + 10 + 8;
