@@ -108,6 +108,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
           }
         }
         await win.setAlwaysOnTop(true);
+        await win.setResizable(false);
         setMiniMode(true);
         miniModeRef.current = true;
         store.set("miniMode", true);
@@ -116,6 +117,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         store.set("miniWindowX", pos.x / factor);
         store.set("miniWindowY", pos.y / factor);
         await win.setAlwaysOnTop(false);
+        await win.setResizable(true);
         await win.setMinSize(new LogicalSize(FULL_MIN_WIDTH, FULL_MIN_HEIGHT));
         const geo = fullSizeRef.current;
         const bounds = await getLogicalMonitorBounds();

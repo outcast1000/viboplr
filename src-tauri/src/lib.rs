@@ -585,6 +585,7 @@ pub fn run() {
                                 }
                             }
                             let _ = window.set_always_on_top(true);
+                            let _ = window.set_resizable(false);
                             let _ = window.set_decorations(false);
                         } else {
                             if let (Some(w), Some(h)) = (
