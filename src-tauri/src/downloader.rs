@@ -270,11 +270,12 @@ pub fn process_download(
             .map_err(|e| format!("Failed to create directories: {}", e))?;
     }
 
-    // Step 2: Download to temp file
+    // Step 2: Download to temp file (preserve extension so lofty can detect format for tagging)
+    let dest_ext = dest_path.extension().and_then(|e| e.to_str()).unwrap_or("tmp");
     let temp_path = dest_path
         .parent()
         .unwrap_or(Path::new("."))
-        .join(format!(".viboplr-download-{}.tmp", request.id));
+        .join(format!(".viboplr-download-{}.{}", request.id, dest_ext));
 
     let http_client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
@@ -441,3 +442,4 @@ pub fn write_tags(
 
     Ok(())
 }
+
