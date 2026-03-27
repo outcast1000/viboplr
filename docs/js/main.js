@@ -35,43 +35,6 @@
     });
   });
 
-  // Fetch latest version and download URLs from GitHub Releases API
-  fetch('https://api.github.com/repos/outcast1000/viboplr/releases/latest')
-    .then(function (res) { return res.json(); })
-    .then(function (data) {
-      if (!data || !data.tag_name) return;
-
-      // Set version badges
-      document.querySelectorAll('#version-badge').forEach(function (el) {
-        el.textContent = data.tag_name;
-      });
-
-      // Find download URLs from release assets
-      var dmgUrl = '';
-      var msiUrl = '';
-      (data.assets || []).forEach(function (asset) {
-        if (asset.browser_download_url) {
-          if (asset.name.endsWith('.dmg')) dmgUrl = asset.browser_download_url;
-          if (asset.name.endsWith('.msi')) msiUrl = asset.browser_download_url;
-        }
-      });
-
-      // Update all macOS download links
-      if (dmgUrl) {
-        document.querySelectorAll('a[href$="#download-macos"]').forEach(function (el) {
-          el.href = dmgUrl;
-        });
-      }
-
-      // Update all Windows download links
-      if (msiUrl) {
-        document.querySelectorAll('a[href$="#download-windows"]').forEach(function (el) {
-          el.href = msiUrl;
-        });
-      }
-    })
-    .catch(function () { /* silently ignore */ });
-
   // Scroll-triggered reveal animations
   var reveals = document.querySelectorAll('.reveal');
 

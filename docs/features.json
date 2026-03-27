@@ -1,0 +1,79 @@
+[
+  {
+    "label": "Playback",
+    "heading": "Hear it the way it was meant to be heard",
+    "description": "Gapless playback for seamless album listening. Crossfading from 0 to 10 seconds between tracks. Native codec support for audio and video files &mdash; no transcoding, no plugins.",
+    "items": [
+      "Gapless playback across albums",
+      "Adjustable crossfade (0&ndash;10s)",
+      "Audio &amp; video playback with native codecs",
+      "Sub-200ms playback latency"
+    ]
+  },
+  {
+    "label": "Library",
+    "heading": "Your collection, always in sync",
+    "description": "Point Viboplr at your music folders and it handles the rest. Background scanning reads metadata intelligently, and real-time file watching catches every change the moment it happens.",
+    "items": [
+      "Background folder scanning",
+      "Smart metadata extraction with fallback parsing",
+      "Real-time file watching for instant updates",
+      "Genre tags from file metadata"
+    ]
+  },
+  {
+    "label": "Search",
+    "heading": "Find anything in milliseconds",
+    "description": "FTS5-powered full-text search across artists, albums, tracks, and tags. Accent-insensitive and forgiving &mdash; find what you want even when you can't remember the exact spelling.",
+    "items": [
+      "Full-text search with FTS5",
+      "Accent &amp; case insensitive",
+      "Sub-100ms results across entire library",
+      "Search by artist, album, track, or tag"
+    ]
+  },
+  {
+    "label": "Servers",
+    "heading": "Local meets streaming, seamlessly",
+    "description": "Connect to Subsonic and Navidrome servers alongside your local folders. Add TIDAL Hi-Fi for lossless streaming. One unified library, one player, zero friction.",
+    "items": [
+      "Subsonic &amp; Navidrome support",
+      "TIDAL Hi-Fi integration",
+      "Unified library across all sources",
+      "Seamless switching between local &amp; remote"
+    ]
+  },
+  {
+    "label": "Mini Player",
+    "heading": "Always within reach",
+    "description": "A compact, always-on-top mini player that stays visible while you work. Draggable, auto-resizing, and just the right amount of information at a glance.",
+    "items": [
+      "Always-on-top mode",
+      "Draggable &amp; compact",
+      "Auto-resizing to fit content",
+      "Full playback controls"
+    ]
+  },
+  {
+    "label": "Keyboard",
+    "heading": "Built for power users",
+    "description": "Over 35 keyboard shortcuts for everything from playback to navigation. Never leave the keyboard &mdash; control your music as fast as you can think.",
+    "items": [
+      "35+ keyboard shortcuts",
+      "Playback, volume, navigation, search",
+      "Discoverable via shortcut overlay",
+      "Vim-inspired navigation keys"
+    ]
+  },
+  {
+    "label": "Discovery",
+    "heading": "Rediscover your own music",
+    "description": "Smart auto-continue picks the next track using weighted strategies &mdash; play history, liked tracks, genre affinity, and more. Your library, surfaced in new ways.",
+    "items": [
+      "Auto-continue with smart selection",
+      "Weighted playback strategies",
+      "Play history tracking",
+      "Liked tracks &amp; favorites"
+    ]
+  }
+]
