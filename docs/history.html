@@ -66,8 +66,82 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.3.18</span>
+          <span class="timeline-date">March 27, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>tokenized AND search for artists view</li>
+          <li>auto-generate composite tag images from top artist photos</li>
+          <li>double-click mini player to restore main window</li>
+          <li>redesign mini player with album art, two-line layout, and grouped right controls</li>
+          <li>two-line layout for track list view with larger fonts</li>
+          <li>enrich search dropdown with album art, two-line rows, and enqueue support</li>
+          <li>wire central search dropdown and per-view search bars in App</li>
+          <li>add CentralSearchDropdown component with overlay styles</li>
+          <li>add ViewSearchBar component for per-view search</li>
+          <li>add useCentralSearch hook for caption bar dropdown</li>
+          <li>add useViewSearchState hook for per-view search state</li>
+          <li>restructure grid layout, add rounded corners, restyle caption bar</li>
+          <li>add caption bar and traffic light styles, remove old sidebar brand styles</li>
+          <li>restructure caption bar with brand, sidebar toggle, and dual WindowControls</li>
+          <li>locate track navigates to album view when available</li>
+          <li>remove sidebar brand header, move branding to caption bar</li>
+          <li>add macOS traffic lights and mini player to WindowControls</li>
+          <li>disable native window decorations for custom caption bar</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>center hover circles on mini player buttons and add hover to play/pause</li>
+          <li>prevent mini player text from pushing controls out of view</li>
+          <li>fetch TIDAL instance list once per day, refresh on failure</li>
+          <li>absolutely center playback controls in now-playing bar</li>
+          <li>center now-playing controls independently of track info width</li>
+          <li>stop view search icon from floating over sidebar</li>
+          <li>add / shortcut for central search, avoid unnecessary IPC on client-side views</li>
+          <li>mini player layout — fill viewport height and center controls</li>
+          <li>prevent mini player window from going off-screen</li>
+          <li>redesign caption bar layout and enlarge search box</li>
+          <li>remove all Tauri event listeners from WindowControls to fix perf regression</li>
+          <li>use module-level singleton for Tauri window event listeners</li>
+          <li>properly cleanup Tauri event listeners, add global-shortcut perms</li>
+          <li>sidebar collapse on edge, rounded corners on html, queue visibility</li>
+          <li>move sidebar toggle to sidebar, fix WindowControls perf</li>
+          <li>address code review findings</li>
+          <li>improve waveform analysis and time label readability</li>
+          <li>add missing window permissions and error handling for mini player toggle</li>
+          <li>deduplicate changelog entries and trigger pages deploy after release</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li>wrap artist, album, and tag info in a container for improved layout</li>
+          <li>remove shared searchQuery from useLibrary, accept per-view query param</li>
+          <li>change NavState to store per-view search queries map</li>
+          <li>remove searchQuery from persisted store defaults</li>
+          <li>move caption bar out of main, add mini player button and spacer</li>
+          <li>remove mini player from WindowControls component</li>
+          </ul>
+          <h4>Documentation</h4>
+          <ul>
+          <li>update release history page</li>
+          </ul>
+          <h4>Other</h4>
+          <ul>
+          <li>Merge: center now-playing controls independently of track info width</li>
+          <li>Spec Update</li>
+          <li>Cleanup</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.3.18/Viboplr_0.3.18_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.3.18_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.3.18/Viboplr_0.3.18_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.3.18_x64_en-US.msi</a>
+        </div>
+      </div>
+      <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.3.17</span>
-          <span class="timeline-date">March 26, 2026</span>
+          <span class="timeline-date">March 25, 2026</span>
         </div>
         <div class="timeline-body">
           <h4>Features</h4>
@@ -276,7 +350,7 @@
       <div class="timeline-entry reveal">
         <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.3.12</span>
-          <span class="timeline-date">March 23, 2026</span>
+          <span class="timeline-date">March 22, 2026</span>
         </div>
         <div class="timeline-body">
           <h4>Bug Fixes</h4>
@@ -292,7 +366,7 @@
       <div class="timeline-entry reveal">
         <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.3.11</span>
-          <span class="timeline-date">March 23, 2026</span>
+          <span class="timeline-date">March 22, 2026</span>
         </div>
         <div class="timeline-body">
           <h4>Features</h4>
@@ -387,7 +461,7 @@
       <div class="timeline-entry reveal">
         <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.3.8</span>
-          <span class="timeline-date">March 22, 2026</span>
+          <span class="timeline-date">March 21, 2026</span>
         </div>
         <div class="timeline-body">
           <h4>Features</h4>
@@ -532,7 +606,7 @@
       <div class="timeline-entry reveal">
         <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.3.5</span>
-          <span class="timeline-date">March 19, 2026</span>
+          <span class="timeline-date">March 18, 2026</span>
         </div>
         <div class="timeline-body">
           <h4>Other</h4>
