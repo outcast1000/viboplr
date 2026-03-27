@@ -4589,6 +4589,10 @@ body {
   transition: opacity 0.15s, color 0.15s, transform 0.15s;
 }
 
+.now-playing-mini .mini-close-btn {
+  color: #ff5f57;
+}
+
 .now-playing-mini .mini-expand-btn:hover,
 .now-playing-mini .mini-close-btn:hover {
   opacity: 1;

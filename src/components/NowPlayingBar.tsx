@@ -124,7 +124,7 @@ export function NowPlayingBar({
           </div>
           <span className="mini-separator" />
           <button className="ctrl-btn mini-expand-btn" onClick={onToggleMiniMode} title="Exit mini mode">{"\u29C9"}</button>
-          <button className="ctrl-btn mini-close-btn" onClick={onClose} title="Close">{"\u23FB"}</button>
+          <button className="ctrl-btn mini-close-btn" onClick={onClose} title="Close">{"\u2716"}</button>
         </div>
         <div className="mini-progress" style={{ width: `${progress}%` }} />
       </footer>
