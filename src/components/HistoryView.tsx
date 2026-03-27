@@ -77,15 +77,33 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     }).catch(console.error);
   }, []);
 
+  // Server-side artist search when query is active
+  const [searchedArtists, setSearchedArtists] = useState<HistoryArtistStats[] | null>(null);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchedArtists(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      invoke<HistoryArtistStats[]>("search_history_artists", { query: q, limit: 50 })
+        .then(setSearchedArtists)
+        .catch(console.error);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   // Fetch artist images for all unique artist names
+  const allArtists = searchedArtists ?? topArtists;
   useEffect(() => {
     const names = new Set<string>();
-    for (const a of topArtists) names.add(a.display_name);
+    for (const a of allArtists) names.add(a.display_name);
     for (const t of mostPlayedAllTime) if (t.display_artist) names.add(t.display_artist);
     for (const t of mostPlayedRecent) if (t.display_artist) names.add(t.display_artist);
     for (const t of recentPlays) if (t.display_artist) names.add(t.display_artist);
     for (const name of names) fetchArtistImage(name);
-  }, [topArtists, mostPlayedAllTime, mostPlayedRecent, recentPlays]);
+  }, [allArtists, mostPlayedAllTime, mostPlayedRecent, recentPlays]);
 
   const q = searchQuery.trim();
   const filteredAllTime = mostPlayedAllTime
@@ -95,9 +113,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     .map((t, i) => ({ ...t, rank: i + 1 }))
     .filter(t => !q || matchesQuery(q, t.display_title, t.display_artist));
   const filteredPlays = q ? recentPlays.filter(t => matchesQuery(q, t.display_title, t.display_artist)) : recentPlays;
-  const filteredArtists = topArtists
-    .map((a, i) => ({ ...a, rank: i + 1 }))
-    .filter(a => !q || a.display_name.toLowerCase().includes(q.toLowerCase()));
+  const filteredArtists = q ? (searchedArtists ?? []) : topArtists;
 
   const flatItems = useMemo(() => {
     const items: { libraryTrackId: number | null; historyTrackId: number }[] = [];
@@ -197,7 +213,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     <div className="history-view">
       {filteredArtists.length > 0 && (
         <div className="history-section">
-          <div className="section-title">Most Played Artists</div>
+          <div className="section-title">{q ? "Artists" : "Most Played Artists"}</div>
           <div className="history-list">
             {filteredArtists.map((a) => (
               <div

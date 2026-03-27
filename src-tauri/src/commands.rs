@@ -671,6 +671,11 @@ pub fn get_history_most_played_artists(state: State<'_, AppState>, limit: i64) -
 }
 
 #[tauri::command]
+pub fn search_history_artists(state: State<'_, AppState>, query: String, limit: i64) -> Result<Vec<HistoryArtistStats>, String> {
+    state.db.search_history_artists(&query, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn reconnect_history_track(state: State<'_, AppState>, history_track_id: i64) -> Result<Option<Track>, String> {
     state.db.reconnect_history_track(history_track_id).map_err(|e| e.to_string())
 }

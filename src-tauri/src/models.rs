@@ -134,6 +134,7 @@ pub struct HistoryArtistStats {
     pub track_count: i64,
     pub display_name: String,
     pub library_artist_id: Option<i64>,
+    pub rank: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

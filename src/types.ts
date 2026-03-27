@@ -85,6 +85,7 @@ export interface HistoryArtistStats {
   track_count: number;
   display_name: string;
   library_artist_id: number | null;
+  rank: number;
 }
 
 export interface PlaylistLoadResult {
