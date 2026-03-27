@@ -1287,7 +1287,8 @@ function App() {
   const filteredArtists = (() => {
     if (view !== "artists" || selectedArtist !== null) return [];
     const q = viewSearch.getQuery("artists").trim().toLowerCase();
-    return q ? library.sortedArtists.filter(a => stripAccents(a.name.toLowerCase()).includes(stripAccents(q))) : library.sortedArtists;
+    const tokens = stripAccents(q).split(/[\s.,;:_\-\/\\]+/).filter(Boolean);
+    return tokens.length ? library.sortedArtists.filter(a => { const name = stripAccents(a.name.toLowerCase()); return tokens.every(t => name.includes(t)); }) : library.sortedArtists;
   })();
 
   const filteredAlbums = (() => {
