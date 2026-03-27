@@ -4,7 +4,7 @@ import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import { store } from "../store";
 import type { Track } from "../types";
 
-const MINI_HEIGHT = 40;
+const MINI_HEIGHT = 52;
 const MINI_MIN_WIDTH = 280;
 const MINI_MAX_WIDTH = 550;
 const MINI_INITIAL_WIDTH = 500;
@@ -56,12 +56,22 @@ async function getLogicalMonitorBounds(): Promise<MonitorRect[]> {
 function measureMiniFooter(): number {
   const footer = document.querySelector(".now-playing-mini") as HTMLElement;
   if (!footer) return MINI_INITIAL_WIDTH;
-  const clone = footer.cloneNode(true) as HTMLElement;
-  clone.style.cssText = "position:fixed;top:-9999px;left:-9999px;visibility:hidden;width:max-content;pointer-events:none;";
-  document.body.appendChild(clone);
-  const width = clone.offsetWidth;
-  document.body.removeChild(clone);
-  return Math.max(MINI_MIN_WIDTH, Math.min(width + 16, MINI_MAX_WIDTH));
+
+  // Measure right-side controls (fixed width)
+  const rightEl = footer.querySelector(".mini-right") as HTMLElement;
+  const rightWidth = rightEl ? rightEl.offsetWidth : 0;
+
+  // Measure art (fixed width)
+  const artEl = footer.querySelector(".now-mini-art, .now-mini-art-fallback") as HTMLElement;
+  const artWidth = artEl ? artEl.offsetWidth : 0;
+
+  // Measure natural text width (scrollWidth gives unconstrained width)
+  const textEl = footer.querySelector(".now-mini-info-text") as HTMLElement;
+  const textWidth = textEl ? textEl.scrollWidth : 0;
+
+  // padding (12px * 2) + gaps (8px info gap + 10px footer gap) + some breathing room
+  const total = artWidth + textWidth + rightWidth + 24 + 8 + 10 + 8;
+  return Math.max(MINI_MIN_WIDTH, Math.min(Math.ceil(total), MINI_MAX_WIDTH));
 }
 
 export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack: Track | null) {

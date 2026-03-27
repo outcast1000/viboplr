@@ -4361,7 +4361,7 @@ body {
   flex-direction: row;
   align-items: center;
   justify-content: flex-end;
-  padding: 0 12px;
+  padding: 6px 12px;
   gap: 10px;
   cursor: grab;
 }
@@ -4379,7 +4379,47 @@ body {
   flex: 1;
   min-width: 0;
   max-width: none;
-  align-items: baseline;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.now-mini-art {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.now-mini-art-fallback {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-highlight, #2a3a5a);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary, #888);
+}
+
+.now-mini-info-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.now-playing-mini .now-title {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .now-playing-mini .now-artist {
@@ -4390,7 +4430,17 @@ body {
   text-overflow: ellipsis;
 }
 
+.now-playing-mini .mini-right {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .now-playing-mini .now-controls {
+  position: static;
+  transform: none;
   flex: none;
 }
 
@@ -4422,6 +4472,8 @@ body {
   height: 16px;
   background: rgba(255, 255, 255, 0.1);
   flex-shrink: 0;
+  align-self: center;
+  margin: 2px 0px 2px 10px;
 }
 
 .now-playing-mini .mini-expand-btn,
