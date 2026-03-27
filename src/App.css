@@ -4258,7 +4258,7 @@ body {
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.1s;
-  font-size: 13px;
+  font-size: 14px;
   gap: 12px;
 }
 
@@ -4276,12 +4276,16 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.history-time {
-  width: 72px;
+.history-art {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  object-fit: cover;
   flex-shrink: 0;
-  font-size: 11px;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
+}
+
+.history-art-placeholder {
+  background: var(--bg-hover);
 }
 
 .history-info {
@@ -4289,7 +4293,7 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
 .history-title {
@@ -4299,29 +4303,11 @@ body {
 }
 
 .history-artist {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.history-duration {
-  width: 48px;
-  flex-shrink: 0;
-  text-align: right;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.history-play-count {
-  width: 64px;
-  flex-shrink: 0;
-  text-align: right;
-  font-size: 11px;
-  color: var(--accent);
-  font-weight: 600;
 }
 
 /* Mini player mode */

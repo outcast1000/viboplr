@@ -1,6 +1,8 @@
 import { useEffect, useState, forwardRef, useImperativeHandle, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, HistoryEntry, HistoryMostPlayed, HistoryArtistStats } from "../types";
+import type { UseImageCacheReturn } from "../hooks/useImageCache";
 
 export interface HistoryViewHandle {
   count: number;
@@ -15,6 +17,8 @@ interface HistoryViewProps {
   onEnqueueTrack: (tracks: Track[]) => void;
   addLog: (message: string) => void;
   onArtistClick: (artistId: number) => void;
+  albumImageCache: UseImageCacheReturn;
+  artistImageCache: UseImageCacheReturn;
 }
 
 function formatRelativeTime(unixSecs: number): string {
@@ -32,8 +36,15 @@ function matchesQuery(q: string, title: string, artist: string | null): boolean 
   return title.toLowerCase().includes(lower) || (artist?.toLowerCase().includes(lower) ?? false);
 }
 
+function HistoryArt({ imagePath }: { imagePath: string | null | undefined }) {
+  if (imagePath) {
+    return <img className="history-art" src={convertFileSrc(imagePath)} alt="" />;
+  }
+  return <div className="history-art history-art-placeholder" />;
+}
+
 export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
-  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, addLog, onArtistClick }, ref) {
+  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, addLog, onArtistClick, albumImageCache, artistImageCache }, ref) {
   const [mostPlayedAllTime, setMostPlayedAllTime] = useState<HistoryMostPlayed[]>([]);
   const [mostPlayedRecent, setMostPlayedRecent] = useState<HistoryMostPlayed[]>([]);
   const [recentPlays, setRecentPlays] = useState<HistoryEntry[]>([]);
@@ -53,6 +64,25 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
       setTopArtists(artists);
     }).catch(console.error);
   }, []);
+
+  // Trigger image fetches for album art
+  useEffect(() => {
+    const allTracks = [...mostPlayedAllTime, ...mostPlayedRecent, ...recentPlays];
+    for (const t of allTracks) {
+      if (t.library_album_id != null) {
+        albumImageCache.fetchOnDemand({ id: t.library_album_id });
+      }
+    }
+  }, [mostPlayedAllTime, mostPlayedRecent, recentPlays]);
+
+  // Trigger image fetches for artist art
+  useEffect(() => {
+    for (const a of topArtists) {
+      if (a.library_artist_id != null) {
+        artistImageCache.fetchOnDemand({ id: a.library_artist_id, name: a.display_name });
+      }
+    }
+  }, [topArtists]);
 
   const q = searchQuery.trim();
   const filteredAllTime = mostPlayedAllTime
@@ -89,11 +119,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
       if (track) {
         onPlayTrack([track], 0);
       } else {
-        addLog("Track not found in library — it may have been removed");
+        addLog("Track not found in library \u2014 it may have been removed");
       }
     } catch (e) {
       console.error("Failed to reconnect track:", e);
-      addLog("Track not found in library — it may have been removed");
+      addLog("Track not found in library \u2014 it may have been removed");
     }
   }
 
@@ -112,11 +142,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
       if (track) {
         onEnqueueTrack([track]);
       } else {
-        addLog("Track not found in library — it may have been removed");
+        addLog("Track not found in library \u2014 it may have been removed");
       }
     } catch (e) {
       console.error("Failed to reconnect track:", e);
-      addLog("Track not found in library — it may have been removed");
+      addLog("Track not found in library \u2014 it may have been removed");
     }
   }
 
@@ -130,11 +160,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
       if (artistId) {
         onArtistClick(artistId);
       } else {
-        addLog("Artist not found in library — they may have been removed");
+        addLog("Artist not found in library \u2014 they may have been removed");
       }
     } catch (e) {
       console.error("Failed to reconnect artist:", e);
-      addLog("Artist not found in library — they may have been removed");
+      addLog("Artist not found in library \u2014 they may have been removed");
     }
   }
 
@@ -173,11 +203,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                 onDoubleClick={() => handleArtistDoubleClick(a.library_artist_id, a.history_artist_id)}
               >
                 <span className="history-rank">{a.rank}</span>
+                <HistoryArt imagePath={a.library_artist_id != null ? artistImageCache.images[a.library_artist_id] : null} />
                 <div className="history-info">
                   <span className="history-title">{a.display_name}</span>
-                  <span className="history-artist">{a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
+                  <span className="history-artist">{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
                 </div>
-                <span className="history-play-count">{a.play_count} play{a.play_count !== 1 ? "s" : ""}</span>
               </div>
             ))}
           </div>
@@ -198,11 +228,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
                 >
                   <span className="history-rank">{t.rank}</span>
+                  <HistoryArt imagePath={t.library_album_id != null ? albumImageCache.images[t.library_album_id] : null} />
                   <div className="history-info">
                     <span className="history-title">{t.display_title}</span>
-                    <span className="history-artist">{t.display_artist ?? "Unknown"}</span>
+                    <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
                   </div>
-                  <span className="history-play-count">{t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
                 </div>
               );
             })}
@@ -224,11 +254,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
                 >
                   <span className="history-rank">{t.rank}</span>
+                  <HistoryArt imagePath={t.library_album_id != null ? albumImageCache.images[t.library_album_id] : null} />
                   <div className="history-info">
                     <span className="history-title">{t.display_title}</span>
-                    <span className="history-artist">{t.display_artist ?? "Unknown"}</span>
+                    <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
                   </div>
-                  <span className="history-play-count">{t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
                 </div>
               );
             })}
@@ -248,10 +278,10 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                 data-history-index={idx}
                 onDoubleClick={() => playTrackById(entry.library_track_id, entry.history_track_id)}
               >
-                <span className="history-time">{formatRelativeTime(entry.played_at)}</span>
+                <HistoryArt imagePath={entry.library_album_id != null ? albumImageCache.images[entry.library_album_id] : null} />
                 <div className="history-info">
                   <span className="history-title">{entry.display_title}</span>
-                  <span className="history-artist">{entry.display_artist ?? "Unknown"}</span>
+                  <span className="history-artist">{entry.display_artist ?? "Unknown"} &middot; {formatRelativeTime(entry.played_at)}</span>
                 </div>
               </div>
             );
