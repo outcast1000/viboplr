@@ -13,7 +13,7 @@ export function ViewSearchBar({ query, onQueryChange, placeholder }: ViewSearchB
   return (
     <div className="view-search-bar">
       <svg
-        className="search-icon"
+        className="view-search-icon"
         width="16"
         height="16"
         viewBox="0 0 24 24"

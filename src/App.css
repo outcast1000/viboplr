@@ -1545,6 +1545,11 @@ body {
   color: var(--text-tertiary, #555);
 }
 
+.view-search-icon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
 .view-search-bar {
   display: flex;
   align-items: center;
