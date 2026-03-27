@@ -2181,11 +2181,13 @@ function App() {
                       ) : (
                         <div className="entity-list-img">{t.title[0]?.toUpperCase() ?? "?"}</div>
                       )}
-                      <span className="entity-list-name">{t.title}</span>
-                      <span className="entity-list-secondary">
-                        {t.artist_name && <>{t.artist_name}</>}
-                        {t.album_title && <> {"\u00B7"} {t.album_title}</>}
-                      </span>
+                      <div className="entity-list-info">
+                        <span className="entity-list-name">{t.title}</span>
+                        <span className="entity-list-secondary">
+                          {t.artist_name && <>{t.artist_name}</>}
+                          {t.album_title && <> {"\u00B7"} {t.album_title}</>}
+                        </span>
+                      </div>
                       <span className="entity-list-count">{formatDuration(t.duration_secs)}</span>
                     </div>
                   ))}
@@ -2354,11 +2356,13 @@ function App() {
                       ) : (
                         <div className="entity-list-img">{t.title[0]?.toUpperCase() ?? "?"}</div>
                       )}
-                      <span className="entity-list-name">{t.title}</span>
-                      <span className="entity-list-secondary">
-                        {t.artist_name && <>{t.artist_name}</>}
-                        {t.album_title && <> {"\u00B7"} {t.album_title}</>}
-                      </span>
+                      <div className="entity-list-info">
+                        <span className="entity-list-name">{t.title}</span>
+                        <span className="entity-list-secondary">
+                          {t.artist_name && <>{t.artist_name}</>}
+                          {t.album_title && <> {"\u00B7"} {t.album_title}</>}
+                        </span>
+                      </div>
                       <span className="entity-list-count">{formatDuration(t.duration_secs)}</span>
                     </div>
                   ))}
