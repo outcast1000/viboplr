@@ -105,7 +105,7 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 ### 4.6 Library Browsing
 
 - Browse by **artist**, **album**, **tag**, **liked tracks**, **history**, **TIDAL** (when a tidal collection exists), or **all tracks** (flat list).
-- List view (table) with columns: like (heart icon), track number, title, artist, album, year, quality (bitrate), duration, file size, collection, path. Columns are togglable via a column menu; default visible: like, number, title, artist, album, duration.
+- List view (table) with columns: like (heart icon), track number, title, artist, album, year, quality (bitrate), duration, file size, collection, path. Columns are togglable via a column menu; default visible: like, number, title, artist, album, duration. In list/tiles view modes, tracks use a **two-line layout**: title on line 1 (15px), artist · album on line 2 (13px).
 - **Multi-selection:** Click to select a single track. Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range to the existing selection. Selected rows are visually highlighted. Selection is cleared on view/track-list change and on double-click.
 - Tracks from all enabled collections (local and server) are unified in a single library.
 - **Breadcrumb actions:** Artist detail and tag detail views show "Play All" and "Queue All" buttons in the breadcrumb bar. The All Tracks view does not show these bulk-play buttons.
@@ -133,10 +133,19 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 
 **Liked tags:** Each tag has a `liked` boolean attribute. Like buttons appear in all three tag view modes (heart icon). The tag detail header also shows a like button. The sort bar has a heart toggle to float liked tags to the top.
 
-**Tag images:** Tags support manual image management (set from file, paste from clipboard, remove) via the generic entity image commands (`set_entity_image`, `paste_entity_image`, `remove_entity_image` with `kind: "tag"`). Images are stored as files in `{app_dir}/tag_images/{canonical_slug}.{ext}` (see §12.3 for canonical slug format). Unlike artists/albums, tags have no auto-fetch from external providers. A `TagCardArt` component renders the tag image (or initial letter fallback) in list and tiles views, with lazy-loading via IntersectionObserver.
+**Tag images:** Tags support manual image management (set from file, paste from clipboard, remove) via the generic entity image commands (`set_entity_image`, `paste_entity_image`, `remove_entity_image` with `kind: "tag"`). Images are stored as files in `{app_dir}/tag_images/{canonical_slug}.{ext}` (see §12.3 for canonical slug format). A `TagCardArt` component renders the tag image (or initial letter fallback) in list and tiles views, with lazy-loading via IntersectionObserver.
+
+**Auto-generated composite tag images:** When a tag has no manually-set image, the backend auto-generates a composite PNG from the top 1–3 artists (by track count) within that tag. Artist photos are cropped to circles with anti-aliased edges and a dark border, overlapping horizontally on a transparent canvas (right-to-left draw order so the top artist is in front). The composite is generated via the `image` crate (`composite_image.rs`) and follows the same async pipeline as other images: frontend requests via `fetch_tag_image`, backend processes on the worker thread, emits `tag-image-ready` event when done. Failure tracking and deduplication are shared with artist/album image downloads.
 
 ### 4.8 Search
 
+**Dual search architecture:** The app has two independent search mechanisms:
+
+1. **Central search dropdown** (`CentralSearchDropdown` component, `useCentralSearch` hook): A pill-shaped input in the caption bar (`Cmd/Ctrl+K` to focus) that queries the FTS5 index with 400ms debounce. Displays up to 5 results in a dropdown with album art (fallback: artist image, then initial letter), two-line rows (title + artist · album subtitle), and keyboard navigation. Enter plays the selected track; `Cmd/Ctrl+Enter` enqueues it. Pressing Enter with no selection commits the query to the current view's search bar. Footer hints show available actions.
+
+2. **Per-view search bars** (`ViewSearchBar` component, `useViewSearchState` hook): Each view (artists, albums, tags, tracks, liked, history, tidal) has its own independent search bar that filters content within that view. Search state is maintained per-view and persists across view switches. Navigation history stores per-view search queries (via `viewSearchQueries` map) instead of a single shared query. **Artist view search** tokenizes the query on whitespace and punctuation (`/[\s.,;:_\-\/\\]+/`), requiring all tokens to match (AND logic) for flexible multi-word lookups.
+
+**FTS5 index:**
 - SQLite FTS5 virtual table indexes: track title, artist name, album title, tag names, filename.
 - **Accent-insensitive:** all indexed text is stripped of diacritics before insertion via a custom `strip_diacritics()` SQL function (Rust, using `unicode-normalization` crate). Search queries are also normalized before matching. This works for all Unicode scripts (Latin, Greek, Cyrillic, etc.). Client-side list filtering (artists, albums, tags) uses JavaScript `String.normalize("NFD")` with combining-mark removal for the same effect.
 - Search-as-you-type with <100 ms response time.
@@ -302,7 +311,6 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | Key | Type | Default |
 |-----|------|---------|
 | `view` | `string` (`"all"`, `"artists"`, `"albums"`, `"tags"`, `"liked"`, `"history"`, `"tidal"`) | `"all"` |
-| `searchQuery` | `string` | `""` |
 | `selectedArtist` | `number \| null` | `null` |
 | `selectedAlbum` | `number \| null` | `null` |
 | `selectedTag` | `number \| null` | `null` |
@@ -358,10 +366,12 @@ A compact, always-on-top floating player that replaces the full window with a mi
 **Dimensions:** 40px height, 280–550px width (auto-sized based on track title/artist text width, initial: 500px). The window has no native decorations in mini mode and uses a transparent background for rounded corners on macOS.
 
 **UI (NowPlayingBar mini mode):**
-- Track title and artist name.
-- Previous, play/pause, and next buttons.
-- Expand button (exit mini mode) and close button.
+- Album art thumbnail (with initial-letter fallback if no image available).
+- Two-line text: track title on line 1, artist · album on line 2.
+- Previous, play/pause, and next buttons grouped on the right.
+- Restore button (⧉) and close button (⏻) grouped after the playback controls.
 - A thin progress bar at the bottom showing playback position.
+- **Double-click** anywhere on the mini player restores the full window.
 - Draggable: clicking and dragging anywhere on the bar (except buttons) moves the window via `getCurrentWindow().startDragging()`.
 
 **Toggle:** A labeled "Mini Player" button in the **caption bar** (to the right of the search bar), or `Ctrl+Shift+M` (or `Cmd+Shift+M` on macOS). When entering mini mode:
@@ -404,6 +414,7 @@ Shortcuts use `Ctrl` on Windows/Linux and `Cmd` on macOS unless noted otherwise.
 | `Ctrl+5` | Show Liked Tracks view |
 | `Ctrl+6` | Show History view |
 | `Ctrl+7` | Show TIDAL view (when tidal collection exists) |
+| `Ctrl+K` | Focus central search dropdown |
 | `Ctrl+F` | Toggle fullscreen (when playing video) |
 | `Ctrl+L` | Like/unlike current track |
 | `Ctrl+P` | Toggle playlist panel |
@@ -462,6 +473,7 @@ Viboplr can search and stream from TIDAL's catalog via the **Hi-Fi API** (the ba
 - `TidalClient` struct with `base_url` and `reqwest::blocking::Client` (15s timeout).
 - Methods: `ping()`, `search_tracks/artists/albums()`, `get_track_info()`, `get_stream_url()`, `get_album()`, `get_artist()`, `get_artist_albums()`.
 - Static helpers: `cover_url()`, `artist_picture_url()` for constructing TIDAL CDN image URLs.
+- **Instance discovery:** Available API instances are fetched from uptime worker URLs and cached for 24 hours. If all instances fail, the cache is invalidated so the next request re-fetches automatically. An optional `override_url` (user-configurable) is tried first before falling back to discovered instances.
 
 ### 4.19 Custom Data Directory
 
@@ -578,7 +590,7 @@ Viboplr uses a custom caption bar across all platforms (native window decoration
 - **Window controls (left):** macOS traffic-light–style buttons (close, minimize, maximize) on the left. On Windows/Linux, a `WindowControls` component renders minimize, maximize, and close buttons instead.
 - **Navigation history buttons:** Back and forward arrows for view navigation history.
 - **Draggable spacer:** Flexible empty space that acts as a window drag region (double-click to maximize/restore).
-- **Search input:** A pill-shaped input with a magnifying glass icon (left) and a clear button (right, shown when query is non-empty). Max width 400px. The search placeholder text is contextual (e.g., "Search artists...", "Search in {album}...", "What do you want to play?").
+- **Central search dropdown:** A pill-shaped input with a magnifying glass icon (left) and a clear button (right, shown when query is non-empty). Focused via `Cmd/Ctrl+K`. Queries the FTS5 index and displays a dropdown of up to 5 results with album art, two-line rows, and keyboard navigation (see §4.8 for details). Placeholder: "What do you want to play?".
 - **Draggable spacer:** Another flexible drag region.
 - **Mini player button:** Labeled "Mini Player" with an icon, positioned to the right of the search bar.
 - **Window controls (right):** On Windows/Linux, a second `WindowControls` instance on the right side. Not rendered on macOS.
@@ -814,6 +826,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `remove_entity_image`   | `kind: String, id: i64`     | `()`                     |
 | `fetch_artist_image`    | `artist_id: i64, artist_name: String` | `()` (fire-and-forget) |
 | `fetch_album_image`     | `album_id: i64, album_title: String, artist_name?: String` | `()` (fire-and-forget) |
+| `fetch_tag_image`       | `tag_id: i64, tag_name: String` | `()` (fire-and-forget) |
 | `clear_image_failures`  | —                           | `()`                     |
 
 ### TIDAL Commands
@@ -860,6 +873,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `artist-image-error` | `{ artistId, name, error }`       |
 | `album-image-ready`  | `{ albumId, path }`               |
 | `album-image-error`  | `{ albumId, title, error }`       |
+| `tag-image-ready`    | `{ tagId, path }`                   |
 | `lastfm-auth-error`  | `()`                                |
 
 ## 8. Performance Targets
@@ -983,7 +997,7 @@ Artist and album image fetching is handled by a single background worker thread 
 
 All three commands are generic, accepting `kind` = `"artist"`, `"album"`, or `"tag"`. A single `entity_image.rs` module provides `image_dir()`, `get_image_path()`, `remove_image()`, `canonical_slug()`, and `entity_image_slug()` helpers parameterized by kind.
 
-Tags have no auto-fetch from external providers (no `fetch_tag_image` command). Tag images are managed manually only (set, paste, remove).
+Tags support auto-generated composite images via `fetch_tag_image` (see §4.7) in addition to manual management (set, paste, remove).
 
 ### 12.4 Playback Resolution
 
