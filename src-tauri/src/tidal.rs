@@ -21,7 +21,7 @@ const UPTIME_URLS: &[&str] = &[
     "https://tidal-uptime.jiffy-puffs-1j.workers.dev/",
     "https://tidal-uptime.props-76styles.workers.dev/",
 ];
-const CACHE_TTL_SECS: u64 = 300;
+const CACHE_TTL_SECS: u64 = 86_400; // 24 hours; invalidated on failure
 
 struct InstanceCache {
     api_urls: Vec<String>,
@@ -104,6 +104,11 @@ fn get_fallback_urls(
         }
         None => Vec::new(),
     }
+}
+
+fn invalidate_instance_cache() {
+    let mut cache = INSTANCE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    *cache = None;
 }
 
 // --- TidalClient ---
@@ -236,6 +241,8 @@ impl TidalClient {
             }
         }
 
+        // All instances failed — invalidate cache so next request re-fetches
+        invalidate_instance_cache();
         Err(last_err.unwrap_or_else(|| {
             TidalError("All TIDAL instances failed".to_string())
         }))
