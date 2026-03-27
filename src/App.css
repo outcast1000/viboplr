@@ -1387,7 +1387,7 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  max-width: 400px;
+  max-width: 480px;
   width: 100%;
 }
 
@@ -1404,7 +1404,7 @@ body {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   color: var(--text-primary);
-  padding: 10px 36px 10px 36px;
+  padding: 11px 36px 11px 36px;
   border-radius: 20px;
   font-size: 15px;
   outline: none;
@@ -1470,14 +1470,52 @@ body {
   background: var(--bg-highlight, #1a2744);
 }
 
-.central-search-result .result-title {
-  font-size: 13px;
-  flex: 1;
+.central-search-result .result-art {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
-.central-search-result .result-artist {
-  font-size: 11px;
+.central-search-result .result-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.central-search-result .result-img-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-highlight, #2a3a5a);
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-secondary, #888);
+}
+
+.central-search-result .result-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.central-search-result .result-title {
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.central-search-result .result-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary, #888);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .central-search-result .result-play {
@@ -1485,6 +1523,7 @@ body {
   color: var(--text-tertiary, #666);
   opacity: 0;
   transition: opacity 0.15s;
+  flex-shrink: 0;
 }
 
 .central-search-result:hover .result-play {
@@ -1496,7 +1535,14 @@ body {
   border-top: 1px solid var(--border-color, #223);
   text-align: center;
   font-size: 12px;
-  color: var(--accent-color, #58f);
+  color: var(--text-secondary, #888);
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.central-search-footer .footer-separator {
+  color: var(--text-tertiary, #555);
 }
 
 .view-search-bar {

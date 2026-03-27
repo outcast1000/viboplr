@@ -1,5 +1,5 @@
-// src/components/CentralSearchDropdown.tsx
 import { useRef, useEffect } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 
 interface CentralSearchDropdownProps {
@@ -12,6 +12,28 @@ interface CentralSearchDropdownProps {
   onResultClick: (track: Track) => void;
   onClose: () => void;
   inputRef?: React.RefObject<HTMLInputElement | null>;
+  albumImages: Record<number, string | null>;
+  artistImages: Record<number, string | null>;
+  onFetchAlbumImage: (entity: { id: number; title: string; artist_name: string | null }) => void;
+  onFetchArtistImage: (entity: { id: number; name: string }) => void;
+}
+
+function ResultImage({ track, albumImages, artistImages }: {
+  track: Track;
+  albumImages: Record<number, string | null>;
+  artistImages: Record<number, string | null>;
+}) {
+  // Fallback chain: album image → artist image → initial letter
+  const albumPath = track.album_id != null ? albumImages[track.album_id] : undefined;
+  const artistPath = track.artist_id != null ? artistImages[track.artist_id] : undefined;
+  const imagePath = albumPath || artistPath;
+
+  if (imagePath) {
+    return <img className="result-img" src={convertFileSrc(imagePath)} alt="" />;
+  }
+
+  const initial = (track.title[0] ?? "?").toUpperCase();
+  return <span className="result-img-fallback">{initial}</span>;
 }
 
 export function CentralSearchDropdown({
@@ -24,11 +46,16 @@ export function CentralSearchDropdown({
   onResultClick,
   onClose,
   inputRef: externalInputRef,
+  albumImages,
+  artistImages,
+  onFetchAlbumImage,
+  onFetchArtistImage,
 }: CentralSearchDropdownProps) {
   const internalRef = useRef<HTMLInputElement>(null);
   const inputRef = externalInputRef ?? internalRef;
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Close on click outside
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: MouseEvent) => {
@@ -39,6 +66,19 @@ export function CentralSearchDropdown({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [isOpen, onClose]);
+
+  // Trigger image fetching for visible results
+  useEffect(() => {
+    if (!isOpen) return;
+    for (const track of results) {
+      if (track.album_id != null && albumImages[track.album_id] === undefined) {
+        onFetchAlbumImage({ id: track.album_id, title: track.album_title ?? "", artist_name: track.artist_name });
+      }
+      if (track.artist_id != null && artistImages[track.artist_id] === undefined) {
+        onFetchArtistImage({ id: track.artist_id, name: track.artist_name ?? "Unknown" });
+      }
+    }
+  }, [isOpen, results, albumImages, artistImages, onFetchAlbumImage, onFetchArtistImage]);
 
   return (
     <div className="central-search-container" ref={containerRef}>
@@ -104,13 +144,26 @@ export function CentralSearchDropdown({
                 onResultClick(track);
               }}
             >
-              <span className="result-title">{track.title}</span>
-              <span className="result-artist">{track.artist_name}</span>
+              <div className="result-art">
+                <ResultImage track={track} albumImages={albumImages} artistImages={artistImages} />
+              </div>
+              <div className="result-info">
+                <div className="result-title">{track.title}</div>
+                <div className="result-subtitle">
+                  {track.artist_name}
+                  {track.artist_name && track.album_title && " · "}
+                  {track.album_title}
+                </div>
+              </div>
               <span className="result-play">▶</span>
             </div>
           ))}
           <div className="central-search-footer">
-            Press Enter to see all results →
+            <span>↵ play</span>
+            <span className="footer-separator">·</span>
+            <span>⌘↵ queue</span>
+            <span className="footer-separator">·</span>
+            <span>↵ from search for all results</span>
           </div>
         </div>
       )}

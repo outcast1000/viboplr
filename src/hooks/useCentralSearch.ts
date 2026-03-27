@@ -4,14 +4,15 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 
 const DEBOUNCE_MS = 200;
-const MAX_RESULTS = 8;
+const MAX_RESULTS = 5;
 
 interface UseCentralSearchOptions {
   onPlayTrack: (track: Track) => void;
+  onEnqueueTrack: (track: Track) => void;
   onCommitSearch: (query: string) => void;
 }
 
-export function useCentralSearch({ onPlayTrack, onCommitSearch }: UseCentralSearchOptions) {
+export function useCentralSearch({ onPlayTrack, onEnqueueTrack, onCommitSearch }: UseCentralSearchOptions) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Track[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -77,7 +78,11 @@ export function useCentralSearch({ onPlayTrack, onCommitSearch }: UseCentralSear
         case "Enter":
           e.preventDefault();
           if (highlightedIndex >= 0 && highlightedIndex < results.length) {
-            onPlayTrack(results[highlightedIndex]);
+            if (e.metaKey || e.ctrlKey) {
+              onEnqueueTrack(results[highlightedIndex]);
+            } else {
+              onPlayTrack(results[highlightedIndex]);
+            }
             close();
           } else if (query.trim()) {
             onCommitSearch(query.trim());
@@ -90,7 +95,7 @@ export function useCentralSearch({ onPlayTrack, onCommitSearch }: UseCentralSear
           break;
       }
     },
-    [isOpen, query, results, highlightedIndex, onPlayTrack, onCommitSearch, close]
+    [isOpen, query, results, highlightedIndex, onPlayTrack, onEnqueueTrack, onCommitSearch, close]
   );
 
   const handleResultClick = useCallback(

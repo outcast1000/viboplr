@@ -113,6 +113,9 @@ function App() {
     onPlayTrack: (track) => {
       queueHook.playTracks([track], 0);
     },
+    onEnqueueTrack: (track) => {
+      queueHook.enqueueTracks([track]);
+    },
     onCommitSearch: (query) => {
       library.setView("all");
       library.setSelectedArtist(null);
@@ -1475,6 +1478,10 @@ function App() {
             onResultClick={centralSearch.handleResultClick}
             onClose={centralSearch.close}
             inputRef={searchInputRef}
+            albumImages={albumImageCache.images}
+            artistImages={artistImageCache.images}
+            onFetchAlbumImage={albumImageCache.fetchOnDemand}
+            onFetchArtistImage={artistImageCache.fetchOnDemand}
           />
           <div className="caption-spacer" />
           <button
