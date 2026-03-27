@@ -31,3 +31,4 @@ src-tauri/.cargo/
 worktrees/
 .claude/skills/
 .superpowers/
+docs/superpowers/
