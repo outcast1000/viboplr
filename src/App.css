@@ -1318,7 +1318,7 @@ body {
 .search-bar {
   grid-column: 1 / -1;
   grid-row: 1;
-  padding: 14px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -1327,6 +1327,23 @@ body {
 }
 .search-bar > * {
   -webkit-app-region: no-drag;
+}
+
+.caption-brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+}
+
+.caption-brand-text {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: linear-gradient(180deg, #FF6B6B, #E91E8A);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .caption-spacer {
@@ -1404,7 +1421,7 @@ body {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   color: var(--text-primary);
-  padding: 11px 36px 11px 36px;
+  padding: 8px 36px 8px 36px;
   border-radius: 20px;
   font-size: 15px;
   outline: none;
