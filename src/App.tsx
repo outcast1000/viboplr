@@ -2656,7 +2656,7 @@ function App() {
           tidalOverrideUrl={tidalOverrideUrl}
           downloadFormat={downloadFormat}
           onClose={() => setUpgradeTrack(null)}
-          onUpgraded={() => { setUpgradeTrack(null); library.loadTracks(); }}
+          onUpgraded={(msg) => { setUpgradeTrack(null); library.loadTracks(); addLog(msg); }}
         />
       )}
 

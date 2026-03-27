@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { Track, TidalSearchTrack } from "../types";
 import { formatDuration, tidalCoverUrl } from "../utils";
 
@@ -17,13 +18,13 @@ interface UpgradeTrackModalProps {
   tidalOverrideUrl: string;
   downloadFormat: string;
   onClose: () => void;
-  onUpgraded: () => void;
+  onUpgraded: (message: string) => void;
 }
 
 type Step = "search" | "downloading" | "compare";
 
 function formatFileSize(bytes: number | null): string {
-  if (!bytes) return "—";
+  if (!bytes) return "\u2014";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -36,6 +37,17 @@ export function UpgradeTrackModal({ track, tidalOverrideUrl, downloadFormat, onC
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<UpgradePreviewInfo | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+
+  // Listen to download progress events during the downloading step
+  useEffect(() => {
+    if (step !== "downloading") return;
+    setDownloadProgress(0);
+    const unlisten = listen<number>("upgrade-download-progress", (event) => {
+      setDownloadProgress(event.payload);
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [step]);
 
   // Auto-search on mount
   useEffect(() => {
@@ -82,7 +94,22 @@ export function UpgradeTrackModal({ track, tidalOverrideUrl, downloadFormat, onC
         trackId: track.id,
         newPath: preview.new_path,
       });
-      onUpgraded();
+      onUpgraded("Track replaced with TIDAL version");
+    } catch (e) {
+      setError(String(e));
+      setConfirming(false);
+    }
+  }
+
+  async function handleSaveAsCopy() {
+    if (!preview) return;
+    setConfirming(true);
+    try {
+      await invoke("save_track_as_copy", {
+        trackId: track.id,
+        newPath: preview.new_path,
+      });
+      onUpgraded("TIDAL copy saved alongside original");
     } catch (e) {
       setError(String(e));
       setConfirming(false);
@@ -109,7 +136,7 @@ export function UpgradeTrackModal({ track, tidalOverrideUrl, downloadFormat, onC
       <div className="modal upgrade-modal" onClick={(e) => e.stopPropagation()}>
         <h2>Upgrade via TIDAL</h2>
         <p className="upgrade-modal-track">
-          {track.title}{track.artist_name ? ` — ${track.artist_name}` : ""}
+          {track.title}{track.artist_name ? ` \u2014 ${track.artist_name}` : ""}
         </p>
 
         {error && <div className="upgrade-modal-error">{error}</div>}
@@ -139,7 +166,7 @@ export function UpgradeTrackModal({ track, tidalOverrideUrl, downloadFormat, onC
                     <div className="upgrade-modal-result-info">
                       <span className="upgrade-modal-result-title">{t.title}</span>
                       <span className="upgrade-modal-result-meta">
-                        {t.artist_name}{t.album_title ? ` — ${t.album_title}` : ""}
+                        {t.artist_name}{t.album_title ? ` \u2014 ${t.album_title}` : ""}
                       </span>
                     </div>
                     <span className="upgrade-modal-result-duration">
@@ -156,7 +183,15 @@ export function UpgradeTrackModal({ track, tidalOverrideUrl, downloadFormat, onC
         )}
 
         {step === "downloading" && (
-          <div className="upgrade-modal-loading">Downloading from TIDAL...</div>
+          <div className="upgrade-modal-downloading">
+            <div className="upgrade-modal-loading">Downloading from TIDAL...</div>
+            <div className="upgrade-modal-progress">
+              <div className="upgrade-modal-progress-bar">
+                <div className="upgrade-modal-progress-fill" style={{ width: `${downloadProgress}%` }} />
+              </div>
+              <span className="upgrade-modal-progress-pct">{downloadProgress}%</span>
+            </div>
+          </div>
         )}
 
         {step === "compare" && preview && (
@@ -167,7 +202,7 @@ export function UpgradeTrackModal({ track, tidalOverrideUrl, downloadFormat, onC
                 <h4>Current file</h4>
                 <div className="upgrade-modal-field">
                   <span>Format</span>
-                  <span>{preview.old_format?.toUpperCase() ?? "—"}</span>
+                  <span>{preview.old_format?.toUpperCase() ?? "\u2014"}</span>
                 </div>
                 <div className="upgrade-modal-field">
                   <span>Size</span>
@@ -179,7 +214,7 @@ export function UpgradeTrackModal({ track, tidalOverrideUrl, downloadFormat, onC
                 <h4>TIDAL version</h4>
                 <div className="upgrade-modal-field">
                   <span>Format</span>
-                  <span>{preview.new_format?.toUpperCase() ?? "—"}</span>
+                  <span>{preview.new_format?.toUpperCase() ?? "\u2014"}</span>
                 </div>
                 <div className="upgrade-modal-field">
                   <span>Size</span>
@@ -191,6 +226,9 @@ export function UpgradeTrackModal({ track, tidalOverrideUrl, downloadFormat, onC
               <button onClick={handleBackToSearch}>Back</button>
               <button className="upgrade-modal-btn-replace" onClick={handleConfirm} disabled={confirming}>
                 {confirming ? "Replacing..." : "Replace"}
+              </button>
+              <button className="upgrade-modal-btn-copy" onClick={handleSaveAsCopy} disabled={confirming}>
+                {confirming ? "Saving..." : "Save as Copy"}
               </button>
               <button onClick={handleCancel}>Cancel</button>
             </div>
