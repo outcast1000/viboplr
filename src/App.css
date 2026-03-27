@@ -2489,7 +2489,7 @@ body {
 }
 
 .now-info {
-  flex: 0 1 auto;
+  flex: 1 1 0;
   max-width: 350px;
   display: flex;
   align-items: center;
@@ -2579,7 +2579,7 @@ body {
 .now-controls {
   display: flex;
   gap: 8px;
-  flex: 1;
+  flex: 0 0 auto;
   justify-content: center;
   align-items: center;
 }
@@ -2617,10 +2617,12 @@ body {
 }
 
 .now-right {
+  flex: 1 1 0;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .now-volume {
