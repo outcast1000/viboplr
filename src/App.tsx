@@ -10,7 +10,7 @@ import "./App.css";
 import type { Album, Collection, Track, View, ViewMode, ColumnConfig, SortField, SortDir } from "./types";
 import { isVideoTrack, getInitials, parseSubsonicUrl, formatDuration } from "./utils";
 import { store } from "./store";
-import { queueEntryToTrack, parseLocationScheme, type QueueEntry } from "./queueEntry";
+import { computeLocation, parseLocationScheme, queueEntryToTrack, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
@@ -80,7 +80,11 @@ function App() {
   const [trackVideoHistory, setTrackVideoHistory] = useState(false);
   trackVideoHistoryRef.current = trackVideoHistory;
   const advanceIndexRef = useRef<() => void>(() => {});
-  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef);
+  const resolveTrackSrcRef = useRef<(track: Track) => Promise<string>>(async (track) => {
+    const pathOrUrl = await invoke<string>("get_track_path", { trackId: track.id });
+    return track.subsonic_id ? pathOrUrl : convertFileSrc(pathOrUrl);
+  });
+  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef);
   const waveformPeaks = useWaveform(
     playback.currentTrack?.id ?? null,
     playback.currentTrack?.file_size ?? null,
@@ -124,22 +128,13 @@ function App() {
     return () => { cancelled = true; };
   }, [playback.scrobbled]);
 
-  const tidalStreamUrls = useRef<Map<number, string>>(new Map());
-  const handlePlayWithTidal = useCallback((track: Track) => {
-    const url = tidalStreamUrls.current.get(track.id);
-    if (url) {
-      playback.handlePlayUrl(track, url);
-    } else {
-      playback.handlePlay(track);
-    }
-  }, [playback.handlePlay, playback.handlePlayUrl]);
   const beforeNavRef = useRef<() => void>(() => {});
   const viewSearch = useViewSearchState();
   const [currentView, setCurrentView] = useState<View>("all");
   // Only pass debouncedTrackQuery for views that need server-side track search
   const needsServerSearch = currentView === "all" || currentView === "liked";
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "");
-  const queueHook = useQueue(restoredRef, handlePlayWithTidal, library.collections);
+  const queueHook = useQueue(restoredRef, playback.handlePlay, library.collections);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
   const videoSplit = useVideoSplit(restoredRef);
@@ -255,6 +250,33 @@ function App() {
       unlisten3.then((f) => f());
     };
   }, []);
+
+  // Keep resolveTrackSrcRef up to date with collections and TIDAL override URL
+  useEffect(() => {
+    resolveTrackSrcRef.current = async (track: Track) => {
+      const location = computeLocation(track, library.collections);
+      const parsed = parseLocationScheme(location);
+
+      if (parsed.scheme === "file") {
+        return convertFileSrc(parsed.path);
+      } else if (parsed.scheme === "tidal") {
+        const streamUrl = await invoke<string>("tidal_get_stream_url", {
+          overrideUrl: tidalOverrideUrl || null,
+          tidalTrackId: parsed.id,
+          quality: null,
+        });
+        return streamUrl;
+      } else if (parsed.scheme === "subsonic") {
+        const streamUrl = await invoke<string>("resolve_subsonic_location", {
+          location,
+        });
+        return streamUrl;
+      } else {
+        const _exhaustive: never = parsed;
+        throw new Error(`Unhandled scheme: ${(_exhaustive as any).scheme}`);
+      }
+    };
+  }, [library.collections, tidalOverrideUrl]);
 
   const statusActivity = scanning
     ? (scanProgress.total > 0 ? `Scanning... ${scanProgress.scanned}/${scanProgress.total}` : "Scanning... preparing")
@@ -1207,34 +1229,18 @@ function App() {
     };
   }
 
-  async function handleTidalPlay(tidalTrackId: string, trackInfo: TidalSearchTrack) {
+  async function handleTidalPlay(_tidalTrackId: string, trackInfo: TidalSearchTrack) {
     try {
-      const streamUrl = await invoke<string>("tidal_get_stream_url", {
-        overrideUrl: tidalOverrideUrl || null,
-        tidalTrackId,
-        quality: null,
-      });
       const track = tidalTrackToTrack(trackInfo);
-      tidalStreamUrls.current.set(track.id, streamUrl);
       queueHook.playTracks([track], 0);
     } catch (e) {
       addLog(`TIDAL playback failed: ${e}`);
     }
   }
 
-  async function handleTidalEnqueue(tidalTrackId: string, trackInfo: TidalSearchTrack) {
-    try {
-      const streamUrl = await invoke<string>("tidal_get_stream_url", {
-        overrideUrl: tidalOverrideUrl || null,
-        tidalTrackId,
-        quality: null,
-      });
-      const track = tidalTrackToTrack(trackInfo);
-      tidalStreamUrls.current.set(track.id, streamUrl);
-      queueHook.enqueueTracks([track]);
-    } catch (e) {
-      addLog(`TIDAL enqueue failed: ${e}`);
-    }
+  function handleTidalEnqueue(_tidalTrackId: string, trackInfo: TidalSearchTrack) {
+    const track = tidalTrackToTrack(trackInfo);
+    queueHook.enqueueTracks([track]);
   }
 
   async function handleDownloadTrack(trackId: number, destCollectionId: number) {

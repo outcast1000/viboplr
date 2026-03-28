@@ -10,6 +10,7 @@ export function usePlayback(
   crossfadeSecsRef: React.RefObject<number>,
   advanceIndexRef: React.RefObject<() => void>,
   trackVideoHistoryRef: React.RefObject<boolean>,
+  resolveTrackSrcRef: React.RefObject<(track: Track) => Promise<string>>,
 ) {
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -139,8 +140,7 @@ export function usePlayback(
 
     isPreloadingRef.current = true;
     try {
-      const pathOrUrl = await invoke<string>("get_track_path", { trackId: nextTrack.id });
-      const src = nextTrack.subsonic_id ? pathOrUrl : convertFileSrc(pathOrUrl);
+      const src = await resolveTrackSrcRef.current(nextTrack);
 
       const inactiveEl = getInactiveAudioElement();
       if (!inactiveEl) return;
@@ -317,8 +317,7 @@ export function usePlayback(
     setPlaybackError(null);
 
     try {
-      const pathOrUrl = await invoke<string>("get_track_path", { trackId: track.id });
-      const src = track.subsonic_id ? pathOrUrl : convertFileSrc(pathOrUrl);
+      const src = await resolveTrackSrcRef.current(track);
       await playWithSrc(track, src);
     } catch (e) {
       console.error("Playback error:", e);
@@ -391,8 +390,12 @@ export function usePlayback(
 
   async function handleRestore(track: Track, position: number, pathOverride?: string) {
     try {
-      const pathOrUrl = pathOverride ?? await invoke<string>("get_track_path", { trackId: track.id });
-      const src = track.subsonic_id ? pathOrUrl : convertFileSrc(pathOrUrl);
+      let src: string;
+      if (pathOverride) {
+        src = track.subsonic_id ? pathOverride : convertFileSrc(pathOverride);
+      } else {
+        src = await resolveTrackSrcRef.current(track);
+      }
 
       setCurrentTrack(track);
       setCurrentAssetUrl(src);
