@@ -96,6 +96,10 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         store.set("fullWindowHeight", geo.h);
         store.set("fullWindowX", geo.x);
         store.set("fullWindowY", geo.y);
+        setMiniMode(true);
+        miniModeRef.current = true;
+        store.set("miniMode", true);
+        await win.hide();
         await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_HEIGHT));
         await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_HEIGHT));
         const [mx, my] = await Promise.all([
@@ -113,13 +117,12 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         }
         await win.setAlwaysOnTop(true);
         await win.setResizable(false);
-        setMiniMode(true);
-        miniModeRef.current = true;
-        store.set("miniMode", true);
+        await win.show();
+        await win.setFocus();
       } else {
         const pos = await win.outerPosition();
-        store.set("miniWindowX", pos.x / factor);
-        store.set("miniWindowY", pos.y / factor);
+        await store.set("miniWindowX", pos.x / factor);
+        await store.set("miniWindowY", pos.y / factor);
         await win.setAlwaysOnTop(false);
         await win.setResizable(true);
         await win.setMinSize(new LogicalSize(FULL_MIN_WIDTH, FULL_MIN_HEIGHT));
