@@ -38,6 +38,7 @@ pub struct DownloadQueue {
 pub struct AppState {
     pub db: Arc<Database>,
     pub app_dir: std::path::PathBuf,
+    pub profile_name: String,
     pub download_queue: Arc<DownloadQueue>,
     pub track_download_manager: Arc<DownloadManager>,
     pub lastfm: LastfmClient,
@@ -53,6 +54,16 @@ fn detect_image_format(data: &[u8]) -> &'static str {
     } else {
         "png"
     }
+}
+
+// --- Profile commands ---
+
+#[tauri::command]
+pub fn get_profile_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "profileName": state.profile_name,
+        "storePath": format!("profiles/{}/app-state.json", state.profile_name),
+    }))
 }
 
 // --- Debug commands ---
@@ -1851,6 +1862,7 @@ mod tests {
         AppState {
             db: Arc::new(db),
             app_dir: std::path::PathBuf::from("/tmp/viboplr-test"),
+            profile_name: "default".to_string(),
             download_queue: Arc::new(DownloadQueue {
                 queue: Mutex::new(Vec::new()),
                 condvar: Condvar::new(),
@@ -1858,6 +1870,7 @@ mod tests {
             track_download_manager: Arc::new(DownloadManager::new()),
             lastfm: LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET),
             lastfm_session: Mutex::new(None),
+            lastfm_importing: Arc::new(AtomicBool::new(false)),
         }
     }
 

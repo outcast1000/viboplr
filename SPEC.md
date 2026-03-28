@@ -330,7 +330,7 @@ interface SearchProviderConfig {
 
 ### 4.15 State Persistence
 
-UI state is saved to disk via `tauri-plugin-store` and restored on startup so the app resumes exactly where the user left off. The store is a JSON file (`app-state.json`) in the app data directory.
+UI state is saved to disk via `tauri-plugin-store` and restored on startup so the app resumes exactly where the user left off. The store is a JSON file (`app-state.json`) in the active profile directory (see section 4.19).
 
 **Persisted state:**
 
@@ -501,22 +501,24 @@ Viboplr can search and stream from TIDAL's catalog via the **Hi-Fi API** (the ba
 - Static helpers: `cover_url()`, `artist_picture_url()` for constructing TIDAL CDN image URLs.
 - **Instance discovery:** Available API instances are fetched from uptime worker URLs and cached for 24 hours. If all instances fail, the cache is invalidated so the next request re-fetches automatically. An optional `override_url` (user-configurable) is tried first before falling back to discovered instances.
 
-### 4.19 Custom Data Directory
+### 4.19 Profiles
 
-By default, Viboplr stores its database and images in the platform-specific app data directory (`~/Library/Application Support/com.alex.viboplr/` on macOS). This can be overridden to use a different location.
+Viboplr supports Chrome-like profiles for isolating data (database, images, settings) between different use cases. Each profile is stored in `{app_data_dir}/profiles/{name}/`.
 
-**Environment variable (preferred for development):**
+**Default behavior (no arguments):** Uses the `default` profile. On first run, existing legacy data from the root app data directory is automatically migrated to `profiles/default/`.
+
+**Environment variable:**
 ```bash
-VIBOPLR_DATA_DIR=/path/to/data npm run tauri dev
+VIBOPLR_PROFILE=work npm run tauri dev
 ```
 
-**CLI argument (for the built binary):**
+**CLI argument:**
 ```bash
-./Viboplr --data-dir /path/to/data
-./Viboplr --data-dir=/path/to/data
+./Viboplr --profile work
+./Viboplr --profile=work
 ```
 
-The environment variable takes precedence if both are set. The directory is created automatically if it doesn't exist. All app data (database, artist images, album images, tag images) is stored under the specified directory.
+The environment variable takes precedence if both are set. Profile directories are created automatically. Profile names must start with an alphanumeric character and contain only alphanumeric characters, hyphens, or underscores (1-64 characters). Non-default profiles display the profile name in the window title (e.g., "Viboplr [work]").
 
 ### 4.20 Playlist Panel
 

@@ -1,4 +1,4 @@
-import type { LazyStore } from "@tauri-apps/plugin-store";
+import type { AppStore } from "./store";
 
 export interface SearchProviderConfig {
   id: string;
@@ -56,12 +56,12 @@ export const DEFAULT_PROVIDERS: SearchProviderConfig[] = [
   },
 ];
 
-export async function loadProviders(store: LazyStore): Promise<SearchProviderConfig[]> {
+export async function loadProviders(store: AppStore): Promise<SearchProviderConfig[]> {
   const saved = await store.get<SearchProviderConfig[] | null>("searchProviders");
   return saved ?? DEFAULT_PROVIDERS;
 }
 
-export async function saveProviders(store: LazyStore, providers: SearchProviderConfig[]): Promise<void> {
+export async function saveProviders(store: AppStore, providers: SearchProviderConfig[]): Promise<void> {
   await store.set("searchProviders", providers);
 }
 

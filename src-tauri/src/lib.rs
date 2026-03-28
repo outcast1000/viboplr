@@ -26,6 +26,7 @@ use tauri::{Emitter, Manager};
 #[cfg(debug_assertions)]
 fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
+        commands::get_profile_info,
         commands::add_collection,
         commands::remove_collection,
         commands::update_collection,
@@ -110,6 +111,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
 #[cfg(not(debug_assertions))]
 fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
+        commands::get_profile_info,
         commands::add_collection,
         commands::remove_collection,
         commands::update_collection,
@@ -196,27 +198,28 @@ pub fn run() {
 
     timer.time("env_logger::init", || env_logger::init());
 
-    // Parse optional data directory override from env var or CLI argument
-    // Usage: VIBOPLR_DATA_DIR=/path or --data-dir /path or --data-dir=/path
-    let custom_data_dir: Option<std::path::PathBuf> = timer.time("parse_data_dir", || {
-        let mut data_dir: Option<std::path::PathBuf> =
-            std::env::var("VIBOPLR_DATA_DIR").ok().map(std::path::PathBuf::from);
+    // Parse optional profile name from env var or CLI argument
+    // Usage: VIBOPLR_PROFILE=name or --profile name or --profile=name
+    // Default profile is "default" when no profile is specified
+    let profile_name: String = timer.time("parse_profile", || {
+        let mut profile: Option<String> =
+            std::env::var("VIBOPLR_PROFILE").ok();
 
-        if data_dir.is_none() {
+        if profile.is_none() {
             let args: Vec<String> = std::env::args().collect();
             let mut i = 1;
             while i < args.len() {
-                if args[i].starts_with("--data-dir=") {
-                    data_dir = Some(std::path::PathBuf::from(
-                        args[i].trim_start_matches("--data-dir="),
-                    ));
+                if args[i].starts_with("--profile=") {
+                    profile = Some(
+                        args[i].trim_start_matches("--profile=").to_string(),
+                    );
                     i += 1;
-                } else if args[i] == "--data-dir" {
+                } else if args[i] == "--profile" {
                     if i + 1 < args.len() {
-                        data_dir = Some(std::path::PathBuf::from(&args[i + 1]));
+                        profile = Some(args[i + 1].clone());
                         i += 2;
                     } else {
-                        eprintln!("Error: --data-dir requires a path argument");
+                        eprintln!("Error: --profile requires a name argument");
                         std::process::exit(1);
                     }
                 } else {
@@ -225,10 +228,19 @@ pub fn run() {
             }
         }
 
-        if let Some(ref dir) = data_dir {
-            log::info!("Using custom data directory: {}", dir.display());
+        let name = profile.unwrap_or_else(|| "default".to_string());
+
+        // Validate profile name: alphanumeric, hyphens, underscores, 1-64 chars
+        if name.is_empty() || name.len() > 64
+            || !name.chars().next().unwrap().is_alphanumeric()
+            || !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+        {
+            eprintln!("Error: invalid profile name '{}'. Must start with an alphanumeric character, contain only alphanumeric characters, hyphens, or underscores, and be 1-64 characters long.", name);
+            std::process::exit(1);
         }
-        data_dir
+
+        log::info!("Using profile: {}", name);
+        name
     });
 
     let builder = tauri::Builder::default();
@@ -260,13 +272,44 @@ pub fn run() {
         .setup(|app| {
             let timer = timing::timer();
 
-            let app_dir = timer.time("resolve_app_dir", || match custom_data_dir {
-                Some(dir) => dir,
-                None => app
-                    .path()
-                    .app_data_dir()
-                    .expect("Failed to get app data dir"),
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .expect("Failed to get app data dir");
+
+            let app_dir = timer.time("resolve_app_dir", || {
+                let dir = app_data_dir.join("profiles").join(&profile_name);
+                std::fs::create_dir_all(&dir).expect("Failed to create profile directory");
+                dir
             });
+
+            // Migrate legacy data from root app_data_dir to profiles/default/
+            if profile_name == "default" {
+                timer.time("migrate_legacy_data", || {
+                    let legacy_db = app_data_dir.join("viboplr.db");
+                    let profile_db = app_dir.join("viboplr.db");
+                    if legacy_db.exists() && !profile_db.exists() {
+                        log::info!("Migrating legacy data to profiles/default/");
+                        let items = [
+                            "viboplr.db", "viboplr.db-shm", "viboplr.db-wal",
+                            "app-state.json",
+                            "artist_images", "album_images", "tag_images", "waveforms",
+                        ];
+                        for item in &items {
+                            let src = app_data_dir.join(item);
+                            let dst = app_dir.join(item);
+                            if src.exists() {
+                                if let Err(e) = std::fs::rename(&src, &dst) {
+                                    log::warn!("Failed to migrate {}: {}", item, e);
+                                } else {
+                                    log::info!("Migrated {} to profiles/default/", item);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
             let db = Arc::new(timer.time("Database::new", || Database::new(&app_dir).expect("Failed to init database")));
 
             timer.time("create_image_dirs", || {
@@ -609,10 +652,18 @@ pub fn run() {
                 }
             });
 
+            // Set window title for named profiles (like Chrome)
+            if profile_name != "default" {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_title(&format!("Viboplr [{}]", profile_name));
+                }
+            }
+
             timer.time("manage_app_state", || {
                 app.manage(AppState {
                     db,
                     app_dir,
+                    profile_name,
                     download_queue,
                     track_download_manager: dl_manager,
                     lastfm: crate::lastfm::LastfmClient::new(crate::commands::LASTFM_API_KEY, crate::commands::LASTFM_API_SECRET),
