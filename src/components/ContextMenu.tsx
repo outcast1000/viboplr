@@ -2,7 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl, getDomainFromUrl } from "../searchProviders";
 import { IconPlay, IconEnqueue, IconFolder, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius, IconInfo, IconTrash } from "./Icons";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export type ContextMenuTarget =
   | { kind: "track"; trackId: number; subsonic: boolean; title: string; artistName: string | null }
@@ -44,6 +44,22 @@ const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
   genius: IconGenius,
 };
 
+function useClampedPosition(x: number, y: number) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x, y });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const clampedX = x + rect.width > window.innerWidth ? window.innerWidth - rect.width - 4 : x;
+    const clampedY = y + rect.height > window.innerHeight ? window.innerHeight - rect.height - 4 : y;
+    setPos({ x: Math.max(0, clampedX), y: Math.max(0, clampedY) });
+  }, [x, y]);
+
+  return { ref, pos };
+}
+
 function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
   const [imgError, setImgError] = useState(false);
 
@@ -80,6 +96,7 @@ export function ContextMenu({
   onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, onUpgradeViaTidal, localCollections, onClose,
 }: ContextMenuProps) {
   const { target } = menu;
+  const { ref, pos } = useClampedPosition(menu.x, menu.y);
 
   const isMulti = target.kind === "multi-track";
   const isQueue = target.kind === "queue-multi";
@@ -96,7 +113,7 @@ export function ContextMenu({
 
   if (isQueue) {
     return (
-      <div className="context-menu" style={{ top: menu.y, left: menu.x }}>
+      <div ref={ref} className="context-menu" style={{ top: pos.y, left: pos.x }}>
         <div className="context-menu-item" onClick={() => { onPlay(); onClose(); }}>
           <IconPlay size={14} /><span>{count > 1 ? `Play ${count} tracks` : "Play"}</span>
         </div>
@@ -129,8 +146,9 @@ export function ContextMenu({
 
   return (
     <div
+      ref={ref}
       className="context-menu"
-      style={{ top: menu.y, left: menu.x }}
+      style={{ top: pos.y, left: pos.x }}
     >
       <div className="context-menu-item" onClick={() => { onPlay(); onClose(); }}>
         <IconPlay size={14} /><span>{isMulti ? `Play ${target.trackIds.length} tracks` : "Play"}</span>
