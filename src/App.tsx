@@ -145,6 +145,12 @@ function App() {
   // Sync currentView with library.view so debouncedTrackQuery stays up to date
   useEffect(() => { setCurrentView(library.view); }, [library.view]);
 
+  // Reset scroll position when the view search query changes
+  const currentSearchQuery = viewSearch.getQuery(library.view);
+  useEffect(() => {
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  }, [currentSearchQuery]);
+
   const centralSearch = useCentralSearch({
     onPlayTrack: (track) => {
       queueHook.playTracks([track], 0);
