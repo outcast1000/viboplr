@@ -8,6 +8,7 @@ import { AutoContinuePopover } from "./AutoContinuePopover";
 import { WaveformSeekBar } from "./WaveformSeekBar";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
+const isMac = navigator.platform.includes("Mac");
 
 const shortcuts = [
   { keys: "Space", action: "Play / Pause" },
@@ -84,25 +85,32 @@ export function NowPlayingBar({
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   if (miniMode) {
-    // Delay startDragging to allow double-click detection on Windows.
-    // On first mousedown, the OS drag loop would swallow the second click.
-    const handleDrag = (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest("button")) return;
-      if (e.buttons !== 1) return;
-      e.preventDefault();
-      if (e.detail === 2) {
-        if (miniDragTimerRef.current) { clearTimeout(miniDragTimerRef.current); miniDragTimerRef.current = null; }
-        onToggleMiniMode();
-      } else {
-        miniDragTimerRef.current = setTimeout(() => {
-          miniDragTimerRef.current = null;
-          getCurrentWindow().startDragging();
-        }, 100);
-      }
-    };
+    const handleDrag = isMac
+      ? (e: React.MouseEvent) => {
+          // macOS: startDragging doesn't enter a modal loop, so dblclick fires normally
+          if ((e.target as HTMLElement).closest("button")) return;
+          if (e.buttons === 1) getCurrentWindow().startDragging();
+        }
+      : (e: React.MouseEvent) => {
+          // Windows: delay startDragging so the OS modal drag loop doesn't swallow the second click
+          if ((e.target as HTMLElement).closest("button")) return;
+          if (e.buttons !== 1) return;
+          e.preventDefault();
+          if (e.detail === 2) {
+            if (miniDragTimerRef.current) { clearTimeout(miniDragTimerRef.current); miniDragTimerRef.current = null; }
+            onToggleMiniMode();
+          } else {
+            miniDragTimerRef.current = setTimeout(() => {
+              miniDragTimerRef.current = null;
+              getCurrentWindow().startDragging();
+            }, 100);
+          }
+        };
     const progress = durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0;
     return (
-      <footer className="now-playing now-playing-mini" onMouseDown={handleDrag}>
+      <footer className="now-playing now-playing-mini" onMouseDown={handleDrag} onDoubleClick={isMac ? (e) => {
+          if (!(e.target as HTMLElement).closest("button")) onToggleMiniMode();
+        } : undefined}>
         <div className="now-info">
           {imagePath && <img className="now-mini-art" src={convertFileSrc(imagePath)} alt="" />}
           {!imagePath && currentTrack && (
