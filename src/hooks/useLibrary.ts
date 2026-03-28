@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Artist, Album, Tag, Track, Collection, View, ViewMode, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField, ColumnConfig, TrackColumnId } from "../types";
+import type { Artist, Album, Tag, Track, Collection, CollectionStats, View, ViewMode, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField, ColumnConfig, TrackColumnId } from "../types";
 import { store } from "../store";
 
 const ALL_COLUMN_IDS: TrackColumnId[] = ["like", "num", "title", "artist", "album", "year", "quality", "duration", "size", "collection", "added", "modified", "path"];
@@ -18,6 +18,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [albums, setAlbums] = useState<Album[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [collectionStats, setCollectionStats] = useState<CollectionStats[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [trackCount, setTrackCount] = useState(0);
   const [albumCount, setAlbumCount] = useState(0);
@@ -97,10 +98,11 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   const loadLibrary = useCallback(async () => {
     try {
-      const [a, al, c, t, tc] = await Promise.all([
+      const [a, al, c, cs, t, tc] = await Promise.all([
         invoke<Artist[]>("get_artists"),
         invoke<Album[]>("get_albums", { artistId: null }),
         invoke<Collection[]>("get_collections"),
+        invoke<CollectionStats[]>("get_collection_stats"),
         invoke<Tag[]>("get_tags"),
         invoke<number>("get_track_count"),
       ]);
@@ -108,6 +110,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       setAlbums(al);
       setAlbumCount(al.length);
       setCollections(c);
+      setCollectionStats(cs);
       setTags(t);
       setTrackCount(tc);
     } catch (e) {
@@ -505,6 +508,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     albums, setAlbums,
     tracks, setTracks,
     collections, setCollections,
+    collectionStats,
     tags, setTags,
     trackCount, albumCount,
     selectedArtist, setSelectedArtist,

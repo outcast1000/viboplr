@@ -2555,6 +2555,7 @@ function App() {
               onRemove={(c) => setRemoveCollectionConfirm(c)}
               onAddFolder={handleAddFolder}
               onShowAddServer={() => setShowAddServer(true)}
+              statsMap={new Map(library.collectionStats.map(s => [s.collection_id, s]))}
             />
           )}
         </div>

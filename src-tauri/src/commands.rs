@@ -238,6 +238,11 @@ pub fn get_collections(state: State<'_, AppState>) -> Result<Vec<Collection>, St
 }
 
 #[tauri::command]
+pub fn get_collection_stats(state: State<'_, AppState>) -> Result<Vec<CollectionStats>, String> {
+    state.db.get_collection_stats().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn update_collection(
     state: State<'_, AppState>,
     collection_id: i64,

@@ -1,4 +1,4 @@
-import type { Collection } from "../types";
+import type { Collection, CollectionStats } from "../types";
 import { collectionKindLabel } from "../utils";
 
 function formatSyncDuration(secs: number): string {
@@ -14,6 +14,20 @@ function formatTimeAgo(ts: number): string {
   if (diffSecs < 3600) return `${Math.floor(diffSecs / 60)}m ago`;
   if (diffSecs < 86400) return `${Math.floor(diffSecs / 3600)}h ago`;
   return `${Math.floor(diffSecs / 86400)}d ago`;
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function formatTotalDuration(secs: number): string {
+  const hours = Math.floor(secs / 3600);
+  const mins = Math.floor((secs % 3600) / 60);
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
 }
 
 function getConnectionStatus(c: Collection): "connected" | "error" | "unknown" | null {
@@ -34,6 +48,7 @@ interface CollectionsViewProps {
   onRemove: (collection: Collection) => void;
   onAddFolder: () => void;
   onShowAddServer: () => void;
+  statsMap: Map<number, CollectionStats>;
 }
 
 export function CollectionsView({
@@ -47,6 +62,7 @@ export function CollectionsView({
   onRemove,
   onAddFolder,
   onShowAddServer,
+  statsMap,
 }: CollectionsViewProps) {
   return (
     <div className="collections-view">
@@ -58,6 +74,7 @@ export function CollectionsView({
         <div className="collections-grid">
           {collections.map((c) => {
             const status = getConnectionStatus(c);
+            const stats = statsMap.get(c.id);
             return (
               <div key={c.id} className={`collections-view-card${!c.enabled ? " collections-view-card-disabled" : ""}`}>
                 <div className="collections-view-card-header">
@@ -82,6 +99,13 @@ export function CollectionsView({
                   )}
                 </div>
                 <div className="collections-view-card-details">
+                  {stats && stats.track_count > 0 && (
+                    <span className="collections-view-detail">
+                      {stats.track_count.toLocaleString()} tracks{stats.video_count > 0 && ` (${stats.video_count} video${stats.video_count !== 1 ? "s" : ""})`}
+                      {" · "}{formatSize(stats.total_size)}
+                      {" · "}{formatTotalDuration(stats.total_duration)}
+                    </span>
+                  )}
                   {c.path && <span className="collections-view-detail" title={c.path}>{c.path}</span>}
                   {c.url && <span className="collections-view-detail">{c.url}</span>}
                   {c.last_synced_at && (

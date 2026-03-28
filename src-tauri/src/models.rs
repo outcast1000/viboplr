@@ -84,6 +84,15 @@ pub struct Collection {
     pub last_sync_error: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionStats {
+    pub collection_id: i64,
+    pub track_count: i64,
+    pub video_count: i64,
+    pub total_size: i64,
+    pub total_duration: f64,
+}
+
 #[derive(Debug, Clone)]
 pub struct CollectionCredentials {
     pub url: String,

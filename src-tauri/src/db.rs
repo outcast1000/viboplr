@@ -942,6 +942,30 @@ impl Database {
         rows.collect()
     }
 
+    pub fn get_collection_stats(&self) -> SqlResult<Vec<CollectionStats>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT collection_id,
+                    COUNT(*) as track_count,
+                    SUM(CASE WHEN lower(format) IN ('mp4','m4v','mov','webm') THEN 1 ELSE 0 END) as video_count,
+                    COALESCE(SUM(file_size), 0) as total_size,
+                    COALESCE(SUM(duration_secs), 0.0) as total_duration
+             FROM tracks
+             WHERE collection_id IS NOT NULL
+             GROUP BY collection_id"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(CollectionStats {
+                collection_id: row.get(0)?,
+                track_count: row.get(1)?,
+                video_count: row.get(2)?,
+                total_size: row.get(3)?,
+                total_duration: row.get(4)?,
+            })
+        })?;
+        rows.collect()
+    }
+
     pub fn get_collection_by_id(&self, collection_id: i64) -> SqlResult<Collection> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
@@ -1954,6 +1978,24 @@ mod tests {
         db.remove_collection(col.id).unwrap();
         let collections = db.get_collections().unwrap();
         assert!(collections.is_empty());
+    }
+
+    #[test]
+    fn test_collection_stats() {
+        let db = test_db();
+        let col = db.add_collection("local", "Music", Some("/music"), None, None, None, None, None).unwrap();
+
+        db.upsert_track("/a.mp3", "Song A", None, None, None, Some(180.0), Some("mp3"), Some(5_000_000), None, Some(col.id), None).unwrap();
+        db.upsert_track("/b.flac", "Song B", None, None, None, Some(240.0), Some("flac"), Some(30_000_000), None, Some(col.id), None).unwrap();
+        db.upsert_track("/c.mp4", "Video C", None, None, None, Some(300.0), Some("mp4"), Some(100_000_000), None, Some(col.id), None).unwrap();
+
+        let stats = db.get_collection_stats().unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].collection_id, col.id);
+        assert_eq!(stats[0].track_count, 3);
+        assert_eq!(stats[0].video_count, 1);
+        assert_eq!(stats[0].total_size, 135_000_000);
+        assert!((stats[0].total_duration - 720.0).abs() < 0.01);
     }
 
     #[test]

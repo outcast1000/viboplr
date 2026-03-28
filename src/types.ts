@@ -59,6 +59,14 @@ export interface Collection {
   last_sync_error: string | null;
 }
 
+export interface CollectionStats {
+  collection_id: number;
+  track_count: number;
+  video_count: number;
+  total_size: number;
+  total_duration: number;
+}
+
 export type View = "all" | "artists" | "albums" | "tags" | "liked" | "history" | "tidal" | "collections";
 
 export interface HistoryEntry {
