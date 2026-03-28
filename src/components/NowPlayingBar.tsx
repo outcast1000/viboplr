@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
@@ -81,17 +81,28 @@ export function NowPlayingBar({
   onToggleLike, onToggleDislike, onArtistClick, onAlbumClick,
 }: NowPlayingBarProps) {
   const [showHelp, setShowHelp] = useState(false);
+  const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   if (miniMode) {
+    // Delay startDragging to allow double-click detection on Windows.
+    // On first mousedown, the OS drag loop would swallow the second click.
     const handleDrag = (e: React.MouseEvent) => {
       if ((e.target as HTMLElement).closest("button")) return;
-      if (e.buttons === 1) getCurrentWindow().startDragging();
+      if (e.buttons !== 1) return;
+      e.preventDefault();
+      if (e.detail === 2) {
+        if (miniDragTimerRef.current) { clearTimeout(miniDragTimerRef.current); miniDragTimerRef.current = null; }
+        onToggleMiniMode();
+      } else {
+        miniDragTimerRef.current = setTimeout(() => {
+          miniDragTimerRef.current = null;
+          getCurrentWindow().startDragging();
+        }, 100);
+      }
     };
     const progress = durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0;
     return (
-      <footer className="now-playing now-playing-mini" onMouseDown={handleDrag} onDoubleClick={(e) => {
-          if (!(e.target as HTMLElement).closest("button")) onToggleMiniMode();
-        }}>
+      <footer className="now-playing now-playing-mini" onMouseDown={handleDrag}>
         <div className="now-info">
           {imagePath && <img className="now-mini-art" src={convertFileSrc(imagePath)} alt="" />}
           {!imagePath && currentTrack && (
