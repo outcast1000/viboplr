@@ -421,6 +421,59 @@ pub fn get_track_path(state: State<'_, AppState>, track_id: i64) -> Result<Strin
 }
 
 #[tauri::command]
+pub fn resolve_subsonic_location(
+    state: State<'_, AppState>,
+    location: String,
+) -> Result<String, String> {
+    // Parse: subsonic://host(:port)(/path)/rest/stream.view?id=XYZ
+    let without_scheme = location
+        .strip_prefix("subsonic://")
+        .ok_or("Invalid subsonic location: missing subsonic:// prefix")?;
+    let host_end = without_scheme
+        .find("/rest/")
+        .ok_or("Invalid subsonic location: missing /rest/ path")?;
+    let host_with_path = &without_scheme[..host_end];
+
+    let track_id = without_scheme
+        .split("id=")
+        .nth(1)
+        .and_then(|s| s.split('&').next())
+        .ok_or("No id parameter in subsonic location")?;
+
+    let collections = state.db.get_collections().map_err(|e| e.to_string())?;
+    let collection = collections
+        .iter()
+        .find(|c| {
+            c.kind == "subsonic"
+                && c.url.as_ref().map_or(false, |u| {
+                    u.contains(host_with_path)
+                })
+        })
+        .ok_or_else(|| format!("No subsonic collection found matching host: {}", host_with_path))?;
+
+    let creds = state
+        .db
+        .get_collection_credentials(collection.id)
+        .map_err(|e| e.to_string())?;
+    let client = crate::subsonic::SubsonicClient::from_stored(
+        &creds.url,
+        &creds.username,
+        &creds.password_token,
+        creds.salt.as_deref(),
+        &creds.auth_method,
+    );
+    Ok(client.stream_url(track_id))
+}
+
+#[tauri::command]
+pub fn get_tracks_by_paths(
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<Vec<Track>, String> {
+    state.db.get_tracks_by_paths(&paths).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_tracks_by_ids(
     state: State<'_, AppState>,
     ids: Vec<i64>,
