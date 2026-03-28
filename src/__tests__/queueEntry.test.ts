@@ -5,7 +5,6 @@ import {
   queueEntryToTrack,
   parseLocationScheme,
   type QueueEntry,
-  type ParsedLocation,
 } from "../queueEntry";
 import type { Track, Collection } from "../types";
 

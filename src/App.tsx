@@ -10,6 +10,7 @@ import "./App.css";
 import type { Album, Collection, Track, View, ViewMode, ColumnConfig, SortField, SortDir } from "./types";
 import { isVideoTrack, getInitials, parseSubsonicUrl, formatDuration } from "./utils";
 import { store } from "./store";
+import { queueEntryToTrack, parseLocationScheme, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
@@ -138,7 +139,7 @@ function App() {
   // Only pass debouncedTrackQuery for views that need server-side track search
   const needsServerSearch = currentView === "all" || currentView === "liked";
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "");
-  const queueHook = useQueue(restoredRef, handlePlayWithTidal);
+  const queueHook = useQueue(restoredRef, handlePlayWithTidal, library.collections);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
   const videoSplit = useVideoSplit(restoredRef);
@@ -374,14 +375,14 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, tid, vol, qIds, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedTidalOverrideUrl, savedSortBarCollapsed] = await timeAsync("store.restore (35 keys)", () => Promise.all([
+        const [v, sa, sal, st, tid, vol, qEntries, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedTidalOverrideUrl, savedSortBarCollapsed] = await timeAsync("store.restore (35 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
           store.get<number | null>("selectedTag"),
           store.get<number | null>("currentTrackId"),
           store.get<number>("volume"),
-          store.get<number[]>("queueTrackIds"),
+          store.get<QueueEntry[]>("queueEntries"),
           store.get<number>("queueIndex"),
           store.get<string>("queueMode"),
           store.get<number>("positionSecs"),
@@ -433,17 +434,83 @@ function App() {
           const missing = DEFAULT_TRACK_COLUMNS.filter(c => !savedIds.has(c.id));
           library.setTrackColumns([...tCols, ...missing]);
         }
-        const [restoredTrack, restoredTracks, trackPath] = await timeAsync("restore IPC (track/queue/path)", () => Promise.all([
-          tid ? invoke<Track>("get_track_by_id", { trackId: tid }).catch(() => null) : Promise.resolve(null),
-          qIds?.length ? invoke<Track[]>("get_tracks_by_ids", { ids: qIds }).catch(() => []) : Promise.resolve([]),
-          tid ? invoke<string>("get_track_path", { trackId: tid }).catch(() => null) : Promise.resolve(null),
-        ]));
-        if (restoredTrack && trackPath) await timeAsync("playback.handleRestore", () => playback.handleRestore(restoredTrack, pos ?? 0, trackPath));
-        if (restoredTracks && restoredTracks.length) {
+
+        // Allow mutation for migration
+        let queueEntries = qEntries;
+
+        // Migration: if old queueTrackIds exists, convert to queueEntries
+        if (!queueEntries) {
+          const oldIds = await store.get<number[]>("queueTrackIds");
+          if (oldIds?.length) {
+            const oldTracks = await invoke<Track[]>("get_tracks_by_ids", { ids: oldIds }).catch(() => []);
+            if (oldTracks.length) {
+              const entries = oldTracks.map(t => ({
+                location: `file://${t.path}`,
+                title: t.title,
+                artist_name: t.artist_name,
+                album_title: t.album_title,
+                duration_secs: t.duration_secs,
+                track_number: t.track_number,
+                year: t.year,
+                format: t.format,
+              }));
+              await store.set("queueEntries", entries);
+              queueEntries = entries;
+            }
+          }
+        }
+
+        // Restore queue from QueueEntry[] — convert to Track[], re-resolve file:// from DB
+        let restoredTracks: Track[] = [];
+        if (queueEntries?.length) {
+          const entries = queueEntries as QueueEntry[];
+          const minimalTracks = entries.map(e => queueEntryToTrack(e));
+
+          // Collect file:// paths for bulk DB lookup to get full metadata (id, album_id, etc.)
+          const filePaths = entries
+            .filter(e => e.location.startsWith("file://"))
+            .map(e => e.location.slice(7));
+
+          let dbTracks: Track[] = [];
+          if (filePaths.length > 0) {
+            dbTracks = await invoke<Track[]>("get_tracks_by_paths", { paths: filePaths }).catch(() => []);
+          }
+          const dbByPath = new Map(dbTracks.map(t => [t.path, t]));
+
+          restoredTracks = minimalTracks.map((t, i) => {
+            const entry = entries[i];
+            if (entry.location.startsWith("file://")) {
+              const dbTrack = dbByPath.get(t.path);
+              return dbTrack ?? t; // prefer DB version for full metadata
+            }
+            return t; // subsonic/tidal: use reconstructed track
+          });
+        }
+
+        // Restore current track (use first queue entry at saved index if possible)
+        const idx = qIdx ?? -1;
+        const currentFromQueue = idx >= 0 && idx < restoredTracks.length ? restoredTracks[idx] : null;
+        const restoredTrack = currentFromQueue ?? (tid ? await invoke<Track>("get_track_by_id", { trackId: tid }).catch(() => null) : null);
+
+        if (restoredTrack && pos != null) {
+          const parsed = currentFromQueue
+            ? parseLocationScheme(queueEntries![idx].location)
+            : null;
+          let trackPath: string | null = null;
+          if (parsed?.scheme === "file") {
+            trackPath = parsed.path;
+          } else if (restoredTrack.id > 0) {
+            trackPath = await invoke<string>("get_track_path", { trackId: restoredTrack.id }).catch(() => null);
+          }
+          if (trackPath) {
+            await timeAsync("playback.handleRestore", () => playback.handleRestore(restoredTrack, pos ?? 0, trackPath!));
+          }
+        }
+        if (restoredTracks.length) {
           queueHook.setQueue(restoredTracks);
-          const idx = qIdx ?? -1;
           queueHook.setQueueIndex(idx >= 0 && idx < restoredTracks.length ? idx : -1);
         }
+
         if (qMode && ["normal", "loop", "shuffle"].includes(qMode)) {
           queueHook.setQueueMode(qMode as "normal" | "loop" | "shuffle");
         }

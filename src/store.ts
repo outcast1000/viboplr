@@ -8,7 +8,7 @@ const STORE_DEFAULTS = {
   selectedTag: null,
   currentTrackId: null,
   volume: 1.0,
-  queueTrackIds: [],
+  queueEntries: [],
   queueIndex: -1,
   queueMode: "normal",
   positionSecs: 0,

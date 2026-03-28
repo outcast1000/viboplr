@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import type { Track, PlaylistLoadResult } from "../types";
+import type { Track, PlaylistLoadResult, Collection } from "../types";
+import { trackToQueueEntry, computeLocation } from "../queueEntry";
 import { store } from "../store";
 
 export function useQueue(
   restoredRef: React.RefObject<boolean>,
   handlePlay: (track: Track) => void,
+  collections: Collection[],
 ) {
   const [queue, setQueue] = useState<Track[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -29,7 +31,7 @@ export function useQueue(
   const dragIndexRef = useRef<number | null>(null);
 
   // Persist state
-  useEffect(() => { if (restoredRef.current) store.set("queueTrackIds", queue.map(t => t.id)); }, [queue]);
+  useEffect(() => { if (restoredRef.current) store.set("queueEntries", queue.map(t => trackToQueueEntry(t, collections))); }, [queue, collections]);
   useEffect(() => { if (restoredRef.current) store.set("queueIndex", queueIndex); }, [queueIndex]);
   useEffect(() => { if (restoredRef.current) store.set("queueMode", queueMode); }, [queueMode]);
   useEffect(() => { if (restoredRef.current) store.set("playlistName", playlistName); }, [playlistName]);
@@ -66,9 +68,9 @@ export function useQueue(
   }
 
   function findDuplicates(newTracks: Track[]): { duplicates: Track[]; unique: Track[] } {
-    const existing = new Set(queueRef.current.map(t => t.id));
-    const duplicates = newTracks.filter(t => existing.has(t.id));
-    const unique = newTracks.filter(t => !existing.has(t.id));
+    const existing = new Set(queueRef.current.map(t => computeLocation(t, collections)));
+    const duplicates = newTracks.filter(t => existing.has(computeLocation(t, collections)));
+    const unique = newTracks.filter(t => !existing.has(computeLocation(t, collections)));
     return { duplicates, unique };
   }
 
