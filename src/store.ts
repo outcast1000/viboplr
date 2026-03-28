@@ -37,7 +37,9 @@ const STORE_DEFAULTS = {
   queueCollapsed: false,
   downloadFormat: "flac",
   tidalEnabled: false,
-  tidalOverrideUrl: "",
+  musicGatewayUrl: "",
+  musicGatewayExePath: "",
+  musicGatewayManaged: false,
 };
 
 export interface AppStore {

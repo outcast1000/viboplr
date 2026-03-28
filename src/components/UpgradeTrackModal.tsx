@@ -15,7 +15,6 @@ interface UpgradePreviewInfo {
 
 interface UpgradeTrackModalProps {
   track: Track;
-  tidalOverrideUrl: string;
   downloadFormat: string;
   onClose: () => void;
   onUpgraded: (message: string) => void;
@@ -30,7 +29,7 @@ function formatFileSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function UpgradeTrackModal({ track, tidalOverrideUrl, downloadFormat, onClose, onUpgraded }: UpgradeTrackModalProps) {
+export function UpgradeTrackModal({ track, downloadFormat, onClose, onUpgraded }: UpgradeTrackModalProps) {
   const [step, setStep] = useState<Step>("search");
   const [results, setResults] = useState<TidalSearchTrack[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,7 +57,6 @@ export function UpgradeTrackModal({ track, tidalOverrideUrl, downloadFormat, onC
       return;
     }
     invoke<{ tracks: TidalSearchTrack[] }>("tidal_search", {
-      overrideUrl: tidalOverrideUrl || null,
       query,
       limit: 10,
       offset: 0,
@@ -66,14 +64,13 @@ export function UpgradeTrackModal({ track, tidalOverrideUrl, downloadFormat, onC
       .then((res) => setResults(res.tracks))
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [track, tidalOverrideUrl]);
+  }, [track]);
 
   async function handleSelectMatch(tidalTrack: TidalSearchTrack) {
     setStep("downloading");
     setError(null);
     try {
       const info = await invoke<UpgradePreviewInfo>("tidal_download_preview", {
-        overrideUrl: tidalOverrideUrl || null,
         trackId: track.id,
         tidalTrackId: tidalTrack.tidal_id,
         format: downloadFormat,

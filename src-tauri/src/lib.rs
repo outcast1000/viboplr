@@ -4,13 +4,13 @@ mod db;
 mod entity_image;
 mod image_provider;
 mod models;
+mod musicgateway;
 mod scanner;
 #[cfg(debug_assertions)]
 mod seed;
 mod subsonic;
 mod sync;
 mod timing;
-mod tidal;
 mod downloader;
 mod lastfm;
 
@@ -81,6 +81,11 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::test_collection_connection,
         commands::subsonic_test_connection,
         commands::tidal_test_connection,
+        commands::set_musicgateway_url,
+        commands::get_musicgateway_url,
+        commands::musicgateway_ping,
+        commands::start_musicgateway_server,
+        commands::stop_musicgateway_server,
         commands::tidal_search,
         commands::tidal_save_track,
         commands::tidal_get_album,
@@ -170,6 +175,11 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::test_collection_connection,
         commands::subsonic_test_connection,
         commands::tidal_test_connection,
+        commands::set_musicgateway_url,
+        commands::get_musicgateway_url,
+        commands::musicgateway_ping,
+        commands::start_musicgateway_server,
+        commands::stop_musicgateway_server,
         commands::tidal_search,
         commands::tidal_save_track,
         commands::tidal_get_album,
@@ -679,12 +689,40 @@ pub fn run() {
                     lastfm: crate::lastfm::LastfmClient::new(crate::commands::LASTFM_API_KEY, crate::commands::LASTFM_API_SECRET),
                     lastfm_session: Mutex::new(None),
                     lastfm_importing: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    musicgateway_url: Mutex::new(None),
+                    musicgateway_process: Mutex::new(None),
                 });
             });
 
             Ok(())
         })
         .invoke_handler(timer.time("invoke_handler", || get_invoke_handler()))
-        .run(timer.time("generate_context", || tauri::generate_context!()))
-        .expect("error while running tauri application");
+        .build(timer.time("generate_context", || tauri::generate_context!()))
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Gracefully shut down managed MusicGateAway on app exit
+                if let Some(state) = app.try_state::<commands::AppState>() {
+                    // Try API shutdown first
+                    if let Some(url) = state.musicgateway_url.lock().unwrap().clone() {
+                        let client = musicgateway::MusicGatewayClient::new(&url);
+                        let _ = client.shutdown();
+                        log::info!("Sent shutdown request to MusicGateAway");
+                    }
+                    // Clean up process handle (kill as fallback)
+                    let mut proc = state.musicgateway_process.lock().unwrap();
+                    if let Some(ref mut child) = *proc {
+                        match child.try_wait() {
+                            Ok(Some(_)) => log::info!("MusicGateAway exited after shutdown"),
+                            _ => {
+                                let _ = child.kill();
+                                let _ = child.wait();
+                                log::info!("MusicGateAway killed as fallback on exit");
+                            }
+                        }
+                    }
+                    *proc = None;
+                }
+            }
+        });
 }

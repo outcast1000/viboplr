@@ -7,9 +7,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use tauri::{AppHandle, Emitter};
 
 use crate::db::Database;
+use crate::musicgateway::MusicGatewayClient;
 use crate::scanner;
 use crate::subsonic::SubsonicClient;
-use crate::tidal::TidalClient;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DownloadFormat {
@@ -64,7 +64,7 @@ pub struct DownloadRequest {
     pub cover_url: Option<String>,
     pub source_kind: String,                  // "tidal" or "subsonic"
     pub source_collection_id: Option<i64>,    // needed for subsonic credentials
-    pub source_override_url: Option<String>,  // optional override URL for tidal
+    pub source_override_url: Option<String>,  // MusicGateAway URL (tidal) or collection URL (subsonic)
     pub remote_track_id: String,
     pub dest_collection_id: i64,
     pub dest_collection_path: String,
@@ -226,16 +226,64 @@ pub fn process_download(
     app: &AppHandle,
     manager: &Arc<DownloadManager>,
 ) -> Result<PathBuf, String> {
-    // Step 1: Resolve stream URL (and actual format for TIDAL)
-    let (stream_url, actual_ext) = match request.source_kind.as_str() {
-        "tidal" => {
-            let client = TidalClient::new(request.source_override_url.as_deref());
-            let stream_info = client
-                .get_stream_url(&request.remote_track_id, request.format.tidal_quality())
-                .map_err(|e| e.to_string())?;
-            let ext = stream_info.extension().to_string();
-            (stream_info.url, Some(ext))
+    // Step 1: Resolve stream URL
+    // For TIDAL, delegate to MusicGateAway (full download + tagging)
+    if request.source_kind == "tidal" {
+        let mga_url = request
+            .source_override_url
+            .as_deref()
+            .ok_or("MusicGateAway URL not configured. Set it in Settings > Integrations.")?;
+        let mga_client = MusicGatewayClient::new(mga_url);
+
+        let dest_dir = {
+            let artist_dir = sanitize_filename(&request.artist_name);
+            let album_dir = sanitize_filename(&request.album_title);
+            Path::new(&request.dest_collection_path)
+                .join(artist_dir)
+                .join(album_dir)
+        };
+        std::fs::create_dir_all(&dest_dir)
+            .map_err(|e| format!("Failed to create directories: {}", e))?;
+
+        let request_id = request.id;
+        let track_title = request.track_title.clone();
+        let artist_name = request.artist_name.clone();
+        let manager_clone = manager.clone();
+        let app_clone = app.clone();
+
+        let result = mga_client
+            .download_track(
+                &request.remote_track_id,
+                dest_dir.to_str().ok_or("Invalid dest path")?,
+                request.format.tidal_quality(),
+                |stage, pct| {
+                    let status = DownloadStatus {
+                        id: request_id,
+                        track_title: track_title.clone(),
+                        artist_name: artist_name.clone(),
+                        status: stage.to_string(),
+                        progress_pct: pct,
+                        error: None,
+                    };
+                    manager_clone.set_active(Some(status.clone()));
+                    let _ = app_clone.emit("download-progress", &status);
+                },
+            )
+            .map_err(|e| e.to_string())?;
+
+        let dest_path = PathBuf::from(&result.path);
+        scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id));
+
+        if request.is_batch_last {
+            let _ = db.rebuild_fts();
+            let _ = db.recompute_counts();
         }
+
+        return Ok(dest_path);
+    }
+
+    // Subsonic download path
+    let (stream_url, actual_ext) = match request.source_kind.as_str() {
         "subsonic" => {
             let collection_id = request.source_collection_id
                 .ok_or("Subsonic download requires source_collection_id")?;
@@ -252,7 +300,7 @@ pub fn process_download(
             (client.stream_url_with_format(
                 &request.remote_track_id,
                 request.format.subsonic_format_param(),
-            ), None)
+            ), None::<String>)
         }
         _ => return Err(format!("Unsupported source kind: {}", request.source_kind)),
     };

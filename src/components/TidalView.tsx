@@ -17,7 +17,6 @@ type TidalSubView =
 
 interface TidalViewProps {
   searchQuery: string;
-  overrideUrl?: string;
   onPlayTrack: (tidalTrackId: string, trackInfo: TidalSearchTrack) => void;
   onEnqueueTrack: (tidalTrackId: string, trackInfo: TidalSearchTrack) => void;
   onDownloadAlbum?: (albumId: string, destCollectionId: number) => void;
@@ -25,7 +24,7 @@ interface TidalViewProps {
   localCollections?: { id: number; name: string }[];
 }
 
-export function TidalView({ searchQuery, overrideUrl, onPlayTrack, onEnqueueTrack, onDownloadAlbum, onDownloadTrack, localCollections }: TidalViewProps) {
+export function TidalView({ searchQuery, onPlayTrack, onEnqueueTrack, onDownloadAlbum, onDownloadTrack, localCollections }: TidalViewProps) {
   const [results, setResults] = useState<TidalSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [subView, setSubView] = useState<TidalSubView>({ kind: "search" });
@@ -44,7 +43,6 @@ export function TidalView({ searchQuery, overrideUrl, onPlayTrack, onEnqueueTrac
       setLoading(true);
       try {
         const res = await invoke<TidalSearchResult>("tidal_search", {
-          overrideUrl: overrideUrl || null,
           query: q,
           limit: 25,
           offset: 0,
@@ -57,7 +55,7 @@ export function TidalView({ searchQuery, overrideUrl, onPlayTrack, onEnqueueTrac
       }
     }, 400);
     return () => clearTimeout(debounceRef.current);
-  }, [searchQuery, overrideUrl]);
+  }, [searchQuery]);
 
   function handlePlayTrack(track: TidalSearchTrack) {
     onPlayTrack(track.tidal_id, track);
@@ -71,7 +69,6 @@ export function TidalView({ searchQuery, overrideUrl, onPlayTrack, onEnqueueTrac
     setLoading(true);
     try {
       const album = await invoke<TidalAlbumDetail>("tidal_get_album", {
-        overrideUrl: overrideUrl || null,
         albumId,
       });
       setSubView({ kind: "album", album });
@@ -86,7 +83,6 @@ export function TidalView({ searchQuery, overrideUrl, onPlayTrack, onEnqueueTrac
     setLoading(true);
     try {
       const artist = await invoke<TidalArtistDetail>("tidal_get_artist", {
-        overrideUrl: overrideUrl || null,
         artistId,
       });
       setSubView({ kind: "artist", artist });

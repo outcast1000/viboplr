@@ -200,7 +200,9 @@ function App() {
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState("flac");
   const [tidalEnabled, setTidalEnabled] = useState(false);
-  const [tidalOverrideUrl, setTidalOverrideUrl] = useState("");
+  const [musicGatewayUrl, setMusicGatewayUrl] = useState("");
+  const [musicGatewayExePath, setMusicGatewayExePath] = useState("");
+  const [musicGatewayManaged, setMusicGatewayManaged] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState<{
     active: { id: number; track_title: string; artist_name: string; progress_pct: number } | null;
     queued: { id: number; track_title: string; artist_name: string }[];
@@ -261,7 +263,6 @@ function App() {
         return convertFileSrc(parsed.path);
       } else if (parsed.scheme === "tidal") {
         const streamUrl = await invoke<string>("tidal_get_stream_url", {
-          overrideUrl: tidalOverrideUrl || null,
           tidalTrackId: parsed.id,
           quality: null,
         });
@@ -276,7 +277,7 @@ function App() {
         throw new Error(`Unhandled scheme: ${(_exhaustive as any).scheme}`);
       }
     };
-  }, [library.collections, tidalOverrideUrl]);
+  }, [library.collections]);
 
   const statusActivity = scanning
     ? (scanProgress.total > 0 ? `Scanning... ${scanProgress.scanned}/${scanProgress.total}` : "Scanning... preparing")
@@ -397,7 +398,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, tid, vol, qEntries, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedTidalOverrideUrl, savedSortBarCollapsed] = await timeAsync("store.restore (35 keys)", () => Promise.all([
+        const [v, sa, sal, st, tid, vol, qEntries, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedMusicGatewayUrl, savedSortBarCollapsed, savedMusicGatewayExePath, savedMusicGatewayManaged] = await timeAsync("store.restore (37 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -431,8 +432,10 @@ function App() {
           store.get<boolean>("queueCollapsed"),
           store.get<string | null>("downloadFormat"),
           store.get<boolean>("tidalEnabled"),
-          store.get<string | null>("tidalOverrideUrl"),
+          store.get<string | null>("musicGatewayUrl"),
           store.get<boolean>("sortBarCollapsed"),
+          store.get<string | null>("musicGatewayExePath"),
+          store.get<boolean>("musicGatewayManaged"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history", "tidal"].includes(v)) library.setView(v as View);
         if (sa !== undefined && sa !== null) {
@@ -545,9 +548,38 @@ function App() {
         if (savedVideoSplitHeight && savedVideoSplitHeight > 0) videoSplit.setVideoHeight(savedVideoSplitHeight);
         if (savedSidebarCollapsed) setSidebarCollapsed(true);
         if (savedQueueCollapsed) setQueueCollapsed(true);
-        if (savedDownloadFormat && ["flac", "aac", "mp3"].includes(savedDownloadFormat)) setDownloadFormat(savedDownloadFormat);
+        if (savedDownloadFormat && ["flac", "aac"].includes(savedDownloadFormat)) setDownloadFormat(savedDownloadFormat);
         if (savedTidalEnabled) setTidalEnabled(true);
-        if (savedTidalOverrideUrl) setTidalOverrideUrl(savedTidalOverrideUrl);
+        if (savedMusicGatewayExePath) setMusicGatewayExePath(savedMusicGatewayExePath);
+        if (savedMusicGatewayManaged) setMusicGatewayManaged(true);
+        if (savedMusicGatewayUrl) {
+          setMusicGatewayUrl(savedMusicGatewayUrl);
+          invoke("set_musicgateway_url", { url: savedMusicGatewayUrl }).catch(console.error);
+          // If managed, start the server process then ping; otherwise just ping
+          const handlePingResult = (result: { version: string; bin: string | null }) => {
+            console.log("MusicGateAway connected:", savedMusicGatewayUrl, "v" + result.version);
+            if (result.bin && result.bin !== savedMusicGatewayExePath) {
+              setMusicGatewayExePath(result.bin);
+              store.set("musicGatewayExePath", result.bin);
+            }
+          };
+          if (savedMusicGatewayManaged && savedMusicGatewayExePath) {
+            invoke("start_musicgateway_server", { exePath: savedMusicGatewayExePath })
+              .then(() => {
+                // Give the server a moment to start before pinging
+                setTimeout(() => {
+                  invoke<{ version: string; bin: string | null }>("musicgateway_ping", { url: savedMusicGatewayUrl })
+                    .then(handlePingResult)
+                    .catch(() => console.warn("MusicGateAway started but not yet reachable"));
+                }, 1500);
+              })
+              .catch((e) => console.warn("Failed to start MusicGateAway:", e));
+          } else {
+            invoke<{ version: string; bin: string | null }>("musicgateway_ping", { url: savedMusicGatewayUrl })
+              .then(handlePingResult)
+              .catch(() => console.warn("MusicGateAway not reachable:", savedMusicGatewayUrl));
+          }
+        }
         if (savedSortBarCollapsed) library.setSortBarCollapsed(true);
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
@@ -1177,15 +1209,29 @@ function App() {
     store.set("tidalEnabled", enabled);
   }
 
-  function handleTidalOverrideUrlChange(url: string) {
-    setTidalOverrideUrl(url);
-    store.set("tidalOverrideUrl", url);
+  function handleMusicGatewayUrlChange(url: string) {
+    setMusicGatewayUrl(url);
+    store.set("musicGatewayUrl", url);
+    invoke("set_musicgateway_url", { url: url || null }).catch(console.error);
+  }
+
+  function handleMusicGatewayExePathChange(path: string) {
+    setMusicGatewayExePath(path);
+    store.set("musicGatewayExePath", path);
+  }
+
+  function handleMusicGatewayManagedChange(managed: boolean) {
+    setMusicGatewayManaged(managed);
+    store.set("musicGatewayManaged", managed);
+    // If turning off managed mode, stop the server
+    if (!managed) {
+      invoke("stop_musicgateway_server").catch(console.error);
+    }
   }
 
   async function handleDownloadAlbum(albumId: string, destCollectionId: number) {
     try {
       const ids = await invoke<number[]>("download_album", {
-        overrideUrl: tidalOverrideUrl || null,
         albumId,
         destCollectionId,
         format: downloadFormat,
@@ -1199,7 +1245,6 @@ function App() {
   async function handleTidalDownloadTrack(tidalTrackId: string, destCollectionId: number) {
     try {
       await invoke<number>("tidal_save_track", {
-        overrideUrl: tidalOverrideUrl || null,
         tidalTrackId,
         destCollectionId,
         format: downloadFormat,
@@ -1611,8 +1656,12 @@ function App() {
           onDownloadFormatChange={handleDownloadFormatChange}
           tidalEnabled={tidalEnabled}
           onTidalEnabledChange={handleTidalEnabledChange}
-          tidalOverrideUrl={tidalOverrideUrl}
-          onTidalOverrideUrlChange={handleTidalOverrideUrlChange}
+          musicGatewayUrl={musicGatewayUrl}
+          onMusicGatewayUrlChange={handleMusicGatewayUrlChange}
+          musicGatewayExePath={musicGatewayExePath}
+          onMusicGatewayExePathChange={handleMusicGatewayExePathChange}
+          musicGatewayManaged={musicGatewayManaged}
+          onMusicGatewayManagedChange={handleMusicGatewayManagedChange}
         />
       )}
 
@@ -2619,7 +2668,6 @@ function App() {
               />
               <TidalView
                 searchQuery={viewSearch.getQuery("tidal")}
-                overrideUrl={tidalOverrideUrl || undefined}
                 onPlayTrack={handleTidalPlay}
                 onEnqueueTrack={handleTidalEnqueue}
                 onDownloadAlbum={handleDownloadAlbum}
@@ -2793,7 +2841,6 @@ function App() {
       {upgradeTrack && (
         <UpgradeTrackModal
           track={upgradeTrack}
-          tidalOverrideUrl={tidalOverrideUrl}
           downloadFormat={downloadFormat}
           onClose={() => setUpgradeTrack(null)}
           onUpgraded={(msg) => { setUpgradeTrack(null); library.loadTracks(); addLog(msg); }}
