@@ -1020,6 +1020,14 @@ function App() {
     if (contextMenu && contextMenu.target.kind === "track") {
       invoke("show_in_folder", { trackId: contextMenu.target.trackId });
       setContextMenu(null);
+    } else if (contextMenu && contextMenu.target.kind === "queue-multi" && contextMenu.target.indices.length === 1) {
+      const track = queueHook.queue[contextMenu.target.indices[0]];
+      if (track && track.path) {
+        invoke("show_in_folder_path", { filePath: track.path });
+      } else if (track && track.id > 0) {
+        invoke("show_in_folder", { trackId: track.id });
+      }
+      setContextMenu(null);
     }
   }
 

@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -586,6 +586,34 @@ pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), S
 }
 
 #[tauri::command]
+pub fn show_in_folder_path(file_path: String) -> Result<(), String> {
+    let path = std::path::Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg("-R")
+        .arg(path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("explorer")
+            .raw_arg(format!("/select,\"{}\"", path.display()))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open")
+        .arg(path.parent().unwrap_or(path))
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn delete_tracks(state: State<'_, AppState>, track_ids: Vec<i64>) -> Result<Vec<i64>, String> {
     let tracks = state.db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())?;
     let mut deleted_ids = Vec::new();
@@ -813,6 +841,30 @@ pub fn save_playlist(
     std::fs::write(&path, content).map_err(|e| format!("Failed to write playlist: {}", e))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct QueueEntryPayload {
+    pub location: String,
+    pub title: String,
+    pub artist_name: Option<String>,
+    pub duration_secs: Option<f64>,
+}
+
+#[tauri::command]
+pub fn save_playlist_entries(
+    path: String,
+    entries: Vec<QueueEntryPayload>,
+) -> Result<(), String> {
+    let mut content = String::from("#EXTM3U\n");
+    for entry in &entries {
+        let duration = entry.duration_secs.unwrap_or(0.0) as i64;
+        let artist = entry.artist_name.as_deref().unwrap_or("Unknown");
+        content.push_str(&format!("#EXTINF:{},{} - {}\n", duration, artist, entry.title));
+        content.push_str(&entry.location);
+        content.push('\n');
+    }
+    std::fs::write(&path, content).map_err(|e| format!("Failed to write playlist: {}", e))
+}
+
 #[tauri::command]
 pub fn load_playlist(
     state: State<'_, AppState>,
@@ -823,25 +875,151 @@ pub fn load_playlist(
     let playlist_path = std::path::Path::new(&path);
     let parent_dir = playlist_path.parent();
 
-    let mut file_paths: Vec<String> = Vec::new();
+    // Parse EXTINF metadata alongside locations
+    let mut entries: Vec<(String, Option<String>, Option<String>, Option<f64>)> = Vec::new(); // (location, title, artist, duration)
+    let mut pending_extinf: Option<(String, Option<String>, f64)> = None; // (title, artist, duration)
+
     for line in content.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
+        if line.is_empty() { continue; }
+        if line.starts_with("#EXTINF:") {
+            // Parse: #EXTINF:duration,Artist - Title
+            if let Some(rest) = line.strip_prefix("#EXTINF:") {
+                let parts: Vec<&str> = rest.splitn(2, ',').collect();
+                let dur = parts.first().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                let display = parts.get(1).unwrap_or(&"");
+                let (artist, title) = if let Some(idx) = display.find(" - ") {
+                    (Some(display[..idx].to_string()), display[idx + 3..].to_string())
+                } else {
+                    (None, display.to_string())
+                };
+                pending_extinf = Some((title, artist, dur));
+            }
             continue;
         }
-        let resolved = if line.contains("://") || std::path::Path::new(line).is_absolute() {
+        if line.starts_with('#') { continue; }
+
+        // Resolve the location
+        let location = if line.contains("://") || std::path::Path::new(line).is_absolute() {
             line.to_string()
         } else if let Some(parent) = parent_dir {
-            parent.join(line).to_string_lossy().to_string()
+            // Relative path — resolve relative to playlist, treat as file://
+            format!("file://{}", parent.join(line).to_string_lossy())
         } else {
-            line.to_string()
+            format!("file://{}", line)
         };
-        file_paths.push(resolved);
+
+        let (title, artist, dur) = pending_extinf.take().unwrap_or_else(|| {
+            // Derive title from location
+            let name = location.rsplit('/').next().unwrap_or(&location).to_string();
+            (name, None, 0.0)
+        });
+
+        entries.push((location, Some(title), artist, Some(dur)));
     }
 
-    let total_count = file_paths.len();
-    let tracks = state.db.get_tracks_by_paths(&file_paths).map_err(|e| e.to_string())?;
-    let not_found_count = total_count - tracks.len();
+    // Resolve entries to Track objects
+    let mut tracks: Vec<Track> = Vec::new();
+    let mut not_found = 0usize;
+
+    // Batch-resolve file:// paths
+    let file_paths: Vec<String> = entries.iter()
+        .filter(|(loc, _, _, _)| loc.starts_with("file://"))
+        .map(|(loc, _, _, _)| loc[7..].to_string())
+        .collect();
+    let db_tracks = if !file_paths.is_empty() {
+        state.db.get_tracks_by_paths(&file_paths).map_err(|e| e.to_string())?
+    } else {
+        Vec::new()
+    };
+    let db_by_path: std::collections::HashMap<String, &Track> =
+        db_tracks.iter().map(|t| (t.path.clone(), t)).collect();
+
+    let mut tidal_counter: i64 = -200000;
+
+    for (location, title, artist, dur) in &entries {
+        if location.starts_with("file://") {
+            let file_path = &location[7..];
+            if let Some(track) = db_by_path.get(file_path) {
+                tracks.push((*track).clone());
+            } else {
+                not_found += 1;
+            }
+        } else if location.starts_with("tidal://") {
+            let tidal_id = &location[8..];
+            tidal_counter -= 1;
+            tracks.push(Track {
+                id: tidal_counter,
+                path: String::new(),
+                title: title.clone().unwrap_or_default(),
+                artist_id: None,
+                artist_name: artist.clone(),
+                album_id: None,
+                album_title: None,
+                year: None,
+                track_number: None,
+                duration_secs: *dur,
+                format: None,
+                file_size: None,
+                collection_id: None,
+                collection_name: None,
+                subsonic_id: Some(tidal_id.to_string()),
+                liked: 0,
+                youtube_url: None,
+                added_at: None,
+                modified_at: None,
+            });
+        } else if location.starts_with("subsonic://") {
+            // Try to find in DB by subsonic_id
+            let id_match = location.split("id=").nth(1).and_then(|s| s.split('&').next());
+            if let Some(remote_id) = id_match {
+                let collections = state.db.get_collections().map_err(|e| e.to_string())?;
+                let mut found = false;
+                for col in collections.iter().filter(|c| c.kind == "subsonic") {
+                    if let Ok(matched) = state.db.get_tracks_by_subsonic_id(remote_id, col.id) {
+                        if let Some(track) = matched.into_iter().next() {
+                            tracks.push(track);
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                if !found {
+                    // Create minimal track
+                    tracks.push(Track {
+                        id: 0,
+                        path: String::new(),
+                        title: title.clone().unwrap_or_default(),
+                        artist_id: None,
+                        artist_name: artist.clone(),
+                        album_id: None,
+                        album_title: None,
+                        year: None,
+                        track_number: None,
+                        duration_secs: *dur,
+                        format: None,
+                        file_size: None,
+                        collection_id: None,
+                        collection_name: None,
+                        subsonic_id: Some(remote_id.to_string()),
+                        liked: 0,
+                        youtube_url: None,
+                        added_at: None,
+                        modified_at: None,
+                    });
+                }
+            } else {
+                not_found += 1;
+            }
+        } else {
+            // Legacy: plain file path (backward compat with old M3U files)
+            if let Some(track) = db_by_path.get(location.as_str()) {
+                tracks.push((*track).clone());
+            } else {
+                not_found += 1;
+            }
+        }
+    }
 
     let playlist_name = playlist_path
         .file_stem()
@@ -851,7 +1029,7 @@ pub fn load_playlist(
 
     Ok(PlaylistLoadResult {
         tracks,
-        not_found_count,
+        not_found_count: not_found,
         playlist_name,
     })
 }

@@ -381,8 +381,8 @@ export function useQueue(
       filters: [{ name: "M3U Playlist", extensions: ["m3u"] }],
     });
     if (!filePath) return;
-    const trackIds = queueRef.current.map(t => t.id);
-    await invoke("save_playlist", { path: filePath, trackIds });
+    const entries = queueRef.current.map(t => trackToQueueEntry(t, collections));
+    await invoke("save_playlist_entries", { path: filePath, entries });
     const name = filePath.split(/[/\\]/).pop()?.replace(/\.m3u8?$/i, "") ?? "Playlist";
     setPlaylistName(name);
   }
