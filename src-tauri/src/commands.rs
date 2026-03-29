@@ -616,6 +616,33 @@ pub fn show_in_folder_path(file_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn open_folder(folder_path: String) -> Result<(), String> {
+    let path = std::path::Path::new(&folder_path);
+    if !path.exists() {
+        return Err(format!("Folder not found: {}", folder_path));
+    }
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open")
+        .arg(path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("explorer")
+            .raw_arg(format!("\"{}\"", path.display()))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open")
+        .arg(path)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn delete_tracks(state: State<'_, AppState>, track_ids: Vec<i64>) -> Result<Vec<i64>, String> {
     let tracks = state.db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())?;
     let mut deleted_ids = Vec::new();
@@ -1214,7 +1241,8 @@ pub async fn tidal_search(
 pub fn tidal_save_track(
     state: State<'_, AppState>,
     tidal_track_id: String,
-    dest_collection_id: i64,
+    dest_collection_id: Option<i64>,
+    custom_dest_path: Option<String>,
     format: String,
 ) -> Result<u64, String> {
     let mga_url = state.musicgateway_url.lock().unwrap().clone()
@@ -1226,13 +1254,19 @@ pub fn tidal_save_track(
         .get_track(&tidal_track_id)
         .map_err(|e| e.to_string())?;
 
-    let dest_collection = state
-        .db
-        .get_collection_by_id(dest_collection_id)
-        .map_err(|e| e.to_string())?;
-    let dest_path = dest_collection
-        .path
-        .ok_or("Destination collection has no path")?;
+    let (collection_id, dest_path) = if let Some(custom) = custom_dest_path {
+        (0, custom)
+    } else {
+        let cid = dest_collection_id.ok_or("Either dest_collection_id or custom_dest_path is required")?;
+        let dest_collection = state
+            .db
+            .get_collection_by_id(cid)
+            .map_err(|e| e.to_string())?;
+        let path = dest_collection
+            .path
+            .ok_or("Destination collection has no path")?;
+        (cid, path)
+    };
 
     let cover_url = info
         .cover_id
@@ -1257,7 +1291,7 @@ pub fn tidal_save_track(
         source_collection_id: None,
         source_override_url: Some(mga_url),
         remote_track_id: tidal_track_id,
-        dest_collection_id,
+        dest_collection_id: collection_id,
         dest_collection_path: dest_path,
         format: fmt,
         is_batch_last: true,
@@ -1744,20 +1778,27 @@ pub fn download_track(
 pub fn download_album(
     state: State<'_, AppState>,
     album_id: String,
-    dest_collection_id: i64,
+    dest_collection_id: Option<i64>,
+    custom_dest_path: Option<String>,
     format: String,
 ) -> Result<Vec<u64>, String> {
     let mga_url = state.musicgateway_url.lock().unwrap().clone()
         .ok_or("MusicGateAway URL not configured. Set it in Settings > Integrations.")?;
     let fmt = DownloadFormat::from_str(&format)?;
 
-    let dest_collection = state
-        .db
-        .get_collection_by_id(dest_collection_id)
-        .map_err(|e| e.to_string())?;
-    let dest_path = dest_collection
-        .path
-        .ok_or("Destination collection has no path")?;
+    let (collection_id, dest_path) = if let Some(custom) = custom_dest_path {
+        (0, custom)
+    } else {
+        let cid = dest_collection_id.ok_or("Either dest_collection_id or custom_dest_path is required")?;
+        let dest_collection = state
+            .db
+            .get_collection_by_id(cid)
+            .map_err(|e| e.to_string())?;
+        let path = dest_collection
+            .path
+            .ok_or("Destination collection has no path")?;
+        (cid, path)
+    };
 
     let client = MusicGatewayClient::new(&mga_url);
     let album = client.get_album(&album_id).map_err(|e| e.to_string())?;
@@ -1784,7 +1825,7 @@ pub fn download_album(
             source_collection_id: None,
             source_override_url: Some(mga_url.clone()),
             remote_track_id: t.tidal_id,
-            dest_collection_id,
+            dest_collection_id: collection_id,
             dest_collection_path: dest_path.clone(),
             format: fmt,
             is_batch_last: i == count - 1,

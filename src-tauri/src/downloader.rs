@@ -272,11 +272,13 @@ pub fn process_download(
             .map_err(|e| e.to_string())?;
 
         let dest_path = PathBuf::from(&result.path);
-        scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id));
+        if request.dest_collection_id > 0 {
+            scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id));
 
-        if request.is_batch_last {
-            let _ = db.rebuild_fts();
-            let _ = db.recompute_counts();
+            if request.is_batch_last {
+                let _ = db.rebuild_fts();
+                let _ = db.recompute_counts();
+            }
         }
 
         return Ok(dest_path);

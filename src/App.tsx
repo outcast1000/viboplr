@@ -1229,32 +1229,6 @@ function App() {
     }
   }
 
-  async function handleDownloadAlbum(albumId: string, destCollectionId: number) {
-    try {
-      const ids = await invoke<number[]>("download_album", {
-        albumId,
-        destCollectionId,
-        format: downloadFormat,
-      });
-      addLog(`Queued ${ids.length} tracks for download`);
-    } catch (e) {
-      addLog(`Album download failed: ${e}`);
-    }
-  }
-
-  async function handleTidalDownloadTrack(tidalTrackId: string, destCollectionId: number) {
-    try {
-      await invoke<number>("tidal_save_track", {
-        tidalTrackId,
-        destCollectionId,
-        format: downloadFormat,
-      });
-      addLog(`Queued track for download`);
-    } catch (e) {
-      addLog(`Track download failed: ${e}`);
-    }
-  }
-
   const tidalIdCounter = useRef(-1);
 
   function tidalTrackToTrack(info: TidalSearchTrack): Track {
@@ -1519,7 +1493,7 @@ function App() {
   })();
 
   const hasTidal = tidalEnabled;
-  const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name }));
+  const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name, path: c.path ?? "" }));
 
   return (
     <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
@@ -2670,8 +2644,7 @@ function App() {
                 searchQuery={viewSearch.getQuery("tidal")}
                 onPlayTrack={handleTidalPlay}
                 onEnqueueTrack={handleTidalEnqueue}
-                onDownloadAlbum={handleDownloadAlbum}
-                onDownloadTrack={handleTidalDownloadTrack}
+                downloadFormat={downloadFormat}
                 localCollections={localCollections}
               />
             </>
