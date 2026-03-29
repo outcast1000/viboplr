@@ -470,6 +470,18 @@ export function SettingsPanel({
                         <button className="settings-btn-accent" onClick={onLastfmConnect} style={{ background: "#d51007", borderColor: "#d51007" }}>Connect</button>
                       )}
                     </div>
+                    {lastfmConnected && lastfmUsername && (
+                      <div className="settings-row">
+                        <div className="settings-row-info">
+                          <span className="settings-label">Profile</span>
+                          <span className="settings-description">
+                            <a href="#" onClick={(e) => { e.preventDefault(); openUrl(`https://www.last.fm/user/${lastfmUsername}`); }}>
+                              last.fm/user/{lastfmUsername}
+                            </a>
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 

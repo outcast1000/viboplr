@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { Track, Tag, Collection } from "../types";
 import { formatDuration } from "../utils";
 
@@ -17,7 +18,7 @@ interface AudioProperties {
   bitrate: number | null;
 }
 
-type PropertiesTab = "main" | "tags" | "format" | "other";
+type PropertiesTab = "main" | "tags" | "format" | "similar" | "info" | "other";
 
 function formatFileSize(bytes: number | null): string {
   if (!bytes) return "—";
@@ -31,6 +32,24 @@ function formatSampleRate(hz: number | null): string {
   return `${(hz / 1000).toFixed(1)} kHz`;
 }
 
+interface SimilarTrack {
+  name: string;
+  artist: { name: string };
+  match: string;
+  url: string;
+}
+
+interface LastfmTag {
+  name: string;
+  count: number;
+}
+
+interface ArtistInfo {
+  bio?: { summary?: string; content?: string };
+  stats?: { listeners?: string; playcount?: string };
+  tags?: { tag?: Array<{ name: string }> };
+}
+
 export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrlChange }: TrackPropertiesModalProps) {
   const [tags, setTags] = useState<Tag[]>([]);
   const [audioProps, setAudioProps] = useState<AudioProperties | null>(null);
@@ -39,12 +58,114 @@ export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrl
   const [tab, setTab] = useState<PropertiesTab>("main");
   const [copied, setCopied] = useState(false);
 
+  // Community tags state
+  const [suggestedTags, setSuggestedTags] = useState<LastfmTag[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set());
+  const [applyingTags, setApplyingTags] = useState(false);
+
+  // Similar tracks state
+  const [similarTracks, setSimilarTracks] = useState<SimilarTrack[]>([]);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
+  const [similarLoaded, setSimilarLoaded] = useState(false);
+
+  // Artist info state
+  const [artistInfo, setArtistInfo] = useState<ArtistInfo | null>(null);
+  const [loadingInfo, setLoadingInfo] = useState(false);
+  const [infoLoaded, setInfoLoaded] = useState(false);
+
   useEffect(() => {
     invoke<Tag[]>("get_tags_for_track", { trackId: track.id }).then(setTags);
     invoke<AudioProperties>("get_track_audio_properties", { trackId: track.id })
       .then(setAudioProps)
       .catch(() => setAudioProps({ sample_rate: null, bit_depth: null, channels: null, bitrate: null }));
   }, [track.id]);
+
+  // Fetch similar tracks when tab is opened
+  useEffect(() => {
+    if (tab !== "similar" || similarLoaded || !track.artist_name) return;
+    setLoadingSimilar(true);
+
+    const parseSimilar = (resp: { similartracks?: { track?: SimilarTrack[] } } | null) => {
+      setSimilarTracks(resp?.similartracks?.track ?? []);
+      setLoadingSimilar(false);
+      setSimilarLoaded(true);
+    };
+
+    invoke<any>("lastfm_get_similar_tracks", { artistName: track.artist_name, trackTitle: track.title })
+      .then(resp => { if (resp) parseSimilar(resp); })
+      .catch(() => parseSimilar(null));
+
+    const unlisten = listen<any>("lastfm-similar-tracks", (event) => parseSimilar(event.payload));
+    return () => { unlisten.then(f => f()); };
+  }, [tab, similarLoaded, track.artist_name, track.title]);
+
+  // Fetch artist info when tab is opened
+  useEffect(() => {
+    if (tab !== "info" || infoLoaded || !track.artist_name) return;
+    setLoadingInfo(true);
+
+    const parseInfo = (resp: { artist?: ArtistInfo } | null) => {
+      setArtistInfo(resp?.artist ?? null);
+      setLoadingInfo(false);
+      setInfoLoaded(true);
+    };
+
+    invoke<any>("lastfm_get_artist_info", { artistName: track.artist_name })
+      .then(resp => { if (resp) parseInfo(resp); })
+      .catch(() => parseInfo(null));
+
+    const unlisten = listen<any>("lastfm-artist-info", (event) => parseInfo(event.payload));
+    return () => { unlisten.then(f => f()); };
+  }, [tab, infoLoaded, track.artist_name]);
+
+  async function fetchSuggestedTags() {
+    if (!track.artist_name) return;
+    setLoadingSuggestions(true);
+
+    const applyTags = (resp: { toptags?: { tag?: Array<{ name: string; count: number }> } } | null) => {
+      const existing = new Set(tags.map(t => t.name.toLowerCase()));
+      const filtered = (resp?.toptags?.tag ?? []).filter(t => !existing.has(t.name.toLowerCase()));
+      setSuggestedTags(filtered);
+      setSelectedSuggestions(new Set());
+      setLoadingSuggestions(false);
+    };
+
+    // Listen for async result before invoking (in case of cache miss)
+    const unlisten = await listen<any>("lastfm-track-tags", (event) => {
+      applyTags(event.payload);
+      unlisten();
+    });
+
+    try {
+      const resp = await invoke<any>("lastfm_get_track_tags", { artistName: track.artist_name, trackTitle: track.title });
+      if (resp) {
+        applyTags(resp);
+        unlisten(); // cached hit, no need to listen
+      }
+    } catch {
+      applyTags(null);
+      unlisten();
+    }
+  }
+
+  async function applySuggestedTags() {
+    if (selectedSuggestions.size === 0) return;
+    setApplyingTags(true);
+    try {
+      const applied = await invoke<Array<[number, string]>>(
+        "lastfm_apply_community_tags", { trackId: track.id, tagNames: [...selectedSuggestions] }
+      );
+      const newTags: Tag[] = applied.map(([id, name]) => ({ id, name, liked: 0, track_count: 0 }));
+      setTags(prev => [...prev, ...newTags.filter(nt => !prev.some(t => t.id === nt.id))]);
+      setSuggestedTags(prev => prev.filter(t => !selectedSuggestions.has(t.name)));
+      setSelectedSuggestions(new Set());
+    } catch (e) {
+      console.error("Failed to apply tags:", e);
+    } finally {
+      setApplyingTags(false);
+    }
+  }
 
   const dirty = (youtubeUrl.trim() || null) !== (track.youtube_url ?? null);
 
@@ -64,25 +185,40 @@ export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrl
     }
   }
 
+  const tabLabels: Record<PropertiesTab, string> = {
+    main: "General",
+    tags: "Tags",
+    format: "Format",
+    similar: "Similar",
+    info: "Info",
+    other: "Other",
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-properties" onClick={(e) => e.stopPropagation()}>
-        <h2>{track.title}</h2>
-        <div className="properties-subtitle">{track.artist_name ?? "Unknown"}{track.album_title ? ` — ${track.album_title}` : ""}</div>
-
-        <div className="properties-tabs">
-          {(["main", "tags", "format", "other"] as PropertiesTab[]).map(t => (
-            <button
-              key={t}
-              className={`properties-tab${tab === t ? " active" : ""}`}
-              onClick={() => { setTab(t); setCopied(false); }}
-            >
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
-          ))}
+        <div className="properties-caption">
+          <div className="properties-caption-text">
+            <h2>{track.title}</h2>
+            <div className="properties-subtitle">{track.artist_name ?? "Unknown"}{track.album_title ? ` — ${track.album_title}` : ""}</div>
+          </div>
+          <button className="properties-caption-close" onClick={onClose}>&times;</button>
         </div>
 
-        <div className="properties-tab-content">
+        <div className="properties-body">
+          <div className="properties-tabs">
+            {(["main", "tags", "format", "similar", "info", "other"] as PropertiesTab[]).map(t => (
+              <button
+                key={t}
+                className={`properties-tab${tab === t ? " active" : ""}`}
+                onClick={() => { setTab(t); setCopied(false); }}
+              >
+                {tabLabels[t]}
+              </button>
+            ))}
+          </div>
+
+          <div className="properties-tab-content">
           {tab === "main" && (
             <div className="properties-main">
               <div className="properties-main-field">
@@ -155,6 +291,48 @@ export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrl
                   </div>
                 </div>
               )}
+              <div className="properties-tags-section" style={{ marginTop: 12 }}>
+                {suggestedTags.length === 0 ? (
+                  <button
+                    className="modal-btn modal-btn-cancel"
+                    onClick={fetchSuggestedTags}
+                    disabled={loadingSuggestions || !track.artist_name}
+                    style={{ fontSize: 12 }}
+                  >
+                    {loadingSuggestions ? "Loading..." : "Suggest tags from Last.fm"}
+                  </button>
+                ) : (
+                  <>
+                    <label>Last.fm suggestions</label>
+                    <div className="properties-tags" style={{ marginTop: 4 }}>
+                      {suggestedTags.map(t => (
+                        <span
+                          key={t.name}
+                          className={`properties-tag properties-tag-suggestion${selectedSuggestions.has(t.name) ? " selected" : ""}`}
+                          style={{ cursor: "pointer", opacity: selectedSuggestions.has(t.name) ? 1 : 0.7 }}
+                          onClick={() => setSelectedSuggestions(prev => {
+                            const next = new Set(prev);
+                            if (next.has(t.name)) next.delete(t.name); else next.add(t.name);
+                            return next;
+                          })}
+                        >
+                          {t.name}
+                        </span>
+                      ))}
+                    </div>
+                    {selectedSuggestions.size > 0 && (
+                      <button
+                        className="modal-btn modal-btn-confirm"
+                        onClick={applySuggestedTags}
+                        disabled={applyingTags}
+                        style={{ marginTop: 8, fontSize: 12 }}
+                      >
+                        {applyingTags ? "Applying..." : `Apply ${selectedSuggestions.size} tag${selectedSuggestions.size > 1 ? "s" : ""}`}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
             </>
           )}
 
@@ -191,6 +369,82 @@ export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrl
             </div>
           )}
 
+          {tab === "similar" && (
+            <div className="properties-similar">
+              {loadingSimilar && <div style={{ padding: 12, opacity: 0.6 }}>Loading similar tracks...</div>}
+              {similarLoaded && similarTracks.length === 0 && !loadingSimilar && (
+                <div style={{ padding: 12, opacity: 0.6 }}>No similar tracks found.</div>
+              )}
+              {similarTracks.length > 0 && (
+                <div className="properties-similar-list">
+                  {similarTracks.map((st, i) => (
+                    <div key={i} className="properties-similar-item">
+                      <span className="properties-similar-match">{Math.round(parseFloat(st.match) * 100)}%</span>
+                      <span className="properties-similar-info">
+                        <span className="properties-similar-title">{st.name}</span>
+                        <span className="properties-similar-artist">{st.artist.name}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "info" && (
+            <div className="properties-info">
+              {loadingInfo && <div style={{ padding: 12, opacity: 0.6 }}>Loading artist info...</div>}
+              {infoLoaded && !artistInfo && !loadingInfo && (
+                <div style={{ padding: 12, opacity: 0.6 }}>No info available.</div>
+              )}
+              {artistInfo && (
+                <>
+                  {(artistInfo.stats?.listeners || artistInfo.stats?.playcount) && (
+                    <div className="properties-grid" style={{ marginBottom: 12 }}>
+                      {artistInfo.stats?.listeners && (
+                        <div className="properties-grid-item">
+                          <label>Listeners</label>
+                          <span>{parseInt(artistInfo.stats.listeners).toLocaleString()}</span>
+                        </div>
+                      )}
+                      {artistInfo.stats?.playcount && (
+                        <div className="properties-grid-item">
+                          <label>Scrobbles</label>
+                          <span>{parseInt(artistInfo.stats.playcount).toLocaleString()}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {artistInfo.tags?.tag && artistInfo.tags.tag.length > 0 && (
+                    <div className="properties-tags-section" style={{ marginBottom: 12 }}>
+                      <label>Top Tags</label>
+                      <div className="properties-tags">
+                        {artistInfo.tags.tag.map(t => (
+                          <span key={t.name} className="properties-tag">{t.name}</span>
+                        ))}
+                      </div>
+                      <button
+                        className="modal-btn modal-btn-confirm"
+                        onClick={async () => {
+                          const tagNames = artistInfo.tags!.tag!.map(t => t.name);
+                          try {
+                            const result = await invoke<Array<[number, string]>>("replace_track_tags", { trackId: track.id, tagNames });
+                            setTags(result.map(([id, name]) => ({ id, name, liked: 0, track_count: 0 })));
+                          } catch (e) {
+                            console.error("Failed to replace tags:", e);
+                          }
+                        }}
+                        style={{ marginTop: 8, fontSize: 12 }}
+                      >
+                        Apply as track tags
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {tab === "other" && (
             <>
               <div className="modal-field">
@@ -214,10 +468,7 @@ export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrl
               </div>
             </>
           )}
-        </div>
-
-        <div className="modal-actions">
-          <button className="modal-btn modal-btn-cancel" onClick={onClose}>Close</button>
+          </div>
         </div>
       </div>
     </div>

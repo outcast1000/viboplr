@@ -1709,6 +1709,178 @@ pub fn lastfm_cancel_import(state: State<'_, AppState>) {
     state.lastfm_importing.store(false, Ordering::SeqCst);
 }
 
+#[tauri::command]
+pub fn lastfm_love_track(state: State<'_, AppState>, app: AppHandle, track_id: i64) {
+    let session = state.lastfm_session.lock().unwrap().clone();
+    let Some((session_key, _)) = session else { return };
+
+    let track = match state.db.get_track_by_id(track_id) {
+        Ok(t) => t,
+        _ => return,
+    };
+    let Some(artist) = track.artist_name.as_deref() else { return };
+
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    let title = track.title.clone();
+    let artist_str = artist.to_string();
+    let app_handle = app.clone();
+
+    thread::spawn(move || {
+        if let Err(e) = lastfm.love_track(&session_key, &artist_str, &title) {
+            log::warn!("Last.fm love error: {}", e);
+            if e.to_string().starts_with("auth_error:") {
+                let _ = app_handle.emit("lastfm-auth-error", ());
+            }
+        }
+    });
+}
+
+#[tauri::command]
+pub fn lastfm_unlove_track(state: State<'_, AppState>, app: AppHandle, track_id: i64) {
+    let session = state.lastfm_session.lock().unwrap().clone();
+    let Some((session_key, _)) = session else { return };
+
+    let track = match state.db.get_track_by_id(track_id) {
+        Ok(t) => t,
+        _ => return,
+    };
+    let Some(artist) = track.artist_name.as_deref() else { return };
+
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    let title = track.title.clone();
+    let artist_str = artist.to_string();
+    let app_handle = app.clone();
+
+    thread::spawn(move || {
+        if let Err(e) = lastfm.unlove_track(&session_key, &artist_str, &title) {
+            log::warn!("Last.fm unlove error: {}", e);
+            if e.to_string().starts_with("auth_error:") {
+                let _ = app_handle.emit("lastfm-auth-error", ());
+            }
+        }
+    });
+}
+
+#[tauri::command]
+pub fn lastfm_get_similar_artists(state: State<'_, AppState>, app: AppHandle, artist_name: String, limit: Option<u32>) -> Option<serde_json::Value> {
+    let cache_key = format!("similar_artists:{}", artist_name.to_lowercase());
+    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
+        return Some(cached);
+    }
+    let db = state.db.clone();
+    let lim = limit.unwrap_or(10);
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    thread::spawn(move || {
+        if let Ok(value) = lastfm.get_similar_artists(&artist_name, lim) {
+            let _ = db.lastfm_cache_set(&cache_key, &value);
+            let _ = app.emit("lastfm-similar-artists", value);
+        }
+    });
+    None
+}
+
+#[tauri::command]
+pub fn lastfm_get_similar_tracks(state: State<'_, AppState>, app: AppHandle, artist_name: String, track_title: String, limit: Option<u32>) -> Option<serde_json::Value> {
+    let cache_key = format!("similar_tracks:{}:{}", artist_name.to_lowercase(), track_title.to_lowercase());
+    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
+        return Some(cached);
+    }
+    let db = state.db.clone();
+    let lim = limit.unwrap_or(10);
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    thread::spawn(move || {
+        if let Ok(value) = lastfm.get_similar_tracks(&artist_name, &track_title, lim) {
+            let _ = db.lastfm_cache_set(&cache_key, &value);
+            let _ = app.emit("lastfm-similar-tracks", value);
+        }
+    });
+    None
+}
+
+#[tauri::command]
+pub fn lastfm_get_artist_info(state: State<'_, AppState>, app: AppHandle, artist_name: String) -> Option<serde_json::Value> {
+    let cache_key = format!("artist_info:{}", artist_name.to_lowercase());
+    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
+        return Some(cached);
+    }
+    let db = state.db.clone();
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    thread::spawn(move || {
+        if let Ok(value) = lastfm.get_artist_info(&artist_name) {
+            let _ = db.lastfm_cache_set(&cache_key, &value);
+            let _ = app.emit("lastfm-artist-info", value);
+        }
+    });
+    None
+}
+
+#[tauri::command]
+pub fn lastfm_get_album_info(state: State<'_, AppState>, app: AppHandle, artist_name: String, album_title: String) -> Option<serde_json::Value> {
+    let cache_key = format!("album_info:{}:{}", artist_name.to_lowercase(), album_title.to_lowercase());
+    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
+        return Some(cached);
+    }
+    let db = state.db.clone();
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    thread::spawn(move || {
+        if let Ok(value) = lastfm.get_album_info(&artist_name, &album_title) {
+            let _ = db.lastfm_cache_set(&cache_key, &value);
+            let _ = app.emit("lastfm-album-info", value);
+        }
+    });
+    None
+}
+
+#[tauri::command]
+pub fn lastfm_get_track_tags(state: State<'_, AppState>, app: AppHandle, artist_name: String, track_title: String) -> Option<serde_json::Value> {
+    let cache_key = format!("track_tags:{}:{}", artist_name.to_lowercase(), track_title.to_lowercase());
+    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
+        return Some(cached);
+    }
+    let db = state.db.clone();
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    thread::spawn(move || {
+        if let Ok(value) = lastfm.get_track_top_tags(&artist_name, &track_title) {
+            let _ = db.lastfm_cache_set(&cache_key, &value);
+            let _ = app.emit("lastfm-track-tags", value);
+        }
+    });
+    None
+}
+
+#[tauri::command]
+pub fn lastfm_get_artist_tags(state: State<'_, AppState>, app: AppHandle, artist_name: String) -> Option<serde_json::Value> {
+    let cache_key = format!("artist_tags:{}", artist_name.to_lowercase());
+    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
+        return Some(cached);
+    }
+    let db = state.db.clone();
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    thread::spawn(move || {
+        if let Ok(value) = lastfm.get_artist_top_tags(&artist_name) {
+            let _ = db.lastfm_cache_set(&cache_key, &value);
+            let _ = app.emit("lastfm-artist-tags", value);
+        }
+    });
+    None
+}
+
+#[tauri::command]
+pub fn lastfm_apply_community_tags(state: State<'_, AppState>, track_id: i64, tag_names: Vec<String>) -> Result<Vec<(i64, String)>, String> {
+    let mut applied = Vec::new();
+    for name in &tag_names {
+        let tag_id = state.db.get_or_create_tag(name).map_err(|e| e.to_string())?;
+        state.db.add_track_tag(track_id, tag_id).map_err(|e| e.to_string())?;
+        applied.push((tag_id, name.clone()));
+    }
+    Ok(applied)
+}
+
+#[tauri::command]
+pub fn replace_track_tags(state: State<'_, AppState>, track_id: i64, tag_names: Vec<String>) -> Result<Vec<(i64, String)>, String> {
+    state.db.replace_track_tags(track_id, &tag_names).map_err(|e| e.to_string())
+}
+
 // --- Download commands ---
 
 #[tauri::command]

@@ -197,6 +197,9 @@ function App() {
   const [lastfmImporting, setLastfmImporting] = useState(false);
   const [lastfmImportProgress, setLastfmImportProgress] = useState<{ page: number; total_pages: number; imported: number; skipped: number } | null>(null);
   const [lastfmImportResult, setLastfmImportResult] = useState<{ imported: number; skipped: number } | null>(null);
+  const [artistBio, setArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
+  const [albumWiki, setAlbumWiki] = useState<string | null>(null);
+  const [similarArtists, setSimilarArtists] = useState<Array<{ name: string; match: string }>>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState("flac");
@@ -667,6 +670,68 @@ function App() {
     if (library.selectedTag === null) return;
     tagImageCache.fetchOnDemand({ id: library.selectedTag });
   }, [library.selectedTag]);
+
+  // Fetch Last.fm artist bio and similar artists when selected artist changes
+  useEffect(() => {
+    setArtistBio(null);
+    setSimilarArtists([]);
+    if (library.selectedArtist === null) return;
+    const artist = library.artists.find(a => a.id === library.selectedArtist);
+    if (!artist) return;
+
+    const parseArtistInfo = (resp: { artist?: { bio?: { summary?: string }; stats?: { listeners?: string; playcount?: string } } } | null) => {
+      if (resp?.artist?.bio?.summary) {
+        setArtistBio({
+          summary: resp.artist.bio.summary.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim(),
+          listeners: resp.artist.stats?.listeners ?? "",
+          playcount: resp.artist.stats?.playcount ?? "",
+        });
+      }
+    };
+    const parseSimilar = (resp: { similarartists?: { artist?: Array<{ name: string; match: string }> } } | null) => {
+      setSimilarArtists(resp?.similarartists?.artist ?? []);
+    };
+
+    // invoke returns cached data immediately, or null if fetching in background
+    invoke<any>("lastfm_get_artist_info", { artistName: artist.name })
+      .then(resp => { if (resp) parseArtistInfo(resp); })
+      .catch(() => {});
+    invoke<any>("lastfm_get_similar_artists", { artistName: artist.name })
+      .then(resp => { if (resp) parseSimilar(resp); })
+      .catch(() => {});
+
+    // Listen for async results from background fetches
+    const unlistenInfo = listen<any>("lastfm-artist-info", (event) => parseArtistInfo(event.payload));
+    const unlistenSimilar = listen<any>("lastfm-similar-artists", (event) => parseSimilar(event.payload));
+
+    return () => {
+      unlistenInfo.then(f => f());
+      unlistenSimilar.then(f => f());
+    };
+  }, [library.selectedArtist, library.artists]);
+
+  // Fetch Last.fm album wiki when selected album changes
+  useEffect(() => {
+    setAlbumWiki(null);
+    if (library.selectedAlbum === null) return;
+    const album = library.albums.find(a => a.id === library.selectedAlbum);
+    if (!album) return;
+    const artistName = library.artists.find(a => a.id === album.artist_id)?.name;
+    if (!artistName) return;
+
+    const parseAlbumInfo = (resp: { album?: { wiki?: { summary?: string } } } | null) => {
+      if (resp?.album?.wiki?.summary) {
+        setAlbumWiki(resp.album.wiki.summary.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim());
+      }
+    };
+
+    invoke<any>("lastfm_get_album_info", { artistName, albumTitle: album.title })
+      .then(resp => { if (resp) parseAlbumInfo(resp); })
+      .catch(() => {});
+
+    const unlistenAlbum = listen<any>("lastfm-album-info", (event) => parseAlbumInfo(event.payload));
+    return () => { unlistenAlbum.then(f => f()); };
+  }, [library.selectedAlbum, library.albums, library.artists]);
 
   // Fetch album/artist image when current track changes (for Now Playing bar)
   useEffect(() => {
@@ -1425,6 +1490,10 @@ function App() {
         playback.setCurrentTrack({ ...playback.currentTrack, liked: newLiked });
       }
       queueHook.setQueue(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
+      if (lastfmConnected) {
+        const cmd = newLiked === 1 ? "lastfm_love_track" : "lastfm_unlove_track";
+        invoke(cmd, { trackId: track.id }).catch(console.error);
+      }
     } catch (e) {
       console.error("Failed to toggle like:", e);
     }
@@ -1925,6 +1994,19 @@ function App() {
                   </div>
                 </div>
 
+                {artistBio && (
+                  <div className="artist-bio-section">
+                    {(artistBio.listeners || artistBio.playcount) && (
+                      <span className="artist-bio-stats">
+                        {artistBio.listeners && <>{parseInt(artistBio.listeners).toLocaleString()} listeners</>}
+                        {artistBio.listeners && artistBio.playcount && " \u00B7 "}
+                        {artistBio.playcount && <>{parseInt(artistBio.playcount).toLocaleString()} scrobbles</>}
+                      </span>
+                    )}
+                    <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: artistBio.summary }} />
+                  </div>
+                )}
+
                 {library.artistAlbums.length > 0 && (
                   <div className="artist-section">
                     <div className="section-title">Albums</div>
@@ -1966,6 +2048,34 @@ function App() {
                     emptyMessage="No tracks found for this artist."
                   />
                 </div>
+
+                {similarArtists.length > 0 && (
+                  <div className="artist-section">
+                    <div className="section-title">Similar Artists</div>
+                    <div className="similar-artists-row">
+                      {similarArtists.slice(0, 8).map(sa => {
+                        const localArtist = artists.find(a => a.name.toLowerCase() === sa.name.toLowerCase());
+                        return (
+                          <div
+                            key={sa.name}
+                            className={`similar-artist-card${localArtist ? " clickable" : ""}`}
+                            onClick={() => localArtist && library.handleArtistClick(localArtist.id)}
+                          >
+                            <div className="similar-artist-avatar">
+                              {localArtist && artistImageCache.images[localArtist.id] ? (
+                                <img src={convertFileSrc(artistImageCache.images[localArtist.id]!)} alt={sa.name} />
+                              ) : (
+                                sa.name[0]?.toUpperCase() ?? "?"
+                              )}
+                            </div>
+                            <span className="similar-artist-name" title={sa.name}>{sa.name}</span>
+                            <span className="similar-artist-match">{Math.round(parseFloat(sa.match) * 100)}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -2297,6 +2407,9 @@ function App() {
                       albumImageCache.setImages(prev => ({ ...prev, [id]: null }));
                     }}
                   />
+                  {albumWiki && (
+                    <div className="artist-bio-text" style={{ marginTop: 8 }} dangerouslySetInnerHTML={{ __html: albumWiki }} />
+                  )}
                 </div>
               </div>
             );
