@@ -16,6 +16,8 @@ type TidalSubView =
   | { kind: "album"; album: TidalAlbumDetail }
   | { kind: "artist"; artist: TidalArtistDetail };
 
+type TidalTab = "tracks" | "albums" | "artists";
+
 interface TidalViewProps {
   searchQuery: string;
   onPlayTrack: (tidalTrackId: string, trackInfo: TidalSearchTrack) => void;
@@ -30,6 +32,7 @@ export function TidalView({ searchQuery, onPlayTrack, onEnqueueTrack, downloadFo
   const [subView, setSubView] = useState<TidalSubView>({ kind: "search" });
   const [selectedTracks, setSelectedTracks] = useState<Set<string>>(new Set());
   const [downloadModal, setDownloadModal] = useState<DownloadModalRequest | null>(null);
+  const [activeTab, setActiveTab] = useState<TidalTab>("tracks");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -178,6 +181,12 @@ export function TidalView({ searchQuery, onPlayTrack, onEnqueueTrack, downloadFo
     setDownloadModal({ kind: "tracks", tracks: selected });
   }
 
+  const tabs: { key: TidalTab; label: string; count: number }[] = [
+    { key: "tracks", label: "Tracks", count: results?.tracks.length ?? 0 },
+    { key: "albums", label: "Albums", count: results?.albums.length ?? 0 },
+    { key: "artists", label: "Artists", count: results?.artists.length ?? 0 },
+  ];
+
   return (
     <div className="tidal-view">
       {loading && <div className="tidal-loading-bar" />}
@@ -196,44 +205,62 @@ export function TidalView({ searchQuery, onPlayTrack, onEnqueueTrack, downloadFo
           {results.tracks.length === 0 && results.albums.length === 0 && results.artists.length === 0 ? (
             <div className="tidal-empty">No results found</div>
           ) : (
-            <div className="tidal-results tidal-results-grid">
-              {results.tracks.length > 0 && (
-                <div className="tidal-column tidal-column-tracks">
-                  <div className="tidal-column-header">Tracks</div>
-                  <TrackSelectionToolbar
-                    tracks={results.tracks}
-                    selectedTracks={selectedTracks}
-                    onSelectAll={() => selectAllTracks(results.tracks)}
-                    onSelectNone={selectNoneTracks}
-                    onPlaySelected={() => handlePlaySelected(results.tracks)}
-                    onQueueSelected={() => handleQueueSelected(results.tracks)}
-                    onDownloadSelected={canDownload ? () => handleDownloadSelected(results.tracks) : undefined}
-                  />
-                  <TrackResults
-                    tracks={results.tracks}
-                    selectedTracks={selectedTracks}
-                    onToggleSelect={toggleTrackSelection}
-                    onPlay={handlePlayTrack}
-                    onEnqueue={handleEnqueueTrack}
-                    onAlbumClick={handleAlbumClick}
-                    onArtistClick={handleArtistClick}
-                    onDownloadTrack={canDownload ? handleDownloadTrack : undefined}
-                  />
-                </div>
-              )}
-              {results.albums.length > 0 && (
-                <div className="tidal-column">
-                  <div className="tidal-column-header">Albums</div>
+            <>
+              <div className="tidal-tabs">
+                {tabs.map(tab => (
+                  <button
+                    key={tab.key}
+                    className={`tidal-tab${activeTab === tab.key ? " active" : ""}`}
+                    onClick={() => setActiveTab(tab.key)}
+                  >
+                    {tab.label}
+                    {tab.count > 0 && <span className="tidal-tab-count">{tab.count}</span>}
+                  </button>
+                ))}
+              </div>
+              <div className="tidal-tab-content">
+                {activeTab === "tracks" && results.tracks.length > 0 && (
+                  <>
+                    <TrackSelectionToolbar
+                      tracks={results.tracks}
+                      selectedTracks={selectedTracks}
+                      onSelectAll={() => selectAllTracks(results.tracks)}
+                      onSelectNone={selectNoneTracks}
+                      onPlaySelected={() => handlePlaySelected(results.tracks)}
+                      onQueueSelected={() => handleQueueSelected(results.tracks)}
+                      onDownloadSelected={canDownload ? () => handleDownloadSelected(results.tracks) : undefined}
+                    />
+                    <TrackResults
+                      tracks={results.tracks}
+                      selectedTracks={selectedTracks}
+                      onToggleSelect={toggleTrackSelection}
+                      onPlay={handlePlayTrack}
+                      onEnqueue={handleEnqueueTrack}
+                      onAlbumClick={handleAlbumClick}
+                      onArtistClick={handleArtistClick}
+                      onDownloadTrack={canDownload ? handleDownloadTrack : undefined}
+                    />
+                  </>
+                )}
+                {activeTab === "tracks" && results.tracks.length === 0 && (
+                  <div className="tidal-empty">No tracks found</div>
+                )}
+
+                {activeTab === "albums" && results.albums.length > 0 && (
                   <AlbumResults albums={results.albums} onAlbumClick={handleAlbumClick} />
-                </div>
-              )}
-              {results.artists.length > 0 && (
-                <div className="tidal-column">
-                  <div className="tidal-column-header">Artists</div>
+                )}
+                {activeTab === "albums" && results.albums.length === 0 && (
+                  <div className="tidal-empty">No albums found</div>
+                )}
+
+                {activeTab === "artists" && results.artists.length > 0 && (
                   <ArtistResults artists={results.artists} onArtistClick={handleArtistClick} />
-                </div>
-              )}
-            </div>
+                )}
+                {activeTab === "artists" && results.artists.length === 0 && (
+                  <div className="tidal-empty">No artists found</div>
+                )}
+              </div>
+            </>
           )}
         </>
       )}
