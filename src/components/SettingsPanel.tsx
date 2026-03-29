@@ -6,6 +6,7 @@ import { DEFAULT_PROVIDERS, getDomainFromUrl } from "../searchProviders";
 import { IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
 import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
+import type { SkinInfo, GallerySkinEntry } from "../types/skin";
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
   google: IconGoogle,
@@ -107,6 +108,17 @@ interface SettingsPanelProps {
   onMusicGatewayExePathChange: (path: string) => void;
   musicGatewayManaged: boolean;
   onMusicGatewayManagedChange: (managed: boolean) => void;
+  // Skins
+  activeSkinId: string;
+  installedSkins: SkinInfo[];
+  onApplySkin: (id: string) => void;
+  onImportSkin: () => void;
+  onDeleteSkin: (id: string) => void;
+  gallerySkins: GallerySkinEntry[];
+  galleryLoading: boolean;
+  galleryError: string | null;
+  onFetchGallery: () => void;
+  onInstallFromGallery: (entry: GallerySkinEntry) => void;
 }
 
 interface ProviderFormData {
@@ -116,7 +128,7 @@ interface ProviderFormData {
   trackUrl: string;
 }
 
-type SettingsTab = "general" | "tidal" | "lastfm" | "providers" | "about" | "debug";
+type SettingsTab = "general" | "skins" | "tidal" | "lastfm" | "providers" | "about" | "debug";
 
 export function SettingsPanel({
   searchProviders,
@@ -154,6 +166,16 @@ export function SettingsPanel({
   onMusicGatewayExePathChange,
   musicGatewayManaged,
   onMusicGatewayManagedChange,
+  activeSkinId,
+  installedSkins,
+  onApplySkin,
+  onImportSkin,
+  onDeleteSkin,
+  gallerySkins,
+  galleryLoading,
+  galleryError,
+  onFetchGallery,
+  onInstallFromGallery,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -233,8 +255,11 @@ export function SettingsPanel({
 
   const tidalIcon = <svg {...iconProps}><path d="M2 16l5-5 5 5-5 5z"/><path d="M7 11l5-5 5 5-5 5z"/><path d="M12 16l5-5 5 5-5 5z"/><path d="M12 6l5-5 5 5-5 5z"/></svg>;
 
+  const skinsIcon = <svg {...iconProps}><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12" r="1.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.7 1.5-1.5 0-.4-.1-.7-.4-1-.2-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H16c3.3 0 6-2.7 6-6 0-5.5-4.5-9.5-10-9.5z"/></svg>;
+
   const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
     { key: "general", label: "General", icon: navIcons.general },
+    { key: "skins", label: "Skins", icon: skinsIcon },
     { key: "tidal", label: "TIDAL", icon: tidalIcon },
     { key: "lastfm", label: "Last.fm", icon: <>{IconLastfm({ size: 18 })}</> },
     { key: "providers", label: "Providers", icon: navIcons.providers },
@@ -311,6 +336,98 @@ export function SettingsPanel({
                 </div>
               </>
             )}
+
+            {settingsTab === "skins" && (() => {
+              const activeSkin = installedSkins.find(s => s.id === activeSkinId);
+              return (
+                <>
+                  <div className="skin-active-indicator">
+                    <div>
+                      <span style={{ fontWeight: 600 }}>{activeSkin?.name ?? "Default"}</span>
+                      <span style={{ marginLeft: 8, fontSize: "var(--fs-2xs)", color: "var(--text-secondary)" }}>
+                        {activeSkin?.source === "builtin" ? "Built-in" : activeSkin?.author ?? ""}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)" }}>Active</span>
+                  </div>
+
+                  <div className="settings-group">
+                    <div className="settings-group-title">Installed Skins</div>
+                    <div className="skin-cards-grid">
+                      {installedSkins.map(skin => (
+                        <div
+                          key={skin.id}
+                          className={`skin-card${skin.id === activeSkinId ? " active" : ""}`}
+                          onClick={() => onApplySkin(skin.id)}
+                        >
+                          <div className="skin-card-swatches">
+                            <div style={{ background: skin.colors["bg-primary"] }} />
+                            <div style={{ background: skin.colors["bg-secondary"] }} />
+                            <div style={{ background: skin.colors["accent"] }} />
+                            <div style={{ background: skin.colors["bg-surface"] }} />
+                          </div>
+                          <div className="skin-card-info">
+                            <div className="skin-card-name">{skin.name}</div>
+                            <div className="skin-card-meta">
+                              {skin.source === "builtin" ? "Built-in" : skin.author}
+                            </div>
+                            {skin.source === "user" && (
+                              <span
+                                className="skin-card-remove"
+                                onClick={e => { e.stopPropagation(); onDeleteSkin(skin.id); }}
+                              >
+                                Remove
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="skin-actions">
+                    <button className="settings-btn-secondary" onClick={onImportSkin}>Import from file...</button>
+                    <button className="settings-btn-secondary" onClick={onFetchGallery}>Browse Gallery</button>
+                  </div>
+
+                  {(gallerySkins.length > 0 || galleryLoading || galleryError) && (
+                    <div className="skin-gallery">
+                      <div className="settings-group-title" style={{ marginTop: 0 }}>Gallery</div>
+                      {galleryLoading && (
+                        <span style={{ color: "var(--text-secondary)", fontSize: "var(--fs-xs)" }}>Loading gallery...</span>
+                      )}
+                      {galleryError && (
+                        <div style={{ color: "var(--error)", fontSize: "var(--fs-xs)" }}>
+                          {galleryError}
+                          <button className="settings-btn-secondary" style={{ marginLeft: 10 }} onClick={onFetchGallery}>Retry</button>
+                        </div>
+                      )}
+                      {!galleryLoading && !galleryError && gallerySkins.length > 0 && (
+                        <div className="skin-cards-grid">
+                          {gallerySkins.map(entry => (
+                            <div key={entry.id} className="skin-gallery-card">
+                              <div className="skin-card-swatches">
+                                <div style={{ background: entry.colors[0] }} />
+                                <div style={{ background: entry.colors[1] }} />
+                                <div style={{ background: entry.colors[2] }} />
+                                <div style={{ background: entry.colors[3] }} />
+                              </div>
+                              <div className="skin-gallery-card-footer">
+                                <div>
+                                  <div className="skin-card-name">{entry.name}</div>
+                                  <div className="skin-card-meta">{entry.author}</div>
+                                </div>
+                                <button className="skin-install-btn" onClick={() => onInstallFromGallery(entry)}>Install</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             {settingsTab === "tidal" && (
               <TidalSettingsTab

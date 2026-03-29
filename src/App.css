@@ -5911,3 +5911,114 @@ body {
   min-width: 36px;
   text-align: right;
 }
+
+/* Skin cards grid */
+.skin-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.skin-card {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.skin-card:hover {
+  border-color: var(--accent-dim);
+}
+
+.skin-card.active {
+  border: 2px solid var(--accent);
+}
+
+.skin-card-swatches {
+  height: 48px;
+  display: flex;
+}
+
+.skin-card-swatches > div {
+  flex: 1;
+}
+
+.skin-card-info {
+  padding: 8px 10px;
+}
+
+.skin-card-name {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.skin-card-meta {
+  font-size: var(--fs-2xs);
+  color: var(--text-secondary);
+}
+
+.skin-card-remove {
+  color: var(--error);
+  cursor: pointer;
+  font-size: var(--fs-2xs);
+}
+
+.skin-card-remove:hover {
+  text-decoration: underline;
+}
+
+/* Skin active indicator */
+.skin-active-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+/* Skin actions row */
+.skin-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+/* Gallery section */
+.skin-gallery {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 16px;
+  background: rgba(var(--overlay-base), 0.02);
+}
+
+.skin-gallery-card {
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.skin-gallery-card-footer {
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.skin-install-btn {
+  font-size: var(--fs-2xs);
+  padding: 3px 10px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+  border: none;
+}
+
+.skin-install-btn:hover {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}

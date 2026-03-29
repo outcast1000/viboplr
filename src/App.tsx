@@ -29,6 +29,7 @@ import { useMiniMode } from "./hooks/useMiniMode";
 import { useVideoSplit } from "./hooks/useVideoSplit";
 import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
+import { useSkins } from "./hooks/useSkins";
 import { WindowControls } from "./components/WindowControls";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
@@ -211,6 +212,22 @@ function App() {
 
   // Updater
   const updater = useAppUpdater(addLog);
+
+  // Skins
+  const skins = useSkins();
+
+  async function handleImportSkin() {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "Skin Files", extensions: ["json"] }],
+    });
+    if (selected) {
+      const result = await skins.importSkin(selected as string);
+      if (!result.ok) {
+        console.error("Skin import failed:", result.error);
+      }
+    }
+  }
 
   // Image caches
   const artistImageCache = useImageCache("artist", addLog);
@@ -1636,6 +1653,16 @@ function App() {
           onMusicGatewayExePathChange={handleMusicGatewayExePathChange}
           musicGatewayManaged={musicGatewayManaged}
           onMusicGatewayManagedChange={handleMusicGatewayManagedChange}
+          activeSkinId={skins.activeSkinId}
+          installedSkins={skins.installedSkins}
+          onApplySkin={skins.applySkin}
+          onImportSkin={handleImportSkin}
+          onDeleteSkin={skins.deleteSkin}
+          gallerySkins={skins.gallerySkins}
+          galleryLoading={skins.galleryLoading}
+          galleryError={skins.galleryError}
+          onFetchGallery={skins.fetchGallery}
+          onInstallFromGallery={skins.installFromGallery}
         />
       )}
 
