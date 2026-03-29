@@ -545,19 +545,10 @@ function App() {
         const currentFromQueue = idx >= 0 && idx < restoredTracks.length ? restoredTracks[idx] : null;
         const restoredTrack = currentFromQueue ?? (tid ? await invoke<Track>("get_track_by_id", { trackId: tid }).catch(() => null) : null);
 
-        if (restoredTrack && pos != null) {
-          const parsed = currentFromQueue
-            ? parseLocationScheme(queueEntries![idx].location)
-            : null;
-          let trackPath: string | null = null;
-          if (parsed?.scheme === "file") {
-            trackPath = parsed.path;
-          } else if (restoredTrack.id > 0) {
-            trackPath = await invoke<string>("get_track_path", { trackId: restoredTrack.id }).catch(() => null);
-          }
-          if (trackPath) {
-            await timeAsync("playback.handleRestore", () => playback.handleRestore(restoredTrack, pos ?? 0, trackPath!));
-          }
+        if (restoredTrack) {
+          playback.setCurrentTrack(restoredTrack);
+          playback.setPositionSecs(pos ?? 0);
+          playback.setDurationSecs(restoredTrack.duration_secs ?? 0);
         }
         if (restoredTracks.length) {
           queueHook.setQueue(restoredTracks);
@@ -2592,7 +2583,7 @@ function App() {
                     <div
                       key={t.id}
                       className={`entity-list-item${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
-                      onDoubleClick={() => queueHook.playTracks(sortedTracks, i)}
+                      onDoubleClick={() => queueHook.playTracks([t], 0)}
                       onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
                     >
                       <span className="entity-list-like-group">
@@ -2633,7 +2624,7 @@ function App() {
                     <div
                       key={t.id}
                       className={`album-card${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
-                      onDoubleClick={() => queueHook.playTracks(sortedTracks, i)}
+                      onDoubleClick={() => queueHook.playTracks([t], 0)}
                       onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
                     >
                       {t.album_id ? (
@@ -2764,7 +2755,7 @@ function App() {
                     <div
                       key={t.id}
                       className={`entity-list-item${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
-                      onDoubleClick={() => queueHook.playTracks(sortedTracks, i)}
+                      onDoubleClick={() => queueHook.playTracks([t], 0)}
                       onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
                     >
                       <span className="entity-list-like-group">
@@ -2805,7 +2796,7 @@ function App() {
                     <div
                       key={t.id}
                       className={`album-card${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
-                      onDoubleClick={() => queueHook.playTracks(sortedTracks, i)}
+                      onDoubleClick={() => queueHook.playTracks([t], 0)}
                       onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
                     >
                       {t.album_id ? (
