@@ -374,6 +374,7 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `fullWindowHeight` | `number \| null` | `null` |
 | `fullWindowX` | `number \| null` | `null` |
 | `fullWindowY` | `number \| null` | `null` |
+| `skin` | `string` | `"default"` |
 
 **Behavior:**
 
@@ -586,13 +587,30 @@ Users can import their complete Last.fm scrobble history into the local history 
 
 The Last.fm tab has two sections:
 
-- **Account** — Shows connection status (connected username or disconnected). "Connect" / "Disconnect" button.
+- **Account** — Shows connection status (connected username or disconnected), with a link to the user's Last.fm profile. "Connect" / "Disconnect" button.
 - **History** — "Import scrobble history" button (disabled when not connected or import already running). Clicking opens a **modal overlay** showing:
   - A progress bar (page-based percentage) during import.
   - Stats: "Page X of Y" and "N imported, N skipped".
   - "Connecting to Last.fm..." state before the first progress event.
   - Completion summary or "Import cancelled" message when done.
   - **Cancel** button during import, **Close** button when finished.
+
+**Metadata & Discovery API (read-only):**
+
+The Last.fm client exposes several read-only API methods for fetching metadata. All are called via non-blocking commands that check a SQLite cache first (`lastfm_cache` table, 90-day TTL), then fetch in a background thread and emit a Tauri event with the result.
+
+| Method | Last.fm API | Returns |
+|--------|-------------|---------|
+| `get_similar_artists(artist, limit)` | `artist.getSimilar` | Similar artists with match scores |
+| `get_similar_tracks(artist, track, limit)` | `track.getSimilar` | Similar tracks with match percentages |
+| `get_artist_info(artist)` | `artist.getInfo` | Artist bio, stats, tags, similar |
+| `get_album_info(artist, album)` | `album.getInfo` | Album wiki, tags, tracklist |
+| `get_track_top_tags(artist, track)` | `track.getTopTags` | Community tag suggestions |
+| `get_artist_top_tags(artist)` | `artist.getTopTags` | Artist top tags |
+| `love_track(session_key, artist, track)` | `track.love` | Loves a track (signed POST) |
+| `unlove_track(session_key, artist, track)` | `track.unlove` | Unloves a track (signed POST) |
+
+**Cache (`lastfm_cache` table):** Key-value store with `cache_key` (TEXT PRIMARY KEY), `value` (JSON TEXT), and `cached_at` (INTEGER timestamp). TTL is 90 days (~3 months). Cache keys are namespaced by method and entity (e.g., `similar_tracks:artist:title`). Added in DB migration version 10.
 
 **Tauri commands:**
 
@@ -607,6 +625,16 @@ The Last.fm tab has two sections:
 | `lastfm_scrobble` | `track_id: i64, started_at: i64` | `()` (fire-and-forget) |
 | `lastfm_import_history` | — | `Result<(), String>` (spawns background thread) |
 | `lastfm_cancel_import` | — | `()` |
+| `lastfm_love_track` | `track_id: i64` | `()` (fire-and-forget) |
+| `lastfm_unlove_track` | `track_id: i64` | `()` (fire-and-forget) |
+| `lastfm_get_similar_artists` | `artist_name: String, limit: Option<u32>` | `Option<Value>` (cached or async) |
+| `lastfm_get_similar_tracks` | `artist_name: String, track_title: String, limit: Option<u32>` | `Option<Value>` (cached or async) |
+| `lastfm_get_artist_info` | `artist_name: String` | `Option<Value>` (cached or async) |
+| `lastfm_get_album_info` | `artist_name: String, album_title: String` | `Option<Value>` (cached or async) |
+| `lastfm_get_track_tags` | `artist_name: String, track_title: String` | `Option<Value>` (cached or async) |
+| `lastfm_get_artist_tags` | `artist_name: String` | `Option<Value>` (cached or async) |
+| `lastfm_apply_community_tags` | `track_id: i64, tag_names: Vec<String>` | `Vec<(i64, String)>` |
+| `replace_track_tags` | `track_id: i64, tag_names: Vec<String>` | `Vec<(i64, String)>` |
 
 **Events:**
 
@@ -616,6 +644,12 @@ The Last.fm tab has two sections:
 | `lastfm-import-progress` | `{ page, total_pages, imported, skipped }` |
 | `lastfm-import-complete` | `{ imported, skipped }` |
 | `lastfm-import-error` | `String` (error message, or `"cancelled"`) |
+| `lastfm-similar-artists` | `Value` (JSON) |
+| `lastfm-similar-tracks` | `Value` (JSON) |
+| `lastfm-artist-info` | `Value` (JSON) |
+| `lastfm-album-info` | `Value` (JSON) |
+| `lastfm-track-tags` | `Value` (JSON) |
+| `lastfm-artist-tags` | `Value` (JSON) |
 
 ### 4.22 Collapsible Sidebar
 
@@ -763,6 +797,12 @@ CREATE TABLE image_fetch_failures (
     UNIQUE(kind, item_id)
 );
 
+CREATE TABLE lastfm_cache (
+    cache_key  TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,         -- JSON response from Last.fm API
+    cached_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
 -- Full-text search
 CREATE VIRTUAL TABLE tracks_fts USING fts5(
     title,
@@ -775,7 +815,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 );
 ```
 
-**Migration:** A `db_version` table tracks the schema version (starting at 1). On startup, `run_migrations()` checks the version and applies any needed ALTER TABLE statements. Migrations include: `folders` → `collections` with `kind='local'` (path prefix matching); `deleted` on tracks; `liked` on artists/albums/tracks; `auto_update`/`auto_update_interval_mins`/`enabled`/`last_sync_duration_secs` on collections; `track_count` on artists/albums/tags (version 2); `youtube_url` on tracks (version 3); `last_sync_error` on collections (version 4); `liked` on tags (version 5); migrate `play_history` data into decoupled `history_artists`/`history_tracks`/`history_plays` tables (version 6); drop `deleted` column from tracks after hard-deleting soft-deleted rows (version 7); drop legacy `play_history` table (version 8); add `library_artist_id`/`library_track_id` cache columns to history tables with backfill (version 9). After migrations, `recompute_counts()` runs on every startup to ensure counts are correct even after a crash or interrupted scan.
+**Migration:** A `db_version` table tracks the schema version (starting at 1). On startup, `run_migrations()` checks the version and applies any needed ALTER TABLE statements. Migrations include: `folders` → `collections` with `kind='local'` (path prefix matching); `deleted` on tracks; `liked` on artists/albums/tracks; `auto_update`/`auto_update_interval_mins`/`enabled`/`last_sync_duration_secs` on collections; `track_count` on artists/albums/tags (version 2); `youtube_url` on tracks (version 3); `last_sync_error` on collections (version 4); `liked` on tags (version 5); migrate `play_history` data into decoupled `history_artists`/`history_tracks`/`history_plays` tables (version 6); drop `deleted` column from tracks after hard-deleting soft-deleted rows (version 7); drop legacy `play_history` table (version 8); add `library_artist_id`/`library_track_id` cache columns to history tables with backfill (version 9); add `lastfm_cache` table for Last.fm API response caching (version 10). After migrations, `recompute_counts()` runs on every startup to ensure counts are correct even after a crash or interrupted scan.
 
 ## 6. Architecture
 
@@ -961,6 +1001,17 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `set_track_youtube_url`   | `track_id: i64, url: String`             | `()`                 |
 | `clear_track_youtube_url` | `track_id: i64`                          | `()`                 |
 
+### Skin Commands
+
+| Command                   | Args                                     | Returns              |
+| ------------------------- | ---------------------------------------- | -------------------- |
+| `list_user_skins`         | —                                        | `Vec<Value>`         |
+| `read_user_skin`          | `id: String`                             | `String` (JSON)      |
+| `delete_user_skin`        | `id: String`                             | `()`                 |
+| `import_skin_file`        | `path: String`                           | `String` (slug ID)   |
+| `fetch_skin_gallery`      | —                                        | `String` (JSON index)|
+| `install_gallery_skin`    | `url: String`                            | `String` (slug ID)   |
+
 ### Debug-Only Commands
 
 | Command                 | Args                        | Returns                  |
@@ -989,6 +1040,12 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `download-complete`  | `{ id, filename, track_id }`        |
 | `download-error`     | `{ id, filename, error }`           |
 | `upgrade-download-progress` | `f64` (percentage)             |
+| `lastfm-similar-artists`    | `Value` (JSON)                 |
+| `lastfm-similar-tracks`     | `Value` (JSON)                 |
+| `lastfm-artist-info`        | `Value` (JSON)                 |
+| `lastfm-album-info`         | `Value` (JSON)                 |
+| `lastfm-track-tags`         | `Value` (JSON)                 |
+| `lastfm-artist-tags`        | `Value` (JSON)                 |
 
 ## 8. Performance Targets
 
@@ -1021,6 +1078,90 @@ A static showcase website lives in `docs/` and is hosted via **GitHub Pages** at
 **Hosting:** GitHub Pages from `/docs` on `main` branch. Custom domain configured via `docs/CNAME`.
 
 **Analytics:** Cloudflare Web Analytics beacon on all pages — free, cookie-free, no consent banner required. Aligns with Viboplr's privacy-first branding.
+
+### 4.25 Skins
+
+Viboplr supports a fully customizable skin system that allows users to change the app's visual appearance by swapping CSS color tokens.
+
+**Skin format (`SkinJson`):**
+A skin is a JSON file with the following structure:
+
+```json
+{
+  "name": "My Skin",
+  "author": "Author Name",
+  "version": "1.0.0",
+  "type": "dark",
+  "colors": {
+    "bg-primary": "#111111",
+    "bg-secondary": "#1a1a1a",
+    "bg-surface": "#222222",
+    "bg-hover": "#2a2a2a",
+    "text-primary": "#ffffff",
+    "text-secondary": "#aaaaaa",
+    "accent": "#ff5500",
+    "accent-dim": "#cc4400",
+    "border": "#333333",
+    "now-playing-bg": "#1a1a1a",
+    "success": "#22cc66",
+    "error": "#ff4444",
+    "warning": "#ffaa00"
+  },
+  "customCSS": "/* optional extra CSS */"
+}
+```
+
+- **13 color keys** are required, each a 3- or 6-digit hex value.
+- **`type`** must be `"dark"` or `"light"` — controls `data-skin-type` on the root element for conditional styling.
+- **`customCSS`** is optional (max 10 KB). Sanitized on load: `@import`, `expression()`, `javascript:`, and `url()` are stripped.
+
+**Built-in skins (8):** Default, OLED Black, Arctic Light, Forest, Silver, Ocean Blue, Viboplr, Sunset. Bundled as JSON files in `src/skins/` and registered in `src/skins/index.ts`.
+
+**User skins:** Stored as JSON files in `{app_dir}/skins/{slug}.json`. Slugs are auto-generated from the skin name (lowercase, non-alphanumeric replaced with hyphens, deduped with numeric suffix on collision).
+
+**Gallery:** Community skins are hosted in a GitHub repository (`outcast1000/viboplr-skins`). The gallery index (`index.json`) lists available skins with preview color swatches. Users can browse and install skins directly from the gallery in Settings.
+
+**CSS injection (`useSkins` hook):**
+- On mount, loads the saved skin ID from the store and the list of user skins from disk.
+- Generates CSS variable declarations from the skin's color map via `generateSkinCSS()` and injects them into a `<style>` element (`#viboplr-skin`).
+- For `accent` and `now-playing-bg` keys, RGB component variables are also generated (e.g., `--accent-rgb: 255, 85, 0`) for use with `rgba()`.
+- Re-injects whenever the active skin changes.
+
+**Validation (`skinUtils.ts`):**
+- `validateSkin()` checks all required fields, color format, type enum, and customCSS size limit.
+- `sanitizeCustomCSS()` strips dangerous CSS patterns before injection.
+- `generateSkinCSS()` produces the `:root` CSS variable block with optional sanitized custom CSS appended.
+
+**CSS tokenization:** All semantic colors in `App.css` use CSS custom properties (e.g., `var(--bg-primary)`, `var(--accent)`) instead of hardcoded hex values, making the entire UI skinnable. An `--overlay-base` variable is provided for modal/overlay backgrounds.
+
+**Settings UI (Settings > Skins tab):**
+- **Installed skins:** Grid of skin cards showing name, author, type badge, and 4-color preview swatch. Active skin is highlighted. Click to apply.
+- **Import:** File picker to import a `.json` skin file from disk.
+- **Gallery:** "Browse Gallery" loads the community skin index. Each gallery entry shows name, author, type, and color preview. Click to install.
+- **Delete:** User skins can be deleted (built-in skins cannot).
+
+**State persistence:** The active skin ID is stored as `skin` in the app store.
+
+### 4.26 Track Properties Modal
+
+A tabbed modal for viewing and editing track metadata, accessible via right-click context menu on any track.
+
+**Modal layout:** Fixed-size window with a caption bar (track title + close button) and a vertical sidebar with tab icons. Tabs:
+
+1. **Info** — Track metadata: title, artist, album, duration, format, file size, path.
+2. **Tags** — Current tags with remove buttons. Community tag suggestions from Last.fm (`track.getTopTags` / `artist.getTopTags`) with "Apply" buttons. "Replace all tags" option.
+3. **Similar** — Similar tracks from Last.fm (`track.getSimilar`). Each result shows title, artist, and match percentage, with action buttons:
+   - **Play** — plays the track if found in the local library.
+   - **TIDAL search** — opens the TIDAL view with a search for the track (when a TIDAL collection exists).
+   - **YouTube search** — searches YouTube for the track via the `search_youtube` backend command.
+4. **Artist** — Artist bio from Last.fm (`artist.getInfo`), similar artists, and top tags.
+5. **Album** — Album wiki/description from Last.fm (`album.getInfo`).
+
+**Last.fm data fetching:** All Last.fm metadata calls are non-blocking. The command checks a SQLite cache first (`lastfm_cache` table, 90-day TTL). On cache miss, a background thread fetches from the API and emits the result via a Tauri event. The frontend listens for the event and updates the UI.
+
+### 4.27 Last.fm Love/Unlove Sync
+
+When a user likes (loved) or unlikes a track in Viboplr, the like state is synced to Last.fm via `track.love` / `track.unlove` API calls. These are fire-and-forget background operations that require an active Last.fm session.
 
 ## 11. Out of Scope (v1)
 
