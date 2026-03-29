@@ -659,7 +659,7 @@ export function SettingsPanel({
 
             {settingsTab === "about" && (
               <div className="settings-about-content">
-                <div className="settings-about-logo">
+                <div className="settings-about-logo" style={{ cursor: "pointer" }} onClick={() => openUrl("https://viboplr.com")}>
                   <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
                   </svg>
