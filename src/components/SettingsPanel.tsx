@@ -394,7 +394,12 @@ export function SettingsPanel({
                     <div className="skin-gallery">
                       <div className="settings-group-title" style={{ marginTop: 0 }}>Gallery</div>
                       {galleryLoading && (
-                        <span style={{ color: "var(--text-secondary)", fontSize: "var(--fs-xs)" }}>Loading gallery...</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-secondary)", fontSize: "var(--fs-xs)", padding: "12px 0" }}>
+                          <svg width="16" height="16" viewBox="0 0 16 16" style={{ animation: "status-spin 1s linear infinite" }}>
+                            <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="8" strokeLinecap="round" />
+                          </svg>
+                          Loading gallery...
+                        </div>
                       )}
                       {galleryError && (
                         <div style={{ color: "var(--error)", fontSize: "var(--fs-xs)" }}>
