@@ -40,6 +40,7 @@ const STORE_DEFAULTS = {
   musicGatewayUrl: "",
   musicGatewayExePath: "",
   musicGatewayManaged: false,
+  skin: "default",
 };
 
 export interface AppStore {
