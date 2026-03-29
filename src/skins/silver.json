@@ -1,0 +1,21 @@
+{
+  "name": "Silver",
+  "author": "Viboplr",
+  "version": "1.0.0",
+  "type": "light",
+  "colors": {
+    "bg-primary": "#f0f0f0",
+    "bg-secondary": "#e0e0e0",
+    "bg-surface": "#cccccc",
+    "bg-hover": "#d5d5d5",
+    "text-primary": "#2c2c2c",
+    "text-secondary": "#707070",
+    "accent": "#505050",
+    "accent-dim": "#3a3a3a",
+    "border": "#c0c0c0",
+    "now-playing-bg": "#e8e8e8",
+    "success": "#43a047",
+    "error": "#e53935",
+    "warning": "#fb8c00"
+  }
+}

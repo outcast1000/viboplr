@@ -1,0 +1,21 @@
+{
+  "name": "Ocean Blue",
+  "author": "Viboplr",
+  "version": "1.0.0",
+  "type": "dark",
+  "colors": {
+    "bg-primary": "#0a1628",
+    "bg-secondary": "#0d2137",
+    "bg-surface": "#133a5c",
+    "bg-hover": "#1a4a72",
+    "text-primary": "#d6e8f7",
+    "text-secondary": "#8ab4d6",
+    "accent": "#2196f3",
+    "accent-dim": "#1976d2",
+    "border": "#1a3550",
+    "now-playing-bg": "#071020",
+    "success": "#4caf50",
+    "error": "#ef5350",
+    "warning": "#ffa726"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "Sunset",
+  "author": "Viboplr",
+  "version": "1.0.0",
+  "type": "dark",
+  "colors": {
+    "bg-primary": "#1c1018",
+    "bg-secondary": "#2a1520",
+    "bg-surface": "#3e1e2e",
+    "bg-hover": "#4d2538",
+    "text-primary": "#f0dce0",
+    "text-secondary": "#b89098",
+    "accent": "#ff7043",
+    "accent-dim": "#e64a19",
+    "border": "#3a2028",
+    "now-playing-bg": "#140a10",
+    "success": "#66bb6a",
+    "error": "#ef5350",
+    "warning": "#ffca28"
+  }
+}
