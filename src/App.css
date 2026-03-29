@@ -1479,6 +1479,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;
   -webkit-app-region: drag;
 }
 .search-bar > * {
@@ -1489,6 +1490,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-left: 8px;
   margin-right: 4px;
 }
 
@@ -1609,7 +1611,9 @@ body {
 }
 
 .central-search-container {
-  position: relative;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   justify-content: center;
 }

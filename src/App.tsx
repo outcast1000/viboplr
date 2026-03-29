@@ -1707,7 +1707,6 @@ function App() {
               <polyline points="9 6 15 12 9 18" />
             </svg>
           </button>
-          <div className="caption-spacer" />
           <CentralSearchDropdown
             query={centralSearch.query}
             onQueryChange={centralSearch.setQuery}

@@ -1,6 +1,24 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
+
+const SEARCH_PLACEHOLDERS = [
+  "What's next?",
+  "What comes next?",
+  "Up next...",
+  "What do you want to hear?",
+  "Find your next track...",
+  "Play something...",
+  "Search tracks, artists, albums...",
+  "Find anything...",
+  "Go to...",
+  "Drop a vibe...",
+  "What's the vibe?",
+];
+
+function randomPlaceholder() {
+  return SEARCH_PLACEHOLDERS[Math.floor(Math.random() * SEARCH_PLACEHOLDERS.length)];
+}
 
 interface CentralSearchDropdownProps {
   query: string;
@@ -54,6 +72,12 @@ export function CentralSearchDropdown({
   const internalRef = useRef<HTMLInputElement>(null);
   const inputRef = externalInputRef ?? internalRef;
   const containerRef = useRef<HTMLDivElement>(null);
+  const [placeholder, setPlaceholder] = useState(randomPlaceholder);
+
+  useEffect(() => {
+    const id = setInterval(() => setPlaceholder(randomPlaceholder()), 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
   // Close on click outside
   useEffect(() => {
@@ -100,7 +124,7 @@ export function CentralSearchDropdown({
         <input
           ref={inputRef}
           type="text"
-          placeholder="What do you want to play?"
+          placeholder={placeholder}
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
