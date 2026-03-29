@@ -33,11 +33,20 @@ Viboplr plays audio and video from local folders, Subsonic/Navidrome servers, an
 ### Integrations
 - **Last.fm Scrobbling**: Real-time now-playing updates and scrobble reporting
 - **Last.fm History Import**: Import complete scrobble history with progress tracking and cancellation
+- **Last.fm Metadata**: Similar artists/tracks, artist bios, album wiki, community tag suggestions — all cached with 90-day TTL
+- **Last.fm Love Sync**: Like/unlike tracks synced to Last.fm love/unlove
 - **TIDAL Streaming**: Search, browse albums/artists, and stream tracks
 - **Downloads**: Download tracks from Subsonic/TIDAL in FLAC, AAC, or MP3 with embedded tags and cover art
 - **YouTube URL Storage**: Associate YouTube URLs with tracks
 
+### Skins
+- **8 Built-in Skins**: Default, OLED Black, Arctic Light, Forest, Silver, Ocean Blue, Viboplr, Sunset
+- **Custom Skins**: Import JSON skin files or install from community gallery
+- **13 Color Tokens**: Full UI theming via CSS custom properties
+- **Custom CSS**: Optional per-skin CSS overrides (sanitized)
+
 ### Other
+- **Track Properties Modal**: Tabbed view with metadata, tags, similar tracks (with play/TIDAL/YouTube actions), artist bio, album wiki
 - **Entity Images**: Automatic artist/album art from Tidal, Deezer, iTunes, AudioDB, MusicBrainz, and embedded tags
 - **Tag Composite Images**: Auto-generated from top artist images
 - **Search Providers**: Configurable external search (Google, Last.fm, YouTube, Genius, custom)
@@ -108,36 +117,45 @@ npm run test:all
 viboplr/
 ├── src/                    # React frontend
 │   ├── App.tsx             # Main app (state, views, layout)
-│   ├── App.css             # All styles
+│   ├── App.css             # All styles (CSS custom properties for skinning)
 │   ├── types.ts            # Shared TypeScript types
+│   ├── skinUtils.ts        # Skin validation, CSS generation, sanitization
+│   ├── types/
+│   │   └── skin.ts             # Skin system type definitions
+│   ├── skins/              # Built-in skin JSON files (8 skins)
+│   │   ├── index.ts            # Skin registry
+│   │   ├── default.json
+│   │   └── ...
 │   ├── components/         # UI components (~28 files)
 │   │   ├── TrackList.tsx       # Track table/list/tile views
 │   │   ├── NowPlayingBar.tsx   # Playback footer controls
 │   │   ├── QueuePanel.tsx      # Queue management
 │   │   ├── Sidebar.tsx         # Navigation sidebar
-│   │   ├── SettingsPanel.tsx   # Settings (General, Last.fm, Providers, About, Debug)
+│   │   ├── SettingsPanel.tsx   # Settings (General, Skins, TIDAL, Last.fm, Providers, About, Debug)
 │   │   ├── HistoryView.tsx     # Play history view
 │   │   ├── TidalView.tsx       # TIDAL search/browse
 │   │   ├── CollectionsView.tsx # Collection management
 │   │   └── ...
-│   └── hooks/              # React hooks (~16 files)
+│   └── hooks/              # React hooks (~17 files)
 │       ├── usePlayback.ts      # Playback state
 │       ├── useQueue.ts         # Queue management
 │       ├── useLibrary.ts       # Library queries
+│       ├── useSkins.ts         # Skin management and CSS injection
 │       └── ...
 ├── src-tauri/              # Rust backend
 │   ├── src/
 │   │   ├── main.rs             # Entry point
 │   │   ├── lib.rs              # Tauri setup, plugin/command registration
-│   │   ├── commands.rs         # ~77 Tauri commands + AppState
-│   │   ├── db.rs               # SQLite operations (~63 public functions)
+│   │   ├── commands.rs         # ~107 Tauri commands + AppState
+│   │   ├── db.rs               # SQLite operations (~67 public functions)
 │   │   ├── models.rs           # Shared data models
 │   │   ├── scanner.rs          # Folder scanning
 │   │   ├── watcher.rs          # File watching
-│   │   ├── lastfm.rs           # Last.fm API client
+│   │   ├── lastfm.rs           # Last.fm API client (scrobble, love, similar, metadata)
 │   │   ├── subsonic.rs         # Subsonic API client
 │   │   ├── tidal.rs            # TIDAL API client
 │   │   ├── sync.rs             # Subsonic collection sync
+│   │   ├── skins.rs            # Skin file I/O and gallery fetching
 │   │   ├── downloader.rs       # Track download manager
 │   │   ├── entity_image.rs     # Image slug management
 │   │   ├── composite_image.rs  # Tag composite image generation

@@ -40,12 +40,12 @@ Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript front
 ### Backend (src-tauri/src/)
 
 - **lib.rs** — Tauri app setup, plugin registration, command handler registration. Debug-only commands are conditionally included via `#[cfg(debug_assertions)]` using separate `get_invoke_handler()` functions. Initializes `AppState` with all shared resources.
-- **commands.rs** — All `#[tauri::command]` functions (~77 commands). Each takes `State<'_, AppState>` and delegates to `db.rs` or other modules. Commands return `Result<T, String>`. `AppState` holds: `Arc<Database>`, `app_dir`, `download_queue`, `track_download_manager`, `LastfmClient`, `lastfm_session`, `lastfm_importing`.
-- **db.rs** — SQLite wrapper behind `Mutex<Connection>` (~63 public functions). Owns schema creation, CRUD for all entities, FTS5 search index, history recording. Registers custom SQL functions: `filename_from_path()`, `strip_diacritics()`, `unicode_lower()`.
+- **commands.rs** — All `#[tauri::command]` functions (~107 commands). Each takes `State<'_, AppState>` and delegates to `db.rs` or other modules. Commands return `Result<T, String>`. `AppState` holds: `Arc<Database>`, `app_dir`, `download_queue`, `track_download_manager`, `LastfmClient`, `lastfm_session`, `lastfm_importing`.
+- **db.rs** — SQLite wrapper behind `Mutex<Connection>` (~67 public functions). Owns schema creation, CRUD for all entities, FTS5 search index, history recording, Last.fm API response cache. Registers custom SQL functions: `filename_from_path()`, `strip_diacritics()`, `unicode_lower()`.
 - **scanner.rs** — Walks folder trees with `walkdir`, reads tags with `lofty`, falls back to regex-based filename parsing. Reads genre metadata from files and stores them as tags. Called from a background thread in `add_folder`.
 - **watcher.rs** — Uses `notify` crate for real-time filesystem events, calling scanner functions for create/modify/remove.
 - **models.rs** — Serde-serializable structs shared between commands and DB layer: Artist, Album, Tag, Track, Collection, HistoryEntry, HistoryMostPlayed, HistoryArtistStats, ScanProgress, SyncProgress, Tidal search/detail types, Last.fm API response types, LastfmImportProgress.
-- **lastfm.rs** — Last.fm API client. Methods: `get_auth_url()`, `sign_params()` (MD5), `get_session()`, `update_now_playing()`, `scrobble()`, `get_recent_tracks()`. Token-based auth with API signature hashing.
+- **lastfm.rs** — Last.fm API client. Methods: `get_auth_url()`, `sign_params()` (MD5), `get_session()`, `update_now_playing()`, `scrobble()`, `get_recent_tracks()`, `love_track()`, `unlove_track()`, `get_similar_artists()`, `get_similar_tracks()`, `get_artist_info()`, `get_album_info()`, `get_track_top_tags()`, `get_artist_top_tags()`. Token-based auth with API signature hashing. Read-only methods use unsigned GET, write methods use signed POST.
 - **subsonic.rs** — Subsonic/Navidrome API client. Auth methods: token (MD5) or legacy digest. Methods: `get_album_list()`, `get_album()`, `get_track_by_id()`, `get_cover_art()`.
 - **tidal.rs** — TIDAL API client with instance failover and 24-hour TTL caching. Methods: search (tracks/artists/albums), `get_stream_url()`, `get_album()`, `get_artist()`, `get_artist_albums()`. Fetches instance URLs from Uptime Workers.
 - **sync.rs** — Subsonic collection synchronization. Paginates albums, fetches full album data, creates/updates artists/albums/tracks, stores genres as tags.
@@ -53,13 +53,17 @@ Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript front
 - **entity_image.rs** — Image slug management. Filesystem-safe canonical slug generation with diacritic stripping.
 - **composite_image.rs** — Generates tag composite images from overlapping circles of 1–3 artist images.
 - **image_provider/** — Trait-based image provider chain. Artist chain: Tidal → Deezer → iTunes → AudioDB → MusicBrainz. Album chain: Embedded → Tidal → iTunes → Deezer → MusicBrainz.
+- **skins.rs** — Skin file I/O: list, read, save, delete, import from path, fetch from URL. Gallery fetching from GitHub. Slug generation for skin filenames.
 - **timing.rs** — Startup performance profiling (`StartupTimer`, `TimingEntry`).
 - **seed.rs** — Debug-only module (`#[cfg(debug_assertions)]`). Seeds the database with fake data using a simple LCG PRNG.
 
 ### Frontend (src/)
 
 - **App.tsx** — Single-file React app. Contains all state, views, playback controls, context menu, and sidebar. No routing library; views are toggled via a `View` union type: `"all" | "artists" | "albums" | "tags" | "liked" | "history" | "tidal" | "collections"`.
-- **App.css** — All styles. Layout: sidebar + main content + fixed footer (now-playing bar).
+- **App.css** — All styles. Layout: sidebar + main content + fixed footer (now-playing bar). Uses CSS custom properties for all colors (skinnable) and a 7-level type scale (`--fs-2xs` through `--fs-2xl`).
+- **skinUtils.ts** — Skin validation, CSS generation, customCSS sanitization.
+- **types/skin.ts** — TypeScript type definitions for the skin system (SkinJson, SkinInfo, SkinColors, GallerySkinEntry).
+- **skins/** — Built-in skin JSON files (8 skins) and index.
 
 ### Frontend Components (src/components/)
 
@@ -67,7 +71,7 @@ Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript front
 - **NowPlayingBar.tsx** — Footer playback controls, track info, seek bar.
 - **QueuePanel.tsx** — Playback queue with drag-and-drop reordering.
 - **Sidebar.tsx** — Navigation sidebar with view switching.
-- **SettingsPanel.tsx** — Settings with tabs: General, Last.fm, Providers, About, Debug.
+- **SettingsPanel.tsx** — Settings with tabs: General, Skins, TIDAL, Last.fm, Providers, About, Debug.
 - **HistoryView.tsx** — History view with most played (all time / 30 days), top artists, recent plays. Exposes `reload()` via imperative handle.
 - **TidalView.tsx** — TIDAL search/browse interface.
 - **CollectionsView.tsx** — Collection management (local folders, Subsonic, TIDAL).
@@ -79,7 +83,8 @@ Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript front
 - **WaveformSeekBar.tsx** — Waveform visualization seek bar.
 - **AlbumCardArt.tsx, ArtistCardArt.tsx, TagCardArt.tsx** — Entity card images.
 - **AddServerModal.tsx, AddTidalModal.tsx, EditCollectionModal.tsx** — Collection modals.
-- **TrackPropertiesModal.tsx, UpgradeTrackModal.tsx** — Track management modals.
+- **TrackPropertiesModal.tsx** — Tabbed track properties modal (Info, Tags, Similar, Artist, Album) with Last.fm metadata, similar tracks with play/TIDAL/YouTube actions, and community tag suggestions.
+- **UpgradeTrackModal.tsx** — TIDAL track upgrade modal.
 - **FullscreenControls.tsx** — Video fullscreen overlay controls.
 - **StatusBar.tsx, Icons.tsx, WindowControls.tsx** — Utility components.
 
@@ -101,11 +106,12 @@ Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript front
 - **useSessionLog.ts** — Session logging.
 - **useAppUpdater.ts** — App update checking and installation.
 - **usePasteImage.ts** — Clipboard image paste handling.
+- **useSkins.ts** — Skin management: load/apply/import/delete skins, gallery browsing, CSS injection.
 
 ### Key Patterns
 
 - **IPC**: Frontend calls backend via `invoke<T>("command_name", { args })` from `@tauri-apps/api/core`. Backend emits events via `app.emit()`.
-- **Events**: Backend emits typed events consumed by frontend `listen<T>()`: `scan-progress`, `scan-complete`, `sync-progress`, `sync-complete`, `download-progress`, `download-complete`, `download-error`, `lastfm-import-progress`, `lastfm-import-complete`, `lastfm-import-error`, `lastfm-auth-error`, `deep-link-received`.
+- **Events**: Backend emits typed events consumed by frontend `listen<T>()`: `scan-progress`, `scan-complete`, `sync-progress`, `sync-complete`, `download-progress`, `download-complete`, `download-error`, `lastfm-import-progress`, `lastfm-import-complete`, `lastfm-import-error`, `lastfm-auth-error`, `lastfm-similar-artists`, `lastfm-similar-tracks`, `lastfm-artist-info`, `lastfm-album-info`, `lastfm-track-tags`, `lastfm-artist-tags`, `deep-link-received`.
 - **Playback**: Uses native HTML5 `<audio>` and `<video>` elements with Tauri's `convertFileSrc()` to serve local files via `asset://` protocol. Video formats determined by extension (mp4, m4v, mov, webm). No streaming or custom decoder.
 - **Database concurrency**: Single `Mutex<Connection>` — all DB access is serialized. Background scanning, file watching, syncing, downloading, and Last.fm import run on separate threads.
 - **Background tasks**: Long-running operations (scanning, syncing, downloading, Last.fm import) use `thread::spawn` with `AtomicBool` guards for cancellation and `app.emit()` for progress reporting.
@@ -123,4 +129,4 @@ Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript front
 
 **History tables**: `history_artists` (canonical_name unique, play_count, library_artist_id), `history_tracks` (history_artist_id + canonical_title unique, play_count, library_track_id), `history_plays` (history_track_id, played_at).
 
-**Support tables**: `image_fetch_failures` (caches failed image fetch attempts to avoid retrying).
+**Support tables**: `image_fetch_failures` (caches failed image fetch attempts to avoid retrying), `lastfm_cache` (key-value cache for Last.fm API responses with 90-day TTL).
