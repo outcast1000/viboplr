@@ -5535,6 +5535,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-store",
  "tauri-plugin-updater",
+ "tempfile",
  "unicode-normalization",
  "urlencoding",
  "walkdir",

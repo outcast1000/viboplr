@@ -8,6 +8,7 @@ mod musicgateway;
 mod scanner;
 #[cfg(debug_assertions)]
 mod seed;
+mod skins;
 mod subsonic;
 mod sync;
 mod timing;
@@ -115,6 +116,13 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::save_track_as_copy,
         commands::get_cached_waveform,
         commands::cache_waveform,
+        commands::list_user_skins,
+        commands::read_user_skin,
+        commands::save_user_skin,
+        commands::delete_user_skin,
+        commands::import_skin_file,
+        commands::fetch_skin_gallery,
+        commands::install_gallery_skin,
         commands::open_devtools,
     ]
 }
@@ -210,6 +218,13 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::save_track_as_copy,
         commands::get_cached_waveform,
         commands::cache_waveform,
+        commands::list_user_skins,
+        commands::read_user_skin,
+        commands::save_user_skin,
+        commands::delete_user_skin,
+        commands::import_skin_file,
+        commands::fetch_skin_gallery,
+        commands::install_gallery_skin,
         commands::open_devtools,
     ]
 }
