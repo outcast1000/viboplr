@@ -2963,11 +2963,15 @@ function App() {
         <TrackPropertiesModal
           track={propertiesTrack}
           collections={library.collections}
+          libraryTracks={library.tracks}
+          tidalEnabled={tidalEnabled}
           onClose={() => setPropertiesTrack(null)}
           onYoutubeUrlChange={(trackId, url) => {
             library.setTracks(prev => prev.map(t => t.id === trackId ? { ...t, youtube_url: url } : t));
             setPropertiesTrack(prev => prev && prev.id === trackId ? { ...prev, youtube_url: url } : prev);
           }}
+          onPlayTrack={(t) => queueHook.playTracks([t], 0)}
+          onSearchTidal={(query) => { viewSearch.setQuery("tidal", query); library.setView("tidal"); }}
         />
       )}
 

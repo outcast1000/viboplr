@@ -1,14 +1,19 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Tag, Collection } from "../types";
 import { formatDuration } from "../utils";
 
 interface TrackPropertiesModalProps {
   track: Track;
   collections: Collection[];
+  libraryTracks: Track[];
+  tidalEnabled: boolean;
   onClose: () => void;
   onYoutubeUrlChange: (trackId: number, url: string | null) => void;
+  onPlayTrack: (track: Track) => void;
+  onSearchTidal: (query: string) => void;
 }
 
 interface AudioProperties {
@@ -50,7 +55,7 @@ interface ArtistInfo {
   tags?: { tag?: Array<{ name: string }> };
 }
 
-export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrlChange }: TrackPropertiesModalProps) {
+export function TrackPropertiesModal({ track, collections, libraryTracks, tidalEnabled, onClose, onYoutubeUrlChange, onPlayTrack, onSearchTidal }: TrackPropertiesModalProps) {
   const [tags, setTags] = useState<Tag[]>([]);
   const [audioProps, setAudioProps] = useState<AudioProperties | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState(track.youtube_url ?? "");
@@ -377,15 +382,46 @@ export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrl
               )}
               {similarTracks.length > 0 && (
                 <div className="properties-similar-list">
-                  {similarTracks.map((st, i) => (
-                    <div key={i} className="properties-similar-item">
-                      <span className="properties-similar-match">{Math.round(parseFloat(st.match) * 100)}%</span>
-                      <span className="properties-similar-info">
-                        <span className="properties-similar-title">{st.name}</span>
-                        <span className="properties-similar-artist">{st.artist.name}</span>
-                      </span>
-                    </div>
-                  ))}
+                  {similarTracks.map((st, i) => {
+                    const localMatch = libraryTracks.find(t =>
+                      t.title.toLowerCase() === st.name.toLowerCase() &&
+                      t.artist_name?.toLowerCase() === st.artist.name.toLowerCase()
+                    );
+                    return (
+                      <div key={i} className="properties-similar-item">
+                        <span className="properties-similar-match">{Math.round(parseFloat(st.match) * 100)}%</span>
+                        <span className="properties-similar-info">
+                          <span className="properties-similar-title">{st.name}</span>
+                          <span className="properties-similar-artist">{st.artist.name}</span>
+                        </span>
+                        <span className="properties-similar-actions">
+                          {localMatch && (
+                            <button
+                              className="properties-similar-action"
+                              title="Play"
+                              onClick={() => { onPlayTrack(localMatch); onClose(); }}
+                            >&#9654;</button>
+                          )}
+                          {tidalEnabled && (
+                            <button
+                              className="properties-similar-action"
+                              title="Search in TIDAL"
+                              onClick={() => { onSearchTidal(`${st.name} ${st.artist.name}`); onClose(); }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 40 40" fill="currentColor"><path d="M0 13.3h13.3V0H0zm13.3 13.4h13.4V13.3H13.3zM0 26.7h13.3V13.3H0zm26.7 0H40V13.3H26.7zM13.3 40h13.4V26.7H13.3z"/></svg>
+                            </button>
+                          )}
+                          <button
+                            className="properties-similar-action"
+                            title="Search on YouTube"
+                            onClick={() => openUrl(`https://www.youtube.com/results?search_query=${encodeURIComponent(st.name + " " + st.artist.name)}`)}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.2a3 3 0 00-2.1-2.1C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.4.6A3 3 0 00.5 6.2C0 8.1 0 12 0 12s0 3.9.5 5.8a3 3 0 002.1 2.1c1.9.6 9.4.6 9.4.6s7.5 0 9.4-.6a3 3 0 002.1-2.1c.5-1.9.5-5.8.5-5.8s0-3.9-.5-5.8zM9.5 15.6V8.4l6.3 3.6-6.3 3.6z"/></svg>
+                          </button>
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
