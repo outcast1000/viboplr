@@ -1740,8 +1740,8 @@ body {
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  background: var(--bg-secondary, #111827);
-  border-bottom: 1px solid var(--border-color, #1f2937);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
 }
 
 .view-search-input-wrap {
@@ -1761,8 +1761,8 @@ body {
 
 .view-search-input-wrap input {
   flex: 1;
-  background: var(--bg-tertiary, #0d1b2a);
-  border: 1px solid var(--border-color, #334);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
   border-radius: 5px;
   padding: 6px 10px 6px 30px;
   color: inherit;
@@ -1771,7 +1771,7 @@ body {
 }
 
 .view-search-input-wrap input:focus {
-  border-color: var(--accent-color, #58f);
+  border-color: var(--accent);
 }
 
 .view-search-input-wrap .search-clear-btn {
