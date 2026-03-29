@@ -128,6 +128,8 @@ View mode selections are persisted per entity (`artistViewMode`, `albumViewMode`
 
 **All Tracks sort controls:** The sort bar is split into two labeled rows: a **Sort** row (Title, Artist, Album, Year, Quality, Duration, Size, Collection, Shuffle, and a heart toggle to float liked tracks to the top) and a **Filter** row (YouTube filter `YT`, media type filter All/Audio/Video). Sort fields cycle asc → desc → unsorted. The view mode toggle and collapse button remain visible when the sort bar is collapsed.
 
+**Independent scrolling:** Lists scroll within their own container instead of the whole main content area, so headers and breadcrumbs remain visible while scrolling long lists.
+
 **Performance:** Track counts for artists, albums, and tags are precomputed and stored in `track_count` columns (see §5). Counts are recomputed after every scan, sync, collection toggle, and FTS rebuild. The `get_artists`, `get_albums`, and `get_tags` queries use simple `WHERE track_count > 0` filters instead of JOIN/GROUP BY/HAVING, making sidebar navigation instant. The frontend skips fetching tracks when only the album grid or tag list is displayed (no track table rendered), and does not re-fetch the full album list when navigating to the Albums view (already loaded by `loadLibrary`).
 
 ### 4.7 Tags
@@ -146,7 +148,7 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 
 1. **Central search dropdown** (`CentralSearchDropdown` component, `useCentralSearch` hook): A pill-shaped input in the caption bar (`Cmd/Ctrl+K` to focus) that queries the FTS5 index with 400ms debounce. Displays up to 5 results in a dropdown with album art (fallback: artist image, then initial letter), two-line rows (title + artist · album subtitle), and keyboard navigation. Enter plays the selected track; `Cmd/Ctrl+Enter` enqueues it. Pressing Enter with no selection commits the query to the current view's search bar. Footer hints show available actions.
 
-2. **Per-view search bars** (`ViewSearchBar` component, `useViewSearchState` hook): Each view (artists, albums, tags, tracks, liked, history, tidal) has its own independent search bar that filters content within that view. Search state is maintained per-view and persists across view switches. Navigation history stores per-view search queries (via `viewSearchQueries` map) instead of a single shared query. **Artist view search** tokenizes the query on whitespace and punctuation (`/[\s.,;:_\-\/\\]+/`), requiring all tokens to match (AND logic) for flexible multi-word lookups.
+2. **Per-view search bars** (`ViewSearchBar` component, `useViewSearchState` hook): Each view (artists, albums, tags, tracks, liked, history, tidal) has its own independent search bar that filters content within that view. Search state is maintained per-view and persists across view switches. Navigation history stores per-view search queries (via `viewSearchQueries` map) instead of a single shared query. **Arrow key navigation:** Pressing Down/Up in a view search bar navigates the underlying list (highlight moves), Enter activates the highlighted item. **Artist view search** tokenizes the query on whitespace and punctuation (`/[\s.,;:_\-\/\\]+/`), requiring all tokens to match (AND logic) for flexible multi-word lookups.
 
 **FTS5 index:**
 - SQLite FTS5 virtual table indexes: track title, artist name, album title, tag names, filename.
@@ -282,13 +284,13 @@ Play history is stored in a **decoupled 3-table system** (`history_artists`, `hi
 - `get_artist_rank(history_artist_id)` — get the rank of a specific artist by play count.
 
 **Frontend (HistoryView component):**
-The History view (`Ctrl/Cmd+6`) displays four sections:
-1. **Most Played Artists** — top 20 artists by total play count, showing rank, artist image, name, play count, and track count.
-2. **Most Played — All Time** — top 20 tracks by total play count, showing rank, title, artist, and play count.
-3. **Most Played — Last 30 Days** — top 20 tracks by play count in the last 30 days.
-4. **Recent History** — last 50 individual plays with relative timestamps (e.g., "5m ago", "2h ago", "3d ago").
+The History view (`Ctrl/Cmd+6`) uses a **tabbed interface** with four tabs:
+1. **All Time** — top 20 tracks by total play count, showing rank, title, artist, and play count.
+2. **Last 30 Days** — top 20 tracks by play count in the last 30 days.
+3. **Recent** — last 50 individual plays with relative timestamps (e.g., "5m ago", "2h ago", "3d ago").
+4. **Artists** — top 20 artists by total play count, showing rank, artist image, name, play count, and track count.
 
-All sections support server-side search filtering by title and artist name. Double-clicking a row plays the track (or navigates to the artist view for artist rows).
+Each tab shows its content independently; search filters across all sections. Arrow keys from the search bar navigate the active tab's list (Down/Up to highlight, Enter to activate). Double-clicking a row plays the track (or navigates to the artist view for artist rows).
 
 **Ghost entry reconnection:** History entries for tracks or artists that no longer exist in the library ("ghost" entries) can be dynamically reconnected. Double-clicking a disconnected history track or artist attempts to match it to a current library entry by canonical title and artist name. If a match is found, the history entry is reconnected and the track plays (or the artist view opens). If no match is found, a status bar warning is displayed.
 
@@ -475,7 +477,7 @@ Viboplr can search and stream from TIDAL's catalog via the **Hi-Fi API** (the ba
 
 - The TIDAL view appears in the sidebar (diamond icon, `Ctrl/Cmd+7`) when a tidal collection exists.
 - Search bar with 400ms debounce queries the Hi-Fi API (`GET /search/?s={query}`).
-- Results displayed in 3 sections: Tracks, Albums, Artists.
+- Results displayed in a **tabbed interface** with three tabs: Tracks, Albums, Artists. Each tab shows its result count in a badge.
 - Album cards are clickable → loads album detail with full track listing and "Play Album" button. Each track row has a download button (⬇) to save the track to a local collection.
 - Artist cards are clickable → loads artist detail with discography (album grid).
 - **Per-track download:** Each track in search results and album detail views has a download button. If only one local collection exists, clicking downloads directly to it. If multiple local collections exist, a picker appears. The download uses `tidal_save_track` to persist metadata, then streams the audio file to the local collection's folder.
@@ -797,6 +799,13 @@ CREATE TABLE image_fetch_failures (
     UNIQUE(kind, item_id)
 );
 
+CREATE TABLE plugin_storage (
+    plugin_id  TEXT NOT NULL,
+    key        TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    PRIMARY KEY (plugin_id, key)
+);
+
 CREATE TABLE lastfm_cache (
     cache_key  TEXT PRIMARY KEY,
     value      TEXT NOT NULL,         -- JSON response from Last.fm API
@@ -1012,6 +1021,18 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `fetch_skin_gallery`      | —                                        | `String` (JSON index)|
 | `install_gallery_skin`    | `url: String`                            | `String` (slug ID)   |
 
+### Plugin Commands
+
+| Command                   | Args                                                     | Returns              |
+| ------------------------- | -------------------------------------------------------- | -------------------- |
+| `plugin_get_dir`          | —                                                        | `String` (path)      |
+| `plugin_list_installed`   | —                                                        | `Vec<Value>` (manifests) |
+| `plugin_read_file`        | `plugin_id: String, path: String`                        | `String` (contents)  |
+| `plugin_storage_get`      | `plugin_id: String, key: String`                         | `Option<String>`     |
+| `plugin_storage_set`      | `plugin_id: String, key: String, value: String`          | `()`                 |
+| `plugin_storage_delete`   | `plugin_id: String, key: String`                         | `()`                 |
+| `plugin_fetch`            | `url: String, method?: String, headers?: Map, body?: String` | `Value` (JSON response) |
+
 ### Debug-Only Commands
 
 | Command                 | Args                        | Returns                  |
@@ -1162,6 +1183,75 @@ A tabbed modal for viewing and editing track metadata, accessible via right-clic
 ### 4.27 Last.fm Love/Unlove Sync
 
 When a user likes (loved) or unlikes a track in Viboplr, the like state is synced to Last.fm via `track.love` / `track.unlove` API calls. These are fire-and-forget background operations that require an active Last.fm session.
+
+### 4.28 Plugin System
+
+Viboplr supports a plugin system that allows JavaScript plugins to extend the app with custom sidebar views, context menu items, event hooks, persistent storage, and network access. Plugins are loaded from two directories: **native (built-in)** plugins bundled with the app and **user** plugins in the user's profile directory, with user plugins taking precedence when IDs collide.
+
+**Plugin structure:**
+Each plugin is a directory containing a `manifest.json` and an `index.js` entry point:
+
+```
+my-plugin/
+├── manifest.json
+└── index.js
+```
+
+**Manifest (`manifest.json`):**
+
+```json
+{
+  "id": "my-plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "author": "Author",
+  "description": "What it does",
+  "minAppVersion": "0.6.0",
+  "contributes": {
+    "sidebarItems": [{ "id": "main", "label": "My View", "icon": "📊" }],
+    "contextMenuItems": [{ "id": "action", "label": "Do Thing", "targets": ["track"] }],
+    "eventHooks": ["track:started", "track:played", "track:scrobbled", "track:liked"]
+  }
+}
+```
+
+- **`id`** — unique identifier.
+- **`minAppVersion`** — semver minimum; plugins with a higher requirement are marked `incompatible`.
+- **`contributes.sidebarItems`** — registers sidebar navigation entries that open plugin-rendered views.
+- **`contributes.contextMenuItems`** — registers entries in the track/album/artist context menu. `targets` is an array of `"track" | "album" | "artist" | "multi-track"`.
+- **`contributes.eventHooks`** — subscribes to playback lifecycle events: `track:started`, `track:played`, `track:scrobbled`, `track:liked`.
+
+**Plugin API (`ViboplrPluginAPI`):**
+Each plugin's `activate(api)` function receives an API object with these namespaces:
+
+| Namespace | Methods |
+|-----------|---------|
+| `library` | `getTracks(opts?)`, `getArtists()`, `getAlbums()`, `getTrackById(id)`, `search(query)`, `getHistory(opts?)`, `getMostPlayed(opts?)` |
+| `playback` | `getCurrentTrack()`, `isPlaying()`, `getPosition()`, `onTrackStarted(handler)`, `onTrackPlayed(handler)`, `onTrackScrobbled(handler)`, `onTrackLiked(handler)` |
+| `contextMenu` | `onAction(actionId, handler)` — receives `PluginContextMenuTarget` with entity metadata |
+| `ui` | `setViewData(viewId, data)`, `showNotification(message)`, `onAction(actionId, handler)` |
+| `storage` | `get(key)`, `set(key, value)`, `delete(key)` — per-plugin key-value storage backed by SQLite |
+| `network` | `fetch(url, init?)` — proxied HTTP requests via the Rust backend |
+
+**View rendering (`PluginViewRenderer`):**
+Plugin views use a structured data model (`PluginViewData`) rather than raw HTML. Supported view types: `track-list`, `card-grid`, `text`, `stats-grid`, `button`, `layout` (vertical/horizontal container), `spacer`.
+
+**Plugin lifecycle:**
+1. On app startup, `usePlugins` hook discovers plugins via `plugin_list_installed`.
+2. Each enabled plugin's `index.js` is read via `plugin_read_file` and executed in an isolated `Function` scope with the plugin API injected.
+3. The plugin calls `activate(api)` and may return a `deactivate()` cleanup function.
+4. Plugins can be enabled/disabled via Settings > Plugins tab.
+
+**Plugin directories:**
+- **Native plugins:** `{app_resources}/plugins/` (bundled with the app binary).
+- **User plugins:** `{app_dir}/plugins/` (user profile directory, created on demand).
+
+**Security:**
+- `plugin_read_file` validates plugin IDs against path traversal (`..`, `/`, `\`) and canonicalizes paths to ensure reads stay within the plugin directory.
+- Network requests are proxied through the Rust backend (`plugin_fetch` command) rather than allowing direct browser fetch.
+
+**Settings UI (Settings > Plugins tab):**
+Lists all discovered plugins with name, version, author, status badge (active/error/incompatible/disabled), and an enable/disable toggle. Error details are shown inline.
 
 ## 11. Out of Scope (v1)
 

@@ -26,9 +26,9 @@ Viboplr plays audio and video from local folders, Subsonic/Navidrome servers, an
 - **All Tracks**: Full library with table, list, and tile view modes
 - **Artists / Albums / Tags**: Browsable with breadcrumb navigation and card art
 - **Liked Tracks**: Filtered view of liked tracks
-- **History**: Most played (all time / last 30 days), top artists, recent plays
+- **History**: Tabbed view — All Time, Last 30 Days, Recent, Artists — with arrow key navigation
 - **Collections**: Manage local folders, Subsonic servers, and TIDAL sources
-- **TIDAL**: Search and browse the TIDAL catalog
+- **TIDAL**: Tabbed search (Tracks/Albums/Artists) with result counts and browse
 
 ### Integrations
 - **Last.fm Scrobbling**: Real-time now-playing updates and scrobble reporting
@@ -44,6 +44,12 @@ Viboplr plays audio and video from local folders, Subsonic/Navidrome servers, an
 - **Custom Skins**: Import JSON skin files or install from community gallery
 - **13 Color Tokens**: Full UI theming via CSS custom properties
 - **Custom CSS**: Optional per-skin CSS overrides (sanitized)
+
+### Plugins
+- **Plugin System**: Extend the app with JavaScript plugins — custom sidebar views, context menu items, event hooks, storage, and network access
+- **Native & User Plugins**: Built-in plugins bundled with the app; user plugins in profile directory (user plugins override native)
+- **Structured Views**: Plugins render via data model (track lists, card grids, stats, text) — no raw HTML injection
+- **Plugin Management**: Enable/disable plugins via Settings > Plugins tab
 
 ### Other
 - **Track Properties Modal**: Tabbed view with metadata, tags, similar tracks (with play/TIDAL/YouTube actions), artist bio, album wiki
@@ -120,8 +126,6 @@ viboplr/
 │   ├── App.css             # All styles (CSS custom properties for skinning)
 │   ├── types.ts            # Shared TypeScript types
 │   ├── skinUtils.ts        # Skin validation, CSS generation, sanitization
-│   ├── types/
-│   │   └── skin.ts             # Skin system type definitions
 │   ├── skins/              # Built-in skin JSON files (8 skins)
 │   │   ├── index.ts            # Skin registry
 │   │   ├── default.json
@@ -131,16 +135,21 @@ viboplr/
 │   │   ├── NowPlayingBar.tsx   # Playback footer controls
 │   │   ├── QueuePanel.tsx      # Queue management
 │   │   ├── Sidebar.tsx         # Navigation sidebar
-│   │   ├── SettingsPanel.tsx   # Settings (General, Skins, TIDAL, Last.fm, Providers, About, Debug)
+│   │   ├── SettingsPanel.tsx   # Settings (General, Skins, Plugins, TIDAL, Last.fm, Providers, Debug)
 │   │   ├── HistoryView.tsx     # Play history view
 │   │   ├── TidalView.tsx       # TIDAL search/browse
 │   │   ├── CollectionsView.tsx # Collection management
+│   │   ├── PluginViewRenderer.tsx # Plugin structured view rendering
 │   │   └── ...
-│   └── hooks/              # React hooks (~17 files)
+│   ├── types/
+│   │   ├── skin.ts             # Skin system type definitions
+│   │   └── plugin.ts           # Plugin system type definitions
+│   └── hooks/              # React hooks (~18 files)
 │       ├── usePlayback.ts      # Playback state
 │       ├── useQueue.ts         # Queue management
 │       ├── useLibrary.ts       # Library queries
 │       ├── useSkins.ts         # Skin management and CSS injection
+│       ├── usePlugins.ts       # Plugin discovery, loading, and runtime
 │       └── ...
 ├── src-tauri/              # Rust backend
 │   ├── src/
@@ -162,7 +171,11 @@ viboplr/
 │   │   ├── image_provider/     # Image provider fallback chain (6 providers)
 │   │   ├── timing.rs           # Startup profiling
 │   │   └── seed.rs             # Debug-only test data seeding
+│   ├── plugins/            # Native/built-in plugins
+│   │   ├── example-stats/      # Example stats plugin
+│   │   └── randomizer/         # Randomizer plugin
 │   └── Cargo.toml
+├── examples/plugins/       # Example plugin templates
 ├── SPEC.md                 # Detailed specification
 └── CLAUDE.md               # AI assistant guidance
 ```

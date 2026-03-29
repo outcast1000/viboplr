@@ -86,5 +86,16 @@
       "Artist bios &amp; album descriptions",
       "Community tag suggestions &amp; scrobble history"
     ]
+  },
+  {
+    "label": "Plugins",
+    "heading": "Extend it your way",
+    "description": "A JavaScript plugin system that lets you add custom sidebar views, context menu actions, and event hooks. Built-in plugins ship with the app, and user plugins can override or extend anything.",
+    "items": [
+      "Custom sidebar views &amp; context menu actions",
+      "Event hooks for playback lifecycle",
+      "Per-plugin key-value storage",
+      "Structured view rendering (no raw HTML)"
+    ]
   }
 ]
