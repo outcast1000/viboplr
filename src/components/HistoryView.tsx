@@ -10,6 +10,8 @@ export interface HistoryViewHandle {
   reload(): void;
 }
 
+type HistoryTab = "all-time" | "30-days" | "recent" | "artists";
+
 interface HistoryViewProps {
   searchQuery: string;
   highlightedIndex: number;
@@ -38,6 +40,7 @@ function HistoryArt({ imagePath }: { imagePath: string | null | undefined }) {
 
 export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
   function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, addLog, onArtistClick }, ref) {
+  const [activeTab, setActiveTab] = useState<HistoryTab>("all-time");
   const [mostPlayedAllTime, setMostPlayedAllTime] = useState<HistoryMostPlayed[]>([]);
   const [mostPlayedRecent, setMostPlayedRecent] = useState<HistoryMostPlayed[]>([]);
   const [recentPlays, setRecentPlays] = useState<HistoryEntry[]>([]);
@@ -113,19 +116,35 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
   const filteredArtists = q ? (searchedArtists ?? []) : topArtists;
   const filteredTracks = q ? (searchedTracks ?? []) : null;
 
+  // Determine which tracks to show based on active tab
+  const visibleTracks: HistoryMostPlayed[] | null = (() => {
+    if (filteredTracks) return filteredTracks; // search overrides tab
+    if (activeTab === "all-time") return mostPlayedAllTime;
+    if (activeTab === "30-days") return mostPlayedRecent;
+    return null; // "recent" and "artists" tabs don't use this
+  })();
+
+  const visibleRecent: HistoryEntry[] | null = (() => {
+    if (q) return null; // search mode doesn't show recent
+    if (activeTab === "recent") return recentPlays;
+    return null;
+  })();
+
+  const visibleArtists: HistoryArtistStats[] = (() => {
+    if (activeTab === "artists" || q) return filteredArtists;
+    return [];
+  })();
+
   const flatItems = useMemo(() => {
     const items: { libraryTrackId: number | null; historyTrackId: number }[] = [];
-    if (filteredTracks) {
-      for (const t of filteredTracks) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
-    } else {
-      for (const t of mostPlayedAllTime) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
-      for (const t of mostPlayedRecent) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
+    if (visibleTracks) {
+      for (const t of visibleTracks) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
     }
-    if (!q) {
-      for (const t of recentPlays) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
+    if (visibleRecent) {
+      for (const t of visibleRecent) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
     }
     return items;
-  }, [filteredTracks, mostPlayedAllTime, mostPlayedRecent, recentPlays, q]);
+  }, [visibleTracks, visibleRecent]);
 
   async function playTrackById(libraryTrackId: number | null, historyTrackId: number) {
     if (libraryTrackId != null) {
@@ -191,6 +210,13 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     }
   }
 
+  const tabs: { key: HistoryTab; label: string }[] = [
+    { key: "all-time", label: "All Time" },
+    { key: "30-days", label: "Last 30 Days" },
+    { key: "recent", label: "Recent" },
+    { key: "artists", label: "Artists" },
+  ];
+
   useImperativeHandle(ref, () => ({
     count: flatItems.length,
     playItem(index: number) {
@@ -216,131 +242,187 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
 
   return (
     <div className="history-view">
-      {filteredArtists.length > 0 && (
-        <div className="history-section">
-          <div className="section-title">{q ? "Artists" : "Most Played Artists"}</div>
-          <div className="history-list">
-            {filteredArtists.map((a) => (
-              <div
-                key={`artist-${a.history_artist_id}`}
-                className="history-row"
-                onDoubleClick={() => handleArtistDoubleClick(a.library_artist_id, a.history_artist_id)}
-              >
-                <span className="history-rank">{a.rank}</span>
-                <HistoryArt imagePath={artistImages[a.display_name]} />
-                <div className="history-info">
-                  <span className="history-title">{a.display_name}</span>
-                  <span className="history-artist">{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
-                </div>
-              </div>
-            ))}
-          </div>
+      {!q && (
+        <div className="history-tabs">
+          {tabs.map(tab => (
+            <button
+              key={tab.key}
+              className={`history-tab${activeTab === tab.key ? " active" : ""}`}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       )}
 
-      {q && filteredTracks && filteredTracks.length > 0 && (
-        <div className="history-section">
-          <div className="section-title">Tracks</div>
-          <div className="history-list">
-            {filteredTracks.map((t) => {
-              const idx = nextFlatIndex();
-              return (
+      <div className="history-content">
+        {/* Search results: artists */}
+        {q && visibleArtists.length > 0 && (
+          <div className="history-section">
+            <div className="section-title">Artists</div>
+            <div className="history-list">
+              {visibleArtists.map((a) => (
                 <div
-                  key={`search-${t.history_track_id}`}
-                  className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
-                  data-history-index={idx}
-                  onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
+                  key={`artist-${a.history_artist_id}`}
+                  className="history-row"
+                  onDoubleClick={() => handleArtistDoubleClick(a.library_artist_id, a.history_artist_id)}
                 >
-                  <span className="history-rank">{t.rank}</span>
-                  <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
+                  <span className="history-rank">{a.rank}</span>
+                  <HistoryArt imagePath={artistImages[a.display_name]} />
                   <div className="history-info">
-                    <span className="history-title">{t.display_title}</span>
-                    <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
+                    <span className="history-title">{a.display_name}</span>
+                    <span className="history-artist">{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
                   </div>
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {!q && mostPlayedAllTime.length > 0 && (
-        <div className="history-section">
-          <div className="section-title">Most Played — All Time</div>
-          <div className="history-list">
-            {mostPlayedAllTime.map((t) => {
-              const idx = nextFlatIndex();
-              return (
+        {/* Search results: tracks */}
+        {q && filteredTracks && filteredTracks.length > 0 && (
+          <div className="history-section">
+            <div className="section-title">Tracks</div>
+            <div className="history-list">
+              {filteredTracks.map((t) => {
+                const idx = nextFlatIndex();
+                return (
+                  <div
+                    key={`search-${t.history_track_id}`}
+                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
+                    data-history-index={idx}
+                    onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
+                  >
+                    <span className="history-rank">{t.rank}</span>
+                    <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
+                    <div className="history-info">
+                      <span className="history-title">{t.display_title}</span>
+                      <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Tab: Artists */}
+        {!q && activeTab === "artists" && (
+          <div className="history-section">
+            <div className="history-list">
+              {topArtists.map((a) => (
                 <div
-                  key={`alltime-${t.history_track_id}`}
-                  className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
-                  data-history-index={idx}
-                  onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
+                  key={`artist-${a.history_artist_id}`}
+                  className="history-row"
+                  onDoubleClick={() => handleArtistDoubleClick(a.library_artist_id, a.history_artist_id)}
                 >
-                  <span className="history-rank">{t.rank}</span>
-                  <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
+                  <span className="history-rank">{a.rank}</span>
+                  <HistoryArt imagePath={artistImages[a.display_name]} />
                   <div className="history-info">
-                    <span className="history-title">{t.display_title}</span>
-                    <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
+                    <span className="history-title">{a.display_name}</span>
+                    <span className="history-artist">{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
                   </div>
                 </div>
-              );
-            })}
+              ))}
+              {topArtists.length === 0 && (
+                <div className="empty">No artist history yet.</div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {!q && mostPlayedRecent.length > 0 && (
-        <div className="history-section">
-          <div className="section-title">Most Played — Last 30 Days</div>
-          <div className="history-list">
-            {mostPlayedRecent.map((t) => {
-              const idx = nextFlatIndex();
-              return (
-                <div
-                  key={`recent30-${t.history_track_id}`}
-                  className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
-                  data-history-index={idx}
-                  onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
-                >
-                  <span className="history-rank">{t.rank}</span>
-                  <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
-                  <div className="history-info">
-                    <span className="history-title">{t.display_title}</span>
-                    <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
+        {/* Tab: All Time */}
+        {!q && activeTab === "all-time" && (
+          <div className="history-section">
+            <div className="history-list">
+              {mostPlayedAllTime.map((t) => {
+                const idx = nextFlatIndex();
+                return (
+                  <div
+                    key={`alltime-${t.history_track_id}`}
+                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
+                    data-history-index={idx}
+                    onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
+                  >
+                    <span className="history-rank">{t.rank}</span>
+                    <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
+                    <div className="history-info">
+                      <span className="history-title">{t.display_title}</span>
+                      <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+              {mostPlayedAllTime.length === 0 && (
+                <div className="empty">No play history yet. Start listening to build your history.</div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {!q && <div className="history-section">
-        <div className="section-title">Recent History</div>
-        <div className="history-list">
-          {recentPlays.map((entry) => {
-            const idx = nextFlatIndex();
-            return (
-              <div
-                key={entry.id}
-                className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
-                data-history-index={idx}
-                onDoubleClick={() => playTrackById(entry.library_track_id, entry.history_track_id)}
-              >
-                <HistoryArt imagePath={entry.display_artist ? artistImages[entry.display_artist] : null} />
-                <div className="history-info">
-                  <span className="history-title">{entry.display_title}</span>
-                  <span className="history-artist">{entry.display_artist ?? "Unknown"} &middot; {formatRelativeTime(entry.played_at)}</span>
-                </div>
-              </div>
-            );
-          })}
-          {recentPlays.length === 0 && (
-            <div className="empty">No play history yet. Start listening to build your history.</div>
-          )}
-        </div>
-      </div>}
+        {/* Tab: Last 30 Days */}
+        {!q && activeTab === "30-days" && (
+          <div className="history-section">
+            <div className="history-list">
+              {mostPlayedRecent.map((t) => {
+                const idx = nextFlatIndex();
+                return (
+                  <div
+                    key={`recent30-${t.history_track_id}`}
+                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
+                    data-history-index={idx}
+                    onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
+                  >
+                    <span className="history-rank">{t.rank}</span>
+                    <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
+                    <div className="history-info">
+                      <span className="history-title">{t.display_title}</span>
+                      <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
+                    </div>
+                  </div>
+                );
+              })}
+              {mostPlayedRecent.length === 0 && (
+                <div className="empty">No plays in the last 30 days.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tab: Recent */}
+        {!q && activeTab === "recent" && (
+          <div className="history-section">
+            <div className="history-list">
+              {recentPlays.map((entry) => {
+                const idx = nextFlatIndex();
+                return (
+                  <div
+                    key={entry.id}
+                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
+                    data-history-index={idx}
+                    onDoubleClick={() => playTrackById(entry.library_track_id, entry.history_track_id)}
+                  >
+                    <HistoryArt imagePath={entry.display_artist ? artistImages[entry.display_artist] : null} />
+                    <div className="history-info">
+                      <span className="history-title">{entry.display_title}</span>
+                      <span className="history-artist">{entry.display_artist ?? "Unknown"} &middot; {formatRelativeTime(entry.played_at)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+              {recentPlays.length === 0 && (
+                <div className="empty">No play history yet. Start listening to build your history.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Search: no results */}
+        {q && (!filteredTracks || filteredTracks.length === 0) && visibleArtists.length === 0 && (
+          <div className="empty">No history matching "{searchQuery}"</div>
+        )}
+      </div>
     </div>
   );
 });

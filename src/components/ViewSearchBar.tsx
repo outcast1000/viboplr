@@ -54,7 +54,6 @@ export function ViewSearchBar({ query, onQueryChange, placeholder, children, onA
             } else if (e.key === "Enter") {
               e.preventDefault();
               onEnter?.();
-            }
           }}
         />
         {query && (

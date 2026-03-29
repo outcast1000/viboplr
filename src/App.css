@@ -4701,14 +4701,53 @@ body {
 
 /* History view */
 .history-view {
-  padding: 0 0 16px;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-tabs {
+  display: flex;
+  gap: 3px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.history-tab {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.history-tab:hover {
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.history-tab.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.history-content {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  padding-bottom: 16px;
 }
 
 .history-section {
-  padding: 16px;
+  padding: 8px 16px;
 }
 
 .history-section + .history-section {
@@ -4737,7 +4776,7 @@ body {
 }
 
 .history-rank {
-  width: 28px;
+  width: 36px;
   flex-shrink: 0;
   text-align: right;
   color: var(--text-secondary);
