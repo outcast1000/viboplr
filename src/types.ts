@@ -67,7 +67,7 @@ export interface CollectionStats {
   total_duration: number;
 }
 
-export type View = "all" | "artists" | "albums" | "tags" | "liked" | "history" | "tidal" | "collections";
+export type View = "all" | "artists" | "albums" | "tags" | "liked" | "history" | "tidal" | "collections" | `plugin:${string}`;
 
 export interface HistoryEntry {
   id: number;

@@ -1,0 +1,17 @@
+{
+  "id": "example-stats",
+  "name": "Example Stats",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Example plugin showing playback statistics and plugin API usage",
+  "minAppVersion": "0.7.0",
+  "contributes": {
+    "sidebarItems": [
+      { "id": "stats", "label": "Stats", "icon": "chart-bar" }
+    ],
+    "contextMenuItems": [
+      { "id": "show-artist-stats", "label": "Show Artist Stats", "targets": ["track", "artist"] }
+    ],
+    "eventHooks": ["track:started", "track:played", "track:scrobbled", "track:liked"]
+  }
+}

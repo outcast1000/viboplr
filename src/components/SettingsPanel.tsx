@@ -7,6 +7,7 @@ import { IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons"
 import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { SkinInfo, GallerySkinEntry } from "../types/skin";
+import type { PluginState } from "../types/plugin";
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
   google: IconGoogle,
@@ -118,6 +119,12 @@ interface SettingsPanelProps {
   galleryError: string | null;
   onFetchGallery: () => void;
   onInstallFromGallery: (entry: GallerySkinEntry) => void;
+  // Plugins
+  pluginStates?: PluginState[];
+  onTogglePlugin?: (pluginId: string, enabled: boolean) => void;
+  onReloadPlugin?: (pluginId: string) => void;
+  onReloadAllPlugins?: () => void;
+  onOpenPluginsFolder?: () => void;
 }
 
 interface ProviderFormData {
@@ -127,7 +134,7 @@ interface ProviderFormData {
   trackUrl: string;
 }
 
-type SettingsTab = "general" | "skins" | "tidal" | "lastfm" | "providers" | "debug";
+type SettingsTab = "general" | "skins" | "plugins" | "tidal" | "lastfm" | "providers" | "debug";
 
 export function SettingsPanel({
   searchProviders,
@@ -175,6 +182,11 @@ export function SettingsPanel({
   galleryError,
   onFetchGallery,
   onInstallFromGallery,
+  pluginStates,
+  onTogglePlugin,
+  onReloadPlugin,
+  onReloadAllPlugins,
+  onOpenPluginsFolder,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -259,6 +271,7 @@ export function SettingsPanel({
   const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
     { key: "general", label: "General", icon: navIcons.general },
     { key: "skins", label: "Skins", icon: skinsIcon },
+    { key: "plugins", label: "Plugins", icon: <svg {...iconProps}><path d="M20 8h-2.81a5.45 5.45 0 0 1-.19-1.57A3.44 3.44 0 0 0 13.56 3 3.44 3.44 0 0 0 10 6.43c0 .55.07 1.07.19 1.57H8a2 2 0 0 0-2 2v2.81c-.5-.12-1.02-.19-1.57-.19A3.44 3.44 0 0 0 1 16.06 3.44 3.44 0 0 0 4.43 19.5c.55 0 1.07-.07 1.57-.19V22a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2.69c.5.12 1.02.19 1.57.19A3.44 3.44 0 0 0 23 15.94a3.44 3.44 0 0 0-3.43-3.44c-.55 0-1.07.07-1.57.19V10a2 2 0 0 0-2-2z"/></svg> },
     { key: "tidal", label: "TIDAL", icon: tidalIcon },
     { key: "lastfm", label: "Last.fm", icon: <>{IconLastfm({ size: 18 })}</> },
     { key: "providers", label: "Providers", icon: navIcons.providers },
@@ -483,6 +496,77 @@ export function SettingsPanel({
                 </>
               );
             })()}
+
+            {settingsTab === "plugins" && (
+              <div className="settings-group">
+                <div className="settings-group-title">Installed Plugins</div>
+                {(!pluginStates || pluginStates.length === 0) ? (
+                  <div className="settings-row" style={{ color: "var(--text-secondary)" }}>
+                    No plugins installed. Add plugin folders to your plugins directory.
+                  </div>
+                ) : (
+                  pluginStates.map(plugin => (
+                    <div key={plugin.id} className="settings-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0" }}>
+                      <label className="toggle-switch" style={{ flexShrink: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={plugin.enabled}
+                          onChange={() => onTogglePlugin?.(plugin.id, !plugin.enabled)}
+                        />
+                        <span className="toggle-slider" />
+                      </label>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 500 }}>
+                          {plugin.manifest.name}
+                          <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)", marginLeft: 6 }}>
+                            v{plugin.manifest.version}
+                          </span>
+                          {plugin.builtin && (
+                            <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)", marginLeft: 6, opacity: 0.7 }}>
+                              Built-in
+                            </span>
+                          )}
+                        </div>
+                        {plugin.manifest.description && (
+                          <div style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)" }}>
+                            {plugin.manifest.description}
+                          </div>
+                        )}
+                        {plugin.status === "error" && plugin.error && (
+                          <div style={{ fontSize: "var(--fs-2xs)", color: "var(--error, #e55)" }}>
+                            Error: {plugin.error}
+                          </div>
+                        )}
+                        {plugin.status === "incompatible" && (
+                          <div style={{ fontSize: "var(--fs-2xs)", color: "var(--warning, #ea5)" }}>
+                            Incompatible with this version
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        className="skin-install-btn"
+                        onClick={() => onReloadPlugin?.(plugin.id)}
+                        title="Reload plugin"
+                      >
+                        Reload
+                      </button>
+                    </div>
+                  ))
+                )}
+                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                  {onOpenPluginsFolder && (
+                    <button className="skin-install-btn" onClick={onOpenPluginsFolder}>
+                      Open Plugins Folder
+                    </button>
+                  )}
+                  {onReloadAllPlugins && (
+                    <button className="skin-install-btn" onClick={onReloadAllPlugins}>
+                      Reload All
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {settingsTab === "tidal" && (
               <TidalSettingsTab

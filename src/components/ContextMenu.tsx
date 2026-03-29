@@ -3,6 +3,7 @@ import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl, getDomainFromUrl } from "../searchProviders";
 import { IconPlay, IconEnqueue, IconFolder, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius, IconInfo, IconTrash } from "./Icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 
 export type ContextMenuTarget =
   | { kind: "track"; trackId: number; subsonic: boolean; title: string; artistName: string | null }
@@ -34,6 +35,8 @@ interface ContextMenuProps {
   onUpgradeViaTidal?: () => void;
   localCollections?: { id: number; name: string }[];
   onClose: () => void;
+  pluginMenuItems?: PluginMenuItem[];
+  onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
 }
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
@@ -91,9 +94,20 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
   );
 }
 
+function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarget {
+  switch (target.kind) {
+    case "track": return { kind: "track", trackId: target.trackId, title: target.title, artistName: target.artistName ?? undefined };
+    case "album": return { kind: "album", albumId: target.albumId, albumTitle: target.title, artistName: target.artistName ?? undefined };
+    case "artist": return { kind: "artist", artistId: target.artistId, artistName: target.name };
+    case "multi-track": return { kind: "multi-track", trackIds: target.trackIds };
+    default: return { kind: "track" };
+  }
+}
+
 export function ContextMenu({
   menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onShowProperties,
   onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, onUpgradeViaTidal, localCollections, onClose,
+  pluginMenuItems, onPluginAction,
 }: ContextMenuProps) {
   const { target } = menu;
   const { ref, pos } = useClampedPosition(menu.x, menu.y);
@@ -225,6 +239,28 @@ export function ContextMenu({
           })}
         </>
       )}
+      {pluginMenuItems && pluginMenuItems.length > 0 && (() => {
+        const targetKind = target.kind as string;
+        const matching = pluginMenuItems.filter(item => item.targets.includes(targetKind as "track" | "album" | "artist" | "multi-track"));
+        if (matching.length === 0) return null;
+        return (
+          <>
+            <div className="context-menu-separator" />
+            {matching.map((item) => (
+              <div
+                key={`${item.pluginId}:${item.id}`}
+                className="context-menu-item"
+                onClick={() => {
+                  onPluginAction?.(item.pluginId, item.id, toPluginTarget(target));
+                  onClose();
+                }}
+              >
+                <span>{item.label}</span>
+              </div>
+            ))}
+          </>
+        );
+      })()}
     </div>
   );
 }

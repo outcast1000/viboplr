@@ -134,6 +134,13 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::fetch_skin_gallery,
         commands::install_gallery_skin,
         commands::open_devtools,
+        commands::plugin_get_dir,
+        commands::plugin_list_installed,
+        commands::plugin_read_file,
+        commands::plugin_storage_get,
+        commands::plugin_storage_set,
+        commands::plugin_storage_delete,
+        commands::plugin_fetch,
     ]
 }
 
@@ -246,6 +253,13 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::fetch_skin_gallery,
         commands::install_gallery_skin,
         commands::open_devtools,
+        commands::plugin_get_dir,
+        commands::plugin_list_installed,
+        commands::plugin_read_file,
+        commands::plugin_storage_get,
+        commands::plugin_storage_set,
+        commands::plugin_storage_delete,
+        commands::plugin_fetch,
     ]
 }
 
@@ -716,6 +730,28 @@ pub fn run() {
                 }
             }
 
+            let native_plugins_dir = timer.time("resolve_native_plugins_dir", || {
+                // In dev mode, use the plugins dir next to Cargo.toml (src-tauri/plugins/)
+                // In production, use the bundled resources directory
+                let candidates: Vec<std::path::PathBuf> = {
+                    let mut c = Vec::new();
+                    #[cfg(debug_assertions)]
+                    c.push(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("plugins"));
+                    if let Ok(res) = app.path().resource_dir() {
+                        c.push(res.join("plugins"));
+                    }
+                    c
+                };
+                for dir in candidates {
+                    if dir.is_dir() {
+                        log::info!("Native plugins dir: {}", dir.display());
+                        return Some(dir);
+                    }
+                }
+                log::info!("No native plugins dir found");
+                None
+            });
+
             timer.time("manage_app_state", || {
                 app.manage(AppState {
                     db,
@@ -728,6 +764,7 @@ pub fn run() {
                     lastfm_importing: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     musicgateway_url: Mutex::new(None),
                     musicgateway_process: Mutex::new(None),
+                    native_plugins_dir,
                 });
             });
 

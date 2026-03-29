@@ -298,6 +298,13 @@ impl Database {
                 cached_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
             );
 
+            CREATE TABLE IF NOT EXISTS plugin_storage (
+                plugin_id  TEXT NOT NULL,
+                key        TEXT NOT NULL,
+                value      TEXT NOT NULL,
+                PRIMARY KEY (plugin_id, key)
+            );
+
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
@@ -1836,6 +1843,33 @@ impl Database {
             "INSERT OR REPLACE INTO lastfm_cache (cache_key, value, cached_at) VALUES (?1, ?2, strftime('%s', 'now'))",
             params![key, json_str],
         )?;
+        Ok(())
+    }
+
+    pub fn plugin_storage_get(&self, plugin_id: &str, key: &str) -> Result<Option<String>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT value FROM plugin_storage WHERE plugin_id = ?1 AND key = ?2",
+            params![plugin_id, key],
+            |row| row.get(0),
+        ).optional().map_err(|e| e.to_string())
+    }
+
+    pub fn plugin_storage_set(&self, plugin_id: &str, key: &str, value: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO plugin_storage (plugin_id, key, value) VALUES (?1, ?2, ?3) ON CONFLICT(plugin_id, key) DO UPDATE SET value = excluded.value",
+            params![plugin_id, key, value],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn plugin_storage_delete(&self, plugin_id: &str, key: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM plugin_storage WHERE plugin_id = ?1 AND key = ?2",
+            params![plugin_id, key],
+        ).map_err(|e| e.to_string())?;
         Ok(())
     }
 }

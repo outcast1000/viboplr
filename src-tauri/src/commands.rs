@@ -47,6 +47,7 @@ pub struct AppState {
     pub lastfm_importing: Arc<AtomicBool>,
     pub musicgateway_url: Mutex<Option<String>>,
     pub musicgateway_process: Mutex<Option<std::process::Child>>,
+    pub native_plugins_dir: Option<std::path::PathBuf>,
 }
 
 fn detect_image_format(data: &[u8]) -> &'static str {
@@ -2332,6 +2333,176 @@ pub fn install_gallery_skin(state: State<'_, AppState>, url: String) -> Result<S
     let content = skins::fetch_url(&url)?;
     let dir = skins::skins_dir(&state.app_dir);
     skins::save_skin_to_dir(&dir, &content)
+}
+
+#[tauri::command]
+pub fn plugin_get_dir(state: State<'_, AppState>) -> Result<String, String> {
+    let plugins_dir = state.app_dir.join("plugins");
+    if !plugins_dir.exists() {
+        std::fs::create_dir_all(&plugins_dir).map_err(|e| e.to_string())?;
+    }
+    Ok(plugins_dir.to_string_lossy().to_string())
+}
+
+fn scan_plugins_dir(dir: &std::path::Path, builtin: bool) -> Vec<serde_json::Value> {
+    let mut plugins = Vec::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            log::warn!("Failed to read plugins dir {}: {}", dir.display(), e);
+            return plugins;
+        }
+    };
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let manifest_path = path.join("manifest.json");
+        if !manifest_path.exists() {
+            continue;
+        }
+        match std::fs::read_to_string(&manifest_path) {
+            Ok(content) => {
+                match serde_json::from_str::<serde_json::Value>(&content) {
+                    Ok(manifest) => {
+                        let dir_name = path.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("")
+                            .to_string();
+                        plugins.push(serde_json::json!({
+                            "id": dir_name,
+                            "manifest": manifest,
+                            "builtin": builtin,
+                        }));
+                    }
+                    Err(e) => {
+                        log::warn!("Invalid manifest in plugin {}: {}", path.display(), e);
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to read manifest for plugin {}: {}", path.display(), e);
+            }
+        }
+    }
+    plugins
+}
+
+#[tauri::command]
+pub fn plugin_list_installed(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, String> {
+    let user_plugins_dir = state.app_dir.join("plugins");
+    if !user_plugins_dir.exists() {
+        std::fs::create_dir_all(&user_plugins_dir).map_err(|e| e.to_string())?;
+    }
+
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut plugins = Vec::new();
+
+    // User plugins take precedence (loaded first)
+    for p in scan_plugins_dir(&user_plugins_dir, false) {
+        if let Some(id) = p.get("id").and_then(|v| v.as_str()) {
+            seen_ids.insert(id.to_string());
+        }
+        plugins.push(p);
+    }
+
+    // Native/builtin plugins (skipped if user has same id)
+    if let Some(ref native_dir) = state.native_plugins_dir {
+        for p in scan_plugins_dir(native_dir, true) {
+            if let Some(id) = p.get("id").and_then(|v| v.as_str()) {
+                if seen_ids.contains(id) {
+                    continue; // user plugin overrides native
+                }
+            }
+            plugins.push(p);
+        }
+    }
+
+    Ok(plugins)
+}
+
+#[tauri::command]
+pub fn plugin_read_file(state: State<'_, AppState>, plugin_id: String, path: String) -> Result<String, String> {
+    // Sanitize: prevent directory traversal
+    if plugin_id.contains("..") || plugin_id.contains('/') || plugin_id.contains('\\') {
+        return Err("Invalid plugin ID".to_string());
+    }
+    if path.contains("..") || path.starts_with('/') || path.starts_with('\\') {
+        return Err("Invalid file path".to_string());
+    }
+
+    // Try user plugins first, then native plugins
+    let user_plugins_dir = state.app_dir.join("plugins");
+    let dirs: Vec<&std::path::Path> = {
+        let mut d = vec![user_plugins_dir.as_path()];
+        if let Some(ref native) = state.native_plugins_dir {
+            d.push(native.as_path());
+        }
+        d
+    };
+
+    for plugins_dir in dirs {
+        let file_path = plugins_dir.join(&plugin_id).join(&path);
+        if !file_path.exists() {
+            continue;
+        }
+        let canonical = file_path.canonicalize().map_err(|e| format!("Failed to read plugin file: {}", e))?;
+        let canonical_plugins = plugins_dir.canonicalize().map_err(|e| e.to_string())?;
+        if !canonical.starts_with(&canonical_plugins) {
+            return Err("Invalid file path".to_string());
+        }
+        return std::fs::read_to_string(&canonical).map_err(|e| format!("Failed to read plugin file: {}", e));
+    }
+
+    Err(format!("Plugin file not found: {}/{}", plugin_id, path))
+}
+
+#[tauri::command]
+pub fn plugin_storage_get(state: State<'_, AppState>, plugin_id: String, key: String) -> Result<Option<String>, String> {
+    state.db.plugin_storage_get(&plugin_id, &key)
+}
+
+#[tauri::command]
+pub fn plugin_storage_set(state: State<'_, AppState>, plugin_id: String, key: String, value: String) -> Result<(), String> {
+    state.db.plugin_storage_set(&plugin_id, &key, &value)
+}
+
+#[tauri::command]
+pub fn plugin_storage_delete(state: State<'_, AppState>, plugin_id: String, key: String) -> Result<(), String> {
+    state.db.plugin_storage_delete(&plugin_id, &key)
+}
+
+#[tauri::command]
+pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let method_str = method.as_deref().unwrap_or("GET");
+    let mut req = match method_str {
+        "POST" => client.post(&url),
+        "PUT" => client.put(&url),
+        "DELETE" => client.delete(&url),
+        "PATCH" => client.patch(&url),
+        _ => client.get(&url),
+    };
+    if let Some(hdrs) = headers {
+        for (k, v) in hdrs {
+            req = req.header(&k, &v);
+        }
+    }
+    if let Some(b) = body {
+        req = req.body(b);
+    }
+    let resp = req.send().await.map_err(|e| e.to_string())?;
+    let status = resp.status().as_u16();
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "status": status,
+        "body": text,
+    }))
 }
 
 #[cfg(test)]

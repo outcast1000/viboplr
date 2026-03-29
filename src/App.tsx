@@ -30,6 +30,7 @@ import { useVideoSplit } from "./hooks/useVideoSplit";
 import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useSkins } from "./hooks/useSkins";
+import { usePlugins } from "./hooks/usePlugins";
 import { WindowControls } from "./components/WindowControls";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
@@ -57,6 +58,7 @@ import { TidalView } from "./components/TidalView";
 import type { TidalSearchTrack } from "./types";
 import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
+import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
 import { UpgradeTrackModal } from "./components/UpgradeTrackModal";
 import { StatusBar } from "./components/StatusBar";
@@ -144,6 +146,35 @@ function App() {
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
   const videoSplit = useVideoSplit(restoredRef);
+
+  // Plugin system
+  const pluginTrackRef = useRef<Track | null>(null);
+  pluginTrackRef.current = playback.currentTrack;
+  const pluginPlayingRef = useRef(false);
+  pluginPlayingRef.current = playback.playing;
+  const pluginPositionRef = useRef(0);
+  pluginPositionRef.current = playback.positionSecs;
+  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef);
+
+  // Plugin event: track started
+  const prevTrackIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    const track = playback.currentTrack;
+    if (track && track.id !== prevTrackIdRef.current) {
+      prevTrackIdRef.current = track.id;
+      plugins.dispatchEvent("track:started", track);
+    }
+  }, [playback.currentTrack, plugins.dispatchEvent]);
+
+  // Plugin event: track played (scrobble threshold) and scrobbled
+  useEffect(() => {
+    if (!playback.scrobbled) return;
+    const track = playback.currentTrack;
+    if (!track) return;
+    plugins.dispatchEvent("track:played", track);
+    plugins.dispatchEvent("track:scrobbled", track);
+  }, [playback.scrobbled, playback.currentTrack, plugins.dispatchEvent]);
+
   // Sync currentView with library.view so debouncedTrackQuery stays up to date
   useEffect(() => { setCurrentView(library.view); }, [library.view]);
 
@@ -1493,6 +1524,7 @@ function App() {
         const cmd = newLiked === 1 ? "lastfm_love_track" : "lastfm_unlove_track";
         invoke(cmd, { trackId: track.id }).catch(console.error);
       }
+      plugins.dispatchEvent("track:liked", track, newLiked === 1);
     } catch (e) {
       console.error("Failed to toggle like:", e);
     }
@@ -1721,6 +1753,13 @@ function App() {
         }}
         onShowSettings={() => setShowSettings(true)}
         updateAvailable={updater.updateState.available !== null}
+        pluginNavItems={plugins.sidebarItems}
+        onPluginView={(pluginId, viewId) => {
+          library.setView(`plugin:${pluginId}:${viewId}`);
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+        }}
       />
       <button
         className="sidebar-collapse-btn"
@@ -1799,6 +1838,14 @@ function App() {
           galleryError={skins.galleryError}
           onFetchGallery={skins.fetchGallery}
           onInstallFromGallery={skins.installFromGallery}
+          pluginStates={plugins.pluginStates}
+          onTogglePlugin={plugins.togglePlugin}
+          onReloadPlugin={plugins.reloadPlugin}
+          onReloadAllPlugins={plugins.reloadAllPlugins}
+          onOpenPluginsFolder={async () => {
+            const dir = await invoke<string>("plugin_get_dir");
+            await invoke("open_folder", { folderPath: dir });
+          }}
         />
       )}
 
@@ -2878,6 +2925,26 @@ function App() {
               statsMap={new Map(library.collectionStats.map(s => [s.collection_id, s]))}
             />
           )}
+          {typeof view === "string" && view.startsWith("plugin:") && (() => {
+            const parts = view.slice("plugin:".length).split(":");
+            const pluginId = parts[0];
+            const viewId = parts.slice(1).join(":");
+            const pluginState = plugins.pluginStates.find(p => p.id === pluginId);
+            const data = plugins.getViewData(pluginId, viewId);
+            return (
+              <PluginViewRenderer
+                pluginName={pluginState?.manifest.name ?? pluginId}
+                data={data}
+                currentTrack={playback.currentTrack}
+                onPlayTrack={(track) => {
+                  queueHook.playTracks([track], 0);
+                }}
+                onAction={(actionId, actionData) => {
+                  plugins.dispatchUIAction(pluginId, actionId, actionData);
+                }}
+              />
+            );
+          })()}
         </div>
 
         {/* Video splitter + player area (below content, above now-playing) */}
@@ -3020,6 +3087,8 @@ function App() {
           } : undefined}
           localCollections={localCollections}
           onClose={() => setContextMenu(null)}
+          pluginMenuItems={plugins.menuItems}
+          onPluginAction={plugins.dispatchContextMenuAction}
         />
       )}
 
