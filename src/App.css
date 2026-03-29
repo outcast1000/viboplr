@@ -994,7 +994,15 @@ body {
 .settings-about-version {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
+}
+.settings-about-link {
+  font-size: var(--fs-sm);
+  color: var(--accent);
+  text-decoration: none;
   margin-bottom: 16px;
+}
+.settings-about-link:hover {
+  text-decoration: underline;
 }
 .update-up-to-date {
   font-size: var(--fs-sm);
