@@ -2963,15 +2963,39 @@ function App() {
         <TrackPropertiesModal
           track={propertiesTrack}
           collections={library.collections}
-          libraryTracks={library.tracks}
-          tidalEnabled={tidalEnabled}
           onClose={() => setPropertiesTrack(null)}
           onYoutubeUrlChange={(trackId, url) => {
             library.setTracks(prev => prev.map(t => t.id === trackId ? { ...t, youtube_url: url } : t));
             setPropertiesTrack(prev => prev && prev.id === trackId ? { ...prev, youtube_url: url } : prev);
           }}
-          onPlayTrack={(t) => queueHook.playTracks([t], 0)}
-          onSearchTidal={(query) => { viewSearch.setQuery("tidal", query); library.setView("tidal"); }}
+          similarActions={{
+            isLocal: (artist, title) =>
+              library.tracks.some(t =>
+                t.title.toLowerCase() === title.toLowerCase() &&
+                t.artist_name?.toLowerCase() === artist.toLowerCase()
+              ),
+            onPlay: (artist, title) => {
+              const t = library.tracks.find(tr =>
+                tr.title.toLowerCase() === title.toLowerCase() &&
+                tr.artist_name?.toLowerCase() === artist.toLowerCase()
+              );
+              if (t) queueHook.playTracks([t], 0);
+            },
+            onSearchTidal: tidalEnabled
+              ? (query) => { viewSearch.setQuery("tidal", query); library.setView("tidal"); }
+              : undefined,
+            onWatchYoutube: async (artist, title) => {
+              try {
+                const result = await invoke<{ url: string; video_title: string | null }>(
+                  "search_youtube", { title, artistName: artist }
+                );
+                await openUrl(result.url);
+              } catch {
+                const q = encodeURIComponent(`${title} ${artist}`);
+                await openUrl(`https://www.youtube.com/results?search_query=${q}`);
+              }
+            },
+          }}
         />
       )}
 
