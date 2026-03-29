@@ -66,14 +66,25 @@
     ]
   },
   {
+    "label": "Skins",
+    "heading": "Make it yours",
+    "description": "Choose from 8 built-in skins or install community skins from the gallery. Import your own JSON skin files with 13 customizable color tokens and optional custom CSS.",
+    "items": [
+      "8 built-in skins (dark &amp; light)",
+      "Community skin gallery",
+      "13 color tokens for full UI theming",
+      "Import custom JSON skins"
+    ]
+  },
+  {
     "label": "Discovery",
     "heading": "Rediscover your own music",
-    "description": "Smart auto-continue picks the next track using weighted strategies &mdash; play history, liked tracks, genre affinity, and more. Your library, surfaced in new ways.",
+    "description": "Smart auto-continue picks the next track using weighted strategies. Last.fm integration surfaces similar artists, similar tracks, artist bios, and community tags &mdash; all cached locally for instant access.",
     "items": [
-      "Auto-continue with smart selection",
-      "Weighted playback strategies",
-      "Play history tracking",
-      "Liked tracks &amp; favorites"
+      "Auto-continue with weighted strategies",
+      "Similar tracks &amp; artists via Last.fm",
+      "Artist bios &amp; album descriptions",
+      "Community tag suggestions &amp; scrobble history"
     ]
   }
 ]
