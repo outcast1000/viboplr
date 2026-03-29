@@ -1,0 +1,21 @@
+{
+  "name": "OLED Black",
+  "author": "Viboplr",
+  "version": "1.0.0",
+  "type": "dark",
+  "colors": {
+    "bg-primary": "#000000",
+    "bg-secondary": "#0a0a0a",
+    "bg-surface": "#1a1a1a",
+    "bg-hover": "#252525",
+    "text-primary": "#e0e0e0",
+    "text-secondary": "#808080",
+    "accent": "#53a8ff",
+    "accent-dim": "#3a7bd5",
+    "border": "#1a1a1a",
+    "now-playing-bg": "#000000",
+    "success": "#4caf50",
+    "error": "#f44336",
+    "warning": "#ff9500"
+  }
+}

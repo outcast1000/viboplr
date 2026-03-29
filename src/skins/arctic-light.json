@@ -1,0 +1,21 @@
+{
+  "name": "Arctic Light",
+  "author": "Viboplr",
+  "version": "1.0.0",
+  "type": "light",
+  "colors": {
+    "bg-primary": "#f5f5f7",
+    "bg-secondary": "#e8e8ed",
+    "bg-surface": "#d1d1d6",
+    "bg-hover": "#c7c7cc",
+    "text-primary": "#1d1d1f",
+    "text-secondary": "#6e6e73",
+    "accent": "#0071e3",
+    "accent-dim": "#0058b0",
+    "border": "#d2d2d7",
+    "now-playing-bg": "#f2f2f7",
+    "success": "#34c759",
+    "error": "#ff3b30",
+    "warning": "#ff9500"
+  }
+}
