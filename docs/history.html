@@ -66,6 +66,43 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.3.23</span>
+          <span class="timeline-date">March 29, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>improve download modal with track list, format picker, custom folder support</li>
+          <li>implement clamped position for context menu to prevent overflow</li>
+          <li>replace built-in TidalClient with MusicGateAway integration</li>
+          <li>URI-based M3U save/load and show_in_folder for queue tracks</li>
+          <li>resolve playback source from location URI instead of DB lookup</li>
+          <li>persist and restore queue as QueueEntry[] with location URIs</li>
+          <li>add QueueEntry utilities for URI-based queue persistence</li>
+          <li>add resolve_subsonic_location and get_tracks_by_paths commands</li>
+          <li>show per-collection statistics in collection cards</li>
+          <li>replace --data-dir with Chrome-like profile system</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>keep TidalView mounted to preserve state across view switches</li>
+          </ul>
+          <h4>Other</h4>
+          <ul>
+          <li>Reset scroll position when view search query changes</li>
+          <li>Hide window during mini mode transition to avoid UI flash</li>
+          <li>Split mini player drag handling by platform</li>
+          <li>Fix mini player double-click to restore on Windows</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.3.23/Viboplr_0.3.23_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.3.23_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.3.23/Viboplr_0.3.23_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.3.23_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.3.22</span>
           <span class="timeline-date">March 28, 2026</span>
         </div>
