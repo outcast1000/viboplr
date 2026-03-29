@@ -1,6 +1,6 @@
 // src/skinUtils.ts
 import { SKIN_COLOR_KEYS } from "./types/skin";
-import type { SkinColors, SkinJson } from "./types/skin";
+import type { SkinColors } from "./types/skin";
 
 const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const MAX_CUSTOM_CSS = 10240; // 10KB
