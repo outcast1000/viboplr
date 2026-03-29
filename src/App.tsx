@@ -2632,9 +2632,9 @@ function App() {
             </>
           )}
 
-          {/* TIDAL view */}
-          {view === "tidal" && tidalEnabled && (
-            <>
+          {/* TIDAL view — kept mounted to preserve state across view switches */}
+          {tidalEnabled && (
+            <div style={{ display: view === "tidal" ? "contents" : "none" }}>
               <ViewSearchBar
                 query={viewSearch.getQuery("tidal")}
                 onQueryChange={(q) => viewSearch.setQuery("tidal", q)}
@@ -2647,7 +2647,7 @@ function App() {
                 downloadFormat={downloadFormat}
                 localCollections={localCollections}
               />
-            </>
+            </div>
           )}
 
           {/* Collections view */}
