@@ -2393,6 +2393,11 @@ body {
   flex: 3;
   display: flex;
   align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.col-title-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

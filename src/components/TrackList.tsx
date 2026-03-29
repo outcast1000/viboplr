@@ -366,7 +366,7 @@ export function TrackList({
       case "title":
         return (
           <span key="title" className="col-title">
-            {t.title}
+            <span className="col-title-text">{t.title}</span>
             {t.youtube_url && (
               <span
                 className="track-youtube-link"
