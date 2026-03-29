@@ -1,5 +1,3 @@
-// Skin/theme system types
-
 export const SKIN_COLOR_KEYS = [
   "bg-primary",
   "bg-secondary",
@@ -29,10 +27,28 @@ export interface SkinJson {
   customCSS?: string;
 }
 
-export interface StoredSkin extends SkinJson {
+export interface SkinInfo {
   id: string;
-  slug: string;
-  enabled: boolean;
-  createdAt: number;
-  updatedAt: number;
+  name: string;
+  author: string;
+  type: "dark" | "light";
+  version: string;
+  source: "builtin" | "user";
+  colors: SkinColors;
+  customCSS?: string;
+}
+
+export interface GallerySkinEntry {
+  id: string;
+  name: string;
+  author: string;
+  type: "dark" | "light";
+  version: string;
+  file: string;
+  colors: [string, string, string, string];
+}
+
+export interface GalleryIndex {
+  version: number;
+  skins: GallerySkinEntry[];
 }
