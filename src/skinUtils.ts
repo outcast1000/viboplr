@@ -41,9 +41,24 @@ export function sanitizeCustomCSS(css: string): string {
     .replace(/url\s*\([^)]*\)/gi, "");
 }
 
+function hexToRgb(hex: string): string {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map(c => c + c).join("") : h;
+  const n = parseInt(full, 16);
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+}
+
+const RGB_DERIVED_KEYS = ["accent", "now-playing-bg"];
+
 export function generateSkinCSS(colors: SkinColors, customCSS?: string): string {
   const vars = Object.entries(colors)
-    .map(([key, value]) => `  --${key}: ${value};`)
+    .map(([key, value]) => {
+      let line = `  --${key}: ${value};`;
+      if (RGB_DERIVED_KEYS.includes(key)) {
+        line += `\n  --${key}-rgb: ${hexToRgb(value)};`;
+      }
+      return line;
+    })
     .join("\n");
   let css = `:root {\n${vars}\n}`;
   if (customCSS) {

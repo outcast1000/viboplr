@@ -6,9 +6,11 @@
   --text-primary: #e0e0e0;
   --text-secondary: #a0a0b0;
   --accent: #53a8ff;
+  --accent-rgb: 83, 168, 255;
   --accent-dim: #3a7bd5;
   --border: #2a2a4a;
   --now-playing-bg: #0d1b2a;
+  --now-playing-bg-rgb: 13, 27, 42;
   --success: #4caf50;
   --error: #f44336;
   --warning: #ff9500;
@@ -212,7 +214,7 @@ body {
 }
 
 .collection-kind-local {
-  background: rgba(83, 168, 255, 0.15);
+  background: rgba(var(--accent-rgb), 0.15);
   color: var(--accent);
 }
 
@@ -1218,7 +1220,7 @@ body {
   letter-spacing: 0.5px;
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(83, 168, 255, 0.15);
+  background: rgba(var(--accent-rgb), 0.15);
   color: var(--accent);
   font-weight: 600;
 }
@@ -2310,11 +2312,11 @@ body {
 
 .track-row.playing {
   color: var(--accent);
-  background: rgba(83, 168, 255, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 
 .track-row.selected {
-  background: rgba(83, 168, 255, 0.15);
+  background: rgba(var(--accent-rgb), 0.15);
   border-left: 3px solid var(--accent);
   padding-left: 13px;
 }
@@ -2340,6 +2342,7 @@ body {
 
 .col-header-sort {
   flex-shrink: 0;
+  margin-left: 4px;
 }
 
 .col-like {
@@ -2997,7 +3000,7 @@ body {
 }
 
 .ac-toggle-indicator.ac-on {
-  background: rgba(83, 168, 255, 0.2);
+  background: rgba(var(--accent-rgb), 0.2);
   color: var(--accent);
 }
 
@@ -4274,11 +4277,11 @@ body {
 }
 
 .queue-item.queue-current {
-  background: rgba(83, 168, 255, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 
 .queue-item.selected {
-  background: rgba(83, 168, 255, 0.15);
+  background: rgba(var(--accent-rgb), 0.15);
   border-left: 3px solid var(--accent);
   padding-left: 13px;
 }
@@ -4390,7 +4393,7 @@ body {
 }
 
 .queue-empty.drop-highlight {
-  background: rgba(83, 168, 255, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
   color: var(--accent);
 }
 
@@ -4542,7 +4545,7 @@ body {
   height: 52px;
   min-height: 0;
   border-top: none;
-  background: rgba(13, 27, 42, 0.82);
+  background: rgba(var(--now-playing-bg-rgb), 0.82);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgba(var(--overlay-base), 0.08);
@@ -4884,7 +4887,7 @@ body {
 }
 
 .tidal-track-selected {
-  background: rgba(83, 168, 255, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 
 .tidal-track-checkbox {
@@ -5570,7 +5573,7 @@ body {
   gap: 8px;
   padding: 10px 20px;
   margin-top: 4px;
-  background: rgba(83, 168, 255, 0.06);
+  background: rgba(var(--accent-rgb), 0.06);
   border-top: 1px solid var(--border);
 }
 
@@ -5593,7 +5596,7 @@ body {
 }
 
 .modal-status-ok {
-  background: rgba(83, 168, 255, 0.15);
+  background: rgba(var(--accent-rgb), 0.15);
   color: var(--accent);
 }
 
@@ -5603,7 +5606,7 @@ body {
 }
 
 .collection-kind-tidal {
-  background: rgba(83, 168, 255, 0.2);
+  background: rgba(var(--accent-rgb), 0.2);
   color: var(--accent);
 }
 
