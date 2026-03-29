@@ -6,9 +6,12 @@ interface ViewSearchBarProps {
   onQueryChange: (q: string) => void;
   placeholder: string;
   children?: ReactNode;
+  onArrowDown?: () => void;
+  onArrowUp?: () => void;
+  onEnter?: () => void;
 }
 
-export function ViewSearchBar({ query, onQueryChange, placeholder, children }: ViewSearchBarProps) {
+export function ViewSearchBar({ query, onQueryChange, placeholder, children, onArrowDown, onArrowUp, onEnter }: ViewSearchBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
@@ -42,6 +45,15 @@ export function ViewSearchBar({ query, onQueryChange, placeholder, children }: V
             if (e.key === "Escape") {
               onQueryChange("");
               inputRef.current?.blur();
+            } else if (e.key === "ArrowDown") {
+              e.preventDefault();
+              onArrowDown?.();
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              onArrowUp?.();
+            } else if (e.key === "Enter") {
+              e.preventDefault();
+              onEnter?.();
             }
           }}
         />

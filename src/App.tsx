@@ -68,6 +68,11 @@ function App() {
   const [appRestoring, setAppRestoring] = useState(true);
   const trackListRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const getScrollEl = useCallback(() => {
+    const el = contentRef.current;
+    if (!el) return null;
+    return el.querySelector<HTMLElement>('.track-list, .entity-list, .entity-table, .album-grid, .artist-detail, .history-view, .tidal-view, .collections-view');
+  }, []);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HistoryViewHandle>(null);
   const previousVolumeRef = useRef(1.0);
@@ -145,8 +150,9 @@ function App() {
   // Reset scroll position when the view search query changes
   const currentSearchQuery = viewSearch.getQuery(library.view);
   useEffect(() => {
-    if (contentRef.current) contentRef.current.scrollTop = 0;
-  }, [currentSearchQuery]);
+    const sc = getScrollEl();
+    if (sc) sc.scrollTop = 0;
+  }, [currentSearchQuery, getScrollEl]);
 
   const centralSearch = useCentralSearch({
     onPlayTrack: (track) => {
@@ -330,11 +336,12 @@ function App() {
     viewSearch.restore(s.viewSearchQueries);
     // Restore scroll position after React renders the new view
     requestAnimationFrame(() => {
-      if (contentRef.current) contentRef.current.scrollTop = s.scrollTop;
+      const sc = getScrollEl();
+      if (sc) sc.scrollTop = s.scrollTop;
     });
-  }, [library.setView, library.setSelectedArtist, library.setSelectedAlbum, library.setSelectedTag, viewSearch.restore]);
+  }, [library.setView, library.setSelectedArtist, library.setSelectedAlbum, library.setSelectedTag, viewSearch.restore, getScrollEl]);
 
-  const getScrollTop = useCallback(() => contentRef.current?.scrollTop ?? 0, []);
+  const getScrollTop = useCallback(() => getScrollEl()?.scrollTop ?? 0, [getScrollEl]);
 
   const { pushState, goBack, goForward, canGoBack, canGoForward } = useNavigationHistory(
     {
@@ -352,8 +359,9 @@ function App() {
   // Used by all navigation triggers (sidebar, keyboard, click handlers).
   const pushAndScroll = useCallback(() => {
     pushState();
-    if (contentRef.current) contentRef.current.scrollTop = 0;
-  }, [pushState]);
+    const sc = getScrollEl();
+    if (sc) sc.scrollTop = 0;
+  }, [pushState, getScrollEl]);
   beforeNavRef.current = pushAndScroll;
 
   const goBackRef = useRef(goBack);
@@ -1581,6 +1589,68 @@ function App() {
   const hasTidal = tidalEnabled;
   const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name, path: c.path ?? "" }));
 
+  // Arrow key navigation helpers for search bars
+  function scrollHighlightedIntoView(selector: string) {
+    requestAnimationFrame(() => {
+      const el = contentRef.current?.querySelector(selector + ' .highlighted') as HTMLElement | null;
+      el?.scrollIntoView({ block: "nearest" });
+    });
+  }
+
+  function makeSearchNav(
+    listLength: number,
+    getIndex: () => number,
+    setIndex: (i: number) => void,
+    onEnter: (i: number) => void,
+    scrollSelector: string,
+  ) {
+    return {
+      onArrowDown: () => { const next = Math.min(getIndex() + 1, listLength - 1); setIndex(next); scrollHighlightedIntoView(scrollSelector); },
+      onArrowUp: () => { const next = Math.max(getIndex() - 1, 0); setIndex(next); scrollHighlightedIntoView(scrollSelector); },
+      onEnter: () => { const i = getIndex(); if (i >= 0 && i < listLength) onEnter(i); },
+    };
+  }
+
+  const artistSearchNav = makeSearchNav(
+    filteredArtists.length,
+    () => highlightedListIndex,
+    library.setHighlightedListIndex,
+    (i) => library.handleArtistClick(filteredArtists[i].id),
+    '.entity-table, .entity-list, .album-grid',
+  );
+
+  const albumSearchNav = makeSearchNav(
+    filteredAlbums.length,
+    () => highlightedListIndex,
+    library.setHighlightedListIndex,
+    (i) => library.handleAlbumClick(filteredAlbums[i].id),
+    '.entity-table, .entity-list, .album-grid',
+  );
+
+  const tagSearchNav = makeSearchNav(
+    filteredTags.length,
+    () => highlightedListIndex,
+    library.setHighlightedListIndex,
+    (i) => { pushAndScroll(); library.setSelectedTag(filteredTags[i].id); library.setView("all"); },
+    '.entity-table, .entity-list, .album-grid',
+  );
+
+  const trackSearchNav = makeSearchNav(
+    sortedTracks.length,
+    () => highlightedIndex,
+    library.setHighlightedIndex,
+    (i) => queueHook.playTracks(sortedTracks, i),
+    '.track-list, .entity-list, .album-grid',
+  );
+
+  const likedSearchNav = makeSearchNav(
+    sortedTracks.length,
+    () => highlightedIndex,
+    library.setHighlightedIndex,
+    (i) => queueHook.playTracks(sortedTracks, i),
+    '.track-list, .entity-list, .album-grid',
+  );
+
   return (
     <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
@@ -1867,6 +1937,7 @@ function App() {
                 query={viewSearch.getQuery("artists")}
                 onQueryChange={(q) => viewSearch.setQuery("artists", q)}
                 placeholder="Search artists..."
+                {...artistSearchNav}
               />
 
               {/* Artists: Basic view */}
@@ -2116,6 +2187,7 @@ function App() {
                 query={viewSearch.getQuery("albums")}
                 onQueryChange={(q) => viewSearch.setQuery("albums", q)}
                 placeholder="Search albums..."
+                {...albumSearchNav}
               />
 
               {/* Albums: Basic view */}
@@ -2246,6 +2318,7 @@ function App() {
                 query={viewSearch.getQuery("tags")}
                 onQueryChange={(q) => viewSearch.setQuery("tags", q)}
                 placeholder="Search tags..."
+                {...tagSearchNav}
               />
 
               {/* Tags: Basic view */}
@@ -2477,6 +2550,7 @@ function App() {
                 query={viewSearch.getQuery("all")}
                 onQueryChange={(q) => viewSearch.setQuery("all", q)}
                 placeholder="Search tracks..."
+                {...trackSearchNav}
               />
 
               {/* Tracks: Basic view */}
@@ -2651,6 +2725,7 @@ function App() {
                 query={viewSearch.getQuery("liked")}
                 onQueryChange={(q) => viewSearch.setQuery("liked", q)}
                 placeholder="Search liked tracks..."
+                {...likedSearchNav}
               />
 
               {/* Liked: Basic view */}

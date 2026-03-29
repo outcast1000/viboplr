@@ -381,6 +381,9 @@ body {
 /* Collections view (main content) */
 .collections-view {
   padding: 16px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .collections-empty {
@@ -1822,8 +1825,19 @@ body {
 
 .content {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.content > .track-list,
+.content > .entity-list,
+.content > .entity-table,
+.content > .album-grid {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 /* Breadcrumb */
@@ -3034,8 +3048,9 @@ body {
 
 /* Artist detail view */
 .artist-detail {
+  flex: 1;
   overflow-y: auto;
-  height: 100%;
+  min-height: 0;
 }
 
 .artist-header {
@@ -4679,8 +4694,9 @@ body {
 /* History view */
 .history-view {
   padding: 0 0 16px;
+  flex: 1;
   overflow-y: auto;
-  height: 100%;
+  min-height: 0;
 }
 
 .history-section {
@@ -4959,8 +4975,9 @@ body {
 .tidal-view {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
   overflow: hidden;
+  min-height: 0;
 }
 
 .tidal-loading-bar {
