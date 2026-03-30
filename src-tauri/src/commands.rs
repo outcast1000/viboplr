@@ -718,6 +718,13 @@ pub fn bulk_update_tracks(
 
     // Write tags to local files
     let mut errors = Vec::new();
+    let updates = crate::tag_writer::TagUpdates {
+        artist: fields.artist_name.clone(),
+        album: fields.album_title.clone(),
+        year: fields.year.map(|y| y as u32),
+        genre: fields.tag_names.as_ref().map(|tags| tags.join(", ")),
+    };
+
     for (_track_id, path, subsonic_id, collection_id) in &track_info {
         // Skip non-local files
         if subsonic_id.is_some() {
@@ -736,13 +743,6 @@ pub fn bulk_update_tracks(
         if !file_path.exists() {
             continue;
         }
-
-        let updates = crate::tag_writer::TagUpdates {
-            artist: fields.artist_name.clone(),
-            album: fields.album_title.clone(),
-            year: fields.year.map(|y| y as u32),
-            genre: fields.tag_names.as_ref().map(|tags| tags.join(", ")),
-        };
 
         if let Err(e) = crate::tag_writer::write_tags(file_path, &updates) {
             errors.push(format!("{}: {}", path, e));

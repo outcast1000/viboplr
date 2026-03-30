@@ -1291,14 +1291,17 @@ impl Database {
                     // Pre-resolve/create all tag IDs
                     let mut tag_ids: Vec<i64> = Vec::with_capacity(tags.len());
                     for name in tags {
-                        let tag_id: i64 = conn.query_row(
+                        let tag_id: i64 = match conn.query_row(
                             "SELECT id FROM tags WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
                             params![name],
                             |row| row.get(0),
-                        ).optional()?.unwrap_or_else(|| {
-                            conn.execute("INSERT INTO tags (name) VALUES (?1)", params![name]).unwrap();
-                            conn.last_insert_rowid()
-                        });
+                        ).optional()? {
+                            Some(id) => id,
+                            None => {
+                                conn.execute("INSERT INTO tags (name) VALUES (?1)", params![name])?;
+                                conn.last_insert_rowid()
+                            }
+                        };
                         tag_ids.push(tag_id);
                     }
 
