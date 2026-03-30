@@ -51,6 +51,14 @@ pub struct AppState {
     pub native_plugins_dir: Option<std::path::PathBuf>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct BulkUpdateFields {
+    pub artist_name: Option<String>,
+    pub album_title: Option<String>,
+    pub year: Option<i32>,
+    pub tag_names: Option<Vec<String>>,
+}
+
 fn detect_image_format(data: &[u8]) -> &'static str {
     if data.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
         "png"
@@ -682,6 +690,72 @@ pub fn delete_tracks(state: State<'_, AppState>, track_ids: Vec<i64>) -> Result<
     state.db.delete_tracks_by_ids(&deleted_ids).map_err(|e| e.to_string())?;
     state.db.recompute_counts().map_err(|e| e.to_string())?;
     Ok(deleted_ids)
+}
+
+#[tauri::command]
+pub fn bulk_update_tracks(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    track_ids: Vec<i64>,
+    fields: BulkUpdateFields,
+) -> Result<Vec<String>, String> {
+    // Perform DB updates
+    let track_info = state.db.bulk_update_tracks(
+        &track_ids,
+        fields.artist_name.as_deref(),
+        fields.album_title.as_deref(),
+        fields.year,
+        fields.tag_names.as_deref(),
+    ).map_err(|e| e.to_string())?;
+
+    // Determine which collections are TIDAL (to skip file writing)
+    let tidal_collection_ids: std::collections::HashSet<i64> = state.db.get_collections()
+        .unwrap_or_default()
+        .iter()
+        .filter(|c| c.kind == "tidal")
+        .map(|c| c.id)
+        .collect();
+
+    // Write tags to local files
+    let mut errors = Vec::new();
+    for (_track_id, path, subsonic_id, collection_id) in &track_info {
+        // Skip non-local files
+        if subsonic_id.is_some() {
+            continue;
+        }
+        if let Some(cid) = collection_id {
+            if tidal_collection_ids.contains(cid) {
+                continue;
+            }
+        }
+        if path.starts_with("http://") || path.starts_with("https://") {
+            continue;
+        }
+
+        let file_path = std::path::Path::new(path);
+        if !file_path.exists() {
+            continue;
+        }
+
+        let updates = crate::tag_writer::TagUpdates {
+            artist: fields.artist_name.clone(),
+            album: fields.album_title.clone(),
+            year: fields.year.map(|y| y as u32),
+            genre: fields.tag_names.as_ref().map(|tags| tags.join(", ")),
+        };
+
+        if let Err(e) = crate::tag_writer::write_tags(file_path, &updates) {
+            errors.push(format!("{}: {}", path, e));
+        }
+    }
+
+    let _ = app.emit("bulk-edit-complete", serde_json::json!({}));
+
+    if errors.is_empty() {
+        Ok(vec![])
+    } else {
+        Ok(errors)
+    }
 }
 
 // --- Entity image commands (generic) ---
