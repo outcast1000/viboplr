@@ -6,7 +6,7 @@ const STORE_DEFAULTS = {
   selectedArtist: null,
   selectedAlbum: null,
   selectedTag: null,
-  currentTrackId: null,
+  currentTrackEntry: null,
   volume: 1.0,
   queueEntries: [],
   queueIndex: -1,

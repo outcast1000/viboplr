@@ -59,7 +59,7 @@ export function computeLocation(track: Track, collections: Collection[]): string
  */
 export function trackToQueueEntry(track: Track, collections: Collection[]): QueueEntry {
   return {
-    location: computeLocation(track, collections),
+    location: track._location ?? computeLocation(track, collections),
     title: track.title,
     artist_name: track.artist_name,
     album_title: track.album_title,
@@ -114,6 +114,7 @@ export function queueEntryToTrack(entry: QueueEntry): Track {
     youtube_url: null,
     added_at: null,
     modified_at: null,
+    _location: entry.location,
   };
 }
 

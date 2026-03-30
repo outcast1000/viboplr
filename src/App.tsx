@@ -10,7 +10,7 @@ import "./App.css";
 import type { Album, Collection, Track, View, ViewMode, ColumnConfig, SortField, SortDir } from "./types";
 import { isVideoTrack, getInitials, parseSubsonicUrl, formatDuration } from "./utils";
 import { store } from "./store";
-import { computeLocation, parseLocationScheme, queueEntryToTrack, type QueueEntry } from "./queueEntry";
+import { computeLocation, parseLocationScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext } from "./searchProviders";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
@@ -69,6 +69,8 @@ const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/
 function App() {
   const restoredRef = useRef(false);
   const [appRestoring, setAppRestoring] = useState(true);
+  const pendingRestoreTrackRef = useRef<Track | null>(null);
+  const pendingRestoreQueueRef = useRef<{ tracks: Track[]; index: number } | null>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const getScrollEl = useCallback(() => {
@@ -315,7 +317,7 @@ function App() {
   // Keep resolveTrackSrcRef up to date with collections and TIDAL override URL
   useEffect(() => {
     resolveTrackSrcRef.current = async (track: Track) => {
-      const location = computeLocation(track, library.collections);
+      const location = track._location ?? computeLocation(track, library.collections);
       const parsed = parseLocationScheme(location);
 
       if (parsed.scheme === "file") {
@@ -459,12 +461,12 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, tid, vol, qEntries, qIdx, qMode, pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedMusicGatewayUrl, savedSortBarCollapsed, savedMusicGatewayExePath, savedMusicGatewayManaged] = await timeAsync("store.restore (37 keys)", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedMusicGatewayUrl, savedSortBarCollapsed, savedMusicGatewayExePath, savedMusicGatewayManaged] = await timeAsync("store.restore (37 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
           store.get<number | null>("selectedTag"),
-          store.get<number | null>("currentTrackId"),
+          store.get<QueueEntry | null>("currentTrackEntry"),
           store.get<number>("volume"),
           store.get<QueueEntry[]>("queueEntries"),
           store.get<number>("queueIndex"),
@@ -547,45 +549,55 @@ function App() {
         }
 
         // Restore queue from QueueEntry[] — convert to Track[], re-resolve file:// from DB
+        console.log("[restore] raw savedTrackEntry:", JSON.stringify(savedTrackEntry));
+        console.log("[restore] raw queueEntries:", queueEntries?.length ?? 0, "qIdx:", qIdx);
         let restoredTracks: Track[] = [];
         if (queueEntries?.length) {
           const entries = queueEntries as QueueEntry[];
+          console.log("[restore] queue entries locations:", entries.map(e => e.location));
           const minimalTracks = entries.map(e => queueEntryToTrack(e));
+          console.log("[restore] minimalTracks from queueEntryToTrack:", minimalTracks.map(t => ({ id: t.id, title: t.title, path: t.path })));
 
           // Collect file:// paths for bulk DB lookup to get full metadata (id, album_id, etc.)
           const filePaths = entries
             .filter(e => e.location.startsWith("file://"))
             .map(e => e.location.slice(7));
+          console.log("[restore] filePaths for DB lookup:", filePaths.length);
 
           let dbTracks: Track[] = [];
           if (filePaths.length > 0) {
             dbTracks = await invoke<Track[]>("get_tracks_by_paths", { paths: filePaths }).catch(() => []);
           }
+          console.log("[restore] dbTracks found:", dbTracks.length);
           const dbByPath = new Map(dbTracks.map(t => [t.path, t]));
 
           restoredTracks = minimalTracks.map((t, i) => {
             const entry = entries[i];
             if (entry.location.startsWith("file://")) {
               const dbTrack = dbByPath.get(t.path);
+              console.log("[restore] queue[" + i + "] file:// path=" + t.path, "dbMatch:", !!dbTrack);
               return dbTrack ?? t; // prefer DB version for full metadata
             }
+            console.log("[restore] queue[" + i + "] non-file location=" + entry.location);
             return t; // subsonic/tidal: use reconstructed track
           });
         }
 
-        // Restore current track (use first queue entry at saved index if possible)
+        // Restore current track from queue or saved entry (no DB ID lookup)
         const idx = qIdx ?? -1;
         const currentFromQueue = idx >= 0 && idx < restoredTracks.length ? restoredTracks[idx] : null;
-        const restoredTrack = currentFromQueue ?? (tid ? await invoke<Track>("get_track_by_id", { trackId: tid }).catch(() => null) : null);
+        console.log("[restore] idx:", idx, "currentFromQueue:", currentFromQueue ? { id: currentFromQueue.id, title: currentFromQueue.title, path: currentFromQueue.path } : null);
+        const restoredTrack = currentFromQueue ?? (savedTrackEntry ? queueEntryToTrack(savedTrackEntry) : null);
+        console.log("[restore] restoredTrack:", restoredTrack ? { id: restoredTrack.id, title: restoredTrack.title, path: restoredTrack.path, artist_name: restoredTrack.artist_name } : null);
 
+        // Store in refs — state will be applied in a separate effect after appRestoring flips
         if (restoredTrack) {
-          playback.setCurrentTrack(restoredTrack);
-          playback.setPositionSecs(pos ?? 0);
-          playback.setDurationSecs(restoredTrack.duration_secs ?? 0);
+          pendingRestoreTrackRef.current = restoredTrack;
+          console.log("[restore] saved restoredTrack to ref");
         }
         if (restoredTracks.length) {
-          queueHook.setQueue(restoredTracks);
-          queueHook.setQueueIndex(idx >= 0 && idx < restoredTracks.length ? idx : -1);
+          pendingRestoreQueueRef.current = { tracks: restoredTracks, index: idx >= 0 && idx < restoredTracks.length ? idx : -1 };
+          console.log("[restore] saved queue to ref, length:", restoredTracks.length, "index:", idx);
         }
 
         if (qMode && ["normal", "loop", "shuffle"].includes(qMode)) {
@@ -654,6 +666,36 @@ function App() {
       await timeAsync("loadLibrary", () => library.loadLibrary());
     })();
   }, []);
+
+  // Apply pending restore state once appRestoring flips to false
+  useEffect(() => {
+    if (appRestoring) return;
+    const track = pendingRestoreTrackRef.current;
+    const queue = pendingRestoreQueueRef.current;
+    console.log("[restore-apply] appRestoring=false, pendingTrack:", track ? { id: track.id, title: track.title } : null, "pendingQueue:", queue ? queue.tracks.length : null);
+    if (track) {
+      playback.setCurrentTrack(track);
+      playback.setDurationSecs(track.duration_secs ?? 0);
+      pendingRestoreTrackRef.current = null;
+      console.log("[restore-apply] called setCurrentTrack + setDurationSecs");
+    }
+    if (queue) {
+      queueHook.setQueue(queue.tracks);
+      queueHook.setQueueIndex(queue.index);
+      pendingRestoreQueueRef.current = null;
+      console.log("[restore-apply] called setQueue + setQueueIndex");
+    }
+  }, [appRestoring]);
+
+  // Persist current track as QueueEntry (location + metadata, no DB IDs)
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    if (playback.currentTrack) {
+      store.set("currentTrackEntry", trackToQueueEntry(playback.currentTrack, library.collections));
+    } else {
+      store.set("currentTrackEntry", null);
+    }
+  }, [playback.currentTrack]);
 
   useEffect(() => {
     const unlisten = listen("lastfm-auth-error", async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import { isVideoTrack, shouldScrobble } from "../utils";
 import { store } from "../store";
@@ -112,7 +112,10 @@ export function usePlayback(
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
 
-  useEffect(() => { if (restoredRef.current) store.set("currentTrackId", currentTrack?.id ?? null); }, [currentTrack]);
+  // positionSecs persisted by its own effect below; currentTrack persisted by App.tsx as QueueEntry
+  useEffect(() => {
+    console.log("[usePlayback] currentTrack state changed:", currentTrack ? { id: currentTrack.id, title: currentTrack.title, path: currentTrack.path } : null);
+  }, [currentTrack]);
   useEffect(() => { if (restoredRef.current) store.set("positionSecs", positionSecs); }, [positionSecs]);
   useEffect(() => { if (restoredRef.current) store.set("volume", volume); }, [volume]);
 
@@ -381,55 +384,15 @@ export function usePlayback(
     const el = getMediaElement();
     if (!el) return;
     if (el.paused) {
+      // If no source loaded (e.g. restored track), do a full play
+      if (!el.src || el.readyState === 0) {
+        if (currentTrack) handlePlay(currentTrack);
+        return;
+      }
       el.play();
     } else {
       cancelCrossfade();
       el.pause();
-    }
-  }
-
-  async function handleRestore(track: Track, position: number, pathOverride?: string) {
-    try {
-      let src: string;
-      if (pathOverride) {
-        src = track.subsonic_id ? pathOverride : convertFileSrc(pathOverride);
-      } else {
-        src = await resolveTrackSrcRef.current(track);
-      }
-
-      setCurrentTrack(track);
-      setCurrentAssetUrl(src);
-      setPositionSecs(position);
-      setDurationSecs(track.duration_secs ?? 0);
-      scrobbledRef.current = false;
-      setScrobbled(false);
-      playStartedAtRef.current = Math.floor(Date.now() / 1000);
-
-      // Always restore to slot A
-      setActiveSlot("A");
-      activeSlotRef.current = "A";
-
-      const loadInto = (el: HTMLMediaElement) => {
-        el.src = src;
-        el.volume = volumeRef.current;
-        el.currentTime = position;
-      };
-
-      if (isVideoTrack(track)) {
-        if (videoRef.current) {
-          loadInto(videoRef.current);
-        } else {
-          pendingSrcRef.current = src;
-          pendingAutoPlayRef.current = false;
-          pendingSeekRef.current = position;
-        }
-      } else {
-        if (audioRefA.current) {
-          loadInto(audioRefA.current);
-        }
-      }
-    } catch (e) {
-      console.error("Restore error:", e);
     }
   }
 
@@ -587,7 +550,7 @@ export function usePlayback(
     activeSlot,
     audioRefA, audioRefB, videoRef,
     getMediaElement,
-    handlePlay, handlePlayUrl, handlePause, handleStop, handleRestore,
+    handlePlay, handlePlayUrl, handlePause, handleStop,
     handleVolume, handleSeek,
     handleGaplessNext, invalidatePreload,
     onTimeUpdate, onLoadedMetadata, onPlay, onPause, onMediaError,

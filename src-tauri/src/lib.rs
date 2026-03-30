@@ -733,6 +733,13 @@ pub fn run() {
                                 x >= *mx && x < *mx2 && y >= *my && y < *my2
                             })
                         };
+                        // Find the monitor containing a point, or the first monitor as fallback
+                        let monitor_at = |x: f64, y: f64| -> Option<(f64, f64, f64, f64)> {
+                            monitors.iter()
+                                .find(|(mx, my, mx2, my2)| x >= *mx && x < *mx2 && y >= *my && y < *my2)
+                                .or(monitors.first())
+                                .copied()
+                        };
 
                         let is_mini = json.get("miniMode").and_then(|v| v.as_bool()).unwrap_or(false);
                         if is_mini {
@@ -750,19 +757,38 @@ pub fn run() {
                             let _ = window.set_resizable(false);
                             let _ = window.set_decorations(false);
                         } else {
-                            if let (Some(w), Some(h)) = (
-                                json.get("windowWidth").and_then(|v| v.as_f64()),
-                                json.get("windowHeight").and_then(|v| v.as_f64()),
-                            ) {
+                            let saved_w = json.get("windowWidth").and_then(|v| v.as_f64());
+                            let saved_h = json.get("windowHeight").and_then(|v| v.as_f64());
+                            let saved_x = json.get("windowX").and_then(|v| v.as_f64());
+                            let saved_y = json.get("windowY").and_then(|v| v.as_f64());
+
+                            // Determine target monitor from saved position, or use first monitor
+                            let target = saved_x.zip(saved_y)
+                                .and_then(|(x, y)| monitor_at(x, y))
+                                .or(monitors.first().copied());
+
+                            if let (Some(mut w), Some(mut h)) = (saved_w, saved_h) {
                                 if w > 0.0 && h > 0.0 {
+                                    // Clamp size to target monitor bounds
+                                    if let Some((mx, my, mx2, my2)) = target {
+                                        let mw = mx2 - mx;
+                                        let mh = my2 - my;
+                                        if w > mw { w = mw; }
+                                        if h > mh { h = mh; }
+                                    }
                                     let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: w, height: h }));
                                 }
                             }
-                            if let (Some(x), Some(y)) = (
-                                json.get("windowX").and_then(|v| v.as_f64()),
-                                json.get("windowY").and_then(|v| v.as_f64()),
-                            ) {
+
+                            if let (Some(mut x), Some(mut y)) = (saved_x, saved_y) {
                                 if is_visible(x, y) {
+                                    // Ensure the window doesn't extend beyond the monitor
+                                    if let Some((mx, _my, mx2, my2)) = target {
+                                        let w = saved_w.unwrap_or(800.0).min(mx2 - mx);
+                                        let h = saved_h.unwrap_or(600.0).min(my2 - _my);
+                                        if x + w > mx2 { x = (mx2 - w).max(mx); }
+                                        if y + h > my2 { y = (my2 - h).max(_my); }
+                                    }
                                     let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
                                 }
                             }
