@@ -1135,6 +1135,240 @@ impl Database {
         Ok(())
     }
 
+    /// Bulk update metadata fields on multiple tracks in a single transaction.
+    /// Returns Vec of (track_id, path, subsonic_id, collection_id) for file writing.
+    pub fn bulk_update_tracks(
+        &self,
+        track_ids: &[i64],
+        artist_name: Option<&str>,
+        album_title: Option<&str>,
+        year: Option<i32>,
+        tag_names: Option<&[String]>,
+    ) -> SqlResult<Vec<(i64, String, Option<String>, Option<i64>)>> {
+        if track_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+
+        let result = {
+            let conn = self.conn.lock().unwrap();
+            conn.execute_batch("BEGIN")?;
+
+            let inner = (|| -> SqlResult<Vec<(i64, String, Option<String>, Option<i64>)>> {
+                // Step 1: Artist
+                let new_artist_id: Option<i64> = if let Some(name) = artist_name {
+                    let existing: Option<i64> = conn.query_row(
+                        "SELECT id FROM artists WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
+                        params![name],
+                        |row| row.get(0),
+                    ).optional()?;
+                    let aid = match existing {
+                        Some(id) => id,
+                        None => {
+                            conn.execute("INSERT INTO artists (name) VALUES (?1)", params![name])?;
+                            conn.last_insert_rowid()
+                        }
+                    };
+                    for chunk in track_ids.chunks(500) {
+                        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                        let sql = format!("UPDATE tracks SET artist_id = ?1 WHERE id IN ({})", placeholders);
+                        let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(aid)];
+                        all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
+                        let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+                        conn.execute(&sql, param_refs.as_slice())?;
+                    }
+                    Some(aid)
+                } else {
+                    None
+                };
+
+                // Step 2: Album
+                if let Some(title) = album_title {
+                    if let Some(aid) = new_artist_id {
+                        // All tracks share the new artist — create one album
+                        let album_year = year.or_else(|| {
+                            // Try to get year from first track's current album
+                            conn.query_row(
+                                "SELECT al.year FROM tracks t JOIN albums al ON t.album_id = al.id WHERE t.id = ?1 AND al.year IS NOT NULL",
+                                params![track_ids[0]],
+                                |row| row.get(0),
+                            ).optional().ok().flatten()
+                        });
+                        let existing_album: Option<i64> = conn.query_row(
+                            "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
+                             AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
+                            params![title, aid],
+                            |row| row.get(0),
+                        ).optional()?;
+                        let album_id = match existing_album {
+                            Some(id) => id,
+                            None => {
+                                conn.execute(
+                                    "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
+                                    params![title, aid, album_year],
+                                )?;
+                                conn.last_insert_rowid()
+                            }
+                        };
+                        for chunk in track_ids.chunks(500) {
+                            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                            let sql = format!("UPDATE tracks SET album_id = ?1 WHERE id IN ({})", placeholders);
+                            let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(album_id)];
+                            all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
+                            let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+                            conn.execute(&sql, param_refs.as_slice())?;
+                        }
+                    } else {
+                        // Artist was NOT changed — group tracks by their current artist_id
+                        let mut artist_groups: std::collections::HashMap<Option<i64>, Vec<i64>> = std::collections::HashMap::new();
+                        for chunk in track_ids.chunks(500) {
+                            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                            let sql = format!("SELECT id, artist_id FROM tracks WHERE id IN ({})", placeholders);
+                            let mut stmt = conn.prepare(&sql)?;
+                            let params: Vec<&dyn rusqlite::types::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+                            let rows = stmt.query_map(params.as_slice(), |row| {
+                                Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
+                            })?;
+                            for row in rows {
+                                let (tid, aid) = row?;
+                                artist_groups.entry(aid).or_default().push(tid);
+                            }
+                        }
+                        for (aid, tids) in &artist_groups {
+                            let album_year = year.or_else(|| {
+                                conn.query_row(
+                                    "SELECT al.year FROM tracks t JOIN albums al ON t.album_id = al.id WHERE t.id = ?1 AND al.year IS NOT NULL",
+                                    params![tids[0]],
+                                    |row| row.get(0),
+                                ).optional().ok().flatten()
+                            });
+                            let existing_album: Option<i64> = conn.query_row(
+                                "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
+                                 AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
+                                params![title, *aid],
+                                |row| row.get(0),
+                            ).optional()?;
+                            let album_id = match existing_album {
+                                Some(id) => id,
+                                None => {
+                                    conn.execute(
+                                        "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
+                                        params![title, *aid, album_year],
+                                    )?;
+                                    conn.last_insert_rowid()
+                                }
+                            };
+                            for chunk in tids.chunks(500) {
+                                let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                                let sql = format!("UPDATE tracks SET album_id = ?1 WHERE id IN ({})", placeholders);
+                                let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(album_id)];
+                                all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
+                                let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+                                conn.execute(&sql, param_refs.as_slice())?;
+                            }
+                        }
+                    }
+                }
+
+                // Step 3: Year
+                if let Some(y) = year {
+                    for chunk in track_ids.chunks(500) {
+                        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                        let sql = format!("UPDATE tracks SET year = ?1 WHERE id IN ({})", placeholders);
+                        let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(y)];
+                        all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
+                        let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+                        conn.execute(&sql, param_refs.as_slice())?;
+                    }
+                }
+
+                // Step 4: Tags
+                if let Some(tags) = tag_names {
+                    // Pre-resolve/create all tag IDs
+                    let mut tag_ids: Vec<i64> = Vec::with_capacity(tags.len());
+                    for name in tags {
+                        let tag_id: i64 = conn.query_row(
+                            "SELECT id FROM tags WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
+                            params![name],
+                            |row| row.get(0),
+                        ).optional()?.unwrap_or_else(|| {
+                            conn.execute("INSERT INTO tags (name) VALUES (?1)", params![name]).unwrap();
+                            conn.last_insert_rowid()
+                        });
+                        tag_ids.push(tag_id);
+                    }
+
+                    for &tid in track_ids {
+                        conn.execute("DELETE FROM track_tags WHERE track_id = ?1", params![tid])?;
+                        for &tag_id in &tag_ids {
+                            conn.execute(
+                                "INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?1, ?2)",
+                                params![tid, tag_id],
+                            )?;
+                        }
+                    }
+                }
+
+                // Step 5: Update modified_at
+                for chunk in track_ids.chunks(500) {
+                    let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                    let sql = format!("UPDATE tracks SET modified_at = ?1 WHERE id IN ({})", placeholders);
+                    let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(now)];
+                    all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
+                    let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+                    conn.execute(&sql, param_refs.as_slice())?;
+                }
+
+                // Step 6: Collect track info for file writing
+                let mut results: Vec<(i64, String, Option<String>, Option<i64>)> = Vec::new();
+                for chunk in track_ids.chunks(500) {
+                    let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                    let sql = format!(
+                        "SELECT id, path, subsonic_id, collection_id FROM tracks WHERE id IN ({})",
+                        placeholders
+                    );
+                    let mut stmt = conn.prepare(&sql)?;
+                    let params: Vec<&dyn rusqlite::types::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+                    let rows = stmt.query_map(params.as_slice(), |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, Option<i64>>(3)?,
+                        ))
+                    })?;
+                    for row in rows {
+                        results.push(row?);
+                    }
+                }
+
+                // Step 7: Commit
+                conn.execute_batch("COMMIT")?;
+                Ok(results)
+            })();
+
+            match inner {
+                Ok(results) => Ok(results),
+                Err(e) => {
+                    let _ = conn.execute_batch("ROLLBACK");
+                    Err(e)
+                }
+            }
+        }; // lock dropped here
+
+        // Step 7 continued: recompute counts and rebuild FTS after lock is released
+        if result.is_ok() {
+            self.recompute_counts()?;
+            self.rebuild_fts()?;
+        }
+
+        result
+    }
+
     pub fn get_tracks_by_subsonic_id(
         &self,
         subsonic_id: &str,
