@@ -88,4 +88,16 @@ export function useEventListeners(opts: EventListenerOptions) {
     };
   }, [loadLibrary, loadTracks]);
 
+  // Bulk edit events
+  useEffect(() => {
+    const unlisten = listen("bulk-edit-complete", () => {
+      loadLibrary();
+      loadTracks();
+    });
+
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, [loadLibrary, loadTracks]);
+
 }

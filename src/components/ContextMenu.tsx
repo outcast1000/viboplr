@@ -34,6 +34,7 @@ interface ContextMenuProps {
   onDownload?: (destCollectionId: number) => void;
   onUpgradeViaTidal?: () => void;
   localCollections?: { id: number; name: string }[];
+  onBulkEdit?: () => void;
   onClose: () => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
@@ -106,7 +107,8 @@ function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarget {
 
 export function ContextMenu({
   menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onShowProperties,
-  onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, onUpgradeViaTidal, localCollections, onClose,
+  onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, onUpgradeViaTidal, localCollections,
+  onBulkEdit, onClose,
   pluginMenuItems, onPluginAction,
 }: ContextMenuProps) {
   const { target } = menu;
@@ -170,6 +172,11 @@ export function ContextMenu({
       <div className="context-menu-item" onClick={() => { onEnqueue(); onClose(); }}>
         <IconEnqueue size={14} /><span>{isMulti ? `Enqueue ${target.trackIds.length} tracks` : "Enqueue"}</span>
       </div>
+      {isMulti && onBulkEdit && (
+        <div className="context-menu-item" onClick={() => { onBulkEdit(); onClose(); }}>
+          <IconInfo size={14} /><span>Edit Properties</span>
+        </div>
+      )}
       {target.kind === "track" && !target.subsonic && (
         <div className="context-menu-item" onClick={onShowInFolder}>
           <IconFolder size={14} /><span>Locate File</span>

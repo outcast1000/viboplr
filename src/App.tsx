@@ -62,6 +62,7 @@ import { EditCollectionModal } from "./components/EditCollectionModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
 import { UpgradeTrackModal } from "./components/UpgradeTrackModal";
+import BulkEditModal from "./components/BulkEditModal";
 import { StatusBar } from "./components/StatusBar";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -225,6 +226,7 @@ function App() {
     trackId: number; url: string; videoTitle: string;
   } | null>(null);
   const [propertiesTrack, setPropertiesTrack] = useState<Track | null>(null);
+  const [bulkEditTracks, setBulkEditTracks] = useState<Track[] | null>(null);
   const [upgradeTrack, setUpgradeTrack] = useState<Track | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
@@ -1242,6 +1244,14 @@ function App() {
     const { trackId } = contextMenu.target;
     const track = library.tracks.find(t => t.id === trackId);
     if (track) setPropertiesTrack(track);
+    setContextMenu(null);
+  }
+
+  function handleBulkEdit() {
+    if (!contextMenu || contextMenu.target.kind !== "multi-track") return;
+    const { trackIds } = contextMenu.target;
+    const selected = library.tracks.filter(t => trackIds.includes(t.id));
+    if (selected.length > 0) setBulkEditTracks(selected);
     setContextMenu(null);
   }
 
@@ -3172,6 +3182,7 @@ function App() {
           onShowInFolder={handleShowInFolder}
           onWatchOnYoutube={handleWatchOnYoutube}
           onShowProperties={handleShowProperties}
+          onBulkEdit={handleBulkEdit}
           onDelete={handleDeleteRequest}
           onRemoveFromQueue={handleQueueRemove}
           onMoveToTop={handleQueueMoveToTop}
@@ -3241,6 +3252,13 @@ function App() {
               }
             },
           }}
+        />
+      )}
+
+      {bulkEditTracks && (
+        <BulkEditModal
+          tracks={bulkEditTracks}
+          onClose={() => setBulkEditTracks(null)}
         />
       )}
 
