@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Track } from "../types";
 import type { PluginViewData, CardGridItem, StatItem } from "../types/plugin";
 
@@ -106,6 +107,26 @@ function PluginViewNode({
       );
     case "spacer":
       return <div className="plugin-spacer" />;
+    case "search-input":
+      return (
+        <PluginSearchInput
+          placeholder={node.placeholder}
+          action={node.action}
+          value={node.value}
+          onAction={onAction}
+        />
+      );
+    case "tabs":
+      return (
+        <PluginTabs
+          tabs={node.tabs}
+          activeTab={node.activeTab}
+          action={node.action}
+          onAction={onAction}
+        />
+      );
+    case "loading":
+      return <PluginLoading message={node.message} />;
     default:
       return null;
   }
@@ -270,6 +291,76 @@ function PluginStatsGrid({ items }: { items: StatItem[] }) {
           <div className="plugin-stat-label">{item.label}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// -- Search Input --
+
+function PluginSearchInput({
+  placeholder,
+  action,
+  value,
+  onAction,
+}: {
+  placeholder?: string;
+  action: string;
+  value?: string;
+  onAction?: (actionId: string, data?: unknown) => void;
+}) {
+  const [query, setQuery] = useState(value ?? "");
+  return (
+    <div className="plugin-search-input">
+      <input
+        type="text"
+        placeholder={placeholder ?? "Search..."}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && query.trim()) {
+            onAction?.(action, { query: query.trim() });
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+// -- Tabs --
+
+function PluginTabs({
+  tabs,
+  activeTab,
+  action,
+  onAction,
+}: {
+  tabs: { id: string; label: string }[];
+  activeTab: string;
+  action: string;
+  onAction?: (actionId: string, data?: unknown) => void;
+}) {
+  return (
+    <div className="plugin-tabs">
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          className={`plugin-tab${tab.id === activeTab ? " active" : ""}`}
+          onClick={() => onAction?.(action, { tabId: tab.id })}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// -- Loading --
+
+function PluginLoading({ message }: { message?: string }) {
+  return (
+    <div className="plugin-loading">
+      <div className="plugin-loading-spinner" />
+      {message && <div>{message}</div>}
     </div>
   );
 }

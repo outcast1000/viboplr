@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::{logged_get, write_image, AlbumImageProvider, ArtistImageProvider};
-use crate::musicgateway::{self, MusicGatewayClient};
+use crate::tidal;
 
 pub struct TidalArtistProvider;
 
@@ -11,9 +11,8 @@ impl ArtistImageProvider for TidalArtistProvider {
     }
 
     fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<String, String> {
-        let url = musicgateway::get_global_url()
-            .ok_or("MusicGateAway URL not configured")?;
-        let client = MusicGatewayClient::new(&url);
+        let client = tidal::get_global_client()
+            .ok_or("TIDAL client not available")?;
         let results = client
             .search(artist_name, 1, 0)
             .map_err(|e| format!("TIDAL artist search failed: {}", e))?;
@@ -24,7 +23,7 @@ impl ArtistImageProvider for TidalArtistProvider {
             .as_deref()
             .ok_or("TIDAL artist has no picture")?;
 
-        let image_url = musicgateway::cover_url(picture_id, 750);
+        let image_url = tidal::cover_url(picture_id, 750);
 
         let http_client = super::http_client()?;
         let bytes = logged_get(&http_client, &image_url)
@@ -50,9 +49,8 @@ impl AlbumImageProvider for TidalAlbumProvider {
         artist_name: Option<&str>,
         dest_path: &Path,
     ) -> Result<String, String> {
-        let url = musicgateway::get_global_url()
-            .ok_or("MusicGateAway URL not configured")?;
-        let client = MusicGatewayClient::new(&url);
+        let client = tidal::get_global_client()
+            .ok_or("TIDAL client not available")?;
         let query = match artist_name {
             Some(artist) => format!("{} {}", artist, album_title),
             None => album_title.to_string(),
@@ -67,7 +65,7 @@ impl AlbumImageProvider for TidalAlbumProvider {
             .as_deref()
             .ok_or("TIDAL album has no cover")?;
 
-        let image_url = musicgateway::cover_url(cover_id, 1280);
+        let image_url = tidal::cover_url(cover_id, 1280);
 
         let http_client = super::http_client()?;
         let bytes = logged_get(&http_client, &image_url)

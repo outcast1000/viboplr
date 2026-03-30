@@ -7,9 +7,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use tauri::{AppHandle, Emitter};
 
 use crate::db::Database;
-use crate::musicgateway::MusicGatewayClient;
 use crate::scanner;
 use crate::subsonic::SubsonicClient;
+use crate::tidal;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DownloadFormat {
@@ -227,51 +227,114 @@ pub fn process_download(
     manager: &Arc<DownloadManager>,
 ) -> Result<PathBuf, String> {
     // Step 1: Resolve stream URL
-    // For TIDAL, delegate to MusicGateAway (full download + tagging)
+    // For TIDAL, use the native TidalClient (direct download + tagging)
     if request.source_kind == "tidal" {
-        let mga_url = request
-            .source_override_url
-            .as_deref()
-            .ok_or("MusicGateAway URL not configured. Set it in Settings > Integrations.")?;
-        let mga_client = MusicGatewayClient::new(mga_url);
+        let tidal_client = tidal::get_global_client()
+            .ok_or("TIDAL client not available")?;
 
-        let dest_dir = {
-            let artist_dir = sanitize_filename(&request.artist_name);
-            let album_dir = sanitize_filename(&request.album_title);
-            Path::new(&request.dest_collection_path)
-                .join(artist_dir)
-                .join(album_dir)
-        };
-        std::fs::create_dir_all(&dest_dir)
-            .map_err(|e| format!("Failed to create directories: {}", e))?;
-
-        let request_id = request.id;
-        let track_title = request.track_title.clone();
-        let artist_name = request.artist_name.clone();
-        let manager_clone = manager.clone();
-        let app_clone = app.clone();
-
-        let result = mga_client
-            .download_track(
-                &request.remote_track_id,
-                dest_dir.to_str().ok_or("Invalid dest path")?,
-                request.format.tidal_quality(),
-                |stage, pct| {
-                    let status = DownloadStatus {
-                        id: request_id,
-                        track_title: track_title.clone(),
-                        artist_name: artist_name.clone(),
-                        status: stage.to_string(),
-                        progress_pct: pct,
-                        error: None,
-                    };
-                    manager_clone.set_active(Some(status.clone()));
-                    let _ = app_clone.emit("download-progress", &status);
-                },
-            )
+        // Get stream URL
+        let stream_info = tidal_client
+            .get_stream_url(&request.remote_track_id, request.format.tidal_quality())
             .map_err(|e| e.to_string())?;
 
-        let dest_path = PathBuf::from(&result.path);
+        let actual_ext = stream_info.extension();
+        let dest_path = build_dest_path(request, Some(actual_ext));
+
+        if dest_path.exists() {
+            return Err(format!("File already exists: {}", dest_path.display()));
+        }
+
+        if let Some(parent) = dest_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directories: {}", e))?;
+        }
+
+        // Download from CDN URL with progress
+        let dest_ext = dest_path.extension().and_then(|e| e.to_str()).unwrap_or("tmp");
+        let temp_path = dest_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join(format!(".viboplr-download-{}.{}", request.id, dest_ext));
+
+        let http_client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .map_err(|e| format!("HTTP client error: {}", e))?;
+
+        let resp = http_client
+            .get(&stream_info.url)
+            .send()
+            .map_err(|e| format!("Download failed: {}", e))?;
+
+        let total_bytes = resp.content_length().unwrap_or(0);
+        let mut downloaded: u64 = 0;
+        let mut last_emit = std::time::Instant::now();
+
+        let mut file = std::fs::File::create(&temp_path)
+            .map_err(|e| format!("Failed to create temp file: {}", e))?;
+
+        let mut reader = std::io::BufReader::new(resp);
+        let mut buf = [0u8; 8192];
+        loop {
+            use std::io::Read;
+            let n = reader.read(&mut buf).map_err(|e| {
+                let _ = std::fs::remove_file(&temp_path);
+                format!("Read error: {}", e)
+            })?;
+            if n == 0 {
+                break;
+            }
+            file.write_all(&buf[..n]).map_err(|e| {
+                let _ = std::fs::remove_file(&temp_path);
+                format!("Write error: {}", e)
+            })?;
+            downloaded += n as u64;
+
+            if last_emit.elapsed() >= std::time::Duration::from_millis(500) {
+                let pct = if total_bytes > 0 {
+                    ((downloaded as f64 / total_bytes as f64) * 100.0) as u8
+                } else {
+                    0
+                };
+                let status = DownloadStatus {
+                    id: request.id,
+                    track_title: request.track_title.clone(),
+                    artist_name: request.artist_name.clone(),
+                    status: "downloading".to_string(),
+                    progress_pct: pct,
+                    error: None,
+                };
+                manager.set_active(Some(status.clone()));
+                let _ = app.emit("download-progress", &status);
+                last_emit = std::time::Instant::now();
+            }
+        }
+        file.flush().map_err(|e| format!("Flush error: {}", e))?;
+        drop(file);
+
+        // Write tags + cover art
+        let tag_status = DownloadStatus {
+            id: request.id,
+            track_title: request.track_title.clone(),
+            artist_name: request.artist_name.clone(),
+            status: "writing_tags".to_string(),
+            progress_pct: 100,
+            error: None,
+        };
+        manager.set_active(Some(tag_status.clone()));
+        let _ = app.emit("download-progress", &tag_status);
+
+        if let Err(e) = write_tags(&temp_path, request, &http_client) {
+            log::warn!("Failed to write tags: {}", e);
+        }
+
+        // Move to final path
+        std::fs::rename(&temp_path, &dest_path).map_err(|e| {
+            let _ = std::fs::remove_file(&temp_path);
+            format!("Failed to move file: {}", e)
+        })?;
+
+        // Register in library
         if request.dest_collection_id > 0 {
             scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id));
 

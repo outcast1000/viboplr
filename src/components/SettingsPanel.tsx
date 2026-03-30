@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SearchProviderConfig } from "../searchProviders";
 import { DEFAULT_PROVIDERS, getDomainFromUrl } from "../searchProviders";
@@ -114,14 +113,6 @@ interface SettingsPanelProps {
   lastfmLastImportAt: number | null;
   downloadFormat: string;
   onDownloadFormatChange: (format: string) => void;
-  tidalEnabled: boolean;
-  onTidalEnabledChange: (enabled: boolean) => void;
-  musicGatewayUrl: string;
-  onMusicGatewayUrlChange: (url: string) => void;
-  musicGatewayExePath: string;
-  onMusicGatewayExePathChange: (path: string) => void;
-  musicGatewayManaged: boolean;
-  onMusicGatewayManagedChange: (managed: boolean) => void;
   // Skins
   activeSkinId: string;
   installedSkins: SkinInfo[];
@@ -152,7 +143,7 @@ interface ProviderFormData {
   trackUrl: string;
 }
 
-type SettingsTab = "general" | "skins" | "plugins" | "tidal" | "lastfm" | "providers" | "debug";
+type SettingsTab = "general" | "skins" | "plugins" | "lastfm" | "providers" | "debug";
 
 export function SettingsPanel({
   searchProviders,
@@ -187,14 +178,6 @@ export function SettingsPanel({
   lastfmLastImportAt,
   downloadFormat,
   onDownloadFormatChange,
-  tidalEnabled,
-  onTidalEnabledChange,
-  musicGatewayUrl,
-  onMusicGatewayUrlChange,
-  musicGatewayExePath,
-  onMusicGatewayExePathChange,
-  musicGatewayManaged,
-  onMusicGatewayManagedChange,
   activeSkinId,
   installedSkins,
   onApplySkin,
@@ -290,15 +273,12 @@ export function SettingsPanel({
 
   const [showImportModal, setShowImportModal] = useState(false);
 
-  const tidalIcon = <svg {...iconProps}><path d="M2 16l5-5 5 5-5 5z"/><path d="M7 11l5-5 5 5-5 5z"/><path d="M12 16l5-5 5 5-5 5z"/><path d="M12 6l5-5 5 5-5 5z"/></svg>;
-
   const skinsIcon = <svg {...iconProps}><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12" r="1.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.7 1.5-1.5 0-.4-.1-.7-.4-1-.2-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H16c3.3 0 6-2.7 6-6 0-5.5-4.5-9.5-10-9.5z"/></svg>;
 
   const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
     { key: "general", label: "General", icon: navIcons.general },
     { key: "skins", label: "Skins", icon: skinsIcon },
     { key: "plugins", label: "Plugins", icon: <svg {...iconProps}><path d="M20 8h-2.81a5.45 5.45 0 0 1-.19-1.57A3.44 3.44 0 0 0 13.56 3 3.44 3.44 0 0 0 10 6.43c0 .55.07 1.07.19 1.57H8a2 2 0 0 0-2 2v2.81c-.5-.12-1.02-.19-1.57-.19A3.44 3.44 0 0 0 1 16.06 3.44 3.44 0 0 0 4.43 19.5c.55 0 1.07-.07 1.57-.19V22a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2.69c.5.12 1.02.19 1.57.19A3.44 3.44 0 0 0 23 15.94a3.44 3.44 0 0 0-3.43-3.44c-.55 0-1.07.07-1.57.19V10a2 2 0 0 0-2-2z"/></svg> },
-    { key: "tidal", label: "TIDAL", icon: tidalIcon },
     { key: "lastfm", label: "Last.fm", icon: <>{IconLastfm({ size: 18 })}</> },
     { key: "providers", label: "Providers", icon: navIcons.providers },
     { key: "debug", label: "Debug", icon: navIcons.debug },
@@ -368,6 +348,26 @@ export function SettingsPanel({
                         <span className="settings-description">Record playback of video files</span>
                       </div>
                       <ToggleSwitch checked={trackVideoHistory} onChange={onTrackVideoHistoryChange} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="settings-group">
+                  <div className="settings-group-title">Downloads</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Download format</span>
+                        <span className="settings-description">Preferred format for saving tracks</span>
+                      </div>
+                      <select
+                        value={downloadFormat}
+                        onChange={(e) => onDownloadFormatChange(e.target.value)}
+                        className="settings-select"
+                      >
+                        <option value="flac">FLAC (Lossless)</option>
+                        <option value="aac">M4A (AAC)</option>
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -594,21 +594,6 @@ export function SettingsPanel({
                   )}
                 </div>
               </div>
-            )}
-
-            {settingsTab === "tidal" && (
-              <TidalSettingsTab
-                tidalEnabled={tidalEnabled}
-                onTidalEnabledChange={onTidalEnabledChange}
-                musicGatewayUrl={musicGatewayUrl}
-                onMusicGatewayUrlChange={onMusicGatewayUrlChange}
-                musicGatewayExePath={musicGatewayExePath}
-                onMusicGatewayExePathChange={onMusicGatewayExePathChange}
-                musicGatewayManaged={musicGatewayManaged}
-                onMusicGatewayManagedChange={onMusicGatewayManagedChange}
-                downloadFormat={downloadFormat}
-                onDownloadFormatChange={onDownloadFormatChange}
-              />
             )}
 
             {settingsTab === "lastfm" && (
@@ -922,174 +907,6 @@ export function SettingsPanel({
         </div>
       </div>
     </div>
-  );
-}
-
-function TidalSettingsTab({
-  tidalEnabled, onTidalEnabledChange,
-  musicGatewayUrl, onMusicGatewayUrlChange,
-  musicGatewayExePath, onMusicGatewayExePathChange,
-  musicGatewayManaged, onMusicGatewayManagedChange,
-  downloadFormat, onDownloadFormatChange,
-}: {
-  tidalEnabled: boolean;
-  onTidalEnabledChange: (enabled: boolean) => void;
-  musicGatewayUrl: string;
-  onMusicGatewayUrlChange: (url: string) => void;
-  musicGatewayExePath: string;
-  onMusicGatewayExePathChange: (path: string) => void;
-  musicGatewayManaged: boolean;
-  onMusicGatewayManagedChange: (managed: boolean) => void;
-  downloadFormat: string;
-  onDownloadFormatChange: (format: string) => void;
-}) {
-  const [urlDraft, setUrlDraft] = useState(musicGatewayUrl || "http://localhost:7171");
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-
-  async function handleTestConnection() {
-    const url = (urlDraft || "http://localhost:7171").trim();
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const result = await invoke<{ version: string; bin: string | null }>("musicgateway_ping", { url });
-      setTestResult({ ok: true, message: `Connected (v${result.version})` });
-      onMusicGatewayUrlChange(url);
-      if (result.bin) {
-        onMusicGatewayExePathChange(result.bin);
-      }
-    } catch (e) {
-      setTestResult({ ok: false, message: String(e) });
-    } finally {
-      setTesting(false);
-    }
-  }
-
-  return (
-    <>
-      <div className="settings-group">
-        <div className="settings-group-title">MusicGateAway</div>
-        <div className="settings-card">
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <span className="settings-label">Enable TIDAL</span>
-              <span className="settings-description">Search, stream and download from the TIDAL catalog</span>
-            </div>
-            <ToggleSwitch checked={tidalEnabled} onChange={onTidalEnabledChange} />
-          </div>
-        </div>
-        {tidalEnabled && (
-          <>
-            <div className="settings-mga-info">
-              <p>
-                TIDAL features require a{" "}
-                <a href="#" onClick={(e) => { e.preventDefault(); openUrl("https://musicgateaway.j-15.com"); }}>
-                  MusicGateAway
-                </a>{" "}
-                server. Install it from{" "}
-                <a href="#" onClick={(e) => { e.preventDefault(); openUrl("https://musicgateaway.j-15.com"); }}>
-                  musicgateaway.j-15.com
-                </a>
-                .
-              </p>
-            </div>
-
-            <div className="settings-card" style={{ marginTop: 8 }}>
-              {musicGatewayExePath && (
-                <>
-                  <div className="settings-row">
-                    <div className="settings-row-info">
-                      <span className="settings-label">Application path</span>
-                      <span className="settings-description settings-mga-path-display">
-                        {musicGatewayExePath}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="settings-card-divider" />
-                  <div className="settings-row">
-                    <div className="settings-row-info">
-                      <span className="settings-label">Manage server lifecycle</span>
-                      <span className="settings-description">Start on launch, stop on quit</span>
-                    </div>
-                    <ToggleSwitch
-                      checked={musicGatewayManaged}
-                      onChange={onMusicGatewayManagedChange}
-                    />
-                  </div>
-                  <div className="settings-card-divider" />
-                </>
-              )}
-              <div className="settings-card-divider" />
-              <div className="settings-row">
-                <div className="settings-row-info">
-                  <span className="settings-label">Connection</span>
-                  {testResult ? (
-                    <span className={`settings-description ${testResult.ok ? "settings-mga-test-ok" : "settings-mga-test-err"}`}>
-                      {testResult.message}
-                    </span>
-                  ) : (
-                    <span className="settings-description">
-                      {musicGatewayUrl ? `Server: ${musicGatewayUrl}` : "Not connected"}
-                    </span>
-                  )}
-                </div>
-                <button
-                  className="settings-btn-secondary"
-                  onClick={handleTestConnection}
-                  disabled={testing}
-                >
-                  {testing ? "Testing..." : "Test Connection"}
-                </button>
-              </div>
-            </div>
-
-            <button
-              className="settings-mga-advanced-toggle"
-              style={{ marginTop: 6 }}
-              onClick={() => setShowAdvanced(!showAdvanced)}
-            >
-              {showAdvanced ? "Hide" : "Show"} advanced options
-            </button>
-            {showAdvanced && (
-              <div className="settings-mga-advanced" style={{ marginTop: 4 }}>
-                <label className="settings-mga-url-label">Server URL</label>
-                <input
-                  type="text"
-                  className="settings-text-input"
-                  value={urlDraft}
-                  onChange={(e) => { setUrlDraft(e.target.value); setTestResult(null); }}
-                  placeholder="http://localhost:7171"
-                />
-                <span className="settings-mga-url-hint">Only change if your server runs on a different address</span>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {tidalEnabled && (
-        <div className="settings-group">
-          <div className="settings-group-title">Download Format</div>
-          <div className="settings-card">
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <span className="settings-label">Preferred format</span>
-                <span className="settings-description">Format used when saving tracks from TIDAL</span>
-              </div>
-              <select
-                value={downloadFormat}
-                onChange={(e) => onDownloadFormatChange(e.target.value)}
-                className="settings-select"
-              >
-                <option value="flac">FLAC (Lossless)</option>
-                <option value="aac">M4A (AAC)</option>
-              </select>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
   );
 }
 

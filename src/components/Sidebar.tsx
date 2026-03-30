@@ -49,7 +49,6 @@ interface SidebarProps {
   view: View | `plugin:${string}`;
   selectedAlbum: number | null;
   selectedArtist: number | null;
-  hasTidal: boolean;
   collapsed: boolean;
   onShowAll: () => void;
   onShowArtists: () => void;
@@ -57,7 +56,6 @@ interface SidebarProps {
   onShowTags: () => void;
   onShowLiked: () => void;
   onShowHistory: () => void;
-  onShowTidal: () => void;
   onShowCollections: () => void;
   onShowSettings: () => void;
   updateAvailable: boolean;
@@ -68,9 +66,8 @@ interface SidebarProps {
 export function Sidebar({
   view,
   selectedAlbum, selectedArtist,
-  hasTidal,
   collapsed,
-  onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowTidal, onShowCollections, onShowSettings,
+  onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowCollections, onShowSettings,
   updateAvailable,
   pluginNavItems,
   onPluginView,
@@ -82,7 +79,6 @@ export function Sidebar({
     { key: "tags", label: "Tags", icon: icons.tags, active: view === "tags", onClick: onShowTags, hint: `Tags \u2014 ${mod}4` },
     { key: "liked", label: "Liked", icon: icons.liked, active: view === "liked", onClick: onShowLiked, hint: `Liked Tracks \u2014 ${mod}5` },
     { key: "history", label: "History", icon: icons.history, active: view === "history", onClick: onShowHistory, hint: `Play History \u2014 ${mod}6` },
-    ...(hasTidal ? [{ key: "tidal", label: "TIDAL", icon: icons.tidal, active: view === "tidal", onClick: onShowTidal, hint: `Search TIDAL \u2014 ${mod}7` }] : []),
     { key: "collections", label: "Collections", icon: icons.collections, active: view === "collections", onClick: onShowCollections, hint: "Collections" },
   ];
 

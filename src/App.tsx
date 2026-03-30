@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -31,6 +31,7 @@ import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useSkins } from "./hooks/useSkins";
 import { usePlugins } from "./hooks/usePlugins";
+import type { TidalSearchTrackLike } from "./types/plugin";
 import { WindowControls } from "./components/WindowControls";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
@@ -55,8 +56,6 @@ import { ImageActions } from "./components/ImageActions";
 import { AlbumOptionsMenu } from "./components/AlbumOptionsMenu";
 import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
-import { TidalView } from "./components/TidalView";
-import type { TidalSearchTrack } from "./types";
 import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
@@ -159,7 +158,45 @@ function App() {
   pluginPlayingRef.current = playback.playing;
   const pluginPositionRef = useRef(0);
   pluginPositionRef.current = playback.positionSecs;
-  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef);
+  const tidalIdCounterRef = useRef(-1);
+  const tidalTrackToTrackFn = useCallback((info: TidalSearchTrackLike): Track => {
+    const id = tidalIdCounterRef.current--;
+    return {
+      id,
+      path: "",
+      title: info.title,
+      artist_id: null,
+      artist_name: info.artist_name ?? null,
+      album_id: null,
+      album_title: info.album_title ?? null,
+      year: null,
+      track_number: info.track_number ?? null,
+      duration_secs: info.duration_secs ?? null,
+      format: null,
+      file_size: null,
+      collection_id: null,
+      collection_name: null,
+      subsonic_id: info.tidal_id,
+      liked: 0,
+      youtube_url: null,
+      added_at: null,
+      modified_at: null,
+    };
+  }, []);
+  const downloadFormatRef = useRef("flac");
+  const pluginPlaybackCallbacks = useMemo(() => ({
+    playTidalTrack: (track: TidalSearchTrackLike) => {
+      queueHook.playTracks([tidalTrackToTrackFn(track)], 0);
+    },
+    enqueueTidalTrack: (track: TidalSearchTrackLike) => {
+      queueHook.enqueueTracks([tidalTrackToTrackFn(track)]);
+    },
+    playTidalTracks: (tracks: TidalSearchTrackLike[], startIndex?: number) => {
+      queueHook.playTracks(tracks.map(tidalTrackToTrackFn), startIndex ?? 0);
+    },
+    getDownloadFormat: () => downloadFormatRef.current,
+  }), [queueHook, tidalTrackToTrackFn]);
+  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks);
 
   // Plugin event: track started
   const prevTrackIdRef = useRef<number | null>(null);
@@ -249,10 +286,6 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState("flac");
-  const [tidalEnabled, setTidalEnabled] = useState(false);
-  const [musicGatewayUrl, setMusicGatewayUrl] = useState("");
-  const [musicGatewayExePath, setMusicGatewayExePath] = useState("");
-  const [musicGatewayManaged, setMusicGatewayManaged] = useState(false);
   const [downloadStatus, setDownloadStatus] = useState<{
     active: { id: number; track_title: string; artist_name: string; progress_pct: number } | null;
     queued: { id: number; track_title: string; artist_name: string }[];
@@ -466,7 +499,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedTidalEnabled, savedMusicGatewayUrl, savedSortBarCollapsed, savedMusicGatewayExePath, savedMusicGatewayManaged, savedLastfmAutoImportEnabled, savedLastfmAutoImportIntervalMins, savedLastfmLastImportAt] = await timeAsync("store.restore (40 keys)", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedSortBarCollapsed, savedLastfmAutoImportEnabled, savedLastfmAutoImportIntervalMins, savedLastfmLastImportAt] = await timeAsync("store.restore (36 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -499,16 +532,12 @@ function App() {
           store.get<boolean>("sidebarCollapsed"),
           store.get<boolean>("queueCollapsed"),
           store.get<string | null>("downloadFormat"),
-          store.get<boolean>("tidalEnabled"),
-          store.get<string | null>("musicGatewayUrl"),
           store.get<boolean>("sortBarCollapsed"),
-          store.get<string | null>("musicGatewayExePath"),
-          store.get<boolean>("musicGatewayManaged"),
           store.get<boolean>("lastfmAutoImportEnabled"),
           store.get<number>("lastfmAutoImportIntervalMins"),
           store.get<number | null>("lastfmLastImportAt"),
         ]));
-        if (v && ["all", "artists", "albums", "tags", "liked", "history", "tidal"].includes(v)) library.setView(v as View);
+        if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sa !== undefined && sa !== null) {
           library.setSelectedArtist(sa);
         }
@@ -631,38 +660,7 @@ function App() {
         if (savedVideoSplitHeight && savedVideoSplitHeight > 0) videoSplit.setVideoHeight(savedVideoSplitHeight);
         if (savedSidebarCollapsed) setSidebarCollapsed(true);
         if (savedQueueCollapsed) setQueueCollapsed(true);
-        if (savedDownloadFormat && ["flac", "aac"].includes(savedDownloadFormat)) setDownloadFormat(savedDownloadFormat);
-        if (savedTidalEnabled) setTidalEnabled(true);
-        if (savedMusicGatewayExePath) setMusicGatewayExePath(savedMusicGatewayExePath);
-        if (savedMusicGatewayManaged) setMusicGatewayManaged(true);
-        if (savedMusicGatewayUrl) {
-          setMusicGatewayUrl(savedMusicGatewayUrl);
-          invoke("set_musicgateway_url", { url: savedMusicGatewayUrl }).catch(console.error);
-          // If managed, start the server process then ping; otherwise just ping
-          const handlePingResult = (result: { version: string; bin: string | null }) => {
-            console.log("MusicGateAway connected:", savedMusicGatewayUrl, "v" + result.version);
-            if (result.bin && result.bin !== savedMusicGatewayExePath) {
-              setMusicGatewayExePath(result.bin);
-              store.set("musicGatewayExePath", result.bin);
-            }
-          };
-          if (savedMusicGatewayManaged && savedMusicGatewayExePath) {
-            invoke("start_musicgateway_server", { exePath: savedMusicGatewayExePath })
-              .then(() => {
-                // Give the server a moment to start before pinging
-                setTimeout(() => {
-                  invoke<{ version: string; bin: string | null }>("musicgateway_ping", { url: savedMusicGatewayUrl })
-                    .then(handlePingResult)
-                    .catch(() => console.warn("MusicGateAway started but not yet reachable"));
-                }, 1500);
-              })
-              .catch((e) => console.warn("Failed to start MusicGateAway:", e));
-          } else {
-            invoke<{ version: string; bin: string | null }>("musicgateway_ping", { url: savedMusicGatewayUrl })
-              .then(handlePingResult)
-              .catch(() => console.warn("MusicGateAway not reachable:", savedMusicGatewayUrl));
-          }
-        }
+        if (savedDownloadFormat && ["flac", "aac"].includes(savedDownloadFormat)) { setDownloadFormat(savedDownloadFormat); downloadFormatRef.current = savedDownloadFormat; }
         if (savedSortBarCollapsed) library.setSortBarCollapsed(true);
         const savedLoggingEnabled = await store.get<boolean>("loggingEnabled");
         if (savedLoggingEnabled) setLoggingEnabled(true);
@@ -1423,74 +1421,11 @@ function App() {
 
   function handleDownloadFormatChange(format: string) {
     setDownloadFormat(format);
+    downloadFormatRef.current = format;
     store.set("downloadFormat", format);
   }
 
-  function handleTidalEnabledChange(enabled: boolean) {
-    setTidalEnabled(enabled);
-    store.set("tidalEnabled", enabled);
-  }
 
-  function handleMusicGatewayUrlChange(url: string) {
-    setMusicGatewayUrl(url);
-    store.set("musicGatewayUrl", url);
-    invoke("set_musicgateway_url", { url: url || null }).catch(console.error);
-  }
-
-  function handleMusicGatewayExePathChange(path: string) {
-    setMusicGatewayExePath(path);
-    store.set("musicGatewayExePath", path);
-  }
-
-  function handleMusicGatewayManagedChange(managed: boolean) {
-    setMusicGatewayManaged(managed);
-    store.set("musicGatewayManaged", managed);
-    // If turning off managed mode, stop the server
-    if (!managed) {
-      invoke("stop_musicgateway_server").catch(console.error);
-    }
-  }
-
-  const tidalIdCounter = useRef(-1);
-
-  function tidalTrackToTrack(info: TidalSearchTrack): Track {
-    const id = tidalIdCounter.current--;
-    return {
-      id,
-      path: "",
-      title: info.title,
-      artist_id: null,
-      artist_name: info.artist_name,
-      album_id: null,
-      album_title: info.album_title,
-      year: null,
-      track_number: info.track_number,
-      duration_secs: info.duration_secs,
-      format: null,
-      file_size: null,
-      collection_id: null,
-      collection_name: null,
-      subsonic_id: info.tidal_id,
-      liked: 0,
-      youtube_url: null,
-      added_at: null,
-      modified_at: null,
-    };
-  }
-
-  async function handleTidalPlay(_tidalTrackId: string, trackInfo: TidalSearchTrack) {
-    try {
-      const track = tidalTrackToTrack(trackInfo);
-      queueHook.playTracks([track], 0);
-    } catch (e) {
-      addLog(`TIDAL playback failed: ${e}`);
-    }
-  }
-
-  function handleTidalEnqueue(_tidalTrackId: string, trackInfo: TidalSearchTrack) {
-    const track = tidalTrackToTrack(trackInfo);
-    queueHook.enqueueTracks([track]);
-  }
 
   async function handleDownloadTrack(trackId: number, destCollectionId: number) {
     const track = tracks.find(t => t.id === trackId);
@@ -1741,7 +1676,6 @@ function App() {
     return q ? library.sortedTags.filter(t => stripAccents(t.name.toLowerCase()).includes(stripAccents(q))) : library.sortedTags;
   })();
 
-  const hasTidal = tidalEnabled;
   const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name, path: c.path ?? "" }));
 
   // Arrow key navigation helpers for search bars
@@ -1838,7 +1772,6 @@ function App() {
         view={view}
         selectedAlbum={selectedAlbum}
         selectedArtist={selectedArtist}
-        hasTidal={hasTidal}
         collapsed={sidebarCollapsed}
         onShowAll={library.handleShowAll}
         onShowArtists={() => {
@@ -1865,13 +1798,6 @@ function App() {
         onShowHistory={() => {
           pushAndScroll();
           library.setView("history");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-        }}
-        onShowTidal={() => {
-          pushAndScroll();
-          library.setView("tidal");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
@@ -1957,14 +1883,6 @@ function App() {
           lastfmLastImportAt={lastfmLastImportAt}
           downloadFormat={downloadFormat}
           onDownloadFormatChange={handleDownloadFormatChange}
-          tidalEnabled={tidalEnabled}
-          onTidalEnabledChange={handleTidalEnabledChange}
-          musicGatewayUrl={musicGatewayUrl}
-          onMusicGatewayUrlChange={handleMusicGatewayUrlChange}
-          musicGatewayExePath={musicGatewayExePath}
-          onMusicGatewayExePathChange={handleMusicGatewayExePathChange}
-          musicGatewayManaged={musicGatewayManaged}
-          onMusicGatewayManagedChange={handleMusicGatewayManagedChange}
           activeSkinId={skins.activeSkinId}
           installedSkins={skins.installedSkins}
           onApplySkin={skins.applySkin}
@@ -3070,23 +2988,7 @@ function App() {
             </>
           )}
 
-          {/* TIDAL view — kept mounted to preserve state across view switches */}
-          {tidalEnabled && (
-            <div style={{ display: view === "tidal" ? "contents" : "none" }}>
-              <ViewSearchBar
-                query={viewSearch.getQuery("tidal")}
-                onQueryChange={(q) => viewSearch.setQuery("tidal", q)}
-                placeholder="Search TIDAL..."
-              />
-              <TidalView
-                searchQuery={viewSearch.getQuery("tidal")}
-                onPlayTrack={handleTidalPlay}
-                onEnqueueTrack={handleTidalEnqueue}
-                downloadFormat={downloadFormat}
-                localCollections={localCollections}
-              />
-            </div>
-          )}
+
 
           {/* Collections view */}
           {view === "collections" && (
@@ -3258,7 +3160,7 @@ function App() {
             if (track?.artist_id) library.handleLocateTrack(track.id, track.artist_id, track.album_id);
           } : undefined}
           onDownload={contextMenu.target.kind === "track" ? (destId: number) => { const t = contextMenu.target; if (t.kind === "track") handleDownloadTrack(t.trackId, destId); } : undefined}
-          onUpgradeViaTidal={tidalEnabled && contextMenu.target.kind === "track" && !contextMenu.target.subsonic ? () => {
+          onUpgradeViaTidal={contextMenu.target.kind === "track" && !contextMenu.target.subsonic ? () => {
             const t = contextMenu.target;
             if (t.kind === "track") {
               const track = tracks.find(tr => tr.id === t.trackId);
@@ -3303,9 +3205,7 @@ function App() {
               );
               if (t) queueHook.playTracks([t], 0);
             },
-            onSearchTidal: tidalEnabled
-              ? (query) => { viewSearch.setQuery("tidal", query); library.setView("tidal"); }
-              : undefined,
+            onSearchTidal: undefined,
             onWatchYoutube: async (artist, title) => {
               try {
                 const result = await invoke<{ url: string; video_title: string | null }>(

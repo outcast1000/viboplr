@@ -8,7 +8,7 @@ use crate::db::Database;
 use crate::downloader::{DownloadFormat, DownloadManager, DownloadRequest};
 use crate::lastfm::LastfmClient;
 use crate::models::*;
-use crate::musicgateway::{self, MusicGatewayClient};
+use crate::tidal::{self, TidalClient};
 use crate::scanner;
 use crate::skins;
 use crate::subsonic::SubsonicClient;
@@ -49,8 +49,7 @@ pub struct AppState {
     pub auto_import_running: Arc<AtomicBool>,
     pub auto_import_interval: Arc<AtomicU64>,  // minutes
     pub auto_import_last_at: Arc<AtomicI64>,   // unix timestamp, 0 = never
-    pub musicgateway_url: Mutex<Option<String>>,
-    pub musicgateway_process: Mutex<Option<std::process::Child>>,
+    pub tidal_client: Arc<TidalClient>,
     pub native_plugins_dir: Option<std::path::PathBuf>,
 }
 
@@ -1229,94 +1228,31 @@ pub fn subsonic_test_connection(
 
 // --- TIDAL commands ---
 
-/// Legacy alias — delegates to musicgateway_ping.
 #[tauri::command]
-pub async fn tidal_test_connection(url: String) -> Result<MusicGatewayPingResult, String> {
-    musicgateway_ping(url).await
-}
-
-#[tauri::command]
-pub fn set_musicgateway_url(state: State<'_, AppState>, url: Option<String>) -> Result<(), String> {
-    let cleaned = url
-        .filter(|u| !u.trim().is_empty())
-        .map(|u| u.trim().trim_end_matches('/').to_string());
-    musicgateway::set_global_url(cleaned.clone());
-    *state.musicgateway_url.lock().unwrap() = cleaned;
-    Ok(())
-}
-
-#[tauri::command]
-pub fn get_musicgateway_url(state: State<'_, AppState>) -> Option<String> {
-    state.musicgateway_url.lock().unwrap().clone()
-}
-
-#[derive(Serialize)]
-pub struct MusicGatewayPingResult {
-    pub version: String,
-    pub bin: Option<String>,
-}
-
-#[tauri::command]
-pub async fn musicgateway_ping(url: String) -> Result<MusicGatewayPingResult, String> {
-    let trimmed = url.trim().trim_end_matches('/').to_string();
-    tauri::async_runtime::spawn_blocking(move || -> Result<MusicGatewayPingResult, String> {
-        let client = MusicGatewayClient::new(&trimmed);
-        let identity = client.ping().map_err(|e| e.to_string())?;
-        Ok(MusicGatewayPingResult {
-            version: identity.version,
-            bin: identity.bin,
-        })
+pub async fn tidal_check_status(
+    state: State<'_, AppState>,
+) -> Result<tidal::TidalStatus, String> {
+    let client = state.tidal_client.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<tidal::TidalStatus, String> {
+        client.check_status().map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn start_musicgateway_server(
+pub async fn tidal_get_artist_albums(
     state: State<'_, AppState>,
-    exe_path: String,
-) -> Result<(), String> {
-    // Kill any existing managed process first
-    let mut proc = state.musicgateway_process.lock().unwrap();
-    if let Some(ref mut child) = *proc {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-
-    let child = std::process::Command::new(&exe_path)
-        .arg("--silent")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| format!("Failed to start MusicGateAway: {}", e))?;
-
-    log::info!("Started MusicGateAway (pid {}): {}", child.id(), exe_path);
-    *proc = Some(child);
-    Ok(())
-}
-
-#[tauri::command]
-pub fn stop_musicgateway_server(state: State<'_, AppState>) -> Result<(), String> {
-    // Try graceful API shutdown first
-    if let Some(url) = state.musicgateway_url.lock().unwrap().clone() {
-        let client = MusicGatewayClient::new(&url);
-        let _ = client.shutdown();
-        log::info!("Sent shutdown request to MusicGateAway");
-    }
-    // Clean up the process handle (wait for exit, kill as fallback)
-    let mut proc = state.musicgateway_process.lock().unwrap();
-    if let Some(ref mut child) = *proc {
-        match child.try_wait() {
-            Ok(Some(_)) => log::info!("MusicGateAway exited after shutdown"),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                log::info!("MusicGateAway killed as fallback");
-            }
-        }
-    }
-    *proc = None;
-    Ok(())
+    artist_id: String,
+) -> Result<Vec<TidalSearchAlbum>, String> {
+    let client = state.tidal_client.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<TidalSearchAlbum>, String> {
+        client
+            .get_artist_albums(&artist_id)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1326,10 +1262,8 @@ pub async fn tidal_search(
     limit: u32,
     offset: u32,
 ) -> Result<TidalSearchResult, String> {
-    let mga_url = state.musicgateway_url.lock().unwrap().clone()
-        .ok_or("MusicGateAway URL not configured. Set it in Settings > Integrations.")?;
+    let client = state.tidal_client.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<TidalSearchResult, String> {
-        let client = MusicGatewayClient::new(&mga_url);
         client.search(&query, limit, offset).map_err(|e| e.to_string())
     }).await.map_err(|e| e.to_string())?
 }
@@ -1342,13 +1276,11 @@ pub fn tidal_save_track(
     custom_dest_path: Option<String>,
     format: String,
 ) -> Result<u64, String> {
-    let mga_url = state.musicgateway_url.lock().unwrap().clone()
-        .ok_or("MusicGateAway URL not configured. Set it in Settings > Integrations.")?;
     let fmt = DownloadFormat::from_str(&format)?;
-    let client = MusicGatewayClient::new(&mga_url);
+    let client = state.tidal_client.clone();
 
     let info = client
-        .get_track(&tidal_track_id)
+        .get_track_info(&tidal_track_id)
         .map_err(|e| e.to_string())?;
 
     let (collection_id, dest_path) = if let Some(custom) = custom_dest_path {
@@ -1368,7 +1300,7 @@ pub fn tidal_save_track(
     let cover_url = info
         .cover_id
         .as_deref()
-        .map(|id| musicgateway::cover_url(id, 1280));
+        .map(|id| tidal::cover_url(id, 1280));
 
     let id = state.track_download_manager.next_id();
     let request = DownloadRequest {
@@ -1386,7 +1318,7 @@ pub fn tidal_save_track(
         cover_url,
         source_kind: "tidal".to_string(),
         source_collection_id: None,
-        source_override_url: Some(mga_url),
+        source_override_url: None,
         remote_track_id: tidal_track_id,
         dest_collection_id: collection_id,
         dest_collection_path: dest_path,
@@ -1404,9 +1336,7 @@ pub fn tidal_get_stream_url(
     tidal_track_id: String,
     quality: Option<String>,
 ) -> Result<String, String> {
-    let mga_url = state.musicgateway_url.lock().unwrap().clone()
-        .ok_or("MusicGateAway URL not configured. Set it in Settings > Integrations.")?;
-    let client = MusicGatewayClient::new(&mga_url);
+    let client = state.tidal_client.clone();
     let info = client
         .get_stream_url(&tidal_track_id, quality.as_deref().unwrap_or("LOSSLESS"))
         .map_err(|e| e.to_string())?;
@@ -1418,9 +1348,7 @@ pub fn tidal_get_album(
     state: State<'_, AppState>,
     album_id: String,
 ) -> Result<TidalAlbumDetail, String> {
-    let mga_url = state.musicgateway_url.lock().unwrap().clone()
-        .ok_or("MusicGateAway URL not configured. Set it in Settings > Integrations.")?;
-    let client = MusicGatewayClient::new(&mga_url);
+    let client = state.tidal_client.clone();
     client.get_album(&album_id).map_err(|e| e.to_string())
 }
 
@@ -1429,9 +1357,7 @@ pub fn tidal_get_artist(
     state: State<'_, AppState>,
     artist_id: String,
 ) -> Result<TidalArtistDetail, String> {
-    let mga_url = state.musicgateway_url.lock().unwrap().clone()
-        .ok_or("MusicGateAway URL not configured. Set it in Settings > Integrations.")?;
-    let client = MusicGatewayClient::new(&mga_url);
+    let client = state.tidal_client.clone();
     client.get_artist(&artist_id).map_err(|e| e.to_string())
 }
 
@@ -2257,8 +2183,6 @@ pub fn download_album(
     custom_dest_path: Option<String>,
     format: String,
 ) -> Result<Vec<u64>, String> {
-    let mga_url = state.musicgateway_url.lock().unwrap().clone()
-        .ok_or("MusicGateAway URL not configured. Set it in Settings > Integrations.")?;
     let fmt = DownloadFormat::from_str(&format)?;
 
     let (collection_id, dest_path) = if let Some(custom) = custom_dest_path {
@@ -2275,12 +2199,12 @@ pub fn download_album(
         (cid, path)
     };
 
-    let client = MusicGatewayClient::new(&mga_url);
+    let client = state.tidal_client.clone();
     let album = client.get_album(&album_id).map_err(|e| e.to_string())?;
     let cover_url = album
         .cover_id
         .as_deref()
-        .map(|id| musicgateway::cover_url(id, 1280));
+        .map(|id| tidal::cover_url(id, 1280));
 
     let count = album.tracks.len();
     let mut ids = Vec::with_capacity(count);
@@ -2298,7 +2222,7 @@ pub fn download_album(
             cover_url: cover_url.clone(),
             source_kind: "tidal".to_string(),
             source_collection_id: None,
-            source_override_url: Some(mga_url.clone()),
+            source_override_url: None,
             remote_track_id: t.tidal_id,
             dest_collection_id: collection_id,
             dest_collection_path: dest_path.clone(),
@@ -2345,12 +2269,10 @@ pub async fn tidal_download_preview(
     let fmt = DownloadFormat::from_str(&format)?;
     let db = state.db.clone();
     let track = db.get_track_by_id(track_id).map_err(|e| e.to_string())?;
-    let mga_url = state.musicgateway_url.lock().unwrap().clone()
-        .ok_or("MusicGateAway URL not configured. Set it in Settings > Integrations.")?;
+    let tidal_client = state.tidal_client.clone();
 
     tauri::async_runtime::spawn_blocking(move || -> Result<UpgradePreviewInfo, String> {
-        let mga_client = MusicGatewayClient::new(&mga_url);
-        let stream_info = mga_client
+        let stream_info = tidal_client
             .get_stream_url(&tidal_track_id, fmt.tidal_quality())
             .map_err(|e| e.to_string())?;
         let actual_ext = stream_info.extension();
@@ -2416,13 +2338,13 @@ pub async fn tidal_download_preview(
         drop(file);
 
         // Write tags to the new file
-        let info = mga_client
-            .get_track(&tidal_track_id)
+        let info = tidal_client
+            .get_track_info(&tidal_track_id)
             .map_err(|e| e.to_string())?;
         let cover_url = info
             .cover_id
             .as_deref()
-            .map(|id| musicgateway::cover_url(id, 1280));
+            .map(|id| tidal::cover_url(id, 1280));
         let request = DownloadRequest {
             id: 0,
             track_title: info.title,
@@ -2434,7 +2356,7 @@ pub async fn tidal_download_preview(
             cover_url,
             source_kind: "tidal".to_string(),
             source_collection_id: None,
-            source_override_url: Some(mga_url),
+            source_override_url: None,
             remote_track_id: tidal_track_id,
             dest_collection_id: 0,
             dest_collection_path: String::new(),
@@ -2831,8 +2753,7 @@ mod tests {
             auto_import_running: Arc::new(AtomicBool::new(false)),
             auto_import_interval: Arc::new(AtomicU64::new(60)),
             auto_import_last_at: Arc::new(AtomicI64::new(0)),
-            musicgateway_url: Mutex::new(None),
-            musicgateway_process: Mutex::new(None),
+            tidal_client: Arc::new(TidalClient::new(None)),
             native_plugins_dir: None,
         }
     }

@@ -1,4 +1,12 @@
-import type { Track, HistoryEntry, HistoryMostPlayed } from "../types";
+import type {
+  Track,
+  HistoryEntry,
+  HistoryMostPlayed,
+  TidalSearchResult,
+  TidalAlbumDetail,
+  TidalArtistDetail,
+  TidalSearchAlbum,
+} from "../types";
 
 // -- Manifest types --
 
@@ -98,7 +106,20 @@ export type PluginViewData =
       direction: "vertical" | "horizontal";
       children: PluginViewData[];
     }
-  | { type: "spacer" };
+  | { type: "spacer" }
+  | {
+      type: "search-input";
+      placeholder?: string;
+      action: string;
+      value?: string;
+    }
+  | {
+      type: "tabs";
+      tabs: { id: string; label: string }[];
+      activeTab: string;
+      action: string;
+    }
+  | { type: "loading"; message?: string };
 
 // -- Plugin API (what plugins receive) --
 
@@ -133,10 +154,42 @@ export interface PluginPlaybackAPI {
   getCurrentTrack(): Track | null;
   isPlaying(): boolean;
   getPosition(): number;
+  playTidalTrack(track: TidalSearchTrackLike): void;
+  enqueueTidalTrack(track: TidalSearchTrackLike): void;
+  playTidalTracks(tracks: TidalSearchTrackLike[], startIndex?: number): void;
   onTrackStarted(handler: (track: Track) => void): () => void;
   onTrackPlayed(handler: (track: Track) => void): () => void;
   onTrackScrobbled(handler: (track: Track) => void): () => void;
   onTrackLiked(handler: (track: Track, liked: boolean) => void): () => void;
+}
+
+// Loose shape plugins pass for TIDAL tracks (matches TidalSearchTrack)
+export interface TidalSearchTrackLike {
+  tidal_id: string;
+  title: string;
+  artist_name?: string | null;
+  artist_id?: string | null;
+  album_title?: string | null;
+  album_id?: string | null;
+  cover_id?: string | null;
+  duration_secs?: number | null;
+  track_number?: number | null;
+}
+
+export interface PluginTidalAPI {
+  search(query: string, limit?: number, offset?: number): Promise<TidalSearchResult>;
+  getAlbum(albumId: string): Promise<TidalAlbumDetail>;
+  getArtist(artistId: string): Promise<TidalArtistDetail>;
+  getArtistAlbums(artistId: string): Promise<TidalSearchAlbum[]>;
+  getStreamUrl(trackId: string, quality?: string): Promise<string>;
+  downloadTrack(trackId: string, opts?: { collectionId?: number; format?: string }): Promise<void>;
+  downloadAlbum(albumId: string, opts?: { collectionId?: number; format?: string }): Promise<void>;
+  checkStatus(): Promise<{ available: boolean; instance_count: number }>;
+}
+
+export interface PluginCollectionsAPI {
+  getLocalCollections(): Promise<Array<{ id: number; name: string; path: string | null }>>;
+  getDownloadFormat(): Promise<string>;
 }
 
 export interface PluginContextMenuAPI {
@@ -180,6 +233,8 @@ export interface ViboplrPluginAPI {
   ui: PluginUIAPI;
   storage: PluginStorageAPI;
   network: PluginNetworkAPI;
+  tidal: PluginTidalAPI;
+  collections: PluginCollectionsAPI;
 }
 
 // -- Registry types (internal to usePlugins) --

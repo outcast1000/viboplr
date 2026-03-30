@@ -5,7 +5,7 @@ mod entity_image;
 mod image_provider;
 mod logging;
 mod models;
-mod musicgateway;
+mod tidal;
 mod scanner;
 #[cfg(debug_assertions)]
 mod seed;
@@ -85,12 +85,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_startup_timings,
         commands::test_collection_connection,
         commands::subsonic_test_connection,
-        commands::tidal_test_connection,
-        commands::set_musicgateway_url,
-        commands::get_musicgateway_url,
-        commands::musicgateway_ping,
-        commands::start_musicgateway_server,
-        commands::stop_musicgateway_server,
+        commands::tidal_check_status,
+        commands::tidal_get_artist_albums,
         commands::tidal_search,
         commands::tidal_save_track,
         commands::tidal_get_album,
@@ -210,12 +206,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_startup_timings,
         commands::test_collection_connection,
         commands::subsonic_test_connection,
-        commands::tidal_test_connection,
-        commands::set_musicgateway_url,
-        commands::get_musicgateway_url,
-        commands::musicgateway_ping,
-        commands::start_musicgateway_server,
-        commands::stop_musicgateway_server,
+        commands::tidal_check_status,
+        commands::tidal_get_artist_albums,
         commands::tidal_search,
         commands::tidal_save_track,
         commands::tidal_get_album,
@@ -837,6 +829,8 @@ pub fn run() {
             });
 
             timer.time("manage_app_state", || {
+                let tidal_client = Arc::new(tidal::TidalClient::new(None));
+                tidal::set_global_client(tidal_client.clone());
                 app.manage(AppState {
                     db,
                     app_dir,
@@ -850,8 +844,7 @@ pub fn run() {
                     auto_import_running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     auto_import_interval: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(60)),
                     auto_import_last_at: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0)),
-                    musicgateway_url: Mutex::new(None),
-                    musicgateway_process: Mutex::new(None),
+                    tidal_client,
                     native_plugins_dir,
                 });
             });
@@ -872,31 +865,33 @@ pub fn run() {
         .build(timer.time("generate_context", || tauri::generate_context!()))
         .expect("error while building tauri application")
         .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                // Gracefully shut down managed MusicGateAway on app exit
-                if let Some(state) = app.try_state::<commands::AppState>() {
-                    // Stop Last.fm auto-import thread
-                    state.auto_import_running.store(false, std::sync::atomic::Ordering::SeqCst);
-                    // Try API shutdown first
-                    if let Some(url) = state.musicgateway_url.lock().unwrap().clone() {
-                        let client = musicgateway::MusicGatewayClient::new(&url);
-                        let _ = client.shutdown();
-                        log::info!("Sent shutdown request to MusicGateAway");
+            match &event {
+                tauri::RunEvent::Exit => {
+                    if let Some(state) = app.try_state::<commands::AppState>() {
+                        // Stop Last.fm auto-import thread
+                        state.auto_import_running.store(false, std::sync::atomic::Ordering::SeqCst);
                     }
-                    // Clean up process handle (kill as fallback)
-                    let mut proc = state.musicgateway_process.lock().unwrap();
-                    if let Some(ref mut child) = *proc {
-                        match child.try_wait() {
-                            Ok(Some(_)) => log::info!("MusicGateAway exited after shutdown"),
-                            _ => {
-                                let _ = child.kill();
-                                let _ = child.wait();
-                                log::info!("MusicGateAway killed as fallback on exit");
-                            }
+                }
+                tauri::RunEvent::Opened { urls } => {
+                    // Handle deep link URLs on initial launch (macOS)
+                    for url in urls {
+                        let s = url.to_string();
+                        if s.starts_with("subsonic://") || s.starts_with("viboplr://") {
+                            let _ = app.emit("deep-link-received", s);
+                            break;
                         }
                     }
-                    *proc = None;
                 }
+                tauri::RunEvent::Reopen { has_visible_windows, .. } => {
+                    // Re-show the main window on dock click (macOS)
+                    if !has_visible_windows {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                }
+                _ => {}
             }
         });
 }

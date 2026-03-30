@@ -39,10 +39,6 @@ const STORE_DEFAULTS = {
   sidebarCollapsed: false,
   queueCollapsed: false,
   downloadFormat: "flac",
-  tidalEnabled: false,
-  musicGatewayUrl: "",
-  musicGatewayExePath: "",
-  musicGatewayManaged: false,
   skin: "default",
   loggingEnabled: false,
 };

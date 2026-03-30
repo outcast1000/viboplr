@@ -1,0 +1,13 @@
+{
+  "id": "tidal-browse",
+  "name": "TIDAL",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Search, stream, and download from TIDAL",
+  "minAppVersion": "0.7.0",
+  "contributes": {
+    "sidebarItems": [
+      { "id": "tidal", "label": "TIDAL", "icon": "tidal" }
+    ]
+  }
+}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { store } from "../store";
-import type { Track } from "../types";
+import type { Track, Collection } from "../types";
 import type {
   InstalledPlugin,
   PluginManifest,
@@ -13,6 +13,7 @@ import type {
   PluginContextMenuTarget,
   ViboplrPluginAPI,
   PluginEventName,
+  TidalSearchTrackLike,
 } from "../types/plugin";
 
 // Simple semver comparison: returns true if current >= required
@@ -49,10 +50,18 @@ type EventHandlers = {
 
 // -- Hook --
 
+export interface PluginPlaybackCallbacks {
+  playTidalTrack: (track: TidalSearchTrackLike) => void;
+  enqueueTidalTrack: (track: TidalSearchTrackLike) => void;
+  playTidalTracks: (tracks: TidalSearchTrackLike[], startIndex?: number) => void;
+  getDownloadFormat: () => string;
+}
+
 export function usePlugins(
   currentTrackRef: React.RefObject<Track | null>,
   playingRef: React.RefObject<boolean>,
   positionRef: React.RefObject<number>,
+  playbackCallbacks?: PluginPlaybackCallbacks,
 ) {
   const [pluginStates, setPluginStates] = useState<PluginState[]>([]);
   const [sidebarItems, setSidebarItems] = useState<PluginSidebarItem[]>([]);
@@ -60,6 +69,9 @@ export function usePlugins(
   const [viewData, setViewData] = useState<Map<string, PluginViewData>>(
     new Map(),
   );
+
+  const playbackCallbacksRef = useRef(playbackCallbacks);
+  playbackCallbacksRef.current = playbackCallbacks;
 
   const loadedPluginsRef = useRef<Map<string, LoadedPlugin>>(new Map());
   const eventHandlersRef = useRef<EventHandlers>({
@@ -143,6 +155,15 @@ export function usePlugins(
           getCurrentTrack: () => currentTrackRef.current,
           isPlaying: () => playingRef.current ?? false,
           getPosition: () => positionRef.current ?? 0,
+          playTidalTrack: (track) => {
+            playbackCallbacksRef.current?.playTidalTrack(track);
+          },
+          enqueueTidalTrack: (track) => {
+            playbackCallbacksRef.current?.enqueueTidalTrack(track);
+          },
+          playTidalTracks: (tracks, startIndex) => {
+            playbackCallbacksRef.current?.playTidalTracks(tracks, startIndex);
+          },
           onTrackStarted: (handler) =>
             subscribeEvent(
               "track:started",
@@ -223,6 +244,60 @@ export function usePlugins(
               text: async () => bodyText,
               json: async () => JSON.parse(bodyText),
             };
+          },
+        },
+
+        tidal: {
+          async search(query, limit, offset) {
+            return invoke("tidal_search", {
+              query,
+              limit: limit ?? 20,
+              offset: offset ?? 0,
+            });
+          },
+          async getAlbum(albumId) {
+            return invoke("tidal_get_album", { albumId });
+          },
+          async getArtist(artistId) {
+            return invoke("tidal_get_artist", { artistId });
+          },
+          async getArtistAlbums(artistId) {
+            return invoke("tidal_get_artist_albums", { artistId });
+          },
+          async getStreamUrl(trackId, quality) {
+            return invoke("tidal_get_stream_url", {
+              trackId,
+              quality: quality ?? null,
+            });
+          },
+          async downloadTrack(trackId, opts) {
+            await invoke("tidal_save_track", {
+              trackId,
+              collectionId: opts?.collectionId ?? null,
+              format: opts?.format ?? null,
+            });
+          },
+          async downloadAlbum(albumId, opts) {
+            await invoke("download_album", {
+              albumId,
+              collectionId: opts?.collectionId ?? null,
+              format: opts?.format ?? null,
+            });
+          },
+          async checkStatus() {
+            return invoke("tidal_check_status");
+          },
+        },
+
+        collections: {
+          async getLocalCollections() {
+            const all = await invoke<Collection[]>("get_collections");
+            return all
+              .filter((c) => c.kind === "local")
+              .map((c) => ({ id: c.id, name: c.name, path: c.path }));
+          },
+          async getDownloadFormat() {
+            return playbackCallbacksRef.current?.getDownloadFormat() ?? "flac";
           },
         },
       };
