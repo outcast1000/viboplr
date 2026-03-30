@@ -3091,9 +3091,8 @@ body {
 }
 
 .artist-image-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 6px;
+  display: inline-flex;
+  margin-left: 4px;
 }
 
 .artist-image-btn {
@@ -3113,9 +3112,89 @@ body {
 }
 
 .artist-header-info h2 {
-  font-size: var(--fs-xl);
+  font-size: var(--fs-2xl);
   font-weight: 700;
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.artist-play-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.artist-play-btn:hover {
+  background: var(--accent-dim);
+}
+
+.artist-image-menu-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.artist-image-menu-trigger {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.artist-image-menu-trigger:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.artist-image-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+  min-width: 140px;
+  padding: 4px 0;
+}
+
+.artist-image-menu-dropdown button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  padding: 6px 12px;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.artist-image-menu-dropdown button:hover {
+  background: var(--bg-tertiary);
 }
 
 .artist-meta {
@@ -3123,8 +3202,42 @@ body {
   color: var(--text-secondary);
 }
 
+.artist-bio-albums-row {
+  display: flex;
+  gap: 0;
+  padding: 0;
+}
+
 .artist-bio-section {
-  padding: 0 16px 8px;
+  padding: 16px;
+  width: 680px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+}
+
+.artist-bio-albums-row > .artist-albums-section {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 750px) {
+  .artist-bio-albums-row {
+    flex-direction: column;
+  }
+
+  .artist-bio-section {
+    width: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+.artist-bio-title {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+  margin-bottom: 6px;
 }
 
 .artist-bio-stats {
@@ -3138,7 +3251,7 @@ body {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
   line-height: 1.5;
-  max-height: 120px;
+  max-height: 180px;
   overflow-y: auto;
 }
 

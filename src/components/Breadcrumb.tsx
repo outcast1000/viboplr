@@ -74,7 +74,7 @@ export function Breadcrumb({
         <span>All Tracks</span>
       )}
       <div className="breadcrumb-right">
-        {tracks.length > 0 && (selectedTag !== null || (view === "artists" && selectedArtist !== null)) && (
+        {tracks.length > 0 && selectedTag !== null && (
           <div className="breadcrumb-actions">
             <button className="action-btn" onClick={() => onPlayAll(sortedTracks.filter(t => t.liked !== -1), 0)}>Play All</button>
             <button className="action-btn action-btn-secondary" onClick={() => onEnqueueAll(sortedTracks.filter(t => t.liked !== -1))}>Queue All</button>

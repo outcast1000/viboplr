@@ -2123,49 +2123,61 @@ function App() {
                         onClick={() => handleToggleArtistLike(selectedArtist)}
                         title={artist?.liked === 1 ? "Unlike artist" : "Like artist"}
                       >{artist?.liked === 1 ? "\u2665" : "\u2661"}</span>
+                      {sortedTracks.length > 0 && (
+                        <button
+                          className="artist-play-btn"
+                          title="Play All"
+                          onClick={() => queueHook.playTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
+                        >&#9654;</button>
+                      )}
+                      <ImageActions
+                        entityId={selectedArtist}
+                        entityType="artist"
+                        imagePath={artistImagePath}
+                        onImageSet={(id, path) => artistImageCache.setImages(prev => ({ ...prev, [id]: path }))}
+                        onImageRemoved={(id) => {
+                          artistImageCache.setImages(prev => ({ ...prev, [id]: null }));
+                        }}
+                      />
                     </h2>
                     <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
-                    <ImageActions
-                      entityId={selectedArtist}
-                      entityType="artist"
-                      imagePath={artistImagePath}
-                      onImageSet={(id, path) => artistImageCache.setImages(prev => ({ ...prev, [id]: path }))}
-                      onImageRemoved={(id) => {
-                        artistImageCache.setImages(prev => ({ ...prev, [id]: null }));
-                      }}
-                    />
                   </div>
                 </div>
 
-                {artistBio && (
-                  <div className="artist-bio-section">
-                    {(artistBio.listeners || artistBio.playcount) && (
-                      <span className="artist-bio-stats">
-                        {artistBio.listeners && <>{parseInt(artistBio.listeners).toLocaleString()} listeners</>}
-                        {artistBio.listeners && artistBio.playcount && " \u00B7 "}
-                        {artistBio.playcount && <>{parseInt(artistBio.playcount).toLocaleString()} scrobbles</>}
-                      </span>
+                {(artistBio || library.artistAlbums.length > 0) && (
+                  <div className="artist-bio-albums-row">
+                    {artistBio && (
+                      <div className="artist-bio-section">
+                        <div className="artist-bio-title">About</div>
+                        {(artistBio.listeners || artistBio.playcount) && (
+                          <span className="artist-bio-stats">
+                            {artistBio.listeners && <>{parseInt(artistBio.listeners).toLocaleString()} listeners</>}
+                            {artistBio.listeners && artistBio.playcount && " \u00B7 "}
+                            {artistBio.playcount && <>{parseInt(artistBio.playcount).toLocaleString()} scrobbles</>}
+                          </span>
+                        )}
+                        <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: artistBio.summary }} />
+                      </div>
                     )}
-                    <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: artistBio.summary }} />
-                  </div>
-                )}
 
-                {library.artistAlbums.length > 0 && (
-                  <div className="artist-section">
-                    <div className="section-title">Albums</div>
-                    <div className="album-grid">
-                      {library.artistAlbums.map((a) => (
-                        <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
-                          <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
-                          <div className="album-card-body">
-                            <div className="album-card-title" title={a.title}>{a.title}</div>
-                            <div className="album-card-info">
-                              {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
+                    {library.artistAlbums.length > 0 && (
+                      <div className="artist-section artist-albums-section">
+                        <div className="section-title">Albums</div>
+                        <div className="album-grid">
+                          {library.artistAlbums.map((a) => (
+                            <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
+                              <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
+                              <div className="album-card-body">
+                                <div className="album-card-title" title={a.title}>{a.title}</div>
+                                <div className="album-card-info">
+                                  {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
+                                </div>
+                              </div>
                             </div>
-                          </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
