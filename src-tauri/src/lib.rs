@@ -3,6 +3,7 @@ mod composite_image;
 mod db;
 mod entity_image;
 mod image_provider;
+mod logging;
 mod models;
 mod musicgateway;
 mod scanner;
@@ -141,6 +142,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::plugin_storage_set,
         commands::plugin_storage_delete,
         commands::plugin_fetch,
+        commands::open_logs_folder,
+        commands::write_frontend_log,
     ]
 }
 
@@ -260,14 +263,14 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::plugin_storage_set,
         commands::plugin_storage_delete,
         commands::plugin_fetch,
+        commands::open_logs_folder,
+        commands::write_frontend_log,
     ]
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let timer = timing::init_timer();
-
-    timer.time("env_logger::init", || env_logger::init());
 
     // Parse optional profile name from env var or CLI argument
     // Usage: VIBOPLR_PROFILE=name or --profile name or --profile=name
@@ -310,9 +313,54 @@ pub fn run() {
             std::process::exit(1);
         }
 
-        log::info!("Using profile: {}", name);
         name
     });
+
+    // Compute app_data_dir before Tauri starts, to read store settings for logging
+    let pre_app_data_dir = timer.time("resolve_pre_app_data_dir", || {
+        #[cfg(target_os = "macos")]
+        {
+            let home = std::env::var("HOME").expect("HOME not set");
+            std::path::PathBuf::from(home)
+                .join("Library/Application Support/com.alex.viboplr")
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let appdata = std::env::var("APPDATA").expect("APPDATA not set");
+            std::path::PathBuf::from(appdata).join("com.alex.viboplr")
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let home = std::env::var("HOME").expect("HOME not set");
+            std::path::PathBuf::from(home)
+                .join(".local/share/com.alex.viboplr")
+        }
+    });
+
+    // Read loggingEnabled from the profile's store file
+    let logging_enabled = timer.time("check_logging_enabled", || {
+        let store_path = pre_app_data_dir
+            .join("profiles")
+            .join(&profile_name)
+            .join("app-state.json");
+        if let Ok(contents) = std::fs::read_to_string(&store_path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
+                return json.get("loggingEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
+            }
+        }
+        false
+    });
+
+    timer.time("logging::init", || {
+        let log_dir = if logging_enabled {
+            Some(pre_app_data_dir.join("logs"))
+        } else {
+            None
+        };
+        logging::init(log_dir);
+    });
+
+    log::info!("Using profile: {}", profile_name);
 
     let builder = tauri::Builder::default();
     let builder = timer.time("plugin: single_instance", || {
@@ -756,6 +804,7 @@ pub fn run() {
                 app.manage(AppState {
                     db,
                     app_dir,
+                    app_data_dir,
                     profile_name,
                     download_queue,
                     track_download_manager: dl_manager,
@@ -767,6 +816,16 @@ pub fn run() {
                     native_plugins_dir,
                 });
             });
+
+            // Dump startup timings to log file
+            for entry in timing::timer().get_entries() {
+                log::info!(
+                    "Startup: {} \u{2014} {:.1}ms (offset {:.1}ms)",
+                    entry.label,
+                    entry.duration_ms,
+                    entry.offset_ms
+                );
+            }
 
             Ok(())
         })

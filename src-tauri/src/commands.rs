@@ -39,6 +39,7 @@ pub struct DownloadQueue {
 pub struct AppState {
     pub db: Arc<Database>,
     pub app_dir: std::path::PathBuf,
+    pub app_data_dir: std::path::PathBuf,
     pub profile_name: String,
     pub download_queue: Arc<DownloadQueue>,
     pub track_download_manager: Arc<DownloadManager>,
@@ -641,6 +642,23 @@ pub fn open_folder(folder_path: String) -> Result<(), String> {
         .arg(path)
         .spawn()
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_logs_folder(state: State<'_, AppState>) -> Result<(), String> {
+    let logs_dir = state.app_data_dir.join("logs");
+    std::fs::create_dir_all(&logs_dir).map_err(|e| e.to_string())?;
+    open_folder(logs_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn write_frontend_log(level: String, message: String) -> Result<(), String> {
+    match level.as_str() {
+        "error" => log::error!("[frontend] {}", message),
+        "warn" => log::warn!("[frontend] {}", message),
+        _ => log::info!("[frontend] {}", message),
+    }
     Ok(())
 }
 
@@ -1444,11 +1462,13 @@ pub fn search_youtube(title: String, artist_name: Option<String>) -> Result<YouT
         .build()
         .map_err(|e| e.to_string())?;
 
+    let start = std::time::Instant::now();
     let resp = client
         .get(&url)
         .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .send()
         .map_err(|e| format!("HTTP request failed: {}", e))?;
+    log::info!("HTTP GET youtube/search -> {} ({:.0}ms)", resp.status(), start.elapsed().as_secs_f64() * 1000.0);
 
     let body = resp.text().map_err(|e| format!("Failed to read response: {}", e))?;
 
@@ -2496,8 +2516,10 @@ pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<s
     if let Some(b) = body {
         req = req.body(b);
     }
+    let start = std::time::Instant::now();
     let resp = req.send().await.map_err(|e| e.to_string())?;
     let status = resp.status().as_u16();
+    log::info!("HTTP {} plugin_fetch {} -> {} ({:.0}ms)", method_str, url, status, start.elapsed().as_secs_f64() * 1000.0);
     let text = resp.text().await.map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "status": status,
@@ -2515,6 +2537,7 @@ mod tests {
         AppState {
             db: Arc::new(db),
             app_dir: std::path::PathBuf::from("/tmp/viboplr-test"),
+            app_data_dir: std::path::PathBuf::from("/tmp/viboplr-test"),
             profile_name: "default".to_string(),
             download_queue: Arc::new(DownloadQueue {
                 queue: Mutex::new(Vec::new()),
@@ -2526,6 +2549,7 @@ mod tests {
             lastfm_importing: Arc::new(AtomicBool::new(false)),
             musicgateway_url: Mutex::new(None),
             musicgateway_process: Mutex::new(None),
+            native_plugins_dir: None,
         }
     }
 

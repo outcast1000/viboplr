@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{http_client, urlencoded, write_image, ArtistImageProvider};
+use super::{http_client, logged_get, urlencoded, write_image, ArtistImageProvider};
 
 pub struct AudioDbArtistProvider;
 
@@ -16,9 +16,7 @@ impl ArtistImageProvider for AudioDbArtistProvider {
             "https://theaudiodb.com/api/v1/json/2/search.php?s={}",
             urlencoded(artist_name)
         );
-        let resp: serde_json::Value = client
-            .get(&url)
-            .send()
+        let resp: serde_json::Value = logged_get(&client, &url)
             .map_err(|e| format!("TheAudioDB search failed: {}", e))?
             .json()
             .map_err(|e| format!("Failed to parse TheAudioDB response: {}", e))?;
@@ -33,9 +31,7 @@ impl ArtistImageProvider for AudioDbArtistProvider {
             .filter(|s| !s.is_empty())
             .ok_or("No strArtistThumb in TheAudioDB response")?;
 
-        let bytes = client
-            .get(image_url)
-            .send()
+        let bytes = logged_get(&client, image_url)
             .map_err(|e| format!("TheAudioDB image download failed: {}", e))?
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;

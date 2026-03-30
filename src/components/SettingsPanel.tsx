@@ -125,6 +125,10 @@ interface SettingsPanelProps {
   onReloadPlugin?: (pluginId: string) => void;
   onReloadAllPlugins?: () => void;
   onOpenPluginsFolder?: () => void;
+  // Logging
+  loggingEnabled: boolean;
+  onLoggingEnabledChange: (enabled: boolean) => void;
+  onOpenLogsFolder: () => void;
 }
 
 interface ProviderFormData {
@@ -187,6 +191,9 @@ export function SettingsPanel({
   onReloadPlugin,
   onReloadAllPlugins,
   onOpenPluginsFolder,
+  loggingEnabled,
+  onLoggingEnabledChange,
+  onOpenLogsFolder,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -795,7 +802,24 @@ export function SettingsPanel({
 
             {settingsTab === "debug" && (
               <div className="settings-group">
-                <div className="settings-group-title">Maintenance</div>
+                <div className="settings-group-title">Logging</div>
+                <div className="settings-card">
+                  <div className="settings-row">
+                    <div className="settings-row-info">
+                      <span className="settings-label">Enable logging</span>
+                      <span className="settings-description">Write exceptions, web requests, and performance data to a log file (requires restart)</span>
+                    </div>
+                    <ToggleSwitch checked={loggingEnabled} onChange={onLoggingEnabledChange} />
+                  </div>
+                  <div className="settings-row">
+                    <div className="settings-row-info">
+                      <span className="settings-label">Log files</span>
+                      <span className="settings-description">Open the folder containing log files</span>
+                    </div>
+                    <button className="settings-btn-secondary" onClick={onOpenLogsFolder}>Open Folder</button>
+                  </div>
+                </div>
+                <div className="settings-group-title" style={{ marginTop: 20 }}>Maintenance</div>
                 <div className="settings-card">
                   <div className="settings-row">
                     <div className="settings-row-info">

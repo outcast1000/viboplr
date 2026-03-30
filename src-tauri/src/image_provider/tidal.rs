@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{write_image, AlbumImageProvider, ArtistImageProvider};
+use super::{logged_get, write_image, AlbumImageProvider, ArtistImageProvider};
 use crate::musicgateway::{self, MusicGatewayClient};
 
 pub struct TidalArtistProvider;
@@ -27,9 +27,7 @@ impl ArtistImageProvider for TidalArtistProvider {
         let image_url = musicgateway::cover_url(picture_id, 750);
 
         let http_client = super::http_client()?;
-        let bytes = http_client
-            .get(&image_url)
-            .send()
+        let bytes = logged_get(&http_client, &image_url)
             .map_err(|e| format!("TIDAL image download failed: {}", e))?
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;
@@ -72,9 +70,7 @@ impl AlbumImageProvider for TidalAlbumProvider {
         let image_url = musicgateway::cover_url(cover_id, 1280);
 
         let http_client = super::http_client()?;
-        let bytes = http_client
-            .get(&image_url)
-            .send()
+        let bytes = logged_get(&http_client, &image_url)
             .map_err(|e| format!("TIDAL image download failed: {}", e))?
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;

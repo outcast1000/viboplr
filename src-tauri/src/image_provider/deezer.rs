@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{http_client, urlencoded, write_image, AlbumImageProvider, ArtistImageProvider};
+use super::{http_client, logged_get, urlencoded, write_image, AlbumImageProvider, ArtistImageProvider};
 
 pub struct DeezerArtistProvider;
 
@@ -16,9 +16,7 @@ impl ArtistImageProvider for DeezerArtistProvider {
             "https://api.deezer.com/search/artist?q={}&limit=1",
             urlencoded(artist_name)
         );
-        let resp: serde_json::Value = client
-            .get(&url)
-            .send()
+        let resp: serde_json::Value = logged_get(&client, &url)
             .map_err(|e| format!("Deezer search failed: {}", e))?
             .json()
             .map_err(|e| format!("Failed to parse Deezer response: {}", e))?;
@@ -32,9 +30,7 @@ impl ArtistImageProvider for DeezerArtistProvider {
             .as_str()
             .ok_or("No picture_xl in Deezer response")?;
 
-        let bytes = client
-            .get(image_url)
-            .send()
+        let bytes = logged_get(&client, image_url)
             .map_err(|e| format!("Deezer image download failed: {}", e))?
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;
@@ -67,9 +63,7 @@ impl AlbumImageProvider for DeezerAlbumProvider {
             "https://api.deezer.com/search/album?q={}&limit=1",
             urlencoded(&query)
         );
-        let resp: serde_json::Value = client
-            .get(&url)
-            .send()
+        let resp: serde_json::Value = logged_get(&client, &url)
             .map_err(|e| format!("Deezer search failed: {}", e))?
             .json()
             .map_err(|e| format!("Failed to parse Deezer response: {}", e))?;
@@ -83,9 +77,7 @@ impl AlbumImageProvider for DeezerAlbumProvider {
             .as_str()
             .ok_or("No cover_xl in Deezer response")?;
 
-        let bytes = client
-            .get(image_url)
-            .send()
+        let bytes = logged_get(&client, image_url)
             .map_err(|e| format!("Deezer image download failed: {}", e))?
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;

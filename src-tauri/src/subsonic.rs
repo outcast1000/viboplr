@@ -148,9 +148,12 @@ impl SubsonicClient {
 
     fn get_json(&self, endpoint: &str) -> Result<Value, SubsonicError> {
         let url = self.api_url(endpoint);
+        let start = std::time::Instant::now();
         let resp = reqwest::blocking::get(&url)
             .map_err(|e| SubsonicError(format!("HTTP error: {}", e)))?;
         let status_code = resp.status();
+        let endpoint_name = endpoint.split('?').next().unwrap_or(endpoint);
+        log::info!("HTTP GET subsonic/{} -> {} ({:.0}ms)", endpoint_name, status_code, start.elapsed().as_secs_f64() * 1000.0);
         let body = resp
             .text()
             .map_err(|e| SubsonicError(format!("Failed to read response body: {}", e)))?;

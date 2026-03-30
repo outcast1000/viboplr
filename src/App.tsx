@@ -86,6 +86,7 @@ function App() {
   crossfadeSecsRef.current = crossfadeSecs;
   const trackVideoHistoryRef = useRef(false);
   const [trackVideoHistory, setTrackVideoHistory] = useState(false);
+  const [loggingEnabled, setLoggingEnabled] = useState(false);
   trackVideoHistoryRef.current = trackVideoHistory;
   const advanceIndexRef = useRef<() => void>(() => {});
   const resolveTrackSrcRef = useRef<(track: Track) => Promise<string>>(async (track) => {
@@ -631,6 +632,8 @@ function App() {
           }
         }
         if (savedSortBarCollapsed) library.setSortBarCollapsed(true);
+        const savedLoggingEnabled = await store.get<boolean>("loggingEnabled");
+        if (savedLoggingEnabled) setLoggingEnabled(true);
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {
@@ -659,6 +662,22 @@ function App() {
       await store.set("lastfmUsername", null);
     });
     return () => { unlisten.then(f => f()); };
+  }, []);
+
+  // Forward frontend errors to backend log file
+  useEffect(() => {
+    const onError = (e: ErrorEvent) => {
+      invoke("write_frontend_log", { level: "error", message: `${e.message} at ${e.filename}:${e.lineno}` }).catch(() => {});
+    };
+    const onRejection = (e: PromiseRejectionEvent) => {
+      invoke("write_frontend_log", { level: "error", message: `Unhandled rejection: ${e.reason}` }).catch(() => {});
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    };
   }, []);
 
   useEffect(() => {
@@ -1311,6 +1330,15 @@ function App() {
     store.set("trackVideoHistory", enabled);
   }
 
+  function handleLoggingEnabledChange(enabled: boolean) {
+    setLoggingEnabled(enabled);
+    store.set("loggingEnabled", enabled);
+  }
+
+  function handleOpenLogsFolder() {
+    invoke("open_logs_folder").catch(console.error);
+  }
+
   function handleDownloadFormatChange(format: string) {
     setDownloadFormat(format);
     store.set("downloadFormat", format);
@@ -1846,6 +1874,9 @@ function App() {
             const dir = await invoke<string>("plugin_get_dir");
             await invoke("open_folder", { folderPath: dir });
           }}
+          loggingEnabled={loggingEnabled}
+          onLoggingEnabledChange={handleLoggingEnabledChange}
+          onOpenLogsFolder={handleOpenLogsFolder}
         />
       )}
 

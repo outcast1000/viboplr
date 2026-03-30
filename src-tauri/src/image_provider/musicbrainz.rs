@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{http_client, urlencoded, write_image, AlbumImageProvider, ArtistImageProvider};
+use super::{http_client, logged_get, urlencoded, write_image, AlbumImageProvider, ArtistImageProvider};
 
 pub struct MusicBrainzArtistProvider;
 
@@ -17,9 +17,7 @@ impl ArtistImageProvider for MusicBrainzArtistProvider {
             "https://musicbrainz.org/ws/2/artist/?query=artist:{}&limit=1&fmt=json",
             urlencoded(artist_name)
         );
-        let search_resp: serde_json::Value = client
-            .get(&search_url)
-            .send()
+        let search_resp: serde_json::Value = logged_get(&client, &search_url)
             .map_err(|e| format!("MusicBrainz search failed: {}", e))?
             .json()
             .map_err(|e| format!("Failed to parse search response: {}", e))?;
@@ -44,9 +42,7 @@ impl ArtistImageProvider for MusicBrainzArtistProvider {
             "https://musicbrainz.org/ws/2/artist/{}?inc=url-rels&fmt=json",
             mbid
         );
-        let artist_resp: serde_json::Value = client
-            .get(&artist_url)
-            .send()
+        let artist_resp: serde_json::Value = logged_get(&client, &artist_url)
             .map_err(|e| format!("MusicBrainz artist lookup failed: {}", e))?
             .json()
             .map_err(|e| format!("Failed to parse artist response: {}", e))?;
@@ -72,9 +68,7 @@ impl ArtistImageProvider for MusicBrainzArtistProvider {
 
         // Step 5: Download image
         std::thread::sleep(std::time::Duration::from_secs(1));
-        let bytes = client
-            .get(&direct_url)
-            .send()
+        let bytes = logged_get(&client, &direct_url)
             .map_err(|e| format!("Image download failed: {}", e))?
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;
@@ -108,9 +102,7 @@ impl AlbumImageProvider for MusicBrainzAlbumProvider {
             "https://musicbrainz.org/ws/2/release-group/?query={}&limit=1&fmt=json",
             urlencoded(&query)
         );
-        let search_resp: serde_json::Value = client
-            .get(&search_url)
-            .send()
+        let search_resp: serde_json::Value = logged_get(&client, &search_url)
             .map_err(|e| format!("MusicBrainz search failed: {}", e))?
             .json()
             .map_err(|e| format!("Failed to parse search response: {}", e))?;
@@ -134,9 +126,7 @@ impl AlbumImageProvider for MusicBrainzAlbumProvider {
             "https://coverartarchive.org/release-group/{}/front-500",
             mbid
         );
-        let resp = client
-            .get(&cover_url)
-            .send()
+        let resp = logged_get(&client, &cover_url)
             .map_err(|e| format!("Cover Art Archive request failed: {}", e))?;
 
         if !resp.status().is_success() {
@@ -169,9 +159,7 @@ fn resolve_wikimedia_thumbnail(
         urlencoded(filename)
     );
 
-    let resp: serde_json::Value = client
-        .get(&api_url)
-        .send()
+    let resp: serde_json::Value = logged_get(client, &api_url)
         .map_err(|e| format!("Wikimedia API failed: {}", e))?
         .json()
         .map_err(|e| format!("Failed to parse Wikimedia response: {}", e))?;

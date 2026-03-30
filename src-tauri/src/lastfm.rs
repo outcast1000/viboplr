@@ -62,6 +62,7 @@ impl LastfmClient {
         ];
         let sig = self.sign_params(&mut params);
 
+        let start = std::time::Instant::now();
         let resp = self.client
             .get(BASE_URL)
             .query(&[
@@ -73,6 +74,8 @@ impl LastfmClient {
             ])
             .send()
             .map_err(|e| LastfmError(format!("HTTP error: {}", e)))?;
+        let status = resp.status();
+        log::info!("HTTP GET lastfm/auth.getSession -> {} ({:.0}ms)", status, start.elapsed().as_secs_f64() * 1000.0);
 
         let body: serde_json::Value = resp.json()
             .map_err(|e| LastfmError(format!("JSON error: {}", e)))?;
@@ -118,11 +121,14 @@ impl LastfmClient {
         params.push(("api_sig".to_string(), sig));
         params.push(("format".to_string(), "json".to_string()));
 
+        let start = std::time::Instant::now();
         let resp = self.client
             .post(BASE_URL)
             .form(&params)
             .send()
             .map_err(|e| LastfmError(format!("HTTP error: {}", e)))?;
+        let status = resp.status();
+        log::info!("HTTP POST lastfm/track.updateNowPlaying -> {} ({:.0}ms)", status, start.elapsed().as_secs_f64() * 1000.0);
 
         let body: serde_json::Value = resp.json()
             .map_err(|e| LastfmError(format!("JSON error: {}", e)))?;
@@ -143,6 +149,7 @@ impl LastfmClient {
         page: u32,
         limit: u32,
     ) -> Result<crate::models::LastfmRecentTracksResponse, LastfmError> {
+        let start = std::time::Instant::now();
         let resp = self.client
             .get(BASE_URL)
             .query(&[
@@ -155,6 +162,8 @@ impl LastfmClient {
             ])
             .send()
             .map_err(|e| LastfmError(format!("HTTP error: {}", e)))?;
+        let status = resp.status();
+        log::info!("HTTP GET lastfm/user.getRecentTracks page={} -> {} ({:.0}ms)", page, status, start.elapsed().as_secs_f64() * 1000.0);
 
         let body: serde_json::Value = resp.json()
             .map_err(|e| LastfmError(format!("JSON error: {}", e)))?;
@@ -196,11 +205,14 @@ impl LastfmClient {
         params.push(("api_sig".to_string(), sig));
         params.push(("format".to_string(), "json".to_string()));
 
+        let start = std::time::Instant::now();
         let resp = self.client
             .post(BASE_URL)
             .form(&params)
             .send()
             .map_err(|e| LastfmError(format!("HTTP error: {}", e)))?;
+        let status = resp.status();
+        log::info!("HTTP POST lastfm/track.scrobble -> {} ({:.0}ms)", status, start.elapsed().as_secs_f64() * 1000.0);
 
         let body: serde_json::Value = resp.json()
             .map_err(|e| LastfmError(format!("JSON error: {}", e)))?;
@@ -223,11 +235,14 @@ impl LastfmClient {
         ];
         query.extend_from_slice(params);
 
+        let start = std::time::Instant::now();
         let resp = self.client
             .get(BASE_URL)
             .query(&query)
             .send()
             .map_err(|e| LastfmError(format!("HTTP error: {}", e)))?;
+        let status = resp.status();
+        log::info!("HTTP GET lastfm/{} -> {} ({:.0}ms)", method, status, start.elapsed().as_secs_f64() * 1000.0);
 
         let body: Value = resp.json()
             .map_err(|e| LastfmError(format!("JSON error: {}", e)))?;
@@ -254,11 +269,14 @@ impl LastfmClient {
         params.push(("api_sig".to_string(), sig));
         params.push(("format".to_string(), "json".to_string()));
 
+        let start = std::time::Instant::now();
         let resp = self.client
             .post(BASE_URL)
             .form(&params)
             .send()
             .map_err(|e| LastfmError(format!("HTTP error: {}", e)))?;
+        let status = resp.status();
+        log::info!("HTTP POST lastfm/{} -> {} ({:.0}ms)", method, status, start.elapsed().as_secs_f64() * 1000.0);
 
         let body: Value = resp.json()
             .map_err(|e| LastfmError(format!("JSON error: {}", e)))?;

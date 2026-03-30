@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{http_client, urlencoded, write_image, AlbumImageProvider, ArtistImageProvider};
+use super::{http_client, logged_get, urlencoded, write_image, AlbumImageProvider, ArtistImageProvider};
 
 pub struct ITunesArtistProvider;
 
@@ -16,9 +16,7 @@ impl ArtistImageProvider for ITunesArtistProvider {
             "https://itunes.apple.com/search?term={}&entity=musicArtist&limit=1",
             urlencoded(artist_name)
         );
-        let resp: serde_json::Value = client
-            .get(&url)
-            .send()
+        let resp: serde_json::Value = logged_get(&client, &url)
             .map_err(|e| format!("iTunes search failed: {}", e))?
             .json()
             .map_err(|e| format!("Failed to parse iTunes response: {}", e))?;
@@ -33,9 +31,7 @@ impl ArtistImageProvider for ITunesArtistProvider {
             .ok_or("No artwork URL in iTunes response")?
             .replace("100x100", "600x600");
 
-        let bytes = client
-            .get(&artwork_url)
-            .send()
+        let bytes = logged_get(&client, &artwork_url)
             .map_err(|e| format!("iTunes image download failed: {}", e))?
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;
@@ -68,9 +64,7 @@ impl AlbumImageProvider for ITunesAlbumProvider {
             "https://itunes.apple.com/search?term={}&entity=album&limit=1",
             term
         );
-        let resp: serde_json::Value = client
-            .get(&url)
-            .send()
+        let resp: serde_json::Value = logged_get(&client, &url)
             .map_err(|e| format!("iTunes search failed: {}", e))?
             .json()
             .map_err(|e| format!("Failed to parse iTunes response: {}", e))?;
@@ -85,9 +79,7 @@ impl AlbumImageProvider for ITunesAlbumProvider {
             .ok_or("No artwork URL in iTunes response")?
             .replace("100x100", "600x600");
 
-        let bytes = client
-            .get(&artwork_url)
-            .send()
+        let bytes = logged_get(&client, &artwork_url)
             .map_err(|e| format!("iTunes image download failed: {}", e))?
             .bytes()
             .map_err(|e| format!("Failed to read image bytes: {}", e))?;

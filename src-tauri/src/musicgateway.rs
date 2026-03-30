@@ -80,12 +80,14 @@ impl MusicGatewayClient {
     }
 
     fn fetch_text(&self, url: &str) -> Result<String, MusicGatewayError> {
+        let start = std::time::Instant::now();
         let resp = self
             .client
             .get(url)
             .send()
             .map_err(|e| MusicGatewayError(format!("HTTP error: {}", e)))?;
         let status = resp.status();
+        log::info!("HTTP GET musicgateway {} -> {} ({:.0}ms)", url, status, start.elapsed().as_secs_f64() * 1000.0);
         let body = resp
             .text()
             .map_err(|e| MusicGatewayError(format!("Failed to read response: {}", e)))?;
