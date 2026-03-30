@@ -1509,8 +1509,8 @@ body {
 
 .caption-brand-text {
   font-size: var(--fs-sm);
-  font-weight: 700;
-  letter-spacing: 0.5px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
   background: linear-gradient(180deg, #FF6B6B, #E91E8A);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;

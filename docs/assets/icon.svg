@@ -1,26 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="vGrad" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="vGrad" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#FF6B6B"/>
       <stop offset="100%" stop-color="#E91E8A"/>
     </linearGradient>
   </defs>
 
+  <!-- Vinyl grooves -->
+  <circle cx="256" cy="256" r="230" fill="none" stroke="url(#vGrad)" stroke-width="6" opacity="0.15"/>
+  <circle cx="256" cy="256" r="190" fill="none" stroke="url(#vGrad)" stroke-width="4" opacity="0.1"/>
+
   <!-- The V shape -->
-  <path d="M 110,90 L 256,410 L 402,90"
+  <path d="M120,110 L256,400 L392,110"
         fill="none"
         stroke="url(#vGrad)"
-        stroke-width="58"
+        stroke-width="56"
         stroke-linecap="round"
         stroke-linejoin="round"/>
 
-  <!-- Left ripple lines (colors sampled from gradient at each height) -->
-  <line x1="30" y1="165" x2="100" y2="165" stroke="#FF5C7A" stroke-width="16" stroke-linecap="round" opacity="0.85"/>
-  <line x1="50" y1="230" x2="118" y2="230" stroke="#F63D88" stroke-width="14" stroke-linecap="round" opacity="0.55"/>
-  <line x1="78" y1="295" x2="140" y2="295" stroke="#EE2690" stroke-width="11" stroke-linecap="round" opacity="0.3"/>
-
-  <!-- Right ripple lines (mirrored) -->
-  <line x1="412" y1="165" x2="482" y2="165" stroke="#FF5C7A" stroke-width="16" stroke-linecap="round" opacity="0.85"/>
-  <line x1="394" y1="230" x2="462" y2="230" stroke="#F63D88" stroke-width="14" stroke-linecap="round" opacity="0.55"/>
-  <line x1="372" y1="295" x2="434" y2="295" stroke="#EE2690" stroke-width="11" stroke-linecap="round" opacity="0.3"/>
+  <!-- Spindle dot -->
+  <circle cx="256" cy="400" r="16" fill="url(#vGrad)" opacity="0.6"/>
 </svg>

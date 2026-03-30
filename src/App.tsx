@@ -1853,22 +1853,19 @@ function App() {
       <div className="search-bar" data-tauri-drag-region onDoubleClick={handleCaptionDoubleClick}>
         <WindowControls position="left" />
           <div className="caption-brand">
-            <svg width="39" height="39" viewBox="0 0 512 512" fill="none">
+            <svg width="34" height="34" viewBox="0 0 512 512" fill="none" style={{ marginRight: "-6px" }}>
               <defs>
-                <linearGradient id="captionVGrad" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="captionVGrad" x1="0" y1="0" x2="1" y2="1">
                   <stop offset="0%" stopColor="#FF6B6B"/>
                   <stop offset="100%" stopColor="#E91E8A"/>
                 </linearGradient>
               </defs>
-              <path d="M 110,90 L 256,410 L 402,90" fill="none" stroke="url(#captionVGrad)" strokeWidth="58" strokeLinecap="round" strokeLinejoin="round"/>
-              <line x1="30" y1="165" x2="100" y2="165" stroke="#FF5C7A" strokeWidth="16" strokeLinecap="round" opacity="0.85"/>
-              <line x1="50" y1="230" x2="118" y2="230" stroke="#F63D88" strokeWidth="14" strokeLinecap="round" opacity="0.55"/>
-              <line x1="78" y1="295" x2="140" y2="295" stroke="#EE2690" strokeWidth="11" strokeLinecap="round" opacity="0.3"/>
-              <line x1="412" y1="165" x2="482" y2="165" stroke="#FF5C7A" strokeWidth="16" strokeLinecap="round" opacity="0.85"/>
-              <line x1="394" y1="230" x2="462" y2="230" stroke="#F63D88" strokeWidth="14" strokeLinecap="round" opacity="0.55"/>
-              <line x1="372" y1="295" x2="434" y2="295" stroke="#EE2690" strokeWidth="11" strokeLinecap="round" opacity="0.3"/>
+              <circle cx="256" cy="256" r="230" fill="none" stroke="url(#captionVGrad)" strokeWidth="6" opacity="0.15"/>
+              <circle cx="256" cy="256" r="190" fill="none" stroke="url(#captionVGrad)" strokeWidth="4" opacity="0.1"/>
+              <path d="M120,110 L256,400 L392,110" fill="none" stroke="url(#captionVGrad)" strokeWidth="56" strokeLinecap="round" strokeLinejoin="round"/>
+              <circle cx="256" cy="400" r="16" fill="url(#captionVGrad)" opacity="0.6"/>
             </svg>
-            <span className="caption-brand-text">ViboPLR</span>
+            <span className="caption-brand-text">iboPLR</span>
           </div>
           <button
             className="nav-history-btn"

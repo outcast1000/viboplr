@@ -348,8 +348,12 @@ export function SettingsPanel({
 
                 <div className="settings-about-content">
                   <div className="settings-about-logo" style={{ cursor: "pointer" }} onClick={() => openUrl("https://viboplr.com")}>
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+                    <svg width="48" height="48" viewBox="0 0 512 512" fill="none">
+                      <defs><linearGradient id="aboutVGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FF6B6B"/><stop offset="100%" stopColor="#E91E8A"/></linearGradient></defs>
+                      <circle cx="256" cy="256" r="230" fill="none" stroke="url(#aboutVGrad)" strokeWidth="6" opacity="0.15"/>
+                      <circle cx="256" cy="256" r="190" fill="none" stroke="url(#aboutVGrad)" strokeWidth="4" opacity="0.1"/>
+                      <path d="M120,110 L256,400 L392,110" fill="none" stroke="url(#aboutVGrad)" strokeWidth="56" strokeLinecap="round" strokeLinejoin="round"/>
+                      <circle cx="256" cy="400" r="16" fill="url(#aboutVGrad)" opacity="0.6"/>
                     </svg>
                   </div>
                   <span className="settings-about-name">Viboplr</span>
