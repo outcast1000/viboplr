@@ -12,6 +12,7 @@ mod seed;
 mod skins;
 mod subsonic;
 mod sync;
+mod tag_writer;
 mod timing;
 mod downloader;
 mod lastfm;
