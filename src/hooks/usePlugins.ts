@@ -319,11 +319,11 @@ export function usePlugins(
       const appVersion = await getVersion().catch(() => "0.0.0");
       const enabled =
         (await store.get<string[]>("enabledPlugins")) ?? null;
-      // If no enabled list in store, all plugins are enabled by default
+      // If no enabled list in store, all plugins are disabled by default
       const enabledSet =
         enabled !== null
           ? new Set(enabled)
-          : new Set(installed.map((p) => p.id));
+          : new Set<string>();
       enabledPluginsRef.current = enabledSet;
 
       const states: PluginState[] = [];

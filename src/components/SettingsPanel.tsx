@@ -511,14 +511,12 @@ export function SettingsPanel({
                 ) : (
                   pluginStates.map(plugin => (
                     <div key={plugin.id} className="settings-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0" }}>
-                      <label className="toggle-switch" style={{ flexShrink: 0 }}>
-                        <input
-                          type="checkbox"
-                          checked={plugin.enabled}
-                          onChange={() => onTogglePlugin?.(plugin.id, !plugin.enabled)}
-                        />
-                        <span className="toggle-slider" />
-                      </label>
+                      <button
+                        className={`toggle-switch${plugin.enabled ? " toggle-switch-on" : ""}`}
+                        onClick={() => onTogglePlugin?.(plugin.id, !plugin.enabled)}
+                      >
+                        <span className="toggle-switch-thumb" />
+                      </button>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 500 }}>
                           {plugin.manifest.name}
