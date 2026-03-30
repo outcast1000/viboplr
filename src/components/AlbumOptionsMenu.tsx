@@ -28,86 +28,81 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
   return <IconGoogle size={14} />;
 }
 
-interface ImageActionsProps {
-  entityId: number;
-  entityType: "artist" | "album" | "tag";
-  entityName?: string;
-  imagePath: string | null | undefined;
-  providers?: SearchProviderConfig[];
+interface AlbumOptionsMenuProps {
+  albumId: number;
+  albumImagePath: string | null;
+  albumTitle: string;
+  artistName: string;
+  providers: SearchProviderConfig[];
   onImageSet: (id: number, path: string) => void;
   onImageRemoved: (id: number) => void;
 }
 
-export function ImageActions({ entityId, entityType, entityName, imagePath, providers, onImageSet, onImageRemoved }: ImageActionsProps) {
-  const [open_menu, setOpenMenu] = useState(false);
+export function AlbumOptionsMenu({ albumId, albumImagePath, albumTitle, artistName, providers, onImageSet, onImageRemoved }: AlbumOptionsMenuProps) {
+  const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!open_menu) return;
+    if (!isOpen) return;
     const handleClick = (e: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setOpenMenu(false);
+        setIsOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [open_menu]);
-
-  const urlKey = entityType === "artist" ? "artistUrl" : entityType === "album" ? "albumUrl" : undefined;
-  const activeProviders = providers && urlKey ? providers.filter(p => p[urlKey]) : [];
+  }, [isOpen]);
 
   return (
     <div className="artist-image-menu-wrapper" ref={wrapperRef}>
       <button
         className="artist-image-menu-trigger"
-        onClick={(e) => { e.stopPropagation(); setOpenMenu(v => !v); }}
+        onClick={(e) => { e.stopPropagation(); setIsOpen(v => !v); }}
         title="Options"
       >
         &#x22EF;
       </button>
-      {open_menu && (
+      {isOpen && (
         <div className="artist-image-menu-dropdown">
           <button
             onClick={async () => {
-              setOpenMenu(false);
+              setIsOpen(false);
               const selected = await open({
                 multiple: false,
                 filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
               });
               if (selected) {
                 const newPath = await invoke<string>("set_entity_image", {
-                  kind: entityType,
-                  id: entityId,
+                  kind: "album",
+                  id: albumId,
                   sourcePath: selected,
                 });
-                onImageSet(entityId, newPath);
+                onImageSet(albumId, newPath);
               }
             }}
           >
             <IconImage size={14} /><span>Set Image</span>
           </button>
-          {imagePath && (
+          {albumImagePath && (
             <button
               onClick={() => {
-                setOpenMenu(false);
-                invoke("remove_entity_image", { kind: entityType, id: entityId });
-                onImageRemoved(entityId);
+                setIsOpen(false);
+                invoke("remove_entity_image", { kind: "album", id: albumId });
+                onImageRemoved(albumId);
               }}
             >
               <IconRemoveImage size={14} /><span>Remove Image</span>
             </button>
           )}
-          {activeProviders.length > 0 && entityName && (
+          {providers.length > 0 && (
             <>
               <div className="artist-image-menu-separator" />
-              {activeProviders.map((provider) => {
-                const template = provider[urlKey!]!;
-                const params = entityType === "artist" ? { artist: entityName } : { title: entityName };
-                const url = buildSearchUrl(template, params);
+              {providers.map((provider) => {
+                const url = buildSearchUrl(provider.albumUrl!, { title: albumTitle, artist: artistName });
                 return (
                   <button
                     key={provider.id}
-                    onClick={() => { setOpenMenu(false); openUrl(url); }}
+                    onClick={() => { setIsOpen(false); openUrl(url); }}
                   >
                     <ProviderIcon provider={provider} /><span>Search on {provider.name}</span>
                   </button>

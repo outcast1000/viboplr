@@ -3181,7 +3181,9 @@ body {
 }
 
 .artist-image-menu-dropdown button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   text-align: left;
   background: none;
@@ -3191,10 +3193,17 @@ body {
   font-size: var(--fs-xs);
   cursor: pointer;
   transition: background 0.1s;
+  white-space: nowrap;
 }
 
 .artist-image-menu-dropdown button:hover {
   background: var(--bg-tertiary);
+}
+
+.artist-image-menu-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
 }
 
 .artist-meta {
@@ -3400,9 +3409,30 @@ body {
 }
 
 .album-detail-info h2 {
-  font-size: var(--fs-xl);
+  font-size: var(--fs-2xl);
   font-weight: 700;
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.album-detail-artist-name {
+  font-size: var(--fs-lg);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.album-detail-artist-name:hover {
+  color: var(--accent);
+}
+
+.album-wiki-section {
+  padding: 16px;
+  max-width: 680px;
+  border-bottom: 1px solid var(--border);
 }
 
 .album-card-body {
