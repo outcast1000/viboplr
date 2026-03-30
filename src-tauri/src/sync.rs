@@ -94,6 +94,7 @@ pub fn sync_collection(
                 None,
                 Some(collection_id),
                 Some(&track.id),
+                album.year,
             ) {
                 // Tag from track genre or album genre
                 let genre = track.genre.as_deref().or(album.genre.as_deref());

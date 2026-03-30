@@ -294,6 +294,7 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
             modified_at,
             collection_id,
             None,
+            None,
         );
         return;
     }
@@ -322,6 +323,7 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
         modified_at,
         collection_id,
         None,
+        tags.year,
     ) {
         if let Some(genre) = &tags.genre {
             if let Ok(tag_id) = db.get_or_create_tag(genre) {

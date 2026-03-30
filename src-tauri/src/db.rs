@@ -13,7 +13,7 @@ pub fn strip_diacritics(s: &str) -> String {
 
 
 const TRACK_SELECT: &str =
-    "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, al.year, \
+    "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
      t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.youtube_url, \
      t.added_at, t.modified_at \
      FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id \
@@ -84,7 +84,7 @@ fn sort_column_sql(field: Option<&str>) -> Option<String> {
         Some("duration") => Some("COALESCE(t.duration_secs, 0)".to_string()),
         Some("num") => Some("COALESCE(t.track_number, 0)".to_string()),
         Some("path") => Some("t.path".to_string()),
-        Some("year") => Some("COALESCE(al.year, 0)".to_string()),
+        Some("year") => Some("COALESCE(t.year, al.year, 0)".to_string()),
         Some("quality") => Some("(CASE WHEN t.duration_secs > 0 AND t.file_size > 0 THEN t.file_size * 8.0 / t.duration_secs / 1000.0 ELSE 0 END)".to_string()),
         Some("size") => Some("COALESCE(t.file_size, 0)".to_string()),
         Some("collection") => Some("COALESCE(co.name, '')".to_string()),
@@ -236,7 +236,8 @@ impl Database {
                 added_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 collection_id INTEGER REFERENCES collections(id),
                 subsonic_id   TEXT,
-                liked         INTEGER NOT NULL DEFAULT 0
+                liked         INTEGER NOT NULL DEFAULT 0,
+                year          INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS track_tags (
@@ -454,6 +455,11 @@ impl Database {
                 )"
             )?;
             conn.execute("UPDATE db_version SET version = 10 WHERE rowid = 1", [])?;
+        }
+
+        if version < 11 {
+            let _ = conn.execute_batch("ALTER TABLE tracks ADD COLUMN year INTEGER");
+            conn.execute("UPDATE db_version SET version = 11 WHERE rowid = 1", [])?;
         }
 
         drop(conn);
@@ -682,18 +688,20 @@ impl Database {
         modified_at: Option<i64>,
         collection_id: Option<i64>,
         subsonic_id: Option<&str>,
+        year: Option<i32>,
     ) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, subsonic_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, subsonic_id, year)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(path) DO UPDATE SET
                 title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id,
                 track_number=excluded.track_number,
                 duration_secs=excluded.duration_secs, format=excluded.format,
                 file_size=excluded.file_size, modified_at=excluded.modified_at,
-                collection_id=excluded.collection_id, subsonic_id=excluded.subsonic_id",
-            params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, subsonic_id],
+                collection_id=excluded.collection_id, subsonic_id=excluded.subsonic_id,
+                year=excluded.year",
+            params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, subsonic_id, year],
         )?;
         let id: i64 = conn.query_row(
             "SELECT id FROM tracks WHERE path = ?1",
@@ -848,7 +856,7 @@ impl Database {
             .join(" AND ");
 
         let mut sql = String::from(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, al.year, \
+            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
              t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.youtube_url, \
              t.added_at, t.modified_at \
              FROM tracks_fts fts \
@@ -1884,7 +1892,7 @@ mod tests {
 
     /// Helper: insert a track and return its id
     fn insert_track(db: &Database, path: &str, title: &str, artist_id: Option<i64>, album_id: Option<i64>) -> i64 {
-        db.upsert_track(path, title, artist_id, album_id, None, Some(180.0), Some("mp3"), Some(5_000_000), None, None, None)
+        db.upsert_track(path, title, artist_id, album_id, None, Some(180.0), Some("mp3"), Some(5_000_000), None, None, None, None)
             .expect("upsert_track failed")
     }
 
@@ -1895,7 +1903,7 @@ mod tests {
         let album_id = db.get_or_create_album("Dark Side", Some(artist_id), Some(1973)).unwrap();
         let track_id = db.upsert_track(
             "/music/time.mp3", "Time", Some(artist_id), Some(album_id),
-            Some(4), Some(413.0), Some("mp3"), Some(10_000_000), None, None, None,
+            Some(4), Some(413.0), Some("mp3"), Some(10_000_000), None, None, None, None,
         ).unwrap();
 
         let track = db.get_track_by_id(track_id).unwrap();
@@ -1915,7 +1923,7 @@ mod tests {
         let id1 = insert_track(&db, "/music/song.mp3", "Song V1", None, None);
         let id2 = db.upsert_track(
             "/music/song.mp3", "Song V2", None, None,
-            None, Some(200.0), Some("mp3"), None, None, None, None,
+            None, Some(200.0), Some("mp3"), None, None, None, None, None,
         ).unwrap();
 
         assert_eq!(id1, id2, "upsert should return same id for same path");
@@ -2090,9 +2098,9 @@ mod tests {
         let db = test_db();
         let col = db.add_collection("local", "Music", Some("/music"), None, None, None, None, None).unwrap();
 
-        db.upsert_track("/a.mp3", "Song A", None, None, None, Some(180.0), Some("mp3"), Some(5_000_000), None, Some(col.id), None).unwrap();
-        db.upsert_track("/b.flac", "Song B", None, None, None, Some(240.0), Some("flac"), Some(30_000_000), None, Some(col.id), None).unwrap();
-        db.upsert_track("/c.mp4", "Video C", None, None, None, Some(300.0), Some("mp4"), Some(100_000_000), None, Some(col.id), None).unwrap();
+        db.upsert_track("/a.mp3", "Song A", None, None, None, Some(180.0), Some("mp3"), Some(5_000_000), None, Some(col.id), None, None).unwrap();
+        db.upsert_track("/b.flac", "Song B", None, None, None, Some(240.0), Some("flac"), Some(30_000_000), None, Some(col.id), None, None).unwrap();
+        db.upsert_track("/c.mp4", "Video C", None, None, None, Some(300.0), Some("mp4"), Some(100_000_000), None, Some(col.id), None, None).unwrap();
 
         let stats = db.get_collection_stats().unwrap();
         assert_eq!(stats.len(), 1);

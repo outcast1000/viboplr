@@ -2555,7 +2555,7 @@ mod tests {
 
     /// Helper: insert a track directly through the DB layer
     fn insert_track(state: &AppState, path: &str, title: &str, artist_id: Option<i64>, album_id: Option<i64>) -> i64 {
-        state.db.upsert_track(path, title, artist_id, album_id, None, Some(200.0), Some("mp3"), Some(5_000_000), None, None, None)
+        state.db.upsert_track(path, title, artist_id, album_id, None, Some(200.0), Some("mp3"), Some(5_000_000), None, None, None, None)
             .expect("upsert_track failed")
     }
 

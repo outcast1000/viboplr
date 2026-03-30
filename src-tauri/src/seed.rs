@@ -145,6 +145,7 @@ pub fn seed_database(
             None,
             Some(collection_id),
             None,
+            None,
         )
         .map_err(|e| e.to_string())?;
         db.add_track_tag(track_id, tag_id).map_err(|e| e.to_string())?;
