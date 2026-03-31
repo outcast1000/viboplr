@@ -109,6 +109,9 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::lastfm_scrobble,
         commands::lastfm_import_history,
         commands::lastfm_cancel_import,
+        commands::lastfm_start_auto_import,
+        commands::lastfm_stop_auto_import,
+        commands::lastfm_set_auto_import_interval,
         commands::lastfm_love_track,
         commands::lastfm_unlove_track,
         commands::lastfm_get_similar_artists,
@@ -231,6 +234,9 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::lastfm_scrobble,
         commands::lastfm_import_history,
         commands::lastfm_cancel_import,
+        commands::lastfm_start_auto_import,
+        commands::lastfm_stop_auto_import,
+        commands::lastfm_set_auto_import_interval,
         commands::lastfm_love_track,
         commands::lastfm_unlove_track,
         commands::lastfm_get_similar_artists,
@@ -869,6 +875,8 @@ pub fn run() {
             if let tauri::RunEvent::Exit = event {
                 // Gracefully shut down managed MusicGateAway on app exit
                 if let Some(state) = app.try_state::<commands::AppState>() {
+                    // Stop Last.fm auto-import thread
+                    state.auto_import_running.store(false, std::sync::atomic::Ordering::SeqCst);
                     // Try API shutdown first
                     if let Some(url) = state.musicgateway_url.lock().unwrap().clone() {
                         let client = musicgateway::MusicGatewayClient::new(&url);
