@@ -38,12 +38,16 @@ function activate(api) {
     ];
 
     if (state.searchResults) {
+      var trackCount = (state.searchResults.tracks || []).length;
+      var albumCount = (state.searchResults.albums || []).length;
+      var artistCount = (state.searchResults.artists || []).length;
+
       children.push({
         type: "tabs",
         tabs: [
-          { id: "tracks", label: "Tracks" },
-          { id: "albums", label: "Albums" },
-          { id: "artists", label: "Artists" },
+          { id: "tracks", label: "Tracks", count: trackCount },
+          { id: "albums", label: "Albums", count: albumCount },
+          { id: "artists", label: "Artists", count: artistCount },
         ],
         activeTab: state.activeTab,
         action: "switch-tab",
@@ -55,14 +59,20 @@ function activate(api) {
           children.push({ type: "text", content: "No tracks found." });
         } else {
           children.push({
-            type: "card-grid",
-            columns: 2,
+            type: "track-row-list",
+            selectable: true,
+            actions: [
+              { id: "play-selected", label: "Play", icon: "\u25B6" },
+              { id: "queue-selected", label: "Queue", icon: "+" },
+              { id: "download-selected", label: "Download", icon: "\u2B07" },
+            ],
             items: tracks.map(function (t) {
               return {
                 id: "track:" + t.tidal_id,
                 title: t.title,
-                subtitle: (t.artist_name || "Unknown") + " \u2022 " + formatDuration(t.duration_secs),
+                subtitle: (t.artist_name || "Unknown") + " \u2014 " + (t.album_title || ""),
                 imageUrl: coverUrl(t.cover_id, 160),
+                duration: formatDuration(t.duration_secs),
                 action: "play-track",
               };
             }),
@@ -148,13 +158,19 @@ function activate(api) {
     // Track list
     if (album.tracks && album.tracks.length > 0) {
       children.push({
-        type: "card-grid",
-        columns: 1,
+        type: "track-row-list",
+        selectable: true,
+        actions: [
+          { id: "play-selected", label: "Play", icon: "\u25B6" },
+          { id: "queue-selected", label: "Queue", icon: "+" },
+          { id: "download-selected", label: "Download", icon: "\u2B07" },
+        ],
         items: album.tracks.map(function (t) {
           return {
             id: "track:" + t.tidal_id,
             title: (t.track_number ? t.track_number + ". " : "") + t.title,
-            subtitle: (t.artist_name || album.artist_name || "") + " \u2022 " + formatDuration(t.duration_secs),
+            subtitle: t.artist_name || album.artist_name || "",
+            duration: formatDuration(t.duration_secs),
             action: "play-track",
           };
         }),
@@ -302,6 +318,45 @@ function activate(api) {
     }
   });
 
+  function getSelectedTracks(data) {
+    if (!data || !data.selectedIds) return [];
+    var tracks = [];
+    for (var i = 0; i < data.selectedIds.length; i++) {
+      var parts = data.selectedIds[i].split(":");
+      if (parts[0] === "track" && parts[1]) {
+        var track = findTrackById(parts[1]);
+        if (track) tracks.push(track);
+      }
+    }
+    return tracks;
+  }
+
+  api.ui.onAction("play-selected", function (data) {
+    var tracks = getSelectedTracks(data);
+    if (tracks.length > 0) {
+      api.playback.playTidalTracks(tracks, 0);
+    }
+  });
+
+  api.ui.onAction("queue-selected", function (data) {
+    var tracks = getSelectedTracks(data);
+    for (var i = 0; i < tracks.length; i++) {
+      api.playback.enqueueTidalTrack(tracks[i]);
+    }
+  });
+
+  api.ui.onAction("download-selected", function (data) {
+    var tracks = getSelectedTracks(data);
+    for (var i = 0; i < tracks.length; i++) {
+      api.tidal.downloadTrack(tracks[i].tidal_id).catch(function (err) {
+        api.ui.showNotification("Download failed: " + (err.message || err));
+      });
+    }
+    if (tracks.length > 0) {
+      api.ui.showNotification("Downloading " + tracks.length + " track" + (tracks.length > 1 ? "s" : ""));
+    }
+  });
+
   api.ui.onAction("play-album", function () {
     if (state.albumDetail && state.albumDetail.tracks && state.albumDetail.tracks.length > 0) {
       api.playback.playTidalTracks(state.albumDetail.tracks, 0);
@@ -388,6 +443,66 @@ function activate(api) {
       state.currentView = "search";
       render();
     }
+  });
+
+  // -- Context menu actions --
+
+  api.contextMenu.onAction("search-tidal", function (target) {
+    var query = "";
+    var tab = "tracks";
+    if (target.kind === "track") {
+      query = (target.title || "") + " " + (target.artistName || "");
+    } else if (target.kind === "album") {
+      query = (target.albumTitle || "") + " " + (target.artistName || "");
+      tab = "albums";
+    } else if (target.kind === "artist") {
+      query = target.artistName || "";
+      tab = "artists";
+    }
+    query = query.trim();
+    if (!query) return;
+
+    state.lastQuery = query;
+    state.activeTab = tab;
+    state.viewStack = [];
+    state.currentView = "search";
+    renderLoading("Searching TIDAL...");
+    api.ui.navigateToView("tidal");
+
+    api.tidal.search(query, 30).then(function (results) {
+      state.searchResults = results;
+      state.currentView = "search";
+      render();
+    }).catch(function (err) {
+      renderError("Search failed: " + (err.message || err));
+    });
+  });
+
+  api.contextMenu.onAction("upgrade-quality", function (target) {
+    if (target.kind !== "track") return;
+    if (target.subsonic) {
+      api.ui.showNotification("Upgrade is only available for local tracks");
+      return;
+    }
+    if (!target.trackId) return;
+    api.ui.requestAction("upgrade-track", { trackId: target.trackId });
+  });
+
+  api.contextMenu.onAction("play-from-tidal", function (target) {
+    if (target.kind !== "track") return;
+    var query = ((target.title || "") + " " + (target.artistName || "")).trim();
+    if (!query) return;
+
+    api.tidal.search(query, 1).then(function (results) {
+      var tracks = results.tracks || [];
+      if (tracks.length > 0) {
+        api.playback.playTidalTrack(tracks[0]);
+      } else {
+        api.ui.showNotification("No TIDAL match found for this track");
+      }
+    }).catch(function (err) {
+      api.ui.showNotification("TIDAL search failed: " + (err.message || err));
+    });
   });
 
   // Initial render

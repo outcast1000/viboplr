@@ -30,7 +30,7 @@ import { useVideoSplit } from "./hooks/useVideoSplit";
 import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useSkins } from "./hooks/useSkins";
-import { usePlugins } from "./hooks/usePlugins";
+import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
 import type { TidalSearchTrackLike } from "./types/plugin";
 import { WindowControls } from "./components/WindowControls";
 import { useViewSearchState } from "./hooks/useViewSearchState";
@@ -76,7 +76,7 @@ function App() {
   const getScrollEl = useCallback(() => {
     const el = contentRef.current;
     if (!el) return null;
-    return el.querySelector<HTMLElement>('.track-list, .entity-list, .entity-table, .album-grid, .artist-detail, .history-view, .tidal-view, .collections-view');
+    return el.querySelector<HTMLElement>('.track-list, .entity-list, .entity-table, .album-grid, .artist-detail, .history-view, .collections-view, .plugin-view');
   }, []);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HistoryViewHandle>(null);
@@ -196,7 +196,8 @@ function App() {
     },
     getDownloadFormat: () => downloadFormatRef.current,
   }), [queueHook, tidalTrackToTrackFn]);
-  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks);
+  const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
+  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current);
 
   // Plugin event: track started
   const prevTrackIdRef = useRef<number | null>(null);
@@ -265,6 +266,29 @@ function App() {
   const [propertiesTrack, setPropertiesTrack] = useState<Track | null>(null);
   const [bulkEditTracks, setBulkEditTracks] = useState<Track[] | null>(null);
   const [upgradeTrack, setUpgradeTrack] = useState<Track | null>(null);
+
+  // Wire plugin host callbacks (uses addLog, library, setUpgradeTrack defined above)
+  pluginHostCallbacksRef.current = {
+    navigateToPluginView: (pluginId, viewId) => {
+      library.setView(`plugin:${pluginId}:${viewId}`);
+      library.setSelectedArtist(null);
+      library.setSelectedAlbum(null);
+      library.setSelectedTag(null);
+    },
+    requestAction: (_pluginId, action, payload) => {
+      if (action === "upgrade-track") {
+        const trackId = payload.trackId as number;
+        if (trackId) {
+          const track = library.tracks.find(t => t.id === trackId);
+          if (track) setUpgradeTrack(track);
+        }
+      }
+    },
+    showNotification: (message) => {
+      addLog(message);
+    },
+  };
+
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
@@ -3160,13 +3184,6 @@ function App() {
             if (track?.artist_id) library.handleLocateTrack(track.id, track.artist_id, track.album_id);
           } : undefined}
           onDownload={contextMenu.target.kind === "track" ? (destId: number) => { const t = contextMenu.target; if (t.kind === "track") handleDownloadTrack(t.trackId, destId); } : undefined}
-          onUpgradeViaTidal={contextMenu.target.kind === "track" && !contextMenu.target.subsonic ? () => {
-            const t = contextMenu.target;
-            if (t.kind === "track") {
-              const track = tracks.find(tr => tr.id === t.trackId);
-              if (track) setUpgradeTrack(track);
-            }
-          } : undefined}
           localCollections={localCollections}
           onClose={() => setContextMenu(null)}
           pluginMenuItems={plugins.menuItems}

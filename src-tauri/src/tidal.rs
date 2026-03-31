@@ -257,33 +257,59 @@ impl TidalClient {
     }
 
     /// Combined search: tracks + albums + artists.
+    /// The API uses different query params per type: s= for tracks, a= for artists, al= for albums.
+    /// We fire all three in parallel to keep latency low.
     pub fn search(
         &self,
         query: &str,
         limit: u32,
         offset: u32,
     ) -> Result<TidalSearchResult, TidalError> {
-        let json = self.get_json(&format!(
-            "/search/?s={}&limit={}&offset={}",
-            urlencoding::encode(query),
-            limit,
-            offset
-        ))?;
+        let encoded = urlencoding::encode(query);
+        let track_path = format!("/search/?s={}&limit={}&offset={}", encoded, limit, offset);
+        let artist_path = format!("/search/?a={}&limit={}&offset={}", encoded, limit, offset);
+        let album_path = format!("/search/?al={}&limit={}&offset={}", encoded, limit, offset);
 
-        let tracks = json["data"]["items"]
-            .as_array()
-            .map(|arr| arr.iter().map(|t| parse_track(t)).collect())
-            .unwrap_or_default();
+        let (tracks, artists, albums) = std::thread::scope(|s| {
+            let t_handle = s.spawn(|| self.get_json(&track_path));
+            let a_handle = s.spawn(|| self.get_json(&artist_path));
+            let al_handle = s.spawn(|| self.get_json(&album_path));
 
-        let artists = json["data"]["artists"]["items"]
-            .as_array()
-            .map(|arr| arr.iter().map(|a| parse_artist(a)).collect())
-            .unwrap_or_default();
+            let tracks = t_handle
+                .join()
+                .ok()
+                .and_then(|r| r.ok())
+                .and_then(|json| {
+                    json["data"]["items"]
+                        .as_array()
+                        .map(|arr| arr.iter().map(|t| parse_track(t)).collect())
+                })
+                .unwrap_or_default();
 
-        let albums = json["data"]["albums"]["items"]
-            .as_array()
-            .map(|arr| arr.iter().map(|a| parse_album(a)).collect())
-            .unwrap_or_default();
+            let artists = a_handle
+                .join()
+                .ok()
+                .and_then(|r| r.ok())
+                .and_then(|json| {
+                    json["data"]["artists"]["items"]
+                        .as_array()
+                        .map(|arr| arr.iter().map(|a| parse_artist(a)).collect())
+                })
+                .unwrap_or_default();
+
+            let albums = al_handle
+                .join()
+                .ok()
+                .and_then(|r| r.ok())
+                .and_then(|json| {
+                    json["data"]["albums"]["items"]
+                        .as_array()
+                        .map(|arr| arr.iter().map(|a| parse_album(a)).collect())
+                })
+                .unwrap_or_default();
+
+            (tracks, artists, albums)
+        });
 
         Ok(TidalSearchResult {
             tracks,

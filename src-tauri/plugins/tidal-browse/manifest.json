@@ -8,6 +8,11 @@
   "contributes": {
     "sidebarItems": [
       { "id": "tidal", "label": "TIDAL", "icon": "tidal" }
+    ],
+    "contextMenuItems": [
+      { "id": "search-tidal", "label": "Search on TIDAL", "targets": ["track", "album", "artist"] },
+      { "id": "upgrade-quality", "label": "Upgrade Quality via TIDAL", "targets": ["track"] },
+      { "id": "play-from-tidal", "label": "Play from TIDAL", "targets": ["track"] }
     ]
   }
 }

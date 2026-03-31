@@ -57,11 +57,18 @@ export interface PluginPlaybackCallbacks {
   getDownloadFormat: () => string;
 }
 
+export interface PluginHostCallbacks {
+  navigateToPluginView: (pluginId: string, viewId: string) => void;
+  requestAction: (pluginId: string, action: string, payload: Record<string, unknown>) => void;
+  showNotification: (message: string) => void;
+}
+
 export function usePlugins(
   currentTrackRef: React.RefObject<Track | null>,
   playingRef: React.RefObject<boolean>,
   positionRef: React.RefObject<number>,
   playbackCallbacks?: PluginPlaybackCallbacks,
+  hostCallbacks?: PluginHostCallbacks,
 ) {
   const [pluginStates, setPluginStates] = useState<PluginState[]>([]);
   const [sidebarItems, setSidebarItems] = useState<PluginSidebarItem[]>([]);
@@ -72,6 +79,9 @@ export function usePlugins(
 
   const playbackCallbacksRef = useRef(playbackCallbacks);
   playbackCallbacksRef.current = playbackCallbacks;
+
+  const hostCallbacksRef = useRef(hostCallbacks);
+  hostCallbacksRef.current = hostCallbacks;
 
   const loadedPluginsRef = useRef<Map<string, LoadedPlugin>>(new Map());
   const eventHandlersRef = useRef<EventHandlers>({
@@ -199,7 +209,14 @@ export function usePlugins(
             setViewData(new Map(viewDataRef.current));
           },
           showNotification: (message) => {
-            console.log(`[plugin:${pluginId}]`, message);
+            hostCallbacksRef.current?.showNotification(message)
+              ?? console.log(`[plugin:${pluginId}]`, message);
+          },
+          navigateToView: (viewId) => {
+            hostCallbacksRef.current?.navigateToPluginView(pluginId, viewId);
+          },
+          requestAction: (action, payload) => {
+            hostCallbacksRef.current?.requestAction(pluginId, action, payload);
           },
           onAction: (actionId, handler) => {
             loaded.uiActionHandlers.set(actionId, handler);

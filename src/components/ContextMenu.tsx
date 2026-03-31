@@ -32,7 +32,6 @@ interface ContextMenuProps {
   onMoveToBottom?: () => void;
   onLocateTrack?: () => void;
   onDownload?: (destCollectionId: number) => void;
-  onUpgradeViaTidal?: () => void;
   localCollections?: { id: number; name: string }[];
   onBulkEdit?: () => void;
   onClose: () => void;
@@ -97,7 +96,7 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
 
 function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarget {
   switch (target.kind) {
-    case "track": return { kind: "track", trackId: target.trackId, title: target.title, artistName: target.artistName ?? undefined };
+    case "track": return { kind: "track", trackId: target.trackId, title: target.title, artistName: target.artistName ?? undefined, subsonic: target.subsonic };
     case "album": return { kind: "album", albumId: target.albumId, albumTitle: target.title, artistName: target.artistName ?? undefined };
     case "artist": return { kind: "artist", artistId: target.artistId, artistName: target.name };
     case "multi-track": return { kind: "multi-track", trackIds: target.trackIds };
@@ -107,7 +106,7 @@ function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarget {
 
 export function ContextMenu({
   menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onShowProperties,
-  onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, onUpgradeViaTidal, localCollections,
+  onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, localCollections,
   onBulkEdit, onClose,
   pluginMenuItems, onPluginAction,
 }: ContextMenuProps) {
@@ -197,14 +196,6 @@ export function ContextMenu({
           <div className="context-menu-separator" />
           <div className="context-menu-item context-menu-item-danger" onClick={() => { onDelete(); onClose(); }}>
             <IconTrash size={14} /><span>{isMulti ? `Delete ${target.trackIds.length} tracks` : "Delete"}</span>
-          </div>
-        </>
-      )}
-      {target.kind === "track" && !target.subsonic && onUpgradeViaTidal && (
-        <>
-          <div className="context-menu-separator" />
-          <div className="context-menu-item" onClick={() => { onUpgradeViaTidal(); onClose(); }}>
-            <IconEnqueue size={14} /><span>Upgrade via TIDAL</span>
           </div>
         </>
       )}

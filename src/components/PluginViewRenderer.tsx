@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import type { Track } from "../types";
-import type { PluginViewData, CardGridItem, StatItem } from "../types/plugin";
+import type { PluginViewData, CardGridItem, StatItem, TrackRowItem } from "../types/plugin";
 
 interface PluginViewRendererProps {
   pluginName: string;
@@ -73,6 +73,15 @@ function PluginViewNode({
         <PluginCardGrid
           items={node.items}
           columns={node.columns}
+          onAction={onAction}
+        />
+      );
+    case "track-row-list":
+      return (
+        <PluginTrackRowList
+          items={node.items}
+          selectable={node.selectable}
+          actions={node.actions}
           onAction={onAction}
         />
       );
@@ -334,7 +343,7 @@ function PluginTabs({
   action,
   onAction,
 }: {
-  tabs: { id: string; label: string }[];
+  tabs: { id: string; label: string; count?: number }[];
   activeTab: string;
   action: string;
   onAction?: (actionId: string, data?: unknown) => void;
@@ -348,8 +357,104 @@ function PluginTabs({
           onClick={() => onAction?.(action, { tabId: tab.id })}
         >
           {tab.label}
+          {tab.count != null && tab.count > 0 && (
+            <span className="plugin-tab-count">{tab.count}</span>
+          )}
         </button>
       ))}
+    </div>
+  );
+}
+
+// -- Track Row List --
+
+function PluginTrackRowList({
+  items,
+  selectable,
+  actions,
+  onAction,
+}: {
+  items: TrackRowItem[];
+  selectable?: boolean;
+  actions?: { id: string; label: string; icon?: string }[];
+  onAction?: (actionId: string, data?: unknown) => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelected(new Set(items.map(i => i.id)));
+  }, [items]);
+
+  const selectNone = useCallback(() => {
+    setSelected(new Set());
+  }, []);
+
+  const hasSelection = selected.size > 0;
+
+  return (
+    <div className="ptr-list">
+      {selectable && (
+        <div className="ptr-toolbar">
+          <div className="ptr-toolbar-left">
+            <button className="ptr-toolbar-btn" onClick={selectAll}>All</button>
+            <button className="ptr-toolbar-btn" onClick={selectNone}>None</button>
+            <span className="ptr-toolbar-count">{selected.size} / {items.length}</span>
+          </div>
+          {actions && actions.length > 0 && (
+            <div className="ptr-toolbar-right">
+              {actions.map(a => (
+                <button
+                  key={a.id}
+                  className="ptr-toolbar-btn"
+                  disabled={!hasSelection}
+                  onClick={() => onAction?.(a.id, { selectedIds: Array.from(selected) })}
+                >
+                  {a.icon && <span className="ptr-toolbar-icon">{a.icon}</span>}
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      <div className="ptr-rows">
+        {items.map(item => (
+          <div
+            key={item.id}
+            className={`ptr-row${selected.has(item.id) ? " ptr-row-selected" : ""}`}
+            onClick={() => item.action && onAction?.(item.action, { itemId: item.id })}
+          >
+            {selectable && (
+              <input
+                type="checkbox"
+                className="ptr-checkbox"
+                checked={selected.has(item.id)}
+                onChange={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            )}
+            {item.imageUrl && (
+              <div className="ptr-art">
+                <img src={item.imageUrl} alt="" />
+              </div>
+            )}
+            <div className="ptr-info">
+              <span className="ptr-title">{item.title}</span>
+              {item.subtitle && <span className="ptr-subtitle">{item.subtitle}</span>}
+            </div>
+            {item.duration && <span className="ptr-duration">{item.duration}</span>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

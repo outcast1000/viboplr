@@ -78,6 +78,7 @@ export interface PluginContextMenuTarget {
   albumTitle?: string;
   artistId?: number;
   trackIds?: number[];
+  subsonic?: boolean;
 }
 
 // -- View data types --
@@ -95,9 +96,24 @@ export interface StatItem {
   value: string | number;
 }
 
+export interface TrackRowItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  imageUrl?: string;
+  duration?: string;
+  action?: string;
+}
+
 export type PluginViewData =
   | { type: "track-list"; tracks: Track[]; title?: string }
   | { type: "card-grid"; items: CardGridItem[]; columns?: number }
+  | {
+      type: "track-row-list";
+      items: TrackRowItem[];
+      selectable?: boolean;
+      actions?: { id: string; label: string; icon?: string }[];
+    }
   | { type: "text"; content: string }
   | { type: "stats-grid"; items: StatItem[] }
   | { type: "button"; label: string; action: string }
@@ -115,7 +131,7 @@ export type PluginViewData =
     }
   | {
       type: "tabs";
-      tabs: { id: string; label: string }[];
+      tabs: { id: string; label: string; count?: number }[];
       activeTab: string;
       action: string;
     }
@@ -203,6 +219,8 @@ export interface PluginUIAPI {
   setViewData(viewId: string, data: PluginViewData): void;
   showNotification(message: string): void;
   onAction(actionId: string, handler: (data: unknown) => void): void;
+  navigateToView(viewId: string): void;
+  requestAction(action: string, payload: Record<string, unknown>): void;
 }
 
 export interface PluginStorageAPI {
