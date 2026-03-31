@@ -3222,7 +3222,13 @@ function App() {
               );
               if (t) queueHook.playTracks([t], 0);
             },
-            onSearchTidal: undefined,
+            onSearchTidal: (title: string, artist: string) => {
+              plugins.dispatchContextMenuAction("tidal-browse", "search-tidal", {
+                kind: "track",
+                title,
+                artistName: artist,
+              });
+            },
             onWatchYoutube: async (artist, title) => {
               try {
                 const result = await invoke<{ url: string; video_title: string | null }>(

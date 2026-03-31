@@ -7,7 +7,7 @@ import { formatDuration } from "../utils";
 interface SimilarActions {
   isLocal: (artist: string, title: string) => boolean;
   onPlay: (artist: string, title: string) => void;
-  onSearchTidal?: (query: string) => void;
+  onSearchTidal?: (title: string, artist: string) => void;
   onWatchYoutube: (artist: string, title: string) => void;
 }
 
@@ -406,7 +406,7 @@ export function TrackPropertiesModal({ track, collections, onClose, onYoutubeUrl
                             <button
                               className="properties-similar-action"
                               title="Search in TIDAL"
-                              onClick={() => { similarActions.onSearchTidal!(`${st.name} ${st.artist.name}`); onClose(); }}
+                              onClick={() => { similarActions.onSearchTidal!(st.name, st.artist.name); onClose(); }}
                             >
                               <svg width="14" height="14" viewBox="0 0 40 40" fill="currentColor"><path d="M0 13.3h13.3V0H0zm13.3 13.4h13.4V13.3H13.3zM0 26.7h13.3V13.3H0zm26.7 0H40V13.3H26.7zM13.3 40h13.4V26.7H13.3z"/></svg>
                             </button>
