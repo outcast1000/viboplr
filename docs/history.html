@@ -63,6 +63,37 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.8.0</span>
+          <span class="timeline-date">March 31, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>add bulk_update_tracks Tauri command</li>
+          <li>add frontend bulk track editing UI</li>
+          <li>add bulk_update_tracks method to Database</li>
+          <li>add year column to tracks table with migration 11</li>
+          <li>add tag_writer module for updating local audio file metadata</li>
+          <li>redesign album detail view and add icons + providers to option menus</li>
+          <li>redesign artist detail view with improved header and responsive bio layout</li>
+          <li>add file-based logging system with Settings toggle</li>
+          <li>update logo to Vinyl V design and add open source branding</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>prevent mutex poison on tag insert failure and optimize file writing loop</li>
+          <li>restore now-playing from location+metadata instead of DB IDs</li>
+          <li>default plugins to disabled and fix plugin toggle UI</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.8.0/Viboplr_0.8.0_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.8.0_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.8.0/Viboplr_0.8.0_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.8.0_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.7.2</span>
           <span class="timeline-date">March 30, 2026</span>
         </div>
