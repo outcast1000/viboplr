@@ -1,5 +1,5 @@
 use serde::{Serialize, Deserialize};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -46,6 +46,9 @@ pub struct AppState {
     pub lastfm: LastfmClient,
     pub lastfm_session: Mutex<Option<(String, String)>>,  // (session_key, username)
     pub lastfm_importing: Arc<AtomicBool>,
+    pub auto_import_running: Arc<AtomicBool>,
+    pub auto_import_interval: Arc<AtomicU64>,  // minutes
+    pub auto_import_last_at: Arc<AtomicI64>,   // unix timestamp, 0 = never
     pub musicgateway_url: Mutex<Option<String>>,
     pub musicgateway_process: Mutex<Option<std::process::Child>>,
     pub native_plugins_dir: Option<std::path::PathBuf>,
@@ -1802,6 +1805,183 @@ pub fn lastfm_import_history(state: State<'_, AppState>, app: AppHandle) -> Resu
 #[tauri::command]
 pub fn lastfm_cancel_import(state: State<'_, AppState>) {
     state.lastfm_importing.store(false, Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub fn lastfm_start_auto_import(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    interval_mins: u64,
+    last_import_at: Option<i64>,
+) -> Result<(), String> {
+    // Double-start guard
+    if state.auto_import_running.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    state.auto_import_running.store(true, Ordering::SeqCst);
+    state.auto_import_interval.store(interval_mins, Ordering::SeqCst);
+    if let Some(ts) = last_import_at {
+        state.auto_import_last_at.store(ts, Ordering::SeqCst);
+    }
+
+    let running = state.auto_import_running.clone();
+    let interval = state.auto_import_interval.clone();
+    let last_at = state.auto_import_last_at.clone();
+    let importing = state.lastfm_importing.clone();
+    let db = state.db.clone();
+    let app_handle = app.clone();
+
+    thread::spawn(move || {
+        // Initial delay to let the app finish initializing
+        for _ in 0..1 {
+            if !running.load(Ordering::SeqCst) { return; }
+            thread::sleep(std::time::Duration::from_secs(10));
+        }
+
+        loop {
+            let interval_secs = interval.load(Ordering::SeqCst) * 60;
+            let mut elapsed = 0u64;
+
+            // Sleep in 10-sec chunks, checking running flag
+            while elapsed < interval_secs {
+                if !running.load(Ordering::SeqCst) { return; }
+                thread::sleep(std::time::Duration::from_secs(10));
+                elapsed += 10;
+            }
+
+            if !running.load(Ordering::SeqCst) { return; }
+
+            // Re-read session each cycle (may have reconnected/disconnected)
+            let username = {
+                let state = app_handle.state::<AppState>();
+                let session = state.lastfm_session.lock().unwrap().clone();
+                match session {
+                    Some((_, u)) => u,
+                    None => {
+                        log::info!("Last.fm auto-import: not connected, skipping cycle");
+                        continue;
+                    }
+                }
+            };
+
+            // Try to acquire the import lock
+            if importing.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+                log::info!("Last.fm auto-import: manual import in progress, skipping cycle");
+                continue;
+            }
+
+            let timestamp_before = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+
+            let stored_last_at = last_at.load(Ordering::SeqCst);
+            let from = if stored_last_at > 0 { Some(stored_last_at + 1) } else { None };
+
+            log::info!("Last.fm auto-import: starting (from={:?})", from);
+
+            let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+            let mut total_imported: u64 = 0;
+            let mut total_skipped: u64 = 0;
+
+            let result: Result<(), String> = (|| {
+                let first_resp = lastfm.get_recent_tracks(&username, 1, 200, from)
+                    .map_err(|e| e.to_string())?;
+                let total_pages: u32 = first_resp.recenttracks.attr.total_pages.parse().unwrap_or(1);
+
+                let plays: Vec<(String, String, i64)> = first_resp.recenttracks.track.iter()
+                    .filter(|t| t.date.is_some())
+                    .filter_map(|t| {
+                        t.date.as_ref().and_then(|d| d.uts.parse::<i64>().ok())
+                            .map(|ts| (t.artist.text.clone(), t.name.clone(), ts))
+                    })
+                    .collect();
+
+                if !plays.is_empty() {
+                    let (imp, skip) = db.record_history_plays_batch(&plays).map_err(|e| e.to_string())?;
+                    total_imported += imp;
+                    total_skipped += skip;
+                }
+
+                // Early stop: if first page yielded nothing new and we had a from filter
+                if from.is_some() && total_imported == 0 && total_pages <= 1 {
+                    return Ok(());
+                }
+
+                let mut page: u32 = 2;
+                while page <= total_pages {
+                    if !running.load(Ordering::SeqCst) || !importing.load(Ordering::SeqCst) {
+                        return Err("cancelled".to_string());
+                    }
+
+                    thread::sleep(std::time::Duration::from_millis(200));
+
+                    let resp = lastfm.get_recent_tracks(&username, page, 200, from)
+                        .map_err(|e| e.to_string())?;
+
+                    let plays: Vec<(String, String, i64)> = resp.recenttracks.track.iter()
+                        .filter(|t| t.date.is_some())
+                        .filter_map(|t| {
+                            t.date.as_ref().and_then(|d| d.uts.parse::<i64>().ok())
+                                .map(|ts| (t.artist.text.clone(), t.name.clone(), ts))
+                        })
+                        .collect();
+
+                    if !plays.is_empty() {
+                        let (imp, skip) = db.record_history_plays_batch(&plays).map_err(|e| e.to_string())?;
+                        total_imported += imp;
+                        total_skipped += skip;
+
+                        // Early stop: full page all skipped
+                        if imp == 0 {
+                            break;
+                        }
+                    }
+
+                    page += 1;
+                }
+
+                Ok(())
+            })();
+
+            importing.store(false, Ordering::SeqCst);
+
+            match result {
+                Ok(()) => {
+                    last_at.store(timestamp_before, Ordering::SeqCst);
+                    log::info!("Last.fm auto-import complete: {} imported, {} skipped", total_imported, total_skipped);
+                    let _ = app_handle.emit("lastfm-import-complete", serde_json::json!({
+                        "imported": total_imported,
+                        "skipped": total_skipped,
+                        "timestamp": timestamp_before,
+                        "source": "auto",
+                    }));
+                }
+                Err(ref e) if e == "cancelled" => {
+                    log::info!("Last.fm auto-import cancelled");
+                }
+                Err(e) => {
+                    log::warn!("Last.fm auto-import error: {}", e);
+                    let _ = app_handle.emit("lastfm-import-error", serde_json::json!({
+                        "message": e,
+                        "source": "auto",
+                    }));
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn lastfm_stop_auto_import(state: State<'_, AppState>) {
+    state.auto_import_running.store(false, Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub fn lastfm_set_auto_import_interval(state: State<'_, AppState>, interval_mins: u64) {
+    state.auto_import_interval.store(interval_mins, Ordering::SeqCst);
 }
 
 #[tauri::command]
