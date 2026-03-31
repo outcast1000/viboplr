@@ -1583,9 +1583,6 @@ function App() {
     invoke("lastfm_set_auto_import_interval", { intervalMins: mins }).catch(console.error);
   }
 
-  // TODO: Wire into SettingsPanel in Task 6
-  void lastfmAutoImportEnabled; void handleLastfmAutoImportToggle; void handleLastfmAutoImportIntervalChange;
-
   async function handleResyncCollection(collectionId: number) {
     await invoke("resync_collection", { collectionId });
   }
@@ -1953,6 +1950,11 @@ function App() {
           lastfmImportProgress={lastfmImportProgress}
           lastfmImportResult={lastfmImportResult}
           onLastfmImportResultDismiss={() => setLastfmImportResult(null)}
+          lastfmAutoImportEnabled={lastfmAutoImportEnabled}
+          onLastfmAutoImportToggle={handleLastfmAutoImportToggle}
+          lastfmAutoImportIntervalMins={lastfmAutoImportIntervalMins}
+          onLastfmAutoImportIntervalChange={handleLastfmAutoImportIntervalChange}
+          lastfmLastImportAt={lastfmLastImportAt}
           downloadFormat={downloadFormat}
           onDownloadFormatChange={handleDownloadFormatChange}
           tidalEnabled={tidalEnabled}

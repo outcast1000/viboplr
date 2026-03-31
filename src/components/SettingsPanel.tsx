@@ -69,6 +69,15 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   );
 }
 
+function formatTimeAgo(unixTimestamp: number): string {
+  const now = Math.floor(Date.now() / 1000);
+  const diff = now - unixTimestamp;
+  if (diff < 60) return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)} minutes ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+  return `${Math.floor(diff / 86400)} days ago`;
+}
+
 interface SettingsPanelProps {
   searchProviders: SearchProviderConfig[];
   onClose: () => void;
@@ -98,6 +107,11 @@ interface SettingsPanelProps {
   lastfmImportProgress: { page: number; total_pages: number; imported: number; skipped: number } | null;
   lastfmImportResult: { imported: number; skipped: number } | null;
   onLastfmImportResultDismiss: () => void;
+  lastfmAutoImportEnabled: boolean;
+  onLastfmAutoImportToggle: (enabled: boolean) => void;
+  lastfmAutoImportIntervalMins: number;
+  onLastfmAutoImportIntervalChange: (mins: number) => void;
+  lastfmLastImportAt: number | null;
   downloadFormat: string;
   onDownloadFormatChange: (format: string) => void;
   tidalEnabled: boolean;
@@ -166,6 +180,11 @@ export function SettingsPanel({
   lastfmImportProgress,
   lastfmImportResult,
   onLastfmImportResultDismiss,
+  lastfmAutoImportEnabled,
+  onLastfmAutoImportToggle,
+  lastfmAutoImportIntervalMins,
+  onLastfmAutoImportIntervalChange,
+  lastfmLastImportAt,
   downloadFormat,
   onDownloadFormatChange,
   tidalEnabled,
@@ -646,6 +665,57 @@ export function SettingsPanel({
                         Import
                       </button>
                     </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Auto-import</span>
+                        <span className="settings-description">
+                          Periodically import new scrobbles in the background
+                        </span>
+                      </div>
+                      <label className="settings-toggle">
+                        <input
+                          type="checkbox"
+                          checked={lastfmAutoImportEnabled}
+                          onChange={(e) => onLastfmAutoImportToggle(e.target.checked)}
+                          disabled={!lastfmConnected}
+                        />
+                        <span className="settings-toggle-slider" />
+                      </label>
+                    </div>
+                    {lastfmAutoImportEnabled && lastfmConnected && (
+                      <>
+                        <div className="settings-row">
+                          <div className="settings-row-info">
+                            <span className="settings-label">Import interval</span>
+                            <span className="settings-description">
+                              How often to check for new scrobbles
+                            </span>
+                          </div>
+                          <select
+                            className="settings-select"
+                            value={lastfmAutoImportIntervalMins}
+                            onChange={(e) => onLastfmAutoImportIntervalChange(Number(e.target.value))}
+                          >
+                            <option value={15}>15 minutes</option>
+                            <option value={30}>30 minutes</option>
+                            <option value={60}>1 hour</option>
+                            <option value={120}>2 hours</option>
+                            <option value={240}>4 hours</option>
+                          </select>
+                        </div>
+                        <div className="settings-row">
+                          <div className="settings-row-info">
+                            <span className="settings-label">Last synced</span>
+                            <span className="settings-description">
+                              {lastfmLastImportAt
+                                ? formatTimeAgo(lastfmLastImportAt)
+                                : "Never"
+                              }
+                            </span>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
