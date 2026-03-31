@@ -672,15 +672,10 @@ export function SettingsPanel({
                           Periodically import new scrobbles in the background
                         </span>
                       </div>
-                      <label className="settings-toggle">
-                        <input
-                          type="checkbox"
-                          checked={lastfmAutoImportEnabled}
-                          onChange={(e) => onLastfmAutoImportToggle(e.target.checked)}
-                          disabled={!lastfmConnected}
-                        />
-                        <span className="settings-toggle-slider" />
-                      </label>
+                      <ToggleSwitch
+                        checked={lastfmAutoImportEnabled}
+                        onChange={(v) => { if (lastfmConnected) onLastfmAutoImportToggle(v); }}
+                      />
                     </div>
                     {lastfmAutoImportEnabled && lastfmConnected && (
                       <>

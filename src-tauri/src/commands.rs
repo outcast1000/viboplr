@@ -1860,10 +1860,8 @@ pub fn lastfm_start_auto_import(
 
     thread::spawn(move || {
         // Initial delay to let the app finish initializing
-        for _ in 0..1 {
-            if !running.load(Ordering::SeqCst) { return; }
-            thread::sleep(std::time::Duration::from_secs(10));
-        }
+        if !running.load(Ordering::SeqCst) { return; }
+        thread::sleep(std::time::Duration::from_secs(10));
 
         loop {
             let interval_secs = interval.load(Ordering::SeqCst) * 60;
@@ -2004,6 +2002,8 @@ pub fn lastfm_start_auto_import(
 #[tauri::command]
 pub fn lastfm_stop_auto_import(state: State<'_, AppState>) {
     state.auto_import_running.store(false, Ordering::SeqCst);
+    // Also clear importing so the inner pagination loop exits promptly
+    state.lastfm_importing.store(false, Ordering::SeqCst);
 }
 
 #[tauri::command]
