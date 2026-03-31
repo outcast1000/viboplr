@@ -366,6 +366,7 @@ pub fn run() {
     log::info!("Using profile: {}", profile_name);
 
     let builder = tauri::Builder::default();
+    #[cfg(not(debug_assertions))]
     let builder = timer.time("plugin: single_instance", || {
         builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // Focus existing window
