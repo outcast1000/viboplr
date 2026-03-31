@@ -1722,7 +1722,7 @@ pub fn lastfm_import_history(state: State<'_, AppState>, app: AppHandle) -> Resu
 
         let result: Result<(), String> = (|| {
             // First call to get total pages
-            let first_resp = lastfm.get_recent_tracks(&username, 1, limit)
+            let first_resp = lastfm.get_recent_tracks(&username, 1, limit, None)
                 .map_err(|e| e.to_string())?;
             let total_pages: u32 = first_resp.recenttracks.attr.total_pages.parse().unwrap_or(1);
 
@@ -1754,7 +1754,7 @@ pub fn lastfm_import_history(state: State<'_, AppState>, app: AppHandle) -> Resu
 
                 std::thread::sleep(std::time::Duration::from_millis(200));
 
-                let resp = lastfm.get_recent_tracks(&username, page, limit)
+                let resp = lastfm.get_recent_tracks(&username, page, limit, None)
                     .map_err(|e| e.to_string())?;
 
                 let plays: Vec<(String, String, i64)> = resp.recenttracks.track.iter()

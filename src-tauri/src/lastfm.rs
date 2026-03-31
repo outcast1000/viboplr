@@ -148,18 +148,29 @@ impl LastfmClient {
         username: &str,
         page: u32,
         limit: u32,
+        from: Option<i64>,
     ) -> Result<crate::models::LastfmRecentTracksResponse, LastfmError> {
         let start = std::time::Instant::now();
+
+        let page_str = page.to_string();
+        let limit_str = limit.to_string();
+        let mut query: Vec<(&str, &str)> = vec![
+            ("method", "user.getRecentTracks"),
+            ("user", username),
+            ("api_key", &self.api_key),
+            ("page", &page_str),
+            ("limit", &limit_str),
+            ("format", "json"),
+        ];
+
+        let from_str = from.map(|f| f.to_string());
+        if let Some(ref f) = from_str {
+            query.push(("from", f));
+        }
+
         let resp = self.client
             .get(BASE_URL)
-            .query(&[
-                ("method", "user.getRecentTracks"),
-                ("user", username),
-                ("api_key", &self.api_key),
-                ("page", &page.to_string()),
-                ("limit", &limit.to_string()),
-                ("format", "json"),
-            ])
+            .query(&query)
             .send()
             .map_err(|e| LastfmError(format!("HTTP error: {}", e)))?;
         let status = resp.status();
