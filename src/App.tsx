@@ -2183,28 +2183,30 @@ function App() {
 
               {/* Artists: Tiles view */}
               {library.artistViewMode === "tiles" && (
-                <div className="album-grid" style={{ padding: 16 }}>
-                  {filteredArtists.map((a, i) => (
-                    <div
-                      key={a.id}
-                      className={`artist-card${i === highlightedListIndex ? " highlighted" : ""}`}
-                      onClick={() => library.handleArtistClick(a.id)}
-                      onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
-                    >
-                      <ArtistCardArt artist={a} imagePath={artistImageCache.images[a.id]} onVisible={artistImageCache.fetchOnDemand} />
+                <div className="tiles-scroll">
+                  <div className="album-grid">
+                    {filteredArtists.map((a, i) => (
                       <div
-                        className={`artist-card-like${a.liked === 1 ? " liked" : ""}`}
-                        onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
-                      >{a.liked === 1 ? "\u2665" : "\u2661"}</div>
-                      <div className="artist-card-body">
-                        <div className="artist-card-name" title={a.name}>{a.name}</div>
-                        <div className="artist-card-info">{a.track_count} tracks</div>
+                        key={a.id}
+                        className={`artist-card${i === highlightedListIndex ? " highlighted" : ""}`}
+                        onClick={() => library.handleArtistClick(a.id)}
+                        onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
+                      >
+                        <ArtistCardArt artist={a} imagePath={artistImageCache.images[a.id]} onVisible={artistImageCache.fetchOnDemand} />
+                        <div
+                          className={`artist-card-like${a.liked === 1 ? " liked" : ""}`}
+                          onClick={(e) => { e.stopPropagation(); handleToggleArtistLike(a.id); }}
+                        >{a.liked === 1 ? "\u2665" : "\u2661"}</div>
+                        <div className="artist-card-body">
+                          <div className="artist-card-name" title={a.name}>{a.name}</div>
+                          <div className="artist-card-info">{a.track_count} tracks</div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                  {filteredArtists.length === 0 && (
-                    <div className="empty">{viewSearch.getQuery("artists").trim() ? `No artists matching "${viewSearch.getQuery("artists")}"` : "No artists found. Add a folder or server to get started."}</div>
-                  )}
+                    ))}
+                    {filteredArtists.length === 0 && (
+                      <div className="empty">{viewSearch.getQuery("artists").trim() ? `No artists matching "${viewSearch.getQuery("artists")}"` : "No artists found. Add a folder or server to get started."}</div>
+                    )}
+                  </div>
                 </div>
               )}
             </>
@@ -2458,26 +2460,28 @@ function App() {
 
               {/* Albums: Tiles view */}
               {library.albumViewMode === "tiles" && (
-                <div className="album-grid" style={{ padding: 16 }}>
-                  {filteredAlbums.map((a, i) => (
-                    <div key={a.id} className={`album-card${i === highlightedListIndex ? " highlighted" : ""}`} onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
-                      <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
-                      <div
-                        className={`album-card-like${a.liked === 1 ? " liked" : ""}`}
-                        onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
-                      >{a.liked === 1 ? "\u2665" : "\u2661"}</div>
-                      <div className="album-card-body">
-                        <div className="album-card-title" title={a.title}>{a.title}</div>
-                        <div className="album-card-info">
-                          {a.artist_name && <>{a.artist_name} {"\u00B7"} </>}
-                          {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
+                <div className="tiles-scroll">
+                  <div className="album-grid">
+                    {filteredAlbums.map((a, i) => (
+                      <div key={a.id} className={`album-card${i === highlightedListIndex ? " highlighted" : ""}`} onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
+                        <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
+                        <div
+                          className={`album-card-like${a.liked === 1 ? " liked" : ""}`}
+                          onClick={(e) => { e.stopPropagation(); handleToggleAlbumLike(a.id); }}
+                        >{a.liked === 1 ? "\u2665" : "\u2661"}</div>
+                        <div className="album-card-body">
+                          <div className="album-card-title" title={a.title}>{a.title}</div>
+                          <div className="album-card-info">
+                            {a.artist_name && <>{a.artist_name} {"\u00B7"} </>}
+                            {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                  {filteredAlbums.length === 0 && (
-                    <div className="empty">{viewSearch.getQuery("albums").trim() ? `No albums matching "${viewSearch.getQuery("albums")}"` : "No albums found."}</div>
-                  )}
+                    ))}
+                    {filteredAlbums.length === 0 && (
+                      <div className="empty">{viewSearch.getQuery("albums").trim() ? `No albums matching "${viewSearch.getQuery("albums")}"` : "No albums found."}</div>
+                    )}
+                  </div>
                 </div>
               )}
             </>
@@ -2576,27 +2580,29 @@ function App() {
 
               {/* Tags: Tiles view */}
               {library.tagViewMode === "tiles" && (
-                <div className="album-grid" style={{ padding: 16 }}>
-                  {filteredTags.map((t, i) => (
-                    <div
-                      key={t.id}
-                      className={`tag-card${i === highlightedListIndex ? " highlighted" : ""}`}
-                      onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setView("all"); }}
-                    >
-                      <TagCardArt tag={t} imagePath={tagImageCache.images[t.id]} onVisible={tagImageCache.fetchOnDemand} />
+                <div className="tiles-scroll">
+                  <div className="album-grid">
+                    {filteredTags.map((t, i) => (
                       <div
-                        className={`artist-card-like${t.liked === 1 ? " liked" : ""}`}
-                        onClick={(e) => { e.stopPropagation(); handleToggleTagLike(t.id); }}
-                      >{t.liked === 1 ? "\u2665" : "\u2661"}</div>
-                      <div className="tag-card-body">
-                        <div className="tag-card-name" title={t.name}>{t.name}</div>
-                        <div className="tag-card-info">{t.track_count} tracks</div>
+                        key={t.id}
+                        className={`tag-card${i === highlightedListIndex ? " highlighted" : ""}`}
+                        onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setView("all"); }}
+                      >
+                        <TagCardArt tag={t} imagePath={tagImageCache.images[t.id]} onVisible={tagImageCache.fetchOnDemand} />
+                        <div
+                          className={`artist-card-like${t.liked === 1 ? " liked" : ""}`}
+                          onClick={(e) => { e.stopPropagation(); handleToggleTagLike(t.id); }}
+                        >{t.liked === 1 ? "\u2665" : "\u2661"}</div>
+                        <div className="tag-card-body">
+                          <div className="tag-card-name" title={t.name}>{t.name}</div>
+                          <div className="tag-card-info">{t.track_count} tracks</div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                  {filteredTags.length === 0 && (
-                    <div className="empty">{viewSearch.getQuery("tags").trim() ? `No tags matching "${viewSearch.getQuery("tags")}"` : "No tags found. Add a folder or server to get started."}</div>
-                  )}
+                    ))}
+                    {filteredTags.length === 0 && (
+                      <div className="empty">{viewSearch.getQuery("tags").trim() ? `No tags matching "${viewSearch.getQuery("tags")}"` : "No tags found. Add a folder or server to get started."}</div>
+                    )}
+                  </div>
                 </div>
               )}
             </>
@@ -2835,41 +2841,43 @@ function App() {
 
               {/* Tracks: Tiles view */}
               {library.trackViewMode === "tiles" && (
-                <div className="album-grid" style={{ padding: 16 }}>
-                  {sortedTracks.map((t, i) => (
-                    <div
-                      key={t.id}
-                      className={`album-card${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
-                      onDoubleClick={() => queueHook.playTracks([t], 0)}
-                      onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
-                    >
-                      {t.album_id ? (
-                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImageCache.images[t.album_id]} onVisible={albumImageCache.fetchOnDemand} />
-                      ) : (
-                        <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
-                      )}
-                      <div className="album-card-like-group">
-                        <div
-                          className={`album-card-like${t.liked === 1 ? " liked" : ""}`}
-                          onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
-                        >{t.liked === 1 ? "\u2665" : "\u2661"}</div>
-                        <div
-                          className={`album-card-dislike${t.liked === -1 ? " disliked" : ""}`}
-                          onClick={(e) => { e.stopPropagation(); handleToggleDislike(t); }}
-                        >{t.liked === -1 ? "\u2716" : "\u2298"}</div>
-                      </div>
-                      <div className="album-card-body">
-                        <div className="album-card-title" title={t.title}>{t.title}</div>
-                        <div className="album-card-info">
-                          {t.artist_name && <>{t.artist_name} {"\u00B7"} </>}
-                          {formatDuration(t.duration_secs)}
+                <div className="tiles-scroll">
+                  <div className="album-grid">
+                    {sortedTracks.map((t, i) => (
+                      <div
+                        key={t.id}
+                        className={`album-card${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
+                        onDoubleClick={() => queueHook.playTracks([t], 0)}
+                        onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
+                      >
+                        {t.album_id ? (
+                          <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImageCache.images[t.album_id]} onVisible={albumImageCache.fetchOnDemand} />
+                        ) : (
+                          <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
+                        )}
+                        <div className="album-card-like-group">
+                          <div
+                            className={`album-card-like${t.liked === 1 ? " liked" : ""}`}
+                            onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
+                          >{t.liked === 1 ? "\u2665" : "\u2661"}</div>
+                          <div
+                            className={`album-card-dislike${t.liked === -1 ? " disliked" : ""}`}
+                            onClick={(e) => { e.stopPropagation(); handleToggleDislike(t); }}
+                          >{t.liked === -1 ? "\u2716" : "\u2298"}</div>
+                        </div>
+                        <div className="album-card-body">
+                          <div className="album-card-title" title={t.title}>{t.title}</div>
+                          <div className="album-card-info">
+                            {t.artist_name && <>{t.artist_name} {"\u00B7"} </>}
+                            {formatDuration(t.duration_secs)}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                  {sortedTracks.length === 0 && (
-                    <div className="empty">No tracks found. Add a folder or server to start building your library.</div>
-                  )}
+                    ))}
+                    {sortedTracks.length === 0 && (
+                      <div className="empty">No tracks found. Add a folder or server to start building your library.</div>
+                    )}
+                  </div>
                 </div>
               )}
             </>
@@ -3007,41 +3015,43 @@ function App() {
 
               {/* Liked: Tiles view */}
               {library.likedViewMode === "tiles" && (
-                <div className="album-grid" style={{ padding: 16 }}>
-                  {sortedTracks.map((t, i) => (
-                    <div
-                      key={t.id}
-                      className={`album-card${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
-                      onDoubleClick={() => queueHook.playTracks([t], 0)}
-                      onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
-                    >
-                      {t.album_id ? (
-                        <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImageCache.images[t.album_id]} onVisible={albumImageCache.fetchOnDemand} />
-                      ) : (
-                        <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
-                      )}
-                      <div className="album-card-like-group">
-                        <div
-                          className={`album-card-like${t.liked === 1 ? " liked" : ""}`}
-                          onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
-                        >{t.liked === 1 ? "\u2665" : "\u2661"}</div>
-                        <div
-                          className={`album-card-dislike${t.liked === -1 ? " disliked" : ""}`}
-                          onClick={(e) => { e.stopPropagation(); handleToggleDislike(t); }}
-                        >{t.liked === -1 ? "\u2716" : "\u2298"}</div>
-                      </div>
-                      <div className="album-card-body">
-                        <div className="album-card-title" title={t.title}>{t.title}</div>
-                        <div className="album-card-info">
-                          {t.artist_name && <>{t.artist_name} {"\u00B7"} </>}
-                          {formatDuration(t.duration_secs)}
+                <div className="tiles-scroll">
+                  <div className="album-grid">
+                    {sortedTracks.map((t, i) => (
+                      <div
+                        key={t.id}
+                        className={`album-card${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
+                        onDoubleClick={() => queueHook.playTracks([t], 0)}
+                        onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
+                      >
+                        {t.album_id ? (
+                          <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImageCache.images[t.album_id]} onVisible={albumImageCache.fetchOnDemand} />
+                        ) : (
+                          <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
+                        )}
+                        <div className="album-card-like-group">
+                          <div
+                            className={`album-card-like${t.liked === 1 ? " liked" : ""}`}
+                            onClick={(e) => { e.stopPropagation(); handleToggleLike(t); }}
+                          >{t.liked === 1 ? "\u2665" : "\u2661"}</div>
+                          <div
+                            className={`album-card-dislike${t.liked === -1 ? " disliked" : ""}`}
+                            onClick={(e) => { e.stopPropagation(); handleToggleDislike(t); }}
+                          >{t.liked === -1 ? "\u2716" : "\u2298"}</div>
+                        </div>
+                        <div className="album-card-body">
+                          <div className="album-card-title" title={t.title}>{t.title}</div>
+                          <div className="album-card-info">
+                            {t.artist_name && <>{t.artist_name} {"\u00B7"} </>}
+                            {formatDuration(t.duration_secs)}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                  {sortedTracks.length === 0 && (
-                    <div className="empty">No liked tracks yet. Click the heart icon on any track to like it.</div>
-                  )}
+                    ))}
+                    {sortedTracks.length === 0 && (
+                      <div className="empty">No liked tracks yet. Click the heart icon on any track to like it.</div>
+                    )}
+                  </div>
                 </div>
               )}
             </>

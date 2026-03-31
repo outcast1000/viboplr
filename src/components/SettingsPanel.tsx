@@ -305,8 +305,8 @@ export function SettingsPanel({
   ];
 
   return (
-    <div className="settings-overlay" onClick={onClose}>
-      <div className="settings-panel" onClick={e => e.stopPropagation()}>
+    <div className="settings-overlay">
+      <div className="settings-panel">
         <div className="settings-sidebar">
           <div className="settings-sidebar-title">Settings</div>
           <nav className="settings-nav">

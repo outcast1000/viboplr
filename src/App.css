@@ -1842,7 +1842,8 @@ body {
 .content > .track-list,
 .content > .entity-list,
 .content > .entity-table,
-.content > .album-grid {
+.content > .album-grid,
+.content > .tiles-scroll {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
@@ -3338,6 +3339,10 @@ body {
   color: var(--text-secondary);
   letter-spacing: 1px;
   margin-bottom: 12px;
+}
+
+.tiles-scroll {
+  padding: 16px;
 }
 
 .album-grid {
