@@ -2008,7 +2008,7 @@ function App() {
         </div>
 
       {/* Main content */}
-      <main className="main" data-dock={videoLayout.dockSide}>
+      <main className="main" data-dock={playback.currentTrack && isVideoTrack(playback.currentTrack) ? videoLayout.dockSide : undefined}>
         {/* Content area */}
         <div className="content" ref={contentRef} style={playback.currentTrack && isVideoTrack(playback.currentTrack) ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
           <Breadcrumb
