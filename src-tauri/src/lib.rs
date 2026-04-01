@@ -893,6 +893,7 @@ pub fn run() {
                         state.auto_import_running.store(false, std::sync::atomic::Ordering::SeqCst);
                     }
                 }
+                #[cfg(target_os = "macos")]
                 tauri::RunEvent::Opened { urls } => {
                     eprintln!("[RunEvent::Opened] urls: {:?}", urls);
                     for url in urls {
@@ -900,6 +901,7 @@ pub fn run() {
                         let _ = app.emit("deep-link-received", url.to_string());
                     }
                 }
+                #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen { has_visible_windows, .. } => {
                     eprintln!("[RunEvent::Reopen] has_visible_windows={}", has_visible_windows);
                     if !has_visible_windows {
