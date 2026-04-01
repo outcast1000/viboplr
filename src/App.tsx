@@ -82,6 +82,7 @@ function App() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HistoryViewHandle>(null);
   const previousVolumeRef = useRef(1.0);
+  const npTrackRef = useRef<Track | null>(null);
 
   // Core hooks
   const peekNextRef = useRef<() => Track | null>(() => null);
@@ -308,6 +309,20 @@ function App() {
   const [artistBio, setArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
   const [albumWiki, setAlbumWiki] = useState<string | null>(null);
   const [similarArtists, setSimilarArtists] = useState<Array<{ name: string; match: string }>>([]);
+
+  // Now Playing view: Last.fm data keyed to current playing track
+  const [npArtistBio, setNpArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
+  const [npAlbumWiki, setNpAlbumWiki] = useState<string | null>(null);
+  const [npAlbumTags, setNpAlbumTags] = useState<Array<{ name: string }>>([]);
+  const [npSimilarArtists, setNpSimilarArtists] = useState<Array<{ name: string; match: string }>>([]);
+  const [npSimilarTracks, setNpSimilarTracks] = useState<Array<{ name: string; artist: { name: string }; match?: string }>>([]);
+  const [npTrackTags, setNpTrackTags] = useState<Array<{ name: string; count?: number }>>([]);
+  const [npArtistTags, setNpArtistTags] = useState<Array<{ name: string; count?: number }>>([]);
+  const [showNowPlayingView, setShowNowPlayingView] = useState(false);
+  // TODO: remove void refs once NowPlayingView consumes these (Task 6)
+  void npArtistBio; void npAlbumWiki; void npAlbumTags; void npSimilarArtists;
+  void npSimilarTracks; void npTrackTags; void npArtistTags; void setShowNowPlayingView;
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState("flac");
@@ -879,6 +894,99 @@ function App() {
     const unlistenAlbum = listen<any>("lastfm-album-info", (event) => parseAlbumInfo(event.payload));
     return () => { unlistenAlbum.then(f => f()); };
   }, [library.selectedAlbum, library.albums, library.artists]);
+
+  // Keep npTrackRef in sync with the currently playing track
+  useEffect(() => {
+    npTrackRef.current = playback.currentTrack ?? null;
+  }, [playback.currentTrack]);
+
+  // Fetch Last.fm data for the Now Playing view
+  const fetchNpLastfmData = useCallback((track: Track) => {
+    if (track.artist_name) {
+      invoke("lastfm_get_similar_tracks", { artistName: track.artist_name, trackTitle: track.title });
+      invoke("lastfm_get_artist_info", { artistName: track.artist_name });
+      invoke("lastfm_get_track_tags", { artistName: track.artist_name, trackTitle: track.title });
+      invoke("lastfm_get_artist_tags", { artistName: track.artist_name });
+    }
+    if (track.album_title && track.artist_name) {
+      invoke("lastfm_get_album_info", { artistName: track.artist_name, albumTitle: track.album_title });
+    }
+  }, []);
+
+  // Clear and re-fetch np* state when the playing track changes
+  useEffect(() => {
+    setNpArtistBio(null);
+    setNpAlbumWiki(null);
+    setNpAlbumTags([]);
+    setNpSimilarArtists([]);
+    setNpSimilarTracks([]);
+    setNpTrackTags([]);
+    setNpArtistTags([]);
+
+    if (showNowPlayingView && playback.currentTrack) {
+      fetchNpLastfmData(playback.currentTrack);
+    }
+  }, [playback.currentTrack?.id]);
+
+  // Dedicated np* event listeners for Now Playing view (standalone, not library-scoped)
+  useEffect(() => {
+    const unlistenArtistInfo = listen<any>("lastfm-artist-info", (event) => {
+      const artist = event.payload?.artist;
+      const currentArtist = npTrackRef.current?.artist_name;
+      if (!artist || !currentArtist) return;
+      if (artist.name?.toLowerCase() !== currentArtist.toLowerCase()) return;
+      const bio = artist.bio?.summary?.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim();
+      if (bio) {
+        setNpArtistBio({
+          summary: bio,
+          listeners: artist.stats?.listeners ?? "",
+          playcount: artist.stats?.playcount ?? "",
+        });
+      }
+      if (Array.isArray(artist.similar?.artist)) {
+        setNpSimilarArtists(artist.similar.artist);
+      }
+    });
+
+    const unlistenAlbumInfo = listen<any>("lastfm-album-info", (event) => {
+      const album = event.payload?.album;
+      const currentAlbum = npTrackRef.current?.album_title;
+      if (!album || !currentAlbum) return;
+      if (album.name?.toLowerCase() !== currentAlbum.toLowerCase()) return;
+      const wiki = album.wiki?.summary?.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim();
+      if (wiki) setNpAlbumWiki(wiki);
+      if (Array.isArray(album.tags?.tag)) setNpAlbumTags(album.tags.tag);
+    });
+
+    const unlistenSimilarTracks = listen<any>("lastfm-similar-tracks", (event) => {
+      const currentTrack = npTrackRef.current;
+      if (!currentTrack) return;
+      const tracks = event.payload?.similartracks?.track;
+      if (Array.isArray(tracks)) setNpSimilarTracks(tracks);
+    });
+
+    const unlistenTrackTags = listen<any>("lastfm-track-tags", (event) => {
+      const currentTrack = npTrackRef.current;
+      if (!currentTrack) return;
+      const tags = event.payload?.toptags?.tag;
+      if (Array.isArray(tags)) setNpTrackTags(tags);
+    });
+
+    const unlistenArtistTags = listen<any>("lastfm-artist-tags", (event) => {
+      const currentArtist = npTrackRef.current?.artist_name;
+      if (!currentArtist) return;
+      const tags = event.payload?.toptags?.tag;
+      if (Array.isArray(tags)) setNpArtistTags(tags);
+    });
+
+    return () => {
+      unlistenArtistInfo.then((f) => f());
+      unlistenAlbumInfo.then((f) => f());
+      unlistenSimilarTracks.then((f) => f());
+      unlistenTrackTags.then((f) => f());
+      unlistenArtistTags.then((f) => f());
+    };
+  }, []);
 
   // Fetch album/artist image when current track changes (for Now Playing bar)
   useEffect(() => {
