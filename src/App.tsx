@@ -3155,7 +3155,14 @@ function App() {
           onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
           onRemove={queueHook.removeFromQueue}
           onLocateTrack={(track) => {
-            if (track.artist_id) library.handleLocateTrack(track.id, track.artist_id, track.album_id);
+            const filename = (track.path?.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, "") ?? "").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+            library.handleLocateTrack(track.id, track.artist_id, track.album_id, () => {
+              library.setView("all");
+              library.setSelectedArtist(null);
+              library.setSelectedAlbum(null);
+              library.setSelectedTag(null);
+              viewSearch.setQuery("all", filename);
+            });
           }}
           onMoveMultiple={queueHook.moveMultiple}
           onClear={queueHook.clearQueue}
@@ -3185,7 +3192,16 @@ function App() {
           onMoveToBottom={handleQueueMoveToBottom}
           onLocateTrack={contextMenu.target.kind === "queue-multi" && contextMenu.target.indices.length === 1 ? () => {
             const track = queueHook.queue[contextMenu.target.kind === "queue-multi" ? contextMenu.target.indices[0] : 0];
-            if (track?.artist_id) library.handleLocateTrack(track.id, track.artist_id, track.album_id);
+            if (track) {
+              const filename = (track.path?.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, "") ?? "").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
+              library.handleLocateTrack(track.id, track.artist_id, track.album_id, () => {
+                library.setView("all");
+                library.setSelectedArtist(null);
+                library.setSelectedAlbum(null);
+                library.setSelectedTag(null);
+                viewSearch.setQuery("all", filename);
+              });
+            }
           } : undefined}
           onDownload={contextMenu.target.kind === "track" ? (destId: number) => { const t = contextMenu.target; if (t.kind === "track") handleDownloadTrack(t.trackId, destId); } : undefined}
           localCollections={localCollections}

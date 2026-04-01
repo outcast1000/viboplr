@@ -477,12 +477,14 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     }
   }
 
-  function handleLocateTrack(trackId: number, artistId: number, albumId?: number | null) {
+  function handleLocateTrack(trackId: number, artistId?: number | null, albumId?: number | null, searchAllFallback?: () => void) {
     pendingLocateTrackIdRef.current = trackId;
-    if (albumId) {
+    if (albumId && artistId) {
       handleAlbumClick(albumId, artistId);
-    } else {
+    } else if (artistId) {
       handleArtistClick(artistId);
+    } else if (searchAllFallback) {
+      searchAllFallback();
     }
   }
 

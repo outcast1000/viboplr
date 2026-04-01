@@ -307,12 +307,12 @@ export function QueuePanel({
             onClick={(e) => handleClick(e, t, i)}
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
-            <div className="queue-item-info">
+            <div className="queue-item-info" title={t.path ?? ""}>
               <span className="queue-item-title">{t.title}</span>
               <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
             </div>
             <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
-            {onLocateTrack && t.artist_id && (
+            {onLocateTrack && (
               <button
                 className="queue-item-remove"
                 onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
