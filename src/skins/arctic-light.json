@@ -6,10 +6,12 @@
   "colors": {
     "bg-primary": "#f5f5f7",
     "bg-secondary": "#e8e8ed",
+    "bg-tertiary": "#dcdce1",
     "bg-surface": "#d1d1d6",
     "bg-hover": "#c7c7cc",
     "text-primary": "#1d1d1f",
     "text-secondary": "#6e6e73",
+    "text-tertiary": "#9e9ea3",
     "accent": "#0071e3",
     "accent-dim": "#0058b0",
     "border": "#d2d2d7",

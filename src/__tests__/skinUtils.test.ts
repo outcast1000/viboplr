@@ -6,8 +6,9 @@ describe("validateSkin", () => {
   const validSkin = {
     name: "Test", author: "dev", version: "1.0.0", type: "dark" as const,
     colors: {
-      "bg-primary": "#1a1a2e", "bg-secondary": "#16213e", "bg-surface": "#0f3460",
-      "bg-hover": "#1a3a6e", "text-primary": "#e0e0e0", "text-secondary": "#a0a0b0",
+      "bg-primary": "#1a1a2e", "bg-secondary": "#16213e", "bg-tertiary": "#1e2a4a",
+      "bg-surface": "#0f3460", "bg-hover": "#1a3a6e", "text-primary": "#e0e0e0",
+      "text-secondary": "#a0a0b0", "text-tertiary": "#707080",
       "accent": "#53a8ff", "accent-dim": "#3a7bd5", "border": "#2a2a4a",
       "now-playing-bg": "#0d1b2a", "success": "#4caf50", "error": "#f44336",
       "warning": "#ff9500",

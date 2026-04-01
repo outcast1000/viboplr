@@ -1,10 +1,12 @@
 :root {
   --bg-primary: #1a1a2e;
   --bg-secondary: #16213e;
+  --bg-tertiary: #1e2a4a;
   --bg-surface: #0f3460;
   --bg-hover: #1a3a6e;
   --text-primary: #e0e0e0;
   --text-secondary: #a0a0b0;
+  --text-tertiary: #707080;
   --accent: #53a8ff;
   --accent-rgb: 83, 168, 255;
   --accent-dim: #3a7bd5;
@@ -1638,7 +1640,7 @@ body {
   right: 0;
   z-index: 200;
   background: var(--bg-secondary, #0d1b2a);
-  border: 1px solid var(--border-color, #334);
+  border: 1px solid var(--border);
   border-top: none;
   border-radius: 0 0 8px 8px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
@@ -1710,7 +1712,7 @@ body {
 
 .central-search-result .result-play {
   font-size: var(--fs-xs);
-  color: var(--text-tertiary, #666);
+  color: var(--text-tertiary);
   opacity: 0;
   transition: opacity 0.15s;
   flex-shrink: 0;
@@ -1722,7 +1724,7 @@ body {
 
 .central-search-footer {
   padding: 8px 12px;
-  border-top: 1px solid var(--border-color, #223);
+  border-top: 1px solid var(--border);
   text-align: center;
   font-size: var(--fs-sm);
   color: var(--text-secondary, #888);
@@ -1732,7 +1734,7 @@ body {
 }
 
 .central-search-footer .footer-separator {
-  color: var(--text-tertiary, #555);
+  color: var(--text-tertiary);
 }
 
 .view-search-bar {
@@ -6561,7 +6563,7 @@ body {
 }
 
 .plugin-track-table .track-row:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
 }
 
 .plugin-track-table .track-row.active {
@@ -6589,7 +6591,7 @@ body {
 }
 
 .plugin-card {
-  background: var(--surface);
+  background: var(--bg-surface);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -6599,7 +6601,7 @@ body {
 }
 
 .plugin-card-clickable:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
 }
 
 .plugin-card-image {
@@ -6640,7 +6642,7 @@ body {
 }
 
 .plugin-text h2 {
-  font-size: var(--fs-md);
+  font-size: var(--fs-base);
   font-weight: 600;
   margin: 8px 0 4px;
 }
@@ -6663,7 +6665,7 @@ body {
 }
 
 .plugin-stat {
-  background: var(--surface);
+  background: var(--bg-surface);
   border-radius: 6px;
   padding: 12px;
   text-align: center;

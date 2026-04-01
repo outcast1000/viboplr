@@ -1,10 +1,12 @@
 export const SKIN_COLOR_KEYS = [
   "bg-primary",
   "bg-secondary",
+  "bg-tertiary",
   "bg-surface",
   "bg-hover",
   "text-primary",
   "text-secondary",
+  "text-tertiary",
   "accent",
   "accent-dim",
   "border",

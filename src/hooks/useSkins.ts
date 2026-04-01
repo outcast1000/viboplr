@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { store } from "../store";
 import { BUILTIN_SKINS } from "../skins";
 import { generateSkinCSS } from "../skinUtils";
-import type { SkinInfo, GallerySkinEntry } from "../types/skin";
+import type { SkinInfo, SkinColors, GallerySkinEntry } from "../types/skin";
+import defaultSkin from "../skins/default.json";
 
 const STYLE_ID = "viboplr-skin";
 const GALLERY_BASE_URL = "https://raw.githubusercontent.com/outcast1000/viboplr-skins/main/";
@@ -15,7 +16,8 @@ function injectSkinCSS(skin: SkinInfo) {
     el.id = STYLE_ID;
     document.head.appendChild(el);
   }
-  el.textContent = generateSkinCSS(skin.colors, skin.customCSS);
+  const colors = { ...defaultSkin.colors, ...skin.colors } as SkinColors;
+  el.textContent = generateSkinCSS(colors, skin.customCSS);
   document.documentElement.dataset.skinType = skin.type;
 }
 
