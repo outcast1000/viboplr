@@ -685,6 +685,7 @@ function App() {
           videoLayout.restoreLayout(savedVideoLayout);
         } else if (savedVideoSplitHeight && savedVideoSplitHeight > 0) {
           videoLayout.migrateFromSplitHeight(savedVideoSplitHeight);
+          store.set("videoSplitHeight", null);
         }
         if (savedSidebarCollapsed) setSidebarCollapsed(true);
         if (savedQueueCollapsed) setQueueCollapsed(true);
@@ -2009,7 +2010,7 @@ function App() {
       {/* Main content */}
       <main className="main" data-dock={videoLayout.dockSide}>
         {/* Content area */}
-        <div className="content" ref={contentRef} style={{ minHeight: playback.currentTrack && isVideoTrack(playback.currentTrack) ? 150 : undefined }}>
+        <div className="content" ref={contentRef} style={playback.currentTrack && isVideoTrack(playback.currentTrack) ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
           <Breadcrumb
             view={view}
             selectedArtist={selectedArtist}
@@ -3079,7 +3080,6 @@ function App() {
         )}
         <div
           className={`video-container${videoLayout.isCollapsed ? " collapsed" : ""}`}
-          data-dock={videoLayout.dockSide}
           data-fit={videoLayout.fitMode}
           onContextMenu={(e) => {
             e.preventDefault();
