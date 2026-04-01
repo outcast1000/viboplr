@@ -242,6 +242,10 @@ export interface PluginNetworkAPI {
     text(): Promise<string>;
     json(): Promise<unknown>;
   }>;
+  openUrl(url: string): Promise<void>;
+  onDeepLink(handler: (url: string) => void): () => void;
+  onOAuthCallback(handler: (queryString: string) => void): () => void;
+  startOAuthListener(): Promise<number>;
 }
 
 export interface ViboplrPluginAPI {

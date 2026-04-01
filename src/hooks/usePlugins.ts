@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { store } from "../store";
 import type { Track, Collection } from "../types";
 import type {
@@ -39,6 +41,8 @@ interface LoadedPlugin {
   unsubscribers: Array<() => void>;
   contextMenuHandlers: Map<string, (target: PluginContextMenuTarget) => void>;
   uiActionHandlers: Map<string, (data: unknown) => void>;
+  deepLinkHandlers: Array<(url: string) => void>;
+  oauthCallbackHandlers: Array<(queryString: string) => void>;
 }
 
 type EventHandlers = {
@@ -262,6 +266,26 @@ export function usePlugins(
               json: async () => JSON.parse(bodyText),
             };
           },
+          async openUrl(url: string) {
+            await openUrl(url);
+          },
+          onDeepLink(handler: (url: string) => void) {
+            loaded.deepLinkHandlers.push(handler);
+            return () => {
+              const idx = loaded.deepLinkHandlers.indexOf(handler);
+              if (idx >= 0) loaded.deepLinkHandlers.splice(idx, 1);
+            };
+          },
+          onOAuthCallback(handler: (queryString: string) => void) {
+            loaded.oauthCallbackHandlers.push(handler);
+            return () => {
+              const idx = loaded.oauthCallbackHandlers.indexOf(handler);
+              if (idx >= 0) loaded.oauthCallbackHandlers.splice(idx, 1);
+            };
+          },
+          async startOAuthListener(): Promise<number> {
+            return invoke<number>("oauth_listen");
+          },
         },
 
         tidal: {
@@ -322,6 +346,22 @@ export function usePlugins(
     [currentTrackRef, playingRef, positionRef],
   );
 
+  // Listen for OAuth callback events from the Rust backend
+  useEffect(() => {
+    const unlisten = listen<string>("oauth-callback", (event) => {
+      for (const [, loaded] of loadedPluginsRef.current) {
+        for (const handler of loaded.oauthCallbackHandlers) {
+          try {
+            handler(event.payload);
+          } catch (e) {
+            console.error(`[plugin:${loaded.id}] oauth callback error:`, e);
+          }
+        }
+      }
+    });
+    return () => { unlisten.then(f => f()); };
+  }, []);
+
   // Deactivate and clean up a single plugin
   const deactivatePlugin = useCallback((pluginId: string) => {
     const loaded = loadedPluginsRef.current.get(pluginId);
@@ -367,6 +407,8 @@ export function usePlugins(
         unsubscribers: [],
         contextMenuHandlers: new Map(),
         uiActionHandlers: new Map(),
+        deepLinkHandlers: [],
+        oauthCallbackHandlers: [],
       };
 
       try {
@@ -608,6 +650,22 @@ export function usePlugins(
     [viewData],
   );
 
+  const forwardDeepLink = useCallback((url: string) => {
+    const pluginCount = loadedPluginsRef.current.size;
+    let handlerCount = 0;
+    for (const [, l] of loadedPluginsRef.current) handlerCount += l.deepLinkHandlers.length;
+    console.log(`[forwardDeepLink] url=${url}, plugins=${pluginCount}, handlers=${handlerCount}`);
+    for (const [, loaded] of loadedPluginsRef.current) {
+      for (const handler of loaded.deepLinkHandlers) {
+        try {
+          handler(url);
+        } catch (e) {
+          console.error(`[plugin:${loaded.id}] deep link handler error:`, e);
+        }
+      }
+    }
+  }, []);
+
   return {
     pluginStates,
     sidebarItems,
@@ -620,5 +678,6 @@ export function usePlugins(
     togglePlugin,
     reloadPlugin,
     reloadAllPlugins,
+    forwardDeepLink,
   };
 }

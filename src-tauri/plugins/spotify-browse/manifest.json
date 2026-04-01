@@ -1,0 +1,13 @@
+{
+  "id": "spotify-browse",
+  "name": "Spotify",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Browse your Spotify library — liked songs and playlists",
+  "minAppVersion": "0.7.0",
+  "contributes": {
+    "sidebarItems": [
+      { "id": "spotify", "label": "Spotify", "icon": "spotify" }
+    ]
+  }
+}

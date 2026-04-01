@@ -2730,6 +2730,56 @@ pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<s
     }))
 }
 
+/// Start a one-shot HTTP server on localhost for OAuth callbacks.
+/// Returns the port. Emits "oauth-callback" event with the full query string when a request arrives.
+#[tauri::command]
+pub async fn oauth_listen(app: tauri::AppHandle) -> Result<u16, String> {
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+
+    // Spawn a thread to accept exactly one connection
+    tauri::async_runtime::spawn_blocking(move || {
+        // Set a timeout so we don't block forever
+        listener
+            .set_nonblocking(false)
+            .ok();
+        let _ = listener
+            .incoming()
+            .next()
+            .and_then(|stream| stream.ok())
+            .map(|mut stream| {
+                let mut buf = [0u8; 4096];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+
+                // Extract the query string from "GET /callback?code=...&state=... HTTP/1.1"
+                let query = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .and_then(|path| path.split_once('?'))
+                    .map(|(_, q)| q.to_string())
+                    .unwrap_or_default();
+
+                // Send a response page
+                let body = "<!DOCTYPE html><html><body><h3>Authorization complete</h3><p>You can close this tab and return to Viboplr.</p><script>window.close()</script></body></html>";
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+
+                let _ = app.emit("oauth-callback", query);
+            });
+    });
+
+    Ok(port)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

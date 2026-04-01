@@ -81,7 +81,6 @@ export function NowPlayingBar({
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
   onToggleLike, onToggleDislike, onArtistClick, onAlbumClick,
 }: NowPlayingBarProps) {
-  console.log("[NowPlayingBar] render, currentTrack:", currentTrack ? { id: currentTrack.id, title: currentTrack.title } : null, "miniMode:", miniMode);
   const [showHelp, setShowHelp] = useState(false);
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

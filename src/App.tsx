@@ -3,7 +3,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { getCurrent as getDeepLinkCurrent } from "@tauri-apps/plugin-deep-link";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 
@@ -475,10 +475,14 @@ function App() {
     return () => document.removeEventListener("contextmenu", handler);
   }, []);
 
-  // Listen for deep link events (subsonic:// URLs)
+  // Listen for deep link events
   useEffect(() => {
+    const handled = new Set<string>();
     function handleDeepLink(urls: string[]) {
       for (const raw of urls) {
+        if (handled.has(raw)) continue;
+        handled.add(raw);
+        console.log("[deep-link] received:", raw);
         // Handle Last.fm callback
         if (raw.startsWith("viboplr://lastfm-callback")) {
           try {
@@ -506,17 +510,23 @@ function App() {
           setShowAddServer(true);
           break;
         }
+        // Forward viboplr:// deep links to plugins
+        if (raw.startsWith("viboplr://")) {
+          plugins.forwardDeepLink(raw);
+        }
       }
     }
-    const unlistenOpen = onOpenUrl(handleDeepLink);
     const unlistenEvent = listen<string>("deep-link-received", (event) => {
       handleDeepLink([event.payload]);
     });
+    // Check for URLs that arrived before listeners were registered
+    getDeepLinkCurrent().then((urls) => {
+      if (urls && urls.length > 0) handleDeepLink(urls);
+    }).catch(() => {});
     return () => {
-      unlistenOpen.then(f => f());
       unlistenEvent.then(f => f());
     };
-  }, []);
+  }, [plugins.forwardDeepLink]);
 
   // Restore persisted state on mount
   useEffect(() => {
@@ -621,36 +631,28 @@ function App() {
         }
 
         // Restore queue from QueueEntry[] — convert to Track[], re-resolve file:// from DB
-        console.log("[restore] raw savedTrackEntry:", JSON.stringify(savedTrackEntry));
-        console.log("[restore] raw queueEntries:", queueEntries?.length ?? 0, "qIdx:", qIdx);
         let restoredTracks: Track[] = [];
         if (queueEntries?.length) {
           const entries = queueEntries as QueueEntry[];
-          console.log("[restore] queue entries locations:", entries.map(e => e.location));
           const minimalTracks = entries.map(e => queueEntryToTrack(e));
-          console.log("[restore] minimalTracks from queueEntryToTrack:", minimalTracks.map(t => ({ id: t.id, title: t.title, path: t.path })));
 
           // Collect file:// paths for bulk DB lookup to get full metadata (id, album_id, etc.)
           const filePaths = entries
             .filter(e => e.location.startsWith("file://"))
             .map(e => e.location.slice(7));
-          console.log("[restore] filePaths for DB lookup:", filePaths.length);
 
           let dbTracks: Track[] = [];
           if (filePaths.length > 0) {
             dbTracks = await invoke<Track[]>("get_tracks_by_paths", { paths: filePaths }).catch(() => []);
           }
-          console.log("[restore] dbTracks found:", dbTracks.length);
           const dbByPath = new Map(dbTracks.map(t => [t.path, t]));
 
           restoredTracks = minimalTracks.map((t, i) => {
             const entry = entries[i];
             if (entry.location.startsWith("file://")) {
               const dbTrack = dbByPath.get(t.path);
-              console.log("[restore] queue[" + i + "] file:// path=" + t.path, "dbMatch:", !!dbTrack);
               return dbTrack ?? t; // prefer DB version for full metadata
             }
-            console.log("[restore] queue[" + i + "] non-file location=" + entry.location);
             return t; // subsonic/tidal: use reconstructed track
           });
         }
@@ -658,18 +660,14 @@ function App() {
         // Restore current track from queue or saved entry (no DB ID lookup)
         const idx = qIdx ?? -1;
         const currentFromQueue = idx >= 0 && idx < restoredTracks.length ? restoredTracks[idx] : null;
-        console.log("[restore] idx:", idx, "currentFromQueue:", currentFromQueue ? { id: currentFromQueue.id, title: currentFromQueue.title, path: currentFromQueue.path } : null);
         const restoredTrack = currentFromQueue ?? (savedTrackEntry ? queueEntryToTrack(savedTrackEntry) : null);
-        console.log("[restore] restoredTrack:", restoredTrack ? { id: restoredTrack.id, title: restoredTrack.title, path: restoredTrack.path, artist_name: restoredTrack.artist_name } : null);
 
         // Store in refs — state will be applied in a separate effect after appRestoring flips
         if (restoredTrack) {
           pendingRestoreTrackRef.current = restoredTrack;
-          console.log("[restore] saved restoredTrack to ref");
         }
         if (restoredTracks.length) {
           pendingRestoreQueueRef.current = { tracks: restoredTracks, index: idx >= 0 && idx < restoredTracks.length ? idx : -1 };
-          console.log("[restore] saved queue to ref, length:", restoredTracks.length, "index:", idx);
         }
 
         if (qMode && ["normal", "loop", "shuffle"].includes(qMode)) {
@@ -713,18 +711,15 @@ function App() {
     if (appRestoring) return;
     const track = pendingRestoreTrackRef.current;
     const queue = pendingRestoreQueueRef.current;
-    console.log("[restore-apply] appRestoring=false, pendingTrack:", track ? { id: track.id, title: track.title } : null, "pendingQueue:", queue ? queue.tracks.length : null);
     if (track) {
       playback.setCurrentTrack(track);
       playback.setDurationSecs(track.duration_secs ?? 0);
       pendingRestoreTrackRef.current = null;
-      console.log("[restore-apply] called setCurrentTrack + setDurationSecs");
     }
     if (queue) {
       queueHook.setQueue(queue.tracks);
       queueHook.setQueueIndex(queue.index);
       pendingRestoreQueueRef.current = null;
-      console.log("[restore-apply] called setQueue + setQueueIndex");
     }
   }, [appRestoring]);
 

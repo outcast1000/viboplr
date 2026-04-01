@@ -143,6 +143,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::plugin_storage_set,
         commands::plugin_storage_delete,
         commands::plugin_fetch,
+        commands::oauth_listen,
         commands::open_logs_folder,
         commands::write_frontend_log,
     ]
@@ -264,6 +265,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::plugin_storage_set,
         commands::plugin_storage_delete,
         commands::plugin_fetch,
+        commands::oauth_listen,
         commands::open_logs_folder,
         commands::write_frontend_log,
     ]
@@ -367,14 +369,16 @@ pub fn run() {
     #[cfg(not(debug_assertions))]
     let builder = timer.time("plugin: single_instance", || {
         builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            eprintln!("[single_instance] callback fired, argv={:?}", argv);
             // Focus existing window
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
-            // Check argv for subsonic:// and viboplr:// deep link URLs (Windows/Linux)
+            // Check argv for subsonic:// and viboplr:// deep link URLs
             for arg in &argv {
                 if arg.starts_with("subsonic://") || arg.starts_with("viboplr://") {
+                    eprintln!("[single_instance] emitting deep-link-received: {}", arg);
                     let _ = app.emit("deep-link-received", arg.clone());
                     break;
                 }
@@ -391,6 +395,16 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            // Register Rust-side deep link handler to ensure URLs reach the frontend
+            use tauri_plugin_deep_link::DeepLinkExt;
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    eprintln!("[on_open_url] deep link: {}", url);
+                    let _ = handle.emit("deep-link-received", url.to_string());
+                }
+            });
+
             let timer = timing::timer();
 
             let app_data_dir = app
@@ -873,17 +887,14 @@ pub fn run() {
                     }
                 }
                 tauri::RunEvent::Opened { urls } => {
-                    // Handle deep link URLs on initial launch (macOS)
+                    eprintln!("[RunEvent::Opened] urls: {:?}", urls);
                     for url in urls {
-                        let s = url.to_string();
-                        if s.starts_with("subsonic://") || s.starts_with("viboplr://") {
-                            let _ = app.emit("deep-link-received", s);
-                            break;
-                        }
+                        eprintln!("[RunEvent::Opened] emitting deep-link-received: {}", url);
+                        let _ = app.emit("deep-link-received", url.to_string());
                     }
                 }
                 tauri::RunEvent::Reopen { has_visible_windows, .. } => {
-                    // Re-show the main window on dock click (macOS)
+                    eprintln!("[RunEvent::Reopen] has_visible_windows={}", has_visible_windows);
                     if !has_visible_windows {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
