@@ -1939,6 +1939,22 @@ body {
   margin: 4px 0;
 }
 
+.context-menu-label {
+  padding: 4px 16px 2px;
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+}
+
+.context-menu-check {
+  display: inline-block;
+  width: 16px;
+  font-size: var(--fs-sm);
+  color: var(--accent);
+}
+
 /* Download submenu */
 .context-menu-submenu {
   position: relative;

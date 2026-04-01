@@ -1,4 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
+import type { DockSide, FitMode } from "../hooks/useVideoLayout";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl, getDomainFromUrl } from "../searchProviders";
 import { IconPlay, IconEnqueue, IconFolder, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius, IconInfo, IconTrash } from "./Icons";
@@ -10,7 +11,8 @@ export type ContextMenuTarget =
   | { kind: "album"; albumId: number; title: string; artistName: string | null }
   | { kind: "artist"; artistId: number; name: string }
   | { kind: "multi-track"; trackIds: number[] }
-  | { kind: "queue-multi"; indices: number[] };
+  | { kind: "queue-multi"; indices: number[] }
+  | { kind: "video"; dockSide: DockSide; fitMode: FitMode };
 
 export interface ContextMenuState {
   x: number;
@@ -37,6 +39,8 @@ interface ContextMenuProps {
   onClose: () => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
+  onSetDockSide?: (side: DockSide) => void;
+  onSetFitMode?: (mode: FitMode) => void;
 }
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
@@ -109,9 +113,32 @@ export function ContextMenu({
   onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, localCollections,
   onBulkEdit, onClose,
   pluginMenuItems, onPluginAction,
+  onSetDockSide, onSetFitMode,
 }: ContextMenuProps) {
   const { target } = menu;
   const { ref, pos } = useClampedPosition(menu.x, menu.y);
+
+  if (target.kind === "video") {
+    return (
+      <div ref={ref} className="context-menu" style={{ top: pos.y, left: pos.x }}>
+        <div className="context-menu-label">Fit Mode</div>
+        {(["contain", "fit-width", "fit-height", "fill"] as FitMode[]).map(mode => (
+          <div key={mode} className="context-menu-item" onClick={() => { onSetFitMode?.(mode); onClose(); }}>
+            <span className="context-menu-check">{target.fitMode === mode ? "\u2713" : ""}</span>
+            <span>{mode === "contain" ? "Contain" : mode === "fit-width" ? "Fit Width" : mode === "fit-height" ? "Fit Height" : "Fill"}</span>
+          </div>
+        ))}
+        <div className="context-menu-separator" />
+        <div className="context-menu-label">Dock Side</div>
+        {(["top", "bottom", "left", "right"] as DockSide[]).map(side => (
+          <div key={side} className="context-menu-item" onClick={() => { onSetDockSide?.(side); onClose(); }}>
+            <span className="context-menu-check">{target.dockSide === side ? "\u2713" : ""}</span>
+            <span>{side[0].toUpperCase() + side.slice(1)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   const isMulti = target.kind === "multi-track";
   const isQueue = target.kind === "queue-multi";

@@ -3081,6 +3081,10 @@ function App() {
           className={`video-container${videoLayout.isCollapsed ? " collapsed" : ""}`}
           data-dock={videoLayout.dockSide}
           data-fit={videoLayout.fitMode}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "video", dockSide: videoLayout.dockSide, fitMode: videoLayout.fitMode } });
+          }}
           style={{
             display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',
             ...(videoLayout.isHorizontal
@@ -3223,6 +3227,8 @@ function App() {
           onClose={() => setContextMenu(null)}
           pluginMenuItems={plugins.menuItems}
           onPluginAction={plugins.dispatchContextMenuAction}
+          onSetDockSide={videoLayout.setDockSide}
+          onSetFitMode={videoLayout.setFitMode}
         />
       )}
 
