@@ -919,8 +919,6 @@ function App() {
     setShowNowPlayingView(true);
     if (playback.currentTrack) fetchNpLastfmData(playback.currentTrack);
   }, [mini.miniMode, mini.toggleMiniMode, playback.currentTrack, fetchNpLastfmData]);
-  // TODO: remove void ref once NowPlayingBar consumes openNowPlaying (Task 7)
-  void openNowPlaying;
 
   // Clear and re-fetch np* state when the playing track changes
   useEffect(() => {
@@ -3565,6 +3563,7 @@ function App() {
         onToggleDislike={() => playback.currentTrack && handleToggleDislike(playback.currentTrack)}
         onArtistClick={library.handleArtistClick}
         onAlbumClick={library.handleAlbumClick}
+        onOpenNowPlaying={openNowPlaying}
       />
 
       <StatusBar

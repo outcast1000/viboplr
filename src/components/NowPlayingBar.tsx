@@ -66,6 +66,7 @@ interface NowPlayingBarProps {
   onToggleDislike?: () => void;
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
+  onOpenNowPlaying: () => void;
 }
 
 export function NowPlayingBar({
@@ -79,7 +80,7 @@ export function NowPlayingBar({
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
-  onToggleLike, onToggleDislike, onArtistClick, onAlbumClick,
+  onToggleLike, onToggleDislike, onArtistClick, onAlbumClick, onOpenNowPlaying,
 }: NowPlayingBarProps) {
   const [showHelp, setShowHelp] = useState(false);
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -221,6 +222,7 @@ export function NowPlayingBar({
           </button>
           <button className="ctrl-btn" onClick={onNext} title={`Next (${mod}\u2192)`}>{"\u23ED"}</button>
           <button className="ctrl-btn" onClick={onStop} title="Stop">{"\u23F9"}</button>
+          <button className="ctrl-btn" onClick={onOpenNowPlaying} title="Now Playing View">{"\u26F6"}</button>
         </div>
       <div className="now-right">
         <button
