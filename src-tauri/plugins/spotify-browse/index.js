@@ -21,6 +21,10 @@ function activate(api) {
     playlistTracksTotal: 0,
     currentPlaylist: null,
     userName: null,
+    searchQuery: "",
+    searchResults: { tracks: [], artists: [], albums: [] },
+    searchTab: "tracks",
+    detailTrack: null,
   };
 
   // -- PKCE helpers --
@@ -288,6 +292,40 @@ function activate(api) {
     });
   }
 
+  // -- Search --
+
+  function searchSpotify(query) {
+    if (!query || !query.trim()) return Promise.resolve();
+    state.searchQuery = query.trim();
+    renderLoading("Searching...");
+    return spotifyFetch("/search?q=" + encodeURIComponent(state.searchQuery) + "&type=track,artist,album&limit=20")
+      .then(function (resp) {
+        state.searchResults = {
+          tracks: (resp.tracks && resp.tracks.items) || [],
+          artists: (resp.artists && resp.artists.items) || [],
+          albums: (resp.albums && resp.albums.items) || [],
+        };
+        state.currentView = "search";
+        renderSearch();
+      })
+      .catch(function (err) {
+        renderError("Search failed: " + (err.message || err));
+      });
+  }
+
+  function loadTrackDetail(trackId) {
+    renderLoading("Loading track...");
+    return spotifyFetch("/tracks/" + trackId)
+      .then(function (track) {
+        state.detailTrack = track;
+        state.currentView = "detail";
+        renderDetail();
+      })
+      .catch(function (err) {
+        renderError("Failed to load track: " + (err.message || err));
+      });
+  }
+
   // -- Rendering --
 
   function escapeHtml(str) {
@@ -303,25 +341,27 @@ function activate(api) {
     return m + ":" + (s < 10 ? "0" : "") + s;
   }
 
+  function getArtistNames(t) {
+    if (!t.artists) return "Unknown";
+    var names = [];
+    for (var i = 0; i < t.artists.length; i++) {
+      names.push(t.artists[i].name);
+    }
+    return names.join(", ");
+  }
+
   function spotifyTrackToRow(t) {
     var img;
     if (t.album && t.album.images && t.album.images.length > 0) {
       img = t.album.images[t.album.images.length - 1].url;
     }
-    var artists = "";
-    if (t.artists) {
-      var names = [];
-      for (var i = 0; i < t.artists.length; i++) {
-        names.push(t.artists[i].name);
-      }
-      artists = names.join(", ");
-    }
     return {
       id: "track:" + t.id,
       title: t.name,
-      subtitle: (artists || "Unknown") + (t.album ? " \u2014 " + t.album.name : ""),
+      subtitle: getArtistNames(t) + (t.album ? " \u2014 " + t.album.name : ""),
       imageUrl: img,
       duration: formatDuration(t.duration_ms),
+      action: "view-track",
     };
   }
 
@@ -347,6 +387,10 @@ function activate(api) {
     if (state.userName) {
       children.push({ type: "text", content: "<p style='opacity:0.6'>" + escapeHtml(state.userName) + "'s Library</p>" });
     }
+
+    // Search bar
+    children.push({ type: "search-input", placeholder: "Search Spotify...", action: "search", value: "" });
+    children.push({ type: "spacer" });
 
     // Liked songs card
     children.push({
@@ -481,6 +525,133 @@ function activate(api) {
     });
   }
 
+  function renderSearch() {
+    var children = [
+      { type: "button", label: "\u2190 Back", action: "go-home" },
+      { type: "spacer" },
+      { type: "search-input", placeholder: "Search Spotify...", action: "search", value: state.searchQuery },
+      { type: "spacer" },
+    ];
+
+    var trackCount = state.searchResults.tracks.length;
+    var artistCount = state.searchResults.artists.length;
+    var albumCount = state.searchResults.albums.length;
+
+    children.push({
+      type: "tabs",
+      tabs: [
+        { id: "tracks", label: "Tracks", count: trackCount },
+        { id: "artists", label: "Artists", count: artistCount },
+        { id: "albums", label: "Albums", count: albumCount },
+      ],
+      activeTab: state.searchTab,
+      action: "search-tab",
+    });
+
+    children.push({ type: "spacer" });
+
+    if (state.searchTab === "tracks" && trackCount > 0) {
+      var items = [];
+      for (var i = 0; i < state.searchResults.tracks.length; i++) {
+        items.push(spotifyTrackToRow(state.searchResults.tracks[i]));
+      }
+      children.push({ type: "track-row-list", items: items });
+    } else if (state.searchTab === "artists" && artistCount > 0) {
+      var artistItems = [];
+      for (var j = 0; j < state.searchResults.artists.length; j++) {
+        var a = state.searchResults.artists[j];
+        var aImg;
+        if (a.images && a.images.length > 0) aImg = a.images[a.images.length - 1].url;
+        artistItems.push({
+          id: "artist:" + a.id,
+          title: a.name,
+          subtitle: (a.followers ? a.followers.total.toLocaleString() + " followers" : "") + (a.genres && a.genres.length > 0 ? " \u00B7 " + a.genres.slice(0, 2).join(", ") : ""),
+          imageUrl: aImg,
+        });
+      }
+      children.push({ type: "card-grid", items: artistItems, columns: 3 });
+    } else if (state.searchTab === "albums" && albumCount > 0) {
+      var albumItems = [];
+      for (var k = 0; k < state.searchResults.albums.length; k++) {
+        var al = state.searchResults.albums[k];
+        var alImg;
+        if (al.images && al.images.length > 0) alImg = al.images[al.images.length - 1].url;
+        var albumArtist = al.artists && al.artists.length > 0 ? al.artists[0].name : "";
+        albumItems.push({
+          id: "album:" + al.id,
+          title: al.name,
+          subtitle: albumArtist + (al.release_date ? " \u00B7 " + al.release_date.substring(0, 4) : ""),
+          imageUrl: alImg,
+        });
+      }
+      children.push({ type: "card-grid", items: albumItems, columns: 3 });
+    } else {
+      children.push({ type: "text", content: "<p style='opacity:0.5'>No results</p>" });
+    }
+
+    api.ui.setViewData("spotify", {
+      type: "layout",
+      direction: "vertical",
+      children: children,
+    });
+  }
+
+  function renderDetail() {
+    var t = state.detailTrack;
+    if (!t) return;
+
+    var children = [
+      { type: "button", label: "\u2190 Back", action: "detail-back" },
+      { type: "spacer" },
+    ];
+
+    // Album art
+    if (t.album && t.album.images && t.album.images.length > 0) {
+      children.push({
+        type: "card-grid",
+        columns: 3,
+        items: [{ id: "art", title: "", imageUrl: t.album.images[0].url }],
+      });
+      children.push({ type: "spacer" });
+    }
+
+    children.push({ type: "text", content: "<h2>" + escapeHtml(t.name) + "</h2>" });
+    children.push({ type: "text", content: "<p>" + escapeHtml(getArtistNames(t)) + "</p>" });
+
+    // Stats grid
+    var stats = [];
+    if (t.album) stats.push({ label: "Album", value: t.album.name });
+    if (t.duration_ms) stats.push({ label: "Duration", value: formatDuration(t.duration_ms) });
+    if (t.popularity != null) stats.push({ label: "Popularity", value: t.popularity + " / 100" });
+    if (t.album && t.album.release_date) stats.push({ label: "Released", value: t.album.release_date });
+    if (t.track_number) stats.push({ label: "Track #", value: t.track_number + (t.album && t.album.total_tracks ? " of " + t.album.total_tracks : "") });
+    if (t.disc_number && t.disc_number > 1) stats.push({ label: "Disc", value: String(t.disc_number) });
+    if (t.explicit) stats.push({ label: "Explicit", value: "Yes" });
+    stats.push({ label: "Spotify ID", value: t.id });
+
+    children.push({ type: "spacer" });
+    children.push({ type: "stats-grid", items: stats });
+    children.push({ type: "spacer" });
+
+    // Actions
+    var actions = [];
+    if (t.external_urls && t.external_urls.spotify) {
+      actions.push({ type: "button", label: "Open in Spotify", action: "open-spotify-url" });
+    }
+    if (t.preview_url) {
+      actions.push({ type: "button", label: "Play Preview", action: "play-preview" });
+    }
+    if (actions.length > 0) {
+      children.push({ type: "layout", direction: "horizontal", children: actions });
+    }
+
+    api.ui.setViewData("spotify", {
+      type: "layout",
+      direction: "vertical",
+      children: children,
+    });
+  }
+
   function renderLoading(message) {
     api.ui.setViewData("spotify", { type: "loading", message: message });
   }
@@ -550,6 +721,54 @@ function activate(api) {
   api.ui.onAction("playlist-next", function () {
     if (state.currentPlaylist) {
       loadPlaylistTracks(state.currentPlaylist, state.playlistTracksOffset + 50);
+    }
+  });
+
+  api.ui.onAction("search", function (data) {
+    var query = data && data.query;
+    if (query) searchSpotify(query);
+  });
+
+  api.ui.onAction("search-tab", function (data) {
+    if (data && data.tabId) {
+      state.searchTab = data.tabId;
+      renderSearch();
+    }
+  });
+
+  api.ui.onAction("view-track", function (data) {
+    if (!data || !data.itemId) return;
+    var parts = data.itemId.split(":");
+    if (parts[0] !== "track" || !parts[1]) return;
+    var trackId = parts.slice(1).join(":");
+    loadTrackDetail(trackId);
+  });
+
+  api.ui.onAction("detail-back", function () {
+    // Go back to wherever we came from
+    if (state.searchQuery && state.searchResults.tracks.length > 0) {
+      state.currentView = "search";
+      renderSearch();
+    } else if (state.currentPlaylist) {
+      state.currentView = "playlist";
+      renderPlaylist();
+    } else if (state.likedTracks.length > 0) {
+      state.currentView = "liked";
+      renderLiked();
+    } else {
+      loadHome();
+    }
+  });
+
+  api.ui.onAction("open-spotify-url", function () {
+    if (state.detailTrack && state.detailTrack.external_urls && state.detailTrack.external_urls.spotify) {
+      api.network.openUrl(state.detailTrack.external_urls.spotify);
+    }
+  });
+
+  api.ui.onAction("play-preview", function () {
+    if (state.detailTrack && state.detailTrack.preview_url) {
+      api.network.openUrl(state.detailTrack.preview_url);
     }
   });
 
