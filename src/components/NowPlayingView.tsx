@@ -48,8 +48,12 @@ export default function NowPlayingView(props: NowPlayingViewProps) {
   const { isVideo } = props;
 
   if (isVideo) {
-    // Video mode — Task 5
-    return <div className="np-view np-video" />;
+    return (
+      <div className="np-view np-video">
+        {/* Video container is CSS-repositioned from its existing DOM location */}
+        {/* FullscreenControls overlay handles all controls */}
+      </div>
+    );
   }
 
   return <NowPlayingAudio {...props} />;

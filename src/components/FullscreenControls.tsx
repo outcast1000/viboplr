@@ -41,6 +41,7 @@ interface FullscreenControlsProps {
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
   /** When true, enables auto-hide behavior without requiring OS fullscreen */
   active?: boolean;
+  onCloseNowPlaying?: () => void;
 }
 
 const IDLE_TIMEOUT = 3000;
@@ -56,7 +57,7 @@ export function FullscreenControls({
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
   onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, onArtistClick, onAlbumClick,
-  active,
+  active, onCloseNowPlaying,
 }: FullscreenControlsProps) {
   const [visible, setVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -259,6 +260,15 @@ export function FullscreenControls({
           >
             {"\u2630"}
           </button>
+          {onCloseNowPlaying && (
+            <button
+              className="ctrl-btn fs-exit-btn"
+              onClick={onCloseNowPlaying}
+              title="Close Now Playing"
+            >
+              {"\u2715"}
+            </button>
+          )}
           <button
             className="ctrl-btn fs-exit-btn"
             onClick={onToggleFullscreen}
