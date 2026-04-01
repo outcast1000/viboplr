@@ -39,6 +39,8 @@ interface FullscreenControlsProps {
   onToggleQueue: () => void;
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
+  /** When true, enables auto-hide behavior without requiring OS fullscreen */
+  active?: boolean;
 }
 
 const IDLE_TIMEOUT = 3000;
@@ -54,9 +56,11 @@ export function FullscreenControls({
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
   onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, onArtistClick, onAlbumClick,
+  active,
 }: FullscreenControlsProps) {
   const [visible, setVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const isActive = active || isFullscreen;
   const timerRef = useRef<number>(0);
   const draggingRef = useRef(false);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -86,24 +90,24 @@ export function FullscreenControls({
 
   // Reset timer when play state changes (keep visible while paused)
   useEffect(() => {
-    if (!isFullscreen) return;
+    if (!isActive) return;
     if (!playing) {
       clearTimeout(timerRef.current);
       setVisible(true);
     } else {
       resetTimer();
     }
-  }, [playing, isFullscreen, resetTimer]);
+  }, [playing, isActive, resetTimer]);
 
   // Mousemove on the fullscreen container (parent of this component)
   useEffect(() => {
-    if (!isFullscreen) return;
+    if (!isActive) return;
     const container = overlayRef.current?.parentElement;
     if (!container) return;
     const onMove = () => resetTimer();
     container.addEventListener("mousemove", onMove);
     return () => container.removeEventListener("mousemove", onMove);
-  }, [isFullscreen, resetTimer]);
+  }, [isActive, resetTimer]);
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -122,12 +126,12 @@ export function FullscreenControls({
 
   // Apply cursor style to fullscreen container
   useEffect(() => {
-    if (!isFullscreen) return;
+    if (!isActive) return;
     const container = overlayRef.current?.parentElement;
     if (!container) return;
     container.style.cursor = visible ? "default" : "none";
     return () => { container.style.cursor = ""; };
-  }, [isFullscreen, visible]);
+  }, [isActive, visible]);
 
   return (
     <div
