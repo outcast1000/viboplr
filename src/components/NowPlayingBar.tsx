@@ -222,7 +222,6 @@ export function NowPlayingBar({
           </button>
           <button className="ctrl-btn" onClick={onNext} title={`Next (${mod}\u2192)`}>{"\u23ED"}</button>
           <button className="ctrl-btn" onClick={onStop} title="Stop">{"\u23F9"}</button>
-          <button className="ctrl-btn" onClick={onOpenNowPlaying} title="Now Playing View">{"\u26F6"}</button>
         </div>
       <div className="now-right">
         <button
@@ -276,6 +275,7 @@ export function NowPlayingBar({
         >
           {"?"}
         </button>
+        <button className="ctrl-btn" onClick={onOpenNowPlaying} title="Now Playing View">{"\u26F6"}</button>
       </div>
       </div>
       {showHelp && (
