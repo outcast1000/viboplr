@@ -1089,15 +1089,6 @@ impl Database {
         Ok(())
     }
 
-    pub fn delete_tracks_by_collection(&self, collection_id: i64) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "DELETE FROM tracks WHERE collection_id = ?1",
-            params![collection_id],
-        )?;
-        Ok(())
-    }
-
     pub fn get_track_paths_for_collection(&self, collection_id: i64) -> SqlResult<Vec<String>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT path FROM tracks WHERE collection_id = ?1")?;

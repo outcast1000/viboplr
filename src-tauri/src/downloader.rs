@@ -53,6 +53,7 @@ impl DownloadFormat {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DownloadRequest {
     pub id: u64,
     pub track_title: String,

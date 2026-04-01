@@ -17,23 +17,16 @@ impl std::error::Error for SubsonicError {}
 
 pub struct SubsonicClient {
     base_url: String,
-    username: String,
     auth_params: String,
     pub password_token: String,
     pub salt: Option<String>,
     pub auth_method: String,
 }
 
-pub struct SubsonicArtist {
-    pub id: String,
-    pub name: String,
-}
-
 pub struct SubsonicAlbum {
     pub id: String,
     pub name: String,
     pub artist: Option<String>,
-    pub artist_id: Option<String>,
     pub year: Option<i32>,
     pub genre: Option<String>,
 }
@@ -42,7 +35,6 @@ pub struct SubsonicTrack {
     pub id: String,
     pub title: String,
     pub artist: Option<String>,
-    pub album: Option<String>,
     pub track_number: Option<i32>,
     pub duration_secs: Option<f64>,
     pub size: Option<i64>,
@@ -73,7 +65,6 @@ impl SubsonicClient {
 
         let client = Self {
             base_url: base_url.clone(),
-            username: username.to_string(),
             auth_params: auth_params.clone(),
             password_token: token.clone(),
             salt: Some(salt.clone()),
@@ -90,7 +81,6 @@ impl SubsonicClient {
                 );
                 let client = Self {
                     base_url,
-                    username: username.to_string(),
                     auth_params,
                     password_token: password.to_string(),
                     salt: None,
@@ -124,7 +114,6 @@ impl SubsonicClient {
 
         Self {
             base_url,
-            username: username.to_string(),
             auth_params,
             password_token: password_token.to_string(),
             salt: salt.map(|s| s.to_string()),
@@ -190,24 +179,6 @@ impl SubsonicClient {
         Ok(())
     }
 
-    pub fn get_artists(&self) -> Result<Vec<SubsonicArtist>, SubsonicError> {
-        let resp = self.get_json("getArtists.view")?;
-        let mut artists = Vec::new();
-        if let Some(index_arr) = resp["artists"]["index"].as_array() {
-            for index in index_arr {
-                if let Some(artist_arr) = index["artist"].as_array() {
-                    for a in artist_arr {
-                        artists.push(SubsonicArtist {
-                            id: a["id"].as_str().unwrap_or("").to_string(),
-                            name: a["name"].as_str().unwrap_or("Unknown").to_string(),
-                        });
-                    }
-                }
-            }
-        }
-        Ok(artists)
-    }
-
     pub fn get_album_list(&self, size: u32, offset: u32) -> Result<Vec<SubsonicAlbum>, SubsonicError> {
         let resp = self.get_json(&format!(
             "getAlbumList2.view&type=alphabeticalByName&size={}&offset={}",
@@ -220,7 +191,6 @@ impl SubsonicClient {
                     id: a["id"].as_str().unwrap_or("").to_string(),
                     name: a["name"].as_str().unwrap_or("Unknown").to_string(),
                     artist: a["artist"].as_str().map(|s| s.to_string()),
-                    artist_id: a["artistId"].as_str().map(|s| s.to_string()),
                     year: a["year"].as_i64().map(|y| y as i32),
                     genre: a["genre"].as_str().map(|s| s.to_string()),
                 });
@@ -236,7 +206,6 @@ impl SubsonicClient {
             id: a["id"].as_str().unwrap_or("").to_string(),
             name: a["name"].as_str().unwrap_or("Unknown").to_string(),
             artist: a["artist"].as_str().map(|s| s.to_string()),
-            artist_id: a["artistId"].as_str().map(|s| s.to_string()),
             year: a["year"].as_i64().map(|y| y as i32),
             genre: a["genre"].as_str().map(|s| s.to_string()),
         };
@@ -248,7 +217,6 @@ impl SubsonicClient {
                     id: s["id"].as_str().unwrap_or("").to_string(),
                     title: s["title"].as_str().unwrap_or("Unknown").to_string(),
                     artist: s["artist"].as_str().map(|s| s.to_string()),
-                    album: s["album"].as_str().map(|s| s.to_string()),
                     track_number: s["track"].as_i64().map(|t| t as i32),
                     duration_secs: s["duration"].as_i64().map(|d| d as f64),
                     size: s["size"].as_i64(),

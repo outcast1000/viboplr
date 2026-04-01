@@ -333,12 +333,6 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
     }
 }
 
-pub fn remove_media_file(db: &Arc<Database>, path: &Path) {
-    let path_str = path.to_string_lossy().to_string();
-    info!("Removed file: {}", path_str);
-    let _ = db.remove_track_by_path(&path_str);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

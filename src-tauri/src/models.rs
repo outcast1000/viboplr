@@ -231,6 +231,7 @@ pub struct LastfmRecentTracks {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct LastfmRecentTracksAttr {
     pub page: String,
     #[serde(rename = "totalPages")]
@@ -241,6 +242,7 @@ pub struct LastfmRecentTracksAttr {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct LastfmRecentTrack {
     pub artist: LastfmRecentTrackArtist,
     pub name: String,
@@ -257,6 +259,7 @@ pub struct LastfmRecentTrackArtist {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct LastfmRecentTrackAlbum {
     #[serde(rename = "#text")]
     pub text: String,
@@ -268,16 +271,8 @@ pub struct LastfmRecentTrackDate {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct LastfmRecentTrackNowPlaying {
     pub nowplaying: String,
 }
 
-// --- Last.fm import progress event ---
-
-#[derive(Debug, Clone, Serialize)]
-pub struct LastfmImportProgress {
-    pub page: u32,
-    pub total_pages: u32,
-    pub imported: u64,
-    pub skipped: u64,
-}
