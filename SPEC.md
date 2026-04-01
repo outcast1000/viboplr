@@ -468,19 +468,18 @@ Viboplr can search and stream from TIDAL's catalog via the **Hi-Fi API** (the ba
 
 **Setup:**
 
-- User adds a TIDAL instance via Settings → Collections → "+ Add TIDAL" (`AddTidalModal` component).
-- Provides a display name and the API base URL.
-- A "Test" button calls `tidal_test_connection` to verify connectivity (checks `GET /` for version).
-- On connect, creates a `tidal` collection with the URL stored in `collections.url`.
+- TIDAL instances are discovered automatically via uptime worker URLs and cached for 24 hours. An optional user-configurable override URL is tried first before falling back to discovered instances.
+- If all instances fail, the cache is invalidated so the next request re-fetches automatically.
 
-**Search & Browsing (`TidalView` component):**
+**Search & Browsing (`tidal-browse` plugin):**
 
-- The TIDAL view appears in the sidebar (diamond icon, `Ctrl/Cmd+7`) when a tidal collection exists.
-- Search bar with 400ms debounce queries the Hi-Fi API (`GET /search/?s={query}`).
-- Results displayed in a **tabbed interface** with three tabs: Tracks, Albums, Artists. Each tab shows its result count in a badge.
-- Album cards are clickable → loads album detail with full track listing and "Play Album" button. Each track row has a download button (⬇) to save the track to a local collection.
+- TIDAL browsing is provided by the built-in `tidal-browse` JavaScript plugin (see §4.28).
+- The plugin adds a sidebar entry and provides search, album detail, and artist detail views using the plugin view system.
+- Search queries tracks, artists, and albums in parallel via the `api.tidal` plugin namespace.
+- Album cards are clickable → loads album detail with full track listing. Each track can be played, queued, or downloaded.
 - Artist cards are clickable → loads artist detail with discography (album grid).
-- **Per-track download:** Each track in search results and album detail views has a download button. If only one local collection exists, clicking downloads directly to it. If multiple local collections exist, a picker appears. The download uses `tidal_save_track` to persist metadata, then streams the audio file to the local collection's folder.
+- **Context menu integration:** The plugin contributes context menu items: "Search on TIDAL", "Upgrade Quality via TIDAL", and "Play from TIDAL". These replace the previously hardcoded TIDAL context menu entries.
+- **Per-track download:** Each track in search results and album detail views can be downloaded. The download uses `tidal_save_track` to persist metadata, then streams the audio file to the local collection's folder.
 - Cover art loaded directly from TIDAL's CDN: `https://resources.tidal.com/images/{uuid_with_slashes}/{size}x{size}.jpg`.
 
 **Playback (on-demand save):**
@@ -499,10 +498,9 @@ Viboplr can search and stream from TIDAL's catalog via the **Hi-Fi API** (the ba
 
 **Backend API client (`src-tauri/src/tidal.rs`):**
 
-- `TidalClient` struct with `base_url` and `reqwest::blocking::Client` (15s timeout).
-- Methods: `ping()`, `search_tracks/artists/albums()`, `get_track_info()`, `get_stream_url()`, `get_album()`, `get_artist()`, `get_artist_albums()`.
+- `TidalClient` struct with instance failover and `reqwest::blocking::Client` (15s timeout).
+- Methods: `search()` (tracks/artists/albums), `get_track_info()`, `get_stream_url()`, `get_album()`, `get_artist()`, `get_artist_albums()`.
 - Static helpers: `cover_url()`, `artist_picture_url()` for constructing TIDAL CDN image URLs.
-- **Instance discovery:** Available API instances are fetched from uptime worker URLs and cached for 24 hours. If all instances fail, the cache is invalidated so the next request re-fetches automatically. An optional `override_url` (user-configurable) is tried first before falling back to discovered instances.
 
 ### 4.19 Profiles
 
@@ -529,7 +527,7 @@ A collapsible side panel for managing the current play queue as a playlist. Togg
 
 **Panel UI (`QueuePanel` component):**
 - Header with title "Playlist" and action buttons: Load playlist (folder icon), Save playlist (floppy icon), Clear playlist (trash icon), Close (×).
-- Track list showing title, artist, duration, and a remove (×) button per track. The currently playing track is highlighted.
+- Track list showing title, artist, duration, and a locate (magnifying glass) button per track that navigates to the track in the library. The currently playing track is highlighted. Track removal is available via the right-click context menu.
 - Footer info bar showing playlist name (if loaded/saved), track count, and total duration.
 
 **Multi-selection:** Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range. Right-click context menu offers Play, Remove, Locate Track (navigates to the track's album view if available, otherwise the artist view), Move to top, and Move to bottom for selected tracks.
@@ -1032,6 +1030,10 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `plugin_storage_set`      | `plugin_id: String, key: String, value: String`          | `()`                 |
 | `plugin_storage_delete`   | `plugin_id: String, key: String`                         | `()`                 |
 | `plugin_fetch`            | `url: String, method?: String, headers?: Map, body?: String` | `Value` (JSON response) |
+| `fetch_plugin_gallery`    | —                                                        | `Value` (gallery index) |
+| `install_gallery_plugin`  | `plugin_id: String, base_url: String, files: Vec<String>`| `String` (path)      |
+| `delete_user_plugin`      | `plugin_id: String`                                      | `()`                 |
+| `oauth_listen`            | —                                                        | `u16` (port)         |
 
 ### Debug-Only Commands
 
@@ -1227,14 +1229,16 @@ Each plugin's `activate(api)` function receives an API object with these namespa
 | Namespace | Methods |
 |-----------|---------|
 | `library` | `getTracks(opts?)`, `getArtists()`, `getAlbums()`, `getTrackById(id)`, `search(query)`, `getHistory(opts?)`, `getMostPlayed(opts?)` |
-| `playback` | `getCurrentTrack()`, `isPlaying()`, `getPosition()`, `onTrackStarted(handler)`, `onTrackPlayed(handler)`, `onTrackScrobbled(handler)`, `onTrackLiked(handler)` |
-| `contextMenu` | `onAction(actionId, handler)` — receives `PluginContextMenuTarget` with entity metadata |
-| `ui` | `setViewData(viewId, data)`, `showNotification(message)`, `onAction(actionId, handler)` |
+| `playback` | `getCurrentTrack()`, `isPlaying()`, `getPosition()`, `playTidalTrack(track)`, `enqueueTidalTrack(track)`, `playTidalTracks(tracks, startIndex?)`, `onTrackStarted(handler)`, `onTrackPlayed(handler)`, `onTrackScrobbled(handler)`, `onTrackLiked(handler)` |
+| `contextMenu` | `onAction(actionId, handler)` — receives `PluginContextMenuTarget` with entity metadata (includes `subsonic` flag) |
+| `ui` | `setViewData(viewId, data)`, `showNotification(message)`, `onAction(actionId, handler)`, `navigateToView(viewId)`, `requestAction(action, payload)` |
 | `storage` | `get(key)`, `set(key, value)`, `delete(key)` — per-plugin key-value storage backed by SQLite |
-| `network` | `fetch(url, init?)` — proxied HTTP requests via the Rust backend |
+| `network` | `fetch(url, init?)` — proxied HTTP requests via the Rust backend; `openUrl(url)` — open URL in default browser; `onDeepLink(handler)` — receive deep link callbacks (e.g. OAuth); `onOAuthCallback(handler)` — OAuth callback handler; `startOAuthListener()` — start local OAuth HTTP listener (returns port) |
+| `tidal` | `search(query, limit?, offset?)`, `getAlbum(albumId)`, `getArtist(artistId)`, `getArtistAlbums(artistId)`, `getStreamUrl(trackId, quality?)`, `downloadTrack(trackId, opts?)`, `downloadAlbum(albumId, opts?)`, `checkStatus()` |
+| `collections` | `getLocalCollections()`, `getDownloadFormat()` |
 
 **View rendering (`PluginViewRenderer`):**
-Plugin views use a structured data model (`PluginViewData`) rather than raw HTML. Supported view types: `track-list`, `card-grid`, `text`, `stats-grid`, `button`, `layout` (vertical/horizontal container), `spacer`.
+Plugin views use a structured data model (`PluginViewData`) rather than raw HTML. Supported view types: `track-list`, `card-grid`, `track-row-list` (with optional selection and toolbar actions), `text`, `stats-grid`, `button`, `layout` (vertical/horizontal container), `spacer`, `search-input` (text input that dispatches on Enter), `tabs` (switchable tab bar with optional counts), `loading`.
 
 **Plugin lifecycle:**
 1. On app startup, `usePlugins` hook discovers plugins via `plugin_list_installed`.
@@ -1250,8 +1254,19 @@ Plugin views use a structured data model (`PluginViewData`) rather than raw HTML
 - `plugin_read_file` validates plugin IDs against path traversal (`..`, `/`, `\`) and canonicalizes paths to ensure reads stay within the plugin directory.
 - Network requests are proxied through the Rust backend (`plugin_fetch` command) rather than allowing direct browser fetch.
 
+**Plugin gallery:**
+- A curated gallery of plugins is hosted at the `outcast1000/viboplr-plugins` GitHub repository.
+- The gallery index is fetched via `fetch_plugin_gallery` and displayed in Settings > Plugins tab.
+- Users can install gallery plugins with one click (`install_gallery_plugin`). Installation downloads the plugin files to a temp directory and atomically moves them into place.
+- User-installed plugins can be deleted via `delete_user_plugin`. Built-in plugins are protected from deletion.
+
+**Built-in plugins:**
+
+- **`tidal-browse`** — TIDAL search, album/artist browsing, playback, downloads, and context menu integration (Search on TIDAL, Upgrade Quality, Play from TIDAL). See §4.18.
+- **`spotify-browse`** — Spotify library browsing via OAuth PKCE authentication. Provides liked songs and playlists browsing with pagination, Spotify search with tabbed results (tracks, artists, albums), and a track detail view showing album art, metadata (popularity, release date, track number, explicit flag), with "Open in Spotify" and "Play Preview" actions. Uses deep links (`viboplr://spotify/callback`) for OAuth callback.
+
 **Settings UI (Settings > Plugins tab):**
-Lists all discovered plugins with name, version, author, status badge (active/error/incompatible/disabled), and an enable/disable toggle. Error details are shown inline.
+Lists all discovered plugins with name, version, author, status badge (active/error/incompatible/disabled), and an enable/disable toggle. Error details are shown inline. A gallery section shows available plugins with install/installed status. User-installed plugins have a delete button.
 
 ## 11. Out of Scope (v1)
 
