@@ -63,6 +63,7 @@ import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
 import { UpgradeTrackModal } from "./components/UpgradeTrackModal";
 import BulkEditModal from "./components/BulkEditModal";
+import NowPlayingView from "./components/NowPlayingView";
 import { StatusBar } from "./components/StatusBar";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -83,6 +84,7 @@ function App() {
   const historyRef = useRef<HistoryViewHandle>(null);
   const previousVolumeRef = useRef(1.0);
   const npTrackRef = useRef<Track | null>(null);
+  const showNowPlayingViewRef = useRef(false);
 
   // Core hooks
   const peekNextRef = useRef<() => Track | null>(() => null);
@@ -319,9 +321,6 @@ function App() {
   const [npTrackTags, setNpTrackTags] = useState<Array<{ name: string; count?: number }>>([]);
   const [npArtistTags, setNpArtistTags] = useState<Array<{ name: string; count?: number }>>([]);
   const [showNowPlayingView, setShowNowPlayingView] = useState(false);
-  // TODO: remove void refs once NowPlayingView consumes these (Task 6)
-  void npArtistBio; void npAlbumWiki; void npAlbumTags; void npSimilarArtists;
-  void npSimilarTracks; void npTrackTags; void npArtistTags; void setShowNowPlayingView;
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
@@ -900,6 +899,8 @@ function App() {
     npTrackRef.current = playback.currentTrack ?? null;
   }, [playback.currentTrack]);
 
+  useEffect(() => { showNowPlayingViewRef.current = showNowPlayingView; }, [showNowPlayingView]);
+
   // Fetch Last.fm data for the Now Playing view
   const fetchNpLastfmData = useCallback((track: Track) => {
     if (track.artist_name) {
@@ -912,6 +913,14 @@ function App() {
       invoke("lastfm_get_album_info", { artistName: track.artist_name, albumTitle: track.album_title });
     }
   }, []);
+
+  const openNowPlaying = useCallback(() => {
+    if (mini.miniMode) mini.toggleMiniMode();
+    setShowNowPlayingView(true);
+    if (playback.currentTrack) fetchNpLastfmData(playback.currentTrack);
+  }, [mini.miniMode, mini.toggleMiniMode, playback.currentTrack, fetchNpLastfmData]);
+  // TODO: remove void ref once NowPlayingBar consumes openNowPlaying (Task 7)
+  void openNowPlaying;
 
   // Clear and re-fetch np* state when the playing track changes
   useEffect(() => {
@@ -988,6 +997,20 @@ function App() {
     };
   }, []);
 
+  // Auto-close Now Playing view when track becomes null
+  useEffect(() => {
+    if (!playback.currentTrack && showNowPlayingView) {
+      setShowNowPlayingView(false);
+    }
+  }, [playback.currentTrack]);
+
+  // Mutual exclusivity: close Now Playing view when entering mini mode
+  useEffect(() => {
+    if (mini.miniMode && showNowPlayingView) {
+      setShowNowPlayingView(false);
+    }
+  }, [mini.miniMode]);
+
   // Fetch album/artist image when current track changes (for Now Playing bar)
   useEffect(() => {
     const track = playback.currentTrack;
@@ -1016,6 +1039,11 @@ function App() {
     function handleKeyDown(e: KeyboardEvent) {
       const s = shortcutStateRef.current;
       const isInput = (e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA";
+
+      if (e.key === "Escape" && showNowPlayingViewRef.current) {
+        setShowNowPlayingView(false);
+        return;
+      }
 
       // F12 or Ctrl+Shift+I: open devtools
       if (e.key === "F12" || (e.ctrlKey && e.shiftKey && e.key === "I")) {
@@ -1881,7 +1909,7 @@ function App() {
   };
 
   return (
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${showNowPlayingView ? "now-playing-active" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -1901,6 +1929,54 @@ function App() {
         onEnded={() => playback.onEndedSlotB(onEnded)}
         onError={playback.onMediaError}
       />
+
+      {showNowPlayingView && playback.currentTrack && (
+        <NowPlayingView
+          currentTrack={playback.currentTrack}
+          playing={playback.playing}
+          positionSecs={playback.positionSecs}
+          durationSecs={playback.durationSecs}
+          volume={playback.volume}
+          scrobbled={playback.scrobbled}
+          waveformPeaks={waveformPeaks}
+          nextTrack={queueHook.peekNext()}
+          albumImagePath={
+            (playback.currentTrack.album_id && albumImageCache.images[playback.currentTrack.album_id]) || null
+          }
+          artistImagePath={
+            (playback.currentTrack.artist_id && artistImageCache.images[playback.currentTrack.artist_id]) || null
+          }
+          npArtistBio={npArtistBio}
+          npAlbumWiki={npAlbumWiki}
+          npAlbumTags={npAlbumTags}
+          npSimilarArtists={npSimilarArtists}
+          npSimilarTracks={npSimilarTracks}
+          npTrackTags={npTrackTags}
+          npArtistTags={npArtistTags}
+          isVideo={isVideoTrack(playback.currentTrack)}
+          onPause={playback.handlePause}
+          onStop={playback.handleStop}
+          onNext={handleNext}
+          onPrevious={() => queueHook.playPrevious()}
+          onSeek={playback.handleSeek}
+          onVolume={playback.handleVolume}
+          onMute={() => {
+            if (playback.volume > 0) {
+              previousVolumeRef.current = playback.volume;
+              playback.handleVolume(0);
+            } else {
+              playback.handleVolume(previousVolumeRef.current || 1.0);
+            }
+          }}
+          onToggleLike={() => handleToggleLike(playback.currentTrack!)}
+          onToggleDislike={() => handleToggleDislike(playback.currentTrack!)}
+          onClose={() => setShowNowPlayingView(false)}
+          onArtistClick={(id) => { setShowNowPlayingView(false); library.handleArtistClick(id); }}
+          onAlbumClick={(id, aid) => { setShowNowPlayingView(false); library.handleAlbumClick(id, aid); }}
+          onTagClick={(tagId) => { setShowNowPlayingView(false); library.setSelectedTag(tagId); library.setView("tags"); }}
+          libraryTags={library.tags}
+        />
+      )}
 
       <Sidebar
         view={view}
@@ -3254,6 +3330,8 @@ function App() {
             onToggleQueue={handleToggleQueueCollapsed}
             onArtistClick={library.handleArtistClick}
             onAlbumClick={library.handleAlbumClick}
+            active={showNowPlayingView && !!playback.currentTrack && isVideoTrack(playback.currentTrack)}
+            onCloseNowPlaying={showNowPlayingView ? () => setShowNowPlayingView(false) : undefined}
           />
         </div>
       </main>
