@@ -902,15 +902,41 @@ function App() {
   useEffect(() => { showNowPlayingViewRef.current = showNowPlayingView; }, [showNowPlayingView]);
 
   // Fetch Last.fm data for the Now Playing view
+  // invoke() returns cached data immediately (or null if fetching in background).
+  // Background fetches emit events handled by the np* listeners. We must handle
+  // both paths — cached responses here, async responses via event listeners.
   const fetchNpLastfmData = useCallback((track: Track) => {
+    const parseBio = (bio: string | undefined) => bio?.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim();
     if (track.artist_name) {
-      invoke("lastfm_get_similar_tracks", { artistName: track.artist_name, trackTitle: track.title });
-      invoke("lastfm_get_artist_info", { artistName: track.artist_name });
-      invoke("lastfm_get_track_tags", { artistName: track.artist_name, trackTitle: track.title });
-      invoke("lastfm_get_artist_tags", { artistName: track.artist_name });
+      invoke<any>("lastfm_get_similar_tracks", { artistName: track.artist_name, trackTitle: track.title })
+        .then(resp => { if (resp && Array.isArray(resp?.similartracks?.track)) setNpSimilarTracks(resp.similartracks.track); })
+        .catch(() => {});
+      invoke<any>("lastfm_get_artist_info", { artistName: track.artist_name })
+        .then(resp => {
+          const artist = resp?.artist;
+          if (!artist) return;
+          const bio = parseBio(artist.bio?.summary);
+          if (bio) setNpArtistBio({ summary: bio, listeners: artist.stats?.listeners ?? "", playcount: artist.stats?.playcount ?? "" });
+          if (Array.isArray(artist.similar?.artist)) setNpSimilarArtists(artist.similar.artist);
+        })
+        .catch(() => {});
+      invoke<any>("lastfm_get_track_tags", { artistName: track.artist_name, trackTitle: track.title })
+        .then(resp => { if (resp && Array.isArray(resp?.toptags?.tag)) setNpTrackTags(resp.toptags.tag); })
+        .catch(() => {});
+      invoke<any>("lastfm_get_artist_tags", { artistName: track.artist_name })
+        .then(resp => { if (resp && Array.isArray(resp?.toptags?.tag)) setNpArtistTags(resp.toptags.tag); })
+        .catch(() => {});
     }
     if (track.album_title && track.artist_name) {
-      invoke("lastfm_get_album_info", { artistName: track.artist_name, albumTitle: track.album_title });
+      invoke<any>("lastfm_get_album_info", { artistName: track.artist_name, albumTitle: track.album_title })
+        .then(resp => {
+          const album = resp?.album;
+          if (!album) return;
+          const wiki = parseBio(album.wiki?.summary);
+          if (wiki) setNpAlbumWiki(wiki);
+          if (Array.isArray(album.tags?.tag)) setNpAlbumTags(album.tags.tag);
+        })
+        .catch(() => {});
     }
   }, []);
 

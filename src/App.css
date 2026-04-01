@@ -6535,46 +6535,11 @@ body {
   padding: 0;
 }
 
-.np-seek {
-  height: 24px;
-  padding: 8px 20px 0;
-  cursor: pointer;
-}
-
-.np-seek-simple {
-  height: 4px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
-  position: relative;
-}
-
-.np-seek-fill {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 2px;
-}
-
 .np-controls-row {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 6px 20px 10px;
-}
-
-.np-time {
-  font-size: var(--fs-xs);
-  color: var(--text-tertiary);
-  font-variant-numeric: tabular-nums;
-  min-width: 36px;
-}
-
-.np-time-total {
-  text-align: right;
-}
-
-.np-scrobbled {
-  color: var(--accent);
-  font-size: var(--fs-xs);
 }
 
 .np-buttons {
@@ -6611,25 +6576,36 @@ body {
   position: relative;
 }
 
-.app.now-playing-active .video-container {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 100% !important;
-  z-index: 5;
-}
-
 .app.now-playing-active .video-container .fs-controls {
   display: block;
 }
 
 /* Hide elements when Now Playing is active */
 .app.now-playing-active .sidebar,
-.app.now-playing-active .main,
+.app.now-playing-active .sidebar-collapse-btn,
 .app.now-playing-active .now-playing,
 .app.now-playing-active .queue-panel,
 .app.now-playing-active .status-bar {
   display: none;
+}
+
+/* In audio mode, hide main entirely */
+.app.now-playing-active:not(.video-mode) .main {
+  display: none;
+}
+
+/* In video mode, hide main's content but keep it for the video container */
+.app.now-playing-active.video-mode .main {
+  grid-column: 1 / -1;
+  grid-row: 2 / 4;
+}
+
+.app.now-playing-active.video-mode .main > .breadcrumb-bar,
+.app.now-playing-active.video-mode .main > .content,
+.app.now-playing-active.video-mode .main > .video-splitter {
+  display: none;
+}
+
+.app.now-playing-active.video-mode .video-container {
+  height: 100% !important;
 }

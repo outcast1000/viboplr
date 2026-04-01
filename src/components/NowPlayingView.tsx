@@ -79,13 +79,6 @@ function NowPlayingAudio(props: NowPlayingViewProps) {
   const albumSrc = albumImagePath ? convertFileSrc(albumImagePath) : null;
   const artistSrc = artistImagePath ? convertFileSrc(artistImagePath) : null;
 
-  // Seek bar click handler
-  const handleSeekClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    onSeek(ratio * durationSecs);
-  };
-
   return (
     <div className="np-view np-audio">
       <div className="np-body">
@@ -133,8 +126,8 @@ function NowPlayingAudio(props: NowPlayingViewProps) {
                   <button
                     className={`np-like-btn ${currentTrack.liked === -1 ? "disliked" : ""}`}
                     onClick={onToggleDislike}
-                    title="Dislike"
-                  >{"\uD83D\uDC4E"}</button>
+                    title={currentTrack.liked === -1 ? "Remove dislike" : "Dislike"}
+                  >{currentTrack.liked === -1 ? "\u2716" : "\u2298"}</button>
                 )}
               </div>
 
@@ -169,6 +162,32 @@ function NowPlayingAudio(props: NowPlayingViewProps) {
 
         {/* Right side — scrollable */}
         <div className="np-right">
+          {/* Album card */}
+          <div className="np-card">
+            <div className="np-card-header">Album</div>
+            <div className="np-card-top">
+              <div className="np-album-img">
+                {albumSrc ? <img src={albumSrc} alt="" /> : <div className="np-img-placeholder">{"\u266B"}</div>}
+              </div>
+              <div className="np-card-top-info">
+                <div className="np-card-name">{currentTrack.album_title || "Unknown Album"}</div>
+                <div className="np-card-stats">
+                  {currentTrack.year && <span>{currentTrack.year}</span>}
+                </div>
+              </div>
+            </div>
+            {npAlbumWiki && (
+              <div className="np-card-bio" dangerouslySetInnerHTML={{ __html: npAlbumWiki }} />
+            )}
+            {npAlbumTags.length > 0 && (
+              <div className="np-tags np-card-tags">
+                {npAlbumTags.slice(0, 6).map((tag) => (
+                  <span key={tag.name} className="np-tag-dim">{tag.name}</span>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Artist card */}
           <div className="np-card">
             <div className="np-card-header">Artist</div>
@@ -208,55 +227,37 @@ function NowPlayingAudio(props: NowPlayingViewProps) {
               </div>
             )}
           </div>
-
-          {/* Album card */}
-          <div className="np-card">
-            <div className="np-card-header">Album</div>
-            <div className="np-card-top">
-              <div className="np-album-img">
-                {albumSrc ? <img src={albumSrc} alt="" /> : <div className="np-img-placeholder">{"\u266B"}</div>}
-              </div>
-              <div className="np-card-top-info">
-                <div className="np-card-name">{currentTrack.album_title || "Unknown Album"}</div>
-                <div className="np-card-stats">
-                  {currentTrack.year && <span>{currentTrack.year}</span>}
-                </div>
-              </div>
-            </div>
-            {npAlbumWiki && (
-              <div className="np-card-bio" dangerouslySetInnerHTML={{ __html: npAlbumWiki }} />
-            )}
-            {npAlbumTags.length > 0 && (
-              <div className="np-tags np-card-tags">
-                {npAlbumTags.slice(0, 6).map((tag) => (
-                  <span key={tag.name} className="np-tag-dim">{tag.name}</span>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
       {/* Bottom controls bar */}
       <div className="np-controls">
-        <div className="np-seek" onClick={handleSeekClick}>
+        <div
+          className="now-seek-bar"
+          onClick={(e) => {
+            if (!durationSecs) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pct = (e.clientX - rect.left) / rect.width;
+            onSeek(pct * durationSecs);
+          }}
+        >
           {waveformPeaks ? (
             <WaveformSeekBar
               peaks={waveformPeaks}
               progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
-              accentColor="rgba(var(--accent-rgb), 0.7)"
+              accentColor="rgba(83, 168, 255, 0.7)"
               dimColor="rgba(255, 255, 255, 0.15)"
             />
           ) : (
-            <div className="np-seek-simple">
-              <div className="np-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
-            </div>
+            <div className="now-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
           )}
+          <span className="now-seek-time now-seek-elapsed">{formatTime(positionSecs)}</span>
+          <span className="now-seek-time now-seek-total">
+            {formatTime(durationSecs)}
+            {scrobbled && <span className="now-scrobbled" title="Logged to play history">{"\u2713"}</span>}
+          </span>
         </div>
         <div className="np-controls-row">
-          <span className="np-time">{formatTime(positionSecs)}</span>
-          {scrobbled && <span className="np-scrobbled" title="Scrobbled">{"\u2713"}</span>}
-          <span className="np-time np-time-total">{formatTime(durationSecs)}</span>
           <div className="np-buttons">
             <button className="ctrl-btn" onClick={onPrevious}>{"\u23EE"}</button>
             <button className="ctrl-btn play-btn" onClick={onPause}>
@@ -277,7 +278,14 @@ function NowPlayingAudio(props: NowPlayingViewProps) {
               className="np-volume-slider"
             />
           </div>
-          <button className="ctrl-btn np-close-btn" onClick={onClose} title="Close Now Playing">{"\u2715"}</button>
+          <button className="ctrl-btn np-close-btn" onClick={onClose} title="Restore">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 14 10 14 10 20" />
+              <polyline points="20 10 14 10 14 4" />
+              <line x1="14" y1="10" x2="21" y2="3" />
+              <line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          </button>
         </div>
       </div>
     </div>
