@@ -58,6 +58,7 @@ interface QueuePanelProps {
   onCancelEnqueue: () => void;
   onPlay: (track: Track, index: number) => void;
   onRemove: (index: number) => void;
+  onLocateTrack?: (track: Track) => void;
   onMoveMultiple: (indices: number[], targetIndex: number) => void;
   onClear: () => void;
   onSavePlaylist: () => void;
@@ -73,7 +74,7 @@ const AUTO_APPROVE_SECS = 10;
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistName,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
-  onPlay, onRemove, onMoveMultiple, onClear, onSavePlaylist, onLoadPlaylist, onContextMenu, externalDropTarget,
+  onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSavePlaylist, onLoadPlaylist, onContextMenu, externalDropTarget,
   collapsed, onToggleCollapsed,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
@@ -311,13 +312,15 @@ export function QueuePanel({
               <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
             </div>
             <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
-            <button
-              className="queue-item-remove"
-              onClick={(e) => { e.stopPropagation(); onRemove(i); }}
-              title="Remove"
-            >
-              {"\u00D7"}
-            </button>
+            {onLocateTrack && t.artist_id && (
+              <button
+                className="queue-item-remove"
+                onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
+                title="Locate Track"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </button>
+            )}
           </div>
         ))}
         {queue.length === 0 && (
