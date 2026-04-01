@@ -1501,6 +1501,7 @@ body {
   align-items: center;
   gap: 8px;
   position: relative;
+  z-index: 10;
   -webkit-app-region: drag;
 }
 .search-bar > * {
