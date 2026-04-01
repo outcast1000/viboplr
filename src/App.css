@@ -1527,7 +1527,7 @@ body {
 }
 
 .caption-spacer {
-  flex: 1;
+  flex: 0 0 auto;
   -webkit-app-region: drag;
 }
 
@@ -1602,7 +1602,7 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  max-width: 480px;
+  max-width: 624px;
   width: 100%;
 }
 
@@ -1651,9 +1651,8 @@ body {
 }
 
 .central-search-container {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  flex: 1 1 624px;
+  min-width: 0;
   display: flex;
   justify-content: center;
 }
