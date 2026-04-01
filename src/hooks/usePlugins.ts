@@ -16,7 +16,12 @@ import type {
   ViboplrPluginAPI,
   PluginEventName,
   TidalSearchTrackLike,
+  GalleryPluginEntry,
+  PluginGalleryIndex,
 } from "../types/plugin";
+
+const PLUGIN_GALLERY_BASE_URL =
+  "https://raw.githubusercontent.com/outcast1000/viboplr-plugins/main/plugins/";
 
 // Simple semver comparison: returns true if current >= required
 function semverSatisfies(current: string, required: string): boolean {
@@ -80,6 +85,11 @@ export function usePlugins(
   const [viewData, setViewData] = useState<Map<string, PluginViewData>>(
     new Map(),
   );
+  const [galleryPlugins, setGalleryPlugins] = useState<GalleryPluginEntry[]>(
+    [],
+  );
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryError, setGalleryError] = useState<string | null>(null);
 
   const playbackCallbacksRef = useRef(playbackCallbacks);
   playbackCallbacksRef.current = playbackCallbacks;
@@ -650,6 +660,60 @@ export function usePlugins(
     [viewData],
   );
 
+  const fetchPluginGallery = useCallback(async () => {
+    setGalleryLoading(true);
+    setGalleryError(null);
+    try {
+      const json = await invoke<string>("fetch_plugin_gallery");
+      const index: PluginGalleryIndex = JSON.parse(json);
+      setGalleryPlugins(index.plugins || []);
+    } catch (e) {
+      setGalleryError(String(e));
+    } finally {
+      setGalleryLoading(false);
+    }
+  }, []);
+
+  const installFromGallery = useCallback(
+    async (
+      entry: GalleryPluginEntry,
+    ): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        await invoke<string>("install_gallery_plugin", {
+          pluginId: entry.id,
+          baseUrl: PLUGIN_GALLERY_BASE_URL,
+          files: entry.files,
+        });
+        await loadPlugins();
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+    [loadPlugins],
+  );
+
+  const deletePlugin = useCallback(
+    async (pluginId: string) => {
+      try {
+        // Remove from enabled set if present
+        if (enabledPluginsRef.current.has(pluginId)) {
+          enabledPluginsRef.current.delete(pluginId);
+          deactivatePlugin(pluginId);
+          await store.set(
+            "enabledPlugins",
+            Array.from(enabledPluginsRef.current),
+          );
+        }
+        await invoke("delete_user_plugin", { pluginId });
+        await loadPlugins();
+      } catch (e) {
+        console.error("Failed to delete plugin:", e);
+      }
+    },
+    [deactivatePlugin, loadPlugins],
+  );
+
   const forwardDeepLink = useCallback((url: string) => {
     const pluginCount = loadedPluginsRef.current.size;
     let handlerCount = 0;
@@ -679,5 +743,11 @@ export function usePlugins(
     reloadPlugin,
     reloadAllPlugins,
     forwardDeepLink,
+    galleryPlugins,
+    galleryLoading,
+    galleryError,
+    fetchPluginGallery,
+    installFromGallery,
+    deletePlugin,
   };
 }

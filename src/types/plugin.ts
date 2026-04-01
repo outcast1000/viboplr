@@ -259,6 +259,23 @@ export interface ViboplrPluginAPI {
   collections: PluginCollectionsAPI;
 }
 
+// -- Gallery types --
+
+export interface GalleryPluginEntry {
+  id: string;
+  name: string;
+  author: string;
+  description: string;
+  version: string;
+  minAppVersion?: string;
+  files: string[];
+}
+
+export interface PluginGalleryIndex {
+  version: number;
+  plugins: GalleryPluginEntry[];
+}
+
 // -- Registry types (internal to usePlugins) --
 
 export interface PluginSidebarItem {

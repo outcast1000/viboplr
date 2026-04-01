@@ -2730,6 +2730,30 @@ pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<s
     }))
 }
 
+#[tauri::command]
+pub fn fetch_plugin_gallery() -> Result<String, String> {
+    crate::skins::fetch_url("https://raw.githubusercontent.com/outcast1000/viboplr-plugins/main/index.json")
+}
+
+#[tauri::command]
+pub fn install_gallery_plugin(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    base_url: String,
+    files: Vec<String>,
+) -> Result<String, String> {
+    crate::plugins::install_gallery_plugin(&state.app_dir, &base_url, &plugin_id, &files)
+}
+
+#[tauri::command]
+pub fn delete_user_plugin(state: State<'_, AppState>, plugin_id: String) -> Result<(), String> {
+    let user_dir = crate::plugins::plugins_dir(&state.app_dir).join(&plugin_id);
+    if !user_dir.exists() {
+        return Err(format!("Plugin '{}' is not a user plugin or does not exist", plugin_id));
+    }
+    crate::plugins::delete_plugin(&state.app_dir, &plugin_id)
+}
+
 /// Start a one-shot HTTP server on localhost for OAuth callbacks.
 /// Returns the port. Emits "oauth-callback" event with the full query string when a request arrives.
 #[tauri::command]

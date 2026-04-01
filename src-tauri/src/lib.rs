@@ -9,6 +9,7 @@ mod tidal;
 mod scanner;
 #[cfg(debug_assertions)]
 mod seed;
+mod plugins;
 mod skins;
 mod subsonic;
 mod sync;
@@ -143,6 +144,9 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::plugin_storage_set,
         commands::plugin_storage_delete,
         commands::plugin_fetch,
+        commands::fetch_plugin_gallery,
+        commands::install_gallery_plugin,
+        commands::delete_user_plugin,
         commands::oauth_listen,
         commands::open_logs_folder,
         commands::write_frontend_log,
@@ -265,6 +269,9 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::plugin_storage_set,
         commands::plugin_storage_delete,
         commands::plugin_fetch,
+        commands::fetch_plugin_gallery,
+        commands::install_gallery_plugin,
+        commands::delete_user_plugin,
         commands::oauth_listen,
         commands::open_logs_folder,
         commands::write_frontend_log,

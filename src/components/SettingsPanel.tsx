@@ -6,7 +6,7 @@ import { IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons"
 import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { SkinInfo, GallerySkinEntry } from "../types/skin";
-import type { PluginState } from "../types/plugin";
+import type { PluginState, GalleryPluginEntry } from "../types/plugin";
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
   google: IconGoogle,
@@ -130,6 +130,12 @@ interface SettingsPanelProps {
   onReloadPlugin?: (pluginId: string) => void;
   onReloadAllPlugins?: () => void;
   onOpenPluginsFolder?: () => void;
+  onDeletePlugin?: (pluginId: string) => void;
+  galleryPlugins?: GalleryPluginEntry[];
+  galleryPluginsLoading?: boolean;
+  galleryPluginsError?: string | null;
+  onFetchPluginGallery?: () => void;
+  onInstallPluginFromGallery?: (entry: GalleryPluginEntry) => Promise<{ ok: boolean; error?: string }>;
   // Logging
   loggingEnabled: boolean;
   onLoggingEnabledChange: (enabled: boolean) => void;
@@ -193,6 +199,12 @@ export function SettingsPanel({
   onReloadPlugin,
   onReloadAllPlugins,
   onOpenPluginsFolder,
+  onDeletePlugin,
+  galleryPlugins,
+  galleryPluginsLoading,
+  galleryPluginsError,
+  onFetchPluginGallery,
+  onInstallPluginFromGallery,
   loggingEnabled,
   onLoggingEnabledChange,
   onOpenLogsFolder,
@@ -578,6 +590,16 @@ export function SettingsPanel({
                       >
                         Reload
                       </button>
+                      {!plugin.builtin && onDeletePlugin && (
+                        <button
+                          className="skin-install-btn"
+                          onClick={() => onDeletePlugin(plugin.id)}
+                          title="Delete plugin"
+                          style={{ color: "var(--error, #e55)" }}
+                        >
+                          Delete
+                        </button>
+                      )}
                     </div>
                   ))
                 )}
@@ -592,7 +614,73 @@ export function SettingsPanel({
                       Reload All
                     </button>
                   )}
+                  {onFetchPluginGallery && (
+                    <button className="skin-install-btn" onClick={onFetchPluginGallery}>
+                      Browse Gallery
+                    </button>
+                  )}
                 </div>
+
+                {((galleryPlugins && galleryPlugins.length > 0) || galleryPluginsLoading || galleryPluginsError) && (
+                  <div style={{ marginTop: 16 }}>
+                    <div className="settings-group-title" style={{ marginTop: 0 }}>Gallery</div>
+                    {galleryPluginsLoading && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-secondary)", fontSize: "var(--fs-xs)", padding: "12px 0" }}>
+                        <svg width="16" height="16" viewBox="0 0 16 16" style={{ animation: "status-spin 1s linear infinite" }}>
+                          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="8" strokeLinecap="round" />
+                        </svg>
+                        Loading gallery...
+                      </div>
+                    )}
+                    {galleryPluginsError && (
+                      <div style={{ color: "var(--error)", fontSize: "var(--fs-xs)" }}>
+                        {galleryPluginsError}
+                        <button className="settings-btn-secondary" style={{ marginLeft: 10 }} onClick={onFetchPluginGallery}>Retry</button>
+                      </div>
+                    )}
+                    {!galleryPluginsLoading && !galleryPluginsError && galleryPlugins && galleryPlugins.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {galleryPlugins.map(entry => {
+                          const installed = pluginStates?.find(p => p.id === entry.id);
+                          return (
+                            <div key={entry.id} className="settings-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0" }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 500 }}>
+                                  {entry.name}
+                                  <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)", marginLeft: 6 }}>
+                                    v{entry.version}
+                                  </span>
+                                  {entry.author && (
+                                    <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)", marginLeft: 6 }}>
+                                      by {entry.author}
+                                    </span>
+                                  )}
+                                </div>
+                                {entry.description && (
+                                  <div style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)" }}>
+                                    {entry.description}
+                                  </div>
+                                )}
+                              </div>
+                              {installed ? (
+                                <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)", padding: "4px 8px" }}>
+                                  Installed
+                                </span>
+                              ) : (
+                                <button
+                                  className="skin-install-btn"
+                                  onClick={() => onInstallPluginFromGallery?.(entry)}
+                                >
+                                  Install
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

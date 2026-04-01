@@ -1920,6 +1920,12 @@ function App() {
             const dir = await invoke<string>("plugin_get_dir");
             await invoke("open_folder", { folderPath: dir });
           }}
+          onDeletePlugin={plugins.deletePlugin}
+          galleryPlugins={plugins.galleryPlugins}
+          galleryPluginsLoading={plugins.galleryLoading}
+          galleryPluginsError={plugins.galleryError}
+          onFetchPluginGallery={plugins.fetchPluginGallery}
+          onInstallPluginFromGallery={plugins.installFromGallery}
           loggingEnabled={loggingEnabled}
           onLoggingEnabledChange={handleLoggingEnabledChange}
           onOpenLogsFolder={handleOpenLogsFolder}
