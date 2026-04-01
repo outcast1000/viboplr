@@ -26,7 +26,8 @@ import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistor
 import { useSessionLog } from "./hooks/useSessionLog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
 import { useMiniMode } from "./hooks/useMiniMode";
-import { useVideoSplit } from "./hooks/useVideoSplit";
+import { useVideoLayout } from "./hooks/useVideoLayout";
+import type { VideoLayoutState } from "./hooks/useVideoLayout";
 import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useSkins } from "./hooks/useSkins";
@@ -149,7 +150,7 @@ function App() {
   const queueHook = useQueue(restoredRef, playback.handlePlay, library.collections);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
-  const videoSplit = useVideoSplit(restoredRef);
+  const videoLayout = useVideoLayout(restoredRef);
 
   // Plugin system
   const pluginTrackRef = useRef<Track | null>(null);
@@ -533,7 +534,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedSortBarCollapsed, savedLastfmAutoImportEnabled, savedLastfmAutoImportIntervalMins, savedLastfmLastImportAt] = await timeAsync("store.restore (36 keys)", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedSortBarCollapsed, savedLastfmAutoImportEnabled, savedLastfmAutoImportIntervalMins, savedLastfmLastImportAt] = await timeAsync("store.restore (37 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -560,6 +561,7 @@ function App() {
           store.get<string | null>("tagViewMode"),
           store.get<string | null>("trackViewMode"),
           store.get<string | null>("likedViewMode"),
+          store.get<VideoLayoutState | null>("videoLayout"),
           store.get<number | null>("videoSplitHeight"),
           store.get<string | null>("lastfmSessionKey"),
           store.get<string | null>("lastfmUsername"),
@@ -679,7 +681,11 @@ function App() {
         if (savedTagViewMode && ["basic", "list", "tiles"].includes(savedTagViewMode)) library.setTagViewMode(savedTagViewMode as ViewMode);
         if (savedTrackViewMode && ["basic", "list", "tiles"].includes(savedTrackViewMode)) library.setTrackViewMode(savedTrackViewMode as ViewMode);
         if (savedLikedViewMode && ["basic", "list", "tiles"].includes(savedLikedViewMode)) library.setLikedViewMode(savedLikedViewMode as ViewMode);
-        if (savedVideoSplitHeight && savedVideoSplitHeight > 0) videoSplit.setVideoHeight(savedVideoSplitHeight);
+        if (savedVideoLayout) {
+          videoLayout.restoreLayout(savedVideoLayout);
+        } else if (savedVideoSplitHeight && savedVideoSplitHeight > 0) {
+          videoLayout.migrateFromSplitHeight(savedVideoSplitHeight);
+        }
         if (savedSidebarCollapsed) setSidebarCollapsed(true);
         if (savedQueueCollapsed) setQueueCollapsed(true);
         if (savedDownloadFormat && ["flac", "aac"].includes(savedDownloadFormat)) { setDownloadFormat(savedDownloadFormat); downloadFormatRef.current = savedDownloadFormat; }
@@ -3055,22 +3061,22 @@ function App() {
 
         {/* Video splitter + player area (below content, above now-playing) */}
         {playback.currentTrack && isVideoTrack(playback.currentTrack) && (
-          <div className="video-splitter" onMouseDown={videoSplit.onSplitterMouseDown}>
+          <div className="video-splitter" onMouseDown={videoLayout.onSplitterMouseDown}>
             <div className="splitter-handle" />
             <button
               className="splitter-collapse-btn"
-              onClick={videoSplit.toggleCollapse}
-              title={videoSplit.isCollapsed ? "Expand video" : "Collapse video"}
+              onClick={videoLayout.toggleCollapse}
+              title={videoLayout.isCollapsed ? "Expand video" : "Collapse video"}
             >
-              {videoSplit.isCollapsed ? "\u25BC" : "\u25B2"}
+              {videoLayout.isCollapsed ? "\u25BC" : "\u25B2"}
             </button>
           </div>
         )}
         <div
-          className={`video-container${videoSplit.isCollapsed ? " collapsed" : ""}`}
+          className={`video-container${videoLayout.isCollapsed ? " collapsed" : ""}`}
           style={{
             display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',
-            height: videoSplit.isCollapsed ? 0 : videoSplit.videoHeight,
+            height: videoLayout.isCollapsed ? 0 : videoLayout.videoSize,
           }}
         >
           <video

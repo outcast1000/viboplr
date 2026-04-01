@@ -35,7 +35,7 @@ const STORE_DEFAULTS = {
   lastfmAutoImportIntervalMins: 60,
   lastfmLastImportAt: null,
   trackVideoHistory: false,
-  videoSplitHeight: 300,
+  videoLayout: { dockSide: "bottom", fitMode: "contain", sizes: { top: 300, bottom: 300, left: 400, right: 400 }, isCollapsed: false },
   sidebarCollapsed: false,
   queueCollapsed: false,
   downloadFormat: "flac",
