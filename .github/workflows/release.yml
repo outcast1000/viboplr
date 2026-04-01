@@ -7,7 +7,58 @@ on:
   workflow_dispatch:
 
 jobs:
-  release:
+  create-release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.get-tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Get tag
+        id: get-tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate changelog
+        shell: bash
+        run: |
+          TAG="${{ steps.get-tag.outputs.tag }}"
+          if [ -n "$TAG" ]; then
+            node scripts/generate-changelog.mjs "$TAG" > /tmp/release-body.md
+          else
+            echo "Initial release." > /tmp/release-body.md
+          fi
+
+      - name: Create release
+        if: steps.get-tag.outputs.tag != ''
+        shell: bash
+        run: |
+          TAG="${{ steps.get-tag.outputs.tag }}"
+          gh release create "$TAG" \
+            --title "Viboplr $TAG" \
+            --notes-file /tmp/release-body.md \
+            --draft=false \
+            --prerelease=false \
+            || echo "Release already exists"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    needs: create-release
     permissions:
       contents: write
     strategy:
@@ -28,21 +79,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-
-      - name: Generate changelog
-        id: changelog
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            TAG=${GITHUB_REF#refs/tags/}
-          else
-            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          fi
-          if [ -n "$TAG" ]; then
-            node scripts/generate-changelog.mjs "$TAG" > /tmp/release-body.md
-          else
-            echo "Initial release." > /tmp/release-body.md
-          fi
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -66,13 +102,3 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
-
-      - name: Update release body with changelog
-        if: matrix.platform == 'macos-latest'
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            TAG=${GITHUB_REF#refs/tags/}
-            gh release edit "$TAG" --notes-file /tmp/release-body.md
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
