@@ -3154,6 +3154,9 @@ function App() {
           onCancelEnqueue={() => setPendingEnqueue(null)}
           onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
           onRemove={queueHook.removeFromQueue}
+          onLocateTrack={(track) => {
+            if (track.artist_id) library.handleLocateTrack(track.id, track.artist_id, track.album_id);
+          }}
           onMoveMultiple={queueHook.moveMultiple}
           onClear={queueHook.clearQueue}
           onSavePlaylist={queueHook.savePlaylist}
