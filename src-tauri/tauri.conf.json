@@ -42,9 +42,9 @@
       "icons/icon.ico"
     ],
     "createUpdaterArtifacts": true,
-    "resources": {
-      "plugins/**/*": "plugins/"
-    }
+    "resources": [
+      "plugins/"
+    ]
   },
   "plugins": {
     "deep-link": {
