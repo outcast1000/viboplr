@@ -1487,6 +1487,11 @@ body {
   overflow: hidden;
 }
 
+.main[data-dock="bottom"] { flex-direction: column; }
+.main[data-dock="top"] { flex-direction: column-reverse; }
+.main[data-dock="right"] { flex-direction: row; }
+.main[data-dock="left"] { flex-direction: row-reverse; }
+
 .search-bar {
   grid-column: 1 / -1;
   grid-row: 1;
@@ -1970,6 +1975,7 @@ body {
 
 .video-container.collapsed {
   height: 0 !important;
+  width: 0 !important;
 }
 
 .video-container video {
@@ -2247,6 +2253,29 @@ body {
 
 .splitter-collapse-btn:hover {
   color: var(--text-primary);
+}
+
+.video-splitter.vertical {
+  width: 6px;
+  height: 100%;
+  flex-shrink: 0;
+  cursor: col-resize;
+  flex-direction: column;
+  border-bottom: none;
+  border-right: 1px solid var(--border);
+}
+
+.video-splitter.vertical .splitter-handle {
+  width: 2px;
+  height: 32px;
+}
+
+.video-splitter.vertical .splitter-collapse-btn {
+  right: auto;
+  bottom: 8px;
+  top: auto;
+  writing-mode: vertical-lr;
+  line-height: 6px;
 }
 
 /* List view (artists, albums) */

@@ -2007,7 +2007,7 @@ function App() {
         </div>
 
       {/* Main content */}
-      <main className="main">
+      <main className="main" data-dock={videoLayout.dockSide}>
         {/* Content area */}
         <div className="content" ref={contentRef} style={{ minHeight: playback.currentTrack && isVideoTrack(playback.currentTrack) ? 150 : undefined }}>
           <Breadcrumb
@@ -3061,22 +3061,30 @@ function App() {
 
         {/* Video splitter + player area (below content, above now-playing) */}
         {playback.currentTrack && isVideoTrack(playback.currentTrack) && (
-          <div className="video-splitter" onMouseDown={videoLayout.onSplitterMouseDown}>
+          <div
+            className={`video-splitter${videoLayout.isHorizontal ? "" : " vertical"}`}
+            onMouseDown={videoLayout.onSplitterMouseDown}
+          >
             <div className="splitter-handle" />
             <button
               className="splitter-collapse-btn"
               onClick={videoLayout.toggleCollapse}
               title={videoLayout.isCollapsed ? "Expand video" : "Collapse video"}
             >
-              {videoLayout.isCollapsed ? "\u25BC" : "\u25B2"}
+              {videoLayout.isCollapsed
+                ? (videoLayout.dockSide === "bottom" ? "\u25BC" : videoLayout.dockSide === "top" ? "\u25B2" : videoLayout.dockSide === "left" ? "\u25C0" : "\u25B6")
+                : (videoLayout.dockSide === "bottom" ? "\u25B2" : videoLayout.dockSide === "top" ? "\u25BC" : videoLayout.dockSide === "left" ? "\u25B6" : "\u25C0")}
             </button>
           </div>
         )}
         <div
           className={`video-container${videoLayout.isCollapsed ? " collapsed" : ""}`}
+          data-dock={videoLayout.dockSide}
           style={{
             display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',
-            height: videoLayout.isCollapsed ? 0 : videoLayout.videoSize,
+            ...(videoLayout.isHorizontal
+              ? { height: videoLayout.isCollapsed ? 0 : videoLayout.videoSize }
+              : { width: videoLayout.isCollapsed ? 0 : videoLayout.videoSize }),
           }}
         >
           <video
