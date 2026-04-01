@@ -3080,6 +3080,7 @@ function App() {
         <div
           className={`video-container${videoLayout.isCollapsed ? " collapsed" : ""}`}
           data-dock={videoLayout.dockSide}
+          data-fit={videoLayout.fitMode}
           style={{
             display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',
             ...(videoLayout.isHorizontal
