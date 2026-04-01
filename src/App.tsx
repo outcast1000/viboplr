@@ -1958,12 +1958,6 @@ function App() {
       {showNowPlayingView && playback.currentTrack && (
         <NowPlayingView
           currentTrack={playback.currentTrack}
-          playing={playback.playing}
-          positionSecs={playback.positionSecs}
-          durationSecs={playback.durationSecs}
-          volume={playback.volume}
-          scrobbled={playback.scrobbled}
-          waveformPeaks={waveformPeaks}
           nextTrack={queueHook.peekNext()}
           albumImagePath={
             (playback.currentTrack.album_id && albumImageCache.images[playback.currentTrack.album_id]) || null
@@ -1979,23 +1973,8 @@ function App() {
           npTrackTags={npTrackTags}
           npArtistTags={npArtistTags}
           isVideo={isVideoTrack(playback.currentTrack)}
-          onPause={playback.handlePause}
-          onStop={playback.handleStop}
-          onNext={handleNext}
-          onPrevious={() => queueHook.playPrevious()}
-          onSeek={playback.handleSeek}
-          onVolume={playback.handleVolume}
-          onMute={() => {
-            if (playback.volume > 0) {
-              previousVolumeRef.current = playback.volume;
-              playback.handleVolume(0);
-            } else {
-              playback.handleVolume(previousVolumeRef.current || 1.0);
-            }
-          }}
           onToggleLike={() => handleToggleLike(playback.currentTrack!)}
           onToggleDislike={() => handleToggleDislike(playback.currentTrack!)}
-          onClose={() => setShowNowPlayingView(false)}
           onArtistClick={(id) => { setShowNowPlayingView(false); library.handleArtistClick(id); }}
           onAlbumClick={(id, aid) => { setShowNowPlayingView(false); library.handleAlbumClick(id, aid); }}
           onTagClick={(tagId) => { setShowNowPlayingView(false); library.setSelectedTag(tagId); library.setView("tags"); }}
@@ -3362,8 +3341,6 @@ function App() {
             onToggleQueue={handleToggleQueueCollapsed}
             onArtistClick={library.handleArtistClick}
             onAlbumClick={library.handleAlbumClick}
-            active={showNowPlayingView && !!playback.currentTrack && isVideoTrack(playback.currentTrack)}
-            onCloseNowPlaying={showNowPlayingView ? () => setShowNowPlayingView(false) : undefined}
           />
         </div>
       </main>
@@ -3597,7 +3574,14 @@ function App() {
         onToggleDislike={() => playback.currentTrack && handleToggleDislike(playback.currentTrack)}
         onArtistClick={library.handleArtistClick}
         onAlbumClick={library.handleAlbumClick}
-        onOpenNowPlaying={openNowPlaying}
+        showNowPlayingView={showNowPlayingView}
+        onToggleNowPlaying={() => {
+          if (showNowPlayingView) {
+            setShowNowPlayingView(false);
+          } else {
+            openNowPlaying();
+          }
+        }}
         showHelp={showHelp}
         onToggleHelp={() => setShowHelp(h => !h)}
       />

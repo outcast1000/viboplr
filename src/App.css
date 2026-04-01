@@ -6201,7 +6201,7 @@ body {
   height: 100%;
   background: var(--bg-primary);
   grid-column: 1 / -1;
-  grid-row: 2 / 4;
+  grid-row: 2 / 3;
 }
 
 .np-body {
@@ -6546,62 +6546,15 @@ body {
   margin-top: 8px;
 }
 
-/* Bottom controls */
-.np-controls {
-  background: var(--now-playing-bg, var(--bg-secondary));
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  padding: 0;
-}
-
-.np-controls-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 20px 10px;
-}
-
-.np-buttons {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin-left: 8px;
-}
-
-.np-volume {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-
-.np-volume-slider {
-  width: 80px;
-  accent-color: var(--accent);
-}
-
-.np-close-btn {
-  margin-left: 8px;
-  font-size: var(--fs-sm) !important;
-  opacity: 0.6;
-}
-
-.np-close-btn:hover {
-  opacity: 1;
-}
-
-/* Video mode in Now Playing */
+/* Video mode in Now Playing — overlay on top of .main so video shows through */
 .np-video {
-  position: relative;
+  z-index: 1;
+  background: transparent;
 }
 
-.app.now-playing-active .video-container .fs-controls {
-  display: block;
-}
-
-/* Hide elements when Now Playing is active */
+/* Hide elements when Now Playing is active (footer stays visible) */
 .app.now-playing-active .sidebar,
 .app.now-playing-active .sidebar-collapse-btn,
-.app.now-playing-active .now-playing,
 .app.now-playing-active .queue-panel,
 .app.now-playing-active .status-bar {
   display: none;
@@ -6615,7 +6568,7 @@ body {
 /* In video mode, hide main's content but keep it for the video container */
 .app.now-playing-active.video-mode .main {
   grid-column: 1 / -1;
-  grid-row: 2 / 4;
+  grid-row: 2 / 3;
 }
 
 .app.now-playing-active.video-mode .main > .breadcrumb-bar,
