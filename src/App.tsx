@@ -321,6 +321,7 @@ function App() {
   const [npTrackTags, setNpTrackTags] = useState<Array<{ name: string; count?: number }>>([]);
   const [npArtistTags, setNpArtistTags] = useState<Array<{ name: string; count?: number }>>([]);
   const [showNowPlayingView, setShowNowPlayingView] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
@@ -2202,6 +2203,13 @@ function App() {
           />
           <div className="caption-spacer" />
           <button
+            className="caption-help-btn"
+            onClick={() => setShowHelp(h => !h)}
+            title="Keyboard shortcuts"
+          >
+            {"?"}
+          </button>
+          <button
             className="caption-mini-player-btn"
             onClick={mini.toggleMiniMode}
             title="Mini Player"
@@ -3590,6 +3598,8 @@ function App() {
         onArtistClick={library.handleArtistClick}
         onAlbumClick={library.handleAlbumClick}
         onOpenNowPlaying={openNowPlaying}
+        showHelp={showHelp}
+        onToggleHelp={() => setShowHelp(h => !h)}
       />
 
       <StatusBar

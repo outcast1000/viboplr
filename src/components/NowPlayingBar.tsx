@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
@@ -67,6 +67,8 @@ interface NowPlayingBarProps {
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
   onOpenNowPlaying: () => void;
+  showHelp: boolean;
+  onToggleHelp: () => void;
 }
 
 export function NowPlayingBar({
@@ -81,8 +83,8 @@ export function NowPlayingBar({
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
   onToggleLike, onToggleDislike, onArtistClick, onAlbumClick, onOpenNowPlaying,
+  showHelp, onToggleHelp,
 }: NowPlayingBarProps) {
-  const [showHelp, setShowHelp] = useState(false);
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   if (miniMode) {
@@ -268,22 +270,15 @@ export function NowPlayingBar({
             onChange={(e) => onVolume(parseFloat(e.target.value))}
           />
         </div>
-        <button
-          className="ctrl-btn help-btn"
-          onClick={() => setShowHelp(!showHelp)}
-          title="Keyboard shortcuts"
-        >
-          {"?"}
-        </button>
         <button className="ctrl-btn" onClick={onOpenNowPlaying} title="Now Playing View">{"\u26F6"}</button>
       </div>
       </div>
       {showHelp && (
-        <div className="shortcuts-overlay" onClick={() => setShowHelp(false)}>
+        <div className="shortcuts-overlay" onClick={onToggleHelp}>
           <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
             <div className="shortcuts-header">
               <span>Keyboard Shortcuts</span>
-              <button className="ctrl-btn" onClick={() => setShowHelp(false)}>{"\u2715"}</button>
+              <button className="ctrl-btn" onClick={onToggleHelp}>{"\u2715"}</button>
             </div>
             <div className="shortcuts-list">
               {shortcuts.map((s) => (
