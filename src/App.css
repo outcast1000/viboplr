@@ -1,23 +1,32 @@
 :root {
+  /* Backgrounds */
   --bg-primary: #1a1a2e;
   --bg-secondary: #16213e;
   --bg-tertiary: #1e2a4a;
   --bg-surface: #0f3460;
   --bg-hover: #1a3a6e;
+  --now-playing-bg: #0d1b2a;
+  --now-playing-bg-rgb: 13, 27, 42;
+
+  /* Text */
   --text-primary: #e0e0e0;
   --text-secondary: #a0a0b0;
   --text-tertiary: #707080;
+
+  /* Accent & status */
   --accent: #53a8ff;
   --accent-rgb: 83, 168, 255;
   --accent-dim: #3a7bd5;
-  --border: #2a2a4a;
-  --now-playing-bg: #0d1b2a;
-  --now-playing-bg-rgb: 13, 27, 42;
   --success: #4caf50;
   --error: #f44336;
   --warning: #ff9500;
+
+  /* Chrome */
+  --border: #2a2a4a;
   --overlay-base: 255, 255, 255;
   --overlay-inverse: 0, 0, 0;
+
+  /* Typography scale */
   --fs-2xs: 10px;
   --fs-xs: 13px;
   --fs-sm: 15px;
@@ -136,6 +145,9 @@ body {
 }
 
 .nav-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   background: none;
   border: none;
   color: var(--text-secondary);
@@ -150,12 +162,6 @@ body {
 .nav-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-}
-
-.nav-btn {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 
 .nav-btn-label {
@@ -228,11 +234,6 @@ body {
 .collection-kind-seed {
   background: rgba(255, 183, 77, 0.15);
   color: #ffb74d;
-}
-
-.collection-kind-tidal {
-  background: rgba(156, 39, 176, 0.15);
-  color: #ce93d8;
 }
 
 .collection-name {
@@ -612,7 +613,7 @@ body {
 .settings-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.55);
+  background: rgba(var(--overlay-inverse), 0.55);
   z-index: 1500;
   display: flex;
   justify-content: center;
@@ -1059,7 +1060,7 @@ body {
 .lastfm-import-modal-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0,0,0,0.5);
+  background: rgba(var(--overlay-inverse), 0.5);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -1095,7 +1096,7 @@ body {
 }
 .lastfm-import-progress-fill {
   height: 100%;
-  background: #d51007;
+  background: var(--error);
   transition: width 0.3s;
   border-radius: 3px;
 }
@@ -1639,7 +1640,7 @@ body {
   left: 0;
   right: 0;
   z-index: 200;
-  background: var(--bg-secondary, #0d1b2a);
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-top: none;
   border-radius: 0 0 8px 8px;
@@ -1659,7 +1660,7 @@ body {
 
 .central-search-result:hover,
 .central-search-result.highlighted {
-  background: var(--bg-highlight, #1a2744);
+  background: var(--bg-hover);
 }
 
 .central-search-result .result-art {
@@ -1683,10 +1684,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-highlight, #2a3a5a);
+  background: var(--bg-surface);
   font-size: var(--fs-base);
   font-weight: 600;
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
 }
 
 .central-search-result .result-info {
@@ -1704,7 +1705,7 @@ body {
 
 .central-search-result .result-subtitle {
   font-size: var(--fs-sm);
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1727,7 +1728,7 @@ body {
   border-top: 1px solid var(--border);
   text-align: center;
   font-size: var(--fs-sm);
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
   display: flex;
   justify-content: center;
   gap: 6px;
@@ -1800,10 +1801,10 @@ body {
   transition: background 0.1s;
 }
 .window-control-btn:hover {
-  background: var(--bg-hover, rgba(var(--overlay-base), 0.06));
+  background: var(--bg-hover);
 }
 .window-control-close:hover {
-  background: #e81123;
+  background: var(--error);
   color: #fff;
 }
 .nav-history-btn {
@@ -2375,7 +2376,7 @@ body {
   flex-shrink: 0;
   text-align: center;
   font-size: var(--fs-base);
-  color: #666;
+  color: var(--text-tertiary);
   display: flex;
   gap: 2px;
 }
@@ -2389,15 +2390,15 @@ body {
 .col-like .like-btn,
 .col-like .dislike-btn {
   cursor: pointer;
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 .col-like .like-btn:hover {
-  color: #e44;
+  color: var(--error);
 }
 
 .col-like .like-btn.active {
-  color: #e44;
+  color: var(--error);
 }
 
 .col-like .dislike-btn {
@@ -2406,12 +2407,12 @@ body {
 }
 
 .col-like .dislike-btn:hover {
-  color: #999;
+  color: var(--text-secondary);
   opacity: 1;
 }
 
 .col-like .dislike-btn.active {
-  color: #999;
+  color: var(--text-secondary);
   opacity: 1;
 }
 
@@ -2606,7 +2607,7 @@ body {
 
 .track-youtube-link:hover {
   opacity: 1;
-  color: #ff0000;
+  color: var(--error);
 }
 
 /* Playback error banner */
@@ -2742,23 +2743,23 @@ body {
 
 .now-like-btn {
   font-size: var(--fs-lg);
-  color: #666;
+  color: var(--text-tertiary);
   cursor: pointer;
   transition: color 0.15s;
   flex-shrink: 0;
 }
 
 .now-like-btn:hover {
-  color: #e44;
+  color: var(--error);
 }
 
 .now-like-btn.liked {
-  color: #e44;
+  color: var(--error);
 }
 
 .now-dislike-btn {
   font-size: var(--fs-base);
-  color: #666;
+  color: var(--text-tertiary);
   cursor: pointer;
   transition: color 0.15s;
   flex-shrink: 0;
@@ -2767,12 +2768,12 @@ body {
 }
 
 .now-dislike-btn:hover {
-  color: #999;
+  color: var(--text-secondary);
   opacity: 1;
 }
 
 .now-dislike-btn.disliked {
-  color: #999;
+  color: var(--text-secondary);
   opacity: 1;
 }
 
@@ -2808,7 +2809,7 @@ body {
 }
 
 .now-playing-mini .now-rank-badge {
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   margin-left: 4px;
 }
 
@@ -2847,7 +2848,7 @@ body {
 }
 
 .play-btn {
-  font-size: 22px;
+  font-size: var(--fs-lg);
   background: var(--accent);
   color: var(--bg-primary);
   width: 40px;
@@ -3134,7 +3135,7 @@ body {
   color: #fff;
   border: none;
   cursor: pointer;
-  font-size: 16px;
+  font-size: var(--fs-sm);
   transition: background 0.15s;
   flex-shrink: 0;
 }
@@ -3156,7 +3157,7 @@ body {
   height: 28px;
   border-radius: 50%;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--fs-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3327,7 +3328,7 @@ body {
 }
 
 .similar-artist-match {
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   color: var(--text-secondary);
 }
 
@@ -3529,13 +3530,13 @@ body {
 }
 
 .liked-first-btn {
-  color: #666;
+  color: var(--text-tertiary);
   font-size: var(--fs-sm);
 }
 
 .liked-first-btn.active {
-  color: #e44;
-  border-color: #e44;
+  color: var(--error);
+  border-color: var(--error);
 }
 
 .sort-bar-toggle {
@@ -3634,12 +3635,12 @@ body {
   flex-shrink: 0;
   text-align: center;
   font-size: var(--fs-sm);
-  color: #666;
+  color: var(--text-tertiary);
   cursor: pointer;
 }
 
 .entity-table-like:hover {
-  color: #e44;
+  color: var(--error);
 }
 
 .entity-table-name {
@@ -3707,16 +3708,16 @@ body {
   flex-shrink: 0;
   text-align: center;
   font-size: var(--fs-sm);
-  color: #666;
+  color: var(--text-tertiary);
   cursor: pointer;
 }
 
 .entity-list-like:hover {
-  color: #e44;
+  color: var(--error);
 }
 
 .entity-list-like.active {
-  color: #e44;
+  color: var(--error);
 }
 
 .entity-list-dislike {
@@ -3724,18 +3725,18 @@ body {
   flex-shrink: 0;
   text-align: center;
   font-size: var(--fs-xs);
-  color: #666;
+  color: var(--text-tertiary);
   cursor: pointer;
   opacity: 0.4;
 }
 
 .entity-list-dislike:hover {
-  color: #999;
+  color: var(--text-secondary);
   opacity: 1;
 }
 
 .entity-list-dislike.active {
-  color: #999;
+  color: var(--text-secondary);
   opacity: 1;
 }
 
@@ -3874,7 +3875,7 @@ body {
   align-items: center;
   justify-content: center;
   font-size: var(--fs-sm);
-  color: #aaa;
+  color: var(--text-secondary);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s, color 0.15s;
@@ -3886,12 +3887,12 @@ body {
 }
 
 .artist-card-like:hover {
-  color: #e44;
+  color: var(--error);
 }
 
 .artist-card-like.liked {
   opacity: 1;
-  color: #e44;
+  color: var(--error);
 }
 
 /* Tag card (tiles view) */
@@ -3966,13 +3967,13 @@ body {
   flex-shrink: 0;
   text-align: center;
   font-size: var(--fs-sm);
-  color: #666;
+  color: var(--text-tertiary);
   cursor: pointer;
   margin-right: 4px;
 }
 
 .list-item-like:hover {
-  color: #e44;
+  color: var(--error);
 }
 
 /* Album card like overlay */
@@ -3988,7 +3989,7 @@ body {
   align-items: center;
   justify-content: center;
   font-size: var(--fs-sm);
-  color: #aaa;
+  color: var(--text-secondary);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s, color 0.15s;
@@ -4000,12 +4001,12 @@ body {
 }
 
 .album-card-like:hover {
-  color: #e44;
+  color: var(--error);
 }
 
 .album-card-like.liked {
   opacity: 1;
-  color: #e44;
+  color: var(--error);
 }
 
 .album-card-like-group {
@@ -4030,7 +4031,7 @@ body {
   align-items: center;
   justify-content: center;
   font-size: var(--fs-xs);
-  color: #aaa;
+  color: var(--text-secondary);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s, color 0.15s;
@@ -4053,18 +4054,18 @@ body {
 .detail-like-btn {
   margin-left: 10px;
   font-size: var(--fs-lg);
-  color: #666;
+  color: var(--text-tertiary);
   cursor: pointer;
   transition: color 0.15s;
   vertical-align: middle;
 }
 
 .detail-like-btn:hover {
-  color: #e44;
+  color: var(--error);
 }
 
 .detail-like-btn.liked {
-  color: #e44;
+  color: var(--error);
 }
 
 /* Scrollbar */
@@ -4225,7 +4226,7 @@ body {
 }
 
 .modal-btn-danger {
-  background: #c0392b;
+  background: var(--error);
   color: #fff;
 }
 
@@ -4315,7 +4316,7 @@ body {
   background: none;
   border: none;
   color: var(--text-secondary);
-  font-size: 22px;
+  font-size: var(--fs-lg);
   line-height: 1;
   cursor: pointer;
   padding: 0 2px;
@@ -4550,7 +4551,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   padding: 0;
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
@@ -5050,10 +5051,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-highlight, #2a3a5a);
-  font-size: 14px;
+  background: var(--bg-surface);
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary);
 }
 
 .now-mini-info-text {
@@ -5065,7 +5066,7 @@ body {
 }
 
 .now-playing-mini .now-title {
-  font-size: 14px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -5073,7 +5074,7 @@ body {
 }
 
 .now-playing-mini .now-artist {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -5113,7 +5114,7 @@ body {
 .now-playing-mini .play-btn {
   background: none;
   color: var(--accent);
-  font-size: 20px;
+  font-size: var(--fs-lg);
   width: 32px;
   height: 32px;
 }
@@ -5134,7 +5135,7 @@ body {
 .now-playing-mini .mini-expand-btn,
 .now-playing-mini .mini-close-btn {
   flex-shrink: 0;
-  font-size: 14px;
+  font-size: var(--fs-sm);
   opacity: 0.6;
   transition: opacity 0.15s, color 0.15s, transform 0.15s;
 }
@@ -6747,12 +6748,12 @@ body {
 .bulk-edit-tag-remove {
   cursor: pointer;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: var(--fs-sm);
   line-height: 1;
 }
 
 .bulk-edit-tag-remove:hover {
-  color: var(--error, #c0392b);
+  color: var(--error);
 }
 
 .bulk-edit-tag-text-input {
@@ -6772,6 +6773,6 @@ body {
   border-radius: 6px;
   padding: 8px 12px;
   margin-top: 8px;
-  color: var(--error, #c0392b);
+  color: var(--error);
   font-size: var(--fs-sm);
 }
