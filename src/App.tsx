@@ -1307,7 +1307,7 @@ function App() {
       const track = tracks.find(t => t.id === target.trackId);
       if (track) queueHook.playTracks([track], 0);
     } else if (target.kind === "album") {
-      const albumTracks = await invoke<Track[]>("get_tracks", { albumId: target.albumId });
+      const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
       if (albumTracks.length > 0) queueHook.playTracks(albumTracks, 0);
     } else if (target.kind === "artist") {
       const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
@@ -1340,7 +1340,7 @@ function App() {
       const track = tracks.find(t => t.id === target.trackId);
       if (track) handleEnqueue([track]);
     } else if (target.kind === "album") {
-      const albumTracks = await invoke<Track[]>("get_tracks", { albumId: target.albumId });
+      const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
       handleEnqueue(albumTracks);
     } else if (target.kind === "artist") {
       const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
@@ -2424,7 +2424,14 @@ function App() {
                         <div className="album-grid">
                           {library.artistAlbums.map((a) => (
                             <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
-                              <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
+                              <div className="album-card-art-wrapper">
+                                <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
+                                <button className="album-card-play-btn" title="Play album" onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: a.id } });
+                                  if (albumTracks.length > 0) queueHook.playTracks(albumTracks, 0);
+                                }}>&#9654;</button>
+                              </div>
                               <div className="album-card-body">
                                 <div className="album-card-title" title={a.title}>{a.title}</div>
                                 <div className="album-card-info">
