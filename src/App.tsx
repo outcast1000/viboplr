@@ -7,7 +7,7 @@ import { getCurrent as getDeepLinkCurrent } from "@tauri-apps/plugin-deep-link";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 
-import type { Album, Collection, Track, View, ViewMode, ColumnConfig, SortField, SortDir } from "./types";
+import type { Album, Collection, Track, View, ViewMode, ColumnConfig, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField } from "./types";
 import { isVideoTrack, getInitials, parseSubsonicUrl, formatDuration } from "./utils";
 import { store } from "./store";
 import { computeLocation, parseLocationScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
@@ -550,7 +550,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedSortBarCollapsed, savedLastfmAutoImportEnabled, savedLastfmAutoImportIntervalMins, savedLastfmLastImportAt] = await timeAsync("store.restore (37 keys)", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedSortBarCollapsed, savedLastfmAutoImportEnabled, savedLastfmAutoImportIntervalMins, savedLastfmLastImportAt, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst] = await timeAsync("store.restore (49 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -588,6 +588,18 @@ function App() {
           store.get<boolean>("lastfmAutoImportEnabled"),
           store.get<number>("lastfmAutoImportIntervalMins"),
           store.get<number | null>("lastfmLastImportAt"),
+          store.get<string | null>("artistSortField"),
+          store.get<string>("artistSortDir"),
+          store.get<boolean>("artistLikedFirst"),
+          store.get<string | null>("albumSortField"),
+          store.get<string>("albumSortDir"),
+          store.get<boolean>("albumLikedFirst"),
+          store.get<string | null>("tagSortField"),
+          store.get<string>("tagSortDir"),
+          store.get<boolean>("tagLikedFirst"),
+          store.get<boolean>("filterYoutubeOnly"),
+          store.get<string>("mediaTypeFilter"),
+          store.get<boolean>("trackLikedFirst"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sa !== undefined && sa !== null) {
@@ -697,6 +709,19 @@ function App() {
         if (savedTagViewMode && ["basic", "list", "tiles"].includes(savedTagViewMode)) library.setTagViewMode(savedTagViewMode as ViewMode);
         if (savedTrackViewMode && ["basic", "list", "tiles"].includes(savedTrackViewMode)) library.setTrackViewMode(savedTrackViewMode as ViewMode);
         if (savedLikedViewMode && ["basic", "list", "tiles"].includes(savedLikedViewMode)) library.setLikedViewMode(savedLikedViewMode as ViewMode);
+        // Restore per-view sort & filter state
+        if (savedArtistSortField && ["name", "tracks", "random"].includes(savedArtistSortField)) library.setArtistSortField(savedArtistSortField as ArtistSortField);
+        if (savedArtistSortDir && ["asc", "desc"].includes(savedArtistSortDir)) library.setArtistSortDir(savedArtistSortDir as SortDir);
+        if (savedArtistLikedFirst) library.setArtistLikedFirst(true);
+        if (savedAlbumSortField && ["name", "artist", "year", "tracks", "random"].includes(savedAlbumSortField)) library.setAlbumSortField(savedAlbumSortField as AlbumSortField);
+        if (savedAlbumSortDir && ["asc", "desc"].includes(savedAlbumSortDir)) library.setAlbumSortDir(savedAlbumSortDir as SortDir);
+        if (savedAlbumLikedFirst) library.setAlbumLikedFirst(true);
+        if (savedTagSortField && ["name", "tracks", "random"].includes(savedTagSortField)) library.setTagSortField(savedTagSortField as TagSortField);
+        if (savedTagSortDir && ["asc", "desc"].includes(savedTagSortDir)) library.setTagSortDir(savedTagSortDir as SortDir);
+        if (savedTagLikedFirst) library.setTagLikedFirst(true);
+        if (savedFilterYoutubeOnly) library.setFilterYoutubeOnly(true);
+        if (savedMediaTypeFilter && ["all", "audio", "video"].includes(savedMediaTypeFilter)) library.setMediaTypeFilter(savedMediaTypeFilter as "all" | "audio" | "video");
+        if (savedTrackLikedFirst) library.setTrackLikedFirst(true);
         if (savedVideoLayout) {
           videoLayout.restoreLayout(savedVideoLayout);
         } else if (savedVideoSplitHeight && savedVideoSplitHeight > 0) {

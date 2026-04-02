@@ -95,6 +95,19 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   useEffect(() => { if (restoredRef.current) store.set("trackViewMode", trackViewMode); }, [trackViewMode]);
   useEffect(() => { if (restoredRef.current) store.set("likedViewMode", likedViewMode); }, [likedViewMode]);
   useEffect(() => { if (restoredRef.current) store.set("sortBarCollapsed", sortBarCollapsed); }, [sortBarCollapsed]);
+  // Persist per-view sort & filter state
+  useEffect(() => { if (restoredRef.current) store.set("artistSortField", artistSortField); }, [artistSortField]);
+  useEffect(() => { if (restoredRef.current) store.set("artistSortDir", artistSortDir); }, [artistSortDir]);
+  useEffect(() => { if (restoredRef.current) store.set("artistLikedFirst", artistLikedFirst); }, [artistLikedFirst]);
+  useEffect(() => { if (restoredRef.current) store.set("albumSortField", albumSortField); }, [albumSortField]);
+  useEffect(() => { if (restoredRef.current) store.set("albumSortDir", albumSortDir); }, [albumSortDir]);
+  useEffect(() => { if (restoredRef.current) store.set("albumLikedFirst", albumLikedFirst); }, [albumLikedFirst]);
+  useEffect(() => { if (restoredRef.current) store.set("tagSortField", tagSortField); }, [tagSortField]);
+  useEffect(() => { if (restoredRef.current) store.set("tagSortDir", tagSortDir); }, [tagSortDir]);
+  useEffect(() => { if (restoredRef.current) store.set("tagLikedFirst", tagLikedFirst); }, [tagLikedFirst]);
+  useEffect(() => { if (restoredRef.current) store.set("filterYoutubeOnly", filterYoutubeOnly); }, [filterYoutubeOnly]);
+  useEffect(() => { if (restoredRef.current) store.set("mediaTypeFilter", mediaTypeFilter); }, [mediaTypeFilter]);
+  useEffect(() => { if (restoredRef.current) store.set("trackLikedFirst", trackLikedFirst); }, [trackLikedFirst]);
 
   const loadLibrary = useCallback(async () => {
     try {
@@ -535,9 +548,9 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     handleArtistClick, handleAlbumClick, handleLocateTrack, handleShowAll, handleShowLiked,
     loadLibrary, loadTracks,
     hasMore, loadingMore, loadMore,
-    sortedArtists, artistSortField, artistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,
-    sortedAlbums, albumSortField, albumSortDir, albumLikedFirst, setAlbumLikedFirst, handleAlbumSort,
-    sortedTags, tagSortField, tagSortDir, tagLikedFirst, setTagLikedFirst, handleTagSort,
+    sortedArtists, artistSortField, setArtistSortField, artistSortDir, setArtistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,
+    sortedAlbums, albumSortField, setAlbumSortField, albumSortDir, setAlbumSortDir, albumLikedFirst, setAlbumLikedFirst, handleAlbumSort,
+    sortedTags, tagSortField, setTagSortField, tagSortDir, setTagSortDir, tagLikedFirst, setTagLikedFirst, handleTagSort,
     filterYoutubeOnly, setFilterYoutubeOnly, mediaTypeFilter, setMediaTypeFilter, trackLikedFirst, setTrackLikedFirst,
     artistViewMode, setArtistViewMode,
     albumViewMode, setAlbumViewMode,
