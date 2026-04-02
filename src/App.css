@@ -6612,5 +6612,7 @@ body {
 }
 
 .app.now-playing-active.video-mode .video-container {
+  width: 100% !important;
   height: 100% !important;
+  flex: 1 1 auto;
 }
