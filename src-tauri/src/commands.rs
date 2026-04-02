@@ -673,25 +673,36 @@ pub fn write_frontend_log(level: String, message: String) -> Result<(), String> 
 }
 
 #[tauri::command]
-pub fn delete_tracks(state: State<'_, AppState>, track_ids: Vec<i64>) -> Result<Vec<i64>, String> {
+pub fn delete_tracks(state: State<'_, AppState>, track_ids: Vec<i64>) -> Result<DeleteTracksResult, String> {
     let tracks = state.db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())?;
     let mut deleted_ids = Vec::new();
+    let mut failures = Vec::new();
     for track in &tracks {
         if track.subsonic_id.is_some() {
+            failures.push(DeleteFailure {
+                title: track.title.clone(),
+                reason: "Remote tracks cannot be deleted locally".to_string(),
+            });
             continue;
         }
         let path = std::path::Path::new(&track.path);
         if path.exists() {
             if let Err(e) = std::fs::remove_file(path) {
                 log::warn!("Failed to delete file {}: {}", track.path, e);
+                failures.push(DeleteFailure {
+                    title: track.title.clone(),
+                    reason: e.to_string(),
+                });
                 continue;
             }
         }
         deleted_ids.push(track.id);
     }
-    state.db.delete_tracks_by_ids(&deleted_ids).map_err(|e| e.to_string())?;
-    state.db.recompute_counts().map_err(|e| e.to_string())?;
-    Ok(deleted_ids)
+    if !deleted_ids.is_empty() {
+        state.db.delete_tracks_by_ids(&deleted_ids).map_err(|e| e.to_string())?;
+        state.db.recompute_counts().map_err(|e| e.to_string())?;
+    }
+    Ok(DeleteTracksResult { deleted_ids, failures })
 }
 
 #[tauri::command]

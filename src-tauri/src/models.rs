@@ -276,3 +276,16 @@ pub struct LastfmRecentTrackNowPlaying {
     pub nowplaying: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct DeleteFailure {
+    pub title: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteTracksResult {
+    pub deleted_ids: Vec<i64>,
+    pub failures: Vec<DeleteFailure>,
+}
+

@@ -294,7 +294,7 @@ function App() {
   };
 
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
@@ -1511,16 +1511,25 @@ function App() {
     const { trackIds, title } = deleteConfirm;
     setDeleteConfirm(null);
     try {
-      const deletedIds: number[] = await invoke("delete_tracks", { trackIds });
-      const deletedSet = new Set(deletedIds);
-      library.setTracks(prev => prev.filter(t => !deletedSet.has(t.id)));
-      if (playback.currentTrack && deletedSet.has(playback.currentTrack.id)) {
-        playback.handleStop();
+      const result: { deletedIds: number[]; failures: { title: string; reason: string }[] } = await invoke("delete_tracks", { trackIds });
+      const deletedSet = new Set(result.deletedIds);
+      if (deletedSet.size > 0) {
+        library.setTracks(prev => prev.filter(t => !deletedSet.has(t.id)));
+        if (playback.currentTrack && deletedSet.has(playback.currentTrack.id)) {
+          playback.handleStop();
+        }
       }
-      addLog(`Deleted ${title}`);
+      if (result.failures.length === trackIds.length) {
+        setDeleteError({ message: `Failed to delete ${title}`, failures: result.failures });
+      } else if (result.failures.length > 0) {
+        addLog(`Deleted ${result.deletedIds.length} of ${trackIds.length} tracks`);
+        setDeleteError({ message: `${result.failures.length} of ${trackIds.length} tracks could not be deleted`, failures: result.failures });
+      } else {
+        addLog(`Deleted ${title}`);
+      }
     } catch (e) {
       console.error("Failed to delete tracks:", e);
-      setDeleteError(`Failed to delete ${title}: ${e}`);
+      setDeleteError({ message: `Failed to delete ${title}`, failures: [{ title, reason: String(e) }] });
     }
   }
 
@@ -3538,7 +3547,15 @@ function App() {
         <div className="modal-overlay" onClick={() => setDeleteError(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Delete Failed</h2>
-            <p className="delete-confirm-warning">{deleteError}</p>
+            <p className="delete-confirm-warning">{deleteError.message}</p>
+            <ul className="delete-failure-list">
+              {deleteError.failures.map((f, i) => (
+                <li key={i}>
+                  <span className="delete-failure-title">{f.title}</span>
+                  <span className="delete-failure-reason">{f.reason}</span>
+                </li>
+              ))}
+            </ul>
             <div className="modal-actions">
               <button className="modal-btn modal-btn-cancel" onClick={() => setDeleteError(null)}>OK</button>
             </div>

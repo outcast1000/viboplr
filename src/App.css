@@ -4358,6 +4358,43 @@ body {
   margin: 0 0 16px;
 }
 
+.delete-failure-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.delete-failure-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  font-size: var(--fs-sm);
+  border-bottom: 1px solid var(--border);
+}
+
+.delete-failure-list li:last-child {
+  border-bottom: none;
+}
+
+.delete-failure-title {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.delete-failure-reason {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .modal-field-static {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
