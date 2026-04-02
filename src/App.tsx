@@ -294,6 +294,7 @@ function App() {
   };
 
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
@@ -1482,17 +1483,20 @@ function App() {
 
   async function handleDeleteConfirm() {
     if (!deleteConfirm) return;
+    const { trackIds, title } = deleteConfirm;
+    setDeleteConfirm(null);
     try {
-      const deletedIds: number[] = await invoke("delete_tracks", { trackIds: deleteConfirm.trackIds });
+      const deletedIds: number[] = await invoke("delete_tracks", { trackIds });
       const deletedSet = new Set(deletedIds);
       library.setTracks(prev => prev.filter(t => !deletedSet.has(t.id)));
       if (playback.currentTrack && deletedSet.has(playback.currentTrack.id)) {
         playback.handleStop();
       }
+      addLog(`Deleted ${title}`);
     } catch (e) {
       console.error("Failed to delete tracks:", e);
+      setDeleteError(`Failed to delete ${title}: ${e}`);
     }
-    setDeleteConfirm(null);
   }
 
   async function handleWatchOnYoutube() {
@@ -3500,6 +3504,18 @@ function App() {
             <div className="modal-actions">
               <button className="modal-btn modal-btn-cancel" onClick={() => setDeleteConfirm(null)}>Cancel</button>
               <button className="modal-btn modal-btn-danger" onClick={handleDeleteConfirm}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteError && (
+        <div className="modal-overlay" onClick={() => setDeleteError(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Delete Failed</h2>
+            <p className="delete-confirm-warning">{deleteError}</p>
+            <div className="modal-actions">
+              <button className="modal-btn modal-btn-cancel" onClick={() => setDeleteError(null)}>OK</button>
             </div>
           </div>
         </div>
