@@ -3369,13 +3369,12 @@ function App() {
           onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
           onRemove={queueHook.removeFromQueue}
           onLocateTrack={(track) => {
-            const filename = (track.path?.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, "") ?? "").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
-            library.handleLocateTrack(track.id, track.artist_id, track.album_id, () => {
+            library.handleLocateTrack(track.title, track.artist_name, track.album_title, () => {
               library.setView("all");
               library.setSelectedArtist(null);
               library.setSelectedAlbum(null);
               library.setSelectedTag(null);
-              viewSearch.setQuery("all", filename);
+              viewSearch.setQuery("all", track.title);
             });
           }}
           onMoveMultiple={queueHook.moveMultiple}
@@ -3407,13 +3406,12 @@ function App() {
           onLocateTrack={contextMenu.target.kind === "queue-multi" && contextMenu.target.indices.length === 1 ? () => {
             const track = queueHook.queue[contextMenu.target.kind === "queue-multi" ? contextMenu.target.indices[0] : 0];
             if (track) {
-              const filename = (track.path?.split(/[/\\]/).pop()?.replace(/\.[^.]+$/, "") ?? "").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
-              library.handleLocateTrack(track.id, track.artist_id, track.album_id, () => {
+              library.handleLocateTrack(track.title, track.artist_name, track.album_title, () => {
                 library.setView("all");
                 library.setSelectedArtist(null);
                 library.setSelectedAlbum(null);
                 library.setSelectedTag(null);
-                viewSearch.setQuery("all", filename);
+                viewSearch.setQuery("all", track.title);
               });
             }
           } : undefined}

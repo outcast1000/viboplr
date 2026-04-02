@@ -27,7 +27,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [highlightedListIndex, setHighlightedListIndex] = useState(-1);
-  const pendingLocateTrackIdRef = useRef<number | null>(null);
+  const pendingLocateRef = useRef<{ title: string; artistName: string | null } | null>(null);
 
   // Pagination state
   const [hasMore, setHasMore] = useState(false);
@@ -292,14 +292,17 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   // Resolve pending locate-track after sortedTracks updates
   useEffect(() => {
-    const locateId = pendingLocateTrackIdRef.current;
-    if (locateId == null) return;
-    pendingLocateTrackIdRef.current = null;
-    const idx = sortedTracks.findIndex(t => t.id === locateId);
+    const locate = pendingLocateRef.current;
+    if (!locate) return;
+    pendingLocateRef.current = null;
+    const idx = sortedTracks.findIndex(t =>
+      t.title.toLowerCase() === locate.title.toLowerCase() &&
+      (t.artist_name ?? "").toLowerCase() === (locate.artistName ?? "").toLowerCase()
+    );
     if (idx >= 0) {
       setHighlightedIndex(idx);
       requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-track-id="${locateId}"]`) ??
+        const el = document.querySelector(`[data-track-id="${sortedTracks[idx].id}"]`) ??
                    document.querySelector(`.track-row:nth-child(${idx + 1})`);
         el?.scrollIntoView({ block: "center", behavior: "smooth" });
       });
@@ -477,12 +480,18 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     }
   }
 
-  function handleLocateTrack(trackId: number, artistId?: number | null, albumId?: number | null, searchAllFallback?: () => void) {
-    pendingLocateTrackIdRef.current = trackId;
-    if (albumId && artistId) {
-      handleAlbumClick(albumId, artistId);
-    } else if (artistId) {
-      handleArtistClick(artistId);
+  function handleLocateTrack(title: string, artistName: string | null, albumTitle: string | null, searchAllFallback?: () => void) {
+    pendingLocateRef.current = { title, artistName };
+    const matchedArtist = artistName
+      ? artists.find(a => a.name.toLowerCase() === artistName.toLowerCase())
+      : null;
+    const matchedAlbum = albumTitle && matchedArtist
+      ? albums.find(a => a.title.toLowerCase() === albumTitle.toLowerCase() && a.artist_id === matchedArtist.id)
+      : null;
+    if (matchedAlbum && matchedArtist) {
+      handleAlbumClick(matchedAlbum.id, matchedArtist.id);
+    } else if (matchedArtist) {
+      handleArtistClick(matchedArtist.id);
     } else if (searchAllFallback) {
       searchAllFallback();
     }
