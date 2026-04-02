@@ -1527,7 +1527,7 @@ body {
 }
 
 .caption-spacer {
-  flex: 0 0 auto;
+  flex: 1 0 0;
   -webkit-app-region: drag;
 }
 
@@ -1652,6 +1652,7 @@ body {
 
 .central-search-container {
   flex: 1 1 624px;
+  max-width: 624px;
   min-width: 0;
   display: flex;
   justify-content: center;
