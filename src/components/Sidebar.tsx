@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, useEffect, type ReactNode } from "react";
 import type { View } from "../types";
 import type { PluginSidebarItem } from "../types/plugin";
 
@@ -73,6 +73,18 @@ export function Sidebar({
   pluginNavItems,
   onPluginView,
 }: SidebarProps) {
+  const navRef = useRef<HTMLElement>(null);
+  const indicatorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!navRef.current || !indicatorRef.current) return;
+    const activeBtn = navRef.current.querySelector(".nav-btn.active") as HTMLElement | null;
+    if (activeBtn) {
+      indicatorRef.current.style.transform = `translateY(${activeBtn.offsetTop}px)`;
+      indicatorRef.current.style.height = `${activeBtn.offsetHeight}px`;
+    }
+  }, [view, selectedArtist, selectedAlbum]);
+
   const navItems: { key: string; label: string; icon: ReactNode; active: boolean; onClick: () => void; hint: string }[] = [
     { key: "tracks", label: "Tracks", icon: icons.tracks, active: view === "all" && !selectedAlbum, onClick: onShowAll, hint: `Tracks \u2014 ${mod}1` },
     { key: "artists", label: "Artists", icon: icons.artists, active: view === "artists", onClick: onShowArtists, hint: `Artists \u2014 ${mod}2` },
@@ -85,7 +97,8 @@ export function Sidebar({
 
   return (
     <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
-      <nav className="nav">
+      <nav className="nav" ref={navRef}>
+        <div className="sidebar-indicator" ref={indicatorRef} />
         {navItems.map((item) => (
           <button
             key={item.key}

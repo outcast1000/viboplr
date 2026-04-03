@@ -138,6 +138,7 @@ body {
 
 
 .nav {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -179,7 +180,16 @@ body {
   background: var(--bg-surface);
   color: var(--accent);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.sidebar-indicator {
+  position: absolute;
+  left: 0;
+  width: 3px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+  transition: transform 200ms ease, height 200ms ease;
+  pointer-events: none;
 }
 
 .nav-count {
