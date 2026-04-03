@@ -108,7 +108,7 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 ### 4.6 Library Browsing
 
 - Browse by **artist**, **album**, **tag**, **liked tracks**, **history**, **TIDAL** (when a tidal collection exists), or **all tracks** (flat list).
-- List view (table) with columns: like (heart icon), track number, title, artist, album, year, quality (bitrate), duration, file size, collection, path. Columns are togglable via a column menu; default visible: like, number, title, artist, album, duration. In list/tiles view modes, tracks use a **two-line layout**: title on line 1 (15px), artist · album on line 2 (13px).
+- List view (table) with columns: like (heart icon), track number, title, artist, album, year, quality (bitrate), duration, popularity, file size, collection, added, modified, path. Columns are togglable via a column menu; default visible: like, number, title, artist, album, duration. In list/tiles view modes, tracks use a **two-line layout**: title on line 1 (15px), artist · album on line 2 (13px). **Artist and album names are clickable** in tracks and liked list views, navigating to the respective artist or album detail view.
 - **Multi-selection:** Click to select a single track. Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range to the existing selection. Selected rows are visually highlighted. Selection is cleared on view/track-list change and on double-click.
 - Tracks from all enabled collections (local and server) are unified in a single library.
 - **Breadcrumb actions:** Artist detail and tag detail views show "Play All" and "Queue All" buttons in the breadcrumb bar. The All Tracks view does not show these bulk-play buttons.
@@ -122,13 +122,17 @@ View mode selections are persisted per entity (`artistViewMode`, `albumViewMode`
 
 **Artist list sort controls:** A sort bar above the artist list offers Name, Tracks (track count), and Shuffle buttons, plus a heart toggle to float liked artists to the top. Name and Tracks cycle through ascending → descending → unsorted on repeated clicks. Shuffle re-randomizes each click (Fisher-Yates).
 
-**Album grid sort controls:** A sort bar above the album grid offers Name, Artist, Year, Tracks, and Shuffle buttons, plus a heart toggle to float liked albums to the top. Name, Artist, Year, and Tracks cycle asc → desc → unsorted. Shuffle re-randomizes each click.
+**Album grid sort controls:** A sort bar above the album grid offers Name, Artist, Year, Tracks, and Shuffle buttons, plus a heart toggle to float liked albums to the top. Name, Artist, Year, and Tracks cycle asc → desc → unsorted. Shuffle re-randomizes each click. Album cards display a **play button overlay** on hover that plays all tracks in the album.
+
+**Album detail placeholders:** When an album has no cover art, a vinyl disc icon placeholder is displayed. When album wiki info from Last.fm is absent, a "No review available" message is shown.
 
 **Tag list sort controls:** A sort bar above the tag list offers Name, Tracks (track count), and Shuffle buttons, plus a heart toggle to float liked tags to the top. Name and Tracks cycle asc → desc → unsorted. Shuffle re-randomizes each click (Fisher-Yates).
 
 **All Tracks sort controls:** The sort bar is split into two labeled rows: a **Sort** row (Title, Artist, Album, Year, Quality, Duration, Size, Collection, Shuffle, and a heart toggle to float liked tracks to the top) and a **Filter** row (YouTube filter `YT`, media type filter All/Audio/Video). Sort fields cycle asc → desc → unsorted. The view mode toggle and collapse button remain visible when the sort bar is collapsed.
 
 **Independent scrolling:** Lists scroll within their own container instead of the whole main content area, so headers and breadcrumbs remain visible while scrolling long lists.
+
+**Last.fm album track popularity:** When viewing album tracks, a togglable "Popularity" column displays per-track listener counts from Last.fm as relative popularity bars. The `lastfm_get_album_track_popularity` command fetches `track.getInfo` for each track in the album, extracting listener counts. Results are cached in `lastfm_cache` and emitted via a `lastfm-album-track-popularity` event. Bars are rendered relative to the most popular track in the album.
 
 **Performance:** Track counts for artists, albums, and tags are precomputed and stored in `track_count` columns (see §5). Counts are recomputed after every scan, sync, collection toggle, and FTS rebuild. The `get_artists`, `get_albums`, and `get_tags` queries use simple `WHERE track_count > 0` filters instead of JOIN/GROUP BY/HAVING, making sidebar navigation instant. The frontend skips fetching tracks when only the album grid or tag list is displayed (no track table rendered), and does not re-fetch the full album list when navigating to the Albums view (already loaded by `loadLibrary`).
 
@@ -166,9 +170,10 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - Media type (audio vs video) determined by file extension (video: mp4, m4v, mov, webm).
 - Transport controls: play, pause, stop, seek, volume.
 - Position and duration tracked via HTML5 media events (`timeupdate`, `loadedmetadata`, `play`, `pause`, `ended`) — no polling.
+- **Now Playing view:** An expanded view toggled via the expand button in the NowPlayingBar. The NowPlayingBar footer remains visible at the bottom; the Now Playing view fills only the sidebar/main/queue area (grid row 2). The expand button toggles to a collapse icon when the view is open.
 - Video displayed **below the content area** (between the track list and the now-playing bar) with a **resizable splitter**. The splitter is draggable (default height: 300px, persisted as `videoSplitHeight`), has a collapse/expand button to minimize the video, and enforces a 150px minimum track list height. A **fullscreen button overlay** appears on hover in the bottom-right corner of the video, with a tooltip showing the keyboard shortcut (`Cmd/Ctrl+F`) and how to exit (`Esc`). Double-click or `Cmd/Ctrl+F` on the video enters native fullscreen.
 - **Double-click:** Double-clicking a track in any view (All Tracks, Artist, Album, Tag, Liked) plays only that single track — the queue is replaced with just that one track. No additional tracks are queued or auto-played after it finishes (unless Auto Continue is enabled).
-- **Playback error handling:** Error event handlers on `<audio>` and `<video>` elements detect unsupported codecs, network errors, and decode errors. A red error banner appears above the now-playing bar with a descriptive message and dismiss button. The error clears automatically when a new track starts playing.
+- **Playback error handling:** Error event handlers on `<audio>` and `<video>` elements detect unsupported codecs, network errors, and decode errors. A `PlaybackErrorModal` displays the failed track title, error message, and a **15-second countdown** before automatically skipping to the next track. The modal offers "Dismiss" (stay on current state) and "Skip Now" buttons. The error clears automatically when a new track starts playing.
 - **Waveform seek bar:** Audio tracks display a waveform visualization inside the seek bar (both the Now Playing bar and fullscreen controls). Audio files are analyzed using the Web Audio API with RMS-based amplitude calculation and 95th-percentile normalization (power curve) to prevent flat-wall waveforms. Bucket count is dynamic (1 per second, capped at 400). Waveform peak data is cached as versioned JSON files in `{app_dir}/waveforms/v2/{track_id}.json` for instant display on subsequent plays; old cache entries are cleaned up on first launch. Graceful degradation: a plain seek bar is shown for video tracks, remote/subsonic tracks, files over 10 MB, or when Web Audio decoding fails.
 - Keyboard navigation: arrow keys to navigate tracks, Enter to play.
 - **Minimized window:** Playback continues when the app window is minimized. A `visibilitychange` listener resumes playback if the browser auto-pauses media when the page becomes hidden. The crossfade loop uses `setInterval` instead of `requestAnimationFrame` so it runs while the page is hidden.
@@ -245,7 +250,7 @@ When playback reaches the end of the queue in "normal" mode, the player normally
 - **Multi-track context menu:** When multiple tracks are selected, right-clicking shows a context menu with "Play N tracks" and "Enqueue N tracks" actions. Search providers and Locate File are hidden for multi-track selections.
 - **Play** / **Enqueue**: Play immediately or add to queue.
 - **Locate File** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer via `raw_arg` for proper path quoting, or Linux xdg-open).
-- **Delete** (local tracks only): Deletes the file from disk and soft-deletes the track from the database. Shows a confirmation dialog before proceeding. Supports single and multi-track deletion. If the currently playing track is deleted, playback stops. Only available for local (non-subsonic, non-tidal) tracks.
+- **Delete** (local tracks only): Deletes the file from disk and removes the track from the database. Shows a confirmation dialog before proceeding. Supports single and multi-track deletion. If the currently playing track is deleted, playback stops. Only available for local (non-subsonic, non-tidal) tracks. The `delete_tracks` command returns a `DeleteTracksResult` containing `deleted_ids` and a `failures` array (each with `title` and `reason`). The frontend shows: a **status bar message** on full success, an **error modal with a scrollable failure list** on total failure, or both (status bar + error modal) on partial failure.
 - **Upgrade via TIDAL** (local tracks only, when TIDAL is configured): Opens a modal to replace the local file with a higher-quality version from TIDAL (see §4.23).
 - **Search providers**: Dynamic list of enabled search providers (see §4.14). Each provider appears with its icon and a "Search on {name}" label. Clicking opens the provider's URL with `{artist}` and `{title}` placeholders filled in. Only providers with a URL template for the current context (artist/album/track) are shown.
 
@@ -377,6 +382,18 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `fullWindowX` | `number \| null` | `null` |
 | `fullWindowY` | `number \| null` | `null` |
 | `skin` | `string` | `"default"` |
+| `artistSortField` | `string \| null` | `null` |
+| `artistSortDir` | `string` | `"asc"` |
+| `artistLikedFirst` | `boolean` | `false` |
+| `albumSortField` | `string \| null` | `null` |
+| `albumSortDir` | `string` | `"asc"` |
+| `albumLikedFirst` | `boolean` | `false` |
+| `tagSortField` | `string \| null` | `null` |
+| `tagSortDir` | `string` | `"asc"` |
+| `tagLikedFirst` | `boolean` | `false` |
+| `filterYoutubeOnly` | `boolean` | `false` |
+| `mediaTypeFilter` | `string` | `"all"` |
+| `trackLikedFirst` | `boolean` | `false` |
 
 **Behavior:**
 
@@ -530,7 +547,7 @@ A collapsible side panel for managing the current play queue as a playlist. Togg
 - Track list showing title, artist, duration, and a locate (magnifying glass) button per track that navigates to the track in the library. The currently playing track is highlighted. Track removal is available via the right-click context menu.
 - Footer info bar showing playlist name (if loaded/saved), track count, and total duration.
 
-**Multi-selection:** Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range. Right-click context menu offers Play, Remove, Locate Track (navigates to the track's album view if available, otherwise the artist view), Move to top, and Move to bottom for selected tracks.
+**Multi-selection:** Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range. Right-click context menu offers Play, Remove, Locate Track, Move to top, and Move to bottom for selected tracks. **Locate Track** finds the artist and album by name (case-insensitive) and matches the track by title + artist name rather than database ID, so it works for playlist/queue tracks that may not have valid library IDs. Navigates to the album view if available, otherwise the artist view.
 
 **Drag and drop reorder:** Mouse-event-based drag (not HTML5 DnD, for Tauri compatibility). Dragging single or multiple selected tracks shows a ghost element with track count and a drop position indicator line. Tracks are reordered on drop via `moveMultiple`.
 
@@ -605,6 +622,7 @@ The Last.fm client exposes several read-only API methods for fetching metadata. 
 | `get_similar_tracks(artist, track, limit)` | `track.getSimilar` | Similar tracks with match percentages |
 | `get_artist_info(artist)` | `artist.getInfo` | Artist bio, stats, tags, similar |
 | `get_album_info(artist, album)` | `album.getInfo` | Album wiki, tags, tracklist |
+| `get_track_info(artist, track)` | `track.getInfo` | Track listeners, playcount, tags |
 | `get_track_top_tags(artist, track)` | `track.getTopTags` | Community tag suggestions |
 | `get_artist_top_tags(artist)` | `artist.getTopTags` | Artist top tags |
 | `love_track(session_key, artist, track)` | `track.love` | Loves a track (signed POST) |
@@ -902,7 +920,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `show_in_folder`        | `track_id: i64`             | `()`                     |
 | `rebuild_search_index`  | —                           | `()`                     |
 | `get_auto_continue_track` | `strategy: String, current_track_id: i64, format_filter: Option<String>` | `Option<Track>` |
-| `delete_tracks`           | `track_ids: Vec<i64>`                     | `Vec<i64>` (deleted IDs) |
+| `delete_tracks`           | `track_ids: Vec<i64>`                     | `DeleteTracksResult` (deleted_ids + failures) |
 | `get_cached_waveform`     | `track_id: i64`                           | `Option<Vec<f32>>`       |
 | `cache_waveform`          | `track_id: i64, peaks: Vec<f32>`          | `()`                     |
 | `reconnect_history_track` | `history_track_id: i64`                   | `Option<Track>`          |
@@ -959,10 +977,11 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `set_entity_image`      | `kind: String, id: i64, source_path: String` | `String` (dest path)  |
 | `paste_entity_image`    | `kind: String, id: i64, image_data: Vec<u8>` | `String` (dest path)  |
 | `remove_entity_image`   | `kind: String, id: i64`     | `()`                     |
-| `fetch_artist_image`    | `artist_id: i64, artist_name: String` | `()` (fire-and-forget) |
-| `fetch_album_image`     | `album_id: i64, album_title: String, artist_name?: String` | `()` (fire-and-forget) |
+| `fetch_artist_image`    | `artist_id: i64, artist_name: String, force?: bool` | `()` (fire-and-forget) |
+| `fetch_album_image`     | `album_id: i64, album_title: String, artist_name?: String, force?: bool` | `()` (fire-and-forget) |
 | `fetch_tag_image`       | `tag_id: i64, tag_name: String` | `()` (fire-and-forget) |
 | `clear_image_failures`  | —                           | `()`                     |
+| `clear_lastfm_cache_for_entity` | `kind: String, name: String, artist_name?: String` | `()` |
 
 ### TIDAL Commands
 
@@ -990,6 +1009,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `lastfm_scrobble`         | `track_id: i64, started_at: i64`            | `()` (fire-and-forget)         |
 | `lastfm_import_history`   | —                                           | `()` (background thread)       |
 | `lastfm_cancel_import`    | —                                           | `()`                           |
+| `lastfm_get_album_track_popularity` | `artist_name: String, album_title: String` | `Option<Value>` (cached or async) |
 
 ### Download Commands
 
@@ -1069,6 +1089,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `lastfm-album-info`         | `Value` (JSON)                 |
 | `lastfm-track-tags`         | `Value` (JSON)                 |
 | `lastfm-artist-tags`        | `Value` (JSON)                 |
+| `lastfm-album-track-popularity` | `Value` (JSON: artist, album, tracks[]) |
 
 ## 8. Performance Targets
 
@@ -1334,7 +1355,8 @@ Artist and album image fetching is handled by a single background worker thread 
 - `fetch_artist_image` and `fetch_album_image` commands are fire-and-forget: they push a request onto the queue and return immediately.
 - A single worker thread (spawned at app startup) waits on the condvar, pops the **last** item from the vec (LIFO), and processes it.
 - Before downloading, the worker checks if the image file already exists on disk and skips if so (deduplication).
-- **Failure tracking:** Before attempting a download, the worker also checks the `image_fetch_failures` table. If the item has a recorded failure, the download is skipped. On failure, the worker records the failure via `record_image_failure()`. The `clear_image_failures` command allows retrying all previously failed downloads.
+- **Failure tracking:** Before attempting a download, the worker also checks the `image_fetch_failures` table. If the item has a recorded failure, the download is skipped (unless `force` is true). On failure, the worker records the failure via `record_image_failure()`. The `clear_image_failures` command allows retrying all previously failed downloads. Individual failures can be cleared via `clear_image_failure(kind, item_id)`.
+- **Force refresh:** The `fetch_artist_image` and `fetch_album_image` commands accept an optional `force` flag. When `force=true`, the command clears the failure cache entry for the entity, removes the existing image file from disk, and resets frontend deduplication state before re-queuing the download. This is exposed in the UI via "Refresh Image" in right-click context menus on artist/album images. A `clear_lastfm_cache_for_entity` command clears cached Last.fm data (bio, similar artists, album wiki) so fresh info is re-fetched. This is exposed via "Refresh Info" menu items in artist/album detail views.
 - After each download, the worker sleeps 1100ms to respect rate limits (1 request/second with margin).
 - On success, the worker emits `artist-image-ready` / `album-image-ready` events. On failure, it emits `artist-image-error` / `album-image-error` events.
 - All logging is done via `log::info!` / `log::warn!` in Rust — no JS console logging for image downloads.
