@@ -2847,7 +2847,10 @@ function App() {
                     {albumImagePath ? (
                       <img className="album-detail-art-img" src={convertFileSrc(albumImagePath)} alt={album?.title} />
                     ) : (
-                      album?.title[0]?.toUpperCase() ?? "?"
+                      <svg className="album-detail-art-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
                     )}
                   </div>
                   <div className="album-detail-info">
@@ -2887,12 +2890,14 @@ function App() {
                     </span>
                   </div>
                 </div>
-                {albumWiki && (
-                  <div className="album-wiki-section">
-                    <div className="artist-bio-title">Review</div>
+                <div className="album-wiki-section">
+                  <div className="artist-bio-title">Review</div>
+                  {albumWiki ? (
                     <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: albumWiki }} />
-                  </div>
-                )}
+                  ) : (
+                    <div className="artist-bio-text placeholder-text">No review available</div>
+                  )}
+                </div>
               </>
             );
           })()}
@@ -3016,8 +3021,14 @@ function App() {
                       <div className="entity-list-info">
                         <span className="entity-list-name">{t.title}</span>
                         <span className="entity-list-secondary">
-                          {t.artist_name && <>{t.artist_name}</>}
-                          {t.album_title && <> {"\u00B7"} {t.album_title}</>}
+                          {t.artist_name && (t.artist_id
+                            ? <span className="track-link" onClick={(e) => { e.stopPropagation(); library.handleArtistClick(t.artist_id!); }}>{t.artist_name}</span>
+                            : <>{t.artist_name}</>
+                          )}
+                          {t.album_title && <> {"\u00B7"} {t.album_id
+                            ? <span className="track-link" onClick={(e) => { e.stopPropagation(); library.handleAlbumClick(t.album_id!, t.artist_id); }}>{t.album_title}</span>
+                            : <>{t.album_title}</>
+                          }</>}
                         </span>
                       </div>
                       <span className="entity-list-count">{formatDuration(t.duration_secs)}</span>
@@ -3190,8 +3201,14 @@ function App() {
                       <div className="entity-list-info">
                         <span className="entity-list-name">{t.title}</span>
                         <span className="entity-list-secondary">
-                          {t.artist_name && <>{t.artist_name}</>}
-                          {t.album_title && <> {"\u00B7"} {t.album_title}</>}
+                          {t.artist_name && (t.artist_id
+                            ? <span className="track-link" onClick={(e) => { e.stopPropagation(); library.handleArtistClick(t.artist_id!); }}>{t.artist_name}</span>
+                            : <>{t.artist_name}</>
+                          )}
+                          {t.album_title && <> {"\u00B7"} {t.album_id
+                            ? <span className="track-link" onClick={(e) => { e.stopPropagation(); library.handleAlbumClick(t.album_id!, t.artist_id); }}>{t.album_title}</span>
+                            : <>{t.album_title}</>
+                          }</>}
                         </span>
                       </div>
                       <span className="entity-list-count">{formatDuration(t.duration_secs)}</span>
