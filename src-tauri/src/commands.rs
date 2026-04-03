@@ -2102,6 +2102,87 @@ pub fn lastfm_get_album_info(state: State<'_, AppState>, app: AppHandle, artist_
 }
 
 #[tauri::command]
+pub fn lastfm_get_album_track_popularity(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    artist_name: String,
+    album_title: String,
+) -> Option<serde_json::Value> {
+    let cache_key = format!(
+        "album_track_pop:{}:{}",
+        artist_name.to_lowercase(),
+        album_title.to_lowercase()
+    );
+    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
+        return Some(cached);
+    }
+    let db = state.db.clone();
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    thread::spawn(move || {
+        // Get album info to extract track names
+        let album_cache_key = format!(
+            "album_info:{}:{}",
+            artist_name.to_lowercase(),
+            album_title.to_lowercase()
+        );
+        let album_info = db
+            .lastfm_cache_get(&album_cache_key)
+            .ok()
+            .flatten()
+            .or_else(|| lastfm.get_album_info(&artist_name, &album_title).ok());
+
+        let Some(album_info) = album_info else { return };
+
+        let tracks = album_info
+            .get("album")
+            .and_then(|a| a.get("tracks"))
+            .and_then(|t| t.get("track"))
+            .and_then(|t| t.as_array());
+
+        let Some(tracks) = tracks else { return };
+
+        // Fetch track.getInfo for each track to get listeners/playcount
+        let mut results = Vec::new();
+        for track in tracks {
+            let Some(track_name) = track.get("name").and_then(|n| n.as_str()) else {
+                continue;
+            };
+
+            if let Ok(info) = lastfm.get_track_info(&artist_name, track_name) {
+                let listeners = info
+                    .get("track")
+                    .and_then(|t| t.get("listeners"))
+                    .and_then(|l| l.as_str())
+                    .and_then(|l| l.parse::<u64>().ok())
+                    .unwrap_or(0);
+                let playcount = info
+                    .get("track")
+                    .and_then(|t| t.get("playcount"))
+                    .and_then(|p| p.as_str())
+                    .and_then(|p| p.parse::<u64>().ok())
+                    .unwrap_or(0);
+
+                results.push(serde_json::json!({
+                    "name": track_name,
+                    "listeners": listeners,
+                    "playcount": playcount,
+                }));
+            }
+        }
+
+        let value = serde_json::json!({
+            "artist": artist_name,
+            "album": album_title,
+            "tracks": results,
+        });
+
+        let _ = db.lastfm_cache_set(&cache_key, &value);
+        let _ = app.emit("lastfm-album-track-popularity", &value);
+    });
+    None
+}
+
+#[tauri::command]
 pub fn lastfm_get_track_tags(state: State<'_, AppState>, app: AppHandle, artist_name: String, track_title: String) -> Option<serde_json::Value> {
     let cache_key = format!("track_tags:{}:{}", artist_name.to_lowercase(), track_title.to_lowercase());
     if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {

@@ -337,6 +337,11 @@ impl LastfmClient {
         self.get("album.getInfo", &[("artist", artist), ("album", album), ("autocorrect", "1")])
     }
 
+    /// Get track info (playcount, listeners, tags) from Last.fm.
+    pub fn get_track_info(&self, artist: &str, track: &str) -> Result<Value, LastfmError> {
+        self.get("track.getInfo", &[("artist", artist), ("track", track), ("autocorrect", "1")])
+    }
+
     /// Get top tags for a track from Last.fm.
     pub fn get_track_top_tags(&self, artist: &str, track: &str) -> Result<Value, LastfmError> {
         self.get("track.getTopTags", &[("artist", artist), ("track", track), ("autocorrect", "1")])

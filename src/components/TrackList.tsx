@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import type { Track, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration } from "../utils";
 import { IconYoutube } from "./Icons";
@@ -18,6 +18,7 @@ const COLUMN_DISPLAY_NAMES: Record<TrackColumnId, string> = {
   collection: "Collection",
   added: "Added",
   modified: "Modified",
+  popularity: "Popularity",
 };
 
 const COLUMN_SORT_FIELDS: Partial<Record<TrackColumnId, SortField>> = {
@@ -33,6 +34,7 @@ const COLUMN_SORT_FIELDS: Partial<Record<TrackColumnId, SortField>> = {
   collection: "collection",
   added: "added",
   modified: "modified",
+  popularity: "popularity",
 };
 
 function formatFileSize(bytes: number | null): string {
@@ -111,6 +113,7 @@ interface TrackListProps {
   onToggleLike: (track: Track) => void;
   onToggleDislike?: (track: Track) => void;
   onTrackDragStart?: (tracks: Track[]) => void;
+  trackPopularity?: Record<number, number>;
   emptyMessage?: string;
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -122,9 +125,15 @@ export function TrackList({
   sortField, trackListRef, columns, onColumnsChange,
   onDoubleClick, onContextMenu, onArtistClick, onAlbumClick,
   onSort, sortIndicator, onToggleLike, onToggleDislike, onTrackDragStart,
+  trackPopularity,
   emptyMessage = "No tracks found.",
   hasMore = false, loadingMore = false, onLoadMore,
 }: TrackListProps) {
+  const maxPopularity = useMemo(() => {
+    if (!trackPopularity) return 0;
+    return Math.max(0, ...Object.values(trackPopularity));
+  }, [trackPopularity]);
+
   const [columnMenuPos, setColumnMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [draggedCol, setDraggedCol] = useState<TrackColumnId | null>(null);
   const [dragOverCol, setDragOverCol] = useState<TrackColumnId | null>(null);
@@ -410,6 +419,19 @@ export function TrackList({
         return <span key="added" className="col-added">{formatDate(t.added_at)}</span>;
       case "modified":
         return <span key="modified" className="col-modified">{formatDate(t.modified_at)}</span>;
+      case "popularity": {
+        const pop = trackPopularity?.[t.id];
+        const pct = (pop != null && maxPopularity > 0) ? (pop / maxPopularity) * 100 : 0;
+        return (
+          <span key="popularity" className="col-popularity">
+            {pop != null ? (
+              <span className="popularity-bar" title={`${pop.toLocaleString()} listeners`}>
+                <span className="popularity-fill" style={{ width: `${pct}%` }} />
+              </span>
+            ) : null}
+          </span>
+        );
+      }
     }
   }
 

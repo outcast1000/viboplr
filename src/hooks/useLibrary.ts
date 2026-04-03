@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Artist, Album, Tag, Track, Collection, CollectionStats, View, ViewMode, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField, ColumnConfig, TrackColumnId } from "../types";
 import { store } from "../store";
 
-const ALL_COLUMN_IDS: TrackColumnId[] = ["like", "num", "title", "artist", "album", "year", "quality", "duration", "size", "collection", "added", "modified", "path"];
+const ALL_COLUMN_IDS: TrackColumnId[] = ["like", "num", "title", "artist", "album", "year", "quality", "duration", "popularity", "size", "collection", "added", "modified", "path"];
 
 const DEFAULT_VISIBLE: Set<TrackColumnId> = new Set(["like", "num", "title", "artist", "album", "duration"]);
 
@@ -292,6 +292,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
           case "collection": return ((a.collection_name ?? "").localeCompare(b.collection_name ?? "")) * dir;
           case "added": return ((a.added_at ?? 0) - (b.added_at ?? 0)) * dir;
           case "modified": return ((a.modified_at ?? 0) - (b.modified_at ?? 0)) * dir;
+          case "popularity": return 0; // sorted externally via trackPopularity
           default: return 0;
         }
       });

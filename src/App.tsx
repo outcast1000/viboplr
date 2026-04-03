@@ -311,6 +311,7 @@ function App() {
   const [lastfmLastImportAt, setLastfmLastImportAt] = useState<number | null>(null);
   const [artistBio, setArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
   const [albumWiki, setAlbumWiki] = useState<string | null>(null);
+  const [albumTrackPopularity, setAlbumTrackPopularity] = useState<Record<number, number>>({});
   const [similarArtists, setSimilarArtists] = useState<Array<{ name: string; match: string }>>([]);
   const [infoRefreshCounter, setInfoRefreshCounter] = useState(0);
 
@@ -921,6 +922,37 @@ function App() {
     const unlistenAlbum = listen<any>("lastfm-album-info", (event) => parseAlbumInfo(event.payload));
     return () => { unlistenAlbum.then(f => f()); };
   }, [library.selectedAlbum, library.albums, library.artists, infoRefreshCounter]);
+
+  // Fetch Last.fm track popularity when selected album changes
+  useEffect(() => {
+    setAlbumTrackPopularity({});
+    if (library.selectedAlbum === null) return;
+    const album = library.albums.find(a => a.id === library.selectedAlbum);
+    if (!album) return;
+    const artistName = library.artists.find(a => a.id === album.artist_id)?.name;
+    if (!artistName) return;
+
+    const matchPopularity = (resp: { tracks?: Array<{ name: string; listeners: number }> } | null) => {
+      if (!resp?.tracks) return;
+      const popMap: Record<number, number> = {};
+      const localTracks = library.tracks;
+      for (const lfmTrack of resp.tracks) {
+        const norm = lfmTrack.name.toLowerCase().trim();
+        const match = localTracks.find(t => t.title.toLowerCase().trim() === norm);
+        if (match && lfmTrack.listeners > 0) {
+          popMap[match.id] = lfmTrack.listeners;
+        }
+      }
+      setAlbumTrackPopularity(popMap);
+    };
+
+    invoke<any>("lastfm_get_album_track_popularity", { artistName, albumTitle: album.title })
+      .then(resp => { if (resp) matchPopularity(resp); })
+      .catch(() => {});
+
+    const unlistenPop = listen<any>("lastfm-album-track-popularity", (event) => matchPopularity(event.payload));
+    return () => { unlistenPop.then(f => f()); };
+  }, [library.selectedAlbum, library.albums, library.artists, library.tracks]);
 
   // Keep npTrackRef in sync with the currently playing track
   useEffect(() => {
@@ -3116,6 +3148,7 @@ function App() {
               onToggleLike={handleToggleLike}
                     onToggleDislike={handleToggleDislike}
               onTrackDragStart={handleTrackDragStart}
+              trackPopularity={albumTrackPopularity}
               emptyMessage="No tracks found."
             />
           )}
