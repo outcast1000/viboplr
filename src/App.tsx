@@ -324,6 +324,8 @@ function App() {
   const [npSimilarTracks, setNpSimilarTracks] = useState<Array<{ name: string; artist: { name: string }; match?: string }>>([]);
   const [npTrackTags, setNpTrackTags] = useState<Array<{ name: string; count?: number }>>([]);
   const [npArtistTags, setNpArtistTags] = useState<Array<{ name: string; count?: number }>>([]);
+  const [npLyrics, setNpLyrics] = useState<{ text: string; kind: string; provider: string } | null>(null);
+  const [npLyricsLoading, setNpLyricsLoading] = useState(false);
   const [showNowPlayingView, setShowNowPlayingView] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
@@ -967,6 +969,11 @@ function App() {
   // Background fetches emit events handled by the np* listeners. We must handle
   // both paths — cached responses here, async responses via event listeners.
   const fetchNpLastfmData = useCallback((track: Track) => {
+    // Fetch lyrics
+    setNpLyrics(null);
+    setNpLyricsLoading(true);
+    invoke("fetch_lyrics", { trackId: track.id, force: false }).catch(() => setNpLyricsLoading(false));
+
     const parseBio = (bio: string | undefined) => bio?.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim();
     if (track.artist_name) {
       invoke<any>("lastfm_get_similar_tracks", { artistName: track.artist_name, trackTitle: track.title })
@@ -1001,6 +1008,30 @@ function App() {
     }
   }, []);
 
+  const handleSaveLyrics = useCallback(async (text: string, kind: string) => {
+    if (!playback.currentTrack) return;
+    try {
+      const result = await invoke<{ text: string; kind: string; provider: string }>("save_manual_lyrics", {
+        trackId: playback.currentTrack.id, text, kind
+      });
+      setNpLyrics(result);
+    } catch (e) { console.error("Failed to save lyrics:", e); }
+  }, [playback.currentTrack]);
+
+  const handleResetLyrics = useCallback(() => {
+    if (!playback.currentTrack) return;
+    setNpLyrics(null);
+    setNpLyricsLoading(true);
+    invoke("reset_lyrics", { trackId: playback.currentTrack.id }).catch(() => setNpLyricsLoading(false));
+  }, [playback.currentTrack]);
+
+  const handleForceRefreshLyrics = useCallback(() => {
+    if (!playback.currentTrack) return;
+    setNpLyrics(null);
+    setNpLyricsLoading(true);
+    invoke("fetch_lyrics", { trackId: playback.currentTrack.id, force: true }).catch(() => setNpLyricsLoading(false));
+  }, [playback.currentTrack]);
+
   const openNowPlaying = useCallback(() => {
     if (mini.miniMode) mini.toggleMiniMode();
     setShowNowPlayingView(true);
@@ -1016,6 +1047,8 @@ function App() {
     setNpSimilarTracks([]);
     setNpTrackTags([]);
     setNpArtistTags([]);
+    setNpLyrics(null);
+    setNpLyricsLoading(false);
 
     if (showNowPlayingView && playback.currentTrack) {
       fetchNpLastfmData(playback.currentTrack);
@@ -1073,12 +1106,27 @@ function App() {
       if (Array.isArray(tags)) setNpArtistTags(tags);
     });
 
+    const unlistenLyricsLoaded = listen<{ track_id: number; text: string; kind: string; provider: string }>("lyrics-loaded", (event) => {
+      if (event.payload.track_id === npTrackRef.current?.id) {
+        setNpLyrics({ text: event.payload.text, kind: event.payload.kind, provider: event.payload.provider });
+        setNpLyricsLoading(false);
+      }
+    });
+
+    const unlistenLyricsError = listen<{ track_id: number; error: string }>("lyrics-error", (event) => {
+      if (event.payload.track_id === npTrackRef.current?.id) {
+        setNpLyricsLoading(false);
+      }
+    });
+
     return () => {
       unlistenArtistInfo.then((f) => f());
       unlistenAlbumInfo.then((f) => f());
       unlistenSimilarTracks.then((f) => f());
       unlistenTrackTags.then((f) => f());
       unlistenArtistTags.then((f) => f());
+      unlistenLyricsLoaded.then((f) => f());
+      unlistenLyricsError.then((f) => f());
     };
   }, []);
 
@@ -2051,6 +2099,12 @@ function App() {
           onAlbumClick={(id, aid) => { setShowNowPlayingView(false); library.handleAlbumClick(id, aid); }}
           onTagClick={(tagId) => { setShowNowPlayingView(false); library.setSelectedTag(tagId); library.setView("tags"); }}
           libraryTags={library.tags}
+          npLyrics={npLyrics}
+          npLyricsLoading={npLyricsLoading}
+          positionSecs={playback.positionSecs}
+          onSaveLyrics={handleSaveLyrics}
+          onResetLyrics={handleResetLyrics}
+          onForceRefreshLyrics={handleForceRefreshLyrics}
         />
       )}
 

@@ -1,5 +1,6 @@
 import { Track } from "../types";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import LyricsPanel from "./LyricsPanel";
 
 interface NowPlayingViewProps {
   currentTrack: Track;
@@ -14,6 +15,12 @@ interface NowPlayingViewProps {
   npTrackTags: Array<{ name: string; count?: number }>;
   npArtistTags: Array<{ name: string; count?: number }>;
   libraryTags: Array<{ id: number; name: string }>;
+  npLyrics: { text: string; kind: string; provider: string } | null;
+  npLyricsLoading: boolean;
+  positionSecs: number;
+  onSaveLyrics: (text: string, kind: string) => void;
+  onResetLyrics: () => void;
+  onForceRefreshLyrics: () => void;
   isVideo: boolean;
   onToggleLike: () => void;
   onToggleDislike?: () => void;
@@ -37,6 +44,8 @@ function NowPlayingBody(props: NowPlayingViewProps) {
     currentTrack, nextTrack, albumImagePath, artistImagePath,
     npArtistBio, npAlbumWiki, npAlbumTags, npSimilarArtists, npSimilarTracks,
     npTrackTags, npArtistTags, libraryTags,
+    npLyrics, npLyricsLoading, positionSecs,
+    onSaveLyrics, onResetLyrics, onForceRefreshLyrics,
     onToggleLike, onToggleDislike, onArtistClick, onAlbumClick, onTagClick,
   } = props;
 
@@ -123,10 +132,7 @@ function NowPlayingBody(props: NowPlayingViewProps) {
               </div>
             </div>
           )}
-        </div>
 
-        {/* Right side -- scrollable */}
-        <div className="np-right">
           {/* Album card */}
           <div className="np-card">
             <div className="np-card-header">Album</div>
@@ -192,6 +198,19 @@ function NowPlayingBody(props: NowPlayingViewProps) {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Right side -- lyrics */}
+        <div className="np-right">
+          <LyricsPanel
+            trackId={currentTrack.id}
+            positionSecs={positionSecs}
+            lyrics={npLyrics}
+            loading={npLyricsLoading}
+            onSave={onSaveLyrics}
+            onReset={onResetLyrics}
+            onForceRefresh={onForceRefreshLyrics}
+          />
         </div>
       </div>
     </div>
