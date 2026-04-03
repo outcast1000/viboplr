@@ -23,7 +23,7 @@ let tidalIdCounter = -100000;
  *
  * Rules:
  * - TIDAL (empty path + subsonic_id): tidal://{subsonic_id}
- * - Subsonic (collection.kind === "subsonic"): subsonic://{host}/rest/stream.view?id={subsonic_id}
+ * - Subsonic (collection.kind === "subsonic"): subsonic://{host}/{subsonic_id}
  * - Everything else: file://{track.path}
  */
 export function computeUrl(track: Track, collections: Collection[]): string {
@@ -37,8 +37,8 @@ export function computeUrl(track: Track, collections: Collection[]): string {
     const collection = collections.find((c) => c.id === track.collection_id);
     if (collection) {
       if (collection.kind === "subsonic" && track.subsonic_id && collection.url) {
-        let host = collection.url.replace(/^https:\/\//, "").replace(/\/$/, "");
-        return `subsonic://${host}/rest/stream.view?id=${track.subsonic_id}`;
+        let host = collection.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+        return `subsonic://${host}/${track.subsonic_id}`;
       }
     }
   }
@@ -138,8 +138,9 @@ export function parseUrlScheme(url: string): ParsedUrl {
   }
 
   if (url.startsWith("subsonic://")) {
-    const parsed = new URL(url);
-    const id = parsed.searchParams.get("id") || "";
+    const rest = url.substring(11); // strip "subsonic://"
+    const lastSlash = rest.lastIndexOf("/");
+    const id = lastSlash >= 0 ? rest.substring(lastSlash + 1) : "";
     return { scheme: "subsonic", url, id };
   }
 

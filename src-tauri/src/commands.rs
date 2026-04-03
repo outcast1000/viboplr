@@ -442,20 +442,19 @@ pub fn resolve_subsonic_location(
     state: State<'_, AppState>,
     location: String,
 ) -> Result<String, String> {
-    // Parse: subsonic://host(:port)(/path)/rest/stream.view?id=XYZ
+    // Parse: subsonic://{host}/{subsonic_id}
     let without_scheme = location
         .strip_prefix("subsonic://")
         .ok_or("Invalid subsonic location: missing subsonic:// prefix")?;
-    let host_end = without_scheme
-        .find("/rest/")
-        .ok_or("Invalid subsonic location: missing /rest/ path")?;
-    let host_with_path = &without_scheme[..host_end];
+    let last_slash = without_scheme
+        .rfind('/')
+        .ok_or("Invalid subsonic location: missing track id")?;
+    let host = &without_scheme[..last_slash];
+    let track_id = &without_scheme[last_slash + 1..];
 
-    let track_id = without_scheme
-        .split("id=")
-        .nth(1)
-        .and_then(|s| s.split('&').next())
-        .ok_or("No id parameter in subsonic location")?;
+    if track_id.is_empty() {
+        return Err("Invalid subsonic location: empty track id".to_string());
+    }
 
     let collections = state.db.get_collections().map_err(|e| e.to_string())?;
     let collection = collections
@@ -463,10 +462,14 @@ pub fn resolve_subsonic_location(
         .find(|c| {
             c.kind == "subsonic"
                 && c.url.as_ref().map_or(false, |u| {
-                    u.contains(host_with_path)
+                    let normalized = u
+                        .trim_start_matches("https://")
+                        .trim_start_matches("http://")
+                        .trim_end_matches('/');
+                    normalized == host
                 })
         })
-        .ok_or_else(|| format!("No subsonic collection found matching host: {}", host_with_path))?;
+        .ok_or_else(|| format!("No subsonic collection found matching host: {}", host))?;
 
     let creds = state
         .db
@@ -1139,8 +1142,9 @@ pub fn load_playlist(
                 modified_at: None,
             });
         } else if location.starts_with("subsonic://") {
-            // Try to find in DB by subsonic_id
-            let id_match = location.split("id=").nth(1).and_then(|s| s.split('&').next());
+            // Parse subsonic://{host}/{subsonic_id}
+            let rest = location.strip_prefix("subsonic://").unwrap();
+            let id_match = rest.rfind('/').map(|i| &rest[i + 1..]).filter(|s| !s.is_empty());
             if let Some(remote_id) = id_match {
                 let collections = state.db.get_collections().map_err(|e| e.to_string())?;
                 let mut found = false;

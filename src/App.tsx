@@ -1356,15 +1356,19 @@ function App() {
   currentTrackRef.current = playback.currentTrack;
   const handleStopRef = useRef(playback.handleStop);
   handleStopRef.current = playback.handleStop;
+  const playNextRef = useRef(queueHook.playNext);
+  playNextRef.current = queueHook.playNext;
+  const addToQueueAndPlayRef = useRef(queueHook.addToQueueAndPlay);
+  addToQueueAndPlayRef.current = queueHook.addToQueueAndPlay;
 
   const handleNext = useCallback(async () => {
-    if (!queueHook.playNext()) {
+    if (!playNextRef.current()) {
       const ac = autoContinueRef.current;
       const track = currentTrackRef.current;
       if (ac.enabled && track) {
         const next = await ac.fetchTrack(track);
         if (next) {
-          queueHook.addToQueueAndPlay(next);
+          addToQueueAndPlayRef.current(next);
           return;
         }
       }
