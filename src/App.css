@@ -3638,6 +3638,18 @@ body {
 }
 
 /* Sort bar */
+.sort-bar-wrapper {
+  max-height: 200px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height 200ms ease, opacity 200ms ease;
+}
+
+.sort-bar-wrapper.collapsed {
+  max-height: 0;
+  opacity: 0;
+}
+
 .sort-bar {
   display: flex;
   align-items: flex-start;
