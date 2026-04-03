@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SearchProviderConfig } from "../searchProviders";
 import { buildSearchUrl, getDomainFromUrl } from "../searchProviders";
-import { IconImage, IconRemoveImage, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
+import { IconImage, IconRemoveImage, IconRefresh, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
 import type { ReactNode } from "react";
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
@@ -36,9 +36,10 @@ interface ImageActionsProps {
   providers?: SearchProviderConfig[];
   onImageSet: (id: number, path: string) => void;
   onImageRemoved: (id: number) => void;
+  onRefresh?: () => void;
 }
 
-export function ImageActions({ entityId, entityType, entityName, imagePath, providers, onImageSet, onImageRemoved }: ImageActionsProps) {
+export function ImageActions({ entityId, entityType, entityName, imagePath, providers, onImageSet, onImageRemoved, onRefresh }: ImageActionsProps) {
   const [open_menu, setOpenMenu] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -95,6 +96,16 @@ export function ImageActions({ entityId, entityType, entityName, imagePath, prov
               }}
             >
               <IconRemoveImage size={14} /><span>Remove Image</span>
+            </button>
+          )}
+          {onRefresh && (
+            <button
+              onClick={() => {
+                setOpenMenu(false);
+                onRefresh();
+              }}
+            >
+              <IconRefresh size={14} /><span>Refresh Info</span>
             </button>
           )}
           {activeProviders.length > 0 && entityName && (

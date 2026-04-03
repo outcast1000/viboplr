@@ -312,6 +312,7 @@ function App() {
   const [artistBio, setArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
   const [albumWiki, setAlbumWiki] = useState<string | null>(null);
   const [similarArtists, setSimilarArtists] = useState<Array<{ name: string; match: string }>>([]);
+  const [infoRefreshCounter, setInfoRefreshCounter] = useState(0);
 
   // Now Playing view: Last.fm data keyed to current playing track
   const [npArtistBio, setNpArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
@@ -896,7 +897,7 @@ function App() {
       unlistenInfo.then(f => f());
       unlistenSimilar.then(f => f());
     };
-  }, [library.selectedArtist, library.artists]);
+  }, [library.selectedArtist, library.artists, infoRefreshCounter]);
 
   // Fetch Last.fm album wiki when selected album changes
   useEffect(() => {
@@ -919,7 +920,7 @@ function App() {
 
     const unlistenAlbum = listen<any>("lastfm-album-info", (event) => parseAlbumInfo(event.payload));
     return () => { unlistenAlbum.then(f => f()); };
-  }, [library.selectedAlbum, library.albums, library.artists]);
+  }, [library.selectedAlbum, library.albums, library.artists, infoRefreshCounter]);
 
   // Keep npTrackRef in sync with the currently playing track
   useEffect(() => {
@@ -2434,6 +2435,12 @@ function App() {
                         onImageRemoved={(id) => {
                           artistImageCache.setImages(prev => ({ ...prev, [id]: null }));
                         }}
+                        onRefresh={() => {
+                          if (!artist) return;
+                          artistImageCache.forceFetchImage({ id: selectedArtist, name: artist.name });
+                          invoke("clear_lastfm_cache_for_entity", { kind: "artist", name: artist.name });
+                          setInfoRefreshCounter(c => c + 1);
+                        }}
                       />
                     </h2>
                     <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
@@ -2873,6 +2880,12 @@ function App() {
                         providers={albumProviders}
                         onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
                         onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}
+                        onRefresh={() => {
+                          if (!album) return;
+                          albumImageCache.forceFetchImage({ id: selectedAlbum, title: album.title, artist_name: album.artist_name });
+                          invoke("clear_lastfm_cache_for_entity", { kind: "album", name: album.title, artistName: album.artist_name });
+                          setInfoRefreshCounter(c => c + 1);
+                        }}
                       />
                     </h2>
                     {album?.artist_name && (
@@ -3445,6 +3458,11 @@ function App() {
           onShowProperties={handleShowProperties}
           onBulkEdit={handleBulkEdit}
           onDelete={handleDeleteRequest}
+          onRefreshImage={contextMenu.target.kind === "artist"
+            ? () => { const t = contextMenu.target; if (t.kind === "artist") artistImageCache.forceFetchImage({ id: t.artistId, name: t.name }); }
+            : contextMenu.target.kind === "album"
+            ? () => { const t = contextMenu.target; if (t.kind === "album") albumImageCache.forceFetchImage({ id: t.albumId, title: t.title, artist_name: t.artistName }); }
+            : undefined}
           onRemoveFromQueue={handleQueueRemove}
           onMoveToTop={handleQueueMoveToTop}
           onMoveToBottom={handleQueueMoveToBottom}

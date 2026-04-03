@@ -26,8 +26,8 @@ pub const LASTFM_API_KEY: &str = env_or_empty!("LASTFM_API_KEY");
 pub const LASTFM_API_SECRET: &str = env_or_empty!("LASTFM_API_SECRET");
 
 pub enum ImageDownloadRequest {
-    Artist { id: i64, name: String },
-    Album { id: i64, title: String, artist_name: Option<String> },
+    Artist { id: i64, name: String, force: bool },
+    Album { id: i64, title: String, artist_name: Option<String>, force: bool },
     Tag { id: i64, name: String },
 }
 
@@ -850,10 +850,18 @@ pub fn fetch_artist_image(
     state: State<'_, AppState>,
     artist_id: i64,
     artist_name: String,
+    force: Option<bool>,
 ) {
-    log::info!("Queued artist image download: {} (id={})", artist_name, artist_id);
+    let force = force.unwrap_or(false);
+    if force {
+        let _ = state.db.clear_image_failure("artist", artist_id);
+        if let Ok(slug) = resolve_entity_slug(&state, "artist", artist_id) {
+            crate::entity_image::remove_image(&state.app_dir, "artist", &slug);
+        }
+    }
+    log::info!("Queued artist image download: {} (id={}, force={})", artist_name, artist_id, force);
     let mut queue = state.download_queue.queue.lock().unwrap();
-    queue.push(ImageDownloadRequest::Artist { id: artist_id, name: artist_name });
+    queue.push(ImageDownloadRequest::Artist { id: artist_id, name: artist_name, force });
     state.download_queue.condvar.notify_one();
 }
 
@@ -863,10 +871,18 @@ pub fn fetch_album_image(
     album_id: i64,
     album_title: String,
     artist_name: Option<String>,
+    force: Option<bool>,
 ) {
-    log::info!("Queued album image download: {} (id={})", album_title, album_id);
+    let force = force.unwrap_or(false);
+    if force {
+        let _ = state.db.clear_image_failure("album", album_id);
+        if let Ok(slug) = resolve_entity_slug(&state, "album", album_id) {
+            crate::entity_image::remove_image(&state.app_dir, "album", &slug);
+        }
+    }
+    log::info!("Queued album image download: {} (id={}, force={})", album_title, album_id, force);
     let mut queue = state.download_queue.queue.lock().unwrap();
-    queue.push(ImageDownloadRequest::Album { id: album_id, title: album_title, artist_name });
+    queue.push(ImageDownloadRequest::Album { id: album_id, title: album_title, artist_name, force });
     state.download_queue.condvar.notify_one();
 }
 
@@ -885,6 +901,21 @@ pub fn fetch_tag_image(
 #[tauri::command]
 pub fn clear_image_failures(state: State<'_, AppState>) -> Result<(), String> {
     state.db.clear_image_failures().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn clear_lastfm_cache_for_entity(state: State<'_, AppState>, kind: String, name: String, artist_name: Option<String>) -> Result<(), String> {
+    let lower = name.to_lowercase();
+    if kind == "artist" {
+        let _ = state.db.lastfm_cache_delete(&format!("artist_info:{}", lower));
+        let _ = state.db.lastfm_cache_delete(&format!("similar_artists:{}", lower));
+        let _ = state.db.lastfm_cache_delete(&format!("artist_tags:{}", lower));
+    } else if kind == "album" {
+        if let Some(artist) = artist_name {
+            let _ = state.db.lastfm_cache_delete(&format!("album_info:{}:{}", artist.to_lowercase(), lower));
+        }
+    }
+    Ok(())
 }
 
 // --- Play history commands ---

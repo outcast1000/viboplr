@@ -2,7 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { DockSide, FitMode } from "../hooks/useVideoLayout";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl, getDomainFromUrl } from "../searchProviders";
-import { IconPlay, IconEnqueue, IconFolder, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius, IconInfo, IconTrash } from "./Icons";
+import { IconPlay, IconEnqueue, IconFolder, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius, IconInfo, IconTrash, IconRefresh } from "./Icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 
@@ -29,6 +29,7 @@ interface ContextMenuProps {
   onWatchOnYoutube?: () => void;
   onShowProperties?: () => void;
   onDelete?: () => void;
+  onRefreshImage?: () => void;
   onRemoveFromQueue?: () => void;
   onMoveToTop?: () => void;
   onMoveToBottom?: () => void;
@@ -110,7 +111,7 @@ function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarget {
 
 export function ContextMenu({
   menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onShowProperties,
-  onDelete, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, localCollections,
+  onDelete, onRefreshImage, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, localCollections,
   onBulkEdit, onClose,
   pluginMenuItems, onPluginAction,
   onSetDockSide, onSetFitMode,
@@ -198,6 +199,11 @@ export function ContextMenu({
       <div className="context-menu-item" onClick={() => { onEnqueue(); onClose(); }}>
         <IconEnqueue size={14} /><span>{isMulti ? `Enqueue ${target.trackIds.length} tracks` : "Enqueue"}</span>
       </div>
+      {(target.kind === "artist" || target.kind === "album") && onRefreshImage && (
+        <div className="context-menu-item" onClick={() => { onRefreshImage(); onClose(); }}>
+          <IconRefresh size={14} /><span>Refresh Image</span>
+        </div>
+      )}
       {isMulti && onBulkEdit && (
         <div className="context-menu-item" onClick={() => { onBulkEdit(); onClose(); }}>
           <IconInfo size={14} /><span>Edit Properties</span>

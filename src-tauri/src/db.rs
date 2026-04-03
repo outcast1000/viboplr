@@ -1497,6 +1497,15 @@ impl Database {
         Ok(count > 0)
     }
 
+    pub fn clear_image_failure(&self, kind: &str, item_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM image_fetch_failures WHERE kind = ?1 AND item_id = ?2",
+            params![kind, item_id],
+        )?;
+        Ok(())
+    }
+
     pub fn clear_image_failures(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM image_fetch_failures", [])?;
@@ -2070,6 +2079,15 @@ impl Database {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    pub fn lastfm_cache_delete(&self, key_prefix: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM lastfm_cache WHERE cache_key LIKE ?1",
+            params![format!("{}%", key_prefix)],
+        )?;
+        Ok(())
     }
 
     pub fn lastfm_cache_set(&self, key: &str, value: &serde_json::Value) -> SqlResult<()> {

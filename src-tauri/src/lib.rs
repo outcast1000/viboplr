@@ -68,6 +68,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::fetch_album_image,
         commands::fetch_tag_image,
         commands::clear_image_failures,
+        commands::clear_lastfm_cache_for_entity,
         commands::record_play,
         commands::get_history_recent,
         commands::get_history_most_played,
@@ -193,6 +194,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::fetch_album_image,
         commands::fetch_tag_image,
         commands::clear_image_failures,
+        commands::clear_lastfm_cache_for_entity,
         commands::record_play,
         commands::get_history_recent,
         commands::get_history_most_played,
@@ -522,14 +524,14 @@ pub fn run() {
                     };
 
                     match &request {
-                        ImageDownloadRequest::Artist { id, name } => {
-                            if worker_db.is_image_failed("artist", *id).unwrap_or(false) {
+                        ImageDownloadRequest::Artist { id, name, force } => {
+                            if !force && worker_db.is_image_failed("artist", *id).unwrap_or(false) {
                                 log::info!("Skipping previously failed artist image: {} (id={})", name, id);
                                 continue;
                             }
                             let slug = entity_image::entity_image_slug("artist", name, None);
                             let dest = worker_app_dir.join("artist_images").join(format!("{}.jpg", slug));
-                            if dest.exists() {
+                            if !force && dest.exists() {
                                 log::info!("Artist image already exists for {} (id={}), skipping", name, id);
                                 continue;
                             }
@@ -553,14 +555,14 @@ pub fn run() {
                                 }
                             }
                         }
-                        ImageDownloadRequest::Album { id, title, artist_name } => {
-                            if worker_db.is_image_failed("album", *id).unwrap_or(false) {
+                        ImageDownloadRequest::Album { id, title, artist_name, force } => {
+                            if !force && worker_db.is_image_failed("album", *id).unwrap_or(false) {
                                 log::info!("Skipping previously failed album image: {} (id={})", title, id);
                                 continue;
                             }
                             let slug = entity_image::entity_image_slug("album", title, artist_name.as_deref());
                             let dest = worker_app_dir.join("album_images").join(format!("{}.jpg", slug));
-                            if dest.exists() {
+                            if !force && dest.exists() {
                                 log::info!("Album image already exists for {} (id={}), skipping", title, id);
                                 continue;
                             }

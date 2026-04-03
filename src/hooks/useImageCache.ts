@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 export interface UseImageCacheReturn {
   images: Record<number, string | null>;
   fetchOnDemand: (entity: { id: number; name?: string; title?: string; artist_name?: string | null }) => void;
+  forceFetchImage: (entity: { id: number; name?: string; title?: string; artist_name?: string | null }) => void;
   setLocalImage: (id: number, path: string) => void;
   clearImage: (id: number) => void;
   clearAllFailures: () => void;
@@ -48,6 +49,21 @@ export function useImageCache(
     setImages((prev) => ({ ...prev, [id]: null }));
   }, []);
 
+  const forceFetchImage = useCallback((entity: { id: number; name?: string; title?: string; artist_name?: string | null }) => {
+    failed.current = new Set([...failed.current].filter(id => id !== entity.id));
+    fetched.current = new Set([...fetched.current].filter(id => id !== entity.id));
+    setImages((prev) => {
+      const next = { ...prev };
+      delete next[entity.id];
+      return next;
+    });
+    if (kind === "artist") {
+      invoke("fetch_artist_image", { artistId: entity.id, artistName: entity.name ?? "Unknown", force: true });
+    } else if (kind === "album") {
+      invoke("fetch_album_image", { albumId: entity.id, albumTitle: entity.title ?? "", artistName: entity.artist_name, force: true });
+    }
+  }, [kind]);
+
   const clearAllFailures = useCallback(() => {
     failed.current = new Set();
     fetched.current = new Set();
@@ -82,5 +98,5 @@ export function useImageCache(
     };
   }, [kind, addLog]);
 
-  return { images, fetchOnDemand, setLocalImage, clearImage, clearAllFailures, setImages };
+  return { images, fetchOnDemand, forceFetchImage, setLocalImage, clearImage, clearAllFailures, setImages };
 }
