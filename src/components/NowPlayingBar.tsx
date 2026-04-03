@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
@@ -30,6 +30,24 @@ const shortcuts = [
   { keys: `${mod}\u21E7M`, action: "Mini Player" },
 ];
 
+
+function SlideText({ text, className }: { text: string; className?: string }) {
+  const [key, setKey] = useState(0);
+  const prevRef = useRef(text);
+
+  useEffect(() => {
+    if (text !== prevRef.current) {
+      prevRef.current = text;
+      setKey(k => k + 1);
+    }
+  }, [text]);
+
+  return (
+    <span key={key} className={`${className ?? ""} slide-text-enter`}>
+      {text}
+    </span>
+  );
+}
 
 interface NowPlayingBarProps {
   waveformPeaks: number[] | null;
@@ -185,16 +203,18 @@ export function NowPlayingBar({
       </div>
       <div className="now-main">
         <div className="now-info">
-          {imagePath && <img className="now-art" src={convertFileSrc(imagePath)} alt="" />}
+          <div className={`now-art-wrapper${playing ? " playing" : ""}`}>
+            {imagePath && <img className="now-art" src={convertFileSrc(imagePath)} alt="" />}
+          </div>
           <div className="now-info-text">
             {currentTrack ? (
               <>
                 <span className={`now-title${currentTrack.album_id ? " now-link" : ""}`} onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id) : undefined}>
-                  {currentTrack.title}
+                  <SlideText text={currentTrack.title} />
                   {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                 </span>
                 <span className="now-subtitle">
-                  <span className="now-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : undefined}>{currentTrack.artist_name || "Unknown"}</span>
+                  <span className="now-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : undefined}><SlideText text={currentTrack.artist_name || "Unknown"} /></span>
                   {artistRank != null && artistRank <= 100 && <span className="now-rank-badge" title={`Artist rank #${artistRank}`}>#{artistRank}</span>}
                   {currentTrack.album_id && currentTrack.album_title && (
                     <><span className="now-sep"> — </span><span className="now-link" onClick={() => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id)}>{currentTrack.album_title}</span></>

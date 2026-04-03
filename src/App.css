@@ -2865,6 +2865,28 @@ body {
   z-index: 1;
 }
 
+.now-art-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.now-art-wrapper::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  background: rgba(var(--accent-rgb), 0.7);
+  filter: blur(20px);
+  border-radius: 8px;
+  z-index: -1;
+  opacity: 0.3;
+  will-change: opacity;
+  transition: opacity 0.5s ease;
+}
+
+.now-art-wrapper.playing::before {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
 .now-art {
   width: 52px;
   height: 52px;
@@ -6797,6 +6819,16 @@ body {
 @keyframes glow-pulse {
   0%, 100% { opacity: 0.5; }
   50%      { opacity: 0.8; }
+}
+
+/* Track info slide animation */
+.slide-text-enter {
+  animation: slide-text-in 250ms ease-out forwards;
+}
+
+@keyframes slide-text-in {
+  from { transform: translateY(60%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
 }
 
 /* Animation utility classes */
