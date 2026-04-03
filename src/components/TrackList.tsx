@@ -362,8 +362,32 @@ export function TrackList({
       case "like":
         return (
           <span key="like" className="col-like">
-            <span className={`like-btn${t.liked === 1 ? " active" : ""}`} onClick={(e) => { e.stopPropagation(); onToggleLike(t); }} title={t.liked === 1 ? "Unlike" : "Like"}>{t.liked === 1 ? "\u2665" : "\u2661"}</span>
-            {onToggleDislike && <span className={`dislike-btn${t.liked === -1 ? " active" : ""}`} onClick={(e) => { e.stopPropagation(); onToggleDislike(t); }} title={t.liked === -1 ? "Remove dislike" : "Dislike"}>{t.liked === -1 ? "\u2716" : "\u2298"}</span>}
+            <span
+              className={`like-btn${t.liked === 1 ? " active" : ""}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                (e.currentTarget as HTMLElement).classList.add("anim-heart-bounce");
+                onToggleLike(t);
+              }}
+              onAnimationEnd={(e) => (e.currentTarget as HTMLElement).classList.remove("anim-heart-bounce")}
+              title={t.liked === 1 ? "Unlike" : "Like"}
+            >
+              {t.liked === 1 ? "\u2665" : "\u2661"}
+            </span>
+            {onToggleDislike && (
+              <span
+                className={`dislike-btn${t.liked === -1 ? " active" : ""}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  (e.currentTarget as HTMLElement).classList.add("anim-heart-bounce-subtle");
+                  onToggleDislike(t);
+                }}
+                onAnimationEnd={(e) => (e.currentTarget as HTMLElement).classList.remove("anim-heart-bounce-subtle")}
+                title={t.liked === -1 ? "Remove dislike" : "Dislike"}
+              >
+                {t.liked === -1 ? "\u2716" : "\u2298"}
+              </span>
+            )}
           </span>
         );
       case "num":

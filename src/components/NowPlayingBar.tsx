@@ -87,6 +87,8 @@ export function NowPlayingBar({
   showNowPlayingView, onToggleNowPlaying, showHelp, onToggleHelp,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const likeBtnRef = useRef<HTMLSpanElement>(null);
+  const dislikeBtnRef = useRef<HTMLSpanElement>(null);
 
   if (miniMode) {
     const handleDrag = isMac
@@ -206,13 +208,23 @@ export function NowPlayingBar({
           {currentTrack && (
             <>
               <span
+                ref={likeBtnRef}
                 className={`now-like-btn${currentTrack.liked === 1 ? " liked" : ""}`}
-                onClick={onToggleLike}
+                onClick={() => {
+                  likeBtnRef.current?.classList.add("anim-heart-bounce");
+                  onToggleLike();
+                }}
+                onAnimationEnd={() => likeBtnRef.current?.classList.remove("anim-heart-bounce")}
                 title={`${currentTrack.liked === 1 ? "Unlike" : "Like"} (${mod}L)`}
               >{currentTrack.liked === 1 ? "\u2665" : "\u2661"}</span>
               {onToggleDislike && <span
+                ref={dislikeBtnRef}
                 className={`now-dislike-btn${currentTrack.liked === -1 ? " disliked" : ""}`}
-                onClick={onToggleDislike}
+                onClick={() => {
+                  dislikeBtnRef.current?.classList.add("anim-heart-bounce-subtle");
+                  onToggleDislike();
+                }}
+                onAnimationEnd={() => dislikeBtnRef.current?.classList.remove("anim-heart-bounce-subtle")}
                 title={currentTrack.liked === -1 ? "Remove dislike" : "Dislike"}
               >{currentTrack.liked === -1 ? "\u2716" : "\u2298"}</span>}
             </>
