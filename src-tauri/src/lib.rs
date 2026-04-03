@@ -17,6 +17,7 @@ mod tag_writer;
 mod timing;
 mod downloader;
 mod lastfm;
+mod lyric_provider;
 
 use commands::{AppState, DownloadQueue, ImageDownloadRequest};
 use db::Database;
