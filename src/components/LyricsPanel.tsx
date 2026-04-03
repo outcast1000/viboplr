@@ -69,7 +69,7 @@ export default function LyricsPanel({ trackId, positionSecs, lyrics, loading, on
   const handleScroll = useCallback(() => {
     setUserScrolled(true);
     if (userScrollTimeout.current) clearTimeout(userScrollTimeout.current);
-    userScrollTimeout.current = setTimeout(() => setUserScrolled(false), 5000);
+    userScrollTimeout.current = window.setTimeout(() => setUserScrolled(false), 5000);
   }, []);
 
   const startEdit = () => {
