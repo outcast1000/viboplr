@@ -1,7 +1,7 @@
 import type { Track, Collection } from "./types";
 
 export interface QueueEntry {
-  location: string;
+  url: string;
   title: string;
   artist_name: string | null;
   album_title: string | null;
@@ -11,7 +11,7 @@ export interface QueueEntry {
   format: string | null;
 }
 
-export type ParsedLocation =
+export type ParsedUrl =
   | { scheme: "file"; path: string }
   | { scheme: "tidal"; id: string }
   | { scheme: "subsonic"; url: string; id: string };
@@ -19,30 +19,24 @@ export type ParsedLocation =
 let tidalIdCounter = -100000;
 
 /**
- * Computes the location URI for a track based on its source.
+ * Computes the playback URL for a track based on its source.
  *
  * Rules:
- * - Local track (no subsonic_id): file://{track.path}
- * - TIDAL ephemeral (empty path + subsonic_id): tidal://{subsonic_id}
- * - TIDAL collection (collection.kind === "tidal"): tidal://{subsonic_id}
+ * - TIDAL (empty path + subsonic_id): tidal://{subsonic_id}
  * - Subsonic (collection.kind === "subsonic"): subsonic://{host}/rest/stream.view?id={subsonic_id}
- * - Fallback: file://{track.path}
+ * - Everything else: file://{track.path}
  */
-export function computeLocation(track: Track, collections: Collection[]): string {
-  // TIDAL ephemeral: empty path + subsonic_id
+export function computeUrl(track: Track, collections: Collection[]): string {
+  // TIDAL: empty path + subsonic_id
   if (track.path === "" && track.subsonic_id) {
     return `tidal://${track.subsonic_id}`;
   }
 
-  // Check collection kind if track has a collection
+  // Check collection kind for Subsonic
   if (track.collection_id !== null) {
     const collection = collections.find((c) => c.id === track.collection_id);
     if (collection) {
-      if (collection.kind === "tidal" && track.subsonic_id) {
-        return `tidal://${track.subsonic_id}`;
-      }
       if (collection.kind === "subsonic" && track.subsonic_id && collection.url) {
-        // Strip https:// and trailing slash
         let host = collection.url.replace(/^https:\/\//, "").replace(/\/$/, "");
         return `subsonic://${host}/rest/stream.view?id=${track.subsonic_id}`;
       }
@@ -54,12 +48,20 @@ export function computeLocation(track: Track, collections: Collection[]): string
 }
 
 /**
- * Converts a Track to a QueueEntry by computing its location URI and
- * copying relevant metadata fields.
+ * Stamps a url on a track for queue use. If the track already has a url, keeps it.
+ * Otherwise computes one from the track's source info.
+ */
+export function stampUrl(track: Track, collections: Collection[]): Track {
+  if (track.url) return track;
+  return { ...track, url: computeUrl(track, collections) };
+}
+
+/**
+ * Converts a Track to a QueueEntry for serialization.
  */
 export function trackToQueueEntry(track: Track, collections: Collection[]): QueueEntry {
   return {
-    location: track._location ?? computeLocation(track, collections),
+    url: track.url ?? computeUrl(track, collections),
     title: track.title,
     artist_name: track.artist_name,
     album_title: track.album_title,
@@ -79,7 +81,7 @@ export function trackToQueueEntry(track: Track, collections: Collection[]): Queu
  * - subsonic:// → extract id from ?id= param, set subsonic_id, id=0, path=""
  */
 export function queueEntryToTrack(entry: QueueEntry): Track {
-  const parsed = parseLocationScheme(entry.location);
+  const parsed = parseUrlScheme(entry.url);
 
   let id = 0;
   let path = "";
@@ -114,34 +116,33 @@ export function queueEntryToTrack(entry: QueueEntry): Track {
     youtube_url: null,
     added_at: null,
     modified_at: null,
-    _location: entry.location,
+    url: entry.url,
   };
 }
 
 /**
- * Parses a location URI into a typed ParsedLocation result.
+ * Parses a URL into a typed ParsedUrl result.
  *
  * Supported schemes:
  * - file:// → { scheme: "file", path: string }
  * - tidal:// → { scheme: "tidal", id: string }
  * - subsonic:// → { scheme: "subsonic", url: string, id: string }
  */
-export function parseLocationScheme(location: string): ParsedLocation {
-  if (location.startsWith("file://")) {
-    return { scheme: "file", path: location.substring(7) };
+export function parseUrlScheme(url: string): ParsedUrl {
+  if (url.startsWith("file://")) {
+    return { scheme: "file", path: url.substring(7) };
   }
 
-  if (location.startsWith("tidal://")) {
-    return { scheme: "tidal", id: location.substring(8) };
+  if (url.startsWith("tidal://")) {
+    return { scheme: "tidal", id: url.substring(8) };
   }
 
-  if (location.startsWith("subsonic://")) {
-    // Extract id from query param ?id=...
-    const url = new URL(location);
-    const id = url.searchParams.get("id") || "";
-    return { scheme: "subsonic", url: location, id };
+  if (url.startsWith("subsonic://")) {
+    const parsed = new URL(url);
+    const id = parsed.searchParams.get("id") || "";
+    return { scheme: "subsonic", url, id };
   }
 
   // Default to file scheme for unknown or plain paths
-  return { scheme: "file", path: location };
+  return { scheme: "file", path: url };
 }

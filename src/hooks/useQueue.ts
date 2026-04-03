@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import type { Track, PlaylistLoadResult, Collection } from "../types";
-import { trackToQueueEntry, computeLocation } from "../queueEntry";
+import { trackToQueueEntry, stampUrl } from "../queueEntry";
 import { store } from "../store";
 
 export function useQueue(
@@ -56,26 +56,32 @@ export function useQueue(
     return [startIndex, ...indices];
   }
 
+  function stamp(tracks: Track[]): Track[] {
+    return tracks.map(t => stampUrl(t, collections));
+  }
+
   function playTracks(tracks: Track[], startIndex: number) {
-    setQueue(tracks);
+    const stamped = stamp(tracks);
+    setQueue(stamped);
     setQueueIndex(startIndex);
-    handlePlay(tracks[startIndex]);
+    handlePlay(stamped[startIndex]);
     if (queueModeRef.current === "shuffle") {
-      const order = generateShuffleOrder(tracks.length, startIndex);
+      const order = generateShuffleOrder(stamped.length, startIndex);
       setShuffleOrder(order);
       setShufflePosition(0);
     }
   }
 
   function findDuplicates(newTracks: Track[]): { duplicates: Track[]; unique: Track[] } {
-    const existing = new Set(queueRef.current.map(t => computeLocation(t, collections)));
-    const duplicates = newTracks.filter(t => existing.has(computeLocation(t, collections)));
-    const unique = newTracks.filter(t => !existing.has(computeLocation(t, collections)));
+    const stamped = stamp(newTracks);
+    const existing = new Set(queueRef.current.map(t => t.url!));
+    const duplicates = stamped.filter(t => existing.has(t.url!));
+    const unique = stamped.filter(t => !existing.has(t.url!));
     return { duplicates, unique };
   }
 
   function enqueueTracks(newTracks: Track[]) {
-    setQueue(prev => [...prev, ...newTracks]);
+    setQueue(prev => [...prev, ...stamp(newTracks)]);
   }
 
   function playNext(): boolean {
@@ -347,32 +353,35 @@ export function useQueue(
   }
 
   function insertAtPosition(newTracks: Track[], position: number) {
+    const stamped = stamp(newTracks);
     setQueue(prev => {
       const next = [...prev];
-      next.splice(position, 0, ...newTracks);
+      next.splice(position, 0, ...stamped);
       return next;
     });
-    setQueueIndex(prev => position <= prev ? prev + newTracks.length : prev);
+    setQueueIndex(prev => position <= prev ? prev + stamped.length : prev);
   }
 
   function playNextInQueue(track: Track) {
+    const stamped = stampUrl(track, collections);
     const idx = queueIndexRef.current;
     setQueue(prev => {
       const next = [...prev];
-      next.splice(idx + 1, 0, track);
+      next.splice(idx + 1, 0, stamped);
       return next;
     });
   }
 
   function addToQueue(track: Track) {
-    setQueue(prev => [...prev, track]);
+    setQueue(prev => [...prev, stampUrl(track, collections)]);
   }
 
   function addToQueueAndPlay(track: Track) {
+    const stamped = stampUrl(track, collections);
     const newIndex = queueRef.current.length;
-    setQueue(prev => [...prev, track]);
+    setQueue(prev => [...prev, stamped]);
     setQueueIndex(newIndex);
-    handlePlay(track);
+    handlePlay(stamped);
   }
 
   async function savePlaylist() {

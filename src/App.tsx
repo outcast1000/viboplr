@@ -10,7 +10,7 @@ import "./App.css";
 import type { Album, Collection, Track, View, ViewMode, ColumnConfig, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField } from "./types";
 import { isVideoTrack, getInitials, parseSubsonicUrl, formatDuration } from "./utils";
 import { store } from "./store";
-import { computeLocation, parseLocationScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
+import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext } from "./searchProviders";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
@@ -398,31 +398,29 @@ function App() {
     };
   }, []);
 
-  // Keep resolveTrackSrcRef up to date with collections and TIDAL override URL
+  // Resolve a queue track's url to a playable source
   useEffect(() => {
     resolveTrackSrcRef.current = async (track: Track) => {
-      const location = track._location ?? computeLocation(track, library.collections);
-      const parsed = parseLocationScheme(location);
+      const url = track.url!;
+      const parsed = parseUrlScheme(url);
 
       if (parsed.scheme === "file") {
         return convertFileSrc(parsed.path);
       } else if (parsed.scheme === "tidal") {
-        const streamUrl = await invoke<string>("tidal_get_stream_url", {
+        return invoke<string>("tidal_get_stream_url", {
           tidalTrackId: parsed.id,
           quality: null,
         });
-        return streamUrl;
       } else if (parsed.scheme === "subsonic") {
-        const streamUrl = await invoke<string>("resolve_subsonic_location", {
-          location,
+        return invoke<string>("resolve_subsonic_location", {
+          location: url,
         });
-        return streamUrl;
       } else {
         const _exhaustive: never = parsed;
         throw new Error(`Unhandled scheme: ${(_exhaustive as any).scheme}`);
       }
     };
-  }, [library.collections]);
+  }, []);
 
   const statusActivity = scanning
     ? (scanProgress.total > 0 ? `Scanning... ${scanProgress.scanned}/${scanProgress.total}` : "Scanning... preparing")
@@ -649,8 +647,8 @@ function App() {
           if (oldIds?.length) {
             const oldTracks = await invoke<Track[]>("get_tracks_by_ids", { ids: oldIds }).catch(() => []);
             if (oldTracks.length) {
-              const entries = oldTracks.map(t => ({
-                location: `file://${t.path}`,
+              const entries: QueueEntry[] = oldTracks.map(t => ({
+                url: `file://${t.path}`,
                 title: t.title,
                 artist_name: t.artist_name,
                 album_title: t.album_title,
@@ -665,6 +663,12 @@ function App() {
           }
         }
 
+        // Migration: rename old "location" field to "url" in persisted entries
+        if (queueEntries?.length && "location" in (queueEntries as any[])[0] && !("url" in (queueEntries as any[])[0])) {
+          queueEntries = (queueEntries as any[]).map(e => ({ ...e, url: e.location }));
+          await store.set("queueEntries", queueEntries);
+        }
+
         // Restore queue from QueueEntry[] — convert to Track[], re-resolve file:// from DB
         let restoredTracks: Track[] = [];
         if (queueEntries?.length) {
@@ -673,8 +677,8 @@ function App() {
 
           // Collect file:// paths for bulk DB lookup to get full metadata (id, album_id, etc.)
           const filePaths = entries
-            .filter(e => e.location.startsWith("file://"))
-            .map(e => e.location.slice(7));
+            .filter(e => e.url.startsWith("file://"))
+            .map(e => e.url.slice(7));
 
           let dbTracks: Track[] = [];
           if (filePaths.length > 0) {
@@ -684,18 +688,25 @@ function App() {
 
           restoredTracks = minimalTracks.map((t, i) => {
             const entry = entries[i];
-            if (entry.location.startsWith("file://")) {
+            if (entry.url.startsWith("file://")) {
               const dbTrack = dbByPath.get(t.path);
-              return dbTrack ?? t; // prefer DB version for full metadata
+              if (dbTrack) return { ...dbTrack, url: entry.url };
+              return t; // external file not in library
             }
             return t; // subsonic/tidal: use reconstructed track
           });
         }
 
+        // Migrate savedTrackEntry from old "location" field to "url"
+        let currentTrackEntry = savedTrackEntry;
+        if (currentTrackEntry && "location" in (currentTrackEntry as any) && !("url" in (currentTrackEntry as any))) {
+          currentTrackEntry = { ...currentTrackEntry, url: (currentTrackEntry as any).location } as QueueEntry;
+        }
+
         // Restore current track from queue or saved entry (no DB ID lookup)
         const idx = qIdx ?? -1;
         const currentFromQueue = idx >= 0 && idx < restoredTracks.length ? restoredTracks[idx] : null;
-        const restoredTrack = currentFromQueue ?? (savedTrackEntry ? queueEntryToTrack(savedTrackEntry) : null);
+        const restoredTrack = currentFromQueue ?? (currentTrackEntry ? queueEntryToTrack(currentTrackEntry) : null);
 
         // Store in refs — state will be applied in a separate effect after appRestoring flips
         if (restoredTrack) {

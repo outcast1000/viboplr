@@ -42,8 +42,8 @@ export interface Track {
   youtube_url: string | null;
   added_at: number | null;
   modified_at: number | null;
-  /** Transient: original location URI when restored from a QueueEntry (not stored in DB) */
-  _location?: string;
+  /** Playback URL computed when the track enters the queue (e.g. file://, tidal://, subsonic://) */
+  url?: string;
 }
 
 export interface Collection {

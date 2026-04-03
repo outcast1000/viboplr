@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rust": "cd src-tauri && cargo test",
-    "test:all": "npm run test:rust && npm test"
+    "test:e2e": "playwright test --config tests/e2e/playwright.config.js",
+    "test:all": "npm run test:rust && npm test && npm run test:e2e"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -27,6 +28,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tauri-apps/cli": "^2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",

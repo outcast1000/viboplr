@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
-  computeLocation,
+  computeUrl,
   trackToQueueEntry,
   queueEntryToTrack,
-  parseLocationScheme,
+  parseUrlScheme,
   type QueueEntry,
 } from "../queueEntry";
 import type { Track, Collection } from "../types";
@@ -51,25 +51,15 @@ function makeCollection(overrides: Partial<Collection> = {}): Collection {
   };
 }
 
-describe("computeLocation", () => {
+describe("computeUrl", () => {
   it("returns file:// for local track with no subsonic_id", () => {
     const track = makeTrack({ path: "/music/song.mp3", subsonic_id: null });
-    expect(computeLocation(track, [])).toBe("file:///music/song.mp3");
+    expect(computeUrl(track, [])).toBe("file:///music/song.mp3");
   });
 
-  it("returns tidal:// for ephemeral TIDAL track (empty path + subsonic_id)", () => {
+  it("returns tidal:// for TIDAL track (empty path + subsonic_id)", () => {
     const track = makeTrack({ path: "", subsonic_id: "12345" });
-    expect(computeLocation(track, [])).toBe("tidal://12345");
-  });
-
-  it("returns tidal:// for track in TIDAL collection", () => {
-    const track = makeTrack({
-      collection_id: 1,
-      subsonic_id: "67890",
-      path: "/some/path",
-    });
-    const collections = [makeCollection({ id: 1, kind: "tidal" })];
-    expect(computeLocation(track, collections)).toBe("tidal://67890");
+    expect(computeUrl(track, [])).toBe("tidal://12345");
   });
 
   it("returns subsonic:// for track in Subsonic collection", () => {
@@ -84,7 +74,7 @@ describe("computeLocation", () => {
         url: "https://demo.navidrome.org/",
       }),
     ];
-    expect(computeLocation(track, collections)).toBe(
+    expect(computeUrl(track, collections)).toBe(
       "subsonic://demo.navidrome.org/rest/stream.view?id=abc123"
     );
   });
@@ -101,7 +91,7 @@ describe("computeLocation", () => {
         url: "https://music.example.com:4533/subsonic",
       }),
     ];
-    expect(computeLocation(track, collections)).toBe(
+    expect(computeUrl(track, collections)).toBe(
       "subsonic://music.example.com:4533/subsonic/rest/stream.view?id=xyz"
     );
   });
@@ -111,7 +101,7 @@ describe("computeLocation", () => {
       collection_id: 999,
       path: "/fallback.mp3",
     });
-    expect(computeLocation(track, [])).toBe("file:///fallback.mp3");
+    expect(computeUrl(track, [])).toBe("file:///fallback.mp3");
   });
 
   it("falls back to file:// for local collection kind", () => {
@@ -120,7 +110,7 @@ describe("computeLocation", () => {
       path: "/local/track.flac",
     });
     const collections = [makeCollection({ id: 1, kind: "local" })];
-    expect(computeLocation(track, collections)).toBe("file:///local/track.flac");
+    expect(computeUrl(track, collections)).toBe("file:///local/track.flac");
   });
 
   it("falls back to file:// for seed collection kind", () => {
@@ -129,12 +119,12 @@ describe("computeLocation", () => {
       path: "/seed/track.mp3",
     });
     const collections = [makeCollection({ id: 1, kind: "seed" })];
-    expect(computeLocation(track, collections)).toBe("file:///seed/track.mp3");
+    expect(computeUrl(track, collections)).toBe("file:///seed/track.mp3");
   });
 });
 
 describe("trackToQueueEntry", () => {
-  it("converts track to QueueEntry with computed location", () => {
+  it("converts track to QueueEntry with computed url", () => {
     const track = makeTrack({
       path: "/music/artist/album/track.mp3",
       title: "My Song",
@@ -147,7 +137,7 @@ describe("trackToQueueEntry", () => {
     });
     const entry = trackToQueueEntry(track, []);
     expect(entry).toEqual({
-      location: "file:///music/artist/album/track.mp3",
+      url: "file:///music/artist/album/track.mp3",
       title: "My Song",
       artist_name: "Artist",
       album_title: "Album",
@@ -165,7 +155,7 @@ describe("trackToQueueEntry", () => {
     });
     const entry = trackToQueueEntry(track, []);
     expect(entry).toEqual({
-      location: "file:///unknown.mp3",
+      url: "file:///unknown.mp3",
       title: "Unknown",
       artist_name: null,
       album_title: null,
@@ -176,17 +166,17 @@ describe("trackToQueueEntry", () => {
     });
   });
 
-  it("uses tidal:// location for TIDAL tracks", () => {
+  it("uses tidal:// url for TIDAL tracks", () => {
     const track = makeTrack({
       path: "",
       subsonic_id: "tidal-id",
       title: "TIDAL Song",
     });
     const entry = trackToQueueEntry(track, []);
-    expect(entry.location).toBe("tidal://tidal-id");
+    expect(entry.url).toBe("tidal://tidal-id");
   });
 
-  it("uses subsonic:// location for Subsonic tracks", () => {
+  it("uses subsonic:// url for Subsonic tracks", () => {
     const track = makeTrack({
       collection_id: 5,
       subsonic_id: "sub-id",
@@ -200,14 +190,23 @@ describe("trackToQueueEntry", () => {
       }),
     ];
     const entry = trackToQueueEntry(track, collections);
-    expect(entry.location).toBe("subsonic://server.com/rest/stream.view?id=sub-id");
+    expect(entry.url).toBe("subsonic://server.com/rest/stream.view?id=sub-id");
+  });
+
+  it("uses pre-stamped url from track if present", () => {
+    const track = makeTrack({
+      path: "/music/song.mp3",
+      url: "tidal://override",
+    });
+    const entry = trackToQueueEntry(track, []);
+    expect(entry.url).toBe("tidal://override");
   });
 });
 
 describe("queueEntryToTrack", () => {
-  it("converts file:// location to Track with path", () => {
+  it("converts file:// url to Track with path", () => {
     const entry: QueueEntry = {
-      location: "file:///music/song.mp3",
+      url: "file:///music/song.mp3",
       title: "Song",
       artist_name: "Artist",
       album_title: "Album",
@@ -237,12 +236,13 @@ describe("queueEntryToTrack", () => {
       youtube_url: null,
       added_at: null,
       modified_at: null,
+      url: "file:///music/song.mp3",
     });
   });
 
-  it("converts tidal:// location to Track with negative id and subsonic_id", () => {
+  it("converts tidal:// url to Track with negative id and subsonic_id", () => {
     const entry: QueueEntry = {
-      location: "tidal://12345",
+      url: "tidal://12345",
       title: "TIDAL Song",
       artist_name: "TIDAL Artist",
       album_title: null,
@@ -257,11 +257,12 @@ describe("queueEntryToTrack", () => {
     expect(track.subsonic_id).toBe("12345");
     expect(track.title).toBe("TIDAL Song");
     expect(track.artist_name).toBe("TIDAL Artist");
+    expect(track.url).toBe("tidal://12345");
   });
 
   it("assigns unique negative ids for multiple tidal:// entries", () => {
     const entry1: QueueEntry = {
-      location: "tidal://111",
+      url: "tidal://111",
       title: "Song 1",
       artist_name: null,
       album_title: null,
@@ -271,7 +272,7 @@ describe("queueEntryToTrack", () => {
       format: null,
     };
     const entry2: QueueEntry = {
-      location: "tidal://222",
+      url: "tidal://222",
       title: "Song 2",
       artist_name: null,
       album_title: null,
@@ -287,9 +288,9 @@ describe("queueEntryToTrack", () => {
     expect(track2.id).toBeLessThan(0);
   });
 
-  it("converts subsonic:// location to Track with id=0 and subsonic_id", () => {
+  it("converts subsonic:// url to Track with id=0 and subsonic_id", () => {
     const entry: QueueEntry = {
-      location: "subsonic://server.com/rest/stream.view?id=abc123",
+      url: "subsonic://server.com/rest/stream.view?id=abc123",
       title: "Server Song",
       artist_name: "Server Artist",
       album_title: "Server Album",
@@ -319,12 +320,13 @@ describe("queueEntryToTrack", () => {
       youtube_url: null,
       added_at: null,
       modified_at: null,
+      url: "subsonic://server.com/rest/stream.view?id=abc123",
     });
   });
 
   it("handles subsonic:// URL without query params", () => {
     const entry: QueueEntry = {
-      location: "subsonic://server.com/rest/stream.view",
+      url: "subsonic://server.com/rest/stream.view",
       title: "Song",
       artist_name: null,
       album_title: null,
@@ -339,19 +341,19 @@ describe("queueEntryToTrack", () => {
   });
 });
 
-describe("parseLocationScheme", () => {
+describe("parseUrlScheme", () => {
   it("parses file:// scheme", () => {
-    const result = parseLocationScheme("file:///music/song.mp3");
+    const result = parseUrlScheme("file:///music/song.mp3");
     expect(result).toEqual({ scheme: "file", path: "/music/song.mp3" });
   });
 
   it("parses tidal:// scheme", () => {
-    const result = parseLocationScheme("tidal://12345");
+    const result = parseUrlScheme("tidal://12345");
     expect(result).toEqual({ scheme: "tidal", id: "12345" });
   });
 
   it("parses subsonic:// scheme with full URL and id", () => {
-    const result = parseLocationScheme(
+    const result = parseUrlScheme(
       "subsonic://server.com/rest/stream.view?id=abc123"
     );
     expect(result).toEqual({
@@ -362,7 +364,7 @@ describe("parseLocationScheme", () => {
   });
 
   it("parses subsonic:// scheme without id param", () => {
-    const result = parseLocationScheme("subsonic://server.com/rest/stream.view");
+    const result = parseUrlScheme("subsonic://server.com/rest/stream.view");
     expect(result).toEqual({
       scheme: "subsonic",
       url: "subsonic://server.com/rest/stream.view",
@@ -371,7 +373,7 @@ describe("parseLocationScheme", () => {
   });
 
   it("parses subsonic:// scheme with multiple query params", () => {
-    const result = parseLocationScheme(
+    const result = parseUrlScheme(
       "subsonic://server.com/path?foo=bar&id=xyz&baz=qux"
     );
     expect(result).toEqual({
@@ -382,17 +384,17 @@ describe("parseLocationScheme", () => {
   });
 
   it("handles file:// with Windows-style path", () => {
-    const result = parseLocationScheme("file://C:/Users/Music/song.mp3");
+    const result = parseUrlScheme("file://C:/Users/Music/song.mp3");
     expect(result).toEqual({ scheme: "file", path: "C:/Users/Music/song.mp3" });
   });
 
   it("handles unknown scheme as file", () => {
-    const result = parseLocationScheme("unknown://something");
+    const result = parseUrlScheme("unknown://something");
     expect(result).toEqual({ scheme: "file", path: "unknown://something" });
   });
 
   it("handles plain path as file", () => {
-    const result = parseLocationScheme("/music/song.mp3");
+    const result = parseUrlScheme("/music/song.mp3");
     expect(result).toEqual({ scheme: "file", path: "/music/song.mp3" });
   });
 });
