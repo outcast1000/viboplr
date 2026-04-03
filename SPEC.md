@@ -1289,6 +1289,29 @@ Plugin views use a structured data model (`PluginViewData`) rather than raw HTML
 **Settings UI (Settings > Plugins tab):**
 Lists all discovered plugins with name, version, author, status badge (active/error/incompatible/disabled), and an enable/disable toggle. Error details are shown inline. A gallery section shows available plugins with install/installed status. User-installed plugins have a delete button.
 
+### 4.29 Animations
+
+The UI uses CSS animations and transitions for micro-interactions and state changes. All animations are CSS-only (no JS animation libraries).
+
+**Shared keyframes** (defined in `App.css`):
+- `fade-in` — opacity 0→1 (150ms).
+- `scale-in` — opacity 0→1 + scale 0.95→1 (150ms cubic-bezier). Used by modals and context menus.
+- `glow-pulse` — box-shadow opacity cycles 0.3→0.6→0.3 (3s infinite). Used by now-playing album art.
+- `slide-text-in` — translateY(8px)→0 + opacity 0→1 (250ms). Used by track info on track change.
+- `equalizer-bar-{1,2,3}` — three distinct scaleY animations with different timing for the equalizer bars indicator.
+- `waveform-grow-in` — scaleY 0→1 with stagger delay per bar.
+
+**Per-feature animations:**
+
+- **Modal & context menu:** Scale-in entrance animation on open (`scale-in` keyframe, 150ms).
+- **Heart bounce:** Like/dislike buttons play a CSS scale bounce (1→1.3→1, 300ms) on toggle, in both `TrackList` and `NowPlayingBar`. Triggered by toggling a `bouncing` class via a ref timeout.
+- **Sort bar collapse/expand:** The sort bar animates between collapsed and expanded states using `max-height` and `opacity` transitions (200ms ease).
+- **Sidebar active indicator:** A single sliding element (`sidebar-indicator`) transitions its `top` and `height` properties (200ms ease) to follow the active navigation item, replacing per-item box-shadow highlights.
+- **Equalizer bars (playing indicator):** In `TrackList`, the track number column shows a 3-bar animated equalizer icon when a track is actively playing. Each bar has a distinct `scaleY` animation at different speeds. Bars pause (`animation-play-state: paused`) when playback is paused.
+- **Album art glow:** The now-playing bar album art wrapper has a `::before` pseudo-element with the `glow-pulse` animation (3s ease-in-out infinite) when playing.
+- **Track info slide:** A `SlideText` component in `NowPlayingBar` detects track title/artist changes and applies `slide-text-in` animation (250ms). Only active in full mode, not mini mode.
+- **Waveform grow-in:** In `WaveformSeekBar`, bars animate from scaleY(0) to scaleY(1) with a staggered delay when new peak data loads. Uses a fingerprint (peak count + first/last values) to re-trigger on every track change rather than just on length changes.
+
 ## 11. Out of Scope (v1)
 
 - Equalizer / audio effects / DSP
