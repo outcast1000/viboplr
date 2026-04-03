@@ -2127,6 +2127,16 @@ function App() {
           onSaveLyrics={handleSaveLyrics}
           onResetLyrics={handleResetLyrics}
           onForceRefreshLyrics={handleForceRefreshLyrics}
+          onPlayAlbum={async (albumId) => {
+            const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId } });
+            if (albumTracks.length > 0) queueHook.playTracks(albumTracks, 0);
+          }}
+          onPlayArtist={async (artistId) => {
+            const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId });
+            if (artistTracks.length > 0) queueHook.playTracks(artistTracks, 0);
+          }}
+          onAlbumContextMenu={(e, albumId) => handleAlbumContextMenu(e, albumId)}
+          onArtistContextMenu={(e, artistId) => handleArtistContextMenu(e, artistId)}
         />
       )}
 

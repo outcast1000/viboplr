@@ -31,6 +31,10 @@ interface NowPlayingViewProps {
   onTagClick: (tagId: number) => void;
   onSimilarTrackFound: (track: Track) => void;
   addLog: (message: string) => void;
+  onPlayAlbum: (albumId: number) => void;
+  onPlayArtist: (artistId: number) => void;
+  onAlbumContextMenu: (e: React.MouseEvent, albumId: number) => void;
+  onArtistContextMenu: (e: React.MouseEvent, artistId: number) => void;
 }
 
 export default function NowPlayingView(props: NowPlayingViewProps) {
@@ -102,6 +106,7 @@ function NowPlayingBody(props: NowPlayingViewProps) {
     onSaveLyrics, onResetLyrics, onForceRefreshLyrics,
     onToggleLike, onToggleDislike, onArtistClick, onAlbumClick, onTagClick,
     onSimilarTrackFound, addLog,
+    onPlayAlbum, onPlayArtist, onAlbumContextMenu, onArtistContextMenu,
   } = props;
 
   const handleTagClick = (tagName: string) => {
@@ -112,9 +117,11 @@ function NowPlayingBody(props: NowPlayingViewProps) {
   const albumSrc = albumImagePath ? convertFileSrc(albumImagePath) : null;
   const artistSrc = artistImagePath ? convertFileSrc(artistImagePath) : null;
 
+  const hasLyrics = npLyrics !== null || npLyricsLoading;
+
   return (
     <div className="np-view np-audio">
-      <div className="np-body">
+      <div className={`np-body${hasLyrics ? "" : " np-body-no-lyrics"}`}>
         {/* Left side */}
         <div className="np-left">
           <div className="np-hero">
@@ -184,7 +191,15 @@ function NowPlayingBody(props: NowPlayingViewProps) {
 
           {/* Album card */}
           <div className="np-card">
-            <div className="np-card-header">Album</div>
+            <div className="np-card-header">
+              <span>Album</span>
+              {currentTrack.album_id && (
+                <div className="np-card-actions">
+                  <button className="np-card-action-btn" onClick={() => onPlayAlbum(currentTrack.album_id!)} title="Play album">{"\u25B6"}</button>
+                  <button className="np-card-action-btn" onClick={(e) => onAlbumContextMenu(e, currentTrack.album_id!)} title="More">{"\u22EF"}</button>
+                </div>
+              )}
+            </div>
             <div className="np-card-top">
               <div className="np-album-img">
                 {albumSrc ? <img src={albumSrc} alt="" /> : <div className="np-img-placeholder">{"\u266B"}</div>}
@@ -210,7 +225,15 @@ function NowPlayingBody(props: NowPlayingViewProps) {
 
           {/* Artist card */}
           <div className="np-card">
-            <div className="np-card-header">Artist</div>
+            <div className="np-card-header">
+              <span>Artist</span>
+              {currentTrack.artist_id && (
+                <div className="np-card-actions">
+                  <button className="np-card-action-btn" onClick={() => onPlayArtist(currentTrack.artist_id!)} title="Play artist">{"\u25B6"}</button>
+                  <button className="np-card-action-btn" onClick={(e) => onArtistContextMenu(e, currentTrack.artist_id!)} title="More">{"\u22EF"}</button>
+                </div>
+              )}
+            </div>
             <div className="np-card-top">
               <div className="np-artist-img">
                 {artistSrc ? <img src={artistSrc} alt="" /> : <div className="np-img-placeholder">{"\u266B"}</div>}
@@ -250,17 +273,19 @@ function NowPlayingBody(props: NowPlayingViewProps) {
         </div>
 
         {/* Right side -- lyrics */}
-        <div className="np-right">
-          <LyricsPanel
-            trackId={currentTrack.id}
-            positionSecs={positionSecs}
-            lyrics={npLyrics}
-            loading={npLyricsLoading}
-            onSave={onSaveLyrics}
-            onReset={onResetLyrics}
-            onForceRefresh={onForceRefreshLyrics}
-          />
-        </div>
+        {hasLyrics && (
+          <div className="np-right">
+            <LyricsPanel
+              trackId={currentTrack.id}
+              positionSecs={positionSecs}
+              lyrics={npLyrics}
+              loading={npLyricsLoading}
+              onSave={onSaveLyrics}
+              onReset={onResetLyrics}
+              onForceRefresh={onForceRefreshLyrics}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

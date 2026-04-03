@@ -6372,7 +6372,7 @@ body {
 .np-view {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  overflow: hidden;
   background: var(--bg-primary);
   grid-column: 1 / -1;
   grid-row: 2 / 3;
@@ -6384,6 +6384,10 @@ body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.np-body.np-body-no-lyrics {
+  grid-template-columns: 1fr;
 }
 
 /* Left side */
@@ -6569,14 +6573,14 @@ body {
   opacity: 0.5;
 }
 
-/* Right side — scrollable */
+/* Right side — lyrics */
 .np-right {
   border-left: 1px solid rgba(255, 255, 255, 0.06);
-  overflow-y: auto;
+  overflow: hidden;
   padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  min-height: 0;
 }
 
 .np-card {
@@ -6590,6 +6594,30 @@ body {
   text-transform: uppercase;
   color: var(--text-tertiary);
   margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.np-card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.np-card-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.np-card-action-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .np-card-top {
