@@ -2529,6 +2529,7 @@ function App() {
                   <TrackList
                     tracks={sortedTracks}
                     currentTrack={playback.currentTrack}
+                    playing={playback.playing}
                     highlightedIndex={highlightedIndex}
                     sortField={sortField}
                     trackListRef={trackListRef}
@@ -3018,6 +3019,7 @@ function App() {
                 <TrackList
                   tracks={sortedTracks}
                   currentTrack={playback.currentTrack}
+                  playing={playback.playing}
                   highlightedIndex={highlightedIndex}
                   sortField={sortField}
                   trackListRef={trackListRef}
@@ -3135,6 +3137,7 @@ function App() {
             <TrackList
               tracks={sortedTracks}
               currentTrack={playback.currentTrack}
+              playing={playback.playing}
               highlightedIndex={highlightedIndex}
               sortField={sortField}
               trackListRef={trackListRef}
@@ -3202,6 +3205,7 @@ function App() {
                 <TrackList
                   tracks={sortedTracks}
                   currentTrack={playback.currentTrack}
+                  playing={playback.playing}
                   highlightedIndex={highlightedIndex}
                   sortField={sortField}
                   trackListRef={trackListRef}

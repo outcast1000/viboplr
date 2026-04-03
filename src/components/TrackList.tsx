@@ -99,6 +99,7 @@ export function computeSelection(
 interface TrackListProps {
   tracks: Track[];
   currentTrack: Track | null;
+  playing?: boolean;
   highlightedIndex: number;
   sortField: SortField | null;
   trackListRef: React.RefObject<HTMLDivElement | null>;
@@ -121,7 +122,7 @@ interface TrackListProps {
 }
 
 export function TrackList({
-  tracks, currentTrack, highlightedIndex,
+  tracks, currentTrack, playing, highlightedIndex,
   sortField, trackListRef, columns, onColumnsChange,
   onDoubleClick, onContextMenu, onArtistClick, onAlbumClick,
   onSort, sortIndicator, onToggleLike, onToggleDislike, onTrackDragStart,
@@ -390,12 +391,25 @@ export function TrackList({
             )}
           </span>
         );
-      case "num":
+      case "num": {
+        const isCurrentTrack = currentTrack?.id === t.id;
+        if (isCurrentTrack && playing != null) {
+          return (
+            <span key="num" className="col-num">
+              <span className={`eq-bars${playing ? "" : " paused"}`}>
+                <span className="eq-bar" />
+                <span className="eq-bar" />
+                <span className="eq-bar" />
+              </span>
+            </span>
+          );
+        }
         return (
           <span key="num" className="col-num">
             {isVideoTrack(t) ? "\uD83C\uDFAC" : (t.track_number || i + 1)}
           </span>
         );
+      }
       case "title":
         return (
           <span key="title" className="col-title">
