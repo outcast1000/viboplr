@@ -3534,6 +3534,13 @@ body {
   object-fit: cover;
 }
 
+.album-detail-art-placeholder {
+  width: 48px;
+  height: 48px;
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
 .album-detail-info h2 {
   font-size: var(--fs-2xl);
   font-weight: 700;
@@ -3559,6 +3566,12 @@ body {
   padding: 16px;
   max-width: 680px;
   border-bottom: 1px solid var(--border);
+}
+
+.placeholder-text {
+  color: var(--text-secondary);
+  font-style: italic;
+  opacity: 0.6;
 }
 
 .album-card-body {
