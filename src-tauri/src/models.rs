@@ -69,6 +69,29 @@ pub struct Track {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Lyrics {
+    pub track_id: i64,
+    pub text: String,
+    pub kind: String,
+    pub provider: String,
+    pub fetched_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LyricsLoaded {
+    pub track_id: i64,
+    pub text: String,
+    pub kind: String,
+    pub provider: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LyricsError {
+    pub track_id: i64,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Collection {
     pub id: i64,
     pub kind: String,

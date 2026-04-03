@@ -246,12 +246,21 @@ impl Database {
                 UNIQUE(track_id, tag_id)
             );
 
+            CREATE TABLE IF NOT EXISTS lyrics (
+                track_id    INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+                text        TEXT NOT NULL,
+                kind        TEXT NOT NULL,
+                provider    TEXT NOT NULL,
+                fetched_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
+
             CREATE VIRTUAL TABLE IF NOT EXISTS tracks_fts USING fts5(
                 title,
                 artist_name,
                 album_title,
                 tag_names,
                 filename,
+                lyrics_text,
                 content='',
                 tokenize='unicode61 remove_diacritics 2'
             );
@@ -462,7 +471,23 @@ impl Database {
             conn.execute("UPDATE db_version SET version = 11 WHERE rowid = 1", [])?;
         }
 
+        if version < 12 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS lyrics (
+                    track_id    INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+                    text        TEXT NOT NULL,
+                    kind        TEXT NOT NULL,
+                    provider    TEXT NOT NULL,
+                    fetched_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+                )"
+            )?;
+            conn.execute("UPDATE db_version SET version = 12 WHERE rowid = 1", [])?;
+        }
+
         drop(conn);
+        if version < 12 {
+            crate::timing::timer().time("db: rebuild_fts_for_lyrics", || self.rebuild_fts())?;
+        }
         if migrated {
             crate::timing::timer().time("db: recompute_counts", || self.recompute_counts())?;
         }
@@ -716,6 +741,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch(
             "DELETE FROM track_tags;
+             DELETE FROM lyrics;
              DELETE FROM tracks;
              DELETE FROM albums;
              DELETE FROM artists;
@@ -731,6 +757,7 @@ impl Database {
                  album_title,
                  tag_names,
                  filename,
+                 lyrics_text,
                  content='',
                  tokenize='unicode61 remove_diacritics 2'
              );"
@@ -748,19 +775,22 @@ impl Database {
                  album_title,
                  tag_names,
                  filename,
+                 lyrics_text,
                  content='',
                  tokenize='unicode61 remove_diacritics 2'
              );"
         )?;
         conn.execute_batch(
             &format!(
-                "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, filename)
+                "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, filename, lyrics_text)
                  SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')), strip_diacritics(COALESCE(al.title, '')),
                         strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
-                        strip_diacritics(filename_from_path(t.path))
+                        strip_diacritics(filename_from_path(t.path)),
+                        strip_diacritics(COALESCE(ly.text, ''))
                  FROM tracks t
                  LEFT JOIN artists ar ON t.artist_id = ar.id
                  LEFT JOIN albums al ON t.album_id = al.id
+                 LEFT JOIN lyrics ly ON ly.track_id = t.id
                  WHERE 1=1 {};",
                 ENABLED_COLLECTION_FILTER
             ),
@@ -2724,5 +2754,23 @@ mod tests {
         // No history artist
         let a3 = db.get_or_create_artist("New Artist").unwrap();
         assert_eq!(db.get_artist_rank(a3).unwrap(), None);
+    }
+
+    #[test]
+    fn test_lyrics_table_exists() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Test Artist").unwrap();
+        let track_id = insert_track(&db, "/test/lyrics.mp3", "Test Song", Some(artist_id), None);
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO lyrics (track_id, text, kind, provider) VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![track_id, "Hello world", "plain", "manual"],
+        ).expect("lyrics insert should work");
+        let text: String = conn.query_row(
+            "SELECT text FROM lyrics WHERE track_id = ?1",
+            rusqlite::params![track_id],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(text, "Hello world");
     }
 }
