@@ -63,6 +63,64 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.0</span>
+          <span class="timeline-date">April 4, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>rename Track._location to url and add Playwright E2E tests</li>
+          <li><strong>lyrics</strong>: integrate LyricsPanel into NowPlayingView with event listeners and auto-fetch</li>
+          <li><strong>lyrics</strong>: add check_lyrics_match for search result lyrics badges</li>
+          <li><strong>lyrics</strong>: add CSS styles for lyrics panel</li>
+          <li><strong>lyrics</strong>: add LyricsPanel component with synced/plain display and edit mode</li>
+          <li><strong>lyrics</strong>: add backend commands, fetch worker, and lyric provider chain</li>
+          <li><strong>lyrics</strong>: add LyricProvider trait, fallback chain, and LRCLIB provider</li>
+          <li><strong>lyrics</strong>: add lyrics CRUD, LRC timestamp stripping, and FTS update functions</li>
+          <li><strong>lyrics</strong>: add lyrics table, model, FTS column, and migration v12</li>
+          <li>add waveform grow-in animation with stagger on peak data load</li>
+          <li>add album art glow and track info slide animation</li>
+          <li>add animated equalizer bars for playing track indicator</li>
+          <li>add sliding sidebar active indicator</li>
+          <li>smooth sort bar collapse/expand animation</li>
+          <li>add heart bounce animation on like/dislike toggle</li>
+          <li>add animation keyframes, modal and context menu scale-in</li>
+          <li>add playback error modal with auto-skip to next track</li>
+          <li>add Last.fm album track popularity column</li>
+          <li>add force refresh for artist/album images and info</li>
+          <li>clickable artist/album in list view and album detail placeholders</li>
+          <li>show detailed failure list in delete error modal</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>waveform grow-in triggers per-track, sidebar indicator default height</li>
+          </ul>
+          <h4>Documentation</h4>
+          <ul>
+          <li>add animations implementation plan</li>
+          <li>address spec review feedback for animation design</li>
+          <li>add animation design spec</li>
+          <li>add lyrics support implementation plan</li>
+          <li>address spec review feedback for lyrics design</li>
+          <li>add lyrics support design spec</li>
+          </ul>
+          <h4>Chores</h4>
+          <ul>
+          <li>update viboplr version to 0.8.10</li>
+          </ul>
+          <h4>Other</h4>
+          <ul>
+          <li>Spec Update</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.0/Viboplr_0.9.0_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.0_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.0/Viboplr_0.9.0_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.0_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.8.10</span>
           <span class="timeline-date">April 3, 2026</span>
         </div>
