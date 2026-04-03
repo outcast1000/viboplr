@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Track } from "../types";
+import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import LyricsPanel from "./LyricsPanel";
 
@@ -27,6 +29,8 @@ interface NowPlayingViewProps {
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
   onTagClick: (tagId: number) => void;
+  onSimilarTrackFound: (track: Track) => void;
+  addLog: (message: string) => void;
 }
 
 export default function NowPlayingView(props: NowPlayingViewProps) {
@@ -39,6 +43,56 @@ export default function NowPlayingView(props: NowPlayingViewProps) {
   return <NowPlayingBody {...props} />;
 }
 
+function SimilarTracksLine({ tracks, onFound, addLog }: {
+  tracks: Array<{ name: string; artist: { name: string }; match?: string }>;
+  onFound: (track: Track) => void;
+  addLog: (message: string) => void;
+}) {
+  const [searching, setSearching] = useState<number | null>(null);
+
+  const handleClick = async (st: { name: string; artist: { name: string } }, index: number) => {
+    if (searching !== null) return;
+    setSearching(index);
+    try {
+      const results = await invoke<Track[]>("get_tracks", {
+        opts: { query: st.name, limit: 50 },
+      });
+      const match = results.find(
+        (t) =>
+          t.title.toLowerCase() === st.name.toLowerCase() &&
+          (t.artist_name ?? "").toLowerCase() === st.artist.name.toLowerCase()
+      );
+      if (match) {
+        onFound(match);
+      } else {
+        addLog(`"${st.name}" by ${st.artist.name} is not in your library`);
+      }
+    } catch {
+      addLog(`Could not search for "${st.name}"`);
+    } finally {
+      setSearching(null);
+    }
+  };
+
+  return (
+    <div className="np-similar-inline">
+      <span className="np-similar-inline-label">Similar: </span>
+      {tracks.slice(0, 8).map((st, i) => (
+        <span key={i}>
+          {i > 0 && ", "}
+          <span
+            className={`np-card-link${searching === i ? " np-similar-searching" : ""}`}
+            onClick={() => handleClick(st, i)}
+            title={`${st.name} — ${st.artist.name}`}
+          >
+            {st.name}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function NowPlayingBody(props: NowPlayingViewProps) {
   const {
     currentTrack, nextTrack, albumImagePath, artistImagePath,
@@ -47,6 +101,7 @@ function NowPlayingBody(props: NowPlayingViewProps) {
     npLyrics, npLyricsLoading, positionSecs,
     onSaveLyrics, onResetLyrics, onForceRefreshLyrics,
     onToggleLike, onToggleDislike, onArtistClick, onAlbumClick, onTagClick,
+    onSimilarTrackFound, addLog,
   } = props;
 
   const handleTagClick = (tagName: string) => {
@@ -120,17 +175,11 @@ function NowPlayingBody(props: NowPlayingViewProps) {
           </div>
 
           {npSimilarTracks.length > 0 && (
-            <div className="np-similar">
-              <div className="np-section-title">Similar Tracks</div>
-              <div className="np-similar-list">
-                {npSimilarTracks.slice(0, 10).map((st, i) => (
-                  <div key={i} className="np-similar-row">
-                    <span className="np-similar-name">{st.name}</span>
-                    <span className="np-similar-artist">{st.artist.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <SimilarTracksLine
+              tracks={npSimilarTracks}
+              onFound={onSimilarTrackFound}
+              addLog={addLog}
+            />
           )}
 
           {/* Album card */}

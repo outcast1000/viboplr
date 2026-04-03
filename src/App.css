@@ -6553,56 +6553,20 @@ body {
   color: var(--text-tertiary);
 }
 
-/* Similar tracks */
-.np-similar {
-  background: var(--bg-secondary);
-  border-radius: 8px;
-  padding: 10px;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+/* Similar tracks (inline) */
+.np-similar-inline {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  margin-top: 10px;
 }
 
-.np-section-title {
-  font-size: var(--fs-2xs);
+.np-similar-inline-label {
   text-transform: uppercase;
-  color: var(--text-tertiary);
-  margin-bottom: 6px;
+  margin-right: 4px;
 }
 
-.np-similar-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.np-similar-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 4px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.np-similar-row:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.np-similar-name {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: var(--fs-xs);
-  color: var(--text-primary);
-}
-
-.np-similar-artist {
-  font-size: var(--fs-2xs);
-  color: var(--text-tertiary);
-  flex-shrink: 0;
+.np-similar-searching {
+  opacity: 0.5;
 }
 
 /* Right side — scrollable */

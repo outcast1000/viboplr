@@ -2109,6 +2109,17 @@ function App() {
           onArtistClick={(id) => { setShowNowPlayingView(false); library.handleArtistClick(id); }}
           onAlbumClick={(id, aid) => { setShowNowPlayingView(false); library.handleAlbumClick(id, aid); }}
           onTagClick={(tagId) => { setShowNowPlayingView(false); library.setSelectedTag(tagId); library.setView("tags"); }}
+          onSimilarTrackFound={(track) => {
+            setShowNowPlayingView(false);
+            library.handleLocateTrack(track.title, track.artist_name, track.album_title, () => {
+              library.setView("all");
+              library.setSelectedArtist(null);
+              library.setSelectedAlbum(null);
+              library.setSelectedTag(null);
+              viewSearch.setQuery("all", track.title);
+            });
+          }}
+          addLog={addLog}
           libraryTags={library.tags}
           npLyrics={npLyrics}
           npLyricsLoading={npLyricsLoading}
