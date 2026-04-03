@@ -99,6 +99,7 @@ export function computeSelection(
 interface TrackListProps {
   tracks: Track[];
   currentTrack: Track | null;
+  playing?: boolean;
   highlightedIndex: number;
   sortField: SortField | null;
   trackListRef: React.RefObject<HTMLDivElement | null>;
@@ -121,7 +122,7 @@ interface TrackListProps {
 }
 
 export function TrackList({
-  tracks, currentTrack, highlightedIndex,
+  tracks, currentTrack, playing, highlightedIndex,
   sortField, trackListRef, columns, onColumnsChange,
   onDoubleClick, onContextMenu, onArtistClick, onAlbumClick,
   onSort, sortIndicator, onToggleLike, onToggleDislike, onTrackDragStart,
@@ -362,16 +363,53 @@ export function TrackList({
       case "like":
         return (
           <span key="like" className="col-like">
-            <span className={`like-btn${t.liked === 1 ? " active" : ""}`} onClick={(e) => { e.stopPropagation(); onToggleLike(t); }} title={t.liked === 1 ? "Unlike" : "Like"}>{t.liked === 1 ? "\u2665" : "\u2661"}</span>
-            {onToggleDislike && <span className={`dislike-btn${t.liked === -1 ? " active" : ""}`} onClick={(e) => { e.stopPropagation(); onToggleDislike(t); }} title={t.liked === -1 ? "Remove dislike" : "Dislike"}>{t.liked === -1 ? "\u2716" : "\u2298"}</span>}
+            <span
+              className={`like-btn${t.liked === 1 ? " active" : ""}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                (e.currentTarget as HTMLElement).classList.add("anim-heart-bounce");
+                onToggleLike(t);
+              }}
+              onAnimationEnd={(e) => (e.currentTarget as HTMLElement).classList.remove("anim-heart-bounce")}
+              title={t.liked === 1 ? "Unlike" : "Like"}
+            >
+              {t.liked === 1 ? "\u2665" : "\u2661"}
+            </span>
+            {onToggleDislike && (
+              <span
+                className={`dislike-btn${t.liked === -1 ? " active" : ""}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  (e.currentTarget as HTMLElement).classList.add("anim-heart-bounce-subtle");
+                  onToggleDislike(t);
+                }}
+                onAnimationEnd={(e) => (e.currentTarget as HTMLElement).classList.remove("anim-heart-bounce-subtle")}
+                title={t.liked === -1 ? "Remove dislike" : "Dislike"}
+              >
+                {t.liked === -1 ? "\u2716" : "\u2298"}
+              </span>
+            )}
           </span>
         );
-      case "num":
+      case "num": {
+        const isCurrentTrack = currentTrack?.id === t.id;
+        if (isCurrentTrack && playing != null) {
+          return (
+            <span key="num" className="col-num">
+              <span className={`eq-bars${playing ? "" : " paused"}`}>
+                <span className="eq-bar" />
+                <span className="eq-bar" />
+                <span className="eq-bar" />
+              </span>
+            </span>
+          );
+        }
         return (
           <span key="num" className="col-num">
             {isVideoTrack(t) ? "\uD83C\uDFAC" : (t.track_number || i + 1)}
           </span>
         );
+      }
       case "title":
         return (
           <span key="title" className="col-title">

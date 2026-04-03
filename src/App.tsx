@@ -2308,29 +2308,29 @@ function App() {
           {/* Artist list */}
           {view === "artists" && selectedArtist === null && (
             <>
-              {!library.sortBarCollapsed && (
-              <div className="sort-bar">
-                <div className="sort-bar-row">
-                  <span className="sort-bar-label">Sort:</span>
-                  <div className="sort-bar-group">
-                    <button className={`sort-btn${library.artistSortField === "name" ? " active" : ""}`} onClick={() => library.handleArtistSort("name")}>
-                      Name{library.artistSortField === "name" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                    </button>
-                    <button className={`sort-btn${library.artistSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleArtistSort("tracks")}>
-                      Tracks{library.artistSortField === "tracks" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                    </button>
-                    <button className={`sort-btn${library.artistSortField === "random" ? " active" : ""}`} onClick={() => library.handleArtistSort("random")}>
-                      Shuffle
-                    </button>
-                    <button
-                      className={`sort-btn liked-first-btn${library.artistLikedFirst ? " active" : ""}`}
-                      onClick={() => library.setArtistLikedFirst(v => !v)}
-                      title="Liked first"
-                    >{"\u2665"} Liked first</button>
+              <div className={`sort-bar-wrapper${library.sortBarCollapsed ? " collapsed" : ""}`}>
+                <div className="sort-bar">
+                  <div className="sort-bar-row">
+                    <span className="sort-bar-label">Sort:</span>
+                    <div className="sort-bar-group">
+                      <button className={`sort-btn${library.artistSortField === "name" ? " active" : ""}`} onClick={() => library.handleArtistSort("name")}>
+                        Name{library.artistSortField === "name" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                      </button>
+                      <button className={`sort-btn${library.artistSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleArtistSort("tracks")}>
+                        Tracks{library.artistSortField === "tracks" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                      </button>
+                      <button className={`sort-btn${library.artistSortField === "random" ? " active" : ""}`} onClick={() => library.handleArtistSort("random")}>
+                        Shuffle
+                      </button>
+                      <button
+                        className={`sort-btn liked-first-btn${library.artistLikedFirst ? " active" : ""}`}
+                        onClick={() => library.setArtistLikedFirst(v => !v)}
+                        title="Liked first"
+                      >{"\u2665"} Liked first</button>
+                    </div>
                   </div>
                 </div>
               </div>
-              )}
               <ViewSearchBar
                 query={viewSearch.getQuery("artists")}
                 onQueryChange={(q) => viewSearch.setQuery("artists", q)}
@@ -2529,6 +2529,7 @@ function App() {
                   <TrackList
                     tracks={sortedTracks}
                     currentTrack={playback.currentTrack}
+                    playing={playback.playing}
                     highlightedIndex={highlightedIndex}
                     sortField={sortField}
                     trackListRef={trackListRef}
@@ -2581,35 +2582,35 @@ function App() {
           {/* All albums view */}
           {view === "albums" && (
             <>
-              {!library.sortBarCollapsed && (
-              <div className="sort-bar">
-                <div className="sort-bar-row">
-                  <span className="sort-bar-label">Sort:</span>
-                  <div className="sort-bar-group">
-                    <button className={`sort-btn${library.albumSortField === "name" ? " active" : ""}`} onClick={() => library.handleAlbumSort("name")}>
-                      Name{library.albumSortField === "name" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                    </button>
-                    <button className={`sort-btn${library.albumSortField === "artist" ? " active" : ""}`} onClick={() => library.handleAlbumSort("artist")}>
-                      Artist{library.albumSortField === "artist" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                    </button>
-                    <button className={`sort-btn${library.albumSortField === "year" ? " active" : ""}`} onClick={() => library.handleAlbumSort("year")}>
-                      Year{library.albumSortField === "year" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                    </button>
-                    <button className={`sort-btn${library.albumSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleAlbumSort("tracks")}>
-                      Tracks{library.albumSortField === "tracks" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                    </button>
-                    <button className={`sort-btn${library.albumSortField === "random" ? " active" : ""}`} onClick={() => library.handleAlbumSort("random")}>
-                      Shuffle
-                    </button>
-                    <button
-                      className={`sort-btn liked-first-btn${library.albumLikedFirst ? " active" : ""}`}
-                      onClick={() => library.setAlbumLikedFirst(v => !v)}
-                      title="Liked first"
-                    >{"\u2665"} Liked first</button>
+              <div className={`sort-bar-wrapper${library.sortBarCollapsed ? " collapsed" : ""}`}>
+                <div className="sort-bar">
+                  <div className="sort-bar-row">
+                    <span className="sort-bar-label">Sort:</span>
+                    <div className="sort-bar-group">
+                      <button className={`sort-btn${library.albumSortField === "name" ? " active" : ""}`} onClick={() => library.handleAlbumSort("name")}>
+                        Name{library.albumSortField === "name" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                      </button>
+                      <button className={`sort-btn${library.albumSortField === "artist" ? " active" : ""}`} onClick={() => library.handleAlbumSort("artist")}>
+                        Artist{library.albumSortField === "artist" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                      </button>
+                      <button className={`sort-btn${library.albumSortField === "year" ? " active" : ""}`} onClick={() => library.handleAlbumSort("year")}>
+                        Year{library.albumSortField === "year" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                      </button>
+                      <button className={`sort-btn${library.albumSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleAlbumSort("tracks")}>
+                        Tracks{library.albumSortField === "tracks" ? (library.albumSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                      </button>
+                      <button className={`sort-btn${library.albumSortField === "random" ? " active" : ""}`} onClick={() => library.handleAlbumSort("random")}>
+                        Shuffle
+                      </button>
+                      <button
+                        className={`sort-btn liked-first-btn${library.albumLikedFirst ? " active" : ""}`}
+                        onClick={() => library.setAlbumLikedFirst(v => !v)}
+                        title="Liked first"
+                      >{"\u2665"} Liked first</button>
+                    </div>
                   </div>
                 </div>
               </div>
-              )}
               <ViewSearchBar
                 query={viewSearch.getQuery("albums")}
                 onQueryChange={(q) => viewSearch.setQuery("albums", q)}
@@ -2720,29 +2721,29 @@ function App() {
           {/* Tags list view */}
           {view === "tags" && selectedTag === null && (
             <>
-              {!library.sortBarCollapsed && (
-              <div className="sort-bar">
-                <div className="sort-bar-row">
-                  <span className="sort-bar-label">Sort:</span>
-                  <div className="sort-bar-group">
-                    <button className={`sort-btn${library.tagSortField === "name" ? " active" : ""}`} onClick={() => library.handleTagSort("name")}>
-                      Name{library.tagSortField === "name" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                    </button>
-                    <button className={`sort-btn${library.tagSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleTagSort("tracks")}>
-                      Tracks{library.tagSortField === "tracks" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                    </button>
-                    <button className={`sort-btn${library.tagSortField === "random" ? " active" : ""}`} onClick={() => library.handleTagSort("random")}>
-                      Shuffle
-                    </button>
-                    <button
-                      className={`sort-btn liked-first-btn${library.tagLikedFirst ? " active" : ""}`}
-                      onClick={() => library.setTagLikedFirst(v => !v)}
-                      title="Liked first"
-                    >{"\u2665"} Liked first</button>
+              <div className={`sort-bar-wrapper${library.sortBarCollapsed ? " collapsed" : ""}`}>
+                <div className="sort-bar">
+                  <div className="sort-bar-row">
+                    <span className="sort-bar-label">Sort:</span>
+                    <div className="sort-bar-group">
+                      <button className={`sort-btn${library.tagSortField === "name" ? " active" : ""}`} onClick={() => library.handleTagSort("name")}>
+                        Name{library.tagSortField === "name" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                      </button>
+                      <button className={`sort-btn${library.tagSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleTagSort("tracks")}>
+                        Tracks{library.tagSortField === "tracks" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                      </button>
+                      <button className={`sort-btn${library.tagSortField === "random" ? " active" : ""}`} onClick={() => library.handleTagSort("random")}>
+                        Shuffle
+                      </button>
+                      <button
+                        className={`sort-btn liked-first-btn${library.tagLikedFirst ? " active" : ""}`}
+                        onClick={() => library.setTagLikedFirst(v => !v)}
+                        title="Liked first"
+                      >{"\u2665"} Liked first</button>
+                    </div>
                   </div>
                 </div>
               </div>
-              )}
               <ViewSearchBar
                 query={viewSearch.getQuery("tags")}
                 onQueryChange={(q) => viewSearch.setQuery("tags", q)}
@@ -2951,61 +2952,61 @@ function App() {
           {/* All tracks view */}
           {view === "all" && (
             <>
-              {!library.sortBarCollapsed && (
-              <div className="sort-bar">
-                <div className="sort-bar-row">
-                  <span className="sort-bar-label">Sort:</span>
-                  <div className="sort-bar-group">
-                    <button className={`sort-btn${library.sortField === "title" ? " active" : ""}`} onClick={() => library.handleSort("title")}>
-                      Title{library.sortIndicator("title")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "artist" ? " active" : ""}`} onClick={() => library.handleSort("artist")}>
-                      Artist{library.sortIndicator("artist")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "album" ? " active" : ""}`} onClick={() => library.handleSort("album")}>
-                      Album{library.sortIndicator("album")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "year" ? " active" : ""}`} onClick={() => library.handleSort("year")}>
-                      Year{library.sortIndicator("year")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "duration" ? " active" : ""}`} onClick={() => library.handleSort("duration")}>
-                      Duration{library.sortIndicator("duration")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "added" ? " active" : ""}`} onClick={() => library.handleSort("added")}>
-                      Added{library.sortIndicator("added")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "modified" ? " active" : ""}`} onClick={() => library.handleSort("modified")}>
-                      Modified{library.sortIndicator("modified")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "random" ? " active" : ""}`} onClick={() => library.handleSort("random")}>
-                      Shuffle
-                    </button>
-                    <button
-                      className={`sort-btn liked-first-btn${library.trackLikedFirst ? " active" : ""}`}
-                      onClick={() => library.setTrackLikedFirst(v => !v)}
-                      title="Liked first"
-                    >{"\u2665"} Liked first</button>
+              <div className={`sort-bar-wrapper${library.sortBarCollapsed ? " collapsed" : ""}`}>
+                <div className="sort-bar">
+                  <div className="sort-bar-row">
+                    <span className="sort-bar-label">Sort:</span>
+                    <div className="sort-bar-group">
+                      <button className={`sort-btn${library.sortField === "title" ? " active" : ""}`} onClick={() => library.handleSort("title")}>
+                        Title{library.sortIndicator("title")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "artist" ? " active" : ""}`} onClick={() => library.handleSort("artist")}>
+                        Artist{library.sortIndicator("artist")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "album" ? " active" : ""}`} onClick={() => library.handleSort("album")}>
+                        Album{library.sortIndicator("album")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "year" ? " active" : ""}`} onClick={() => library.handleSort("year")}>
+                        Year{library.sortIndicator("year")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "duration" ? " active" : ""}`} onClick={() => library.handleSort("duration")}>
+                        Duration{library.sortIndicator("duration")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "added" ? " active" : ""}`} onClick={() => library.handleSort("added")}>
+                        Added{library.sortIndicator("added")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "modified" ? " active" : ""}`} onClick={() => library.handleSort("modified")}>
+                        Modified{library.sortIndicator("modified")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "random" ? " active" : ""}`} onClick={() => library.handleSort("random")}>
+                        Shuffle
+                      </button>
+                      <button
+                        className={`sort-btn liked-first-btn${library.trackLikedFirst ? " active" : ""}`}
+                        onClick={() => library.setTrackLikedFirst(v => !v)}
+                        title="Liked first"
+                      >{"\u2665"} Liked first</button>
+                    </div>
                   </div>
-                </div>
-                <div className="sort-bar-row">
-                  <span className="sort-bar-label">Filter:</span>
-                  <div className="sort-bar-group sort-bar-group-filter">
-                    <button className={`sort-btn${library.mediaTypeFilter === "all" ? " active" : ""}`} onClick={() => library.setMediaTypeFilter("all")}>
-                      All
-                    </button>
-                    <button className={`sort-btn${library.mediaTypeFilter === "audio" ? " active" : ""}`} onClick={() => library.setMediaTypeFilter("audio")}>
-                      Audio
-                    </button>
-                    <button className={`sort-btn${library.mediaTypeFilter === "video" ? " active" : ""}`} onClick={() => library.setMediaTypeFilter("video")}>
-                      Video
-                    </button>
-                    <button className={`sort-btn${library.filterYoutubeOnly ? " active" : ""}`} onClick={() => library.setFilterYoutubeOnly(v => !v)}>
-                      YouTube
-                    </button>
+                  <div className="sort-bar-row">
+                    <span className="sort-bar-label">Filter:</span>
+                    <div className="sort-bar-group sort-bar-group-filter">
+                      <button className={`sort-btn${library.mediaTypeFilter === "all" ? " active" : ""}`} onClick={() => library.setMediaTypeFilter("all")}>
+                        All
+                      </button>
+                      <button className={`sort-btn${library.mediaTypeFilter === "audio" ? " active" : ""}`} onClick={() => library.setMediaTypeFilter("audio")}>
+                        Audio
+                      </button>
+                      <button className={`sort-btn${library.mediaTypeFilter === "video" ? " active" : ""}`} onClick={() => library.setMediaTypeFilter("video")}>
+                        Video
+                      </button>
+                      <button className={`sort-btn${library.filterYoutubeOnly ? " active" : ""}`} onClick={() => library.setFilterYoutubeOnly(v => !v)}>
+                        YouTube
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-              )}
               <ViewSearchBar
                 query={viewSearch.getQuery("all")}
                 onQueryChange={(q) => viewSearch.setQuery("all", q)}
@@ -3018,6 +3019,7 @@ function App() {
                 <TrackList
                   tracks={sortedTracks}
                   currentTrack={playback.currentTrack}
+                  playing={playback.playing}
                   highlightedIndex={highlightedIndex}
                   sortField={sortField}
                   trackListRef={trackListRef}
@@ -3135,6 +3137,7 @@ function App() {
             <TrackList
               tracks={sortedTracks}
               currentTrack={playback.currentTrack}
+              playing={playback.playing}
               highlightedIndex={highlightedIndex}
               sortField={sortField}
               trackListRef={trackListRef}
@@ -3157,39 +3160,39 @@ function App() {
           {/* Liked tracks view */}
           {view === "liked" && (
             <>
-              {!library.sortBarCollapsed && (
-              <div className="sort-bar">
-                <div className="sort-bar-row">
-                  <span className="sort-bar-label">Sort:</span>
-                  <div className="sort-bar-group">
-                    <button className={`sort-btn${library.sortField === "title" ? " active" : ""}`} onClick={() => library.handleSort("title")}>
-                      Title{library.sortIndicator("title")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "artist" ? " active" : ""}`} onClick={() => library.handleSort("artist")}>
-                      Artist{library.sortIndicator("artist")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "album" ? " active" : ""}`} onClick={() => library.handleSort("album")}>
-                      Album{library.sortIndicator("album")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "year" ? " active" : ""}`} onClick={() => library.handleSort("year")}>
-                      Year{library.sortIndicator("year")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "duration" ? " active" : ""}`} onClick={() => library.handleSort("duration")}>
-                      Duration{library.sortIndicator("duration")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "added" ? " active" : ""}`} onClick={() => library.handleSort("added")}>
-                      Added{library.sortIndicator("added")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "modified" ? " active" : ""}`} onClick={() => library.handleSort("modified")}>
-                      Modified{library.sortIndicator("modified")}
-                    </button>
-                    <button className={`sort-btn${library.sortField === "random" ? " active" : ""}`} onClick={() => library.handleSort("random")}>
-                      Shuffle
-                    </button>
+              <div className={`sort-bar-wrapper${library.sortBarCollapsed ? " collapsed" : ""}`}>
+                <div className="sort-bar">
+                  <div className="sort-bar-row">
+                    <span className="sort-bar-label">Sort:</span>
+                    <div className="sort-bar-group">
+                      <button className={`sort-btn${library.sortField === "title" ? " active" : ""}`} onClick={() => library.handleSort("title")}>
+                        Title{library.sortIndicator("title")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "artist" ? " active" : ""}`} onClick={() => library.handleSort("artist")}>
+                        Artist{library.sortIndicator("artist")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "album" ? " active" : ""}`} onClick={() => library.handleSort("album")}>
+                        Album{library.sortIndicator("album")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "year" ? " active" : ""}`} onClick={() => library.handleSort("year")}>
+                        Year{library.sortIndicator("year")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "duration" ? " active" : ""}`} onClick={() => library.handleSort("duration")}>
+                        Duration{library.sortIndicator("duration")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "added" ? " active" : ""}`} onClick={() => library.handleSort("added")}>
+                        Added{library.sortIndicator("added")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "modified" ? " active" : ""}`} onClick={() => library.handleSort("modified")}>
+                        Modified{library.sortIndicator("modified")}
+                      </button>
+                      <button className={`sort-btn${library.sortField === "random" ? " active" : ""}`} onClick={() => library.handleSort("random")}>
+                        Shuffle
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-              )}
               <ViewSearchBar
                 query={viewSearch.getQuery("liked")}
                 onQueryChange={(q) => viewSearch.setQuery("liked", q)}
@@ -3202,6 +3205,7 @@ function App() {
                 <TrackList
                   tracks={sortedTracks}
                   currentTrack={playback.currentTrack}
+                  playing={playback.playing}
                   highlightedIndex={highlightedIndex}
                   sortField={sortField}
                   trackListRef={trackListRef}
