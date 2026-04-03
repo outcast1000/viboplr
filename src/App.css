@@ -2745,6 +2745,25 @@ body {
   opacity: 1;
 }
 
+.playback-error-track {
+  font-weight: 600;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playback-error-message {
+  color: var(--error);
+  font-size: var(--fs-sm);
+  margin-bottom: 8px;
+}
+
+.playback-error-countdown {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
 /* Now playing bar */
 .now-playing {
   grid-column: 1 / -1;

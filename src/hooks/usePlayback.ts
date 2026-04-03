@@ -31,6 +31,7 @@ export function usePlayback(
   const scrobbledRef = useRef(false);
   const [scrobbled, setScrobbled] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [failedTrack, setFailedTrack] = useState<Track | null>(null);
   const [currentAssetUrl, setCurrentAssetUrl] = useState<string | null>(null);
   const playStartedAtRef = useRef(0);
 
@@ -422,11 +423,13 @@ export function usePlayback(
     const msg = messages[err.code] || `Playback error (code ${err.code})`;
     console.error("Media error:", msg, err.message);
     setPlaybackError(msg);
+    setFailedTrack(currentTrack);
     setPlaying(false);
   }
 
   function clearPlaybackError() {
     setPlaybackError(null);
+    setFailedTrack(null);
   }
 
   function handleVolume(level: number) {
@@ -559,6 +562,6 @@ export function usePlayback(
     onPlaySlotA, onPlaySlotB,
     onPauseSlotA, onPauseSlotB,
     toggleFullscreen,
-    playbackError, clearPlaybackError,
+    playbackError, failedTrack, clearPlaybackError,
   };
 }

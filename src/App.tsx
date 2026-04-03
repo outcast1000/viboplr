@@ -63,6 +63,7 @@ import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
 import { UpgradeTrackModal } from "./components/UpgradeTrackModal";
 import BulkEditModal from "./components/BulkEditModal";
+import PlaybackErrorModal from "./components/PlaybackErrorModal";
 import NowPlayingView from "./components/NowPlayingView";
 import { StatusBar } from "./components/StatusBar";
 
@@ -3653,10 +3654,12 @@ function App() {
       )}
 
       {playback.playbackError && (
-        <div className="playback-error-banner">
-          <span>{playback.playbackError}</span>
-          <button onClick={playback.clearPlaybackError}>{"\u2715"}</button>
-        </div>
+        <PlaybackErrorModal
+          error={playback.playbackError}
+          trackTitle={playback.failedTrack?.title ?? null}
+          onDismiss={playback.clearPlaybackError}
+          onSkip={() => { playback.clearPlaybackError(); handleNext(); }}
+        />
       )}
 
       <NowPlayingBar
