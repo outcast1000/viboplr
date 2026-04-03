@@ -157,6 +157,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::fetch_lyrics,
         commands::save_manual_lyrics,
         commands::reset_lyrics,
+        commands::check_lyrics_match,
     ]
 }
 
@@ -288,6 +289,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::fetch_lyrics,
         commands::save_manual_lyrics,
         commands::reset_lyrics,
+        commands::check_lyrics_match,
     ]
 }
 

@@ -3223,3 +3223,8 @@ pub fn reset_lyrics(app: tauri::AppHandle, state: State<'_, AppState>, track_id:
     // Trigger fresh fetch
     fetch_lyrics(app, state, track_id, Some(false));
 }
+
+#[tauri::command]
+pub fn check_lyrics_match(state: State<'_, AppState>, track_ids: Vec<i64>, query: String) -> Result<Vec<i64>, String> {
+    state.db.check_lyrics_match(&track_ids, &query).map_err(|e| e.to_string())
+}

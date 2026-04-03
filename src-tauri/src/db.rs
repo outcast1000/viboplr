@@ -1642,6 +1642,37 @@ impl Database {
         Ok(())
     }
 
+    /// Check which track IDs from a list have lyrics matching the given search query.
+    pub fn check_lyrics_match(&self, track_ids: &[i64], query: &str) -> SqlResult<Vec<i64>> {
+        if track_ids.is_empty() || query.trim().is_empty() {
+            return Ok(vec![]);
+        }
+        let conn = self.conn.lock().unwrap();
+        let normalized = strip_diacritics(query);
+        let fts_query = normalized
+            .split_whitespace()
+            .map(|w| format!("\"{}\"*", w.replace('"', "")))
+            .collect::<Vec<_>>()
+            .join(" AND ");
+
+        let placeholders: Vec<String> = track_ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 2)).collect();
+        let column_query = format!("lyrics_text:{}", fts_query);
+        let sql = format!(
+            "SELECT fts.rowid FROM tracks_fts fts WHERE tracks_fts MATCH ?1 AND fts.rowid IN ({})",
+            placeholders.join(",")
+        );
+
+        let mut stmt = conn.prepare(&sql)?;
+        let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(column_query)];
+        for id in track_ids {
+            params_vec.push(Box::new(*id));
+        }
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+
+        let rows = stmt.query_map(params_refs.as_slice(), |row| row.get::<_, i64>(0))?;
+        rows.collect()
+    }
+
     // --- Image helpers ---
 
     /// Look up the entity name (and artist name for albums) by kind and id.
