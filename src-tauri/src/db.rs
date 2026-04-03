@@ -11,6 +11,15 @@ pub fn strip_diacritics(s: &str) -> String {
     s.nfd().filter(|c| !unicode_normalization::char::is_combining_mark(*c)).collect()
 }
 
+/// Strip LRC timestamps like [01:23.45] from synced lyrics text.
+pub fn strip_lrc_timestamps(text: &str) -> String {
+    use regex::Regex;
+    use std::sync::OnceLock;
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"\[\d{2}:\d{2}[.:]\d{2,3}\]").unwrap());
+    re.replace_all(text, "").trim().to_string()
+}
+
 
 const TRACK_SELECT: &str =
     "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
@@ -1542,6 +1551,97 @@ impl Database {
         Ok(())
     }
 
+    // --- Lyrics ---
+
+    pub fn get_lyrics(&self, track_id: i64) -> SqlResult<Option<crate::models::Lyrics>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT track_id, text, kind, provider, fetched_at FROM lyrics WHERE track_id = ?1"
+        )?;
+        let result = stmt.query_row(params![track_id], |row| {
+            Ok(crate::models::Lyrics {
+                track_id: row.get(0)?,
+                text: row.get(1)?,
+                kind: row.get(2)?,
+                provider: row.get(3)?,
+                fetched_at: row.get(4)?,
+            })
+        });
+        match result {
+            Ok(lyrics) => Ok(Some(lyrics)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn save_lyrics(&self, track_id: i64, text: &str, kind: &str, provider: &str) -> SqlResult<crate::models::Lyrics> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO lyrics (track_id, text, kind, provider, fetched_at) VALUES (?1, ?2, ?3, ?4, strftime('%s', 'now'))",
+            params![track_id, text, kind, provider],
+        )?;
+        let fetched_at: i64 = conn.query_row(
+            "SELECT fetched_at FROM lyrics WHERE track_id = ?1",
+            params![track_id],
+            |row| row.get(0),
+        )?;
+        Ok(crate::models::Lyrics {
+            track_id,
+            text: text.to_string(),
+            kind: kind.to_string(),
+            provider: provider.to_string(),
+            fetched_at,
+        })
+    }
+
+    pub fn delete_lyrics(&self, track_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM lyrics WHERE track_id = ?1", params![track_id])?;
+        Ok(())
+    }
+
+    /// Update the FTS index for a single track after lyrics change.
+    pub fn update_fts_for_track(&self, track_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM tracks WHERE id = ?1)",
+            params![track_id],
+            |row| row.get(0),
+        )?;
+        if !exists { return Ok(()); }
+
+        // Get lyrics text for FTS, stripping timestamps if synced
+        let lyrics_for_fts: String = {
+            let lyrics_text: Option<(String, String)> = conn.query_row(
+                "SELECT text, kind FROM lyrics WHERE track_id = ?1",
+                params![track_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            ).ok();
+            match lyrics_text {
+                Some((text, kind)) if kind == "synced" => strip_lrc_timestamps(&text),
+                Some((text, _)) => text,
+                None => String::new(),
+            }
+        };
+
+        conn.execute(
+            &format!(
+                "INSERT OR REPLACE INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, filename, lyrics_text)
+                 SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')), strip_diacritics(COALESCE(al.title, '')),
+                        strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
+                        strip_diacritics(filename_from_path(t.path)),
+                        strip_diacritics(COALESCE(?2, ''))
+                 FROM tracks t
+                 LEFT JOIN artists ar ON t.artist_id = ar.id
+                 LEFT JOIN albums al ON t.album_id = al.id
+                 WHERE t.id = ?1 {}",
+                ENABLED_COLLECTION_FILTER
+            ),
+            params![track_id, lyrics_for_fts],
+        )?;
+        Ok(())
+    }
+
     // --- Image helpers ---
 
     /// Look up the entity name (and artist name for albums) by kind and id.
@@ -2772,5 +2872,91 @@ mod tests {
             |row| row.get(0),
         ).unwrap();
         assert_eq!(text, "Hello world");
+    }
+
+    #[test]
+    fn test_save_and_get_lyrics() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Artist").unwrap();
+        let track_id = insert_track(&db, "/test/song.mp3", "Song", Some(artist_id), None);
+
+        assert!(db.get_lyrics(track_id).unwrap().is_none());
+
+        let lyrics = db.save_lyrics(track_id, "Line one\nLine two", "plain", "lrclib").unwrap();
+        assert_eq!(lyrics.text, "Line one\nLine two");
+        assert_eq!(lyrics.kind, "plain");
+        assert_eq!(lyrics.provider, "lrclib");
+
+        let fetched = db.get_lyrics(track_id).unwrap().unwrap();
+        assert_eq!(fetched.text, lyrics.text);
+    }
+
+    #[test]
+    fn test_save_lyrics_upsert() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Artist").unwrap();
+        let track_id = insert_track(&db, "/test/song.mp3", "Song", Some(artist_id), None);
+
+        db.save_lyrics(track_id, "V1", "plain", "lrclib").unwrap();
+        db.save_lyrics(track_id, "[00:01.00]V2", "synced", "lrclib").unwrap();
+
+        let lyrics = db.get_lyrics(track_id).unwrap().unwrap();
+        assert_eq!(lyrics.text, "[00:01.00]V2");
+        assert_eq!(lyrics.kind, "synced");
+    }
+
+    #[test]
+    fn test_delete_lyrics() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Artist").unwrap();
+        let track_id = insert_track(&db, "/test/song.mp3", "Song", Some(artist_id), None);
+
+        db.save_lyrics(track_id, "Text", "plain", "manual").unwrap();
+        assert!(db.get_lyrics(track_id).unwrap().is_some());
+
+        db.delete_lyrics(track_id).unwrap();
+        assert!(db.get_lyrics(track_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_lyrics_cascade_on_track_delete() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Artist").unwrap();
+        let track_id = insert_track(&db, "/test/song.mp3", "Song", Some(artist_id), None);
+
+        db.save_lyrics(track_id, "Text", "plain", "lrclib").unwrap();
+        db.delete_tracks_by_ids(&[track_id]).unwrap();
+        assert!(db.get_lyrics(track_id).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_strip_lrc_timestamps() {
+        assert_eq!(
+            strip_lrc_timestamps("[00:12.34]Hello world"),
+            "Hello world"
+        );
+        assert_eq!(
+            strip_lrc_timestamps("[01:23.45]Line one\n[01:30.00]Line two"),
+            "Line one\nLine two"
+        );
+        assert_eq!(
+            strip_lrc_timestamps("Plain text no timestamps"),
+            "Plain text no timestamps"
+        );
+    }
+
+    #[test]
+    fn test_lyrics_in_fts_search() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Artist").unwrap();
+        let track_id = insert_track(&db, "/test/song.mp3", "Song Title", Some(artist_id), None);
+
+        db.save_lyrics(track_id, "unique_lyric_word in a song", "plain", "lrclib").unwrap();
+        db.rebuild_fts().unwrap();
+
+        let opts = crate::models::TrackQuery { query: Some("unique_lyric_word".to_string()), ..Default::default() };
+        let results = db.get_tracks(&opts).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, track_id);
     }
 }
