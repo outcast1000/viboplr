@@ -14,7 +14,7 @@ export function WaveformSeekBar({ peaks, progress, accentColor, dimColor }: Wave
   // Grow-in animation state
   const growRef = useRef(0); // 0 to 1 (animation progress)
   const growStartRef = useRef(0); // timestamp
-  const prevPeaksLenRef = useRef(0);
+  const prevPeaksKeyRef = useRef("");
   const GROW_DURATION = 400; // ms
   const STAGGER_PER_BAR = 2; // ms per bar
 
@@ -76,13 +76,14 @@ export function WaveformSeekBar({ peaks, progress, accentColor, dimColor }: Wave
   }, [peaks, progress, accentColor, dimColor]);
 
   // Detect peak data change and trigger grow animation
+  const peaksKey = peaks.length > 0 ? `${peaks.length}:${peaks[0]}:${peaks[peaks.length - 1]}` : "";
   useEffect(() => {
-    if (peaks.length > 0 && peaks.length !== prevPeaksLenRef.current) {
-      prevPeaksLenRef.current = peaks.length;
+    if (peaksKey && peaksKey !== prevPeaksKeyRef.current) {
+      prevPeaksKeyRef.current = peaksKey;
       growRef.current = 0;
       growStartRef.current = performance.now();
     }
-  }, [peaks.length]);
+  }, [peaksKey]);
 
   useEffect(() => {
     cancelAnimationFrame(frameRef.current);
