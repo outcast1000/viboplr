@@ -153,6 +153,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::oauth_listen,
         commands::open_logs_folder,
         commands::write_frontend_log,
+        commands::get_lyrics,
+        commands::fetch_lyrics,
+        commands::save_manual_lyrics,
+        commands::reset_lyrics,
     ]
 }
 
@@ -280,6 +284,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::oauth_listen,
         commands::open_logs_folder,
         commands::write_frontend_log,
+        commands::get_lyrics,
+        commands::fetch_lyrics,
+        commands::save_manual_lyrics,
+        commands::reset_lyrics,
     ]
 }
 
@@ -857,6 +865,13 @@ pub fn run() {
             timer.time("manage_app_state", || {
                 let tidal_client = Arc::new(tidal::TidalClient::new(None));
                 tidal::set_global_client(tidal_client.clone());
+
+                let lyric_provider: Arc<dyn lyric_provider::LyricProvider> = Arc::new(
+                    lyric_provider::LyricFallbackChain::new(vec![
+                        Box::new(lyric_provider::lrclib::LrclibProvider),
+                    ]),
+                );
+
                 app.manage(AppState {
                     db,
                     app_dir,
@@ -872,6 +887,8 @@ pub fn run() {
                     auto_import_last_at: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0)),
                     tidal_client,
                     native_plugins_dir,
+                    lyric_provider,
+                    lyrics_fetching_track_id: Arc::new(std::sync::atomic::AtomicI64::new(0)),
                 });
             });
 

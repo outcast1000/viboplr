@@ -51,6 +51,8 @@ pub struct AppState {
     pub auto_import_last_at: Arc<AtomicI64>,   // unix timestamp, 0 = never
     pub tidal_client: Arc<TidalClient>,
     pub native_plugins_dir: Option<std::path::PathBuf>,
+    pub lyric_provider: Arc<dyn crate::lyric_provider::LyricProvider>,
+    pub lyrics_fetching_track_id: Arc<AtomicI64>,  // 0 = idle
 }
 
 #[derive(Debug, Deserialize)]
@@ -2952,6 +2954,8 @@ mod tests {
             auto_import_last_at: Arc::new(AtomicI64::new(0)),
             tidal_client: Arc::new(TidalClient::new(None)),
             native_plugins_dir: None,
+            lyric_provider: Arc::new(crate::lyric_provider::LyricFallbackChain::new(vec![])),
+            lyrics_fetching_track_id: Arc::new(AtomicI64::new(0)),
         }
     }
 
@@ -3117,4 +3121,105 @@ mod tests {
         assert_eq!(extract_first_video_id(&data), None);
         assert_eq!(extract_video_title(&data), None);
     }
+}
+
+// --- Lyrics commands ---
+
+#[tauri::command]
+pub fn get_lyrics(state: State<'_, AppState>, track_id: i64) -> Result<Option<crate::models::Lyrics>, String> {
+    state.db.get_lyrics(track_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn fetch_lyrics(app: tauri::AppHandle, state: State<'_, AppState>, track_id: i64, force: Option<bool>) {
+    let force = force.unwrap_or(false);
+    let db = state.db.clone();
+
+    // If force, clear failure record
+    if force {
+        let _ = db.clear_image_failure("lyrics", track_id);
+    }
+
+    // Check DB for existing lyrics
+    if let Ok(Some(lyrics)) = db.get_lyrics(track_id) {
+        if !force || lyrics.provider == "manual" {
+            let _ = app.emit("lyrics-loaded", crate::models::LyricsLoaded {
+                track_id: lyrics.track_id,
+                text: lyrics.text,
+                kind: lyrics.kind,
+                provider: lyrics.provider,
+            });
+            return;
+        }
+    }
+
+    // Check failure record (skip if not force)
+    if !force && db.is_image_failed("lyrics", track_id).unwrap_or(false) {
+        return;
+    }
+
+    // Resolve track info before spawning
+    let track = match db.get_track_by_id(track_id) {
+        Ok(t) => t,
+        Err(_) => return,
+    };
+    let artist_name = match track.artist_name {
+        Some(ref name) => name.clone(),
+        None => return,
+    };
+    let title = track.title.clone();
+    let duration = track.duration_secs;
+
+    let provider = state.lyric_provider.clone();
+    let fetching_id = state.lyrics_fetching_track_id.clone();
+
+    // Mark this track as being fetched
+    fetching_id.store(track_id, std::sync::atomic::Ordering::Relaxed);
+
+    std::thread::spawn(move || {
+        match provider.fetch_lyrics(&artist_name, &title, duration) {
+            Ok(result) => {
+                let kind_str = result.kind.as_str();
+                if let Ok(lyrics) = db.save_lyrics(track_id, &result.text, kind_str, &result.provider_name) {
+                    let _ = db.update_fts_for_track(track_id);
+                    let current = fetching_id.load(std::sync::atomic::Ordering::Relaxed);
+                    if current == track_id {
+                        let _ = app.emit("lyrics-loaded", crate::models::LyricsLoaded {
+                            track_id: lyrics.track_id,
+                            text: lyrics.text,
+                            kind: lyrics.kind,
+                            provider: lyrics.provider,
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = db.record_image_failure("lyrics", track_id);
+                let current = fetching_id.load(std::sync::atomic::Ordering::Relaxed);
+                if current == track_id {
+                    let _ = app.emit("lyrics-error", crate::models::LyricsError {
+                        track_id,
+                        error: e,
+                    });
+                }
+            }
+        }
+    });
+}
+
+#[tauri::command]
+pub fn save_manual_lyrics(state: State<'_, AppState>, track_id: i64, text: String, kind: String) -> Result<crate::models::Lyrics, String> {
+    let _ = state.db.clear_image_failure("lyrics", track_id);
+    let lyrics = state.db.save_lyrics(track_id, &text, &kind, "manual").map_err(|e| e.to_string())?;
+    let _ = state.db.update_fts_for_track(track_id);
+    Ok(lyrics)
+}
+
+#[tauri::command]
+pub fn reset_lyrics(app: tauri::AppHandle, state: State<'_, AppState>, track_id: i64) {
+    let _ = state.db.delete_lyrics(track_id);
+    let _ = state.db.clear_image_failure("lyrics", track_id);
+    let _ = state.db.update_fts_for_track(track_id);
+    // Trigger fresh fetch
+    fetch_lyrics(app, state, track_id, Some(false));
 }
