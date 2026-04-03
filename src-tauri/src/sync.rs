@@ -12,6 +12,12 @@ pub fn sync_collection(
 ) -> Result<(), String> {
     let start = std::time::Instant::now();
 
+    let host = client
+        .base_url()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/');
+
     // Build set of all existing paths for this collection (including already-deleted)
     let existing_paths: HashSet<String> = db
         .get_track_paths_for_collection(collection_id)
@@ -79,7 +85,7 @@ pub fn sync_collection(
                 .and_then(|name| db.get_or_create_artist(name).ok())
                 .or(artist_id);
 
-            let path = format!("subsonic://{}/{}", collection_id, track.id);
+            let path = format!("subsonic://{}/{}", host, track.id);
             seen_paths.insert(path.clone());
 
             if let Ok(track_db_id) = db.upsert_track(

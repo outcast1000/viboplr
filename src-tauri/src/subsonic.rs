@@ -228,6 +228,10 @@ impl SubsonicClient {
         Ok((album, tracks))
     }
 
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     pub fn stream_url(&self, track_id: &str) -> String {
         format!("{}/rest/stream.view?id={}&{}", self.base_url, track_id, self.auth_params)
     }

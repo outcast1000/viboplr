@@ -75,7 +75,7 @@ describe("computeUrl", () => {
       }),
     ];
     expect(computeUrl(track, collections)).toBe(
-      "subsonic://demo.navidrome.org/rest/stream.view?id=abc123"
+      "subsonic://demo.navidrome.org/abc123"
     );
   });
 
@@ -92,7 +92,7 @@ describe("computeUrl", () => {
       }),
     ];
     expect(computeUrl(track, collections)).toBe(
-      "subsonic://music.example.com:4533/subsonic/rest/stream.view?id=xyz"
+      "subsonic://music.example.com:4533/subsonic/xyz"
     );
   });
 
@@ -190,7 +190,7 @@ describe("trackToQueueEntry", () => {
       }),
     ];
     const entry = trackToQueueEntry(track, collections);
-    expect(entry.url).toBe("subsonic://server.com/rest/stream.view?id=sub-id");
+    expect(entry.url).toBe("subsonic://server.com/sub-id");
   });
 
   it("uses pre-stamped url from track if present", () => {
@@ -290,7 +290,7 @@ describe("queueEntryToTrack", () => {
 
   it("converts subsonic:// url to Track with id=0 and subsonic_id", () => {
     const entry: QueueEntry = {
-      url: "subsonic://server.com/rest/stream.view?id=abc123",
+      url: "subsonic://server.com/abc123",
       title: "Server Song",
       artist_name: "Server Artist",
       album_title: "Server Album",
@@ -320,13 +320,13 @@ describe("queueEntryToTrack", () => {
       youtube_url: null,
       added_at: null,
       modified_at: null,
-      url: "subsonic://server.com/rest/stream.view?id=abc123",
+      url: "subsonic://server.com/abc123",
     });
   });
 
-  it("handles subsonic:// URL without query params", () => {
+  it("handles subsonic:// URL with host only (no track id)", () => {
     const entry: QueueEntry = {
-      url: "subsonic://server.com/rest/stream.view",
+      url: "subsonic://server.com",
       title: "Song",
       artist_name: null,
       album_title: null,
@@ -352,33 +352,31 @@ describe("parseUrlScheme", () => {
     expect(result).toEqual({ scheme: "tidal", id: "12345" });
   });
 
-  it("parses subsonic:// scheme with full URL and id", () => {
-    const result = parseUrlScheme(
-      "subsonic://server.com/rest/stream.view?id=abc123"
-    );
+  it("parses subsonic:// scheme with host and id", () => {
+    const result = parseUrlScheme("subsonic://server.com/abc123");
     expect(result).toEqual({
       scheme: "subsonic",
-      url: "subsonic://server.com/rest/stream.view?id=abc123",
+      url: "subsonic://server.com/abc123",
       id: "abc123",
     });
   });
 
-  it("parses subsonic:// scheme without id param", () => {
-    const result = parseUrlScheme("subsonic://server.com/rest/stream.view");
+  it("parses subsonic:// scheme with host only (no id)", () => {
+    const result = parseUrlScheme("subsonic://server.com");
     expect(result).toEqual({
       scheme: "subsonic",
-      url: "subsonic://server.com/rest/stream.view",
+      url: "subsonic://server.com",
       id: "",
     });
   });
 
-  it("parses subsonic:// scheme with multiple query params", () => {
+  it("parses subsonic:// scheme with port and subpath", () => {
     const result = parseUrlScheme(
-      "subsonic://server.com/path?foo=bar&id=xyz&baz=qux"
+      "subsonic://music.example.com:4533/subsonic/xyz"
     );
     expect(result).toEqual({
       scheme: "subsonic",
-      url: "subsonic://server.com/path?foo=bar&id=xyz&baz=qux",
+      url: "subsonic://music.example.com:4533/subsonic/xyz",
       id: "xyz",
     });
   });
