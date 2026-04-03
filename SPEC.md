@@ -4,7 +4,7 @@
 
 Viboplr is a lightweight, cross-platform **media player** for macOS and Windows. It plays audio and video files from local folders, Subsonic/Navidrome servers, and TIDAL. It scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
 
-**Non-goals (v1):** equalizer/DSP, lyrics, mobile.
+**Non-goals (v1):** equalizer/DSP, mobile.
 
 ## 2. Tech Stack
 
@@ -828,6 +828,14 @@ CREATE TABLE lastfm_cache (
     cached_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 
+CREATE TABLE lyrics (
+    track_id    INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+    text        TEXT NOT NULL,            -- LRC format if synced, plain text otherwise
+    kind        TEXT NOT NULL,            -- "synced" or "plain"
+    provider    TEXT NOT NULL,            -- "lrclib", "genius", "manual"
+    fetched_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
 -- Full-text search
 CREATE VIRTUAL TABLE tracks_fts USING fts5(
     title,
@@ -835,12 +843,13 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
     album_title,
     tag_names,
     filename,
+    lyrics_text,
     content='',
     tokenize='unicode61 remove_diacritics 2'
 );
 ```
 
-**Migration:** A `db_version` table tracks the schema version (starting at 1). On startup, `run_migrations()` checks the version and applies any needed ALTER TABLE statements. Migrations include: `folders` → `collections` with `kind='local'` (path prefix matching); `deleted` on tracks; `liked` on artists/albums/tracks; `auto_update`/`auto_update_interval_mins`/`enabled`/`last_sync_duration_secs` on collections; `track_count` on artists/albums/tags (version 2); `youtube_url` on tracks (version 3); `last_sync_error` on collections (version 4); `liked` on tags (version 5); migrate `play_history` data into decoupled `history_artists`/`history_tracks`/`history_plays` tables (version 6); drop `deleted` column from tracks after hard-deleting soft-deleted rows (version 7); drop legacy `play_history` table (version 8); add `library_artist_id`/`library_track_id` cache columns to history tables with backfill (version 9); add `lastfm_cache` table for Last.fm API response caching (version 10). After migrations, `recompute_counts()` runs on every startup to ensure counts are correct even after a crash or interrupted scan.
+**Migration:** A `db_version` table tracks the schema version (starting at 1). On startup, `run_migrations()` checks the version and applies any needed ALTER TABLE statements. Migrations include: `folders` → `collections` with `kind='local'` (path prefix matching); `deleted` on tracks; `liked` on artists/albums/tracks; `auto_update`/`auto_update_interval_mins`/`enabled`/`last_sync_duration_secs` on collections; `track_count` on artists/albums/tags (version 2); `youtube_url` on tracks (version 3); `last_sync_error` on collections (version 4); `liked` on tags (version 5); migrate `play_history` data into decoupled `history_artists`/`history_tracks`/`history_plays` tables (version 6); drop `deleted` column from tracks after hard-deleting soft-deleted rows (version 7); drop legacy `play_history` table (version 8); add `library_artist_id`/`library_track_id` cache columns to history tables with backfill (version 9); add `lastfm_cache` table for Last.fm API response caching (version 10); add `year` column to tracks (version 11); add `lyrics` table and `lyrics_text` column to FTS5 index with full rebuild (version 12). After migrations, `recompute_counts()` runs on every startup to ensure counts are correct even after a crash or interrupted scan.
 
 ## 6. Architecture
 
@@ -1055,6 +1064,16 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `delete_user_plugin`      | `plugin_id: String`                                      | `()`                 |
 | `oauth_listen`            | —                                                        | `u16` (port)         |
 
+### Lyrics Commands
+
+| Command                 | Args                                          | Returns              |
+| ----------------------- | --------------------------------------------- | -------------------- |
+| `get_lyrics`            | `track_id: i64`                               | `Option<Lyrics>`     |
+| `fetch_lyrics`          | `track_id: i64, force?: bool`                 | `()` (async, emits events) |
+| `save_manual_lyrics`    | `track_id: i64, text: String, kind: String`   | `Lyrics`             |
+| `reset_lyrics`          | `track_id: i64`                               | `()` (triggers re-fetch) |
+| `check_lyrics_match`    | `track_ids: Vec<i64>, query: String`          | `Vec<i64>`           |
+
 ### Debug-Only Commands
 
 | Command                 | Args                        | Returns                  |
@@ -1090,6 +1109,8 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `lastfm-track-tags`         | `Value` (JSON)                 |
 | `lastfm-artist-tags`        | `Value` (JSON)                 |
 | `lastfm-album-track-popularity` | `Value` (JSON: artist, album, tracks[]) |
+| `lyrics-loaded`                 | `{ track_id, text, kind, provider }`     |
+| `lyrics-error`                  | `{ track_id, error }`                    |
 
 ## 8. Performance Targets
 
@@ -1312,10 +1333,35 @@ The UI uses CSS animations and transitions for micro-interactions and state chan
 - **Track info slide:** A `SlideText` component in `NowPlayingBar` detects track title/artist changes and applies `slide-text-in` animation (250ms). Only active in full mode, not mini mode.
 - **Waveform grow-in:** In `WaveformSeekBar`, bars animate from scaleY(0) to scaleY(1) with a staggered delay when new peak data loads. Uses a fingerprint (peak count + first/last values) to re-trigger on every track change rather than just on length changes.
 
+### 4.30 Lyrics
+
+Lyrics are fetched from external providers, stored per-track in the database, and displayed in the Now Playing View with synchronized scrolling for timestamped lyrics.
+
+**Provider system:** A trait-based `LyricProvider` fallback chain (`lyric_provider/mod.rs`) mirrors the image provider pattern. Each provider implements `fetch_lyrics(artist, title, duration_secs)` returning a `LyricResult` with text, kind (`Synced` or `Plain`), and provider name. The chain iterates providers sequentially, returning the first success.
+
+**Providers:**
+- **LRCLIB** (`lrclib.rs`): Queries `lrclib.net/api/get` with artist name, track name, and optional duration. Prefers synced (LRC-timestamped) lyrics, falls back to plain text. Free, no API key required.
+
+**Storage:** One lyrics row per track in the `lyrics` table (`track_id` primary key, CASCADE delete). The `kind` field is `"synced"` (LRC with `[mm:ss.xx]` timestamps) or `"plain"`. The `provider` field records the source (`"lrclib"`, `"manual"`). Provider fetches do not overwrite lyrics with `provider = "manual"`.
+
+**Failure tracking:** Reuses the `image_fetch_failures` table with `kind = 'lyrics'`. Failed fetches are recorded to avoid retrying. Force refresh clears the failure record.
+
+**Auto-fetch on playback:** When a track starts playing and the Now Playing View is open, the frontend calls `fetch_lyrics(track_id, false)`. The backend checks the database first (emits `lyrics-loaded` immediately if cached), then checks the failure cache, then spawns a background thread for the provider chain. An `AtomicI64` tracks the currently-fetching track ID to avoid emitting events for stale fetches.
+
+**Display (`LyricsPanel` component):** Rendered in the right column of the Now Playing View (album and artist cards are moved to the left column).
+
+- **Synced lyrics:** LRC timestamps are parsed into timed lines. The current line (based on playback position) is highlighted at full opacity with larger font weight; surrounding lines are dimmed (0.4 opacity). Auto-scrolls to keep the current line centered. Manual scrolling pauses auto-scroll for 5 seconds.
+- **Plain lyrics:** Full text displayed with normal scrolling, no line highlighting.
+- **Edit mode:** Click the edit button (✎) to replace the display with a textarea. A kind selector (plain/synced) allows choosing the format. Save commits via `save_manual_lyrics`.
+- **States:** Loading (spinner), loaded (synced or plain display), not found ("No lyrics found" with "Add manually" button), error.
+- **Badges:** Kind badge ("synced" with green tint, or "plain"). Provider attribution ("via lrclib" / "manual") in footer.
+- **Actions:** Edit (✎), reset to provider lyrics (↺, shown for manual), re-fetch (↻, shown for provider lyrics).
+
+**FTS integration:** The `tracks_fts` index includes a `lyrics_text` column. When lyrics are saved, the FTS entry is updated. For synced lyrics, LRC timestamps are stripped before indexing via a `strip_lrc_timestamps` regex. The `check_lyrics_match` command checks which track IDs from a set matched a query in the lyrics column, enabling "lyrics" badges on search results.
+
 ## 11. Out of Scope (v1)
 
 - Equalizer / audio effects / DSP
-- Lyrics display
 - Mobile platforms (iOS, Android)
 
 ## 12. Implementation Notes
