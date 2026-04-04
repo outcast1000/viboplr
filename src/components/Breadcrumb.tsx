@@ -6,6 +6,8 @@ interface BreadcrumbProps {
   selectedArtist: number | null;
   selectedAlbum: number | null;
   selectedTag: number | null;
+  selectedTrack: number | null;
+  selectedTrackTitle?: string;
   artists: Artist[];
   albums: Album[];
   tags: Tag[];
@@ -14,6 +16,7 @@ interface BreadcrumbProps {
   onSetSelectedArtist: (id: number | null) => void;
   onSetSelectedAlbum: (id: number | null) => void;
   onSetSelectedTag: (id: number | null) => void;
+  onSetSelectedTrack: (id: number | null) => void;
   onSetView: (view: View) => void;
   onPlayAll: (tracks: Track[], startIndex: number) => void;
   onEnqueueAll: (tracks: Track[]) => void;
@@ -21,16 +24,24 @@ interface BreadcrumbProps {
 }
 
 export function Breadcrumb({
-  view, selectedArtist, selectedAlbum, selectedTag,
+  view, selectedArtist, selectedAlbum, selectedTag, selectedTrack, selectedTrackTitle,
   artists, albums, tags, tracks, sortedTracks,
-  onSetSelectedArtist, onSetSelectedAlbum, onSetSelectedTag,
+  onSetSelectedArtist, onSetSelectedAlbum, onSetSelectedTag, onSetSelectedTrack,
   onSetView,
   onPlayAll, onEnqueueAll,
   children,
 }: BreadcrumbProps) {
   return (
     <div className="breadcrumb">
-      {view === "artists" && selectedArtist === null ? (
+      {selectedTrack !== null ? (
+        <>
+          <span className="breadcrumb-link" onClick={() => onSetSelectedTrack(null)}>
+            {view === "artists" ? "Artists" : view === "albums" ? "Albums" : view === "tags" ? "Tags" : view === "liked" ? "Liked" : view === "history" ? "History" : "Tracks"}
+          </span>
+          <span className="breadcrumb-sep"> {"\u203A"} </span>
+          <span>{selectedTrackTitle ?? "Track"}</span>
+        </>
+      ) : view === "artists" && selectedArtist === null ? (
         <span>All Artists</span>
       ) : view === "artists" && selectedArtist !== null && selectedAlbum === null ? (
         <>

@@ -28,6 +28,7 @@ interface ContextMenuProps {
   onShowInFolder: () => void;
   onWatchOnYoutube?: () => void;
   onShowProperties?: () => void;
+  onViewDetails?: () => void;
   onDelete?: () => void;
   onRefreshImage?: () => void;
   onRemoveFromQueue?: () => void;
@@ -110,7 +111,7 @@ function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarget {
 }
 
 export function ContextMenu({
-  menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onShowProperties,
+  menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onShowProperties, onViewDetails,
   onDelete, onRefreshImage, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, localCollections,
   onBulkEdit, onClose,
   pluginMenuItems, onPluginAction,
@@ -217,6 +218,11 @@ export function ContextMenu({
       {target.kind === "track" && onWatchOnYoutube && (
         <div className="context-menu-item" onClick={() => { onWatchOnYoutube(); onClose(); }}>
           <IconYoutube size={14} /><span>Watch on YouTube</span>
+        </div>
+      )}
+      {target.kind === "track" && onViewDetails && (
+        <div className="context-menu-item" onClick={() => { onViewDetails(); onClose(); }}>
+          <IconInfo size={14} /><span>View Details</span>
         </div>
       )}
       {target.kind === "track" && onShowProperties && (

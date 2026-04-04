@@ -2188,6 +2188,39 @@ impl Database {
         ).optional()
     }
 
+    pub fn get_track_play_history(&self, track_id: i64, limit: i64) -> SqlResult<Vec<TrackPlayEntry>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT hp.played_at
+             FROM history_plays hp
+             JOIN history_tracks ht ON ht.id = hp.history_track_id
+             WHERE ht.library_track_id = ?1
+             ORDER BY hp.played_at DESC
+             LIMIT ?2"
+        )?;
+        let rows = stmt.query_map(params![track_id, limit], |row| {
+            Ok(TrackPlayEntry {
+                played_at: row.get(0)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_track_play_stats(&self, track_id: i64) -> SqlResult<Option<TrackPlayStats>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT ht.play_count, ht.first_played_at, ht.last_played_at
+             FROM history_tracks ht
+             WHERE ht.library_track_id = ?1",
+            params![track_id],
+            |row| Ok(TrackPlayStats {
+                play_count: row.get(0)?,
+                first_played_at: row.get(1)?,
+                last_played_at: row.get(2)?,
+            }),
+        ).optional()
+    }
+
     /// Attempt to reconnect a ghost history track to a library track by canonical title+artist match.
     /// Returns the matched Track if found, or None if no match exists.
     pub fn reconnect_history_track(&self, history_track_id: i64) -> SqlResult<Option<Track>> {

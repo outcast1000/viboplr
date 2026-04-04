@@ -25,6 +25,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<number | null>(null);
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
+  const [selectedTrack, setSelectedTrack] = useState<number | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [highlightedListIndex, setHighlightedListIndex] = useState(-1);
   const pendingLocateRef = useRef<{ title: string; artistName: string | null } | null>(null);
@@ -87,6 +88,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   useEffect(() => { if (restoredRef.current) store.set("selectedArtist", selectedArtist); }, [selectedArtist]);
   useEffect(() => { if (restoredRef.current) store.set("selectedAlbum", selectedAlbum); }, [selectedAlbum]);
   useEffect(() => { if (restoredRef.current) store.set("selectedTag", selectedTag); }, [selectedTag]);
+  useEffect(() => { if (restoredRef.current) store.set("selectedTrack", selectedTrack); }, [selectedTrack]);
   useEffect(() => { if (restoredRef.current) store.set("trackSortField", sortField); }, [sortField]);
   useEffect(() => { if (restoredRef.current) store.set("trackSortDir", sortDir); }, [sortDir]);
   useEffect(() => { if (restoredRef.current) store.set("trackColumns", trackColumns); }, [trackColumns]);
@@ -472,11 +474,17 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     }
   }
 
+  function handleTrackClick(trackId: number) {
+    onBeforeNavigate?.();
+    setSelectedTrack(trackId);
+  }
+
   function handleArtistClick(artistId: number) {
     onBeforeNavigate?.();
     setSelectedArtist(artistId);
     setSelectedAlbum(null);
     setSelectedTag(null);
+    setSelectedTrack(null);
     setView("artists");
   }
 
@@ -484,6 +492,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     onBeforeNavigate?.();
     setSelectedAlbum(albumId);
     setSelectedTag(null);
+    setSelectedTrack(null);
     const resolvedArtistId = artistId !== undefined ? artistId
       : albums.find(a => a.id === albumId)?.artist_id ?? null;
     if (resolvedArtistId) {
@@ -518,6 +527,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     setSelectedArtist(null);
     setSelectedAlbum(null);
     setSelectedTag(null);
+    setSelectedTrack(null);
   }
 
   function handleShowLiked() {
@@ -526,6 +536,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     setSelectedArtist(null);
     setSelectedAlbum(null);
     setSelectedTag(null);
+    setSelectedTrack(null);
   }
 
   return {
@@ -540,6 +551,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     selectedArtist, setSelectedArtist,
     selectedAlbum, setSelectedAlbum,
     selectedTag, setSelectedTag,
+    selectedTrack, setSelectedTrack,
     highlightedIndex, setHighlightedIndex,
     highlightedListIndex, setHighlightedListIndex,
     sortField, sortDir, setSortField, setSortDir,
@@ -547,7 +559,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     handleSort, sortIndicator,
     trackColumns, setTrackColumns,
     artistAlbums,
-    handleArtistClick, handleAlbumClick, handleLocateTrack, handleShowAll, handleShowLiked,
+    handleTrackClick, handleArtistClick, handleAlbumClick, handleLocateTrack, handleShowAll, handleShowLiked,
     loadLibrary, loadTracks,
     hasMore, loadingMore, loadMore,
     sortedArtists, artistSortField, setArtistSortField, artistSortDir, setArtistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,

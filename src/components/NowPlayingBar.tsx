@@ -82,6 +82,7 @@ interface NowPlayingBarProps {
   onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
   onToggleLike: () => void;
   onToggleDislike?: () => void;
+  onTrackClick: (trackId: number) => void;
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
   showNowPlayingView: boolean;
@@ -101,7 +102,7 @@ export function NowPlayingBar({
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
-  onToggleLike, onToggleDislike, onArtistClick, onAlbumClick,
+  onToggleLike, onToggleDislike, onTrackClick, onArtistClick, onAlbumClick,
   showNowPlayingView, onToggleNowPlaying, showHelp, onToggleHelp,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -233,7 +234,7 @@ export function NowPlayingBar({
           <div className="now-info-text">
             {currentTrack ? (
               <>
-                <span className={`now-title${currentTrack.album_id ? " now-link" : ""}`} onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id) : undefined}>
+                <span className="now-title now-link" onClick={() => onTrackClick(currentTrack.id)}>
                   <SlideText text={currentTrack.title} />
                   {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                 </span>

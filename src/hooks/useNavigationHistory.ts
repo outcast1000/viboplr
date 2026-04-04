@@ -6,6 +6,7 @@ export interface NavState {
   selectedArtist: number | null;
   selectedAlbum: number | null;
   selectedTag: number | null;
+  selectedTrack?: number | null;
   viewSearchQueries: Record<string, string>;
   scrollTop: number;
 }

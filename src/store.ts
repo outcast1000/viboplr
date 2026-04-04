@@ -6,6 +6,7 @@ const STORE_DEFAULTS = {
   selectedArtist: null,
   selectedAlbum: null,
   selectedTag: null,
+  selectedTrack: null,
   currentTrackEntry: null,
   volume: 1.0,
   queueEntries: [],
@@ -55,6 +56,7 @@ const STORE_DEFAULTS = {
   loggingEnabled: false,
   artistSections: { topSongs: true, about: true, albums: true, similarArtists: true },
   albumSections: { review: true, unmatchedTracks: true },
+  trackSections: { lyrics: true, tags: true, scrobbleHistory: true, similar: true },
 };
 
 export interface AppStore {

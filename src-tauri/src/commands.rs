@@ -995,6 +995,16 @@ pub fn get_artist_rank(state: State<'_, AppState>, artist_id: i64) -> Result<Opt
 }
 
 #[tauri::command]
+pub fn get_track_play_history(state: State<'_, AppState>, track_id: i64, limit: i64) -> Result<Vec<TrackPlayEntry>, String> {
+    state.db.get_track_play_history(track_id, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_track_play_stats(state: State<'_, AppState>, track_id: i64) -> Result<Option<TrackPlayStats>, String> {
+    state.db.get_track_play_stats(track_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_auto_continue_track(
     state: State<'_, AppState>,
     strategy: String,

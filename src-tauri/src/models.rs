@@ -178,6 +178,18 @@ pub struct HistoryArtistStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackPlayEntry {
+    pub played_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackPlayStats {
+    pub play_count: i64,
+    pub first_played_at: Option<i64>,
+    pub last_played_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaylistLoadResult {
     pub tracks: Vec<Track>,
     pub not_found_count: usize,

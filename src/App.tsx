@@ -61,6 +61,7 @@ import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
+import { TrackDetailView } from "./components/TrackDetailView";
 import { UpgradeTrackModal } from "./components/UpgradeTrackModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
@@ -302,6 +303,15 @@ function App() {
       return next;
     });
   };
+  const [trackSections, setTrackSections] = useState<Record<string, boolean>>({ lyrics: true, tags: true, scrobbleHistory: true, similar: true });
+  const handleToggleTrackSection = (key: string) => {
+    setTrackSections(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      store.set("trackSections", next);
+      return next;
+    });
+  };
+  const [detailTrack, setDetailTrack] = useState<Track | null>(null);
   const [showAddServer, setShowAddServer] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -494,13 +504,14 @@ function App() {
     library.setSelectedArtist(s.selectedArtist);
     library.setSelectedAlbum(s.selectedAlbum);
     library.setSelectedTag(s.selectedTag);
+    library.setSelectedTrack(s.selectedTrack ?? null);
     viewSearch.restore(s.viewSearchQueries);
     // Restore scroll position after React renders the new view
     requestAnimationFrame(() => {
       const sc = getScrollEl();
       if (sc) sc.scrollTop = s.scrollTop;
     });
-  }, [library.setView, library.setSelectedArtist, library.setSelectedAlbum, library.setSelectedTag, viewSearch.restore, getScrollEl]);
+  }, [library.setView, library.setSelectedArtist, library.setSelectedAlbum, library.setSelectedTag, library.setSelectedTrack, viewSearch.restore, getScrollEl]);
 
   const getScrollTop = useCallback(() => getScrollEl()?.scrollTop ?? 0, [getScrollEl]);
 
@@ -510,6 +521,7 @@ function App() {
       selectedArtist: library.selectedArtist,
       selectedAlbum: library.selectedAlbum,
       selectedTag: library.selectedTag,
+      selectedTrack: library.selectedTrack,
       viewSearchQueries: viewSearch.snapshot(),
     },
     applyNavState,
@@ -798,6 +810,10 @@ function App() {
         if (savedArtistSections) setArtistSections(savedArtistSections);
         const savedAlbumSections = await store.get<Record<string, boolean>>("albumSections");
         if (savedAlbumSections) setAlbumSections(savedAlbumSections);
+        const savedTrackSections = await store.get<Record<string, boolean>>("trackSections");
+        if (savedTrackSections) setTrackSections(savedTrackSections);
+        const savedSelectedTrack = await store.get<number | null>("selectedTrack");
+        if (savedSelectedTrack != null) library.setSelectedTrack(savedSelectedTrack);
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {
@@ -1133,9 +1149,29 @@ function App() {
 
   const openNowPlaying = useCallback(() => {
     if (mini.miniMode) mini.toggleMiniMode();
+    library.setSelectedTrack(null);
     setShowNowPlayingView(true);
     if (playback.currentTrack) fetchNpLastfmData(playback.currentTrack);
   }, [mini.miniMode, mini.toggleMiniMode, playback.currentTrack, fetchNpLastfmData]);
+
+  // Resolve track for the detail view — try local lookups (sync), fall back to backend (async)
+  const detailTrackLocal = useMemo(() => {
+    if (library.selectedTrack === null) return null;
+    return library.tracks.find(t => t.id === library.selectedTrack)
+      ?? (playback.currentTrack?.id === library.selectedTrack ? playback.currentTrack : null)
+      ?? null;
+  }, [library.selectedTrack, library.tracks, playback.currentTrack]);
+
+  useEffect(() => {
+    if (library.selectedTrack === null) { setDetailTrack(null); return; }
+    if (detailTrackLocal) { setDetailTrack(detailTrackLocal); return; }
+    // Fetch from backend as last resort
+    let cancelled = false;
+    invoke<Track>("get_track_by_id", { trackId: library.selectedTrack })
+      .then(t => { if (!cancelled) setDetailTrack(t); })
+      .catch(() => { if (!cancelled) setDetailTrack(null); });
+    return () => { cancelled = true; };
+  }, [library.selectedTrack, detailTrackLocal]);
 
   // Clear and re-fetch np* state when the playing track changes
   useEffect(() => {
@@ -1276,6 +1312,11 @@ function App() {
 
       if (e.key === "Escape" && showNowPlayingViewRef.current) {
         setShowNowPlayingView(false);
+        return;
+      }
+
+      if (e.key === "Escape" && library.selectedTrack !== null) {
+        library.setSelectedTrack(null);
         return;
       }
 
@@ -2465,6 +2506,8 @@ function App() {
             selectedArtist={selectedArtist}
             selectedAlbum={selectedAlbum}
             selectedTag={selectedTag}
+            selectedTrack={library.selectedTrack}
+            selectedTrackTitle={(detailTrackLocal ?? detailTrack)?.title}
             artists={artists}
             albums={albums}
             tags={tags}
@@ -2473,6 +2516,7 @@ function App() {
             onSetSelectedArtist={library.setSelectedArtist}
             onSetSelectedAlbum={library.setSelectedAlbum}
             onSetSelectedTag={library.setSelectedTag}
+            onSetSelectedTrack={library.setSelectedTrack}
             onSetView={library.setView}
             onPlayAll={queueHook.playTracks}
             onEnqueueAll={handleEnqueue}
@@ -2487,6 +2531,33 @@ function App() {
             )}
           </Breadcrumb>
 
+          {/* Track detail view */}
+          {library.selectedTrack !== null && (() => {
+            const track = detailTrackLocal ?? detailTrack;
+            if (!track) return null;
+            const isCurrentTrack = playback.currentTrack?.id === library.selectedTrack;
+            return (
+              <TrackDetailView
+                trackId={library.selectedTrack}
+                track={track}
+                albumImagePath={track.album_id ? albumImageCache.images[track.album_id] ?? null : null}
+                positionSecs={isCurrentTrack ? playback.positionSecs : 0}
+                playing={isCurrentTrack && playback.playing}
+                isCurrentTrack={isCurrentTrack}
+                sections={trackSections}
+                onToggleSection={handleToggleTrackSection}
+                onArtistClick={library.handleArtistClick}
+                onAlbumClick={library.handleAlbumClick}
+                onTagClick={(tagId) => { library.setSelectedTrack(null); library.setSelectedTag(tagId); library.setView("tags"); }}
+                onPlay={() => queueHook.playTracks([track], 0)}
+                onEnqueue={() => queueHook.enqueueTracks([track])}
+                libraryTags={library.tags}
+                addLog={addLog}
+              />
+            );
+          })()}
+
+          {library.selectedTrack === null && <>
           {/* Artist list */}
           {view === "artists" && selectedArtist === null && (
             <>
@@ -3627,6 +3698,7 @@ function App() {
               />
             );
           })()}
+          </>}
         </div>
 
         {/* Video splitter + player area (below content, above now-playing) */}
@@ -3772,6 +3844,7 @@ function App() {
           onShowInFolder={handleShowInFolder}
           onWatchOnYoutube={handleWatchOnYoutube}
           onShowProperties={handleShowProperties}
+          onViewDetails={contextMenu.target.kind === "track" ? () => library.handleTrackClick(contextMenu.target.kind === "track" ? contextMenu.target.trackId : 0) : undefined}
           onBulkEdit={handleBulkEdit}
           onDelete={handleDeleteRequest}
           onRefreshImage={contextMenu.target.kind === "artist"
@@ -4041,6 +4114,7 @@ function App() {
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
         onToggleLike={() => playback.currentTrack && handleToggleLike(playback.currentTrack)}
         onToggleDislike={() => playback.currentTrack && handleToggleDislike(playback.currentTrack)}
+        onTrackClick={(trackId) => { setShowNowPlayingView(false); library.handleTrackClick(trackId); }}
         onArtistClick={library.handleArtistClick}
         onAlbumClick={library.handleAlbumClick}
         showNowPlayingView={showNowPlayingView}
