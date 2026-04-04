@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Track, View } from "../types";
+import { IconSync } from "./Icons";
 
 interface BreadcrumbProps {
   view: View;
@@ -11,6 +12,9 @@ interface BreadcrumbProps {
   sortedTracks: Track[];
   onPlayAll: (tracks: Track[], startIndex: number) => void;
   onEnqueueAll: (tracks: Track[]) => void;
+  syncWithPlaying: boolean;
+  onToggleSync: () => void;
+  hasPlayingTrack: boolean;
   children?: ReactNode;
 }
 
@@ -18,8 +22,11 @@ export function Breadcrumb({
   view, selectedArtist, selectedAlbum, selectedTag, selectedTrack,
   tracks, sortedTracks,
   onPlayAll, onEnqueueAll,
+  syncWithPlaying, onToggleSync, hasPlayingTrack,
   children,
 }: BreadcrumbProps) {
+  const inDetailView = selectedTrack !== null || selectedAlbum !== null || selectedArtist !== null || selectedTag !== null;
+
   return (
     <div className="breadcrumb">
       {selectedTrack !== null ? (
@@ -46,6 +53,15 @@ export function Breadcrumb({
         <span>All Tracks</span>
       )}
       <div className="breadcrumb-right">
+        {inDetailView && hasPlayingTrack && (
+          <button
+            className={`sync-btn${syncWithPlaying ? " active" : ""}`}
+            onClick={onToggleSync}
+            title={syncWithPlaying ? "Stop following playback" : "Follow playback"}
+          >
+            <IconSync size={13} />
+          </button>
+        )}
         {tracks.length > 0 && selectedTag !== null && (
           <div className="breadcrumb-actions">
             <button className="action-btn" onClick={() => onPlayAll(sortedTracks.filter(t => t.liked !== -1), 0)}>Play All</button>

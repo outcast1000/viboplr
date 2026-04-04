@@ -5468,6 +5468,30 @@ body {
   margin-left: auto;
 }
 
+.sync-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 3px 5px;
+  transition: all 0.15s;
+}
+
+.sync-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+
+.sync-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
 .breadcrumb-actions {
   display: flex;
   gap: 6px;

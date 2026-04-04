@@ -57,6 +57,7 @@ const STORE_DEFAULTS = {
   artistSections: { topSongs: true, about: true, albums: true, similarArtists: true },
   albumSections: { review: true, unmatchedTracks: true },
   trackSections: { lyrics: true, tags: true, scrobbleHistory: true, similar: true },
+  syncWithPlaying: false,
 };
 
 export interface AppStore {

@@ -312,6 +312,7 @@ function App() {
     });
   };
   const [detailTrack, setDetailTrack] = useState<Track | null>(null);
+  const [syncWithPlaying, setSyncWithPlaying] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -812,6 +813,8 @@ function App() {
         if (savedAlbumSections) setAlbumSections(savedAlbumSections);
         const savedTrackSections = await store.get<Record<string, boolean>>("trackSections");
         if (savedTrackSections) setTrackSections(savedTrackSections);
+        const savedSyncWithPlaying = await store.get<boolean>("syncWithPlaying");
+        if (savedSyncWithPlaying != null) setSyncWithPlaying(savedSyncWithPlaying);
         const savedSelectedTrack = await store.get<number | null>("selectedTrack");
         if (savedSelectedTrack != null) library.setSelectedTrack(savedSelectedTrack);
         await timeAsync("window.restore", async () => {
@@ -1172,6 +1175,54 @@ function App() {
       .catch(() => { if (!cancelled) setDetailTrack(null); });
     return () => { cancelled = true; };
   }, [library.selectedTrack, detailTrackLocal]);
+
+  // Sync detail view with currently playing track
+  const syncRef = useRef(syncWithPlaying);
+  syncRef.current = syncWithPlaying;
+  useEffect(() => {
+    if (!syncRef.current || !playback.currentTrack) return;
+    const ct = playback.currentTrack;
+    const inDetailView = library.selectedTrack !== null || library.selectedAlbum !== null
+      || (library.selectedArtist !== null && library.view === "artists") || library.selectedTag !== null;
+    if (!inDetailView) return;
+
+    if (library.selectedTrack !== null) {
+      // Track detail → follow to new track
+      if (ct.id && ct.id !== library.selectedTrack) {
+        library.setSelectedTrack(ct.id);
+      }
+    } else if (library.selectedAlbum !== null) {
+      // Album detail → follow to new track's album
+      if (ct.album_id && ct.album_id !== library.selectedAlbum) {
+        library.handleAlbumClick(ct.album_id, ct.artist_id);
+      }
+    } else if (library.selectedArtist !== null) {
+      // Artist detail → follow to new track's artist
+      if (ct.artist_id && ct.artist_id !== library.selectedArtist) {
+        library.handleArtistClick(ct.artist_id);
+      }
+    }
+    // Tag detail: don't auto-navigate (ambiguous — track may have many tags)
+  }, [playback.currentTrack?.id]);
+
+  const handleToggleSync = useCallback(() => {
+    setSyncWithPlaying(prev => {
+      const next = !prev;
+      store.set("syncWithPlaying", next);
+      if (next && playback.currentTrack) {
+        // Immediately sync to current track
+        const ct = playback.currentTrack;
+        if (library.selectedTrack !== null && ct.id && ct.id !== library.selectedTrack) {
+          library.setSelectedTrack(ct.id);
+        } else if (library.selectedAlbum !== null && ct.album_id && ct.album_id !== library.selectedAlbum) {
+          library.handleAlbumClick(ct.album_id, ct.artist_id);
+        } else if (library.selectedArtist !== null && ct.artist_id && ct.artist_id !== library.selectedArtist) {
+          library.handleArtistClick(ct.artist_id);
+        }
+      }
+      return next;
+    });
+  }, [playback.currentTrack, library.selectedTrack, library.selectedAlbum, library.selectedArtist]);
 
   // Clear and re-fetch np* state when the playing track changes
   useEffect(() => {
@@ -2518,6 +2569,9 @@ function App() {
             sortedTracks={sortedTracks}
             onPlayAll={queueHook.playTracks}
             onEnqueueAll={handleEnqueue}
+            syncWithPlaying={syncWithPlaying}
+            onToggleSync={handleToggleSync}
+            hasPlayingTrack={playback.currentTrack !== null}
           >
             {view === "all" && <ViewModeToggle mode={library.trackViewMode} onChange={library.setTrackViewMode} />}
             {view === "artists" && selectedArtist === null && <ViewModeToggle mode={library.artistViewMode} onChange={library.setArtistViewMode} />}
