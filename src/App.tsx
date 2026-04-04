@@ -2556,7 +2556,7 @@ function App() {
         </div>
 
       {/* Main content */}
-      <main className="main" data-dock={playback.currentTrack && isVideoTrack(playback.currentTrack) ? videoLayout.dockSide : undefined}>
+      <main className={`main${library.selectedTrack !== null && playback.currentTrack?.id === library.selectedTrack && isVideoTrack(playback.currentTrack) ? " video-detail" : ""}`} data-dock={playback.currentTrack && isVideoTrack(playback.currentTrack) ? videoLayout.dockSide : undefined}>
         {/* Content area */}
         <div className="content" ref={contentRef} style={playback.currentTrack && isVideoTrack(playback.currentTrack) ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
           <Breadcrumb

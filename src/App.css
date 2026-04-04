@@ -2044,6 +2044,22 @@ body {
   width: 0 !important;
 }
 
+/* Track detail + video: hide content, splitter; video fills main */
+.main.video-detail {
+  flex-direction: column;
+}
+
+.main.video-detail > .content,
+.main.video-detail > .video-splitter {
+  display: none;
+}
+
+.main.video-detail > .video-container {
+  flex: 1;
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .video-container video {
   cursor: pointer;
 }
