@@ -206,27 +206,8 @@ export function NowPlayingBar({
           <div className={`now-art-wrapper${playing ? " playing" : ""}`}>
             {imagePath && <img className="now-art" src={convertFileSrc(imagePath)} alt="" />}
           </div>
-          <div className="now-info-text">
-            {currentTrack ? (
-              <>
-                <span className={`now-title${currentTrack.album_id ? " now-link" : ""}`} onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id) : undefined}>
-                  <SlideText text={currentTrack.title} />
-                  {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
-                </span>
-                <span className="now-subtitle">
-                  <span className="now-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : undefined}><SlideText text={currentTrack.artist_name || "Unknown"} /></span>
-                  {artistRank != null && artistRank <= 100 && <span className="now-rank-badge" title={`Artist rank #${artistRank}`}>#{artistRank}</span>}
-                  {currentTrack.album_id && currentTrack.album_title && (
-                    <><span className="now-sep"> — </span><span className="now-link" onClick={() => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id)}>{currentTrack.album_title}</span></>
-                  )}
-                </span>
-              </>
-            ) : (
-              <span className="now-title">No track playing</span>
-            )}
-          </div>
           {currentTrack && (
-            <>
+            <div className="now-like-col">
               <span
                 ref={likeBtnRef}
                 className={`now-like-btn${currentTrack.liked === 1 ? " liked" : ""}`}
@@ -247,8 +228,27 @@ export function NowPlayingBar({
                 onAnimationEnd={() => dislikeBtnRef.current?.classList.remove("anim-heart-bounce-subtle")}
                 title={currentTrack.liked === -1 ? "Remove dislike" : "Dislike"}
               >{currentTrack.liked === -1 ? "\u2716" : "\u2298"}</span>}
-            </>
+            </div>
           )}
+          <div className="now-info-text">
+            {currentTrack ? (
+              <>
+                <span className={`now-title${currentTrack.album_id ? " now-link" : ""}`} onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id) : undefined}>
+                  <SlideText text={currentTrack.title} />
+                  {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
+                </span>
+                <span className="now-subtitle">
+                  <span className="now-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : undefined}><SlideText text={currentTrack.artist_name || "Unknown"} /></span>
+                  {artistRank != null && artistRank <= 100 && <span className="now-rank-badge" title={`Artist rank #${artistRank}`}>#{artistRank}</span>}
+                  {currentTrack.album_id && currentTrack.album_title && (
+                    <><span className="now-sep"> — </span><span className="now-link" onClick={() => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id)}>{currentTrack.album_title}</span></>
+                  )}
+                </span>
+              </>
+            ) : (
+              <span className="now-title">No track playing</span>
+            )}
+          </div>
         </div>
         <div className="now-controls">
           <button className="ctrl-btn" onClick={onPrevious} title={`Previous (${mod}\u2190)`}>{"\u23EE"}</button>

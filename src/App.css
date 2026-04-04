@@ -2904,12 +2904,21 @@ body {
   min-width: 0;
 }
 
+.now-like-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
 .now-like-btn {
-  font-size: var(--fs-lg);
+  font-size: var(--fs-base);
   color: var(--text-tertiary);
   cursor: pointer;
   transition: color 0.15s;
   flex-shrink: 0;
+  line-height: 1;
 }
 
 .now-like-btn:hover {
@@ -2921,13 +2930,13 @@ body {
 }
 
 .now-dislike-btn {
-  font-size: var(--fs-base);
+  font-size: var(--fs-xs);
   color: var(--text-tertiary);
   cursor: pointer;
   transition: color 0.15s;
   flex-shrink: 0;
-  margin-left: 4px;
   opacity: 0.5;
+  line-height: 1;
 }
 
 .now-dislike-btn:hover {
