@@ -38,6 +38,13 @@ pub struct Album {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchAllResults {
+    pub artists: Vec<Artist>,
+    pub albums: Vec<Album>,
+    pub tracks: Vec<Track>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tag {
     pub id: i64,
     pub name: String,

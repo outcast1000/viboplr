@@ -387,6 +387,20 @@ pub fn get_tracks(
     state.db.get_tracks(&opts).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn search_all(
+    state: State<'_, AppState>,
+    query: String,
+    artist_limit: i64,
+    album_limit: i64,
+    track_limit: i64,
+) -> Result<SearchAllResults, String> {
+    state
+        .db
+        .search_all(&query, artist_limit, album_limit, track_limit)
+        .map_err(|e| e.to_string())
+}
+
 // --- Track lookup command ---
 
 #[tauri::command]

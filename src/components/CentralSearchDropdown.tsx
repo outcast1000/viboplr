@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { Track } from "../types";
+import type { Track, Album, Artist, SearchAllResults, SearchResultItem } from "../types";
 
 const SEARCH_PLACEHOLDERS = [
   "What's next?",
@@ -23,11 +23,12 @@ function randomPlaceholder() {
 interface CentralSearchDropdownProps {
   query: string;
   onQueryChange: (q: string) => void;
-  results: Track[];
+  results: SearchAllResults;
+  items: SearchResultItem[];
   isOpen: boolean;
   highlightedIndex: number;
   onKeyDown: (e: React.KeyboardEvent) => void;
-  onResultClick: (track: Track) => void;
+  onResultClick: (item: SearchResultItem) => void;
   onClose: () => void;
   inputRef?: React.RefObject<HTMLInputElement | null>;
   albumImages: Record<number, string | null>;
@@ -36,20 +37,44 @@ interface CentralSearchDropdownProps {
   onFetchArtistImage: (entity: { id: number; name: string }) => void;
 }
 
-function ResultImage({ track, albumImages, artistImages }: {
+function ArtistImage({ artist, artistImages }: {
+  artist: Artist;
+  artistImages: Record<number, string | null>;
+}) {
+  const path = artistImages[artist.id];
+  if (path) {
+    return <img className="result-img result-img-round" src={convertFileSrc(path)} alt="" />;
+  }
+  const initial = (artist.name[0] ?? "?").toUpperCase();
+  return <span className="result-img-fallback result-img-round">{initial}</span>;
+}
+
+function AlbumImage({ album, albumImages, artistImages }: {
+  album: Album;
+  albumImages: Record<number, string | null>;
+  artistImages: Record<number, string | null>;
+}) {
+  const albumPath = albumImages[album.id];
+  const artistPath = album.artist_id != null ? artistImages[album.artist_id] : undefined;
+  const imagePath = albumPath || artistPath;
+  if (imagePath) {
+    return <img className="result-img" src={convertFileSrc(imagePath)} alt="" />;
+  }
+  const initial = (album.title[0] ?? "?").toUpperCase();
+  return <span className="result-img-fallback">{initial}</span>;
+}
+
+function TrackImage({ track, albumImages, artistImages }: {
   track: Track;
   albumImages: Record<number, string | null>;
   artistImages: Record<number, string | null>;
 }) {
-  // Fallback chain: album image → artist image → initial letter
   const albumPath = track.album_id != null ? albumImages[track.album_id] : undefined;
   const artistPath = track.artist_id != null ? artistImages[track.artist_id] : undefined;
   const imagePath = albumPath || artistPath;
-
   if (imagePath) {
     return <img className="result-img" src={convertFileSrc(imagePath)} alt="" />;
   }
-
   const initial = (track.title[0] ?? "?").toUpperCase();
   return <span className="result-img-fallback">{initial}</span>;
 }
@@ -58,6 +83,7 @@ export function CentralSearchDropdown({
   query,
   onQueryChange,
   results,
+  items,
   isOpen,
   highlightedIndex,
   onKeyDown,
@@ -94,7 +120,20 @@ export function CentralSearchDropdown({
   // Trigger image fetching for visible results
   useEffect(() => {
     if (!isOpen) return;
-    for (const track of results) {
+    for (const artist of results.artists) {
+      if (artistImages[artist.id] === undefined) {
+        onFetchArtistImage({ id: artist.id, name: artist.name });
+      }
+    }
+    for (const album of results.albums) {
+      if (albumImages[album.id] === undefined) {
+        onFetchAlbumImage({ id: album.id, title: album.title, artist_name: album.artist_name });
+      }
+      if (album.artist_id != null && artistImages[album.artist_id] === undefined) {
+        onFetchArtistImage({ id: album.artist_id, name: album.artist_name ?? "Unknown" });
+      }
+    }
+    for (const track of results.tracks) {
       if (track.album_id != null && albumImages[track.album_id] === undefined) {
         onFetchAlbumImage({ id: track.album_id, title: track.album_title ?? "", artist_name: track.artist_name });
       }
@@ -103,6 +142,10 @@ export function CentralSearchDropdown({
       }
     }
   }, [isOpen, results, albumImages, artistImages, onFetchAlbumImage, onFetchArtistImage]);
+
+  const artistOffset = 0;
+  const albumOffset = results.artists.length;
+  const trackOffset = results.artists.length + results.albums.length;
 
   return (
     <div className="central-search-container" ref={containerRef}>
@@ -157,33 +200,90 @@ export function CentralSearchDropdown({
         )}
       </div>
 
-      {isOpen && results.length > 0 && (
+      {isOpen && items.length > 0 && (
         <div className="central-search-dropdown">
-          {results.map((track, i) => (
-            <div
-              key={track.id}
-              className={`central-search-result ${i === highlightedIndex ? "highlighted" : ""}`}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onResultClick(track);
-              }}
-            >
-              <div className="result-art">
-                <ResultImage track={track} albumImages={albumImages} artistImages={artistImages} />
-              </div>
-              <div className="result-info">
-                <div className="result-title">{track.title}</div>
-                <div className="result-subtitle">
-                  {track.artist_name}
-                  {track.artist_name && track.album_title && " · "}
-                  {track.album_title}
+          {results.artists.length > 0 && (
+            <>
+              <div className="search-section-header">Artists</div>
+              {results.artists.map((artist, i) => (
+                <div
+                  key={`artist-${artist.id}`}
+                  className={`central-search-result ${artistOffset + i === highlightedIndex ? "highlighted" : ""}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onResultClick({ kind: "artist", data: artist });
+                  }}
+                >
+                  <div className="result-art">
+                    <ArtistImage artist={artist} artistImages={artistImages} />
+                  </div>
+                  <div className="result-info">
+                    <div className="result-title">{artist.name}</div>
+                    <div className="result-subtitle">Artist · {artist.track_count} tracks</div>
+                  </div>
+                  <span className="result-action">→</span>
                 </div>
-              </div>
-              <span className="result-play">▶</span>
-            </div>
-          ))}
+              ))}
+            </>
+          )}
+          {results.albums.length > 0 && (
+            <>
+              <div className="search-section-header">Albums</div>
+              {results.albums.map((album, i) => (
+                <div
+                  key={`album-${album.id}`}
+                  className={`central-search-result ${albumOffset + i === highlightedIndex ? "highlighted" : ""}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onResultClick({ kind: "album", data: album });
+                  }}
+                >
+                  <div className="result-art">
+                    <AlbumImage album={album} albumImages={albumImages} artistImages={artistImages} />
+                  </div>
+                  <div className="result-info">
+                    <div className="result-title">{album.title}</div>
+                    <div className="result-subtitle">
+                      {album.artist_name}
+                      {album.artist_name && album.year ? " · " : ""}
+                      {album.year}
+                    </div>
+                  </div>
+                  <span className="result-action">→</span>
+                </div>
+              ))}
+            </>
+          )}
+          {results.tracks.length > 0 && (
+            <>
+              <div className="search-section-header">Tracks</div>
+              {results.tracks.map((track, i) => (
+                <div
+                  key={`track-${track.id}`}
+                  className={`central-search-result ${trackOffset + i === highlightedIndex ? "highlighted" : ""}`}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onResultClick({ kind: "track", data: track });
+                  }}
+                >
+                  <div className="result-art">
+                    <TrackImage track={track} albumImages={albumImages} artistImages={artistImages} />
+                  </div>
+                  <div className="result-info">
+                    <div className="result-title">{track.title}</div>
+                    <div className="result-subtitle">
+                      {track.artist_name}
+                      {track.artist_name && track.album_title && " · "}
+                      {track.album_title}
+                    </div>
+                  </div>
+                  <span className="result-play">▶</span>
+                </div>
+              ))}
+            </>
+          )}
           <div className="central-search-footer">
-            <span>↵ play</span>
+            <span>↵ open</span>
             <span className="footer-separator">·</span>
             <span>⌘↵ queue</span>
             <span className="footer-separator">·</span>

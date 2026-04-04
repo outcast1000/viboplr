@@ -970,6 +970,62 @@ impl Database {
         rows.collect()
     }
 
+    pub fn search_all(&self, query: &str, artist_limit: i64, album_limit: i64, track_limit: i64) -> SqlResult<SearchAllResults> {
+        let conn = self.conn.lock().unwrap();
+        let normalized = strip_diacritics(query).to_lowercase();
+        let like_param = format!(
+            "%{}%",
+            normalized.replace('%', "\\%").replace('_', "\\_")
+        );
+
+        // --- Artists ---
+        let artists = {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT a.id, a.name, a.track_count, a.liked \
+                 FROM artists a \
+                 JOIN tracks t ON t.artist_id = a.id \
+                 WHERE strip_diacritics(unicode_lower(a.name)) LIKE ?1 ESCAPE '\\' \
+                 AND a.track_count > 0 \
+                 AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1)) \
+                 ORDER BY a.name LIMIT ?2"
+            )?;
+            let rows = stmt.query_map(params![like_param, artist_limit], |row| {
+                Ok(Artist {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    track_count: row.get(2)?,
+                    liked: row.get::<_, i32>(3).unwrap_or(0),
+                })
+            })?;
+            rows.collect::<SqlResult<Vec<_>>>()?
+        };
+
+        // --- Albums ---
+        let albums = {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT al.id, al.title, al.artist_id, ar.name, al.year, al.track_count, al.liked \
+                 FROM albums al \
+                 LEFT JOIN artists ar ON al.artist_id = ar.id \
+                 JOIN tracks t ON t.album_id = al.id \
+                 WHERE strip_diacritics(unicode_lower(al.title)) LIKE ?1 ESCAPE '\\' \
+                 AND al.track_count > 0 \
+                 AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1)) \
+                 ORDER BY al.title LIMIT ?2"
+            )?;
+            let rows = stmt.query_map(params![like_param, album_limit], |row| album_from_row(row))?;
+            rows.collect::<SqlResult<Vec<_>>>()?
+        };
+
+        // --- Tracks (reuse FTS) ---
+        let track_opts = TrackQuery {
+            limit: Some(track_limit),
+            ..Default::default()
+        };
+        let tracks = self.search_tracks_inner(&conn, &track_opts, query)?;
+
+        Ok(SearchAllResults { artists, albums, tracks })
+    }
+
     // --- Collections ---
 
     pub fn add_collection(

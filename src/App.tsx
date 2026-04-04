@@ -267,6 +267,12 @@ function App() {
       library.setSelectedTag(null);
       viewSearch.setQuery("all", query);
     },
+    onNavigateToArtist: (artistId) => {
+      library.handleArtistClick(artistId);
+    },
+    onNavigateToAlbum: (albumId, artistId) => {
+      library.handleAlbumClick(albumId, artistId);
+    },
   });
 
   peekNextRef.current = queueHook.peekNext;
@@ -2416,6 +2422,7 @@ function App() {
             query={centralSearch.query}
             onQueryChange={centralSearch.setQuery}
             results={centralSearch.results}
+            items={centralSearch.items}
             isOpen={centralSearch.isOpen}
             highlightedIndex={centralSearch.highlightedIndex}
             onKeyDown={centralSearch.handleKeyDown}

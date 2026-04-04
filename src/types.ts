@@ -46,6 +46,17 @@ export interface Track {
   url?: string;
 }
 
+export interface SearchAllResults {
+  artists: Artist[];
+  albums: Album[];
+  tracks: Track[];
+}
+
+export type SearchResultItem =
+  | { kind: "artist"; data: Artist }
+  | { kind: "album"; data: Album }
+  | { kind: "track"; data: Track };
+
 export interface Collection {
   id: number;
   kind: "local" | "subsonic" | "seed" | "tidal";
