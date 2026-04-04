@@ -78,7 +78,8 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   // Artist-filtered albums for artist detail view (derived, never mutates albums state)
   const artistAlbums = useMemo(() => {
     if (selectedArtist === null) return [];
-    return albums.filter(a => a.artist_id === selectedArtist);
+    return albums.filter(a => a.artist_id === selectedArtist)
+      .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
   }, [albums, selectedArtist]);
 
   // Persist state
