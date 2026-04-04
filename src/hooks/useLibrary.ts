@@ -12,7 +12,7 @@ export const DEFAULT_TRACK_COLUMNS: ColumnConfig[] = ALL_COLUMN_IDS.map(id => ({
   visible: DEFAULT_VISIBLE.has(id),
 }));
 
-export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNavigate?: () => void, debouncedTrackQuery?: string) {
+export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNavigate?: () => void, debouncedTrackQuery?: string, trackPopularity?: Record<number, number>) {
   const [view, setView] = useState<View>("all");
   const [artists, setArtists] = useState<Artist[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -292,7 +292,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
           case "collection": return ((a.collection_name ?? "").localeCompare(b.collection_name ?? "")) * dir;
           case "added": return ((a.added_at ?? 0) - (b.added_at ?? 0)) * dir;
           case "modified": return ((a.modified_at ?? 0) - (b.modified_at ?? 0)) * dir;
-          case "popularity": return 0; // sorted externally via trackPopularity
+          case "popularity": return ((trackPopularity?.[a.id] ?? 0) - (trackPopularity?.[b.id] ?? 0)) * dir;
           default: return 0;
         }
       });

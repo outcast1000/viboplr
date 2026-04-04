@@ -3624,12 +3624,19 @@ body {
   object-fit: cover;
 }
 
+.album-detail-top {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 24px 16px;
+  gap: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
 .album-detail-header {
   display: flex;
   align-items: flex-start;
-  padding: 24px 16px;
   gap: 16px;
-  border-bottom: 1px solid var(--border);
+  min-width: 260px;
 }
 
 .album-detail-art {
@@ -3683,9 +3690,9 @@ body {
 }
 
 .album-wiki-section {
-  padding: 16px;
+  flex: 1;
+  min-width: 250px;
   max-width: 680px;
-  border-bottom: 1px solid var(--border);
 }
 
 .placeholder-text {

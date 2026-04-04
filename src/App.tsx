@@ -164,9 +164,10 @@ function App() {
   const beforeNavRef = useRef<() => void>(() => {});
   const viewSearch = useViewSearchState();
   const [currentView, setCurrentView] = useState<View>("all");
+  const [albumTrackPopularity, setAlbumTrackPopularity] = useState<Record<number, number>>({});
   // Only pass debouncedTrackQuery for views that need server-side track search
   const needsServerSearch = currentView === "all" || currentView === "liked";
-  const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "");
+  const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "", albumTrackPopularity);
   const queueHook = useQueue(restoredRef, playback.handlePlay, library.collections);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
@@ -328,7 +329,6 @@ function App() {
   const [lastfmLastImportAt, setLastfmLastImportAt] = useState<number | null>(null);
   const [artistBio, setArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
   const [albumWiki, setAlbumWiki] = useState<string | null>(null);
-  const [albumTrackPopularity, setAlbumTrackPopularity] = useState<Record<number, number>>({});
   const [albumUnmatchedTracks, setAlbumUnmatchedTracks] = useState<Array<{ name: string; listeners: number }>>([]);
   const [similarArtists, setSimilarArtists] = useState<Array<{ name: string; match: string }>>([]);
   const [infoRefreshCounter, setInfoRefreshCounter] = useState(0);
@@ -3000,7 +3000,7 @@ function App() {
             const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
             const albumProviders = getProvidersForContext(searchProviders, "album");
             return (
-              <>
+              <div className="album-detail-top">
                 <div className="album-detail-header">
                   <div className="album-detail-art">
                     {albumImagePath ? (
@@ -3058,15 +3058,13 @@ function App() {
                     </span>
                   </div>
                 </div>
-                <div className="album-wiki-section">
-                  <div className="artist-bio-title">Review</div>
-                  {albumWiki ? (
+                {albumWiki && (
+                  <div className="album-wiki-section">
+                    <div className="artist-bio-title">Review</div>
                     <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: albumWiki }} />
-                  ) : (
-                    <div className="artist-bio-text placeholder-text">No review available</div>
-                  )}
-                </div>
-              </>
+                  </div>
+                )}
+              </div>
             );
           })()}
 
