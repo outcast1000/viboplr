@@ -98,6 +98,7 @@ export function CentralSearchDropdown({
   const internalRef = useRef<HTMLInputElement>(null);
   const inputRef = externalInputRef ?? internalRef;
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const [placeholder, setPlaceholder] = useState(randomPlaceholder);
 
   useEffect(() => {
@@ -142,6 +143,13 @@ export function CentralSearchDropdown({
       }
     }
   }, [isOpen, results, albumImages, artistImages, onFetchAlbumImage, onFetchArtistImage]);
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (highlightedIndex < 0 || !dropdownRef.current) return;
+    const el = dropdownRef.current.querySelector(".central-search-result.highlighted") as HTMLElement | null;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [highlightedIndex]);
 
   const artistOffset = 0;
   const albumOffset = results.artists.length;
@@ -201,7 +209,7 @@ export function CentralSearchDropdown({
       </div>
 
       {isOpen && items.length > 0 && (
-        <div className="central-search-dropdown">
+        <div className="central-search-dropdown" ref={dropdownRef}>
           {results.artists.length > 0 && (
             <>
               <div className="search-section-header">Artists</div>
