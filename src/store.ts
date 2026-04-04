@@ -53,6 +53,8 @@ const STORE_DEFAULTS = {
   downloadFormat: "flac",
   skin: "default",
   loggingEnabled: false,
+  artistSections: { topSongs: true, about: true, albums: true, similarArtists: true },
+  albumSections: { review: true, unmatchedTracks: true },
 };
 
 export interface AppStore {

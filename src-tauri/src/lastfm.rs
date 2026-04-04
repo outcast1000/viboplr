@@ -347,6 +347,13 @@ impl LastfmClient {
         self.get("track.getTopTags", &[("artist", artist), ("track", track), ("autocorrect", "1")])
     }
 
+    /// Get top tracks for an artist from Last.fm.
+    pub fn get_artist_top_tracks(&self, artist: &str, limit: u32, page: u32) -> Result<Value, LastfmError> {
+        let limit_str = limit.to_string();
+        let page_str = page.to_string();
+        self.get("artist.getTopTracks", &[("artist", artist), ("limit", &limit_str), ("page", &page_str), ("autocorrect", "1")])
+    }
+
     /// Get top tags for an artist from Last.fm.
     pub fn get_artist_top_tags(&self, artist: &str) -> Result<Value, LastfmError> {
         self.get("artist.getTopTags", &[("artist", artist), ("autocorrect", "1")])

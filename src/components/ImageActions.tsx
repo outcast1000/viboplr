@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SearchProviderConfig } from "../searchProviders";
 import { buildSearchUrl, getDomainFromUrl } from "../searchProviders";
-import { IconImage, IconRemoveImage, IconRefresh, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
+import { IconImage, IconRemoveImage, IconRefresh, IconGoogle, IconGlobe, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
 import type { ReactNode } from "react";
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
@@ -28,6 +28,12 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
   return <IconGoogle size={14} />;
 }
 
+interface SectionToggle {
+  key: string;
+  label: string;
+  visible: boolean;
+}
+
 interface ImageActionsProps {
   entityId: number;
   entityType: "artist" | "album" | "tag";
@@ -37,9 +43,11 @@ interface ImageActionsProps {
   onImageSet: (id: number, path: string) => void;
   onImageRemoved: (id: number) => void;
   onRefresh?: () => void;
+  sectionToggles?: SectionToggle[];
+  onToggleSection?: (key: string) => void;
 }
 
-export function ImageActions({ entityId, entityType, entityName, imagePath, providers, onImageSet, onImageRemoved, onRefresh }: ImageActionsProps) {
+export function ImageActions({ entityId, entityType, entityName, imagePath, providers, onImageSet, onImageRemoved, onRefresh, sectionToggles, onToggleSection }: ImageActionsProps) {
   const [open_menu, setOpenMenu] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -111,19 +119,47 @@ export function ImageActions({ entityId, entityType, entityName, imagePath, prov
           {activeProviders.length > 0 && entityName && (
             <>
               <div className="artist-image-menu-separator" />
-              {activeProviders.map((provider) => {
-                const template = provider[urlKey!]!;
-                const params = entityType === "artist" ? { artist: entityName } : { title: entityName };
-                const url = buildSearchUrl(template, params);
-                return (
-                  <button
-                    key={provider.id}
-                    onClick={() => { setOpenMenu(false); openUrl(url); }}
-                  >
-                    <ProviderIcon provider={provider} /><span>Search on {provider.name}</span>
-                  </button>
-                );
-              })}
+              <div className="artist-image-menu-submenu">
+                <button className="artist-image-menu-submenu-trigger">
+                  <IconGlobe size={14} /><span>Web Search</span><span className="artist-image-menu-chevron">{"\u203A"}</span>
+                </button>
+                <div className="artist-image-menu-submenu-list">
+                  {activeProviders.map((provider) => {
+                    const template = provider[urlKey!]!;
+                    const params = entityType === "artist" ? { artist: entityName } : { title: entityName };
+                    const url = buildSearchUrl(template, params);
+                    return (
+                      <button
+                        key={provider.id}
+                        onClick={() => { setOpenMenu(false); openUrl(url); }}
+                      >
+                        <ProviderIcon provider={provider} /><span>{provider.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+          {sectionToggles && sectionToggles.length > 0 && onToggleSection && (
+            <>
+              <div className="artist-image-menu-separator" />
+              <div className="artist-image-menu-submenu">
+                <button className="artist-image-menu-submenu-trigger">
+                  <span>Sections</span><span className="artist-image-menu-chevron">{"\u203A"}</span>
+                </button>
+                <div className="artist-image-menu-submenu-list">
+                  {sectionToggles.map((toggle) => (
+                    <button
+                      key={toggle.key}
+                      onClick={() => onToggleSection(toggle.key)}
+                    >
+                      <span className="section-toggle-check">{toggle.visible ? "\u2713" : ""}</span>
+                      <span>{toggle.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </>
           )}
         </div>

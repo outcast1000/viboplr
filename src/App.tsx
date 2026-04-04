@@ -12,7 +12,7 @@ import { isVideoTrack, getInitials, parseSubsonicUrl, formatDuration } from "./u
 import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
-import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext } from "./searchProviders";
+import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext, buildSearchUrl, getDomainFromUrl } from "./searchProviders";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
@@ -165,9 +165,12 @@ function App() {
   const viewSearch = useViewSearchState();
   const [currentView, setCurrentView] = useState<View>("all");
   const [albumTrackPopularity, setAlbumTrackPopularity] = useState<Record<number, number>>({});
+  const [artistTrackPopularity, setArtistTrackPopularity] = useState<Record<number, number>>({});
+  const [artistTopTracks, setArtistTopTracks] = useState<Array<{ name: string; listeners: number; libraryTrack?: Track }>>([]);
   // Only pass debouncedTrackQuery for views that need server-side track search
   const needsServerSearch = currentView === "all" || currentView === "liked";
-  const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "", albumTrackPopularity);
+  const trackPopularity = Object.keys(albumTrackPopularity).length > 0 ? albumTrackPopularity : artistTrackPopularity;
+  const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "", trackPopularity);
   const queueHook = useQueue(restoredRef, playback.handlePlay, library.collections);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
@@ -276,6 +279,23 @@ function App() {
   const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
   const [syncProgress, setSyncProgress] = useState({ synced: 0, total: 0, collection: "" });
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [topSongMenu, setTopSongMenu] = useState<{ x: number; y: number; entry: { name: string; listeners: number; libraryTrack?: Track }; artistName: string } | null>(null);
+  const [artistSections, setArtistSections] = useState<Record<string, boolean>>({ topSongs: true, about: true, albums: true, similarArtists: true });
+  const handleToggleArtistSection = (key: string) => {
+    setArtistSections(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      store.set("artistSections", next);
+      return next;
+    });
+  };
+  const [albumSections, setAlbumSections] = useState<Record<string, boolean>>({ review: true, unmatchedTracks: true });
+  const handleToggleAlbumSection = (key: string) => {
+    setAlbumSections(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      store.set("albumSections", next);
+      return next;
+    });
+  };
   const [showAddServer, setShowAddServer] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -768,6 +788,10 @@ function App() {
         if (savedSortBarCollapsed) library.setSortBarCollapsed(true);
         const savedLoggingEnabled = await store.get<boolean>("loggingEnabled");
         if (savedLoggingEnabled) setLoggingEnabled(true);
+        const savedArtistSections = await store.get<Record<string, boolean>>("artistSections");
+        if (savedArtistSections) setArtistSections(savedArtistSections);
+        const savedAlbumSections = await store.get<Record<string, boolean>>("albumSections");
+        if (savedAlbumSections) setAlbumSections(savedAlbumSections);
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {
@@ -991,6 +1015,39 @@ function App() {
     const unlistenPop = listen<any>("lastfm-album-track-popularity", (event) => matchPopularity(event.payload));
     return () => { unlistenPop.then(f => f()); };
   }, [library.selectedAlbum, library.albums, library.artists, library.tracks]);
+
+  // Fetch Last.fm artist top tracks popularity when selected artist changes (no album selected)
+  useEffect(() => {
+    setArtistTrackPopularity({});
+    setArtistTopTracks([]);
+    if (library.selectedArtist === null || library.selectedAlbum !== null) return;
+    const artist = library.artists.find(a => a.id === library.selectedArtist);
+    if (!artist) return;
+
+    const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().trim()).replace(/[^a-z0-9]/g, "");
+    const matchPopularity = (resp: { tracks?: Array<{ name: string; listeners: number }> } | null) => {
+      if (!resp?.tracks) return;
+      const popMap: Record<number, number> = {};
+      const topList: Array<{ name: string; listeners: number; libraryTrack?: Track }> = [];
+      for (const lfmTrack of resp.tracks) {
+        const norm = normalizeTitle(lfmTrack.name);
+        const match = library.tracks.find(t => normalizeTitle(t.title) === norm);
+        if (match && lfmTrack.listeners > 0) {
+          popMap[match.id] = lfmTrack.listeners;
+        }
+        topList.push({ name: lfmTrack.name, listeners: lfmTrack.listeners, libraryTrack: match ?? undefined });
+      }
+      setArtistTrackPopularity(popMap);
+      setArtistTopTracks(topList);
+    };
+
+    invoke<any>("lastfm_get_artist_track_popularity", { artistName: artist.name })
+      .then(resp => { if (resp) matchPopularity(resp); })
+      .catch(() => {});
+
+    const unlistenPop = listen<any>("lastfm-artist-track-popularity", (event) => matchPopularity(event.payload));
+    return () => { unlistenPop.then(f => f()); };
+  }, [library.selectedArtist, library.selectedAlbum, library.artists, library.tracks]);
 
   // Keep npTrackRef in sync with the currently playing track
   useEffect(() => {
@@ -2593,27 +2650,74 @@ function App() {
                             invoke("clear_lastfm_cache_for_entity", { kind: "artist", name: artist.name });
                             setInfoRefreshCounter(c => c + 1);
                           }}
+                          sectionToggles={[
+                            { key: "topSongs", label: "Top Songs", visible: artistSections.topSongs !== false },
+                            { key: "about", label: "About", visible: artistSections.about !== false },
+                            { key: "albums", label: "Albums", visible: artistSections.albums !== false },
+                            { key: "similarArtists", label: "Similar Artists", visible: artistSections.similarArtists !== false },
+                          ]}
+                          onToggleSection={handleToggleArtistSection}
                         />
                       </h2>
                       <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
-                    </div>
-                  </div>
-                  {artistBio && (
-                    <div className="artist-bio-section">
-                      <div className="artist-bio-title">About</div>
-                      {(artistBio.listeners || artistBio.playcount) && (
+                      {artistBio && (artistBio.listeners || artistBio.playcount) && (
                         <span className="artist-bio-stats">
                           {artistBio.listeners && <>{parseInt(artistBio.listeners).toLocaleString()} listeners</>}
                           {artistBio.listeners && artistBio.playcount && " \u00B7 "}
                           {artistBio.playcount && <>{parseInt(artistBio.playcount).toLocaleString()} scrobbles</>}
                         </span>
                       )}
+                    </div>
+                  </div>
+                  {artistSections.topSongs !== false && artistTopTracks.length > 0 && (() => {
+                    const maxPop = artistTopTracks[0]?.listeners ?? 1;
+                    return (
+                      <div className="artist-top-songs-section">
+                        <div className="artist-bio-title">Top Songs</div>
+                        <div className="top-songs-list">
+                          {artistTopTracks.map((entry, i) => {
+                            const pct = maxPop > 0 ? (entry.listeners / maxPop) * 100 : 0;
+                            const inLibrary = !!entry.libraryTrack;
+                            return (
+                              <div
+                                key={`${entry.name}-${i}`}
+                                className={`top-song-row${inLibrary ? "" : " top-song-missing"}`}
+                                onDoubleClick={() => {
+                                  if (entry.libraryTrack) {
+                                    const libTracks = artistTopTracks.filter(e => e.libraryTrack).map(e => e.libraryTrack!);
+                                    const idx = libTracks.findIndex(t => t.id === entry.libraryTrack!.id);
+                                    queueHook.playTracks(libTracks, idx >= 0 ? idx : 0);
+                                  } else {
+                                    addLog(`"${entry.name}" is not in your library`);
+                                  }
+                                }}
+                                onContextMenu={(e) => {
+                                  e.preventDefault();
+                                  setTopSongMenu({ x: e.clientX, y: e.clientY, entry, artistName: artist?.name ?? "" });
+                                }}
+                              >
+                                <span className="top-song-rank">{i + 1}</span>
+                                <span className="col-popularity top-song-pop">
+                                  <span className="popularity-fill" style={{ width: `${pct}%` }} />
+                                  <span className="popularity-count">{formatCount(entry.listeners)}</span>
+                                </span>
+                                <span className="top-song-title">{entry.name}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {artistSections.about !== false && artistBio && (
+                    <div className="artist-bio-section">
+                      <div className="artist-bio-title">About</div>
                       <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: artistBio.summary }} />
                     </div>
                   )}
                 </div>
 
-                {library.artistAlbums.length > 0 && (
+                {artistSections.albums !== false && library.artistAlbums.length > 0 && (
                   <div className="artist-section artist-albums-section">
                     <div className="section-title">Albums</div>
                     <div className="album-scroll">
@@ -2659,11 +2763,12 @@ function App() {
                     onToggleLike={handleToggleLike}
                     onToggleDislike={handleToggleDislike}
                     onTrackDragStart={handleTrackDragStart}
+                    trackPopularity={artistTrackPopularity}
                     emptyMessage="No tracks found for this artist."
                   />
                 </div>
 
-                {similarArtists.length > 0 && (
+                {artistSections.similarArtists !== false && similarArtists.length > 0 && (
                   <div className="artist-section">
                     <div className="section-title">Similar Artists</div>
                     <div className="similar-artists-row">
@@ -3041,6 +3146,11 @@ function App() {
                           invoke("clear_lastfm_cache_for_entity", { kind: "album", name: album.title, artistName: album.artist_name });
                           setInfoRefreshCounter(c => c + 1);
                         }}
+                        sectionToggles={[
+                          { key: "review", label: "Review", visible: albumSections.review !== false },
+                          { key: "unmatchedTracks", label: "Not in Library", visible: albumSections.unmatchedTracks !== false },
+                        ]}
+                        onToggleSection={handleToggleAlbumSection}
                       />
                     </h2>
                     {album?.artist_name && (
@@ -3055,7 +3165,7 @@ function App() {
                     </span>
                   </div>
                 </div>
-                {albumWiki && (
+                {albumSections.review !== false && albumWiki && (
                   <div className="album-wiki-section">
                     <div className="artist-bio-title">Review</div>
                     <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: albumWiki }} />
@@ -3251,6 +3361,32 @@ function App() {
           {/* Artist album detail - always basic TrackList */}
           {(view === "artists" && selectedAlbum !== null) && (
             <>
+              {albumSections.unmatchedTracks !== false && albumUnmatchedTracks.length > 0 && (() => {
+                const maxPop = Math.max(...albumUnmatchedTracks.map(t => t.listeners), ...Object.values(albumTrackPopularity), 0);
+                return (
+                  <div className="unmatched-tracks">
+                    <div className="unmatched-tracks-title">Not in library</div>
+                    <div className="unmatched-tracks-list">
+                      {albumUnmatchedTracks.map((t, i) => {
+                        const pct = maxPop > 0 ? (t.listeners / maxPop) * 100 : 0;
+                        return (
+                          <div key={i} className="unmatched-track-row">
+                            <span className="unmatched-track-name">{t.name}</span>
+                            <span className="col-popularity">
+                              {t.listeners > 0 && (
+                                <>
+                                  <span className="popularity-fill" style={{ width: `${pct}%` }} />
+                                  <span className="popularity-count">{formatCount(t.listeners)}</span>
+                                </>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
               <TrackList
                 tracks={sortedTracks}
                 currentTrack={playback.currentTrack}
@@ -3272,30 +3408,6 @@ function App() {
                 trackPopularity={albumTrackPopularity}
                 emptyMessage="No tracks found."
               />
-              {albumUnmatchedTracks.length > 0 && (() => {
-                const maxPop = Math.max(...albumUnmatchedTracks.map(t => t.listeners), ...Object.values(albumTrackPopularity), 0);
-                return (
-                  <div className="unmatched-tracks">
-                    <div className="unmatched-tracks-title">Not in library</div>
-                    {albumUnmatchedTracks.map((t, i) => {
-                      const pct = maxPop > 0 ? (t.listeners / maxPop) * 100 : 0;
-                      return (
-                        <div key={i} className="unmatched-track-row">
-                          <span className="unmatched-track-name">{t.name}</span>
-                          <span className="col-popularity">
-                            {t.listeners > 0 && (
-                              <>
-                                <span className="popularity-fill" style={{ width: `${pct}%` }} />
-                                <span className="popularity-count">{formatCount(t.listeners)}</span>
-                              </>
-                            )}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
             </>
           )}
 
@@ -3684,6 +3796,76 @@ function App() {
           onSetFitMode={videoLayout.setFitMode}
         />
       )}
+
+      {topSongMenu && (() => {
+        const { entry, artistName } = topSongMenu;
+        const inLibrary = !!entry.libraryTrack;
+        const trackProviders = getProvidersForContext(searchProviders, "track");
+        return (
+          <div className="context-menu-backdrop" onClick={() => setTopSongMenu(null)} onContextMenu={(e) => { e.preventDefault(); setTopSongMenu(null); }}>
+            <div className="context-menu" style={{ left: topSongMenu.x, top: topSongMenu.y }} onClick={(e) => e.stopPropagation()}>
+              {inLibrary && (
+                <>
+                  <div className="context-menu-item" onClick={() => {
+                    setTopSongMenu(null);
+                    queueHook.playTracks([entry.libraryTrack!], 0);
+                  }}>Play</div>
+                  <div className="context-menu-item" onClick={() => {
+                    setTopSongMenu(null);
+                    queueHook.addToQueue(entry.libraryTrack!);
+                    addLog(`Enqueued "${entry.name}"`);
+                  }}>Enqueue</div>
+                  <div className="context-menu-item" onClick={() => {
+                    setTopSongMenu(null);
+                    library.handleLocateTrack(entry.libraryTrack!.title, entry.libraryTrack!.artist_name, entry.libraryTrack!.album_title, () => {
+                      library.setView("all");
+                      library.setSelectedArtist(null);
+                      library.setSelectedAlbum(null);
+                      library.setSelectedTag(null);
+                      viewSearch.setQuery("all", entry.libraryTrack!.title);
+                    });
+                  }}>Locate</div>
+                </>
+              )}
+              {!inLibrary && (
+                <div className="context-menu-item" style={{ opacity: 0.5, cursor: "default" }}>Not in library</div>
+              )}
+              <div className="context-menu-item" onClick={async () => {
+                setTopSongMenu(null);
+                addLog("Searching YouTube...");
+                try {
+                  const result = await invoke<{ url: string; video_title: string | null }>(
+                    "search_youtube", { title: entry.name, artistName }
+                  );
+                  await openUrl(result.url);
+                } catch {
+                  const q = encodeURIComponent(`${entry.name} ${artistName}`);
+                  await openUrl(`https://www.youtube.com/results?search_query=${q}`);
+                }
+              }}>Watch on YouTube</div>
+              {trackProviders.length > 0 && (
+                <div className="artist-image-menu-submenu">
+                  <div className="context-menu-item artist-image-menu-submenu-trigger">
+                    Web Search<span className="artist-image-menu-chevron">{"\u203A"}</span>
+                  </div>
+                  <div className="artist-image-menu-submenu-list">
+                    {trackProviders.map((provider) => {
+                      const url = buildSearchUrl(provider.trackUrl!, { title: entry.name, artist: artistName });
+                      const domain = getDomainFromUrl(provider.trackUrl || "");
+                      return (
+                        <button key={provider.id} onClick={() => { setTopSongMenu(null); openUrl(url); }}>
+                          {domain && <img className="provider-icon-img" src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`} width={14} height={14} alt="" />}
+                          <span>{provider.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {upgradeTrack && (
         <UpgradeTrackModal

@@ -1914,6 +1914,12 @@ body {
 }
 
 /* Context menu */
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+}
+
 .context-menu {
   position: fixed;
   background: var(--bg-secondary);
@@ -3247,7 +3253,7 @@ body {
 
 .artist-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
   min-width: 220px;
 }
@@ -3421,9 +3427,33 @@ body {
   display: block;
 }
 
+.section-toggle-check {
+  display: inline-block;
+  width: 16px;
+  text-align: center;
+  font-size: var(--fs-xs);
+  color: var(--accent);
+}
+
 .artist-meta {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
+}
+
+.artist-top-songs-section {
+  flex: 1;
+  min-width: 250px;
+  display: flex;
+  flex-direction: column;
+}
+
+.top-songs-list {
+  overflow-y: auto;
+  max-height: 120px;
+}
+
+.top-song-pop {
+  width: 80px;
 }
 
 .artist-bio-section {
@@ -3451,7 +3481,7 @@ body {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
   line-height: 1.5;
-  max-height: 180px;
+  max-height: 120px;
   overflow-y: auto;
 }
 
@@ -3525,6 +3555,41 @@ body {
 
 .artist-albums-section {
   border-bottom: 1px solid var(--border);
+}
+
+.top-song-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+  gap: 12px;
+  cursor: default;
+  border-radius: 4px;
+}
+
+.top-song-row:hover {
+  background: var(--bg-hover);
+}
+
+.top-song-missing {
+  opacity: 0.4;
+}
+
+.top-song-rank {
+  width: 24px;
+  text-align: right;
+  font-size: var(--fs-sm);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.top-song-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .section-title {
@@ -3702,28 +3767,34 @@ body {
 
 /* Unmatched album tracks from Last.fm */
 .unmatched-tracks {
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .unmatched-tracks-title {
   font-size: var(--fs-2xs);
   text-transform: uppercase;
   color: var(--text-tertiary);
-  margin-bottom: 8px;
+  margin-bottom: 4px;
+}
+
+.unmatched-tracks-list {
+  overflow-y: auto;
+  max-height: calc(4 * 24px);
 }
 
 .unmatched-track-row {
   display: flex;
   align-items: center;
-  padding: 4px 0;
-  gap: 12px;
+  padding: 2px 0;
+  gap: 8px;
+  height: 24px;
 }
 
 .unmatched-track-name {
   flex: 1;
   min-width: 0;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-2xs);
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
