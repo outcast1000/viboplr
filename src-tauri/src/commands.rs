@@ -2106,9 +2106,14 @@ pub fn lastfm_get_artist_info(state: State<'_, AppState>, app: AppHandle, artist
     let db = state.db.clone();
     let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
     thread::spawn(move || {
-        if let Ok(value) = lastfm.get_artist_info(&artist_name) {
-            let _ = db.lastfm_cache_set(&cache_key, &value);
-            let _ = app.emit("lastfm-artist-info", value);
+        match lastfm.get_artist_info(&artist_name) {
+            Ok(value) => {
+                let _ = db.lastfm_cache_set(&cache_key, &value);
+                let _ = app.emit("lastfm-artist-info", value);
+            }
+            Err(_) => {
+                let _ = app.emit("lastfm-artist-info-error", artist_name);
+            }
         }
     });
     None
@@ -2123,9 +2128,14 @@ pub fn lastfm_get_album_info(state: State<'_, AppState>, app: AppHandle, artist_
     let db = state.db.clone();
     let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
     thread::spawn(move || {
-        if let Ok(value) = lastfm.get_album_info(&artist_name, &album_title) {
-            let _ = db.lastfm_cache_set(&cache_key, &value);
-            let _ = app.emit("lastfm-album-info", value);
+        match lastfm.get_album_info(&artist_name, &album_title) {
+            Ok(value) => {
+                let _ = db.lastfm_cache_set(&cache_key, &value);
+                let _ = app.emit("lastfm-album-info", value);
+            }
+            Err(_) => {
+                let _ = app.emit("lastfm-album-info-error", album_title);
+            }
         }
     });
     None

@@ -65,7 +65,7 @@ import { TrackDetailView } from "./components/TrackDetailView";
 import { UpgradeTrackModal } from "./components/UpgradeTrackModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
-import NowPlayingView from "./components/NowPlayingView";
+
 import { StatusBar } from "./components/StatusBar";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -101,8 +101,6 @@ function App() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HistoryViewHandle>(null);
   const previousVolumeRef = useRef(1.0);
-  const npTrackRef = useRef<Track | null>(null);
-  const showNowPlayingViewRef = useRef(false);
 
   // Core hooks
   const peekNextRef = useRef<() => Track | null>(() => null);
@@ -365,23 +363,13 @@ function App() {
   const [lastfmAutoImportIntervalMins, setLastfmAutoImportIntervalMins] = useState(60);
   const [lastfmLastImportAt, setLastfmLastImportAt] = useState<number | null>(null);
   const [artistBio, setArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
+  const [artistInfoLoading, setArtistInfoLoading] = useState(false);
   const [albumWiki, setAlbumWiki] = useState<string | null>(null);
+  const [albumInfoLoading, setAlbumInfoLoading] = useState(false);
   const [albumUnmatchedTracks, setAlbumUnmatchedTracks] = useState<Array<{ name: string; listeners: number }>>([]);
   const [similarArtists, setSimilarArtists] = useState<Array<{ name: string; match: string }>>([]);
   const [infoRefreshCounter, setInfoRefreshCounter] = useState(0);
 
-  // Now Playing view: Last.fm data keyed to current playing track
-  const [npArtistBio, setNpArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
-  const [npAlbumWiki, setNpAlbumWiki] = useState<string | null>(null);
-  const [npAlbumStats, setNpAlbumStats] = useState<{ listeners: string; playcount: string } | null>(null);
-  const [npAlbumTags, setNpAlbumTags] = useState<Array<{ name: string }>>([]);
-  const [npSimilarArtists, setNpSimilarArtists] = useState<Array<{ name: string; match: string }>>([]);
-  const [npSimilarTracks, setNpSimilarTracks] = useState<Array<{ name: string; artist: { name: string }; match?: string }>>([]);
-  const [npTrackTags, setNpTrackTags] = useState<Array<{ name: string; count?: number }>>([]);
-  const [npArtistTags, setNpArtistTags] = useState<Array<{ name: string; count?: number }>>([]);
-  const [npLyrics, setNpLyrics] = useState<{ text: string; kind: string; provider: string } | null>(null);
-  const [npLyricsLoading, setNpLyricsLoading] = useState(false);
-  const [showNowPlayingView, setShowNowPlayingView] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -945,11 +933,13 @@ function App() {
   // Fetch Last.fm artist bio and similar artists when selected artist changes
   useEffect(() => {
     setArtistBio(null);
+    setArtistInfoLoading(false);
     setSimilarArtists([]);
     if (library.selectedArtist === null) return;
     const artist = library.artists.find(a => a.id === library.selectedArtist);
     if (!artist) return;
 
+    setArtistInfoLoading(true);
     const parseArtistInfo = (resp: { artist?: { bio?: { summary?: string }; stats?: { listeners?: string; playcount?: string } } } | null) => {
       if (resp?.artist?.bio?.summary) {
         setArtistBio({
@@ -958,6 +948,7 @@ function App() {
           playcount: resp.artist.stats?.playcount ?? "",
         });
       }
+      setArtistInfoLoading(false);
     };
     const parseSimilar = (resp: { similarartists?: { artist?: Array<{ name: string; match: string }> } } | null) => {
       setSimilarArtists(resp?.similarartists?.artist ?? []);
@@ -966,17 +957,19 @@ function App() {
     // invoke returns cached data immediately, or null if fetching in background
     invoke<any>("lastfm_get_artist_info", { artistName: artist.name })
       .then(resp => { if (resp) parseArtistInfo(resp); })
-      .catch(() => {});
+      .catch(() => setArtistInfoLoading(false));
     invoke<any>("lastfm_get_similar_artists", { artistName: artist.name })
       .then(resp => { if (resp) parseSimilar(resp); })
       .catch(() => {});
 
     // Listen for async results from background fetches
     const unlistenInfo = listen<any>("lastfm-artist-info", (event) => parseArtistInfo(event.payload));
+    const unlistenInfoError = listen<any>("lastfm-artist-info-error", () => setArtistInfoLoading(false));
     const unlistenSimilar = listen<any>("lastfm-similar-artists", (event) => parseSimilar(event.payload));
 
     return () => {
       unlistenInfo.then(f => f());
+      unlistenInfoError.then(f => f());
       unlistenSimilar.then(f => f());
     };
   }, [library.selectedArtist, library.artists, infoRefreshCounter]);
@@ -984,24 +977,28 @@ function App() {
   // Fetch Last.fm album wiki when selected album changes
   useEffect(() => {
     setAlbumWiki(null);
+    setAlbumInfoLoading(false);
     if (library.selectedAlbum === null) return;
     const album = library.albums.find(a => a.id === library.selectedAlbum);
     if (!album) return;
     const artistName = library.artists.find(a => a.id === album.artist_id)?.name;
     if (!artistName) return;
 
+    setAlbumInfoLoading(true);
     const parseAlbumInfo = (resp: { album?: { wiki?: { summary?: string } } } | null) => {
       if (resp?.album?.wiki?.summary) {
         setAlbumWiki(resp.album.wiki.summary.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim());
       }
+      setAlbumInfoLoading(false);
     };
 
     invoke<any>("lastfm_get_album_info", { artistName, albumTitle: album.title })
       .then(resp => { if (resp) parseAlbumInfo(resp); })
-      .catch(() => {});
+      .catch(() => setAlbumInfoLoading(false));
 
     const unlistenAlbum = listen<any>("lastfm-album-info", (event) => parseAlbumInfo(event.payload));
-    return () => { unlistenAlbum.then(f => f()); };
+    const unlistenAlbumError = listen<any>("lastfm-album-info-error", () => setAlbumInfoLoading(false));
+    return () => { unlistenAlbum.then(f => f()); unlistenAlbumError.then(f => f()); };
   }, [library.selectedAlbum, library.albums, library.artists, infoRefreshCounter]);
 
   // Fetch Last.fm track popularity when selected album changes
@@ -1074,89 +1071,6 @@ function App() {
     return () => { unlistenPop.then(f => f()); };
   }, [library.selectedArtist, library.selectedAlbum, library.artists, library.tracks]);
 
-  // Keep npTrackRef in sync with the currently playing track
-  useEffect(() => {
-    npTrackRef.current = playback.currentTrack ?? null;
-  }, [playback.currentTrack]);
-
-  useEffect(() => { showNowPlayingViewRef.current = showNowPlayingView; }, [showNowPlayingView]);
-
-  // Fetch Last.fm data for the Now Playing view
-  // invoke() returns cached data immediately (or null if fetching in background).
-  // Background fetches emit events handled by the np* listeners. We must handle
-  // both paths — cached responses here, async responses via event listeners.
-  const fetchNpLastfmData = useCallback((track: Track) => {
-    // Fetch lyrics
-    setNpLyrics(null);
-    setNpLyricsLoading(true);
-    invoke("fetch_lyrics", { trackId: track.id, force: false }).catch(() => setNpLyricsLoading(false));
-
-    const parseBio = (bio: string | undefined) => bio?.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim();
-    if (track.artist_name) {
-      invoke<any>("lastfm_get_similar_tracks", { artistName: track.artist_name, trackTitle: track.title })
-        .then(resp => { if (resp && Array.isArray(resp?.similartracks?.track)) setNpSimilarTracks(resp.similartracks.track); })
-        .catch(() => {});
-      invoke<any>("lastfm_get_artist_info", { artistName: track.artist_name })
-        .then(resp => {
-          const artist = resp?.artist;
-          if (!artist) return;
-          const bio = parseBio(artist.bio?.summary);
-          if (bio) setNpArtistBio({ summary: bio, listeners: artist.stats?.listeners ?? "", playcount: artist.stats?.playcount ?? "" });
-          if (Array.isArray(artist.similar?.artist)) setNpSimilarArtists(artist.similar.artist);
-        })
-        .catch(() => {});
-      invoke<any>("lastfm_get_track_tags", { artistName: track.artist_name, trackTitle: track.title })
-        .then(resp => { if (resp && Array.isArray(resp?.toptags?.tag)) setNpTrackTags(resp.toptags.tag); })
-        .catch(() => {});
-      invoke<any>("lastfm_get_artist_tags", { artistName: track.artist_name })
-        .then(resp => { if (resp && Array.isArray(resp?.toptags?.tag)) setNpArtistTags(resp.toptags.tag); })
-        .catch(() => {});
-    }
-    if (track.album_title && track.artist_name) {
-      invoke<any>("lastfm_get_album_info", { artistName: track.artist_name, albumTitle: track.album_title })
-        .then(resp => {
-          const album = resp?.album;
-          if (!album) return;
-          const wiki = parseBio(album.wiki?.summary);
-          if (wiki) setNpAlbumWiki(wiki);
-          if (album.listeners || album.playcount) setNpAlbumStats({ listeners: album.listeners ?? "", playcount: album.playcount ?? "" });
-          if (Array.isArray(album.tags?.tag)) setNpAlbumTags(album.tags.tag);
-        })
-        .catch(() => {});
-    }
-  }, []);
-
-  const handleSaveLyrics = useCallback(async (text: string, kind: string) => {
-    if (!playback.currentTrack) return;
-    try {
-      const result = await invoke<{ text: string; kind: string; provider: string }>("save_manual_lyrics", {
-        trackId: playback.currentTrack.id, text, kind
-      });
-      setNpLyrics(result);
-    } catch (e) { console.error("Failed to save lyrics:", e); }
-  }, [playback.currentTrack]);
-
-  const handleResetLyrics = useCallback(() => {
-    if (!playback.currentTrack) return;
-    setNpLyrics(null);
-    setNpLyricsLoading(true);
-    invoke("reset_lyrics", { trackId: playback.currentTrack.id }).catch(() => setNpLyricsLoading(false));
-  }, [playback.currentTrack]);
-
-  const handleForceRefreshLyrics = useCallback(() => {
-    if (!playback.currentTrack) return;
-    setNpLyrics(null);
-    setNpLyricsLoading(true);
-    invoke("fetch_lyrics", { trackId: playback.currentTrack.id, force: true }).catch(() => setNpLyricsLoading(false));
-  }, [playback.currentTrack]);
-
-  const openNowPlaying = useCallback(() => {
-    if (mini.miniMode) mini.toggleMiniMode();
-    library.setSelectedTrack(null);
-    setShowNowPlayingView(true);
-    if (playback.currentTrack) fetchNpLastfmData(playback.currentTrack);
-  }, [mini.miniMode, mini.toggleMiniMode, playback.currentTrack, fetchNpLastfmData]);
-
   // Resolve track for the detail view — try local lookups (sync), fall back to backend (async)
   const detailTrackLocal = useMemo(() => {
     if (library.selectedTrack === null) return null;
@@ -1224,114 +1138,6 @@ function App() {
     });
   }, [playback.currentTrack, library.selectedTrack, library.selectedAlbum, library.selectedArtist]);
 
-  // Clear and re-fetch np* state when the playing track changes
-  useEffect(() => {
-    setNpArtistBio(null);
-    setNpAlbumWiki(null);
-    setNpAlbumStats(null);
-    setNpAlbumTags([]);
-    setNpSimilarArtists([]);
-    setNpSimilarTracks([]);
-    setNpTrackTags([]);
-    setNpArtistTags([]);
-    setNpLyrics(null);
-    setNpLyricsLoading(false);
-
-    if (showNowPlayingView && playback.currentTrack) {
-      fetchNpLastfmData(playback.currentTrack);
-    }
-  }, [playback.currentTrack?.id]);
-
-  // Dedicated np* event listeners for Now Playing view (standalone, not library-scoped)
-  useEffect(() => {
-    const unlistenArtistInfo = listen<any>("lastfm-artist-info", (event) => {
-      const artist = event.payload?.artist;
-      const currentArtist = npTrackRef.current?.artist_name;
-      if (!artist || !currentArtist) return;
-      if (artist.name?.toLowerCase() !== currentArtist.toLowerCase()) return;
-      const bio = artist.bio?.summary?.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim();
-      if (bio) {
-        setNpArtistBio({
-          summary: bio,
-          listeners: artist.stats?.listeners ?? "",
-          playcount: artist.stats?.playcount ?? "",
-        });
-      }
-      if (Array.isArray(artist.similar?.artist)) {
-        setNpSimilarArtists(artist.similar.artist);
-      }
-    });
-
-    const unlistenAlbumInfo = listen<any>("lastfm-album-info", (event) => {
-      const album = event.payload?.album;
-      const currentAlbum = npTrackRef.current?.album_title;
-      if (!album || !currentAlbum) return;
-      if (album.name?.toLowerCase() !== currentAlbum.toLowerCase()) return;
-      const wiki = album.wiki?.summary?.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim();
-      if (wiki) setNpAlbumWiki(wiki);
-      if (album.listeners || album.playcount) setNpAlbumStats({ listeners: album.listeners ?? "", playcount: album.playcount ?? "" });
-      if (Array.isArray(album.tags?.tag)) setNpAlbumTags(album.tags.tag);
-    });
-
-    const unlistenSimilarTracks = listen<any>("lastfm-similar-tracks", (event) => {
-      const currentTrack = npTrackRef.current;
-      if (!currentTrack) return;
-      const tracks = event.payload?.similartracks?.track;
-      if (Array.isArray(tracks)) setNpSimilarTracks(tracks);
-    });
-
-    const unlistenTrackTags = listen<any>("lastfm-track-tags", (event) => {
-      const currentTrack = npTrackRef.current;
-      if (!currentTrack) return;
-      const tags = event.payload?.toptags?.tag;
-      if (Array.isArray(tags)) setNpTrackTags(tags);
-    });
-
-    const unlistenArtistTags = listen<any>("lastfm-artist-tags", (event) => {
-      const currentArtist = npTrackRef.current?.artist_name;
-      if (!currentArtist) return;
-      const tags = event.payload?.toptags?.tag;
-      if (Array.isArray(tags)) setNpArtistTags(tags);
-    });
-
-    const unlistenLyricsLoaded = listen<{ track_id: number; text: string; kind: string; provider: string }>("lyrics-loaded", (event) => {
-      if (event.payload.track_id === npTrackRef.current?.id) {
-        setNpLyrics({ text: event.payload.text, kind: event.payload.kind, provider: event.payload.provider });
-        setNpLyricsLoading(false);
-      }
-    });
-
-    const unlistenLyricsError = listen<{ track_id: number; error: string }>("lyrics-error", (event) => {
-      if (event.payload.track_id === npTrackRef.current?.id) {
-        setNpLyricsLoading(false);
-      }
-    });
-
-    return () => {
-      unlistenArtistInfo.then((f) => f());
-      unlistenAlbumInfo.then((f) => f());
-      unlistenSimilarTracks.then((f) => f());
-      unlistenTrackTags.then((f) => f());
-      unlistenArtistTags.then((f) => f());
-      unlistenLyricsLoaded.then((f) => f());
-      unlistenLyricsError.then((f) => f());
-    };
-  }, []);
-
-  // Auto-close Now Playing view when track becomes null
-  useEffect(() => {
-    if (!playback.currentTrack && showNowPlayingView) {
-      setShowNowPlayingView(false);
-    }
-  }, [playback.currentTrack]);
-
-  // Mutual exclusivity: close Now Playing view when entering mini mode
-  useEffect(() => {
-    if (mini.miniMode && showNowPlayingView) {
-      setShowNowPlayingView(false);
-    }
-  }, [mini.miniMode]);
-
   // Fetch album/artist image when current track changes (for Now Playing bar)
   useEffect(() => {
     const track = playback.currentTrack;
@@ -1360,11 +1166,6 @@ function App() {
     function handleKeyDown(e: KeyboardEvent) {
       const s = shortcutStateRef.current;
       const isInput = (e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA";
-
-      if (e.key === "Escape" && showNowPlayingViewRef.current) {
-        setShowNowPlayingView(false);
-        return;
-      }
 
       if (e.key === "Escape" && library.selectedTrack !== null) {
         library.setSelectedTrack(null);
@@ -2251,7 +2052,7 @@ function App() {
   };
 
   return (
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${showNowPlayingView ? "now-playing-active" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -2271,61 +2072,6 @@ function App() {
         onEnded={() => playback.onEndedSlotB(onEnded)}
         onError={playback.onMediaError}
       />
-
-      {showNowPlayingView && playback.currentTrack && (
-        <NowPlayingView
-          currentTrack={playback.currentTrack}
-          nextTrack={queueHook.peekNext()}
-          albumImagePath={
-            (playback.currentTrack.album_id && albumImageCache.images[playback.currentTrack.album_id]) || null
-          }
-          artistImagePath={
-            (playback.currentTrack.artist_id && artistImageCache.images[playback.currentTrack.artist_id]) || null
-          }
-          npArtistBio={npArtistBio}
-          npAlbumWiki={npAlbumWiki}
-          npAlbumStats={npAlbumStats}
-          npAlbumTags={npAlbumTags}
-          npSimilarArtists={npSimilarArtists}
-          npSimilarTracks={npSimilarTracks}
-          npTrackTags={npTrackTags}
-          npArtistTags={npArtistTags}
-          isVideo={isVideoTrack(playback.currentTrack)}
-          onToggleLike={() => handleToggleLike(playback.currentTrack!)}
-          onToggleDislike={() => handleToggleDislike(playback.currentTrack!)}
-          onArtistClick={(id) => { setShowNowPlayingView(false); library.handleArtistClick(id); }}
-          onAlbumClick={(id, aid) => { setShowNowPlayingView(false); library.handleAlbumClick(id, aid); }}
-          onTagClick={(tagId) => { setShowNowPlayingView(false); library.setSelectedTag(tagId); library.setView("tags"); }}
-          onSimilarTrackFound={(track) => {
-            setShowNowPlayingView(false);
-            library.handleLocateTrack(track.title, track.artist_name, track.album_title, () => {
-              library.setView("all");
-              library.setSelectedArtist(null);
-              library.setSelectedAlbum(null);
-              library.setSelectedTag(null);
-              viewSearch.setQuery("all", track.title);
-            });
-          }}
-          addLog={addLog}
-          libraryTags={library.tags}
-          npLyrics={npLyrics}
-          npLyricsLoading={npLyricsLoading}
-          positionSecs={playback.positionSecs}
-          onSaveLyrics={handleSaveLyrics}
-          onResetLyrics={handleResetLyrics}
-          onForceRefreshLyrics={handleForceRefreshLyrics}
-          onPlayAlbum={async (albumId) => {
-            const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId } });
-            if (albumTracks.length > 0) queueHook.playTracks(albumTracks, 0);
-          }}
-          onPlayArtist={async (artistId) => {
-            const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId });
-            if (artistTracks.length > 0) queueHook.playTracks(artistTracks, 0);
-          }}
-          onAlbumContextMenu={(e, albumId) => handleAlbumContextMenu(e, albumId)}
-          onArtistContextMenu={(e, artistId) => handleArtistContextMenu(e, artistId)}
-        />
-      )}
 
       <Sidebar
         view={view}
@@ -2790,6 +2536,9 @@ function App() {
                         />
                       </h2>
                       <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
+                      {artistInfoLoading && !artistBio && (
+                        <span className="artist-bio-stats lastfm-loading">Fetching info from Last.fm…</span>
+                      )}
                       {artistBio && (artistBio.listeners || artistBio.playcount) && (
                         <span className="artist-bio-stats">
                           {artistBio.listeners && <>{parseInt(artistBio.listeners).toLocaleString()} listeners</>}
@@ -2839,10 +2588,18 @@ function App() {
                       </div>
                     );
                   })()}
-                  {artistSections.about !== false && artistBio && (
+                  {artistSections.about !== false && (
                     <div className="artist-bio-section">
                       <div className="artist-bio-title">About</div>
-                      <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: artistBio.summary }} />
+                      {artistInfoLoading && !artistBio && (
+                        <div className="lastfm-loading-text">Loading…</div>
+                      )}
+                      {artistBio && (
+                        <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: artistBio.summary }} />
+                      )}
+                      {!artistInfoLoading && !artistBio && (
+                        <div className="lastfm-empty-text">No artist info available on Last.fm</div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -3295,10 +3052,18 @@ function App() {
                     </span>
                   </div>
                 </div>
-                {albumSections.review !== false && albumWiki && (
+                {albumSections.review !== false && (
                   <div className="album-wiki-section">
                     <div className="artist-bio-title">Review</div>
-                    <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: albumWiki }} />
+                    {albumInfoLoading && !albumWiki && (
+                      <div className="lastfm-loading-text">Loading…</div>
+                    )}
+                    {albumWiki && (
+                      <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: albumWiki }} />
+                    )}
+                    {!albumInfoLoading && !albumWiki && (
+                      <div className="lastfm-empty-text">No album review available on Last.fm</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -4166,17 +3931,9 @@ function App() {
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
         onToggleLike={() => playback.currentTrack && handleToggleLike(playback.currentTrack)}
         onToggleDislike={() => playback.currentTrack && handleToggleDislike(playback.currentTrack)}
-        onTrackClick={(trackId) => { setShowNowPlayingView(false); library.handleTrackClick(trackId); }}
+        onTrackClick={(trackId) => { library.handleTrackClick(trackId); }}
         onArtistClick={library.handleArtistClick}
         onAlbumClick={library.handleAlbumClick}
-        showNowPlayingView={showNowPlayingView}
-        onToggleNowPlaying={() => {
-          if (showNowPlayingView) {
-            setShowNowPlayingView(false);
-          } else {
-            openNowPlaying();
-          }
-        }}
         showHelp={showHelp}
         onToggleHelp={() => setShowHelp(h => !h)}
       />

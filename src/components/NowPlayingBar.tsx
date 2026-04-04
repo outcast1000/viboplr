@@ -85,8 +85,6 @@ interface NowPlayingBarProps {
   onTrackClick: (trackId: number) => void;
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
-  showNowPlayingView: boolean;
-  onToggleNowPlaying: () => void;
   showHelp: boolean;
   onToggleHelp: () => void;
 }
@@ -103,7 +101,7 @@ export function NowPlayingBar({
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
   onToggleLike, onToggleDislike, onTrackClick, onArtistClick, onAlbumClick,
-  showNowPlayingView, onToggleNowPlaying, showHelp, onToggleHelp,
+  showHelp, onToggleHelp,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const likeBtnRef = useRef<HTMLSpanElement>(null);
@@ -304,16 +302,6 @@ export function NowPlayingBar({
             onChange={(e) => onVolume(parseFloat(e.target.value))}
           />
         </div>
-        <button className="ctrl-btn" onClick={onToggleNowPlaying} title={showNowPlayingView ? "Collapse" : "Now Playing View"}>
-          {showNowPlayingView ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="4 14 10 14 10 20" />
-              <polyline points="20 10 14 10 14 4" />
-              <line x1="14" y1="10" x2="21" y2="3" />
-              <line x1="3" y1="21" x2="10" y2="14" />
-            </svg>
-          ) : "\u26F6"}
-        </button>
       </div>
       </div>
       {showHelp && (
