@@ -4,6 +4,22 @@ import { isVideoTrack, formatDuration } from "../utils";
 import { IconYoutube } from "./Icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+function formatCount(n: number): string {
+  if (n >= 1_000_000) {
+    const v = n / 1_000_000;
+    if (v >= 100) return `${Math.round(v)}M`;
+    if (v >= 10) return `${v.toFixed(1).replace(/\.0$/, "")}M`;
+    return `${v.toFixed(2).replace(/\.?0+$/, "")}M`;
+  }
+  if (n >= 1_000) {
+    const v = n / 1_000;
+    if (v >= 100) return `${Math.round(v)}K`;
+    if (v >= 10) return `${v.toFixed(1).replace(/\.0$/, "")}K`;
+    return `${v.toFixed(2).replace(/\.?0+$/, "")}K`;
+  }
+  return String(n);
+}
+
 const COLUMN_DISPLAY_NAMES: Record<TrackColumnId, string> = {
   like: "Liked",
   num: "#",
@@ -463,9 +479,10 @@ export function TrackList({
         return (
           <span key="popularity" className="col-popularity">
             {pop != null ? (
-              <span className="popularity-bar" title={`${pop.toLocaleString()} listeners`}>
+              <>
                 <span className="popularity-fill" style={{ width: `${pct}%` }} />
-              </span>
+                <span className="popularity-count">{formatCount(pop)}</span>
+              </>
             ) : null}
           </span>
         );

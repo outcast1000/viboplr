@@ -36,10 +36,11 @@ interface AlbumOptionsMenuProps {
   providers: SearchProviderConfig[];
   onImageSet: (id: number, path: string) => void;
   onImageRemoved: (id: number) => void;
-  onRefresh?: () => void;
+  onRetrieveImage: () => void;
+  onRetrieveInfo: () => void;
 }
 
-export function AlbumOptionsMenu({ albumId, albumImagePath, albumTitle, artistName, providers, onImageSet, onImageRemoved, onRefresh }: AlbumOptionsMenuProps) {
+export function AlbumOptionsMenu({ albumId, albumImagePath, albumTitle, artistName, providers, onImageSet, onImageRemoved, onRetrieveImage, onRetrieveInfo }: AlbumOptionsMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -95,30 +96,44 @@ export function AlbumOptionsMenu({ albumId, albumImagePath, albumTitle, artistNa
               <IconRemoveImage size={14} /><span>Remove Image</span>
             </button>
           )}
-          {onRefresh && (
-            <button
-              onClick={() => {
-                setIsOpen(false);
-                onRefresh();
-              }}
-            >
-              <IconRefresh size={14} /><span>Refresh Info</span>
-            </button>
-          )}
+          <button
+            onClick={() => {
+              setIsOpen(false);
+              onRetrieveImage();
+            }}
+          >
+            <IconRefresh size={14} /><span>Retrieve Image</span>
+          </button>
+          <div className="artist-image-menu-separator" />
+          <button
+            onClick={() => {
+              setIsOpen(false);
+              onRetrieveInfo();
+            }}
+          >
+            <IconRefresh size={14} /><span>Retrieve Album Info</span>
+          </button>
           {providers.length > 0 && (
             <>
               <div className="artist-image-menu-separator" />
-              {providers.map((provider) => {
-                const url = buildSearchUrl(provider.albumUrl!, { title: albumTitle, artist: artistName });
-                return (
-                  <button
-                    key={provider.id}
-                    onClick={() => { setIsOpen(false); openUrl(url); }}
-                  >
-                    <ProviderIcon provider={provider} /><span>Search on {provider.name}</span>
-                  </button>
-                );
-              })}
+              <div className="artist-image-menu-submenu">
+                <button className="artist-image-menu-submenu-trigger">
+                  <IconGoogle size={14} /><span>Search</span><span className="artist-image-menu-chevron">{"\u203A"}</span>
+                </button>
+                <div className="artist-image-menu-submenu-list">
+                  {providers.map((provider) => {
+                    const url = buildSearchUrl(provider.albumUrl!, { title: albumTitle, artist: artistName });
+                    return (
+                      <button
+                        key={provider.id}
+                        onClick={() => { setIsOpen(false); openUrl(url); }}
+                      >
+                        <ProviderIcon provider={provider} /><span>{provider.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </>
           )}
         </div>

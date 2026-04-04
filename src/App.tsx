@@ -68,6 +68,22 @@ import NowPlayingView from "./components/NowPlayingView";
 import { StatusBar } from "./components/StatusBar";
 
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+function formatCount(n: number): string {
+  if (n >= 1_000_000) {
+    const v = n / 1_000_000;
+    if (v >= 100) return `${Math.round(v)}M`;
+    if (v >= 10) return `${v.toFixed(1).replace(/\.0$/, "")}M`;
+    return `${v.toFixed(2).replace(/\.?0+$/, "")}M`;
+  }
+  if (n >= 1_000) {
+    const v = n / 1_000;
+    if (v >= 100) return `${Math.round(v)}K`;
+    if (v >= 10) return `${v.toFixed(1).replace(/\.0$/, "")}K`;
+    return `${v.toFixed(2).replace(/\.?0+$/, "")}K`;
+  }
+  return String(n);
+}
+
 
 function App() {
   const restoredRef = useRef(false);
@@ -313,12 +329,14 @@ function App() {
   const [artistBio, setArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
   const [albumWiki, setAlbumWiki] = useState<string | null>(null);
   const [albumTrackPopularity, setAlbumTrackPopularity] = useState<Record<number, number>>({});
+  const [albumUnmatchedTracks, setAlbumUnmatchedTracks] = useState<Array<{ name: string; listeners: number }>>([]);
   const [similarArtists, setSimilarArtists] = useState<Array<{ name: string; match: string }>>([]);
   const [infoRefreshCounter, setInfoRefreshCounter] = useState(0);
 
   // Now Playing view: Last.fm data keyed to current playing track
   const [npArtistBio, setNpArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
   const [npAlbumWiki, setNpAlbumWiki] = useState<string | null>(null);
+  const [npAlbumStats, setNpAlbumStats] = useState<{ listeners: string; playcount: string } | null>(null);
   const [npAlbumTags, setNpAlbumTags] = useState<Array<{ name: string }>>([]);
   const [npSimilarArtists, setNpSimilarArtists] = useState<Array<{ name: string; match: string }>>([]);
   const [npSimilarTracks, setNpSimilarTracks] = useState<Array<{ name: string; artist: { name: string }; match?: string }>>([]);
@@ -940,24 +958,30 @@ function App() {
   // Fetch Last.fm track popularity when selected album changes
   useEffect(() => {
     setAlbumTrackPopularity({});
+    setAlbumUnmatchedTracks([]);
     if (library.selectedAlbum === null) return;
     const album = library.albums.find(a => a.id === library.selectedAlbum);
     if (!album) return;
     const artistName = library.artists.find(a => a.id === album.artist_id)?.name;
     if (!artistName) return;
 
+    const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().trim()).replace(/[^a-z0-9]/g, "");
     const matchPopularity = (resp: { tracks?: Array<{ name: string; listeners: number }> } | null) => {
       if (!resp?.tracks) return;
       const popMap: Record<number, number> = {};
+      const unmatched: Array<{ name: string; listeners: number }> = [];
       const localTracks = library.tracks;
       for (const lfmTrack of resp.tracks) {
-        const norm = lfmTrack.name.toLowerCase().trim();
-        const match = localTracks.find(t => t.title.toLowerCase().trim() === norm);
+        const norm = normalizeTitle(lfmTrack.name);
+        const match = localTracks.find(t => normalizeTitle(t.title) === norm);
         if (match && lfmTrack.listeners > 0) {
           popMap[match.id] = lfmTrack.listeners;
+        } else {
+          unmatched.push({ name: lfmTrack.name, listeners: lfmTrack.listeners });
         }
       }
       setAlbumTrackPopularity(popMap);
+      setAlbumUnmatchedTracks(unmatched);
     };
 
     invoke<any>("lastfm_get_album_track_popularity", { artistName, albumTitle: album.title })
@@ -1013,6 +1037,7 @@ function App() {
           if (!album) return;
           const wiki = parseBio(album.wiki?.summary);
           if (wiki) setNpAlbumWiki(wiki);
+          if (album.listeners || album.playcount) setNpAlbumStats({ listeners: album.listeners ?? "", playcount: album.playcount ?? "" });
           if (Array.isArray(album.tags?.tag)) setNpAlbumTags(album.tags.tag);
         })
         .catch(() => {});
@@ -1053,6 +1078,7 @@ function App() {
   useEffect(() => {
     setNpArtistBio(null);
     setNpAlbumWiki(null);
+    setNpAlbumStats(null);
     setNpAlbumTags([]);
     setNpSimilarArtists([]);
     setNpSimilarTracks([]);
@@ -1093,6 +1119,7 @@ function App() {
       if (album.name?.toLowerCase() !== currentAlbum.toLowerCase()) return;
       const wiki = album.wiki?.summary?.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim();
       if (wiki) setNpAlbumWiki(wiki);
+      if (album.listeners || album.playcount) setNpAlbumStats({ listeners: album.listeners ?? "", playcount: album.playcount ?? "" });
       if (Array.isArray(album.tags?.tag)) setNpAlbumTags(album.tags.tag);
     });
 
@@ -2102,6 +2129,7 @@ function App() {
           }
           npArtistBio={npArtistBio}
           npAlbumWiki={npAlbumWiki}
+          npAlbumStats={npAlbumStats}
           npAlbumTags={npAlbumTags}
           npSimilarArtists={npSimilarArtists}
           npSimilarTracks={npSimilarTracks}
@@ -3007,9 +3035,12 @@ function App() {
                         providers={albumProviders}
                         onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
                         onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}
-                        onRefresh={() => {
+                        onRetrieveImage={() => {
                           if (!album) return;
                           albumImageCache.forceFetchImage({ id: selectedAlbum, title: album.title, artist_name: album.artist_name });
+                        }}
+                        onRetrieveInfo={() => {
+                          if (!album) return;
                           invoke("clear_lastfm_cache_for_entity", { kind: "album", name: album.title, artistName: album.artist_name });
                           setInfoRefreshCounter(c => c + 1);
                         }}
@@ -3224,27 +3255,53 @@ function App() {
 
           {/* Artist album detail - always basic TrackList */}
           {(view === "artists" && selectedAlbum !== null) && (
-            <TrackList
-              tracks={sortedTracks}
-              currentTrack={playback.currentTrack}
-              playing={playback.playing}
-              highlightedIndex={highlightedIndex}
-              sortField={sortField}
-              trackListRef={trackListRef}
-              columns={library.trackColumns}
-              onColumnsChange={library.setTrackColumns}
-              onDoubleClick={queueHook.playTracks}
-              onContextMenu={handleTrackContextMenu}
-              onArtistClick={library.handleArtistClick}
-              onAlbumClick={library.handleAlbumClick}
-              onSort={library.handleSort}
-              sortIndicator={library.sortIndicator}
-              onToggleLike={handleToggleLike}
-                    onToggleDislike={handleToggleDislike}
-              onTrackDragStart={handleTrackDragStart}
-              trackPopularity={albumTrackPopularity}
-              emptyMessage="No tracks found."
-            />
+            <>
+              <TrackList
+                tracks={sortedTracks}
+                currentTrack={playback.currentTrack}
+                playing={playback.playing}
+                highlightedIndex={highlightedIndex}
+                sortField={sortField}
+                trackListRef={trackListRef}
+                columns={library.trackColumns}
+                onColumnsChange={library.setTrackColumns}
+                onDoubleClick={queueHook.playTracks}
+                onContextMenu={handleTrackContextMenu}
+                onArtistClick={library.handleArtistClick}
+                onAlbumClick={library.handleAlbumClick}
+                onSort={library.handleSort}
+                sortIndicator={library.sortIndicator}
+                onToggleLike={handleToggleLike}
+                onToggleDislike={handleToggleDislike}
+                onTrackDragStart={handleTrackDragStart}
+                trackPopularity={albumTrackPopularity}
+                emptyMessage="No tracks found."
+              />
+              {albumUnmatchedTracks.length > 0 && (() => {
+                const maxPop = Math.max(...albumUnmatchedTracks.map(t => t.listeners), ...Object.values(albumTrackPopularity), 0);
+                return (
+                  <div className="unmatched-tracks">
+                    <div className="unmatched-tracks-title">Not in library</div>
+                    {albumUnmatchedTracks.map((t, i) => {
+                      const pct = maxPop > 0 ? (t.listeners / maxPop) * 100 : 0;
+                      return (
+                        <div key={i} className="unmatched-track-row">
+                          <span className="unmatched-track-name">{t.name}</span>
+                          <span className="col-popularity">
+                            {t.listeners > 0 && (
+                              <>
+                                <span className="popularity-fill" style={{ width: `${pct}%` }} />
+                                <span className="popularity-count">{formatCount(t.listeners)}</span>
+                              </>
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </>
           )}
 
           {/* Liked tracks view */}

@@ -11,6 +11,7 @@ interface NowPlayingViewProps {
   artistImagePath: string | null;
   npArtistBio: { summary: string; listeners: string; playcount: string } | null;
   npAlbumWiki: string | null;
+  npAlbumStats: { listeners: string; playcount: string } | null;
   npAlbumTags: Array<{ name: string }>;
   npSimilarArtists: Array<{ name: string; match: string }>;
   npSimilarTracks: Array<{ name: string; artist: { name: string }; match?: string }>;
@@ -100,7 +101,7 @@ function SimilarTracksLine({ tracks, onFound, addLog }: {
 function NowPlayingBody(props: NowPlayingViewProps) {
   const {
     currentTrack, nextTrack, albumImagePath, artistImagePath,
-    npArtistBio, npAlbumWiki, npAlbumTags, npSimilarArtists, npSimilarTracks,
+    npArtistBio, npAlbumWiki, npAlbumStats, npAlbumTags, npSimilarArtists, npSimilarTracks,
     npTrackTags, npArtistTags, libraryTags,
     npLyrics, npLyricsLoading, positionSecs,
     onSaveLyrics, onResetLyrics, onForceRefreshLyrics,
@@ -208,6 +209,12 @@ function NowPlayingBody(props: NowPlayingViewProps) {
                 <div className="np-card-name">{currentTrack.album_title || "Unknown Album"}</div>
                 <div className="np-card-stats">
                   {currentTrack.year && <span>{currentTrack.year}</span>}
+                  {npAlbumStats?.listeners && (
+                    <span>{currentTrack.year ? " · " : ""}{Number(npAlbumStats.listeners).toLocaleString()} listeners</span>
+                  )}
+                  {npAlbumStats?.playcount && (
+                    <span> · {Number(npAlbumStats.playcount).toLocaleString()} scrobbles</span>
+                  )}
                 </div>
               </div>
             </div>
