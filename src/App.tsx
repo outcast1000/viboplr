@@ -2280,6 +2280,8 @@ function App() {
         view={view}
         selectedAlbum={selectedAlbum}
         selectedArtist={selectedArtist}
+        selectedTag={selectedTag}
+        selectedTrack={library.selectedTrack}
         collapsed={sidebarCollapsed}
         onShowAll={library.handleShowAll}
         onShowArtists={() => {
@@ -2288,12 +2290,14 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
+          library.setSelectedTrack(null);
         }}
         onShowAlbums={() => {
           pushAndScroll();
           library.setView("albums");
           library.setSelectedArtist(null);
           library.setSelectedTag(null);
+          library.setSelectedTrack(null);
         }}
         onShowTags={() => {
           pushAndScroll();
@@ -2301,6 +2305,7 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
+          library.setSelectedTrack(null);
         }}
         onShowLiked={library.handleShowLiked}
         onShowHistory={() => {
@@ -2309,6 +2314,7 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
+          library.setSelectedTrack(null);
         }}
         onShowCollections={() => {
           pushAndScroll();
@@ -2316,6 +2322,7 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
+          library.setSelectedTrack(null);
         }}
         onShowSettings={() => setShowSettings(true)}
         updateAvailable={updater.updateState.available !== null}
@@ -2507,17 +2514,8 @@ function App() {
             selectedAlbum={selectedAlbum}
             selectedTag={selectedTag}
             selectedTrack={library.selectedTrack}
-            selectedTrackTitle={(detailTrackLocal ?? detailTrack)?.title}
-            artists={artists}
-            albums={albums}
-            tags={tags}
             tracks={tracks}
             sortedTracks={sortedTracks}
-            onSetSelectedArtist={library.setSelectedArtist}
-            onSetSelectedAlbum={library.setSelectedAlbum}
-            onSetSelectedTag={library.setSelectedTag}
-            onSetSelectedTrack={library.setSelectedTrack}
-            onSetView={library.setView}
             onPlayAll={queueHook.playTracks}
             onEnqueueAll={handleEnqueue}
           >

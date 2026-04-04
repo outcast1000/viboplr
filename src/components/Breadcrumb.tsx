@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Artist, Album, Tag, Track, View } from "../types";
+import type { Track, View } from "../types";
 
 interface BreadcrumbProps {
   view: View;
@@ -7,72 +7,35 @@ interface BreadcrumbProps {
   selectedAlbum: number | null;
   selectedTag: number | null;
   selectedTrack: number | null;
-  selectedTrackTitle?: string;
-  artists: Artist[];
-  albums: Album[];
-  tags: Tag[];
   tracks: Track[];
   sortedTracks: Track[];
-  onSetSelectedArtist: (id: number | null) => void;
-  onSetSelectedAlbum: (id: number | null) => void;
-  onSetSelectedTag: (id: number | null) => void;
-  onSetSelectedTrack: (id: number | null) => void;
-  onSetView: (view: View) => void;
   onPlayAll: (tracks: Track[], startIndex: number) => void;
   onEnqueueAll: (tracks: Track[]) => void;
   children?: ReactNode;
 }
 
 export function Breadcrumb({
-  view, selectedArtist, selectedAlbum, selectedTag, selectedTrack, selectedTrackTitle,
-  artists, albums, tags, tracks, sortedTracks,
-  onSetSelectedArtist, onSetSelectedAlbum, onSetSelectedTag, onSetSelectedTrack,
-  onSetView,
+  view, selectedArtist, selectedAlbum, selectedTag, selectedTrack,
+  tracks, sortedTracks,
   onPlayAll, onEnqueueAll,
   children,
 }: BreadcrumbProps) {
   return (
     <div className="breadcrumb">
       {selectedTrack !== null ? (
-        <>
-          <span className="breadcrumb-link" onClick={() => onSetSelectedTrack(null)}>
-            {view === "artists" ? "Artists" : view === "albums" ? "Albums" : view === "tags" ? "Tags" : view === "liked" ? "Liked" : view === "history" ? "History" : "Tracks"}
-          </span>
-          <span className="breadcrumb-sep"> {"\u203A"} </span>
-          <span>{selectedTrackTitle ?? "Track"}</span>
-        </>
-      ) : view === "artists" && selectedArtist === null ? (
-        <span>All Artists</span>
-      ) : view === "artists" && selectedArtist !== null && selectedAlbum === null ? (
-        <>
-          <span className="breadcrumb-link" onClick={() => { onSetSelectedArtist(null); onSetView("artists"); }}>Artists</span>
-          <span className="breadcrumb-sep"> {"\u203A"} </span>
-          <span>{artists.find(a => a.id === selectedArtist)?.name ?? "Unknown"}</span>
-        </>
-      ) : view === "albums" && selectedAlbum === null ? (
-        <span>All Albums</span>
-      ) : selectedArtist !== null && selectedAlbum !== null ? (
-        <>
-          <span className="breadcrumb-link" onClick={() => { onSetSelectedArtist(null); onSetSelectedAlbum(null); onSetView("artists"); }}>Artists</span>
-          <span className="breadcrumb-sep"> {"\u203A"} </span>
-          <span className="breadcrumb-link" onClick={() => { onSetSelectedAlbum(null); onSetView("artists"); }}>{artists.find(a => a.id === selectedArtist)?.name ?? "Unknown"}</span>
-          <span className="breadcrumb-sep"> {"\u203A"} </span>
-          <span>{albums.find(a => a.id === selectedAlbum)?.title ?? "Album"}</span>
-        </>
-      ) : view === "tags" && selectedTag === null ? (
-        <span>All Tags</span>
-      ) : selectedTag !== null ? (
-        <>
-          <span className="breadcrumb-link" onClick={() => { onSetSelectedTag(null); onSetView("tags"); }}>Tags</span>
-          <span className="breadcrumb-sep"> {"\u203A"} </span>
-          <span>{tags.find(t => t.id === selectedTag)?.name ?? "Tag"}</span>
-        </>
+        <span>Track Details</span>
       ) : selectedAlbum !== null ? (
-        <>
-          <span className="breadcrumb-link" onClick={() => { onSetSelectedAlbum(null); onSetView("albums"); }}>Albums</span>
-          <span className="breadcrumb-sep"> {"\u203A"} </span>
-          <span>{albums.find(a => a.id === selectedAlbum)?.title ?? "Album"}</span>
-        </>
+        <span>Album Details</span>
+      ) : selectedArtist !== null ? (
+        <span>Artist Details</span>
+      ) : selectedTag !== null ? (
+        <span>Tag Details</span>
+      ) : view === "artists" ? (
+        <span>All Artists</span>
+      ) : view === "albums" ? (
+        <span>All Albums</span>
+      ) : view === "tags" ? (
+        <span>All Tags</span>
       ) : view === "liked" ? (
         <span>Liked Tracks</span>
       ) : view === "history" ? (

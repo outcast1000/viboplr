@@ -50,6 +50,8 @@ interface SidebarProps {
   view: View | `plugin:${string}`;
   selectedAlbum: number | null;
   selectedArtist: number | null;
+  selectedTag: number | null;
+  selectedTrack: number | null;
   collapsed: boolean;
   onShowAll: () => void;
   onShowArtists: () => void;
@@ -66,7 +68,7 @@ interface SidebarProps {
 
 export function Sidebar({
   view,
-  selectedAlbum, selectedArtist,
+  selectedAlbum, selectedArtist, selectedTag, selectedTrack,
   collapsed,
   onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowCollections, onShowSettings,
   updateAvailable,
@@ -82,17 +84,21 @@ export function Sidebar({
     if (activeBtn) {
       indicatorRef.current.style.transform = `translateY(${activeBtn.offsetTop}px)`;
       indicatorRef.current.style.height = `${activeBtn.offsetHeight}px`;
+      indicatorRef.current.style.opacity = "1";
+    } else {
+      indicatorRef.current.style.opacity = "0";
     }
-  }, [view, selectedArtist, selectedAlbum]);
+  }, [view, selectedArtist, selectedAlbum, selectedTag, selectedTrack]);
 
+  const noDetail = selectedTrack === null;
   const navItems: { key: string; label: string; icon: ReactNode; active: boolean; onClick: () => void; hint: string }[] = [
-    { key: "tracks", label: "Tracks", icon: icons.tracks, active: view === "all" && !selectedAlbum, onClick: onShowAll, hint: `Tracks \u2014 ${mod}1` },
-    { key: "artists", label: "Artists", icon: icons.artists, active: view === "artists", onClick: onShowArtists, hint: `Artists \u2014 ${mod}2` },
-    { key: "albums", label: "Albums", icon: icons.albums, active: view === "albums" && !selectedArtist, onClick: onShowAlbums, hint: `Albums \u2014 ${mod}3` },
-    { key: "tags", label: "Tags", icon: icons.tags, active: view === "tags", onClick: onShowTags, hint: `Tags \u2014 ${mod}4` },
-    { key: "liked", label: "Liked", icon: icons.liked, active: view === "liked", onClick: onShowLiked, hint: `Liked Tracks \u2014 ${mod}5` },
-    { key: "history", label: "History", icon: icons.history, active: view === "history", onClick: onShowHistory, hint: `Play History \u2014 ${mod}6` },
-    { key: "collections", label: "Collections", icon: icons.collections, active: view === "collections", onClick: onShowCollections, hint: "Collections" },
+    { key: "tracks", label: "Tracks", icon: icons.tracks, active: noDetail && view === "all" && !selectedAlbum && selectedTag === null, onClick: onShowAll, hint: `Tracks \u2014 ${mod}1` },
+    { key: "artists", label: "Artists", icon: icons.artists, active: noDetail && view === "artists" && selectedArtist === null, onClick: onShowArtists, hint: `Artists \u2014 ${mod}2` },
+    { key: "albums", label: "Albums", icon: icons.albums, active: noDetail && view === "albums" && !selectedAlbum, onClick: onShowAlbums, hint: `Albums \u2014 ${mod}3` },
+    { key: "tags", label: "Tags", icon: icons.tags, active: noDetail && view === "tags" && selectedTag === null, onClick: onShowTags, hint: `Tags \u2014 ${mod}4` },
+    { key: "liked", label: "Liked", icon: icons.liked, active: noDetail && view === "liked", onClick: onShowLiked, hint: `Liked Tracks \u2014 ${mod}5` },
+    { key: "history", label: "History", icon: icons.history, active: noDetail && view === "history", onClick: onShowHistory, hint: `Play History \u2014 ${mod}6` },
+    { key: "collections", label: "Collections", icon: icons.collections, active: noDetail && view === "collections", onClick: onShowCollections, hint: "Collections" },
   ];
 
   return (

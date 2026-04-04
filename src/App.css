@@ -189,7 +189,7 @@ body {
   height: 32px;
   background: var(--accent);
   border-radius: 0 2px 2px 0;
-  transition: transform 200ms ease, height 200ms ease;
+  transition: transform 200ms ease, height 200ms ease, opacity 200ms ease;
   pointer-events: none;
 }
 
@@ -1923,20 +1923,6 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.breadcrumb-link {
-  color: var(--accent);
-  cursor: pointer;
-}
-
-.breadcrumb-link:hover {
-  text-decoration: underline;
-}
-
-.breadcrumb-sep {
-  color: var(--text-secondary);
-  font-weight: normal;
 }
 
 /* Context menu */
