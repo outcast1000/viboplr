@@ -61,6 +61,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [filterYoutubeOnly, setFilterYoutubeOnly] = useState(false);
   const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "audio" | "video">("all");
   const [trackLikedFirst, setTrackLikedFirst] = useState(false);
+  const [searchIncludeLyrics, setSearchIncludeLyrics] = useState(true);
 
   // Tag sort state
   const [tagSortField, setTagSortField] = useState<TagSortField | null>(null);
@@ -111,6 +112,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   useEffect(() => { if (restoredRef.current) store.set("filterYoutubeOnly", filterYoutubeOnly); }, [filterYoutubeOnly]);
   useEffect(() => { if (restoredRef.current) store.set("mediaTypeFilter", mediaTypeFilter); }, [mediaTypeFilter]);
   useEffect(() => { if (restoredRef.current) store.set("trackLikedFirst", trackLikedFirst); }, [trackLikedFirst]);
+  useEffect(() => { if (restoredRef.current) store.set("searchIncludeLyrics", searchIncludeLyrics); }, [searchIncludeLyrics]);
 
   const loadLibrary = useCallback(async () => {
     try {
@@ -158,6 +160,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
             offset,
             hasYoutubeUrl: filterYoutubeOnly,
             mediaType: mediaTypeFilter !== "all" ? mediaTypeFilter : undefined,
+            includeLyrics: searchIncludeLyrics,
           },
         });
         if (append) {
@@ -218,7 +221,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     } catch (e) {
       console.error("Failed to load tracks:", e);
     }
-  }, [debouncedTrackQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir, trackShuffleKey, filterYoutubeOnly, mediaTypeFilter]);
+  }, [debouncedTrackQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir, trackShuffleKey, filterYoutubeOnly, mediaTypeFilter, searchIncludeLyrics]);
 
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
@@ -565,7 +568,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     sortedArtists, artistSortField, setArtistSortField, artistSortDir, setArtistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,
     sortedAlbums, albumSortField, setAlbumSortField, albumSortDir, setAlbumSortDir, albumLikedFirst, setAlbumLikedFirst, handleAlbumSort,
     sortedTags, tagSortField, setTagSortField, tagSortDir, setTagSortDir, tagLikedFirst, setTagLikedFirst, handleTagSort,
-    filterYoutubeOnly, setFilterYoutubeOnly, mediaTypeFilter, setMediaTypeFilter, trackLikedFirst, setTrackLikedFirst,
+    filterYoutubeOnly, setFilterYoutubeOnly, mediaTypeFilter, setMediaTypeFilter, trackLikedFirst, setTrackLikedFirst, searchIncludeLyrics, setSearchIncludeLyrics,
     artistViewMode, setArtistViewMode,
     albumViewMode, setAlbumViewMode,
     tagViewMode, setTagViewMode,

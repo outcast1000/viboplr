@@ -888,11 +888,16 @@ impl Database {
 
     fn search_tracks_inner(&self, conn: &rusqlite::Connection, opts: &TrackQuery, query: &str) -> SqlResult<Vec<Track>> {
         let normalized = strip_diacritics(query);
-        let fts_query = normalized
+        let words = normalized
             .split_whitespace()
             .map(|w| format!("\"{}\"*", w.replace('"', "")))
             .collect::<Vec<_>>()
             .join(" AND ");
+        let fts_query = if opts.include_lyrics {
+            words
+        } else {
+            format!("{{title artist_name album_title tag_names filename}}:{}", words)
+        };
 
         let mut sql = String::from(
             "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
@@ -1019,6 +1024,7 @@ impl Database {
         // --- Tracks (reuse FTS) ---
         let track_opts = TrackQuery {
             limit: Some(track_limit),
+            include_lyrics: true,
             ..Default::default()
         };
         let tracks = self.search_tracks_inner(&conn, &track_opts, query)?;
@@ -3074,9 +3080,14 @@ mod tests {
         db.save_lyrics(track_id, "unique_lyric_word in a song", "plain", "lrclib").unwrap();
         db.rebuild_fts().unwrap();
 
-        let opts = crate::models::TrackQuery { query: Some("unique_lyric_word".to_string()), ..Default::default() };
+        let opts = crate::models::TrackQuery { query: Some("unique_lyric_word".to_string()), include_lyrics: true, ..Default::default() };
         let results = db.get_tracks(&opts).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, track_id);
+
+        // With include_lyrics=false, same query should not match lyrics
+        let opts_no_lyrics = crate::models::TrackQuery { query: Some("unique_lyric_word".to_string()), include_lyrics: false, ..Default::default() };
+        let results_no_lyrics = db.get_tracks(&opts_no_lyrics).unwrap();
+        assert_eq!(results_no_lyrics.len(), 0);
     }
 }

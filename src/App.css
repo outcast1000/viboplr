@@ -1843,6 +1843,26 @@ body {
   right: 6px;
 }
 
+.search-lyrics-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.search-lyrics-toggle:hover {
+  color: var(--text-primary);
+}
+.search-lyrics-toggle.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 /* Custom window controls for Windows/Linux */
 .window-controls {
   display: flex;

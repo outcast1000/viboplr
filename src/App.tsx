@@ -598,7 +598,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedSortBarCollapsed, savedLastfmAutoImportEnabled, savedLastfmAutoImportIntervalMins, savedLastfmLastImportAt, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst] = await timeAsync("store.restore (49 keys)", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedSortBarCollapsed, savedLastfmAutoImportEnabled, savedLastfmAutoImportIntervalMins, savedLastfmLastImportAt, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedSearchIncludeLyrics] = await timeAsync("store.restore (50 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -648,6 +648,7 @@ function App() {
           store.get<boolean>("filterYoutubeOnly"),
           store.get<string>("mediaTypeFilter"),
           store.get<boolean>("trackLikedFirst"),
+          store.get<boolean | null>("searchIncludeLyrics"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sa !== undefined && sa !== null) {
@@ -783,6 +784,7 @@ function App() {
         if (savedFilterYoutubeOnly) library.setFilterYoutubeOnly(true);
         if (savedMediaTypeFilter && ["all", "audio", "video"].includes(savedMediaTypeFilter)) library.setMediaTypeFilter(savedMediaTypeFilter as "all" | "audio" | "video");
         if (savedTrackLikedFirst) library.setTrackLikedFirst(true);
+        if (savedSearchIncludeLyrics === false) library.setSearchIncludeLyrics(false);
         if (savedVideoLayout) {
           videoLayout.restoreLayout(savedVideoLayout);
         } else if (savedVideoSplitHeight && savedVideoSplitHeight > 0) {
@@ -3135,7 +3137,15 @@ function App() {
                 onQueryChange={(q) => viewSearch.setQuery("all", q)}
                 placeholder="Search tracks..."
                 {...trackSearchNav}
-              />
+              >
+                <button
+                  className={`search-lyrics-toggle${library.searchIncludeLyrics ? " active" : ""}`}
+                  onClick={() => library.setSearchIncludeLyrics(v => !v)}
+                  title={library.searchIncludeLyrics ? "Lyrics included in search" : "Lyrics excluded from search"}
+                >
+                  Lyrics
+                </button>
+              </ViewSearchBar>
 
               {/* Tracks: Basic view */}
               {library.trackViewMode === "basic" && (
@@ -3349,7 +3359,15 @@ function App() {
                 onQueryChange={(q) => viewSearch.setQuery("liked", q)}
                 placeholder="Search liked tracks..."
                 {...likedSearchNav}
-              />
+              >
+                <button
+                  className={`search-lyrics-toggle${library.searchIncludeLyrics ? " active" : ""}`}
+                  onClick={() => library.setSearchIncludeLyrics(v => !v)}
+                  title={library.searchIncludeLyrics ? "Lyrics included in search" : "Lyrics excluded from search"}
+                >
+                  Lyrics
+                </button>
+              </ViewSearchBar>
 
               {/* Liked: Basic view */}
               {library.likedViewMode === "basic" && (

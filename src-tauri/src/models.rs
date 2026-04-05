@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+fn default_true() -> bool { true }
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackQuery {
@@ -11,6 +13,8 @@ pub struct TrackQuery {
     pub liked_only: bool,
     #[serde(default)]
     pub has_youtube_url: bool,
+    #[serde(default = "default_true")]
+    pub include_lyrics: bool,
     pub media_type: Option<String>,
     pub sort_field: Option<String>,
     pub sort_dir: Option<String>,
