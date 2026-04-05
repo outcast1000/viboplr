@@ -161,15 +161,25 @@ export function NowPlayingBar({
         </div>
         <div className="mini-right">
           <div className="now-controls">
-            <button className="ctrl-btn" onClick={onPrevious} title="Previous">{"\u23EE"}</button>
-            <button className="ctrl-btn play-btn" onClick={onPause}>
-              {playing ? "\u23F8" : "\u25B6"}
+            <button className="g-btn g-btn-sm" onClick={onPrevious} title="Previous">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
             </button>
-            <button className="ctrl-btn" onClick={onNext} title="Next">{"\u23ED"}</button>
+            <button className="g-btn g-btn-md mini-play-btn" onClick={onPause} title="Play / Pause">
+              {playing
+                ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+                : <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>}
+            </button>
+            <button className="g-btn g-btn-sm" onClick={onNext} title="Next">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zm-2 6L6 18V6z"/></svg>
+            </button>
           </div>
           <span className="mini-separator" />
-          <button className="ctrl-btn mini-expand-btn" onClick={onToggleMiniMode} title="Exit mini mode">{"\u29C9"}</button>
-          <button className="ctrl-btn mini-close-btn" onClick={onClose} title="Close">{"\u2716"}</button>
+          <button className="g-btn g-btn-xs mini-expand-btn" onClick={onToggleMiniMode} title="Exit mini mode">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/></svg>
+          </button>
+          <button className="g-btn g-btn-xs mini-close-btn" onClick={onClose} title="Close">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
         </div>
         <div className="mini-progress" style={{ width: `${progress}%` }} />
       </footer>
