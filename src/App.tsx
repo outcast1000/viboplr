@@ -55,7 +55,7 @@ import { AddServerModal } from "./components/AddServerModal";
 import { ContextMenu } from "./components/ContextMenu";
 import { Breadcrumb } from "./components/Breadcrumb";
 import { AlbumCardArt } from "./components/AlbumCardArt";
-import { ArtistCardArt } from "./components/ArtistCardArt";
+import { ArtistListView } from "./components/ArtistListView";
 import { TagCardArt } from "./components/TagCardArt";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { ImageActions } from "./components/ImageActions";
@@ -1654,126 +1654,25 @@ function App() {
           {library.selectedTrack === null && <>
           {/* Artist list */}
           {view === "artists" && selectedArtist === null && (
-            <>
-              <div className={`sort-bar-wrapper${library.sortBarCollapsed ? " collapsed" : ""}`}>
-                <div className="sort-bar">
-                  <div className="sort-bar-row">
-                    <span className="sort-bar-label">Sort:</span>
-                    <div className="sort-bar-group">
-                      <button className={`sort-btn${library.artistSortField === "name" ? " active" : ""}`} onClick={() => library.handleArtistSort("name")}>
-                        Name{library.artistSortField === "name" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                      </button>
-                      <button className={`sort-btn${library.artistSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleArtistSort("tracks")}>
-                        Tracks{library.artistSortField === "tracks" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                      </button>
-                      <button className={`sort-btn${library.artistSortField === "random" ? " active" : ""}`} onClick={() => library.handleArtistSort("random")}>
-                        Shuffle
-                      </button>
-                      <button
-                        className={`sort-btn liked-first-btn${library.artistLikedFirst ? " active" : ""}`}
-                        onClick={() => library.setArtistLikedFirst(v => !v)}
-                        title="Liked first"
-                      >{"\u2665"} Liked first</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <ViewSearchBar
-                query={viewSearch.getQuery("artists")}
-                onQueryChange={(q) => viewSearch.setQuery("artists", q)}
-                placeholder="Search artists..."
-                {...artistSearchNav}
-              />
-
-              {/* Artists: Basic view */}
-              {library.artistViewMode === "basic" && (
-                <div className="entity-table">
-                  <div className="entity-table-header">
-                    <span className="entity-table-like"></span>
-                    <span className={`entity-table-name sortable${library.artistSortField === "name" ? " sorted" : ""}`} onClick={() => library.handleArtistSort("name")}>
-                      Name{library.artistSortField === "name" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                    </span>
-                    <span className={`entity-table-count sortable${library.artistSortField === "tracks" ? " sorted" : ""}`} onClick={() => library.handleArtistSort("tracks")}>
-                      Tracks{library.artistSortField === "tracks" ? (library.artistSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                    </span>
-                  </div>
-                  {filteredArtists.map((a, i) => (
-                    <div
-                      key={a.id}
-                      className={`entity-table-row${i === highlightedListIndex ? " highlighted" : ""}`}
-                      onClick={() => library.handleArtistClick(a.id)}
-                      onContextMenu={(e) => contextMenuActions.handleArtistContextMenu(e, a.id)}
-                    >
-                      <span
-                        className="entity-table-like"
-                        onClick={(e) => { e.stopPropagation(); likeActions.handleToggleArtistLike(a.id); }}
-                      >{a.liked === 1 ? "\u2665" : "\u2661"}</span>
-                      <span className="entity-table-name">{a.name}</span>
-                      <span className="entity-table-count">{a.track_count}</span>
-                    </div>
-                  ))}
-                  {filteredArtists.length === 0 && (
-                    <div className="empty">{viewSearch.getQuery("artists").trim() ? `No artists matching "${viewSearch.getQuery("artists")}"` : "No artists found. Add a folder or server to get started."}</div>
-                  )}
-                </div>
-              )}
-
-              {/* Artists: List view */}
-              {library.artistViewMode === "list" && (
-                <div className="entity-list">
-                  {filteredArtists.map((a, i) => (
-                    <div
-                      key={a.id}
-                      className={`entity-list-item${i === highlightedListIndex ? " highlighted" : ""}`}
-                      onClick={() => library.handleArtistClick(a.id)}
-                      onContextMenu={(e) => contextMenuActions.handleArtistContextMenu(e, a.id)}
-                    >
-                      <span
-                        className="entity-list-like"
-                        onClick={(e) => { e.stopPropagation(); likeActions.handleToggleArtistLike(a.id); }}
-                      >{a.liked === 1 ? "\u2665" : "\u2661"}</span>
-                      <ArtistCardArt artist={a} imagePath={artistImageCache.images[a.id]} onVisible={artistImageCache.fetchOnDemand} className="entity-list-img circular" />
-                      <div className="entity-list-info">
-                        <span className="entity-list-name">{a.name}</span>
-                        <span className="entity-list-secondary">{a.track_count} tracks</span>
-                      </div>
-                    </div>
-                  ))}
-                  {filteredArtists.length === 0 && (
-                    <div className="empty">{viewSearch.getQuery("artists").trim() ? `No artists matching "${viewSearch.getQuery("artists")}"` : "No artists found. Add a folder or server to get started."}</div>
-                  )}
-                </div>
-              )}
-
-              {/* Artists: Tiles view */}
-              {library.artistViewMode === "tiles" && (
-                <div className="tiles-scroll">
-                  <div className="album-grid">
-                    {filteredArtists.map((a, i) => (
-                      <div
-                        key={a.id}
-                        className={`artist-card${i === highlightedListIndex ? " highlighted" : ""}`}
-                        onClick={() => library.handleArtistClick(a.id)}
-                        onContextMenu={(e) => contextMenuActions.handleArtistContextMenu(e, a.id)}
-                      >
-                        <ArtistCardArt artist={a} imagePath={artistImageCache.images[a.id]} onVisible={artistImageCache.fetchOnDemand} />
-                        <div
-                          className={`artist-card-like${a.liked === 1 ? " liked" : ""}`}
-                          onClick={(e) => { e.stopPropagation(); likeActions.handleToggleArtistLike(a.id); }}
-                        >{a.liked === 1 ? "\u2665" : "\u2661"}</div>
-                        <div className="artist-card-body">
-                          <div className="artist-card-name" title={a.name}>{a.name}</div>
-                          <div className="artist-card-info">{a.track_count} tracks</div>
-                        </div>
-                      </div>
-                    ))}
-                    {filteredArtists.length === 0 && (
-                      <div className="empty">{viewSearch.getQuery("artists").trim() ? `No artists matching "${viewSearch.getQuery("artists")}"` : "No artists found. Add a folder or server to get started."}</div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </>
+            <ArtistListView
+              artists={filteredArtists}
+              highlightedIndex={highlightedListIndex}
+              viewMode={library.artistViewMode}
+              sortField={library.artistSortField}
+              sortDir={library.artistSortDir}
+              sortBarCollapsed={library.sortBarCollapsed}
+              likedFirst={library.artistLikedFirst}
+              searchQuery={viewSearch.getQuery("artists")}
+              artistImages={artistImageCache.images}
+              onArtistClick={library.handleArtistClick}
+              onToggleLike={likeActions.handleToggleArtistLike}
+              onContextMenu={contextMenuActions.handleArtistContextMenu}
+              onSort={library.handleArtistSort}
+              onSetLikedFirst={library.setArtistLikedFirst}
+              onSearchChange={(q) => viewSearch.setQuery("artists", q)}
+              searchNav={artistSearchNav}
+              onFetchImage={artistImageCache.fetchOnDemand}
+            />
           )}
 
           {/* Artist detail view */}
