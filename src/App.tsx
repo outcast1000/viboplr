@@ -38,6 +38,7 @@ import { useDownloads } from "./hooks/useDownloads";
 import { useLikeActions } from "./hooks/useLikeActions";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useArtistInfo } from "./hooks/useArtistInfo";
+import { useContextMenuActions } from "./hooks/useContextMenuActions";
 import type { TidalSearchTrackLike } from "./types/plugin";
 import { WindowControls } from "./components/WindowControls";
 import { useViewSearchState } from "./hooks/useViewSearchState";
@@ -53,7 +54,6 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { FullscreenControls } from "./components/FullscreenControls";
 import { AddServerModal } from "./components/AddServerModal";
 import { ContextMenu } from "./components/ContextMenu";
-import type { ContextMenuState } from "./components/ContextMenu";
 import { Breadcrumb } from "./components/Breadcrumb";
 import { AlbumCardArt } from "./components/AlbumCardArt";
 import { ArtistCardArt } from "./components/ArtistCardArt";
@@ -290,7 +290,6 @@ function App() {
   const [clearing, setClearing] = useState(false);
   const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
   const [syncProgress, setSyncProgress] = useState({ synced: 0, total: 0, collection: "" });
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [topSongMenu, setTopSongMenu] = useState<{ x: number; y: number; entry: { name: string; listeners: number; libraryTrack?: Track }; artistName: string } | null>(null);
   const [artistSections, setArtistSections] = useState<Record<string, boolean>>({ topSongs: true, about: true, albums: true, similarArtists: true });
   const handleToggleArtistSection = (key: string) => {
@@ -324,39 +323,6 @@ function App() {
   const { sessionLog, addLog } = useSessionLog();
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
-  const [youtubeFeedback, setYoutubeFeedback] = useState<{
-    trackId: number; url: string; videoTitle: string;
-  } | null>(null);
-  const [propertiesTrack, setPropertiesTrack] = useState<Track | null>(null);
-  const [bulkEditTracks, setBulkEditTracks] = useState<Track[] | null>(null);
-  const [upgradeTrack, setUpgradeTrack] = useState<Track | null>(null);
-
-  // Wire plugin host callbacks (uses addLog, library, setUpgradeTrack defined above)
-  pluginHostCallbacksRef.current = {
-    navigateToPluginView: (pluginId, viewId) => {
-      library.setView(`plugin:${pluginId}:${viewId}`);
-      library.setSelectedArtist(null);
-      library.setSelectedAlbum(null);
-      library.setSelectedTag(null);
-    },
-    requestAction: (_pluginId, action, payload) => {
-      if (action === "upgrade-track") {
-        const trackId = payload.trackId as number;
-        if (trackId) {
-          const track = library.tracks.find(t => t.id === trackId);
-          if (track) setUpgradeTrack(track);
-        }
-      }
-    },
-    showNotification: (message) => {
-      addLog(message);
-    },
-  };
-
-  const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
-  const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
-  const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
-  const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
 
   const [showHelp, setShowHelp] = useState(false);
 
@@ -414,6 +380,58 @@ function App() {
       setQueue: queueHook.setQueue,
     },
   });
+
+  // Context menu actions
+  const contextMenuActions = useContextMenuActions({
+    library: {
+      tracks: library.tracks,
+      sortedTracks: library.sortedTracks,
+      artists: library.artists,
+      albums: library.albums,
+      setTracks: library.setTracks,
+    },
+    queueHook: {
+      playTracks: queueHook.playTracks,
+      enqueueTracks: queueHook.enqueueTracks,
+      findDuplicates: queueHook.findDuplicates,
+      insertAtPosition: queueHook.insertAtPosition,
+      removeMultiple: queueHook.removeMultiple,
+      moveToTop: queueHook.moveToTop,
+      moveToBottom: queueHook.moveToBottom,
+      queue: queueHook.queue,
+      addToQueue: queueHook.addToQueue,
+    },
+    playback: {
+      currentTrack: playback.currentTrack,
+      handleStop: playback.handleStop,
+    },
+    addLog,
+    queueCollapsed,
+    setQueueCollapsed,
+    store,
+  });
+
+  // Wire plugin host callbacks (uses addLog, library, contextMenuActions defined above)
+  pluginHostCallbacksRef.current = {
+    navigateToPluginView: (pluginId, viewId) => {
+      library.setView(`plugin:${pluginId}:${viewId}`);
+      library.setSelectedArtist(null);
+      library.setSelectedAlbum(null);
+      library.setSelectedTag(null);
+    },
+    requestAction: (_pluginId, action, payload) => {
+      if (action === "upgrade-track") {
+        const trackId = payload.trackId as number;
+        if (trackId) {
+          const track = library.tracks.find(t => t.id === trackId);
+          if (track) contextMenuActions.setUpgradeTrack(track);
+        }
+      }
+    },
+    showNotification: (message) => {
+      addLog(message);
+    },
+  };
 
   async function handleImportSkin() {
     const selected = await open({
@@ -1202,275 +1220,6 @@ function App() {
     };
   }, [onEnded]);
 
-  // Action handlers
-  function handleTrackContextMenu(e: React.MouseEvent, track: Track, selectedTrackIds: Set<number>) {
-    e.preventDefault();
-    if (selectedTrackIds.size > 1) {
-      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-track", trackIds: [...selectedTrackIds] } });
-    } else {
-      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: !!track.subsonic_id, title: track.title, artistName: track.artist_name } });
-    }
-  }
-
-  function handleAlbumContextMenu(e: React.MouseEvent, albumId: number) {
-    e.preventDefault();
-    const album = albums.find(a => a.id === albumId);
-    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "album", albumId, title: album?.title ?? "", artistName: album?.artist_name ?? null } });
-  }
-
-  function handleArtistContextMenu(e: React.MouseEvent, artistId: number) {
-    e.preventDefault();
-    const artist = artists.find(a => a.id === artistId);
-    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "artist", artistId, name: artist?.name ?? "" } });
-  }
-
-  async function handleContextPlay() {
-    if (!contextMenu) return;
-    const { target } = contextMenu;
-    if (target.kind === "track") {
-      const track = tracks.find(t => t.id === target.trackId);
-      if (track) queueHook.playTracks([track], 0);
-    } else if (target.kind === "album") {
-      const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
-      if (albumTracks.length > 0) queueHook.playTracks(albumTracks, 0);
-    } else if (target.kind === "artist") {
-      const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
-      if (artistTracks.length > 0) queueHook.playTracks(artistTracks, 0);
-    } else if (target.kind === "multi-track") {
-      const idSet = new Set(target.trackIds);
-      const selected = sortedTracks.filter(t => idSet.has(t.id));
-      if (selected.length > 0) queueHook.playTracks(selected, 0);
-    } else if (target.kind === "queue-multi") {
-      const selected = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
-      if (selected.length > 0) queueHook.playTracks(selected, 0);
-    }
-  }
-
-  function handleEnqueue(tracks: Track[]) {
-    if (tracks.length === 0) return;
-    const { duplicates, unique } = queueHook.findDuplicates(tracks);
-    if (duplicates.length > 0) {
-      setPendingEnqueue({ all: tracks, duplicates, unique });
-      if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
-    } else {
-      queueHook.enqueueTracks(tracks);
-    }
-  }
-
-  async function handleContextEnqueue() {
-    if (!contextMenu) return;
-    const { target } = contextMenu;
-    if (target.kind === "track") {
-      const track = tracks.find(t => t.id === target.trackId);
-      if (track) handleEnqueue([track]);
-    } else if (target.kind === "album") {
-      const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
-      handleEnqueue(albumTracks);
-    } else if (target.kind === "artist") {
-      const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
-      handleEnqueue(artistTracks);
-    } else if (target.kind === "multi-track") {
-      const idSet = new Set(target.trackIds);
-      const selected = sortedTracks.filter(t => idSet.has(t.id));
-      handleEnqueue(selected);
-    }
-  }
-
-  function handleQueueRemove() {
-    if (!contextMenu || contextMenu.target.kind !== "queue-multi") return;
-    queueHook.removeMultiple(contextMenu.target.indices);
-  }
-
-  function handleQueueMoveToTop() {
-    if (!contextMenu || contextMenu.target.kind !== "queue-multi") return;
-    queueHook.moveToTop(contextMenu.target.indices);
-  }
-
-  function handleQueueMoveToBottom() {
-    if (!contextMenu || contextMenu.target.kind !== "queue-multi") return;
-    queueHook.moveToBottom(contextMenu.target.indices);
-  }
-
-  function handleTrackDragStart(dragTracks: Track[]) {
-    let ghost: HTMLDivElement | null = null;
-    const dropTargetRef = { current: null as number | null };
-
-    function findQueueIndex(el: Element | null): number | null {
-      while (el) {
-        const idx = el.getAttribute("data-queue-index");
-        if (idx !== null) return parseInt(idx, 10);
-        el = el.parentElement;
-      }
-      return null;
-    }
-
-    function onMouseMove(ev: MouseEvent) {
-      if (!ghost) {
-        ghost = document.createElement("div");
-        ghost.className = "queue-drag-ghost";
-        ghost.textContent = `${dragTracks.length} track${dragTracks.length > 1 ? "s" : ""}`;
-        document.body.appendChild(ghost);
-      }
-      ghost.style.left = `${ev.clientX + 12}px`;
-      ghost.style.top = `${ev.clientY - 10}px`;
-
-      const target = document.elementFromPoint(ev.clientX, ev.clientY);
-      const queuePanel = target?.closest(".queue-panel");
-      if (queuePanel) {
-        const overIndex = findQueueIndex(target);
-        if (overIndex !== null) {
-          const el = target!.closest("[data-queue-index]") as HTMLElement | null;
-          if (el) {
-            const rect = el.getBoundingClientRect();
-            const midY = rect.top + rect.height / 2;
-            const dt = ev.clientY < midY ? overIndex : overIndex + 1;
-            dropTargetRef.current = dt;
-            setExternalDropTarget(dt);
-          }
-        } else {
-          // Over queue panel but not on an item — drop at end
-          dropTargetRef.current = queueHook.queue.length;
-          setExternalDropTarget(queueHook.queue.length);
-        }
-      } else {
-        dropTargetRef.current = null;
-        setExternalDropTarget(null);
-      }
-    }
-
-    function onMouseUp() {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-      if (ghost) { ghost.remove(); ghost = null; }
-
-      if (dropTargetRef.current !== null) {
-        const pos = dropTargetRef.current;
-        const { duplicates, unique } = queueHook.findDuplicates(dragTracks);
-        if (duplicates.length > 0) {
-          setPendingEnqueue({ all: dragTracks, duplicates, unique, position: pos });
-          if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
-        } else {
-          queueHook.insertAtPosition(dragTracks, pos);
-          if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
-        }
-      }
-
-      setExternalDropTarget(null);
-    }
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-  }
-
-  function handleShowInFolder() {
-    if (contextMenu && contextMenu.target.kind === "track") {
-      invoke("show_in_folder", { trackId: contextMenu.target.trackId });
-      setContextMenu(null);
-    } else if (contextMenu && contextMenu.target.kind === "queue-multi" && contextMenu.target.indices.length === 1) {
-      const track = queueHook.queue[contextMenu.target.indices[0]];
-      if (track && track.path) {
-        invoke("show_in_folder_path", { filePath: track.path });
-      } else if (track && track.id > 0) {
-        invoke("show_in_folder", { trackId: track.id });
-      }
-      setContextMenu(null);
-    }
-  }
-
-  function handleShowProperties() {
-    if (!contextMenu || contextMenu.target.kind !== "track") return;
-    const { trackId } = contextMenu.target;
-    const track = library.tracks.find(t => t.id === trackId);
-    if (track) setPropertiesTrack(track);
-    setContextMenu(null);
-  }
-
-  function handleBulkEdit() {
-    if (!contextMenu || contextMenu.target.kind !== "multi-track") return;
-    const { trackIds } = contextMenu.target;
-    const selected = library.tracks.filter(t => trackIds.includes(t.id));
-    if (selected.length > 0) setBulkEditTracks(selected);
-    setContextMenu(null);
-  }
-
-  function handleDeleteRequest() {
-    if (!contextMenu) return;
-    const { target } = contextMenu;
-    if (target.kind === "track" && !target.subsonic) {
-      setDeleteConfirm({ trackIds: [target.trackId], title: target.title });
-    } else if (target.kind === "multi-track") {
-      setDeleteConfirm({ trackIds: target.trackIds, title: `${target.trackIds.length} tracks` });
-    }
-    setContextMenu(null);
-  }
-
-  async function handleDeleteConfirm() {
-    if (!deleteConfirm) return;
-    const { trackIds, title } = deleteConfirm;
-    setDeleteConfirm(null);
-    try {
-      const result: { deletedIds: number[]; failures: { title: string; reason: string }[] } = await invoke("delete_tracks", { trackIds });
-      const deletedSet = new Set(result.deletedIds);
-      if (deletedSet.size > 0) {
-        library.setTracks(prev => prev.filter(t => !deletedSet.has(t.id)));
-        if (playback.currentTrack && deletedSet.has(playback.currentTrack.id)) {
-          playback.handleStop();
-        }
-      }
-      if (result.failures.length === trackIds.length) {
-        setDeleteError({ message: `Failed to delete ${title}`, failures: result.failures });
-      } else if (result.failures.length > 0) {
-        addLog(`Deleted ${result.deletedIds.length} of ${trackIds.length} tracks`);
-        setDeleteError({ message: `${result.failures.length} of ${trackIds.length} tracks could not be deleted`, failures: result.failures });
-      } else {
-        addLog(`Deleted ${title}`);
-      }
-    } catch (e) {
-      console.error("Failed to delete tracks:", e);
-      setDeleteError({ message: `Failed to delete ${title}`, failures: [{ title, reason: String(e) }] });
-    }
-  }
-
-  async function handleWatchOnYoutube() {
-    if (!contextMenu || contextMenu.target.kind !== "track") return;
-    const { trackId, title, artistName } = contextMenu.target;
-
-    // Use saved URL if available
-    const track = tracks.find(t => t.id === trackId);
-    if (track?.youtube_url) {
-      await openUrl(track.youtube_url);
-      addLog(`Opened YouTube: ${title}`);
-      return;
-    }
-
-    addLog("Searching YouTube...");
-    try {
-      const result = await invoke<{ url: string; video_title: string | null }>(
-        "search_youtube", { title, artistName }
-      );
-      await openUrl(result.url);
-      addLog(`Opened YouTube: ${result.video_title ?? title}`);
-      setYoutubeFeedback({ trackId, url: result.url, videoTitle: result.video_title ?? title });
-    } catch {
-      const q = encodeURIComponent(`${title} ${artistName ?? ""}`);
-      await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-      addLog("YouTube search failed, opened search results");
-    }
-  }
-
-  async function handleYoutubeFeedback(correct: boolean) {
-    if (!youtubeFeedback) return;
-    if (correct) {
-      await invoke("set_track_youtube_url", {
-        trackId: youtubeFeedback.trackId,
-        url: youtubeFeedback.url,
-      });
-      library.setTracks(prev => prev.map(t => t.id === youtubeFeedback.trackId ? { ...t, youtube_url: youtubeFeedback.url } : t));
-      addLog("Saved YouTube link for future use");
-    }
-    setYoutubeFeedback(null);
-  }
-
   async function handleAddFolder() {
     const selected = await open({ directory: true, multiple: false });
     if (selected) {
@@ -1666,7 +1415,7 @@ function App() {
   };
 
   return (
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => setContextMenu(null)}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => contextMenuActions.setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -1928,7 +1677,7 @@ function App() {
             tracks={tracks}
             sortedTracks={sortedTracks}
             onPlayAll={queueHook.playTracks}
-            onEnqueueAll={handleEnqueue}
+            onEnqueueAll={contextMenuActions.handleEnqueue}
           >
             {view === "all" && <ViewModeToggle mode={library.trackViewMode} onChange={library.setTrackViewMode} />}
             {view === "artists" && selectedArtist === null && <ViewModeToggle mode={library.artistViewMode} onChange={library.setArtistViewMode} />}
@@ -1961,7 +1710,7 @@ function App() {
                 onEnqueue={() => queueHook.enqueueTracks([track])}
                 onPlayNext={() => queueHook.playNextInQueue(track)}
                 onShowInFolder={() => invoke("show_in_folder", { trackId: library.selectedTrack })}
-                onShowProperties={() => setPropertiesTrack(track)}
+                onShowProperties={() => contextMenuActions.setPropertiesTrack(track)}
                 providers={searchProviders}
                 addLog={addLog}
               />
@@ -2019,7 +1768,7 @@ function App() {
                       key={a.id}
                       className={`entity-table-row${i === highlightedListIndex ? " highlighted" : ""}`}
                       onClick={() => library.handleArtistClick(a.id)}
-                      onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
+                      onContextMenu={(e) => contextMenuActions.handleArtistContextMenu(e, a.id)}
                     >
                       <span
                         className="entity-table-like"
@@ -2043,7 +1792,7 @@ function App() {
                       key={a.id}
                       className={`entity-list-item${i === highlightedListIndex ? " highlighted" : ""}`}
                       onClick={() => library.handleArtistClick(a.id)}
-                      onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
+                      onContextMenu={(e) => contextMenuActions.handleArtistContextMenu(e, a.id)}
                     >
                       <span
                         className="entity-list-like"
@@ -2071,7 +1820,7 @@ function App() {
                         key={a.id}
                         className={`artist-card${i === highlightedListIndex ? " highlighted" : ""}`}
                         onClick={() => library.handleArtistClick(a.id)}
-                        onContextMenu={(e) => handleArtistContextMenu(e, a.id)}
+                        onContextMenu={(e) => contextMenuActions.handleArtistContextMenu(e, a.id)}
                       >
                         <ArtistCardArt artist={a} imagePath={artistImageCache.images[a.id]} onVisible={artistImageCache.fetchOnDemand} />
                         <div
@@ -2241,7 +1990,7 @@ function App() {
                   <div className="artist-section artist-albums-section">
                     <div className="album-scroll">
                       {library.artistAlbums.map((a) => (
-                        <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
+                        <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => contextMenuActions.handleAlbumContextMenu(e, a.id)}>
                           <div className="album-card-art-wrapper">
                             <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
                             <button className="album-card-play-btn" title="Play album" onClick={async (e) => {
@@ -2274,14 +2023,14 @@ function App() {
                     columns={library.trackColumns}
                     onColumnsChange={library.setTrackColumns}
                     onDoubleClick={queueHook.playTracks}
-                    onContextMenu={handleTrackContextMenu}
+                    onContextMenu={contextMenuActions.handleTrackContextMenu}
                     onArtistClick={library.handleArtistClick}
                     onAlbumClick={library.handleAlbumClick}
                     onSort={library.handleSort}
                     sortIndicator={library.sortIndicator}
                     onToggleLike={likeActions.handleToggleLike}
                     onToggleDislike={likeActions.handleToggleDislike}
-                    onTrackDragStart={handleTrackDragStart}
+                    onTrackDragStart={contextMenuActions.handleTrackDragStart}
                     trackPopularity={artistInfo.artistTrackPopularity}
                     emptyMessage="No tracks found for this artist."
                   />
@@ -2385,7 +2134,7 @@ function App() {
                       key={a.id}
                       className={`entity-table-row${i === highlightedListIndex ? " highlighted" : ""}`}
                       onClick={() => library.handleAlbumClick(a.id)}
-                      onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}
+                      onContextMenu={(e) => contextMenuActions.handleAlbumContextMenu(e, a.id)}
                     >
                       <span
                         className="entity-table-like"
@@ -2411,7 +2160,7 @@ function App() {
                       key={a.id}
                       className={`entity-list-item${i === highlightedListIndex ? " highlighted" : ""}`}
                       onClick={() => library.handleAlbumClick(a.id)}
-                      onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}
+                      onContextMenu={(e) => contextMenuActions.handleAlbumContextMenu(e, a.id)}
                     >
                       <span
                         className="entity-list-like"
@@ -2438,7 +2187,7 @@ function App() {
                 <div className="tiles-scroll">
                   <div className="album-grid">
                     {filteredAlbums.map((a, i) => (
-                      <div key={a.id} className={`album-card${i === highlightedListIndex ? " highlighted" : ""}`} onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
+                      <div key={a.id} className={`album-card${i === highlightedListIndex ? " highlighted" : ""}`} onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => contextMenuActions.handleAlbumContextMenu(e, a.id)}>
                         <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
                         <div
                           className={`album-card-like${a.liked === 1 ? " liked" : ""}`}
@@ -2792,14 +2541,14 @@ function App() {
                   columns={library.trackColumns}
                   onColumnsChange={library.setTrackColumns}
                   onDoubleClick={queueHook.playTracks}
-                  onContextMenu={handleTrackContextMenu}
+                  onContextMenu={contextMenuActions.handleTrackContextMenu}
                   onArtistClick={library.handleArtistClick}
                   onAlbumClick={library.handleAlbumClick}
                   onSort={library.handleSort}
                   sortIndicator={library.sortIndicator}
                   onToggleLike={likeActions.handleToggleLike}
                     onToggleDislike={likeActions.handleToggleDislike}
-                  onTrackDragStart={handleTrackDragStart}
+                  onTrackDragStart={contextMenuActions.handleTrackDragStart}
                   emptyMessage="No tracks found. Add a folder or server to start building your library."
                   hasMore={library.hasMore}
                   loadingMore={library.loadingMore}
@@ -2815,7 +2564,7 @@ function App() {
                       key={t.id}
                       className={`entity-list-item${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
                       onDoubleClick={() => queueHook.playTracks([t], 0)}
-                      onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
+                      onContextMenu={(e) => contextMenuActions.handleTrackContextMenu(e, t, new Set())}
                     >
                       <span className="entity-list-like-group">
                         <span
@@ -2863,7 +2612,7 @@ function App() {
                         key={t.id}
                         className={`album-card${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
                         onDoubleClick={() => queueHook.playTracks([t], 0)}
-                        onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
+                        onContextMenu={(e) => contextMenuActions.handleTrackContextMenu(e, t, new Set())}
                       >
                         {t.album_id ? (
                           <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImageCache.images[t.album_id]} onVisible={albumImageCache.fetchOnDemand} />
@@ -2942,14 +2691,14 @@ function App() {
                 columns={library.trackColumns}
                 onColumnsChange={library.setTrackColumns}
                 onDoubleClick={queueHook.playTracks}
-                onContextMenu={handleTrackContextMenu}
+                onContextMenu={contextMenuActions.handleTrackContextMenu}
                 onArtistClick={library.handleArtistClick}
                 onAlbumClick={library.handleAlbumClick}
                 onSort={library.handleSort}
                 sortIndicator={library.sortIndicator}
                 onToggleLike={likeActions.handleToggleLike}
                 onToggleDislike={likeActions.handleToggleDislike}
-                onTrackDragStart={handleTrackDragStart}
+                onTrackDragStart={contextMenuActions.handleTrackDragStart}
                 trackPopularity={artistInfo.albumTrackPopularity}
                 emptyMessage="No tracks found."
               />
@@ -3019,14 +2768,14 @@ function App() {
                   columns={library.trackColumns}
                   onColumnsChange={library.setTrackColumns}
                   onDoubleClick={queueHook.playTracks}
-                  onContextMenu={handleTrackContextMenu}
+                  onContextMenu={contextMenuActions.handleTrackContextMenu}
                   onArtistClick={library.handleArtistClick}
                   onAlbumClick={library.handleAlbumClick}
                   onSort={library.handleSort}
                   sortIndicator={library.sortIndicator}
                   onToggleLike={likeActions.handleToggleLike}
                     onToggleDislike={likeActions.handleToggleDislike}
-                  onTrackDragStart={handleTrackDragStart}
+                  onTrackDragStart={contextMenuActions.handleTrackDragStart}
                   emptyMessage="No liked tracks yet. Click the heart icon on any track to like it."
                 />
               )}
@@ -3039,7 +2788,7 @@ function App() {
                       key={t.id}
                       className={`entity-list-item${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
                       onDoubleClick={() => queueHook.playTracks([t], 0)}
-                      onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
+                      onContextMenu={(e) => contextMenuActions.handleTrackContextMenu(e, t, new Set())}
                     >
                       <span className="entity-list-like-group">
                         <span
@@ -3087,7 +2836,7 @@ function App() {
                         key={t.id}
                         className={`album-card${playback.currentTrack?.id === t.id ? " playing" : ""}${i === highlightedIndex ? " highlighted" : ""}`}
                         onDoubleClick={() => queueHook.playTracks([t], 0)}
-                        onContextMenu={(e) => handleTrackContextMenu(e, t, new Set())}
+                        onContextMenu={(e) => contextMenuActions.handleTrackContextMenu(e, t, new Set())}
                       >
                         {t.album_id ? (
                           <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImageCache.images[t.album_id]} onVisible={albumImageCache.fetchOnDemand} />
@@ -3131,7 +2880,7 @@ function App() {
                 placeholder="Search history..."
                 {...historySearchNav}
               />
-              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={handleEnqueue} addLog={addLog} onArtistClick={library.handleArtistClick} />
+              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={contextMenuActions.handleEnqueue} addLog={addLog} onArtistClick={library.handleArtistClick} />
             </>
           )}
 
@@ -3199,7 +2948,7 @@ function App() {
           data-fit={videoLayout.fitMode}
           onContextMenu={(e) => {
             e.preventDefault();
-            setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "video", dockSide: videoLayout.dockSide, fitMode: videoLayout.fitMode } });
+            contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "video", dockSide: videoLayout.dockSide, fitMode: videoLayout.fitMode } });
           }}
           style={{
             display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',
@@ -3271,22 +3020,22 @@ function App() {
           queueIndex={queueHook.queueIndex}
           queuePanelRef={queueHook.queuePanelRef}
           playlistName={queueHook.playlistName}
-          pendingEnqueue={pendingEnqueue}
+          pendingEnqueue={contextMenuActions.pendingEnqueue}
           onAllowAll={() => {
-            if (pendingEnqueue) {
-              if (pendingEnqueue.position != null) queueHook.insertAtPosition(pendingEnqueue.all, pendingEnqueue.position);
-              else queueHook.enqueueTracks(pendingEnqueue.all);
+            if (contextMenuActions.pendingEnqueue) {
+              if (contextMenuActions.pendingEnqueue.position != null) queueHook.insertAtPosition(contextMenuActions.pendingEnqueue.all, contextMenuActions.pendingEnqueue.position);
+              else queueHook.enqueueTracks(contextMenuActions.pendingEnqueue.all);
             }
-            setPendingEnqueue(null);
+            contextMenuActions.setPendingEnqueue(null);
           }}
           onSkipDuplicates={() => {
-            if (pendingEnqueue) {
-              if (pendingEnqueue.position != null) queueHook.insertAtPosition(pendingEnqueue.unique, pendingEnqueue.position);
-              else queueHook.enqueueTracks(pendingEnqueue.unique);
+            if (contextMenuActions.pendingEnqueue) {
+              if (contextMenuActions.pendingEnqueue.position != null) queueHook.insertAtPosition(contextMenuActions.pendingEnqueue.unique, contextMenuActions.pendingEnqueue.position);
+              else queueHook.enqueueTracks(contextMenuActions.pendingEnqueue.unique);
             }
-            setPendingEnqueue(null);
+            contextMenuActions.setPendingEnqueue(null);
           }}
-          onCancelEnqueue={() => setPendingEnqueue(null)}
+          onCancelEnqueue={() => contextMenuActions.setPendingEnqueue(null)}
           onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
           onRemove={queueHook.removeFromQueue}
           onLocateTrack={(track) => {
@@ -3303,35 +3052,35 @@ function App() {
           onSavePlaylist={queueHook.savePlaylist}
           onLoadPlaylist={queueHook.loadPlaylist}
           onContextMenu={(e, indices) => {
-            setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "queue-multi", indices } });
+            contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "queue-multi", indices } });
           }}
-          externalDropTarget={externalDropTarget}
+          externalDropTarget={contextMenuActions.externalDropTarget}
           collapsed={queueCollapsed}
           onToggleCollapsed={handleToggleQueueCollapsed}
         />
 
-      {contextMenu && (
+      {contextMenuActions.contextMenu && (
         <ContextMenu
-          menu={contextMenu}
+          menu={contextMenuActions.contextMenu}
           providers={searchProviders}
-          onPlay={handleContextPlay}
-          onEnqueue={handleContextEnqueue}
-          onShowInFolder={handleShowInFolder}
-          onWatchOnYoutube={handleWatchOnYoutube}
-          onShowProperties={handleShowProperties}
-          onViewDetails={contextMenu.target.kind === "track" ? () => library.handleTrackClick(contextMenu.target.kind === "track" ? contextMenu.target.trackId : 0) : undefined}
-          onBulkEdit={handleBulkEdit}
-          onDelete={handleDeleteRequest}
-          onRefreshImage={contextMenu.target.kind === "artist"
-            ? () => { const t = contextMenu.target; if (t.kind === "artist") artistImageCache.forceFetchImage({ id: t.artistId, name: t.name }); }
-            : contextMenu.target.kind === "album"
-            ? () => { const t = contextMenu.target; if (t.kind === "album") albumImageCache.forceFetchImage({ id: t.albumId, title: t.title, artist_name: t.artistName }); }
+          onPlay={contextMenuActions.handleContextPlay}
+          onEnqueue={contextMenuActions.handleContextEnqueue}
+          onShowInFolder={contextMenuActions.handleShowInFolder}
+          onWatchOnYoutube={contextMenuActions.handleWatchOnYoutube}
+          onShowProperties={contextMenuActions.handleShowProperties}
+          onViewDetails={contextMenuActions.contextMenu.target.kind === "track" ? () => library.handleTrackClick(contextMenuActions.contextMenu!.target.kind === "track" ? contextMenuActions.contextMenu!.target.trackId : 0) : undefined}
+          onBulkEdit={contextMenuActions.handleBulkEdit}
+          onDelete={contextMenuActions.handleDeleteRequest}
+          onRefreshImage={contextMenuActions.contextMenu.target.kind === "artist"
+            ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "artist") artistImageCache.forceFetchImage({ id: t.artistId, name: t.name }); }
+            : contextMenuActions.contextMenu.target.kind === "album"
+            ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "album") albumImageCache.forceFetchImage({ id: t.albumId, title: t.title, artist_name: t.artistName }); }
             : undefined}
-          onRemoveFromQueue={handleQueueRemove}
-          onMoveToTop={handleQueueMoveToTop}
-          onMoveToBottom={handleQueueMoveToBottom}
-          onLocateTrack={contextMenu.target.kind === "queue-multi" && contextMenu.target.indices.length === 1 ? () => {
-            const track = queueHook.queue[contextMenu.target.kind === "queue-multi" ? contextMenu.target.indices[0] : 0];
+          onRemoveFromQueue={contextMenuActions.handleQueueRemove}
+          onMoveToTop={contextMenuActions.handleQueueMoveToTop}
+          onMoveToBottom={contextMenuActions.handleQueueMoveToBottom}
+          onLocateTrack={contextMenuActions.contextMenu.target.kind === "queue-multi" && contextMenuActions.contextMenu.target.indices.length === 1 ? () => {
+            const track = queueHook.queue[contextMenuActions.contextMenu!.target.kind === "queue-multi" ? contextMenuActions.contextMenu!.target.indices[0] : 0];
             if (track) {
               library.handleLocateTrack(track.title, track.artist_name, track.album_title, () => {
                 library.setView("all");
@@ -3342,9 +3091,9 @@ function App() {
               });
             }
           } : undefined}
-          onDownload={contextMenu.target.kind === "track" ? (destId: number) => { const t = contextMenu.target; if (t.kind === "track") downloads.downloadTrack(t.trackId, destId, library.tracks); } : undefined}
+          onDownload={contextMenuActions.contextMenu.target.kind === "track" ? (destId: number) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track") downloads.downloadTrack(t.trackId, destId, library.tracks); } : undefined}
           localCollections={localCollections}
-          onClose={() => setContextMenu(null)}
+          onClose={() => contextMenuActions.setContextMenu(null)}
           pluginMenuItems={plugins.menuItems}
           onPluginAction={plugins.dispatchContextMenuAction}
           onSetDockSide={videoLayout.setDockSide}
@@ -3405,23 +3154,23 @@ function App() {
         );
       })()}
 
-      {upgradeTrack && (
+      {contextMenuActions.upgradeTrack && (
         <UpgradeTrackModal
-          track={upgradeTrack}
+          track={contextMenuActions.upgradeTrack}
           downloadFormat={downloads.downloadFormat}
-          onClose={() => setUpgradeTrack(null)}
-          onUpgraded={(msg) => { setUpgradeTrack(null); library.loadTracks(); addLog(msg); }}
+          onClose={() => contextMenuActions.setUpgradeTrack(null)}
+          onUpgraded={(msg) => { contextMenuActions.setUpgradeTrack(null); library.loadTracks(); addLog(msg); }}
         />
       )}
 
-      {propertiesTrack && (
+      {contextMenuActions.propertiesTrack && (
         <TrackPropertiesModal
-          track={propertiesTrack}
+          track={contextMenuActions.propertiesTrack}
           collections={library.collections}
-          onClose={() => setPropertiesTrack(null)}
+          onClose={() => contextMenuActions.setPropertiesTrack(null)}
           onYoutubeUrlChange={(trackId, url) => {
             library.setTracks(prev => prev.map(t => t.id === trackId ? { ...t, youtube_url: url } : t));
-            setPropertiesTrack(prev => prev && prev.id === trackId ? { ...prev, youtube_url: url } : prev);
+            contextMenuActions.setPropertiesTrack(prev => prev && prev.id === trackId ? { ...prev, youtube_url: url } : prev);
           }}
           similarActions={{
             isLocal: (artist, title) =>
@@ -3458,33 +3207,33 @@ function App() {
         />
       )}
 
-      {bulkEditTracks && (
+      {contextMenuActions.bulkEditTracks && (
         <BulkEditModal
-          tracks={bulkEditTracks}
-          onClose={() => setBulkEditTracks(null)}
+          tracks={contextMenuActions.bulkEditTracks}
+          onClose={() => contextMenuActions.setBulkEditTracks(null)}
         />
       )}
 
-      {deleteConfirm && (
-        <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+      {contextMenuActions.deleteConfirm && (
+        <div className="modal-overlay" onClick={() => contextMenuActions.setDeleteConfirm(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete {deleteConfirm.title}?</h2>
-            <p className="delete-confirm-warning">This will permanently delete the file{deleteConfirm.trackIds.length > 1 ? "s" : ""} from disk.</p>
+            <h2>Delete {contextMenuActions.deleteConfirm.title}?</h2>
+            <p className="delete-confirm-warning">This will permanently delete the file{contextMenuActions.deleteConfirm.trackIds.length > 1 ? "s" : ""} from disk.</p>
             <div className="modal-actions">
-              <button className="modal-btn modal-btn-cancel" onClick={() => setDeleteConfirm(null)}>Cancel</button>
-              <button className="modal-btn modal-btn-danger" onClick={handleDeleteConfirm}>Delete</button>
+              <button className="modal-btn modal-btn-cancel" onClick={() => contextMenuActions.setDeleteConfirm(null)}>Cancel</button>
+              <button className="modal-btn modal-btn-danger" onClick={contextMenuActions.handleDeleteConfirm}>Delete</button>
             </div>
           </div>
         </div>
       )}
 
-      {deleteError && (
-        <div className="modal-overlay" onClick={() => setDeleteError(null)}>
+      {contextMenuActions.deleteError && (
+        <div className="modal-overlay" onClick={() => contextMenuActions.setDeleteError(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Delete Failed</h2>
-            <p className="delete-confirm-warning">{deleteError.message}</p>
+            <p className="delete-confirm-warning">{contextMenuActions.deleteError.message}</p>
             <ul className="delete-failure-list">
-              {deleteError.failures.map((f, i) => (
+              {contextMenuActions.deleteError.failures.map((f, i) => (
                 <li key={i}>
                   <span className="delete-failure-title">{f.title}</span>
                   <span className="delete-failure-reason">{f.reason}</span>
@@ -3492,7 +3241,7 @@ function App() {
               ))}
             </ul>
             <div className="modal-actions">
-              <button className="modal-btn modal-btn-cancel" onClick={() => setDeleteError(null)}>OK</button>
+              <button className="modal-btn modal-btn-cancel" onClick={() => contextMenuActions.setDeleteError(null)}>OK</button>
             </div>
           </div>
         </div>
@@ -3596,10 +3345,10 @@ function App() {
       <StatusBar
         sessionLog={sessionLog}
         activity={statusActivity}
-        feedback={youtubeFeedback ? {
-          message: `Was "${youtubeFeedback.videoTitle}" the right video?`,
-          onYes: () => handleYoutubeFeedback(true),
-          onNo: () => handleYoutubeFeedback(false),
+        feedback={contextMenuActions.youtubeFeedback ? {
+          message: `Was "${contextMenuActions.youtubeFeedback.videoTitle}" the right video?`,
+          onYes: () => contextMenuActions.handleYoutubeFeedback(true),
+          onNo: () => contextMenuActions.handleYoutubeFeedback(false),
         } : null}
         downloadStatus={downloads.downloadStatus}
         onCancelDownload={downloads.cancelDownload}
