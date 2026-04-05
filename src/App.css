@@ -4066,8 +4066,19 @@ body {
 .scrobble-list {
 }
 
+.scrobble-year-group {
+  margin-bottom: 8px;
+}
+
+.scrobble-year-label {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
 .scrobble-entry {
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
   padding: 3px 0;
   border-bottom: 1px solid var(--border);
@@ -4108,12 +4119,12 @@ body {
 }
 
 .similar-track-artist {
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-xs);
   color: var(--text-tertiary);
 }
 
 .similar-track-match {
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-xs);
   color: var(--text-tertiary);
   flex-shrink: 0;
 }

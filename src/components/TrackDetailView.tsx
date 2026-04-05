@@ -535,11 +535,28 @@ export function TrackDetailView({
             </div>
             {playHistory.length > 0 ? (
               <div className="scrobble-list">
-                {playHistory.map((entry, i) => (
-                  <div key={i} className="scrobble-entry">
-                    {formatTimestamp(entry.played_at)}
-                  </div>
-                ))}
+                {(() => {
+                  const groups: { year: number; entries: typeof playHistory }[] = [];
+                  for (const entry of playHistory) {
+                    const year = new Date(entry.played_at * 1000).getFullYear();
+                    const last = groups[groups.length - 1];
+                    if (last && last.year === year) {
+                      last.entries.push(entry);
+                    } else {
+                      groups.push({ year, entries: [entry] });
+                    }
+                  }
+                  return groups.map(({ year, entries }) => (
+                    <div key={year} className="scrobble-year-group">
+                      <div className="scrobble-year-label">{year}</div>
+                      {entries.map((entry, i) => (
+                        <div key={i} className="scrobble-entry">
+                          {formatTimestamp(entry.played_at)}
+                        </div>
+                      ))}
+                    </div>
+                  ));
+                })()}
               </div>
             ) : (
               <div className="track-detail-empty">No play history</div>
