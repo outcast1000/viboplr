@@ -6939,14 +6939,11 @@ body {
 }
 
 /* Lyrics panel */
-.np-lyrics {
-  display: flex;
-  flex-direction: column;
-}
 .np-lyrics-actions {
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-top: 4px;
 }
 .np-lyrics-badge {
   font-size: var(--fs-2xs);

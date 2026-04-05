@@ -104,13 +104,11 @@ export default function LyricsPanel({ trackId, artistName, title, positionSecs, 
 
   if (loading) {
     return (
-      <div className="np-lyrics">
-        <div className="track-detail-section-title">
-          Lyrics
-          <span className="np-lyrics-actions">
-            <button className="np-lyrics-btn" onClick={handleSearchWeb} title="Search lyrics on web">🔍</button>
-            <button className="np-lyrics-btn" onClick={handlePasteAppend} title="Paste lyrics from clipboard">📋</button>
-          </span>
+      <div>
+        <div className="track-detail-section-title">Lyrics</div>
+        <div className="np-lyrics-actions">
+          <button className="np-lyrics-btn" onClick={handleSearchWeb} title="Search lyrics on web">🔍</button>
+          <button className="np-lyrics-btn" onClick={handlePasteAppend} title="Paste lyrics from clipboard">📋</button>
         </div>
         <div className="track-detail-empty">Loading…</div>
       </div>
@@ -119,17 +117,15 @@ export default function LyricsPanel({ trackId, artistName, title, positionSecs, 
 
   if (editing) {
     return (
-      <div className="np-lyrics">
-        <div className="track-detail-section-title">
-          Edit Lyrics
-          <span className="np-lyrics-actions">
-            <select value={editKind} onChange={e => setEditKind(e.target.value as "plain" | "synced")}>
-              <option value="plain">Plain</option>
-              <option value="synced">Synced (LRC)</option>
-            </select>
-            <button className="np-lyrics-btn" onClick={handleSave}>Save</button>
-            <button className="np-lyrics-btn" onClick={() => setEditing(false)}>Cancel</button>
-          </span>
+      <div>
+        <div className="track-detail-section-title">Edit Lyrics</div>
+        <div className="np-lyrics-actions">
+          <select value={editKind} onChange={e => setEditKind(e.target.value as "plain" | "synced")}>
+            <option value="plain">Plain</option>
+            <option value="synced">Synced (LRC)</option>
+          </select>
+          <button className="np-lyrics-btn" onClick={handleSave}>Save</button>
+          <button className="np-lyrics-btn" onClick={() => setEditing(false)}>Cancel</button>
         </div>
         <textarea
           className="np-lyrics-editor"
@@ -143,14 +139,12 @@ export default function LyricsPanel({ trackId, artistName, title, positionSecs, 
 
   if (!lyrics) {
     return (
-      <div className="np-lyrics">
-        <div className="track-detail-section-title">
-          Lyrics
-          <span className="np-lyrics-actions">
-            <button className="np-lyrics-btn" onClick={handleSearchWeb} title="Search lyrics on web">🔍</button>
-            <button className="np-lyrics-btn" onClick={handlePasteAppend} title="Paste lyrics from clipboard">📋</button>
-            <button className="np-lyrics-btn" onClick={startEdit} title="Add lyrics manually">✎</button>
-          </span>
+      <div>
+        <div className="track-detail-section-title">Lyrics</div>
+        <div className="np-lyrics-actions">
+          <button className="np-lyrics-btn" onClick={handleSearchWeb} title="Search lyrics on web">🔍</button>
+          <button className="np-lyrics-btn" onClick={handlePasteAppend} title="Paste lyrics from clipboard">📋</button>
+          <button className="np-lyrics-btn" onClick={startEdit} title="Add lyrics manually">✎</button>
         </div>
         <div className="track-detail-empty">No lyrics found</div>
       </div>
@@ -158,30 +152,28 @@ export default function LyricsPanel({ trackId, artistName, title, positionSecs, 
   }
 
   return (
-    <div className="np-lyrics">
-      <div className="track-detail-section-title">
-        Lyrics
-        <span className="np-lyrics-actions">
-          <span className={`np-lyrics-badge ${lyrics.kind === "synced" ? "np-lyrics-badge-synced" : ""}`}>
-            {lyrics.kind}
-          </span>
-          {lrcLines && (
-            <button
-              className={`np-lyrics-btn${syncEnabled ? " np-lyrics-btn-active" : ""}`}
-              onClick={() => setSyncEnabled(v => !v)}
-              title={syncEnabled ? "Disable synced auto-scroll" : "Enable synced auto-scroll"}
-            >⏱</button>
-          )}
-          <button className="np-lyrics-btn" onClick={handleSearchWeb} title="Search lyrics on web">🔍</button>
-          <button className="np-lyrics-btn" onClick={handlePasteAppend} title="Paste and append lyrics from clipboard">📋</button>
-          <button className="np-lyrics-btn" onClick={startEdit} title="Edit lyrics">✎</button>
-          {lyrics.provider === "manual" && (
-            <button className="np-lyrics-btn" onClick={onReset} title="Reset to provider lyrics">↺</button>
-          )}
-          {lyrics.provider !== "manual" && (
-            <button className="np-lyrics-btn" onClick={onForceRefresh} title="Re-fetch lyrics">↻</button>
-          )}
+    <div>
+      <div className="track-detail-section-title">Lyrics</div>
+      <div className="np-lyrics-actions">
+        <span className={`np-lyrics-badge ${lyrics.kind === "synced" ? "np-lyrics-badge-synced" : ""}`}>
+          {lyrics.kind}
         </span>
+        {lrcLines && (
+          <button
+            className={`np-lyrics-btn${syncEnabled ? " np-lyrics-btn-active" : ""}`}
+            onClick={() => setSyncEnabled(v => !v)}
+            title={syncEnabled ? "Disable synced auto-scroll" : "Enable synced auto-scroll"}
+          >⏱</button>
+        )}
+        <button className="np-lyrics-btn" onClick={handleSearchWeb} title="Search lyrics on web">🔍</button>
+        <button className="np-lyrics-btn" onClick={handlePasteAppend} title="Paste and append lyrics from clipboard">📋</button>
+        <button className="np-lyrics-btn" onClick={startEdit} title="Edit lyrics">✎</button>
+        {lyrics.provider === "manual" && (
+          <button className="np-lyrics-btn" onClick={onReset} title="Reset to provider lyrics">↺</button>
+        )}
+        {lyrics.provider !== "manual" && (
+          <button className="np-lyrics-btn" onClick={onForceRefresh} title="Re-fetch lyrics">↻</button>
+        )}
       </div>
       <div className="np-lyrics-body" ref={scrollRef} onScroll={handleScroll}>
         {lrcLines ? (
