@@ -378,3 +378,170 @@
   font-size: var(--fs-sm);
   color: var(--text-secondary);
 }
+
+/* Mini player mode */
+.app.mini-mode,
+.app.mini-mode.queue-open,
+.app.mini-mode.queue-open.queue-collapsed,
+.app.mini-mode.sidebar-collapsed.queue-open,
+.app.mini-mode.sidebar-collapsed.queue-open.queue-collapsed {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.app.mini-mode .sidebar,
+.app.mini-mode .main,
+.app.mini-mode .queue-panel,
+.app.mini-mode .status-bar,
+.app.mini-mode .search-bar {
+  display: none;
+}
+
+.app.mini-mode .now-playing {
+  grid-column: 1;
+  grid-row: 1;
+  height: 52px;
+  min-height: 0;
+  border-top: none;
+  background: rgba(var(--now-playing-bg-rgb), 0.82);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(var(--overlay-base), 0.08);
+  position: relative;
+  flex-direction: row;
+  align-items: center;
+}
+
+.now-playing-mini {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 6px 12px;
+  gap: 10px;
+  cursor: grab;
+  overflow: hidden;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.now-playing-mini:active {
+  cursor: grabbing;
+}
+
+.now-playing-mini button {
+  cursor: pointer;
+}
+
+.now-playing-mini .now-info {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.now-mini-art {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.now-mini-art-fallback {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-surface);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.now-mini-info-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.now-playing-mini .now-title {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.now-playing-mini .now-artist {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.now-playing-mini .mini-right {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.now-playing-mini .now-controls {
+  position: static;
+  transform: none;
+  flex: none;
+}
+
+.now-playing-mini .mini-play-btn {
+  background: rgba(var(--accent-rgb), 0.15);
+  border-color: rgba(var(--accent-rgb), 0.25);
+  color: var(--accent);
+}
+
+.now-playing-mini .mini-play-btn:hover {
+  background: rgba(var(--accent-rgb), 0.25);
+  color: var(--text-primary);
+}
+
+.mini-separator {
+  width: 1px;
+  height: 16px;
+  background: rgba(var(--overlay-base), 0.1);
+  flex-shrink: 0;
+  align-self: center;
+  margin: 2px 0px 2px 10px;
+}
+
+.now-playing-mini .mini-close-btn {
+  color: #ff5f57;
+  border-color: rgba(255, 95, 87, 0.15);
+}
+
+.now-playing-mini .mini-close-btn:hover {
+  background: rgba(255, 95, 87, 0.12);
+  color: #ff5f57;
+}
+
+.mini-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.6;
+  transition: width 0.3s linear;
+  pointer-events: none;
+}
