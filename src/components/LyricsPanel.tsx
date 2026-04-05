@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 interface LyricsPanelProps {
   trackId: number;
+  artistName: string;
+  title: string;
   positionSecs: number;
   lyrics: { text: string; kind: string; provider: string } | null;
   loading: boolean;
@@ -40,10 +43,11 @@ function getCurrentLineIndex(lines: LrcLine[], position: number): number {
   return idx;
 }
 
-export default function LyricsPanel({ trackId, positionSecs, lyrics, loading, onSave, onReset, onForceRefresh }: LyricsPanelProps) {
+export default function LyricsPanel({ trackId, artistName, title, positionSecs, lyrics, loading, onSave, onReset, onForceRefresh }: LyricsPanelProps) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [editKind, setEditKind] = useState<"plain" | "synced">("plain");
+  const [syncEnabled, setSyncEnabled] = useState(false);
   const [userScrolled, setUserScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeLineRef = useRef<HTMLDivElement>(null);
@@ -61,10 +65,10 @@ export default function LyricsPanel({ trackId, positionSecs, lyrics, loading, on
 
   // Auto-scroll to current line
   useEffect(() => {
-    if (!userScrolled && activeLineRef.current && scrollRef.current) {
+    if (syncEnabled && !userScrolled && activeLineRef.current && scrollRef.current) {
       activeLineRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  }, [currentLineIdx, userScrolled]);
+  }, [currentLineIdx, userScrolled, syncEnabled]);
 
   const handleScroll = useCallback(() => {
     setUserScrolled(true);
@@ -83,10 +87,31 @@ export default function LyricsPanel({ trackId, positionSecs, lyrics, loading, on
     setEditing(false);
   };
 
+  const handleSearchWeb = () => {
+    const q = encodeURIComponent(`${artistName} - ${title} lyrics`);
+    openUrl(`https://www.google.com/search?q=${q}`);
+  };
+
+  const handlePasteAppend = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      const current = lyrics?.text ?? "";
+      const merged = current ? current + "\n" + text : text;
+      onSave(merged, "plain");
+    } catch { /* clipboard access denied */ }
+  };
+
   if (loading) {
     return (
       <div className="np-lyrics">
-        <div className="track-detail-section-title">Lyrics</div>
+        <div className="track-detail-section-title">
+          Lyrics
+          <span className="np-lyrics-actions">
+            <button className="np-lyrics-btn" onClick={handleSearchWeb} title="Search lyrics on web">🔍</button>
+            <button className="np-lyrics-btn" onClick={handlePasteAppend} title="Paste lyrics from clipboard">📋</button>
+          </span>
+        </div>
         <div className="track-detail-empty">Loading…</div>
       </div>
     );
@@ -121,7 +146,11 @@ export default function LyricsPanel({ trackId, positionSecs, lyrics, loading, on
       <div className="np-lyrics">
         <div className="track-detail-section-title">
           Lyrics
-          <button className="np-lyrics-btn" onClick={startEdit} title="Add lyrics manually">✎</button>
+          <span className="np-lyrics-actions">
+            <button className="np-lyrics-btn" onClick={handleSearchWeb} title="Search lyrics on web">🔍</button>
+            <button className="np-lyrics-btn" onClick={handlePasteAppend} title="Paste lyrics from clipboard">📋</button>
+            <button className="np-lyrics-btn" onClick={startEdit} title="Add lyrics manually">✎</button>
+          </span>
         </div>
         <div className="track-detail-empty">No lyrics found</div>
       </div>
@@ -136,6 +165,15 @@ export default function LyricsPanel({ trackId, positionSecs, lyrics, loading, on
           <span className={`np-lyrics-badge ${lyrics.kind === "synced" ? "np-lyrics-badge-synced" : ""}`}>
             {lyrics.kind}
           </span>
+          {lrcLines && (
+            <button
+              className={`np-lyrics-btn${syncEnabled ? " np-lyrics-btn-active" : ""}`}
+              onClick={() => setSyncEnabled(v => !v)}
+              title={syncEnabled ? "Disable synced auto-scroll" : "Enable synced auto-scroll"}
+            >⏱</button>
+          )}
+          <button className="np-lyrics-btn" onClick={handleSearchWeb} title="Search lyrics on web">🔍</button>
+          <button className="np-lyrics-btn" onClick={handlePasteAppend} title="Paste and append lyrics from clipboard">📋</button>
           <button className="np-lyrics-btn" onClick={startEdit} title="Edit lyrics">✎</button>
           {lyrics.provider === "manual" && (
             <button className="np-lyrics-btn" onClick={onReset} title="Reset to provider lyrics">↺</button>

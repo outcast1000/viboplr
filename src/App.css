@@ -4064,8 +4064,6 @@ body {
 }
 
 .scrobble-list {
-  overflow-y: auto;
-  max-height: 140px;
 }
 
 .scrobble-entry {
@@ -4080,8 +4078,6 @@ body {
 }
 
 .similar-tracks-list {
-  overflow-y: auto;
-  max-height: 140px;
 }
 
 .similar-track-row {
@@ -4166,30 +4162,6 @@ body {
   margin: 0 0 8px;
 }
 
-.genius-about-collapsed p {
-  max-height: 4.5em;
-  overflow: hidden;
-}
-
-.genius-about-collapsed::after {
-  content: "";
-  position: absolute;
-  bottom: 24px;
-  left: 0;
-  right: 0;
-  height: 1.5em;
-  background: linear-gradient(transparent, var(--bg-primary));
-  pointer-events: none;
-}
-
-.genius-about-toggle {
-  background: none;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: var(--fs-2xs);
-  padding: 0;
-}
 
 .genius-annotations {
   display: flex;
@@ -6988,6 +6960,9 @@ body {
 .np-lyrics-btn:hover {
   color: var(--clr-text-primary);
   background: var(--clr-surface-2);
+}
+.np-lyrics-btn-active {
+  color: var(--accent);
 }
 .np-lyrics-body {
   flex: 1;

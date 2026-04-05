@@ -117,9 +117,11 @@ function TrackActions({
             <IconEnqueue size={14} /><span>Play Next</span>
           </button>
           <div className="artist-image-menu-separator" />
-          <button onClick={() => { setOpenMenu(false); onShowInFolder(); }}>
-            <IconFolder size={14} /><span>Show in Folder</span>
-          </button>
+          {!track.path.startsWith("subsonic://") && !track.path.startsWith("tidal://") && (
+            <button onClick={() => { setOpenMenu(false); onShowInFolder(); }}>
+              <IconFolder size={14} /><span>Show in Folder</span>
+            </button>
+          )}
           <button onClick={() => { setOpenMenu(false); onShowProperties(); }}>
             <IconInfo size={14} /><span>Properties</span>
           </button>
@@ -212,7 +214,6 @@ export function TrackDetailView({
     song_url: string;
   } | null>(null);
   const [geniusLoading, setGeniusLoading] = useState(false);
-  const [geniusAboutExpanded, setGeniusAboutExpanded] = useState(false);
   const trackIdRef = useRef(trackId);
 
   useEffect(() => { trackIdRef.current = trackId; }, [trackId]);
@@ -230,7 +231,6 @@ export function TrackDetailView({
     setTrackInfo(null);
     setGeniusExplanation(null);
     setGeniusLoading(false);
-    setGeniusAboutExpanded(false);
 
     invoke<{ track_id: number; text: string; kind: string; provider: string } | null>("get_lyrics", { trackId }).then(cached => {
       if (cached) {
@@ -254,7 +254,16 @@ export function TrackDetailView({
       if (sections.geniusExplanations !== false) {
         setGeniusLoading(true);
         invoke<any>("get_genius_explanation", { artistName: track.artist_name, trackTitle: track.title })
-          .then(cached => { if (cached) { setGeniusExplanation(cached); setGeniusLoading(false); } })
+          .then(cached => {
+            if (cached) {
+              setGeniusExplanation(cached);
+              setGeniusLoading(false);
+            } else {
+              // No cache — backend spawns async fetch. Fallback timeout in case
+              // the event is missed (listener race) or backend errors silently.
+              setTimeout(() => setGeniusLoading(false), 15000);
+            }
+          })
           .catch(() => setGeniusLoading(false));
       }
       const parseTrackInfo = (resp: any) => {
@@ -450,13 +459,8 @@ export function TrackDetailView({
             ) : geniusExplanation ? (
               <div className="genius-content">
                 {geniusExplanation.about && (
-                  <div className={`genius-about${!geniusAboutExpanded && geniusExplanation.about.length > 300 ? " genius-about-collapsed" : ""}`}>
+                  <div className="genius-about">
                     <p>{geniusExplanation.about}</p>
-                    {geniusExplanation.about.length > 300 && (
-                      <button className="genius-about-toggle" onClick={() => setGeniusAboutExpanded(v => !v)}>
-                        {geniusAboutExpanded ? "Show less" : "Show more"}
-                      </button>
-                    )}
                   </div>
                 )}
                 {geniusExplanation.annotations.length > 0 && (
@@ -483,6 +487,8 @@ export function TrackDetailView({
           <div className="track-detail-lyrics-section">
             <LyricsPanel
               trackId={trackId}
+              artistName={track.artist_name ?? ""}
+              title={track.title}
               positionSecs={isCurrentTrack ? positionSecs : 0}
               lyrics={lyrics}
               loading={lyricsLoading}

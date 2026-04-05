@@ -284,6 +284,8 @@ function NowPlayingBody(props: NowPlayingViewProps) {
           <div className="np-right">
             <LyricsPanel
               trackId={currentTrack.id}
+              artistName={currentTrack.artist_name ?? ""}
+              title={currentTrack.title}
               positionSecs={positionSecs}
               lyrics={npLyrics}
               loading={npLyricsLoading}
