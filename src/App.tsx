@@ -2317,9 +2317,6 @@ function App() {
             sortedTracks={sortedTracks}
             onPlayAll={queueHook.playTracks}
             onEnqueueAll={handleEnqueue}
-            syncWithPlaying={syncWithPlaying}
-            onToggleSync={handleToggleSync}
-            hasPlayingTrack={playback.currentTrack !== null}
           >
             {view === "all" && <ViewModeToggle mode={library.trackViewMode} onChange={library.setTrackViewMode} />}
             {view === "artists" && selectedArtist === null && <ViewModeToggle mode={library.artistViewMode} onChange={library.setArtistViewMode} />}
@@ -3950,6 +3947,8 @@ function App() {
         onTrackClick={(trackId) => { library.handleTrackClick(trackId); }}
         onArtistClick={library.handleArtistClick}
         onAlbumClick={library.handleAlbumClick}
+        syncWithPlaying={syncWithPlaying}
+        onToggleSync={handleToggleSync}
         showHelp={showHelp}
         onToggleHelp={() => setShowHelp(h => !h)}
       />
