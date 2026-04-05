@@ -396,7 +396,8 @@
 .app.mini-mode .main,
 .app.mini-mode .queue-panel,
 .app.mini-mode .status-bar,
-.app.mini-mode .search-bar {
+.app.mini-mode .search-bar,
+.app.mini-mode .sidebar-collapse-btn {
   display: none;
 }
 
