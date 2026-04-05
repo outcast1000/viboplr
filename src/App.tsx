@@ -2591,7 +2591,7 @@ function App() {
                                     }
                                   }}
                                 >
-                                  {inLibrary ? "\u25B6" : "\u25B7"}
+                                  {inLibrary ? "\u25B6" : <svg width="14" height="10" viewBox="0 0 28 20" fill="currentColor"><path d="M27.4 3.1s-.3-1.9-1.1-2.8C25.1-.9 23.7-.9 23-.9 19.2-1.2 14-1.2 14-1.2h0s-5.2 0-9 .3c-.7.1-2.1.1-3.3 1.1C.9 1.2.6 3.1.6 3.1S.3 5.3.3 7.6v2.1c0 2.2.3 4.5.3 4.5s.3 1.9 1.1 2.8c1.2 1.2 2.7 1.2 3.4 1.3 2.4.2 10.3.3 10.3.3s5.2 0 9-.3c.7-.1 2.1-.1 3.3-1.1.8-.9 1.1-2.8 1.1-2.8s.3-2.2.3-4.5V7.6c0-2.2-.3-4.5-.3-4.5zM11.1 13.2V5.4l8.9 3.9-8.9 3.9z"/></svg>}
                                 </button>
                                 <span className="col-popularity top-song-pop">
                                   <span className="popularity-fill" style={{ width: `${pct}%` }} />
