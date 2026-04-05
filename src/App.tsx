@@ -33,6 +33,7 @@ import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useSkins } from "./hooks/useSkins";
 import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
+import { useLastfm } from "./hooks/useLastfm";
 import type { TidalSearchTrackLike } from "./types/plugin";
 import { WindowControls } from "./components/WindowControls";
 import { useViewSearchState } from "./hooks/useViewSearchState";
@@ -343,14 +344,6 @@ function App() {
   const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
   const [removeCollectionConfirm, setRemoveCollectionConfirm] = useState<Collection | null>(null);
-  const [lastfmConnected, setLastfmConnected] = useState(false);
-  const [lastfmUsername, setLastfmUsername] = useState<string | null>(null);
-  const [lastfmImporting, setLastfmImporting] = useState(false);
-  const [lastfmImportProgress, setLastfmImportProgress] = useState<{ page: number; total_pages: number; imported: number; skipped: number } | null>(null);
-  const [lastfmImportResult, setLastfmImportResult] = useState<{ imported: number; skipped: number } | null>(null);
-  const [lastfmAutoImportEnabled, setLastfmAutoImportEnabled] = useState(false);
-  const [lastfmAutoImportIntervalMins, setLastfmAutoImportIntervalMins] = useState(60);
-  const [lastfmLastImportAt, setLastfmLastImportAt] = useState<number | null>(null);
   const [artistBio, setArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
   const [artistInfoLoading, setArtistInfoLoading] = useState(false);
   const [albumWiki, setAlbumWiki] = useState<string | null>(null);
@@ -375,6 +368,9 @@ function App() {
 
   // Skins
   const skins = useSkins();
+
+  // Last.fm
+  const lastfm = useLastfm(store, addLog, historyRef);
 
   async function handleImportSkin() {
     const selected = await open({
@@ -545,8 +541,8 @@ function App() {
             if (token) {
               invoke<[{ connected: boolean; username: string | null }, string]>("lastfm_authenticate", { token })
                 .then(async ([status, sessionKey]) => {
-                  setLastfmConnected(status.connected);
-                  setLastfmUsername(status.username ?? null);
+                  lastfm.setLastfmConnected(status.connected);
+                  lastfm.setLastfmUsername(status.username ?? null);
                   await store.set("lastfmSessionKey", sessionKey);
                   await store.set("lastfmUsername", status.username);
                 })
@@ -649,13 +645,13 @@ function App() {
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory) setTrackVideoHistory(true);
         if (savedLastfmSessionKey && savedLastfmUsername) {
-          setLastfmConnected(true);
-          setLastfmUsername(savedLastfmUsername);
+          lastfm.setLastfmConnected(true);
+          lastfm.setLastfmUsername(savedLastfmUsername);
           invoke("lastfm_set_session", { sessionKey: savedLastfmSessionKey, username: savedLastfmUsername }).catch(console.error);
         }
-        if (savedLastfmAutoImportEnabled) setLastfmAutoImportEnabled(true);
-        if (savedLastfmAutoImportIntervalMins) setLastfmAutoImportIntervalMins(savedLastfmAutoImportIntervalMins);
-        if (savedLastfmLastImportAt) setLastfmLastImportAt(savedLastfmLastImportAt);
+        if (savedLastfmAutoImportEnabled) lastfm.setLastfmAutoImportEnabled(true);
+        if (savedLastfmAutoImportIntervalMins) lastfm.setLastfmAutoImportIntervalMins(savedLastfmAutoImportIntervalMins);
+        if (savedLastfmLastImportAt) lastfm.setLastfmLastImportAt(savedLastfmLastImportAt);
 
         // Start auto-import if enabled and connected
         if (savedLastfmSessionKey && savedLastfmUsername && savedLastfmAutoImportEnabled) {
@@ -843,16 +839,6 @@ function App() {
     }
   }, [playback.currentTrack]);
 
-  useEffect(() => {
-    const unlisten = listen("lastfm-auth-error", async () => {
-      setLastfmConnected(false);
-      setLastfmUsername(null);
-      await store.set("lastfmSessionKey", null);
-      await store.set("lastfmUsername", null);
-    });
-    return () => { unlisten.then(f => f()); };
-  }, []);
-
   // Forward frontend errors to backend log file
   useEffect(() => {
     const onError = (e: ErrorEvent) => {
@@ -867,40 +853,6 @@ function App() {
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onRejection);
     };
-  }, []);
-
-  useEffect(() => {
-    const u1 = listen<{ page: number; total_pages: number; imported: number; skipped: number; source: string }>("lastfm-import-progress", (e) => {
-      if (e.payload.source === "manual") {
-        setLastfmImportProgress(e.payload);
-      }
-    });
-    const u2 = listen<{ imported: number; skipped: number; timestamp: number; source: string }>("lastfm-import-complete", (e) => {
-      if (e.payload.source === "manual") {
-        setLastfmImporting(false);
-        setLastfmImportProgress(null);
-        setLastfmImportResult(e.payload);
-      }
-      // Both manual and auto update the last import timestamp
-      setLastfmLastImportAt(e.payload.timestamp);
-      store.set("lastfmLastImportAt", e.payload.timestamp);
-      addLog(`Last.fm import complete (${e.payload.source}): ${e.payload.imported} imported, ${e.payload.skipped} skipped`);
-      historyRef.current?.reload();
-    });
-    const u3 = listen<{ message: string; source: string } | string>("lastfm-import-error", (e) => {
-      const payload = typeof e.payload === "string" ? { message: e.payload, source: "manual" } : e.payload;
-      if (payload.source === "manual") {
-        setLastfmImporting(false);
-        setLastfmImportProgress(null);
-        if (payload.message !== "cancelled") {
-          addLog(`Last.fm import error: ${payload.message}`);
-        }
-        historyRef.current?.reload();
-      } else {
-        addLog(`Last.fm auto-import error: ${payload.message}`);
-      }
-    });
-    return () => { u1.then(f => f()); u2.then(f => f()); u3.then(f => f()); };
   }, []);
 
   // Fetch images for selected entities
@@ -1761,59 +1713,6 @@ function App() {
     });
   }
 
-  async function handleLastfmConnect() {
-    try {
-      const url = await invoke<string>("lastfm_get_auth_url");
-      await openUrl(url);
-    } catch (e) {
-      console.error("Failed to get Last.fm auth URL:", e);
-    }
-  }
-
-  async function handleLastfmDisconnect() {
-    invoke("lastfm_stop_auto_import").catch(console.error);
-    await invoke("lastfm_disconnect").catch(console.error);
-    setLastfmConnected(false);
-    setLastfmUsername(null);
-    setLastfmAutoImportEnabled(false);
-    await store.set("lastfmSessionKey", null);
-    await store.set("lastfmUsername", null);
-    await store.set("lastfmAutoImportEnabled", false);
-  }
-
-  function handleLastfmImportHistory() {
-    setLastfmImporting(true);
-    setLastfmImportProgress(null);
-    setLastfmImportResult(null);
-    invoke("lastfm_import_history", { lastImportAt: lastfmLastImportAt }).catch((e) => {
-      setLastfmImporting(false);
-      addLog(`Last.fm import failed: ${e}`);
-    });
-  }
-
-  function handleLastfmCancelImport() {
-    invoke("lastfm_cancel_import").catch(console.error);
-  }
-
-  async function handleLastfmAutoImportToggle(enabled: boolean) {
-    setLastfmAutoImportEnabled(enabled);
-    await store.set("lastfmAutoImportEnabled", enabled);
-    if (enabled) {
-      invoke("lastfm_start_auto_import", {
-        intervalMins: lastfmAutoImportIntervalMins,
-        lastImportAt: lastfmLastImportAt ?? null,
-      }).catch(console.error);
-    } else {
-      invoke("lastfm_stop_auto_import").catch(console.error);
-    }
-  }
-
-  async function handleLastfmAutoImportIntervalChange(mins: number) {
-    setLastfmAutoImportIntervalMins(mins);
-    await store.set("lastfmAutoImportIntervalMins", mins);
-    invoke("lastfm_set_auto_import_interval", { intervalMins: mins }).catch(console.error);
-  }
-
   async function handleResyncCollection(collectionId: number) {
     await invoke("resync_collection", { collectionId });
   }
@@ -1883,7 +1782,7 @@ function App() {
         playback.setCurrentTrack({ ...playback.currentTrack, liked: newLiked });
       }
       queueHook.setQueue(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
-      if (lastfmConnected) {
+      if (lastfm.lastfmConnected) {
         const cmd = newLiked === 1 ? "lastfm_love_track" : "lastfm_unlove_track";
         invoke(cmd, { trackId: track.id }).catch(console.error);
       }
@@ -2169,21 +2068,21 @@ function App() {
           backendTimings={backendTimings}
           frontendTimings={getTimingEntries()}
           onFetchBackendTimings={() => invoke<TimingEntry[]>("get_startup_timings").then(setBackendTimings)}
-          lastfmConnected={lastfmConnected}
-          lastfmUsername={lastfmUsername}
-          onLastfmConnect={handleLastfmConnect}
-          onLastfmDisconnect={handleLastfmDisconnect}
-          onLastfmImportHistory={handleLastfmImportHistory}
-          onLastfmCancelImport={handleLastfmCancelImport}
-          lastfmImporting={lastfmImporting}
-          lastfmImportProgress={lastfmImportProgress}
-          lastfmImportResult={lastfmImportResult}
-          onLastfmImportResultDismiss={() => setLastfmImportResult(null)}
-          lastfmAutoImportEnabled={lastfmAutoImportEnabled}
-          onLastfmAutoImportToggle={handleLastfmAutoImportToggle}
-          lastfmAutoImportIntervalMins={lastfmAutoImportIntervalMins}
-          onLastfmAutoImportIntervalChange={handleLastfmAutoImportIntervalChange}
-          lastfmLastImportAt={lastfmLastImportAt}
+          lastfmConnected={lastfm.lastfmConnected}
+          lastfmUsername={lastfm.lastfmUsername}
+          onLastfmConnect={lastfm.handleLastfmConnect}
+          onLastfmDisconnect={lastfm.handleLastfmDisconnect}
+          onLastfmImportHistory={lastfm.handleLastfmImportHistory}
+          onLastfmCancelImport={lastfm.handleLastfmCancelImport}
+          lastfmImporting={lastfm.lastfmImporting}
+          lastfmImportProgress={lastfm.lastfmImportProgress}
+          lastfmImportResult={lastfm.lastfmImportResult}
+          onLastfmImportResultDismiss={() => lastfm.setLastfmImportResult(null)}
+          lastfmAutoImportEnabled={lastfm.lastfmAutoImportEnabled}
+          onLastfmAutoImportToggle={lastfm.handleLastfmAutoImportToggle}
+          lastfmAutoImportIntervalMins={lastfm.lastfmAutoImportIntervalMins}
+          onLastfmAutoImportIntervalChange={lastfm.handleLastfmAutoImportIntervalChange}
+          lastfmLastImportAt={lastfm.lastfmLastImportAt}
           downloadFormat={downloadFormat}
           onDownloadFormatChange={handleDownloadFormatChange}
           activeSkinId={skins.activeSkinId}
