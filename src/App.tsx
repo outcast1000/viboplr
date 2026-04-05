@@ -3078,23 +3078,25 @@ function App() {
                     </span>
                   </div>
                 </div>
-                <div className="artist-bio-title section-header" onClick={() => handleToggleAlbumSection("review")}>
-                  <span className={`section-chevron${albumSections.review === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
-                  Review
-                </div>
-                {albumSections.review !== false && (
-                  <div className="album-wiki-section">
-                    {albumInfoLoading && !albumWiki && (
-                      <div className="lastfm-loading-text">Loading…</div>
-                    )}
-                    {albumWiki && (
-                      <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: albumWiki }} />
-                    )}
-                    {!albumInfoLoading && !albumWiki && (
-                      <div className="lastfm-empty-text">No album review available on Last.fm</div>
-                    )}
+                <div className="album-wiki-section">
+                  <div className="artist-bio-title section-header" onClick={() => handleToggleAlbumSection("review")}>
+                    <span className={`section-chevron${albumSections.review === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                    Review
                   </div>
-                )}
+                  {albumSections.review !== false && (
+                    <>
+                      {albumInfoLoading && !albumWiki && (
+                        <div className="lastfm-loading-text">Loading…</div>
+                      )}
+                      {albumWiki && (
+                        <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: albumWiki }} />
+                      )}
+                      {!albumInfoLoading && !albumWiki && (
+                        <div className="lastfm-empty-text">No album review available on Last.fm</div>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
             );
           })()}
