@@ -57,8 +57,8 @@ import { Breadcrumb } from "./components/Breadcrumb";
 import { AlbumCardArt } from "./components/AlbumCardArt";
 import { ArtistListView } from "./components/ArtistListView";
 import { AlbumListView } from "./components/AlbumListView";
+import { TagListView } from "./components/TagListView";
 import { ArtistDetailContent } from "./components/ArtistDetailContent";
-import { TagCardArt } from "./components/TagCardArt";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { ImageActions } from "./components/ImageActions";
 import { AlbumDetailHeader } from "./components/AlbumDetailHeader";
@@ -1758,123 +1758,24 @@ function App() {
 
           {/* Tags list view */}
           {view === "tags" && selectedTag === null && (
-            <>
-              <div className={`sort-bar-wrapper${library.sortBarCollapsed ? " collapsed" : ""}`}>
-                <div className="sort-bar">
-                  <div className="sort-bar-row">
-                    <span className="sort-bar-label">Sort:</span>
-                    <div className="sort-bar-group">
-                      <button className={`sort-btn${library.tagSortField === "name" ? " active" : ""}`} onClick={() => library.handleTagSort("name")}>
-                        Name{library.tagSortField === "name" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                      </button>
-                      <button className={`sort-btn${library.tagSortField === "tracks" ? " active" : ""}`} onClick={() => library.handleTagSort("tracks")}>
-                        Tracks{library.tagSortField === "tracks" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                      </button>
-                      <button className={`sort-btn${library.tagSortField === "random" ? " active" : ""}`} onClick={() => library.handleTagSort("random")}>
-                        Shuffle
-                      </button>
-                      <button
-                        className={`sort-btn liked-first-btn${library.tagLikedFirst ? " active" : ""}`}
-                        onClick={() => library.setTagLikedFirst(v => !v)}
-                        title="Liked first"
-                      >{"\u2665"} Liked first</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <ViewSearchBar
-                query={viewSearch.getQuery("tags")}
-                onQueryChange={(q) => viewSearch.setQuery("tags", q)}
-                placeholder="Search tags..."
-                {...tagSearchNav}
-              />
-
-              {/* Tags: Basic view */}
-              {library.tagViewMode === "basic" && (
-                <div className="entity-table">
-                  <div className="entity-table-header">
-                    <span className="entity-table-like"></span>
-                    <span className={`entity-table-name sortable${library.tagSortField === "name" ? " sorted" : ""}`} onClick={() => library.handleTagSort("name")}>
-                      Name{library.tagSortField === "name" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                    </span>
-                    <span className={`entity-table-count sortable${library.tagSortField === "tracks" ? " sorted" : ""}`} onClick={() => library.handleTagSort("tracks")}>
-                      Tracks{library.tagSortField === "tracks" ? (library.tagSortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
-                    </span>
-                  </div>
-                  {filteredTags.map((t, i) => (
-                    <div
-                      key={t.id}
-                      className={`entity-table-row${i === highlightedListIndex ? " highlighted" : ""}`}
-                      onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setView("all"); }}
-                    >
-                      <span
-                        className="entity-table-like"
-                        onClick={(e) => { e.stopPropagation(); likeActions.handleToggleTagLike(t.id); }}
-                      >{t.liked === 1 ? "\u2665" : "\u2661"}</span>
-                      <span className="entity-table-name">{t.name}</span>
-                      <span className="entity-table-count">{t.track_count}</span>
-                    </div>
-                  ))}
-                  {filteredTags.length === 0 && (
-                    <div className="empty">{viewSearch.getQuery("tags").trim() ? `No tags matching "${viewSearch.getQuery("tags")}"` : "No tags found. Add a folder or server to get started."}</div>
-                  )}
-                </div>
-              )}
-
-              {/* Tags: List view */}
-              {library.tagViewMode === "list" && (
-                <div className="entity-list">
-                  {filteredTags.map((t, i) => (
-                    <div
-                      key={t.id}
-                      className={`entity-list-item${i === highlightedListIndex ? " highlighted" : ""}`}
-                      onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setView("all"); }}
-                    >
-                      <span
-                        className="entity-list-like"
-                        onClick={(e) => { e.stopPropagation(); likeActions.handleToggleTagLike(t.id); }}
-                      >{t.liked === 1 ? "\u2665" : "\u2661"}</span>
-                      <TagCardArt tag={t} imagePath={tagImageCache.images[t.id]} onVisible={tagImageCache.fetchOnDemand} className="entity-list-img" />
-                      <div className="entity-list-info">
-                        <span className="entity-list-name">{t.name}</span>
-                        <span className="entity-list-secondary">{t.track_count} tracks</span>
-                      </div>
-                    </div>
-                  ))}
-                  {filteredTags.length === 0 && (
-                    <div className="empty">{viewSearch.getQuery("tags").trim() ? `No tags matching "${viewSearch.getQuery("tags")}"` : "No tags found. Add a folder or server to get started."}</div>
-                  )}
-                </div>
-              )}
-
-              {/* Tags: Tiles view */}
-              {library.tagViewMode === "tiles" && (
-                <div className="tiles-scroll">
-                  <div className="album-grid">
-                    {filteredTags.map((t, i) => (
-                      <div
-                        key={t.id}
-                        className={`tag-card${i === highlightedListIndex ? " highlighted" : ""}`}
-                        onClick={() => { pushAndScroll(); library.setSelectedTag(t.id); library.setView("all"); }}
-                      >
-                        <TagCardArt tag={t} imagePath={tagImageCache.images[t.id]} onVisible={tagImageCache.fetchOnDemand} />
-                        <div
-                          className={`artist-card-like${t.liked === 1 ? " liked" : ""}`}
-                          onClick={(e) => { e.stopPropagation(); likeActions.handleToggleTagLike(t.id); }}
-                        >{t.liked === 1 ? "\u2665" : "\u2661"}</div>
-                        <div className="tag-card-body">
-                          <div className="tag-card-name" title={t.name}>{t.name}</div>
-                          <div className="tag-card-info">{t.track_count} tracks</div>
-                        </div>
-                      </div>
-                    ))}
-                    {filteredTags.length === 0 && (
-                      <div className="empty">{viewSearch.getQuery("tags").trim() ? `No tags matching "${viewSearch.getQuery("tags")}"` : "No tags found. Add a folder or server to get started."}</div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </>
+            <TagListView
+              tags={filteredTags}
+              highlightedIndex={highlightedListIndex}
+              viewMode={library.tagViewMode}
+              sortField={library.tagSortField}
+              sortDir={library.tagSortDir}
+              sortBarCollapsed={library.sortBarCollapsed}
+              likedFirst={library.tagLikedFirst}
+              searchQuery={viewSearch.getQuery("tags")}
+              tagImages={tagImageCache.images}
+              onTagClick={(id) => { pushAndScroll(); library.setSelectedTag(id); library.setView("all"); }}
+              onToggleLike={likeActions.handleToggleTagLike}
+              onSort={library.handleTagSort}
+              onSetLikedFirst={library.setTagLikedFirst}
+              onSearchChange={(q) => viewSearch.setQuery("tags", q)}
+              searchNav={tagSearchNav}
+              onFetchImage={tagImageCache.fetchOnDemand}
+            />
           )}
 
           {/* Tag detail header */}
