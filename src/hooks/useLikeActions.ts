@@ -1,0 +1,116 @@
+import { invoke } from "@tauri-apps/api/core";
+import type { Track, Artist, Album, Tag } from "../types";
+import type { PluginEventName } from "../types/plugin";
+
+interface LibraryDeps {
+  tracks: Track[];
+  artists: Artist[];
+  albums: Album[];
+  tags: Tag[];
+  setTracks: React.Dispatch<React.SetStateAction<Track[]>>;
+  setArtists: React.Dispatch<React.SetStateAction<Artist[]>>;
+  setAlbums: React.Dispatch<React.SetStateAction<Album[]>>;
+  setTags: React.Dispatch<React.SetStateAction<Tag[]>>;
+}
+
+interface PlaybackDeps {
+  currentTrack: Track | null;
+  setCurrentTrack: (t: Track) => void;
+}
+
+interface QueueDeps {
+  setQueue: React.Dispatch<React.SetStateAction<Track[]>>;
+}
+
+interface PluginsDeps {
+  dispatchEvent: (event: PluginEventName, ...args: unknown[]) => void;
+}
+
+interface UseLikeActionsDeps {
+  library: LibraryDeps;
+  playback: PlaybackDeps;
+  queueHook: QueueDeps;
+  lastfmConnected: boolean;
+  plugins: PluginsDeps;
+}
+
+export function useLikeActions(deps: UseLikeActionsDeps) {
+  const { library, playback, queueHook, lastfmConnected, plugins } = deps;
+
+  async function handleToggleLike(track: Track) {
+    const newLiked = track.liked === 1 ? 0 : 1;
+    try {
+      await invoke("toggle_liked", { kind: "track", id: track.id, liked: newLiked });
+      library.setTracks(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
+      if (playback.currentTrack?.id === track.id) {
+        playback.setCurrentTrack({ ...playback.currentTrack, liked: newLiked });
+      }
+      queueHook.setQueue(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
+      if (lastfmConnected) {
+        const cmd = newLiked === 1 ? "lastfm_love_track" : "lastfm_unlove_track";
+        invoke(cmd, { trackId: track.id }).catch(console.error);
+      }
+      plugins.dispatchEvent("track:liked", track, newLiked === 1);
+    } catch (e) {
+      console.error("Failed to toggle like:", e);
+    }
+  }
+
+  async function handleToggleDislike(track: Track) {
+    const newLiked = track.liked === -1 ? 0 : -1;
+    try {
+      await invoke("toggle_liked", { kind: "track", id: track.id, liked: newLiked });
+      library.setTracks(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
+      if (playback.currentTrack?.id === track.id) {
+        playback.setCurrentTrack({ ...playback.currentTrack, liked: newLiked });
+      }
+      queueHook.setQueue(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
+    } catch (e) {
+      console.error("Failed to toggle dislike:", e);
+    }
+  }
+
+  async function handleToggleArtistLike(artistId: number) {
+    const artist = library.artists.find(a => a.id === artistId);
+    if (!artist) return;
+    const newLiked = artist.liked === 1 ? 0 : 1;
+    try {
+      await invoke("toggle_liked", { kind: "artist", id: artistId, liked: newLiked });
+      library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked: newLiked } : a));
+    } catch (e) {
+      console.error("Failed to toggle artist like:", e);
+    }
+  }
+
+  async function handleToggleAlbumLike(albumId: number) {
+    const album = library.albums.find(a => a.id === albumId);
+    if (!album) return;
+    const newLiked = album.liked === 1 ? 0 : 1;
+    try {
+      await invoke("toggle_liked", { kind: "album", id: albumId, liked: newLiked });
+      library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: newLiked } : a));
+    } catch (e) {
+      console.error("Failed to toggle album like:", e);
+    }
+  }
+
+  async function handleToggleTagLike(tagId: number) {
+    const tag = library.tags.find(t => t.id === tagId);
+    if (!tag) return;
+    const newLiked = tag.liked === 1 ? 0 : 1;
+    try {
+      await invoke("toggle_liked", { kind: "tag", id: tagId, liked: newLiked });
+      library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked: newLiked } : t));
+    } catch (e) {
+      console.error("Failed to toggle tag like:", e);
+    }
+  }
+
+  return {
+    handleToggleLike,
+    handleToggleDislike,
+    handleToggleArtistLike,
+    handleToggleAlbumLike,
+    handleToggleTagLike,
+  };
+}
