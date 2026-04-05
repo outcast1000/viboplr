@@ -3849,6 +3849,9 @@ body {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
 }
 
 .track-detail-top {
@@ -3856,7 +3859,8 @@ body {
   flex-wrap: wrap;
   padding: 24px 16px;
   gap: 16px 24px;
-  border-bottom: 1px solid var(--border);
+  min-width: 300px;
+  flex: 1 1 400px;
 }
 
 .track-detail-header {
@@ -3946,11 +3950,12 @@ body {
   margin-top: 6px;
 }
 
-/* Lyrics — main content area */
+/* Lyrics — sits right of top when space allows, wraps below when narrow */
 .track-detail-lyrics-main {
   padding: 16px;
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 300px;
+  min-height: 200px;
+  max-height: 100%;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
