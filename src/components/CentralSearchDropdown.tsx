@@ -219,93 +219,97 @@ export function CentralSearchDropdown({
 
       {showOverlay && (
         <div className="central-search-dropdown" ref={dropdownRef}>
-          {results.artists.length > 0 && (
-            <>
-              <div className="search-section-header">Artists</div>
-              {results.artists.map((artist, i) => (
-                <div
-                  key={`artist-${artist.id}`}
-                  className={`central-search-result ${artistOffset + i === highlightedIndex ? "highlighted" : ""}`}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    onResultClick({ kind: "artist", data: artist });
-                  }}
-                >
-                  <div className="result-art">
-                    <ArtistImage artist={artist} artistImages={artistImages} />
-                  </div>
-                  <div className="result-info">
-                    <div className="result-title">{artist.name}</div>
-                    <div className="result-subtitle">Artist · {artist.track_count} tracks</div>
-                  </div>
-                  <span className="result-action">→</span>
-                </div>
-              ))}
-            </>
-          )}
-          {results.albums.length > 0 && (
-            <>
-              <div className="search-section-header">Albums</div>
-              {results.albums.map((album, i) => (
-                <div
-                  key={`album-${album.id}`}
-                  className={`central-search-result ${albumOffset + i === highlightedIndex ? "highlighted" : ""}`}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    onResultClick({ kind: "album", data: album });
-                  }}
-                >
-                  <div className="result-art">
-                    <AlbumImage album={album} albumImages={albumImages} artistImages={artistImages} />
-                  </div>
-                  <div className="result-info">
-                    <div className="result-title">{album.title}</div>
-                    <div className="result-subtitle">
-                      {album.artist_name}
-                      {album.artist_name && album.year ? " · " : ""}
-                      {album.year}
+          <div className="central-search-results">
+            {results.artists.length > 0 && (
+              <>
+                <div className="search-section-header">Artists</div>
+                {results.artists.map((artist, i) => (
+                  <div
+                    key={`artist-${artist.id}`}
+                    className={`central-search-result ${artistOffset + i === highlightedIndex ? "highlighted" : ""}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onResultClick({ kind: "artist", data: artist });
+                    }}
+                  >
+                    <div className="result-art">
+                      <ArtistImage artist={artist} artistImages={artistImages} />
                     </div>
-                  </div>
-                  <span className="result-action">→</span>
-                </div>
-              ))}
-            </>
-          )}
-          {results.tracks.length > 0 && (
-            <>
-              <div className="search-section-header">Tracks</div>
-              {results.tracks.map((track, i) => (
-                <div
-                  key={`track-${track.id}`}
-                  className={`central-search-result ${trackOffset + i === highlightedIndex ? "highlighted" : ""}`}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    onResultClick({ kind: "track", data: track });
-                  }}
-                >
-                  <div className="result-art">
-                    <TrackImage track={track} albumImages={albumImages} artistImages={artistImages} />
-                  </div>
-                  <div className="result-info">
-                    <div className="result-title">{track.title}</div>
-                    <div className="result-subtitle">
-                      {track.artist_name}
-                      {track.artist_name && track.album_title && " · "}
-                      {track.album_title}
+                    <div className="result-info">
+                      <div className="result-title">{artist.name}</div>
+                      <div className="result-subtitle">Artist · {artist.track_count} tracks</div>
                     </div>
+                    <span className="result-action">→</span>
                   </div>
-                  <span className="result-play">▶</span>
-                </div>
-              ))}
-            </>
-          )}
-          <div className="central-search-footer">
-            <span><kbd>↵</kbd> play track / open</span>
-            <span className="footer-separator">·</span>
-            <span><kbd>{mod}↵</kbd> add to queue</span>
-            <span className="footer-separator">·</span>
-            <span><kbd>↵</kbd> without selection to search all</span>
+                ))}
+              </>
+            )}
+            {results.albums.length > 0 && (
+              <>
+                <div className="search-section-header">Albums</div>
+                {results.albums.map((album, i) => (
+                  <div
+                    key={`album-${album.id}`}
+                    className={`central-search-result ${albumOffset + i === highlightedIndex ? "highlighted" : ""}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onResultClick({ kind: "album", data: album });
+                    }}
+                  >
+                    <div className="result-art">
+                      <AlbumImage album={album} albumImages={albumImages} artistImages={artistImages} />
+                    </div>
+                    <div className="result-info">
+                      <div className="result-title">{album.title}</div>
+                      <div className="result-subtitle">
+                        {album.artist_name}
+                        {album.artist_name && album.year ? " · " : ""}
+                        {album.year}
+                      </div>
+                    </div>
+                    <span className="result-action">→</span>
+                  </div>
+                ))}
+              </>
+            )}
+            {results.tracks.length > 0 && (
+              <>
+                <div className="search-section-header">Tracks</div>
+                {results.tracks.map((track, i) => (
+                  <div
+                    key={`track-${track.id}`}
+                    className={`central-search-result ${trackOffset + i === highlightedIndex ? "highlighted" : ""}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      onResultClick({ kind: "track", data: track });
+                    }}
+                  >
+                    <div className="result-art">
+                      <TrackImage track={track} albumImages={albumImages} artistImages={artistImages} />
+                    </div>
+                    <div className="result-info">
+                      <div className="result-title">{track.title}</div>
+                      <div className="result-subtitle">
+                        {track.artist_name}
+                        {track.artist_name && track.album_title && " · "}
+                        {track.album_title}
+                      </div>
+                    </div>
+                    <span className="result-play">▶</span>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
+          {items.length > 0 && (
+            <div className="central-search-footer">
+              <span><kbd>↵</kbd> play track / open</span>
+              <span className="footer-separator">·</span>
+              <span><kbd>{mod}↵</kbd> add to queue</span>
+              <span className="footer-separator">·</span>
+              <span><kbd>↵</kbd> without selection to search all</span>
+            </div>
+          )}
         </div>
       )}
     </div>

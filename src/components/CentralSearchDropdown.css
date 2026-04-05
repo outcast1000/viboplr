@@ -70,7 +70,14 @@
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
   margin-top: 2px;
   max-height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+
+.central-search-results {
+  flex: 1 1 auto;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .central-search-result {
@@ -184,6 +191,7 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .central-search-footer kbd {
