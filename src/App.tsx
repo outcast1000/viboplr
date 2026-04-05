@@ -2576,9 +2576,7 @@ function App() {
                                   title={inLibrary ? "Play" : "Watch on YouTube"}
                                   onClick={async () => {
                                     if (inLibrary) {
-                                      const libTracks = artistTopTracks.filter(e => e.libraryTrack).map(e => e.libraryTrack!);
-                                      const idx = libTracks.findIndex(t => t.id === entry.libraryTrack!.id);
-                                      queueHook.playTracks(libTracks, idx >= 0 ? idx : 0);
+                                      queueHook.playTracks([entry.libraryTrack!], 0);
                                     } else {
                                       addLog("Searching YouTube...");
                                       try {
@@ -2593,7 +2591,7 @@ function App() {
                                     }
                                   }}
                                 >
-                                  {inLibrary ? "Play" : "YouTube"}
+                                  {inLibrary ? "\u25B6" : "\u25B7"}
                                 </button>
                                 <span className="col-popularity top-song-pop">
                                   <span className="popularity-fill" style={{ width: `${pct}%` }} />

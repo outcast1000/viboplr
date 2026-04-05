@@ -3647,16 +3647,19 @@ body {
 
 .top-song-action-btn {
   flex-shrink: 0;
-  padding: 2px 10px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   font-size: var(--fs-xs);
+  line-height: 1;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg-secondary);
   color: var(--text-primary);
   cursor: pointer;
-  white-space: nowrap;
-  min-width: 64px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .top-song-action-btn:hover {
