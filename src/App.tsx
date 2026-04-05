@@ -2565,21 +2565,36 @@ function App() {
                               <div
                                 key={`${entry.name}-${i}`}
                                 className={`top-song-row${inLibrary ? "" : " top-song-missing"}`}
-                                onDoubleClick={() => {
-                                  if (entry.libraryTrack) {
-                                    const libTracks = artistTopTracks.filter(e => e.libraryTrack).map(e => e.libraryTrack!);
-                                    const idx = libTracks.findIndex(t => t.id === entry.libraryTrack!.id);
-                                    queueHook.playTracks(libTracks, idx >= 0 ? idx : 0);
-                                  } else {
-                                    addLog(`"${entry.name}" is not in your library`);
-                                  }
-                                }}
                                 onContextMenu={(e) => {
                                   e.preventDefault();
                                   setTopSongMenu({ x: e.clientX, y: e.clientY, entry, artistName: artist?.name ?? "" });
                                 }}
                               >
                                 <span className="top-song-rank">{i + 1}</span>
+                                <button
+                                  className="top-song-action-btn"
+                                  title={inLibrary ? "Play" : "Watch on YouTube"}
+                                  onClick={async () => {
+                                    if (inLibrary) {
+                                      const libTracks = artistTopTracks.filter(e => e.libraryTrack).map(e => e.libraryTrack!);
+                                      const idx = libTracks.findIndex(t => t.id === entry.libraryTrack!.id);
+                                      queueHook.playTracks(libTracks, idx >= 0 ? idx : 0);
+                                    } else {
+                                      addLog("Searching YouTube...");
+                                      try {
+                                        const result = await invoke<{ url: string; video_title: string | null }>(
+                                          "search_youtube", { title: entry.name, artistName: artist?.name ?? "" }
+                                        );
+                                        await openUrl(result.url);
+                                      } catch {
+                                        const q = encodeURIComponent(`${entry.name} ${artist?.name ?? ""}`);
+                                        await openUrl(`https://www.youtube.com/results?search_query=${q}`);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  {inLibrary ? "Play" : "YouTube"}
+                                </button>
                                 <span className="col-popularity top-song-pop">
                                   <span className="popularity-fill" style={{ width: `${pct}%` }} />
                                   <span className="popularity-count">{formatCount(entry.listeners)}</span>
@@ -3725,10 +3740,6 @@ function App() {
                 <>
                   <div className="context-menu-item" onClick={() => {
                     setTopSongMenu(null);
-                    queueHook.playTracks([entry.libraryTrack!], 0);
-                  }}>Play</div>
-                  <div className="context-menu-item" onClick={() => {
-                    setTopSongMenu(null);
                     queueHook.addToQueue(entry.libraryTrack!);
                     addLog(`Enqueued "${entry.name}"`);
                   }}>Enqueue</div>
@@ -3747,19 +3758,6 @@ function App() {
               {!inLibrary && (
                 <div className="context-menu-item" style={{ opacity: 0.5, cursor: "default" }}>Not in library</div>
               )}
-              <div className="context-menu-item" onClick={async () => {
-                setTopSongMenu(null);
-                addLog("Searching YouTube...");
-                try {
-                  const result = await invoke<{ url: string; video_title: string | null }>(
-                    "search_youtube", { title: entry.name, artistName }
-                  );
-                  await openUrl(result.url);
-                } catch {
-                  const q = encodeURIComponent(`${entry.name} ${artistName}`);
-                  await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-                }
-              }}>Watch on YouTube</div>
               {trackProviders.length > 0 && (
                 <div className="artist-image-menu-submenu">
                   <div className="context-menu-item artist-image-menu-submenu-trigger">

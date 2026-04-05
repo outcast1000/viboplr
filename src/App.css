@@ -3645,6 +3645,24 @@ body {
   flex-shrink: 0;
 }
 
+.top-song-action-btn {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  font-size: var(--fs-xs);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 64px;
+  text-align: center;
+}
+
+.top-song-action-btn:hover {
+  background: var(--bg-hover);
+}
+
 .top-song-title {
   flex: 1;
   min-width: 0;
