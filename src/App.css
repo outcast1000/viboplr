@@ -2913,7 +2913,7 @@ body {
 
 .now-info {
   flex: 1 1 0;
-  max-width: 350px;
+  max-width: calc(50% - 100px);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -3145,10 +3145,100 @@ body {
   border: none;
 }
 
-.mode-btn.active,
-.queue-toggle-btn.active,
-.auto-continue-btn.active {
+/* Glass buttons — now-playing bar */
+.g-btn {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  padding: 0;
+}
+.g-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.g-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.g-btn svg {
+  display: block;
+}
+
+/* Size variants */
+.g-btn-play {
+  width: 46px;
+  height: 46px;
+  background: rgba(var(--accent-rgb), 0.18);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
   color: var(--accent);
+  box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.g-btn-play:hover {
+  background: rgba(var(--accent-rgb), 0.28);
+  color: #fff;
+  box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.2);
+}
+.g-btn-md {
+  width: 34px;
+  height: 34px;
+}
+.g-btn-sm {
+  width: 28px;
+  height: 28px;
+}
+.g-btn-xs {
+  width: 24px;
+  height: 24px;
+  color: var(--text-tertiary);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Active/toggle state */
+.g-btn.active {
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.25);
+  color: var(--accent);
+}
+.g-btn.active:hover {
+  background: rgba(var(--accent-rgb), 0.2);
+  color: #fff;
+}
+
+/* Like button states */
+.g-btn.liked {
+  color: var(--error);
+  background: rgba(255, 77, 106, 0.1);
+  border-color: rgba(255, 77, 106, 0.2);
+}
+.g-btn.liked:hover {
+  background: rgba(255, 77, 106, 0.18);
+  color: #fff;
+}
+.g-btn.disliked {
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Volume glass enhancements */
+.now-volume .g-btn {
+  margin-right: 2px;
+}
+.volume-slider::-webkit-slider-thumb {
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.4);
+}
+.volume-slider {
+  border: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 /* Help / Shortcuts */
