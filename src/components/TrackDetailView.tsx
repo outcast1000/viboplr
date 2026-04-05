@@ -402,7 +402,7 @@ export function TrackDetailView({
             {(trackTags.length > 0 || filteredCommunityTags.length > 0 || (trackInfo?.toptags && trackInfo.toptags.length > 0)) && (
               <>
                 <div className="track-detail-section-title section-header" onClick={() => onToggleSection("tags")}>
-                  <span className={`section-chevron${sections.tags === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                  <svg className={`section-chevron${sections.tags === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                   Tags
                 </div>
                 {sections.tags !== false && (
@@ -427,7 +427,7 @@ export function TrackDetailView({
 
         <div className="track-detail-genius">
           <div className="track-detail-section-title section-header" onClick={() => onToggleSection("geniusExplanations")}>
-            <span className={`section-chevron${sections.geniusExplanations === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+            <svg className={`section-chevron${sections.geniusExplanations === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
             Song Explanation
             {geniusExplanation?.song_url && (
               <a className="genius-link" onClick={(e) => { e.stopPropagation(); openUrl(geniusExplanation.song_url); }} title="View on Genius">
@@ -467,7 +467,7 @@ export function TrackDetailView({
 
         <div className="track-detail-lyrics-section">
           <div className="track-detail-section-title section-header" onClick={() => onToggleSection("lyrics")}>
-            <span className={`section-chevron${sections.lyrics === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+            <svg className={`section-chevron${sections.lyrics === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
             Lyrics
           </div>
           {sections.lyrics !== false && (
@@ -488,7 +488,7 @@ export function TrackDetailView({
 
         <div className="track-detail-similar">
           <div className="track-detail-section-title section-header" onClick={() => onToggleSection("similar")}>
-            <span className={`section-chevron${sections.similar === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+            <svg className={`section-chevron${sections.similar === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
             Similar Tracks
           </div>
           {sections.similar !== false && (<>
@@ -519,7 +519,7 @@ export function TrackDetailView({
 
         <div className="track-detail-scrobbles">
           <div className="track-detail-section-title section-header" onClick={() => onToggleSection("scrobbleHistory")}>
-            <span className={`section-chevron${sections.scrobbleHistory === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+            <svg className={`section-chevron${sections.scrobbleHistory === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
               Play History
               {playStats && <span className="track-detail-count"> ({formatCount(playStats.play_count)})</span>}
             </div>

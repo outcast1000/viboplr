@@ -432,13 +432,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  font-size: var(--fs-xs);
-  transition: transform 0.15s;
+  width: 16px;
+  height: 16px;
+  transition: transform 0.2s ease;
   color: var(--text-secondary);
   flex-shrink: 0;
-  border-radius: 3px;
 }
 
 .section-header:hover .section-chevron {

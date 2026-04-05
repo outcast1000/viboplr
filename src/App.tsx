@@ -2550,7 +2550,7 @@ function App() {
                   </div>
                   {artistTopTracks.length > 0 && (
                     <div className="artist-bio-title section-header" onClick={() => handleToggleArtistSection("topSongs")}>
-                      <span className={`section-chevron${artistSections.topSongs === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                      <svg className={`section-chevron${artistSections.topSongs === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                       Top Songs
                     </div>
                   )}
@@ -2607,7 +2607,7 @@ function App() {
                     );
                   })()}
                   <div className="artist-bio-title section-header" onClick={() => handleToggleArtistSection("about")}>
-                    <span className={`section-chevron${artistSections.about === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                    <svg className={`section-chevron${artistSections.about === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                     About
                   </div>
                   {artistSections.about !== false && (
@@ -2627,7 +2627,7 @@ function App() {
 
                 {library.artistAlbums.length > 0 && (
                   <div className="section-title section-header" onClick={() => handleToggleArtistSection("albums")}>
-                    <span className={`section-chevron${artistSections.albums === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                    <svg className={`section-chevron${artistSections.albums === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                     Albums
                   </div>
                 )}
@@ -2683,7 +2683,7 @@ function App() {
 
                 {similarArtists.length > 0 && (
                   <div className="section-title section-header" onClick={() => handleToggleArtistSection("similarArtists")}>
-                    <span className={`section-chevron${artistSections.similarArtists === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                    <svg className={`section-chevron${artistSections.similarArtists === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                     Similar Artists
                   </div>
                 )}
@@ -3080,7 +3080,7 @@ function App() {
                 </div>
                 <div className="album-wiki-section">
                   <div className="artist-bio-title section-header" onClick={() => handleToggleAlbumSection("review")}>
-                    <span className={`section-chevron${albumSections.review === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                    <svg className={`section-chevron${albumSections.review === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                     Review
                   </div>
                   {albumSections.review !== false && (
@@ -3297,7 +3297,7 @@ function App() {
             <>
               {albumUnmatchedTracks.length > 0 && (
                 <div className="unmatched-tracks-title section-header" onClick={() => handleToggleAlbumSection("unmatchedTracks")}>
-                  <span className={`section-chevron${albumSections.unmatchedTracks === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                  <svg className={`section-chevron${albumSections.unmatchedTracks === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                   Not in library
                 </div>
               )}
