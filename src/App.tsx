@@ -8,7 +8,7 @@ import { listen } from "@tauri-apps/api/event";
 import "./base.css";
 import "./App.css";
 
-import type { Album, Collection, Track, View, ViewMode, ColumnConfig, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField } from "./types";
+import type { Album, Track, View, ViewMode, ColumnConfig, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField } from "./types";
 import { isVideoTrack, getInitials, parseSubsonicUrl, formatDuration, stripAccents, formatCount } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
@@ -36,6 +36,7 @@ import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
 import { useLastfm } from "./hooks/useLastfm";
 import { useDownloads } from "./hooks/useDownloads";
 import { useLikeActions } from "./hooks/useLikeActions";
+import { useCollectionActions } from "./hooks/useCollectionActions";
 import type { TidalSearchTrackLike } from "./types/plugin";
 import { WindowControls } from "./components/WindowControls";
 import { useViewSearchState } from "./hooks/useViewSearchState";
@@ -342,10 +343,6 @@ function App() {
   const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
-  const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
-  const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
-  const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
-  const [removeCollectionConfirm, setRemoveCollectionConfirm] = useState<Collection | null>(null);
   const [artistBio, setArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
   const [artistInfoLoading, setArtistInfoLoading] = useState(false);
   const [albumWiki, setAlbumWiki] = useState<string | null>(null);
@@ -393,6 +390,21 @@ function App() {
     lastfmConnected: lastfm.lastfmConnected,
     plugins: {
       dispatchEvent: plugins.dispatchEvent,
+    },
+  });
+
+  // Collection actions
+  const collectionActions = useCollectionActions({
+    library: {
+      loadLibrary: library.loadLibrary,
+      loadTracks: library.loadTracks,
+    },
+    playback: {
+      currentTrack: playback.currentTrack,
+      handleStop: playback.handleStop,
+    },
+    queueHook: {
+      setQueue: queueHook.setQueue,
     },
   });
 
@@ -1684,66 +1696,6 @@ function App() {
       store.set("queueCollapsed", next);
       return next;
     });
-  }
-
-  async function handleResyncCollection(collectionId: number) {
-    await invoke("resync_collection", { collectionId });
-  }
-
-  async function handleToggleCollectionEnabled(collection: Collection) {
-    await invoke("update_collection", {
-      collectionId: collection.id,
-      name: collection.name,
-      autoUpdate: collection.auto_update,
-      autoUpdateIntervalMins: collection.auto_update_interval_mins,
-      enabled: !collection.enabled,
-    });
-    library.loadLibrary();
-    library.loadTracks();
-  }
-
-  async function handleCheckConnection(collectionId: number) {
-    setCheckingConnectionId(collectionId);
-    setConnectionResult(null);
-    try {
-      const msg = await invoke<string>("test_collection_connection", { collectionId });
-      setConnectionResult({ collectionId, ok: true, message: msg });
-    } catch (e) {
-      setConnectionResult({ collectionId, ok: false, message: String(e) });
-    } finally {
-      setCheckingConnectionId(null);
-      library.loadLibrary();
-      setTimeout(() => setConnectionResult(null), 5000);
-    }
-  }
-
-  async function handleSaveCollection(id: number, name: string, autoUpdate: boolean, autoUpdateIntervalMins: number, enabled: boolean) {
-    await invoke("update_collection", {
-      collectionId: id,
-      name,
-      autoUpdate,
-      autoUpdateIntervalMins,
-      enabled,
-    });
-    setEditingCollection(null);
-    library.loadLibrary();
-    library.loadTracks();
-  }
-
-  async function handleRemoveCollectionConfirm() {
-    if (!removeCollectionConfirm) return;
-    try {
-      await invoke("remove_collection", { collectionId: removeCollectionConfirm.id });
-      if (playback.currentTrack && playback.currentTrack.collection_id === removeCollectionConfirm.id) {
-        playback.handleStop();
-      }
-      queueHook.setQueue(prev => prev.filter(t => t.collection_id !== removeCollectionConfirm.id));
-      library.loadLibrary();
-      library.loadTracks();
-    } catch (e) {
-      console.error("Failed to remove collection:", e);
-    }
-    setRemoveCollectionConfirm(null);
   }
 
   // Bridge for keyboard shortcuts
@@ -3323,13 +3275,13 @@ function App() {
           {view === "collections" && (
             <CollectionsView
               collections={library.collections.filter(c => c.kind !== "tidal")}
-              onToggleEnabled={handleToggleCollectionEnabled}
-              onCheckConnection={handleCheckConnection}
-              onResync={handleResyncCollection}
-              checkingConnectionId={checkingConnectionId}
-              connectionResult={connectionResult}
-              onEdit={(c) => setEditingCollection(c)}
-              onRemove={(c) => setRemoveCollectionConfirm(c)}
+              onToggleEnabled={collectionActions.handleToggleCollectionEnabled}
+              onCheckConnection={collectionActions.handleCheckConnection}
+              onResync={collectionActions.handleResyncCollection}
+              checkingConnectionId={collectionActions.checkingConnectionId}
+              connectionResult={collectionActions.connectionResult}
+              onEdit={(c) => collectionActions.setEditingCollection(c)}
+              onRemove={(c) => collectionActions.setRemoveCollectionConfirm(c)}
               onAddFolder={handleAddFolder}
               onShowAddServer={() => setShowAddServer(true)}
               statsMap={new Map(library.collectionStats.map(s => [s.collection_id, s]))}
@@ -3680,22 +3632,22 @@ function App() {
         </div>
       )}
 
-      {editingCollection && (
+      {collectionActions.editingCollection && (
         <EditCollectionModal
-          collection={editingCollection}
-          onSave={handleSaveCollection}
-          onClose={() => setEditingCollection(null)}
+          collection={collectionActions.editingCollection}
+          onSave={collectionActions.handleSaveCollection}
+          onClose={() => collectionActions.setEditingCollection(null)}
         />
       )}
 
-      {removeCollectionConfirm && (
-        <div className="modal-overlay" onClick={() => setRemoveCollectionConfirm(null)}>
+      {collectionActions.removeCollectionConfirm && (
+        <div className="modal-overlay" onClick={() => collectionActions.setRemoveCollectionConfirm(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Remove &ldquo;{removeCollectionConfirm.name}&rdquo;?</h2>
+            <h2>Remove &ldquo;{collectionActions.removeCollectionConfirm.name}&rdquo;?</h2>
             <p className="delete-confirm-warning">This will permanently remove this collection and all its tracks from the library.</p>
             <div className="modal-actions">
-              <button className="modal-btn modal-btn-cancel" onClick={() => setRemoveCollectionConfirm(null)}>Cancel</button>
-              <button className="modal-btn modal-btn-danger" onClick={handleRemoveCollectionConfirm}>Remove</button>
+              <button className="modal-btn modal-btn-cancel" onClick={() => collectionActions.setRemoveCollectionConfirm(null)}>Cancel</button>
+              <button className="modal-btn modal-btn-danger" onClick={collectionActions.handleRemoveCollectionConfirm}>Remove</button>
             </div>
           </div>
         </div>
