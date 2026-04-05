@@ -2274,6 +2274,28 @@ pub fn lastfm_get_artist_track_popularity(
 }
 
 #[tauri::command]
+pub fn lastfm_get_track_info(state: State<'_, AppState>, app: AppHandle, artist_name: String, track_title: String) -> Option<serde_json::Value> {
+    let cache_key = format!("track_info:{}:{}", artist_name.to_lowercase(), track_title.to_lowercase());
+    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
+        return Some(cached);
+    }
+    let db = state.db.clone();
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    thread::spawn(move || {
+        match lastfm.get_track_info(&artist_name, &track_title) {
+            Ok(value) => {
+                let _ = db.lastfm_cache_set(&cache_key, &value);
+                let _ = app.emit("lastfm-track-info", value);
+            }
+            Err(_) => {
+                let _ = app.emit("lastfm-track-info-error", ());
+            }
+        }
+    });
+    None
+}
+
+#[tauri::command]
 pub fn lastfm_get_track_tags(state: State<'_, AppState>, app: AppHandle, artist_name: String, track_title: String) -> Option<serde_json::Value> {
     let cache_key = format!("track_tags:{}:{}", artist_name.to_lowercase(), track_title.to_lowercase());
     if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
@@ -3244,17 +3266,33 @@ pub fn fetch_lyrics(app: tauri::AppHandle, state: State<'_, AppState>, track_id:
 
     // Check failure record (skip if not force)
     if !force && db.is_image_failed("lyrics", track_id).unwrap_or(false) {
+        let _ = app.emit("lyrics-error", crate::models::LyricsError {
+            track_id,
+            error: "Lyrics not available".to_string(),
+        });
         return;
     }
 
     // Resolve track info before spawning
     let track = match db.get_track_by_id(track_id) {
         Ok(t) => t,
-        Err(_) => return,
+        Err(_) => {
+            let _ = app.emit("lyrics-error", crate::models::LyricsError {
+                track_id,
+                error: "Track not found".to_string(),
+            });
+            return;
+        }
     };
     let artist_name = match track.artist_name {
         Some(ref name) => name.clone(),
-        None => return,
+        None => {
+            let _ = app.emit("lyrics-error", crate::models::LyricsError {
+                track_id,
+                error: "No artist name".to_string(),
+            });
+            return;
+        }
     };
     let title = track.title.clone();
     let duration = track.duration_secs;

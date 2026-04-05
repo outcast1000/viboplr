@@ -2340,7 +2340,6 @@ function App() {
                 track={track}
                 albumImagePath={track.album_id ? albumImageCache.images[track.album_id] ?? null : null}
                 positionSecs={isCurrentTrack ? playback.positionSecs : 0}
-                playing={isCurrentTrack && playback.playing}
                 isCurrentTrack={isCurrentTrack}
                 sections={trackSections}
                 onToggleSection={handleToggleTrackSection}
@@ -2349,7 +2348,10 @@ function App() {
                 onTagClick={(tagId) => { library.setSelectedTrack(null); library.setSelectedTag(tagId); library.setView("tags"); }}
                 onPlay={() => queueHook.playTracks([track], 0)}
                 onEnqueue={() => queueHook.enqueueTracks([track])}
-                libraryTags={library.tags}
+                onPlayNext={() => queueHook.playNextInQueue(track)}
+                onShowInFolder={() => invoke("show_in_folder", { trackId: library.selectedTrack })}
+                onShowProperties={() => setPropertiesTrack(track)}
+                providers={searchProviders}
                 addLog={addLog}
               />
             );

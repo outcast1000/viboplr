@@ -2,8 +2,17 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Track, Tag } from "../types";
+import type { Track } from "../types";
+import type { SearchProviderConfig } from "../searchProviders";
+import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
+import { IconPlay, IconEnqueue, IconFolder, IconInfo, IconGlobe } from "./Icons";
 import LyricsPanel from "./LyricsPanel";
+
+function displayPath(path: string): string {
+  if (path.startsWith("subsonic://") || path.startsWith("tidal://")) return path;
+  const sep = path.includes("\\") ? "\\" : "/";
+  return path.split(sep).pop() ?? path;
+}
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) {
@@ -49,12 +58,123 @@ interface TrackPlayStats {
   last_played_at: number | null;
 }
 
+interface SectionToggle {
+  key: string;
+  label: string;
+  visible: boolean;
+}
+
+// --- TrackActions dropdown (modeled after ImageActions) ---
+
+function TrackActions({
+  track, providers, sectionToggles,
+  onPlay, onEnqueue, onPlayNext, onShowInFolder, onShowProperties, onToggleSection,
+}: {
+  track: Track;
+  providers: SearchProviderConfig[];
+  sectionToggles: SectionToggle[];
+  onPlay: () => void;
+  onEnqueue: () => void;
+  onPlayNext: () => void;
+  onShowInFolder: () => void;
+  onShowProperties: () => void;
+  onToggleSection: (key: string) => void;
+}) {
+  const [open_menu, setOpenMenu] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open_menu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpenMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open_menu]);
+
+  const trackProviders = getProvidersForContext(providers, "track");
+
+  return (
+    <div className="artist-image-menu-wrapper" ref={wrapperRef}>
+      <button
+        className="artist-image-menu-trigger"
+        onClick={(e) => { e.stopPropagation(); setOpenMenu(v => !v); }}
+        title="Options"
+      >
+        &#x22EF;
+      </button>
+      {open_menu && (
+        <div className="artist-image-menu-dropdown">
+          <button onClick={() => { setOpenMenu(false); onPlay(); }}>
+            <IconPlay size={14} /><span>Play</span>
+          </button>
+          <button onClick={() => { setOpenMenu(false); onEnqueue(); }}>
+            <IconEnqueue size={14} /><span>Add to Queue</span>
+          </button>
+          <button onClick={() => { setOpenMenu(false); onPlayNext(); }}>
+            <IconEnqueue size={14} /><span>Play Next</span>
+          </button>
+          <div className="artist-image-menu-separator" />
+          <button onClick={() => { setOpenMenu(false); onShowInFolder(); }}>
+            <IconFolder size={14} /><span>Show in Folder</span>
+          </button>
+          <button onClick={() => { setOpenMenu(false); onShowProperties(); }}>
+            <IconInfo size={14} /><span>Properties</span>
+          </button>
+          {trackProviders.length > 0 && (
+            <>
+              <div className="artist-image-menu-separator" />
+              <div className="artist-image-menu-submenu">
+                <button className="artist-image-menu-submenu-trigger">
+                  <IconGlobe size={14} /><span>Web Search</span><span className="artist-image-menu-chevron">{"\u203A"}</span>
+                </button>
+                <div className="artist-image-menu-submenu-list">
+                  {trackProviders.map((provider) => {
+                    const template = provider.trackUrl!;
+                    const url = buildSearchUrl(template, { title: track.title, artist: track.artist_name ?? undefined });
+                    return (
+                      <button key={provider.id} onClick={() => { setOpenMenu(false); openUrl(url); }}>
+                        <span>{provider.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+          {sectionToggles.length > 0 && (
+            <>
+              <div className="artist-image-menu-separator" />
+              <div className="artist-image-menu-submenu">
+                <button className="artist-image-menu-submenu-trigger">
+                  <span>Sections</span><span className="artist-image-menu-chevron">{"\u203A"}</span>
+                </button>
+                <div className="artist-image-menu-submenu-list">
+                  {sectionToggles.map((toggle) => (
+                    <button key={toggle.key} onClick={() => onToggleSection(toggle.key)}>
+                      <span className="section-toggle-check">{toggle.visible ? "\u2713" : ""}</span>
+                      <span>{toggle.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- TrackDetailView ---
+
 interface TrackDetailViewProps {
   trackId: number;
   track: Track;
   albumImagePath: string | null;
   positionSecs: number;
-  playing: boolean;
   isCurrentTrack: boolean;
   sections: Record<string, boolean>;
   onToggleSection: (key: string) => void;
@@ -63,15 +183,19 @@ interface TrackDetailViewProps {
   onTagClick: (tagId: number) => void;
   onPlay: () => void;
   onEnqueue: () => void;
-  libraryTags: Tag[];
+  onPlayNext: () => void;
+  onShowInFolder: () => void;
+  onShowProperties: () => void;
+  providers: SearchProviderConfig[];
   addLog: (msg: string) => void;
 }
 
 export function TrackDetailView({
   trackId, track, albumImagePath,
   positionSecs, isCurrentTrack,
-  sections, onArtistClick, onAlbumClick, onTagClick,
-  onPlay, onEnqueue, addLog,
+  sections, onToggleSection, onArtistClick, onAlbumClick, onTagClick,
+  onPlay, onEnqueue, onPlayNext, onShowInFolder, onShowProperties,
+  providers, addLog,
 }: TrackDetailViewProps) {
   const [lyrics, setLyrics] = useState<{ text: string; kind: string; provider: string } | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
@@ -80,13 +204,14 @@ export function TrackDetailView({
   const [playStats, setPlayStats] = useState<TrackPlayStats | null>(null);
   const [playHistory, setPlayHistory] = useState<Array<{ played_at: number }>>([]);
   const [similarTracks, setSimilarTracks] = useState<Array<{ name: string; artist: { name: string }; match?: string }>>([]);
+  const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
+  const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; toptags?: Array<{ name: string }> } | null>(null);
   const trackIdRef = useRef(trackId);
 
   useEffect(() => { trackIdRef.current = trackId; }, [trackId]);
 
   // Fetch all data when trackId changes
   useEffect(() => {
-    // Reset state
     setLyrics(null);
     setLyricsLoading(true);
     setTrackTags([]);
@@ -94,25 +219,34 @@ export function TrackDetailView({
     setPlayStats(null);
     setPlayHistory([]);
     setSimilarTracks([]);
+    setAudioProps(null);
+    setTrackInfo(null);
 
-    // Lyrics
     invoke("fetch_lyrics", { trackId, force: false }).catch(() => setLyricsLoading(false));
-
-    // Library tags for this track
     invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId }).then(setTrackTags).catch(() => {});
-
-    // Play stats & history
     invoke<TrackPlayStats | null>("get_track_play_stats", { trackId }).then(s => { if (s) setPlayStats(s); }).catch(() => {});
     invoke<Array<{ played_at: number }>>("get_track_play_history", { trackId, limit: 50 }).then(setPlayHistory).catch(() => {});
+    invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>("get_track_audio_properties", { trackId })
+      .then(setAudioProps).catch(() => {});
 
-    // Last.fm data (track tags + similar tracks)
     if (track.artist_name) {
       invoke("lastfm_get_track_tags", { artistName: track.artist_name, trackTitle: track.title }).catch(() => {});
       invoke("lastfm_get_similar_tracks", { artistName: track.artist_name, trackTitle: track.title }).catch(() => {});
+      const parseTrackInfo = (resp: any) => {
+        const t = resp?.track;
+        if (!t) return;
+        setTrackInfo({
+          listeners: t.listeners,
+          playcount: t.playcount,
+          toptags: Array.isArray(t.toptags?.tag) ? t.toptags.tag : [],
+        });
+      };
+      invoke<any>("lastfm_get_track_info", { artistName: track.artist_name, trackTitle: track.title })
+        .then(resp => { if (resp) parseTrackInfo(resp); })
+        .catch(() => {});
     }
   }, [trackId, track.artist_name, track.title]);
 
-  // Event listeners for async results
   useEffect(() => {
     const unlistenLyrics = listen<{ track_id: number; text: string; kind: string; provider: string }>("lyrics-loaded", (event) => {
       if (event.payload.track_id === trackIdRef.current) {
@@ -131,11 +265,21 @@ export function TrackDetailView({
       const tags = event.payload?.toptags?.tag;
       if (Array.isArray(tags)) setCommunityTags(tags);
     });
+    const unlistenTrackInfo = listen<any>("lastfm-track-info", (event) => {
+      const t = event.payload?.track;
+      if (!t) return;
+      setTrackInfo({
+        listeners: t.listeners,
+        playcount: t.playcount,
+        toptags: Array.isArray(t.toptags?.tag) ? t.toptags.tag : [],
+      });
+    });
     return () => {
       unlistenLyrics.then(f => f());
       unlistenLyricsErr.then(f => f());
       unlistenSimilar.then(f => f());
       unlistenTags.then(f => f());
+      unlistenTrackInfo.then(f => f());
     };
   }, []);
 
@@ -174,6 +318,7 @@ export function TrackDetailView({
 
   return (
     <div className="track-detail">
+      {/* Header — art + info + play button + options menu */}
       <div className="track-detail-top">
         <div className="track-detail-header">
           <div className="track-detail-art">
@@ -187,7 +332,26 @@ export function TrackDetailView({
             )}
           </div>
           <div className="track-detail-info">
-            <h2>{track.title}</h2>
+            <h2>
+              {track.title}
+              <button className="artist-play-btn" title="Play" onClick={onPlay}>&#9654;</button>
+              <TrackActions
+                track={track}
+                providers={providers}
+                sectionToggles={[
+                  { key: "lyrics", label: "Lyrics", visible: sections.lyrics !== false },
+                  { key: "tags", label: "Tags", visible: sections.tags !== false },
+                  { key: "scrobbleHistory", label: "Play History", visible: sections.scrobbleHistory !== false },
+                  { key: "similar", label: "Similar Tracks", visible: sections.similar !== false },
+                ]}
+                onPlay={onPlay}
+                onEnqueue={onEnqueue}
+                onPlayNext={onPlayNext}
+                onShowInFolder={onShowInFolder}
+                onShowProperties={onShowProperties}
+                onToggleSection={onToggleSection}
+              />
+            </h2>
             <div className="track-detail-meta">
               {track.artist_name && (
                 <span className="track-detail-link" onClick={() => track.artist_id && onArtistClick(track.artist_id)}>
@@ -207,65 +371,38 @@ export function TrackDetailView({
             <div className="track-detail-stats">
               {formatDuration(track.duration_secs)}
               {track.format && <> &middot; {track.format.toUpperCase()}</>}
+              {audioProps?.bitrate && <> &middot; {audioProps.bitrate} kbps</>}
+              {audioProps?.sample_rate && <> &middot; {(audioProps.sample_rate / 1000).toFixed(1)} kHz</>}
+              {audioProps?.bit_depth && <> &middot; {audioProps.bit_depth}-bit</>}
             </div>
-            {playStats && (
+            {(playStats || trackInfo) && (
               <div className="track-detail-stats">
-                {formatCount(playStats.play_count)} plays
-                {playStats.last_played_at && <> &middot; Last played {relativeTime(playStats.last_played_at)}</>}
+                {playStats && <>{formatCount(playStats.play_count)} plays</>}
+                {playStats?.last_played_at && <> &middot; Last played {relativeTime(playStats.last_played_at)}</>}
+                {trackInfo?.listeners && <>{playStats ? <> &middot; </> : null}{parseInt(trackInfo.listeners).toLocaleString()} listeners</>}
+                {trackInfo?.playcount && <> &middot; {parseInt(trackInfo.playcount).toLocaleString()} scrobbles</>}
               </div>
             )}
-            <div className="track-detail-actions">
-              <button className="action-btn" onClick={onPlay}>Play</button>
-              <button className="action-btn action-btn-secondary" onClick={onEnqueue}>Enqueue</button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="track-detail-sections">
-        {sections.lyrics !== false && (
-          <div className="track-detail-lyrics">
-            <div className="track-detail-section-title">Lyrics</div>
-            <LyricsPanel
-              trackId={trackId}
-              positionSecs={isCurrentTrack ? positionSecs : 0}
-              lyrics={lyrics}
-              loading={lyricsLoading}
-              onSave={handleSaveLyrics}
-              onReset={handleResetLyrics}
-              onForceRefresh={handleForceRefreshLyrics}
-            />
-          </div>
-        )}
-
-        {sections.tags !== false && (
-          <div className="track-detail-tags">
-            <div className="track-detail-section-title">Tags</div>
-            {trackTags.length > 0 && (
-              <div className="track-tag-chips">
+            <div className="track-detail-path" title={track.path}>{displayPath(track.path)}</div>
+            {sections.tags !== false && (trackTags.length > 0 || filteredCommunityTags.length > 0 || (trackInfo?.toptags && trackInfo.toptags.length > 0)) && (
+              <div className="track-detail-tags-inline">
                 {trackTags.map(tag => (
                   <span key={tag.id} className="track-tag-chip" onClick={() => onTagClick(tag.id)}>{tag.name}</span>
                 ))}
+                {filteredCommunityTags.slice(0, 15).map(tag => (
+                  <span key={tag.name} className="track-tag-chip track-tag-suggestion" onClick={() => handleApplyTag(tag.name)}>
+                    + {tag.name}
+                  </span>
+                ))}
+                {trackInfo?.toptags?.filter(t => !assignedTagNames.has(t.name.toLowerCase()) && !filteredCommunityTags.some(c => c.name.toLowerCase() === t.name.toLowerCase())).slice(0, 10).map(tag => (
+                  <span key={`lfm-${tag.name}`} className="track-tag-chip track-tag-lastfm">{tag.name}</span>
+                ))}
               </div>
             )}
-            {filteredCommunityTags.length > 0 && (
-              <>
-                <div className="track-detail-sublabel">Suggested</div>
-                <div className="track-tag-chips">
-                  {filteredCommunityTags.slice(0, 15).map(tag => (
-                    <span key={tag.name} className="track-tag-chip track-tag-suggestion" onClick={() => handleApplyTag(tag.name)}>
-                      + {tag.name}
-                    </span>
-                  ))}
-                </div>
-              </>
-            )}
-            {trackTags.length === 0 && filteredCommunityTags.length === 0 && !track.artist_name && (
-              <div className="track-detail-empty">No tags</div>
-            )}
           </div>
-        )}
+        </div>
 
+        {/* Play History + Similar Tracks — sit right of header when space allows */}
         {sections.scrobbleHistory !== false && (
           <div className="track-detail-scrobbles">
             <div className="track-detail-section-title">
@@ -314,6 +451,21 @@ export function TrackDetailView({
           </div>
         )}
       </div>
+
+      {/* Lyrics — last section */}
+      {sections.lyrics !== false && (
+        <div className="track-detail-lyrics-main">
+          <LyricsPanel
+            trackId={trackId}
+            positionSecs={isCurrentTrack ? positionSecs : 0}
+            lyrics={lyrics}
+            loading={lyricsLoading}
+            onSave={handleSaveLyrics}
+            onReset={handleResetLyrics}
+            onForceRefresh={handleForceRefreshLyrics}
+          />
+        </div>
+      )}
     </div>
   );
 }

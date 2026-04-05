@@ -3898,8 +3898,11 @@ body {
 
 .track-detail-info h2 {
   margin: 0;
-  font-size: var(--fs-xl);
+  font-size: var(--fs-2xl);
   font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .track-detail-meta {
@@ -3926,25 +3929,38 @@ body {
   color: var(--text-tertiary);
 }
 
-.track-detail-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
+.track-detail-path {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  margin-top: 2px;
 }
 
-.track-detail-sections {
+.track-detail-tags-inline {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
-  padding: 16px;
+  gap: 4px;
+  margin-top: 6px;
 }
 
-.track-detail-lyrics,
-.track-detail-tags,
-.track-detail-scrobbles,
-.track-detail-similar {
+/* Lyrics — main content area */
+.track-detail-lyrics-main {
+  padding: 16px;
   flex: 1;
-  min-width: 280px;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Play History / Similar Tracks — flex children of track-detail-top */
+.track-detail-top > .track-detail-scrobbles,
+.track-detail-top > .track-detail-similar {
+  flex: 1;
+  min-width: 200px;
 }
 
 .track-detail-section-title {
@@ -4004,9 +4020,16 @@ body {
   color: var(--accent);
 }
 
+.track-tag-lastfm {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
 .scrobble-list {
   overflow-y: auto;
-  max-height: 200px;
+  max-height: 140px;
 }
 
 .scrobble-entry {
@@ -4022,7 +4045,7 @@ body {
 
 .similar-tracks-list {
   overflow-y: auto;
-  max-height: 300px;
+  max-height: 140px;
 }
 
 .similar-track-row {
