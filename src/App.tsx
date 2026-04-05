@@ -9,7 +9,7 @@ import "./base.css";
 import "./App.css";
 
 import type { Album, Track, View, ViewMode, ColumnConfig, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField } from "./types";
-import { isVideoTrack, getInitials, parseSubsonicUrl, formatDuration, stripAccents, formatCount } from "./utils";
+import { isVideoTrack, parseSubsonicUrl, formatDuration, stripAccents, formatCount } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
@@ -56,6 +56,7 @@ import { ContextMenu } from "./components/ContextMenu";
 import { Breadcrumb } from "./components/Breadcrumb";
 import { AlbumCardArt } from "./components/AlbumCardArt";
 import { ArtistListView } from "./components/ArtistListView";
+import { ArtistDetailContent } from "./components/ArtistDetailContent";
 import { TagCardArt } from "./components/TagCardArt";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { ImageActions } from "./components/ImageActions";
@@ -1680,228 +1681,54 @@ function App() {
             const artist = artists.find(a => a.id === selectedArtist);
             const artistImagePath = artistImageCache.images[selectedArtist] ?? null;
             return (
-              <div className="artist-detail">
-                <div className="artist-detail-top">
-                  <div className="artist-header">
-                    <div className="artist-avatar">
-                      {artistImagePath ? (
-                        <img className="artist-avatar-img" src={convertFileSrc(artistImagePath)} alt={artist?.name} />
-                      ) : (
-                        artist ? getInitials(artist.name) : "?"
-                      )}
-                    </div>
-                    <div className="artist-header-info">
-                      <h2>
-                        {artist?.name ?? "Unknown"}
-                        <span
-                          className={`detail-like-btn${artist?.liked === 1 ? " liked" : ""}`}
-                          onClick={() => likeActions.handleToggleArtistLike(selectedArtist)}
-                          title={artist?.liked === 1 ? "Unlike artist" : "Like artist"}
-                        >{artist?.liked === 1 ? "\u2665" : "\u2661"}</span>
-                        {sortedTracks.length > 0 && (
-                          <button
-                            className="artist-play-btn"
-                            title="Play All"
-                            onClick={() => queueHook.playTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
-                          >&#9654;</button>
-                        )}
-                        <ImageActions
-                          entityId={selectedArtist}
-                          entityType="artist"
-                          entityName={artist?.name}
-                          imagePath={artistImagePath}
-                          providers={searchProviders}
-                          onImageSet={(id, path) => artistImageCache.setImages(prev => ({ ...prev, [id]: path }))}
-                          onImageRemoved={(id) => {
-                            artistImageCache.setImages(prev => ({ ...prev, [id]: null }));
-                          }}
-                          onRefresh={() => {
-                            if (!artist) return;
-                            artistImageCache.forceFetchImage({ id: selectedArtist, name: artist.name });
-                            invoke("clear_lastfm_cache_for_entity", { kind: "artist", name: artist.name });
-                            artistInfo.refreshInfo();
-                          }}
-                        />
-                      </h2>
-                      <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
-                      {artistInfo.artistInfoLoading && !artistInfo.artistBio && (
-                        <span className="artist-bio-stats lastfm-loading">Fetching info from Last.fm…</span>
-                      )}
-                      {artistInfo.artistBio && (artistInfo.artistBio.listeners || artistInfo.artistBio.playcount) && (
-                        <span className="artist-bio-stats">
-                          {artistInfo.artistBio.listeners && <>{parseInt(artistInfo.artistBio.listeners).toLocaleString()} listeners</>}
-                          {artistInfo.artistBio.listeners && artistInfo.artistBio.playcount && " \u00B7 "}
-                          {artistInfo.artistBio.playcount && <>{parseInt(artistInfo.artistBio.playcount).toLocaleString()} scrobbles</>}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {artistInfo.artistTopTracks.length > 0 && (
-                    <div className="artist-bio-title section-header" onClick={() => handleToggleArtistSection("topSongs")}>
-                      <svg className={`section-chevron${artistSections.topSongs === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                      Top Songs
-                    </div>
-                  )}
-                  {artistSections.topSongs !== false && artistInfo.artistTopTracks.length > 0 && (() => {
-                    const maxPop = artistInfo.artistTopTracks[0]?.listeners ?? 1;
-                    return (
-                      <div className="artist-top-songs-section">
-                        <div className="top-songs-list">
-                          {artistInfo.artistTopTracks.map((entry, i) => {
-                            const pct = maxPop > 0 ? (entry.listeners / maxPop) * 100 : 0;
-                            const inLibrary = !!entry.libraryTrack;
-                            return (
-                              <div
-                                key={`${entry.name}-${i}`}
-                                className={`top-song-row${inLibrary ? "" : " top-song-missing"}`}
-                                onContextMenu={(e) => {
-                                  e.preventDefault();
-                                  setTopSongMenu({ x: e.clientX, y: e.clientY, entry, artistName: artist?.name ?? "" });
-                                }}
-                              >
-                                <span className="top-song-rank">{i + 1}</span>
-                                <button
-                                  className="top-song-action-btn"
-                                  title={inLibrary ? "Play" : "Watch on YouTube"}
-                                  onClick={async () => {
-                                    if (inLibrary) {
-                                      queueHook.playTracks([entry.libraryTrack!], 0);
-                                    } else {
-                                      addLog("Searching YouTube...");
-                                      try {
-                                        const result = await invoke<{ url: string; video_title: string | null }>(
-                                          "search_youtube", { title: entry.name, artistName: artist?.name ?? "" }
-                                        );
-                                        await openUrl(result.url);
-                                      } catch {
-                                        const q = encodeURIComponent(`${entry.name} ${artist?.name ?? ""}`);
-                                        await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-                                      }
-                                    }
-                                  }}
-                                >
-                                  {inLibrary ? "\u25B6" : <svg width="14" height="10" viewBox="0 0 28 20" fill="currentColor"><path d="M27.4 3.1s-.3-1.9-1.1-2.8C25.1-.9 23.7-.9 23-.9 19.2-1.2 14-1.2 14-1.2h0s-5.2 0-9 .3c-.7.1-2.1.1-3.3 1.1C.9 1.2.6 3.1.6 3.1S.3 5.3.3 7.6v2.1c0 2.2.3 4.5.3 4.5s.3 1.9 1.1 2.8c1.2 1.2 2.7 1.2 3.4 1.3 2.4.2 10.3.3 10.3.3s5.2 0 9-.3c.7-.1 2.1-.1 3.3-1.1.8-.9 1.1-2.8 1.1-2.8s.3-2.2.3-4.5V7.6c0-2.2-.3-4.5-.3-4.5zM11.1 13.2V5.4l8.9 3.9-8.9 3.9z"/></svg>}
-                                </button>
-                                <span className="col-popularity top-song-pop">
-                                  <span className="popularity-fill" style={{ width: `${pct}%` }} />
-                                  <span className="popularity-count">{formatCount(entry.listeners)}</span>
-                                </span>
-                                <span className="top-song-title">{entry.name}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                  <div className="artist-bio-title section-header" onClick={() => handleToggleArtistSection("about")}>
-                    <svg className={`section-chevron${artistSections.about === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    About
-                  </div>
-                  {artistSections.about !== false && (
-                    <div className="artist-bio-section">
-                      {artistInfo.artistInfoLoading && !artistInfo.artistBio && (
-                        <div className="lastfm-loading-text">Loading…</div>
-                      )}
-                      {artistInfo.artistBio && (
-                        <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: artistInfo.artistBio.summary }} />
-                      )}
-                      {!artistInfo.artistInfoLoading && !artistInfo.artistBio && (
-                        <div className="lastfm-empty-text">No artist info available on Last.fm</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {library.artistAlbums.length > 0 && (
-                  <div className="section-title section-header" onClick={() => handleToggleArtistSection("albums")}>
-                    <svg className={`section-chevron${artistSections.albums === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    Albums
-                  </div>
-                )}
-                {artistSections.albums !== false && library.artistAlbums.length > 0 && (
-                  <div className="artist-section artist-albums-section">
-                    <div className="album-scroll">
-                      {library.artistAlbums.map((a) => (
-                        <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => contextMenuActions.handleAlbumContextMenu(e, a.id)}>
-                          <div className="album-card-art-wrapper">
-                            <AlbumCardArt album={a} imagePath={albumImageCache.images[a.id]} onVisible={albumImageCache.fetchOnDemand} />
-                            <button className="album-card-play-btn" title="Play album" onClick={async (e) => {
-                              e.stopPropagation();
-                              const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: a.id } });
-                              if (albumTracks.length > 0) queueHook.playTracks(albumTracks, 0);
-                            }}>&#9654;</button>
-                          </div>
-                          <div className="album-card-body">
-                            <div className="album-card-title" title={a.title}>{a.title}</div>
-                            <div className="album-card-info">
-                              {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="artist-section">
-                  <div className="section-title">All Tracks</div>
-                  <TrackList
-                    tracks={sortedTracks}
-                    currentTrack={playback.currentTrack}
-                    playing={playback.playing}
-                    highlightedIndex={highlightedIndex}
-                    sortField={sortField}
-                    trackListRef={trackListRef}
-                    columns={library.trackColumns}
-                    onColumnsChange={library.setTrackColumns}
-                    onDoubleClick={queueHook.playTracks}
-                    onContextMenu={contextMenuActions.handleTrackContextMenu}
-                    onArtistClick={library.handleArtistClick}
-                    onAlbumClick={library.handleAlbumClick}
-                    onSort={library.handleSort}
-                    sortIndicator={library.sortIndicator}
-                    onToggleLike={likeActions.handleToggleLike}
-                    onToggleDislike={likeActions.handleToggleDislike}
-                    onTrackDragStart={contextMenuActions.handleTrackDragStart}
-                    trackPopularity={artistInfo.artistTrackPopularity}
-                    emptyMessage="No tracks found for this artist."
-                  />
-                </div>
-
-                {artistInfo.similarArtists.length > 0 && (
-                  <div className="section-title section-header" onClick={() => handleToggleArtistSection("similarArtists")}>
-                    <svg className={`section-chevron${artistSections.similarArtists === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    Similar Artists
-                  </div>
-                )}
-                {artistSections.similarArtists !== false && artistInfo.similarArtists.length > 0 && (
-                  <div className="artist-section">
-                    <div className="similar-artists-row">
-                      {artistInfo.similarArtists.slice(0, 8).map(sa => {
-                        const localArtist = artists.find(a => a.name.toLowerCase() === sa.name.toLowerCase());
-                        return (
-                          <div
-                            key={sa.name}
-                            className={`similar-artist-card${localArtist ? " clickable" : ""}`}
-                            onClick={() => localArtist && library.handleArtistClick(localArtist.id)}
-                          >
-                            <div className="similar-artist-avatar">
-                              {localArtist && artistImageCache.images[localArtist.id] ? (
-                                <img src={convertFileSrc(artistImageCache.images[localArtist.id]!)} alt={sa.name} />
-                              ) : (
-                                sa.name[0]?.toUpperCase() ?? "?"
-                              )}
-                            </div>
-                            <span className="similar-artist-name" title={sa.name}>{sa.name}</span>
-                            <span className="similar-artist-match">{Math.round(parseFloat(sa.match) * 100)}%</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <ArtistDetailContent
+                selectedArtist={selectedArtist}
+                artist={artist}
+                artistImagePath={artistImagePath}
+                artistBio={artistInfo.artistBio}
+                artistInfoLoading={artistInfo.artistInfoLoading}
+                similarArtists={artistInfo.similarArtists}
+                artistTopTracks={artistInfo.artistTopTracks}
+                artistTrackPopularity={artistInfo.artistTrackPopularity}
+                sections={artistSections}
+                onToggleSection={handleToggleArtistSection}
+                sortedTracks={sortedTracks}
+                artistAlbums={library.artistAlbums}
+                artistImages={artistImageCache.images}
+                albumImages={albumImageCache.images}
+                onFetchAlbumImage={albumImageCache.fetchOnDemand}
+                onSetArtistImage={artistImageCache.setImages}
+                onForceFetchArtistImage={artistImageCache.forceFetchImage}
+                currentTrack={playback.currentTrack}
+                playing={playback.playing}
+                highlightedIndex={highlightedIndex}
+                sortField={sortField}
+                trackListRef={trackListRef}
+                trackColumns={library.trackColumns}
+                onTrackColumnsChange={library.setTrackColumns}
+                onPlayTracks={queueHook.playTracks}
+                onTrackContextMenu={contextMenuActions.handleTrackContextMenu}
+                onArtistClick={library.handleArtistClick}
+                onAlbumClick={library.handleAlbumClick}
+                onSort={library.handleSort}
+                sortIndicator={library.sortIndicator}
+                onToggleLike={likeActions.handleToggleLike}
+                onToggleDislike={likeActions.handleToggleDislike}
+                onTrackDragStart={contextMenuActions.handleTrackDragStart}
+                onToggleArtistLike={likeActions.handleToggleArtistLike}
+                onRefreshInfo={() => {
+                  if (!artist) return;
+                  invoke("clear_lastfm_cache_for_entity", { kind: "artist", name: artist.name });
+                  artistInfo.refreshInfo();
+                }}
+                onTopSongContextMenu={(e, entry, artistName) => {
+                  setTopSongMenu({ x: e.clientX, y: e.clientY, entry, artistName });
+                }}
+                onAlbumContextMenu={contextMenuActions.handleAlbumContextMenu}
+                searchProviders={searchProviders}
+                addLog={addLog}
+                artists={artists}
+              />
             );
           })()}
 
