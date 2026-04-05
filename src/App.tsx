@@ -34,6 +34,7 @@ import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useSkins } from "./hooks/useSkins";
 import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
 import { useLastfm } from "./hooks/useLastfm";
+import { useDownloads } from "./hooks/useDownloads";
 import type { TidalSearchTrackLike } from "./types/plugin";
 import { WindowControls } from "./components/WindowControls";
 import { useViewSearchState } from "./hooks/useViewSearchState";
@@ -356,12 +357,6 @@ function App() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
-  const [downloadFormat, setDownloadFormat] = useState("flac");
-  const [downloadStatus, setDownloadStatus] = useState<{
-    active: { id: number; track_title: string; artist_name: string; progress_pct: number } | null;
-    queued: { id: number; track_title: string; artist_name: string }[];
-    completed: { id: number; track_title: string; status: string; error?: string }[];
-  } | null>(null);
 
   // Updater
   const updater = useAppUpdater(addLog);
@@ -371,6 +366,9 @@ function App() {
 
   // Last.fm
   const lastfm = useLastfm(store, addLog, historyRef);
+
+  // Downloads
+  const downloads = useDownloads(downloadFormatRef, addLog);
 
   async function handleImportSkin() {
     const selected = await open({
@@ -398,33 +396,6 @@ function App() {
     setScanning, setScanProgress,
     setSyncing, setSyncProgress,
   });
-
-  // Download event listeners
-  useEffect(() => {
-    const unlisten1 = listen<{ id: number; track_title: string; artist_name: string; progress_pct: number }>(
-      "download-progress",
-      () => { invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus); }
-    );
-    const unlisten2 = listen<{ id: number; trackTitle: string; destPath: string }>(
-      "download-complete",
-      (event) => {
-        addLog(`Downloaded: ${event.payload.trackTitle}`);
-        invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus);
-      }
-    );
-    const unlisten3 = listen<{ id: number; trackTitle: string; error: string }>(
-      "download-error",
-      (event) => {
-        addLog(`Download error: ${event.payload.trackTitle} - ${event.payload.error}`);
-        invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus);
-      }
-    );
-    return () => {
-      unlisten1.then((f) => f());
-      unlisten2.then((f) => f());
-      unlisten3.then((f) => f());
-    };
-  }, []);
 
   // Resolve a queue track's url to a playable source
   useEffect(() => {
@@ -778,7 +749,7 @@ function App() {
         }
         if (savedSidebarCollapsed) setSidebarCollapsed(true);
         if (savedQueueCollapsed) setQueueCollapsed(true);
-        if (savedDownloadFormat && ["flac", "aac"].includes(savedDownloadFormat)) { setDownloadFormat(savedDownloadFormat); downloadFormatRef.current = savedDownloadFormat; }
+        if (savedDownloadFormat && ["flac", "aac"].includes(savedDownloadFormat)) { downloads.setFormat(savedDownloadFormat, store); }
         if (savedSortBarCollapsed) library.setSortBarCollapsed(true);
         const savedLoggingEnabled = await store.get<boolean>("loggingEnabled");
         if (savedLoggingEnabled) setLoggingEnabled(true);
@@ -1667,30 +1638,6 @@ function App() {
     invoke("open_logs_folder").catch(console.error);
   }
 
-  function handleDownloadFormatChange(format: string) {
-    setDownloadFormat(format);
-    downloadFormatRef.current = format;
-    store.set("downloadFormat", format);
-  }
-
-
-
-  async function handleDownloadTrack(trackId: number, destCollectionId: number) {
-    const track = tracks.find(t => t.id === trackId);
-    if (!track?.subsonic_id || !track.collection_id) return;
-    try {
-      await invoke("download_track", {
-        sourceCollectionId: track.collection_id,
-        remoteTrackId: track.subsonic_id,
-        destCollectionId,
-        format: downloadFormat,
-      });
-      addLog(`Downloading: ${track.title}`);
-    } catch (e) {
-      addLog(`Download failed: ${e}`);
-    }
-  }
-
   function handleCaptionDoubleClick(e: React.MouseEvent) {
     const target = e.target as HTMLElement;
     if (target.closest("button") || target.closest("input")) return;
@@ -2083,8 +2030,8 @@ function App() {
           lastfmAutoImportIntervalMins={lastfm.lastfmAutoImportIntervalMins}
           onLastfmAutoImportIntervalChange={lastfm.handleLastfmAutoImportIntervalChange}
           lastfmLastImportAt={lastfm.lastfmLastImportAt}
-          downloadFormat={downloadFormat}
-          onDownloadFormatChange={handleDownloadFormatChange}
+          downloadFormat={downloads.downloadFormat}
+          onDownloadFormatChange={(format) => downloads.setFormat(format, store)}
           activeSkinId={skins.activeSkinId}
           installedSkins={skins.installedSkins}
           onApplySkin={skins.applySkin}
@@ -3618,7 +3565,7 @@ function App() {
               });
             }
           } : undefined}
-          onDownload={contextMenu.target.kind === "track" ? (destId: number) => { const t = contextMenu.target; if (t.kind === "track") handleDownloadTrack(t.trackId, destId); } : undefined}
+          onDownload={contextMenu.target.kind === "track" ? (destId: number) => { const t = contextMenu.target; if (t.kind === "track") downloads.downloadTrack(t.trackId, destId, library.tracks); } : undefined}
           localCollections={localCollections}
           onClose={() => setContextMenu(null)}
           pluginMenuItems={plugins.menuItems}
@@ -3684,7 +3631,7 @@ function App() {
       {upgradeTrack && (
         <UpgradeTrackModal
           track={upgradeTrack}
-          downloadFormat={downloadFormat}
+          downloadFormat={downloads.downloadFormat}
           onClose={() => setUpgradeTrack(null)}
           onUpgraded={(msg) => { setUpgradeTrack(null); library.loadTracks(); addLog(msg); }}
         />
@@ -3877,8 +3824,8 @@ function App() {
           onYes: () => handleYoutubeFeedback(true),
           onNo: () => handleYoutubeFeedback(false),
         } : null}
-        downloadStatus={downloadStatus}
-        onCancelDownload={async (id) => { await invoke("cancel_download", { downloadId: id }); invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus); }}
+        downloadStatus={downloads.downloadStatus}
+        onCancelDownload={downloads.cancelDownload}
       />
 
     </div>
