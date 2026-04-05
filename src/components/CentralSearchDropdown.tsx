@@ -2,6 +2,8 @@ import { useRef, useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, Album, Artist, SearchAllResults, SearchResultItem } from "../types";
 
+const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
+
 const SEARCH_PLACEHOLDERS = [
   "What's next?",
   "What comes next?",
@@ -100,6 +102,9 @@ export function CentralSearchDropdown({
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [placeholder, setPlaceholder] = useState(randomPlaceholder);
+  const [focused, setFocused] = useState(false);
+  const showDropdown = isOpen && items.length > 0;
+  const showOverlay = focused || showDropdown;
 
   useEffect(() => {
     const id = setInterval(() => setPlaceholder(randomPlaceholder()), 5 * 60 * 1000);
@@ -108,15 +113,16 @@ export function CentralSearchDropdown({
 
   // Close on click outside
   useEffect(() => {
-    if (!isOpen) return;
+    if (!showOverlay) return;
     const handler = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setFocused(false);
         onClose();
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [isOpen, onClose]);
+  }, [showOverlay, onClose]);
 
   // Trigger image fetching for visible results
   useEffect(() => {
@@ -182,9 +188,11 @@ export function CentralSearchDropdown({
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={onKeyDown}
+          onFocus={() => setFocused(true)}
           onBlur={() => {
             setTimeout(() => {
               if (!containerRef.current?.contains(document.activeElement)) {
+                setFocused(false);
                 onClose();
               }
             }, 150);
@@ -208,7 +216,7 @@ export function CentralSearchDropdown({
         )}
       </div>
 
-      {isOpen && items.length > 0 && (
+      {showOverlay && (
         <div className="central-search-dropdown" ref={dropdownRef}>
           {results.artists.length > 0 && (
             <>
@@ -291,11 +299,11 @@ export function CentralSearchDropdown({
             </>
           )}
           <div className="central-search-footer">
-            <span>↵ open</span>
+            <span><kbd>↵</kbd> play track / open</span>
             <span className="footer-separator">·</span>
-            <span>⌘↵ queue</span>
+            <span><kbd>{mod}↵</kbd> add to queue</span>
             <span className="footer-separator">·</span>
-            <span>↵ from search for all results</span>
+            <span><kbd>↵</kbd> without selection to search all</span>
           </div>
         </div>
       )}

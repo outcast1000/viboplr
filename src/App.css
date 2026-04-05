@@ -1804,11 +1804,24 @@ body {
   padding: 8px 12px;
   border-top: 1px solid var(--border);
   text-align: center;
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
   display: flex;
   justify-content: center;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.central-search-footer kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  background: rgba(var(--overlay-base), 0.06);
+  border: 1px solid rgba(var(--overlay-base), 0.1);
+  border-radius: 3px;
+  color: var(--text-secondary);
 }
 
 .central-search-footer .footer-separator {
