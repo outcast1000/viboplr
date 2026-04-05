@@ -61,7 +61,7 @@ import { ArtistDetailContent } from "./components/ArtistDetailContent";
 import { TagCardArt } from "./components/TagCardArt";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { ImageActions } from "./components/ImageActions";
-import { AlbumOptionsMenu } from "./components/AlbumOptionsMenu";
+import { AlbumDetailHeader } from "./components/AlbumDetailHeader";
 import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
 import { CollectionsView } from "./components/CollectionsView";
@@ -1918,86 +1918,32 @@ function App() {
           {(view === "all" || view === "artists") && selectedAlbum !== null && !viewSearch.getQuery(view).trim() && (() => {
             const album = albums.find(a => a.id === selectedAlbum);
             const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
-            const albumProviders = getProvidersForContext(searchProviders, "album");
             return (
-              <div className="album-detail-top">
-                <div className="album-detail-header">
-                  <div className="album-detail-art">
-                    {albumImagePath ? (
-                      <img className="album-detail-art-img" src={convertFileSrc(albumImagePath)} alt={album?.title} />
-                    ) : (
-                      <svg className="album-detail-art-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="10" />
-                        <circle cx="12" cy="12" r="3" />
-                      </svg>
-                    )}
-                  </div>
-                  <div className="album-detail-info">
-                    <h2>
-                      {album?.title ?? "Unknown"}
-                      <span
-                        className={`detail-like-btn${album?.liked === 1 ? " liked" : ""}`}
-                        onClick={() => likeActions.handleToggleAlbumLike(selectedAlbum)}
-                        title={album?.liked === 1 ? "Unlike album" : "Like album"}
-                      >{album?.liked === 1 ? "\u2665" : "\u2661"}</span>
-                      {sortedTracks.length > 0 && (
-                        <button
-                          className="artist-play-btn"
-                          title="Play All"
-                          onClick={() => queueHook.playTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
-                        >&#9654;</button>
-                      )}
-                      <AlbumOptionsMenu
-                        albumId={selectedAlbum}
-                        albumImagePath={albumImagePath}
-                        albumTitle={album?.title ?? ""}
-                        artistName={album?.artist_name ?? ""}
-                        providers={albumProviders}
-                        onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
-                        onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}
-                        onRetrieveImage={() => {
-                          if (!album) return;
-                          albumImageCache.forceFetchImage({ id: selectedAlbum, title: album.title, artist_name: album.artist_name });
-                        }}
-                        onRetrieveInfo={() => {
-                          if (!album) return;
-                          invoke("clear_lastfm_cache_for_entity", { kind: "album", name: album.title, artistName: album.artist_name });
-                          artistInfo.refreshInfo();
-                        }}
-                      />
-                    </h2>
-                    {album?.artist_name && (
-                      <span
-                        className="album-detail-artist-name"
-                        onClick={() => { if (album.artist_id) library.handleArtistClick(album.artist_id); }}
-                      >{album.artist_name}</span>
-                    )}
-                    <span className="artist-meta">
-                      {album?.year && <>{album.year} {"\u00B7"} </>}
-                      {album?.track_count ?? 0} tracks
-                    </span>
-                  </div>
-                </div>
-                <div className="album-wiki-section">
-                  <div className="artist-bio-title section-header" onClick={() => handleToggleAlbumSection("review")}>
-                    <svg className={`section-chevron${albumSections.review === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    Review
-                  </div>
-                  {albumSections.review !== false && (
-                    <>
-                      {artistInfo.albumInfoLoading && !artistInfo.albumWiki && (
-                        <div className="lastfm-loading-text">Loading…</div>
-                      )}
-                      {artistInfo.albumWiki && (
-                        <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: artistInfo.albumWiki }} />
-                      )}
-                      {!artistInfo.albumInfoLoading && !artistInfo.albumWiki && (
-                        <div className="lastfm-empty-text">No album review available on Last.fm</div>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
+              <AlbumDetailHeader
+                selectedAlbum={selectedAlbum}
+                album={album}
+                albumImagePath={albumImagePath}
+                albumWiki={artistInfo.albumWiki}
+                albumInfoLoading={artistInfo.albumInfoLoading}
+                sections={albumSections}
+                onToggleSection={handleToggleAlbumSection}
+                sortedTracks={sortedTracks}
+                searchProviders={searchProviders}
+                onArtistClick={library.handleArtistClick}
+                onToggleAlbumLike={likeActions.handleToggleAlbumLike}
+                onPlayTracks={queueHook.playTracks}
+                onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
+                onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}
+                onRetrieveImage={() => {
+                  if (!album) return;
+                  albumImageCache.forceFetchImage({ id: selectedAlbum, title: album.title, artist_name: album.artist_name });
+                }}
+                onRetrieveInfo={() => {
+                  if (!album) return;
+                  invoke("clear_lastfm_cache_for_entity", { kind: "album", name: album.title, artistName: album.artist_name });
+                  artistInfo.refreshInfo();
+                }}
+              />
             );
           })()}
 
