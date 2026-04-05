@@ -203,7 +203,16 @@ export function NowPlayingBar({
       <div className="now-main">
         <div className="now-info">
           <div className={`now-art-wrapper${playing ? " playing" : ""}`}>
-            {imagePath && <img className="now-art" src={convertFileSrc(imagePath)} alt="" />}
+            {imagePath ? (
+              <img className="now-art" src={convertFileSrc(imagePath)} alt="" />
+            ) : (
+              <div className="now-art now-art-placeholder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="24" height="24">
+                  <circle cx="12" cy="12" r="10" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </div>
+            )}
           </div>
           {currentTrack && (
             <div className="now-like-col">

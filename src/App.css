@@ -2951,6 +2951,14 @@ body {
   flex-shrink: 0;
 }
 
+.now-art-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+}
+
 .now-info-text {
   display: flex;
   flex-direction: column;
@@ -3063,10 +3071,15 @@ body {
   color: var(--text-primary);
   font-size: var(--fs-xl);
   cursor: pointer;
-  padding: 6px 10px;
+  padding: 0;
   border-radius: 50%;
   transition: background 0.15s;
   line-height: 1;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .ctrl-btn:hover {
@@ -3074,15 +3087,13 @@ body {
 }
 
 .play-btn {
-  font-size: var(--fs-lg);
+  font-size: var(--fs-xl);
   background: var(--accent);
   color: var(--bg-primary);
   width: 40px;
   height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
+  padding-left: 2px;
+  margin: -2px 0;
 }
 
 .play-btn:hover {

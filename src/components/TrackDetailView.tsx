@@ -425,7 +425,13 @@ export function TrackDetailView({
                 {trackInfo?.playcount && <> &middot; {parseInt(trackInfo.playcount).toLocaleString()} scrobbles</>}
               </div>
             )}
-            <div className="track-detail-path" title={track.path}>{displayPath(track.path)}</div>
+            <div className="track-detail-path" title={track.path}>
+              {track.path.startsWith("subsonic://") && track.collection_name ? (
+                <>{track.collection_name} <span className="track-detail-sep">·</span> {track.subsonic_id ?? displayPath(track.path)}</>
+              ) : (
+                displayPath(track.path)
+              )}
+            </div>
             {sections.tags !== false && (trackTags.length > 0 || filteredCommunityTags.length > 0 || (trackInfo?.toptags && trackInfo.toptags.length > 0)) && (
               <div className="track-detail-tags-inline">
                 {trackTags.map(tag => (
