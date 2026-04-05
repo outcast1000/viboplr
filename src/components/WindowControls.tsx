@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import "./WindowControls.css";
 
 const isMac = navigator.platform.includes("Mac");
 

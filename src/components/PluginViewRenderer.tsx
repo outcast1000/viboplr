@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import type { Track } from "../types";
 import type { PluginViewData, CardGridItem, StatItem, TrackRowItem } from "../types/plugin";
+import "./PluginViewRenderer.css";
 
 interface PluginViewRendererProps {
   pluginName: string;

@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, Album, Artist, SearchAllResults, SearchResultItem } from "../types";
+import "./CentralSearchDropdown.css";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
 

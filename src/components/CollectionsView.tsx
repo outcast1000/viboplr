@@ -1,5 +1,6 @@
 import type { Collection, CollectionStats } from "../types";
 import { collectionKindLabel } from "../utils";
+import "./CollectionsView.css";
 
 function formatSyncDuration(secs: number): string {
   if (secs < 60) return `${secs.toFixed(1)}s`;

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Album } from "../types";
+import "./AlbumCardArt.css";
 
 interface AlbumCardArtProps {
   album: Album;

@@ -1,4 +1,5 @@
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
+import "./AutoContinuePopover.css";
 
 const SLIDERS: { key: keyof AutoContinueWeights; label: string }[] = [
   { key: "random", label: "Random" },

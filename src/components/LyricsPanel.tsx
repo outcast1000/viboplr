@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import "./LyricsPanel.css";
 
 interface LyricsPanelProps {
   trackId: number;

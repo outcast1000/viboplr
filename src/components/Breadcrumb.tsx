@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Track, View } from "../types";
+import "./Breadcrumb.css";
 
 interface BreadcrumbProps {
   view: View;

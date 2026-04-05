@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrent as getDeepLinkCurrent } from "@tauri-apps/plugin-deep-link";
 import { listen } from "@tauri-apps/api/event";
+import "./base.css";
 import "./App.css";
 
 import type { Album, Collection, Track, View, ViewMode, ColumnConfig, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField } from "./types";

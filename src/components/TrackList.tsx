@@ -3,6 +3,7 @@ import type { Track, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration } from "../utils";
 import { IconYoutube } from "./Icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import "./TrackList.css";
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) {

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Track, TidalSearchTrack } from "../types";
 import { formatDuration, tidalCoverUrl } from "../utils";
+import "./UpgradeTrackModal.css";
 
 interface UpgradePreviewInfo {
   old_path: string;

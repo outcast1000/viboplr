@@ -7,6 +7,7 @@ import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { SkinInfo, GallerySkinEntry } from "../types/skin";
 import type { PluginState, GalleryPluginEntry } from "../types/plugin";
+import "./SettingsPanel.css";
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
   google: IconGoogle,

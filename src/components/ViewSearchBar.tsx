@@ -1,5 +1,6 @@
 // src/components/ViewSearchBar.tsx
 import { useRef, type ReactNode } from "react";
+import "./ViewSearchBar.css";
 
 interface ViewSearchBarProps {
   query: string;

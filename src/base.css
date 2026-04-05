@@ -1,0 +1,278 @@
+:root {
+  /* Backgrounds */
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-tertiary: #1e2a4a;
+  --bg-surface: #0f3460;
+  --bg-hover: #1a3a6e;
+  --now-playing-bg: #0d1b2a;
+  --now-playing-bg-rgb: 13, 27, 42;
+
+  /* Text */
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0b0;
+  --text-tertiary: #707080;
+
+  /* Accent & status */
+  --accent: #53a8ff;
+  --accent-rgb: 83, 168, 255;
+  --accent-dim: #3a7bd5;
+  --success: #4caf50;
+  --error: #f44336;
+  --warning: #ff9500;
+
+  /* Chrome */
+  --border: #2a2a4a;
+  --overlay-base: 255, 255, 255;
+  --overlay-inverse: 0, 0, 0;
+
+  /* Typography scale */
+  --fs-2xs: 10px;
+  --fs-xs: 13px;
+  --fs-sm: 15px;
+  --fs-base: 17px;
+  --fs-lg: 21px;
+  --fs-xl: 26px;
+  --fs-2xl: 34px;
+}
+
+[data-skin-type="light"] {
+  --overlay-base: 0, 0, 0;
+  --overlay-inverse: 255, 255, 255;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--fs-base);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* ── Glass button system ── */
+.g-btn {
+  background: rgba(var(--overlay-base), 0.05);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(var(--overlay-base), 0.08);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+}
+.g-btn:hover {
+  background: rgba(var(--overlay-base), 0.1);
+  color: var(--text-primary);
+  border-color: rgba(var(--overlay-base), 0.15);
+}
+.g-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.g-btn svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+/* Rounded-rect variant for text/label buttons */
+.g-btn-rect {
+  border-radius: 6px;
+  padding: 4px 10px;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* Size variants — circular */
+.g-btn-play {
+  width: 46px;
+  height: 46px;
+  background: rgba(var(--accent-rgb), 0.18);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  color: var(--accent);
+  box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.12), inset 0 1px 0 rgba(var(--overlay-base), 0.08);
+}
+.g-btn-play:hover {
+  background: rgba(var(--accent-rgb), 0.28);
+  color: var(--text-primary);
+  box-shadow: 0 0 24px rgba(var(--accent-rgb), 0.2);
+}
+.g-btn-md {
+  width: 34px;
+  height: 34px;
+}
+.g-btn-sm {
+  width: 28px;
+  height: 28px;
+}
+.g-btn-xs {
+  width: 24px;
+  height: 24px;
+  color: var(--text-tertiary);
+  border-color: rgba(var(--overlay-base), 0.05);
+}
+
+/* Active/toggle state */
+.g-btn.active {
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: rgba(var(--accent-rgb), 0.25);
+  color: var(--accent);
+}
+.g-btn.active:hover {
+  background: rgba(var(--accent-rgb), 0.2);
+  color: var(--text-primary);
+}
+
+/* Like button states */
+.g-btn.liked {
+  color: var(--error);
+  background: rgba(255, 77, 106, 0.1);
+  border-color: rgba(255, 77, 106, 0.2);
+}
+.g-btn.liked:hover {
+  background: rgba(255, 77, 106, 0.18);
+  color: var(--text-primary);
+}
+.g-btn.disliked {
+  color: var(--text-secondary);
+  background: rgba(var(--overlay-base), 0.08);
+  border-color: rgba(var(--overlay-base), 0.12);
+}
+
+/* Volume glass enhancements */
+.now-volume .g-btn {
+  margin-right: 2px;
+}
+.volume-slider::-webkit-slider-thumb {
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.4);
+}
+.volume-slider {
+  border: 1px solid rgba(var(--overlay-base), 0.04);
+}
+
+/* === Animations === */
+
+/* Modal/Context menu entrance */
+@keyframes scale-in {
+  from { transform: scale(0.95); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+/* Heart bounce on like toggle */
+@keyframes heart-bounce {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+@keyframes heart-bounce-subtle {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+/* Playing indicator equalizer bars */
+@keyframes eq-bar-1 {
+  0%, 100% { height: 30%; }
+  50%      { height: 100%; }
+}
+
+@keyframes eq-bar-2 {
+  0%, 100% { height: 60%; }
+  50%      { height: 20%; }
+}
+
+@keyframes eq-bar-3 {
+  0%, 100% { height: 40%; }
+  50%      { height: 80%; }
+}
+
+.eq-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+  width: 14px;
+}
+
+.eq-bars .eq-bar {
+  width: 3px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+.eq-bars .eq-bar:nth-child(1) { animation: eq-bar-1 0.8s ease-in-out infinite; }
+.eq-bars .eq-bar:nth-child(2) { animation: eq-bar-2 0.6s ease-in-out infinite; }
+.eq-bars .eq-bar:nth-child(3) { animation: eq-bar-3 0.7s ease-in-out infinite; }
+
+.eq-bars.paused .eq-bar {
+  animation-play-state: paused;
+}
+
+/* Album art glow pulse */
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 0.8; }
+}
+
+/* Track info slide animation */
+.slide-text-enter {
+  animation: slide-text-in 250ms ease-out forwards;
+}
+
+@keyframes slide-text-in {
+  from { transform: translateY(60%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+/* Animation utility classes */
+.anim-heart-bounce {
+  animation: heart-bounce 300ms ease-out;
+}
+
+.anim-heart-bounce-subtle {
+  animation: heart-bounce-subtle 300ms ease-out;
+}
+
+/* Modal scale-in animation */
+.modal-overlay .modal,
+.shortcuts-modal {
+  animation: scale-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}

@@ -6,6 +6,7 @@ import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
 import { AutoContinuePopover } from "./AutoContinuePopover";
 import { WaveformSeekBar } from "./WaveformSeekBar";
+import "./NowPlayingBar.css";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
 const isMac = navigator.platform.includes("Mac");

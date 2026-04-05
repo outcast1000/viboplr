@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Tag } from "../types";
+import "./TagCardArt.css";
 
 interface TagCardArtProps {
   tag: Tag;

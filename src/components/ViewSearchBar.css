@@ -1,0 +1,63 @@
+.view-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.view-search-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.view-search-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.view-search-input-wrap input {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 10px 6px 30px;
+  color: inherit;
+  font-size: var(--fs-sm);
+  outline: none;
+}
+
+.view-search-input-wrap input:focus {
+  border-color: var(--accent);
+}
+
+.view-search-input-wrap .search-clear-btn {
+  position: absolute;
+  right: 6px;
+}
+
+.search-lyrics-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.search-lyrics-toggle:hover {
+  color: var(--text-primary);
+}
+.search-lyrics-toggle.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}

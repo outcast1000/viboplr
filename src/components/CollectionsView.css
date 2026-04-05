@@ -1,0 +1,162 @@
+
+/* Collections view (main content) */
+.collections-view {
+  padding: 16px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.collections-empty {
+  color: var(--text-secondary);
+  font-size: var(--fs-base);
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.collections-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.collections-view-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  transition: border-color 0.15s;
+}
+
+.collections-view-card:hover {
+  border-color: var(--text-secondary);
+}
+
+.collections-view-card-disabled {
+  opacity: 0.5;
+}
+
+.collections-view-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+}
+
+.collections-view-card-name {
+  flex: 1;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collections-view-card-disabled .collections-view-card-name {
+  text-decoration: line-through;
+}
+
+.collections-view-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.collections-view-status-connected {
+  background: var(--success);
+}
+
+.collections-view-status-error {
+  background: var(--error);
+}
+
+.collections-view-status-unknown {
+  background: #9e9e9e;
+}
+
+.collections-view-card-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 6px;
+  padding-left: 42px;
+}
+
+.collections-view-detail {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.collections-view-detail-error {
+  color: var(--error);
+}
+
+.collections-view-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-left: 42px;
+}
+
+.collections-view-action-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  transition: all 0.15s;
+}
+
+.collections-view-action-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.collections-view-action-btn-danger:hover {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.collections-view-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.collections-view-action-checking {
+  opacity: 0.7;
+}
+
+.collections-view-feedback {
+  margin-top: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: var(--fs-sm);
+  margin-left: 42px;
+}
+
+.collections-view-feedback-ok {
+  background: rgba(76, 175, 80, 0.15);
+  color: #81c784;
+}
+
+.collections-view-feedback-err {
+  background: rgba(244, 67, 54, 0.15);
+  color: #ef9a9a;
+}
+
+.collections-view-add-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.collections-view-add-buttons .add-folder-btn {
+  flex: 1;
+}

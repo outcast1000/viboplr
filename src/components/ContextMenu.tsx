@@ -5,6 +5,7 @@ import { getProvidersForContext, buildSearchUrl, getDomainFromUrl } from "../sea
 import { IconPlay, IconEnqueue, IconFolder, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius, IconInfo, IconTrash, IconRefresh } from "./Icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
+import "./ContextMenu.css";
 
 export type ContextMenuTarget =
   | { kind: "track"; trackId: number; subsonic: boolean; title: string; artistName: string | null }

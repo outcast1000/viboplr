@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import "./StatusBar.css";
 
 interface StatusBarProps {
   sessionLog: { time: Date; message: string }[];

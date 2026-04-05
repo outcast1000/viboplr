@@ -1,0 +1,51 @@
+/* macOS traffic lights */
+.traffic-lights {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-right: 4px;
+}
+
+.traffic-light {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: opacity 0.15s;
+}
+.traffic-light:hover {
+  opacity: 0.8;
+}
+
+.traffic-close { background: #ff5f57; }
+.traffic-minimize { background: #febc2e; }
+.traffic-maximize { background: #28c840; }
+
+/* Custom window controls for Windows/Linux */
+.window-controls {
+  display: flex;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+.window-control-btn {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  width: 46px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.window-control-btn:hover {
+  background: var(--bg-hover);
+}
+.window-control-close:hover {
+  background: var(--error);
+  color: #fff;
+}

@@ -7,6 +7,7 @@ import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
 import { IconPlay, IconEnqueue, IconFolder, IconInfo, IconGlobe } from "./Icons";
 import LyricsPanel from "./LyricsPanel";
+import "./TrackDetailView.css";
 
 function displayPath(path: string): string {
   if (path.startsWith("subsonic://") || path.startsWith("tidal://")) return path;

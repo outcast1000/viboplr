@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback, forwardRef, useImperativeHand
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, HistoryEntry, HistoryMostPlayed, HistoryArtistStats } from "../types";
+import "./HistoryView.css";
 
 export interface HistoryViewHandle {
   count: number;

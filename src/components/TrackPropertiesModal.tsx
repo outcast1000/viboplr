@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Track, Tag, Collection } from "../types";
 import { formatDuration } from "../utils";
+import "./TrackPropertiesModal.css";
 
 interface SimilarActions {
   isLocal: (artist: string, title: string) => boolean;
