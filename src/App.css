@@ -3616,13 +3616,6 @@ body {
   display: block;
 }
 
-.section-toggle-check {
-  display: inline-block;
-  width: 16px;
-  text-align: center;
-  font-size: var(--fs-xs);
-  color: var(--accent);
-}
 
 .artist-meta {
   font-size: var(--fs-sm);
@@ -3657,6 +3650,45 @@ body {
   color: var(--text-secondary);
   letter-spacing: 1px;
   margin-bottom: 6px;
+}
+
+/* Collapsible section header */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+  padding: 2px 6px 2px 2px;
+  margin-left: -2px;
+  transition: background 0.15s;
+}
+
+.section-header:hover {
+  color: var(--text-primary);
+  background: rgba(var(--overlay-inverse), 0.06);
+}
+
+.section-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: var(--fs-xs);
+  transition: transform 0.15s;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  border-radius: 3px;
+}
+
+.section-header:hover .section-chevron {
+  color: var(--text-primary);
+}
+
+.section-chevron.collapsed {
+  transform: rotate(-90deg);
 }
 
 .artist-bio-stats {

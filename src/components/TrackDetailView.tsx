@@ -58,27 +58,19 @@ interface TrackPlayStats {
   last_played_at: number | null;
 }
 
-interface SectionToggle {
-  key: string;
-  label: string;
-  visible: boolean;
-}
-
 // --- TrackActions dropdown (modeled after ImageActions) ---
 
 function TrackActions({
-  track, providers, sectionToggles,
-  onPlay, onEnqueue, onPlayNext, onShowInFolder, onShowProperties, onToggleSection,
+  track, providers,
+  onPlay, onEnqueue, onPlayNext, onShowInFolder, onShowProperties,
 }: {
   track: Track;
   providers: SearchProviderConfig[];
-  sectionToggles: SectionToggle[];
   onPlay: () => void;
   onEnqueue: () => void;
   onPlayNext: () => void;
   onShowInFolder: () => void;
   onShowProperties: () => void;
-  onToggleSection: (key: string) => void;
 }) {
   const [open_menu, setOpenMenu] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -142,24 +134,6 @@ function TrackActions({
                       </button>
                     );
                   })}
-                </div>
-              </div>
-            </>
-          )}
-          {sectionToggles.length > 0 && (
-            <>
-              <div className="artist-image-menu-separator" />
-              <div className="artist-image-menu-submenu">
-                <button className="artist-image-menu-submenu-trigger">
-                  <span>Sections</span><span className="artist-image-menu-chevron">{"\u203A"}</span>
-                </button>
-                <div className="artist-image-menu-submenu-list">
-                  {sectionToggles.map((toggle) => (
-                    <button key={toggle.key} onClick={() => onToggleSection(toggle.key)}>
-                      <span className="section-toggle-check">{toggle.visible ? "\u2713" : ""}</span>
-                      <span>{toggle.label}</span>
-                    </button>
-                  ))}
                 </div>
               </div>
             </>
@@ -379,19 +353,11 @@ export function TrackDetailView({
               <TrackActions
                 track={track}
                 providers={providers}
-                sectionToggles={[
-                  { key: "lyrics", label: "Lyrics", visible: sections.lyrics !== false },
-                  { key: "tags", label: "Tags", visible: sections.tags !== false },
-                  { key: "scrobbleHistory", label: "Play History", visible: sections.scrobbleHistory !== false },
-                  { key: "similar", label: "Similar Tracks", visible: sections.similar !== false },
-                  { key: "geniusExplanations", label: "Song Explanation", visible: sections.geniusExplanations !== false },
-                ]}
                 onPlay={onPlay}
                 onEnqueue={onEnqueue}
                 onPlayNext={onPlayNext}
                 onShowInFolder={onShowInFolder}
                 onShowProperties={onShowProperties}
-                onToggleSection={onToggleSection}
               />
             </h2>
             <div className="track-detail-meta">
@@ -432,34 +398,43 @@ export function TrackDetailView({
                 displayPath(track.path)
               )}
             </div>
-            {sections.tags !== false && (trackTags.length > 0 || filteredCommunityTags.length > 0 || (trackInfo?.toptags && trackInfo.toptags.length > 0)) && (
-              <div className="track-detail-tags-inline">
-                {trackTags.map(tag => (
-                  <span key={tag.id} className="track-tag-chip" onClick={() => onTagClick(tag.id)}>{tag.name}</span>
-                ))}
-                {filteredCommunityTags.slice(0, 15).map(tag => (
-                  <span key={tag.name} className="track-tag-chip track-tag-suggestion" onClick={() => handleApplyTag(tag.name)}>
-                    + {tag.name}
-                  </span>
-                ))}
-                {trackInfo?.toptags?.filter(t => !assignedTagNames.has(t.name.toLowerCase()) && !filteredCommunityTags.some(c => c.name.toLowerCase() === t.name.toLowerCase())).slice(0, 10).map(tag => (
-                  <span key={`lfm-${tag.name}`} className="track-tag-chip track-tag-lastfm">{tag.name}</span>
-                ))}
-              </div>
+            {(trackTags.length > 0 || filteredCommunityTags.length > 0 || (trackInfo?.toptags && trackInfo.toptags.length > 0)) && (
+              <>
+                <div className="track-detail-section-title section-header" onClick={() => onToggleSection("tags")}>
+                  <span className={`section-chevron${sections.tags === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                  Tags
+                </div>
+                {sections.tags !== false && (
+                  <div className="track-detail-tags-inline">
+                    {trackTags.map(tag => (
+                      <span key={tag.id} className="track-tag-chip" onClick={() => onTagClick(tag.id)}>{tag.name}</span>
+                    ))}
+                    {filteredCommunityTags.slice(0, 15).map(tag => (
+                      <span key={tag.name} className="track-tag-chip track-tag-suggestion" onClick={() => handleApplyTag(tag.name)}>
+                        + {tag.name}
+                      </span>
+                    ))}
+                    {trackInfo?.toptags?.filter(t => !assignedTagNames.has(t.name.toLowerCase()) && !filteredCommunityTags.some(c => c.name.toLowerCase() === t.name.toLowerCase())).slice(0, 10).map(tag => (
+                      <span key={`lfm-${tag.name}`} className="track-tag-chip track-tag-lastfm">{tag.name}</span>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
 
-        {sections.geniusExplanations !== false && (
-          <div className="track-detail-genius">
-            <div className="track-detail-section-title">
-              Song Explanation
-              {geniusExplanation?.song_url && (
-                <a className="genius-link" onClick={() => openUrl(geniusExplanation.song_url)} title="View on Genius">
-                  View on Genius &#x2197;
-                </a>
-              )}
-            </div>
+        <div className="track-detail-genius">
+          <div className="track-detail-section-title section-header" onClick={() => onToggleSection("geniusExplanations")}>
+            <span className={`section-chevron${sections.geniusExplanations === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+            Song Explanation
+            {geniusExplanation?.song_url && (
+              <a className="genius-link" onClick={(e) => { e.stopPropagation(); openUrl(geniusExplanation.song_url); }} title="View on Genius">
+                View on Genius &#x2197;
+              </a>
+            )}
+          </div>
+          {sections.geniusExplanations !== false && (<>
             {geniusLoading ? (
               <div className="track-detail-empty">Loading...</div>
             ) : geniusExplanation ? (
@@ -486,11 +461,15 @@ export function TrackDetailView({
             ) : (
               <div className="track-detail-empty">No Genius explanation found</div>
             )}
-          </div>
-        )}
+          </>)}
+        </div>
 
-        {sections.lyrics !== false && (
-          <div className="track-detail-lyrics-section">
+        <div className="track-detail-lyrics-section">
+          <div className="track-detail-section-title section-header" onClick={() => onToggleSection("lyrics")}>
+            <span className={`section-chevron${sections.lyrics === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+            Lyrics
+          </div>
+          {sections.lyrics !== false && (
             <LyricsPanel
               trackId={trackId}
               artistName={track.artist_name ?? ""}
@@ -501,13 +480,17 @@ export function TrackDetailView({
               onSave={handleSaveLyrics}
               onReset={handleResetLyrics}
               onForceRefresh={handleForceRefreshLyrics}
+              hideTitle
             />
-          </div>
-        )}
+          )}
+        </div>
 
-        {sections.similar !== false && (
-          <div className="track-detail-similar">
-            <div className="track-detail-section-title">Similar Tracks</div>
+        <div className="track-detail-similar">
+          <div className="track-detail-section-title section-header" onClick={() => onToggleSection("similar")}>
+            <span className={`section-chevron${sections.similar === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+            Similar Tracks
+          </div>
+          {sections.similar !== false && (<>
             {similarTracks.length > 0 ? (
               <div className="similar-tracks-list">
                 {similarTracks.slice(0, 20).map((st, i) => {
@@ -530,15 +513,16 @@ export function TrackDetailView({
             ) : (
               <div className="track-detail-empty">No similar tracks found</div>
             )}
-          </div>
-        )}
+          </>)}
+        </div>
 
-        {sections.scrobbleHistory !== false && (
-          <div className="track-detail-scrobbles">
-            <div className="track-detail-section-title">
+        <div className="track-detail-scrobbles">
+          <div className="track-detail-section-title section-header" onClick={() => onToggleSection("scrobbleHistory")}>
+            <span className={`section-chevron${sections.scrobbleHistory === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
               Play History
               {playStats && <span className="track-detail-count"> ({formatCount(playStats.play_count)})</span>}
             </div>
+          {sections.scrobbleHistory !== false && (<>
             {playHistory.length > 0 ? (
               <div className="scrobble-list">
                 {(() => {
@@ -567,8 +551,8 @@ export function TrackDetailView({
             ) : (
               <div className="track-detail-empty">No play history</div>
             )}
-          </div>
-        )}
+          </>)}
+        </div>
       </div>
     </div>
   );

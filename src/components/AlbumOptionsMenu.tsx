@@ -28,12 +28,6 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
   return <IconGoogle size={14} />;
 }
 
-interface SectionToggle {
-  key: string;
-  label: string;
-  visible: boolean;
-}
-
 interface AlbumOptionsMenuProps {
   albumId: number;
   albumImagePath: string | null;
@@ -44,11 +38,9 @@ interface AlbumOptionsMenuProps {
   onImageRemoved: (id: number) => void;
   onRetrieveImage: () => void;
   onRetrieveInfo: () => void;
-  sectionToggles?: SectionToggle[];
-  onToggleSection?: (key: string) => void;
 }
 
-export function AlbumOptionsMenu({ albumId, albumImagePath, albumTitle, artistName, providers, onImageSet, onImageRemoved, onRetrieveImage, onRetrieveInfo, sectionToggles, onToggleSection }: AlbumOptionsMenuProps) {
+export function AlbumOptionsMenu({ albumId, albumImagePath, albumTitle, artistName, providers, onImageSet, onImageRemoved, onRetrieveImage, onRetrieveInfo }: AlbumOptionsMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -140,27 +132,6 @@ export function AlbumOptionsMenu({ albumId, albumImagePath, albumTitle, artistNa
                       </button>
                     );
                   })}
-                </div>
-              </div>
-            </>
-          )}
-          {sectionToggles && sectionToggles.length > 0 && onToggleSection && (
-            <>
-              <div className="artist-image-menu-separator" />
-              <div className="artist-image-menu-submenu">
-                <button className="artist-image-menu-submenu-trigger">
-                  <span>Sections</span><span className="artist-image-menu-chevron">{"\u203A"}</span>
-                </button>
-                <div className="artist-image-menu-submenu-list">
-                  {sectionToggles.map((toggle) => (
-                    <button
-                      key={toggle.key}
-                      onClick={() => onToggleSection(toggle.key)}
-                    >
-                      <span className="section-toggle-check">{toggle.visible ? "\u2713" : ""}</span>
-                      <span>{toggle.label}</span>
-                    </button>
-                  ))}
                 </div>
               </div>
             </>

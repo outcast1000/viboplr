@@ -2532,13 +2532,6 @@ function App() {
                             invoke("clear_lastfm_cache_for_entity", { kind: "artist", name: artist.name });
                             setInfoRefreshCounter(c => c + 1);
                           }}
-                          sectionToggles={[
-                            { key: "topSongs", label: "Top Songs", visible: artistSections.topSongs !== false },
-                            { key: "about", label: "About", visible: artistSections.about !== false },
-                            { key: "albums", label: "Albums", visible: artistSections.albums !== false },
-                            { key: "similarArtists", label: "Similar Artists", visible: artistSections.similarArtists !== false },
-                          ]}
-                          onToggleSection={handleToggleArtistSection}
                         />
                       </h2>
                       <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
@@ -2554,11 +2547,16 @@ function App() {
                       )}
                     </div>
                   </div>
+                  {artistTopTracks.length > 0 && (
+                    <div className="artist-bio-title section-header" onClick={() => handleToggleArtistSection("topSongs")}>
+                      <span className={`section-chevron${artistSections.topSongs === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                      Top Songs
+                    </div>
+                  )}
                   {artistSections.topSongs !== false && artistTopTracks.length > 0 && (() => {
                     const maxPop = artistTopTracks[0]?.listeners ?? 1;
                     return (
                       <div className="artist-top-songs-section">
-                        <div className="artist-bio-title">Top Songs</div>
                         <div className="top-songs-list">
                           {artistTopTracks.map((entry, i) => {
                             const pct = maxPop > 0 ? (entry.listeners / maxPop) * 100 : 0;
@@ -2607,9 +2605,12 @@ function App() {
                       </div>
                     );
                   })()}
+                  <div className="artist-bio-title section-header" onClick={() => handleToggleArtistSection("about")}>
+                    <span className={`section-chevron${artistSections.about === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                    About
+                  </div>
                   {artistSections.about !== false && (
                     <div className="artist-bio-section">
-                      <div className="artist-bio-title">About</div>
                       {artistInfoLoading && !artistBio && (
                         <div className="lastfm-loading-text">Loading…</div>
                       )}
@@ -2623,9 +2624,14 @@ function App() {
                   )}
                 </div>
 
+                {library.artistAlbums.length > 0 && (
+                  <div className="section-title section-header" onClick={() => handleToggleArtistSection("albums")}>
+                    <span className={`section-chevron${artistSections.albums === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                    Albums
+                  </div>
+                )}
                 {artistSections.albums !== false && library.artistAlbums.length > 0 && (
                   <div className="artist-section artist-albums-section">
-                    <div className="section-title">Albums</div>
                     <div className="album-scroll">
                       {library.artistAlbums.map((a) => (
                         <div key={a.id} className="album-card" onClick={() => library.handleAlbumClick(a.id)} onContextMenu={(e) => handleAlbumContextMenu(e, a.id)}>
@@ -2674,9 +2680,14 @@ function App() {
                   />
                 </div>
 
+                {similarArtists.length > 0 && (
+                  <div className="section-title section-header" onClick={() => handleToggleArtistSection("similarArtists")}>
+                    <span className={`section-chevron${artistSections.similarArtists === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                    Similar Artists
+                  </div>
+                )}
                 {artistSections.similarArtists !== false && similarArtists.length > 0 && (
                   <div className="artist-section">
-                    <div className="section-title">Similar Artists</div>
                     <div className="similar-artists-row">
                       {similarArtists.slice(0, 8).map(sa => {
                         const localArtist = artists.find(a => a.name.toLowerCase() === sa.name.toLowerCase());
@@ -3052,11 +3063,6 @@ function App() {
                           invoke("clear_lastfm_cache_for_entity", { kind: "album", name: album.title, artistName: album.artist_name });
                           setInfoRefreshCounter(c => c + 1);
                         }}
-                        sectionToggles={[
-                          { key: "review", label: "Review", visible: albumSections.review !== false },
-                          { key: "unmatchedTracks", label: "Not in Library", visible: albumSections.unmatchedTracks !== false },
-                        ]}
-                        onToggleSection={handleToggleAlbumSection}
                       />
                     </h2>
                     {album?.artist_name && (
@@ -3071,9 +3077,12 @@ function App() {
                     </span>
                   </div>
                 </div>
+                <div className="artist-bio-title section-header" onClick={() => handleToggleAlbumSection("review")}>
+                  <span className={`section-chevron${albumSections.review === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                  Review
+                </div>
                 {albumSections.review !== false && (
                   <div className="album-wiki-section">
-                    <div className="artist-bio-title">Review</div>
                     {albumInfoLoading && !albumWiki && (
                       <div className="lastfm-loading-text">Loading…</div>
                     )}
@@ -3283,11 +3292,16 @@ function App() {
           {/* Artist album detail - always basic TrackList */}
           {(view === "artists" && selectedAlbum !== null) && (
             <>
+              {albumUnmatchedTracks.length > 0 && (
+                <div className="unmatched-tracks-title section-header" onClick={() => handleToggleAlbumSection("unmatchedTracks")}>
+                  <span className={`section-chevron${albumSections.unmatchedTracks === false ? " collapsed" : ""}`}>{"\u25BE"}</span>
+                  Not in library
+                </div>
+              )}
               {albumSections.unmatchedTracks !== false && albumUnmatchedTracks.length > 0 && (() => {
                 const maxPop = Math.max(...albumUnmatchedTracks.map(t => t.listeners), ...Object.values(albumTrackPopularity), 0);
                 return (
                   <div className="unmatched-tracks">
-                    <div className="unmatched-tracks-title">Not in library</div>
                     <div className="unmatched-tracks-list">
                       {albumUnmatchedTracks.map((t, i) => {
                         const pct = maxPop > 0 ? (t.listeners / maxPop) * 100 : 0;

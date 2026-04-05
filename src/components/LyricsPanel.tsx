@@ -11,6 +11,7 @@ interface LyricsPanelProps {
   onSave: (text: string, kind: string) => void;
   onReset: () => void;
   onForceRefresh: () => void;
+  hideTitle?: boolean;
 }
 
 interface LrcLine {
@@ -43,7 +44,7 @@ function getCurrentLineIndex(lines: LrcLine[], position: number): number {
   return idx;
 }
 
-export default function LyricsPanel({ trackId, artistName, title, positionSecs, lyrics, loading, onSave, onReset, onForceRefresh }: LyricsPanelProps) {
+export default function LyricsPanel({ trackId, artistName, title, positionSecs, lyrics, loading, onSave, onReset, onForceRefresh, hideTitle }: LyricsPanelProps) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [editKind, setEditKind] = useState<"plain" | "synced">("plain");
@@ -105,7 +106,7 @@ export default function LyricsPanel({ trackId, artistName, title, positionSecs, 
   if (loading) {
     return (
       <div>
-        <div className="track-detail-section-title">Lyrics</div>
+        {!hideTitle && <div className="track-detail-section-title">Lyrics</div>}
         <div className="np-lyrics-actions">
           <button className="np-lyrics-btn" onClick={handleSearchWeb} title="Search lyrics on web">🔍</button>
           <button className="np-lyrics-btn" onClick={handlePasteAppend} title="Paste lyrics from clipboard">📋</button>
@@ -118,7 +119,7 @@ export default function LyricsPanel({ trackId, artistName, title, positionSecs, 
   if (editing) {
     return (
       <div>
-        <div className="track-detail-section-title">Edit Lyrics</div>
+        {!hideTitle && <div className="track-detail-section-title">Edit Lyrics</div>}
         <div className="np-lyrics-actions">
           <select value={editKind} onChange={e => setEditKind(e.target.value as "plain" | "synced")}>
             <option value="plain">Plain</option>
@@ -140,7 +141,7 @@ export default function LyricsPanel({ trackId, artistName, title, positionSecs, 
   if (!lyrics) {
     return (
       <div>
-        <div className="track-detail-section-title">Lyrics</div>
+        {!hideTitle && <div className="track-detail-section-title">Lyrics</div>}
         <div className="np-lyrics-actions">
           <button className="np-lyrics-btn" onClick={handleSearchWeb} title="Search lyrics on web">🔍</button>
           <button className="np-lyrics-btn" onClick={handlePasteAppend} title="Paste lyrics from clipboard">📋</button>
