@@ -89,6 +89,7 @@ function formatCount(n: number): string {
 function App() {
   const restoredRef = useRef(false);
   const [appRestoring, setAppRestoring] = useState(true);
+  const [navError, setNavError] = useState<string | null>(null);
   const pendingRestoreTrackRef = useRef<Track | null>(null);
   const pendingRestoreQueueRef = useRef<{ tracks: Track[]; index: number } | null>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -169,7 +170,7 @@ function App() {
   // Only pass debouncedTrackQuery for views that need server-side track search
   const needsServerSearch = currentView === "all" || currentView === "liked";
   const trackPopularity = Object.keys(albumTrackPopularity).length > 0 ? albumTrackPopularity : artistTrackPopularity;
-  const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "", trackPopularity);
+  const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "", trackPopularity, setNavError);
   const queueHook = useQueue(restoredRef, playback.handlePlay, library.collections);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
@@ -245,12 +246,15 @@ function App() {
   // Sync currentView with library.view so debouncedTrackQuery stays up to date
   useEffect(() => { setCurrentView(library.view); }, [library.view]);
 
-  // Reset scroll position when the view search query changes
+  // Reset scroll position when view or selections change
   const currentSearchQuery = viewSearch.getQuery(library.view);
   useEffect(() => {
-    const sc = getScrollEl();
-    if (sc) sc.scrollTop = 0;
-  }, [currentSearchQuery, getScrollEl]);
+    // Use rAF to ensure the new view's DOM has rendered
+    requestAnimationFrame(() => {
+      const sc = getScrollEl();
+      if (sc) sc.scrollTop = 0;
+    });
+  }, [library.view, library.selectedArtist, library.selectedAlbum, library.selectedTag, library.selectedTrack, currentSearchQuery, getScrollEl]);
 
   const centralSearch = useCentralSearch({
     onPlayTrack: (track) => {
@@ -3605,8 +3609,8 @@ function App() {
             showAutoContinuePopover={autoContinue.showPopover}
             autoContinueWeights={autoContinue.weights}
             imagePath={
-              (playback.currentTrack?.album_id && albumImageCache.images[playback.currentTrack.album_id])
-              || (playback.currentTrack?.artist_id && artistImageCache.images[playback.currentTrack.artist_id])
+              (playback.currentTrack?.album_id != null && albumImageCache.images[playback.currentTrack.album_id])
+              || (playback.currentTrack?.artist_id != null && artistImageCache.images[playback.currentTrack.artist_id])
               || null
             }
             onPause={playback.handlePause}
@@ -3901,6 +3905,18 @@ function App() {
         />
       )}
 
+      {navError && (
+        <div className="modal-overlay" onClick={() => setNavError(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Navigation Error</h2>
+            <p>{navError}</p>
+            <div className="modal-actions">
+              <button className="modal-btn modal-btn-confirm" onClick={() => setNavError(null)}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <NowPlayingBar
         waveformPeaks={waveformPeaks}
         currentTrack={playback.currentTrack}
@@ -3917,8 +3933,8 @@ function App() {
         showAutoContinuePopover={autoContinue.showPopover}
         autoContinueWeights={autoContinue.weights}
         imagePath={
-          (playback.currentTrack?.album_id && albumImageCache.images[playback.currentTrack.album_id])
-          || (playback.currentTrack?.artist_id && artistImageCache.images[playback.currentTrack.artist_id])
+          (playback.currentTrack?.album_id != null && albumImageCache.images[playback.currentTrack.album_id])
+          || (playback.currentTrack?.artist_id != null && artistImageCache.images[playback.currentTrack.artist_id])
           || null
         }
         miniMode={mini.miniMode}

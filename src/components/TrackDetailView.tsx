@@ -396,14 +396,14 @@ export function TrackDetailView({
             </h2>
             <div className="track-detail-meta">
               {track.artist_name && (
-                <span className="track-detail-link" onClick={() => track.artist_id && onArtistClick(track.artist_id)}>
+                <span className="track-detail-link" onClick={() => onArtistClick(track.artist_id!)}>
                   {track.artist_name}
                 </span>
               )}
               {track.album_title && (
                 <>
                   <span className="track-detail-sep"> — </span>
-                  <span className="track-detail-link" onClick={() => track.album_id && onAlbumClick(track.album_id, track.artist_id)}>
+                  <span className="track-detail-link" onClick={() => onAlbumClick(track.album_id!, track.artist_id)}>
                     {track.album_title}
                   </span>
                 </>

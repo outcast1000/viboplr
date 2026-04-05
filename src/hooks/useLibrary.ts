@@ -12,7 +12,7 @@ export const DEFAULT_TRACK_COLUMNS: ColumnConfig[] = ALL_COLUMN_IDS.map(id => ({
   visible: DEFAULT_VISIBLE.has(id),
 }));
 
-export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNavigate?: () => void, debouncedTrackQuery?: string, trackPopularity?: Record<number, number>) {
+export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNavigate?: () => void, debouncedTrackQuery?: string, trackPopularity?: Record<number, number>, onNavigationError?: (message: string) => void) {
   const [view, setView] = useState<View>("all");
   const [artists, setArtists] = useState<Artist[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -483,6 +483,10 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   }
 
   function handleArtistClick(artistId: number) {
+    if (!artistId || !artists.find(a => a.id === artistId)) {
+      onNavigationError?.("This artist is not available in the library. It may belong to a multi-artist compilation or an external source.");
+      return;
+    }
     onBeforeNavigate?.();
     setSelectedArtist(artistId);
     setSelectedAlbum(null);
@@ -492,6 +496,10 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   }
 
   function handleAlbumClick(albumId: number, artistId?: number | null) {
+    if (!albumId || !albums.find(a => a.id === albumId)) {
+      onNavigationError?.("This album is not available in the library. It may belong to a multi-artist compilation or an external source.");
+      return;
+    }
     onBeforeNavigate?.();
     setSelectedAlbum(albumId);
     setSelectedTag(null);
