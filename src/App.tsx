@@ -9,7 +9,7 @@ import "./base.css";
 import "./App.css";
 
 import type { Album, Collection, Track, View, ViewMode, ColumnConfig, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField } from "./types";
-import { isVideoTrack, getInitials, parseSubsonicUrl, formatDuration } from "./utils";
+import { isVideoTrack, getInitials, parseSubsonicUrl, formatDuration, stripAccents, formatCount } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
@@ -68,23 +68,6 @@ import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 
 import { StatusBar } from "./components/StatusBar";
-
-const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-function formatCount(n: number): string {
-  if (n >= 1_000_000) {
-    const v = n / 1_000_000;
-    if (v >= 100) return `${Math.round(v)}M`;
-    if (v >= 10) return `${v.toFixed(1).replace(/\.0$/, "")}M`;
-    return `${v.toFixed(2).replace(/\.?0+$/, "")}M`;
-  }
-  if (n >= 1_000) {
-    const v = n / 1_000;
-    if (v >= 100) return `${Math.round(v)}K`;
-    if (v >= 10) return `${v.toFixed(1).replace(/\.0$/, "")}K`;
-    return `${v.toFixed(2).replace(/\.?0+$/, "")}K`;
-  }
-  return String(n);
-}
 
 
 function App() {
