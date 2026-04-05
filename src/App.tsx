@@ -2134,7 +2134,7 @@ function App() {
         }}
       />
       <button
-        className="sidebar-collapse-btn"
+        className="g-btn g-btn-xs sidebar-collapse-btn"
         onClick={handleToggleSidebar}
         title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
       >
@@ -2246,7 +2246,7 @@ function App() {
             <span className="caption-brand-text">iboPLR</span>
           </div>
           <button
-            className="nav-history-btn"
+            className="g-btn g-btn-sm"
             disabled={!canGoBack}
             onClick={goBack}
             title="Go back (Alt+Left)"
@@ -2256,7 +2256,7 @@ function App() {
             </svg>
           </button>
           <button
-            className="nav-history-btn"
+            className="g-btn g-btn-sm"
             disabled={!canGoForward}
             onClick={goForward}
             title="Go forward (Alt+Right)"
@@ -2283,14 +2283,14 @@ function App() {
           />
           <div className="caption-spacer" />
           <button
-            className="caption-help-btn"
+            className="g-btn g-btn-sm"
             onClick={() => setShowHelp(h => !h)}
             title="Keyboard shortcuts"
           >
             {"?"}
           </button>
           <button
-            className="caption-mini-player-btn"
+            className="g-btn g-btn-rect"
             onClick={mini.toggleMiniMode}
             title="Mini Player"
           >
