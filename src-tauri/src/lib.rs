@@ -16,6 +16,7 @@ mod sync;
 mod tag_writer;
 mod timing;
 mod downloader;
+mod genius;
 mod lastfm;
 mod lyric_provider;
 
@@ -125,6 +126,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::lastfm_get_track_info,
         commands::lastfm_get_track_tags,
         commands::lastfm_get_artist_tags,
+        commands::get_genius_explanation,
         commands::lastfm_apply_community_tags,
         commands::replace_track_tags,
         commands::download_track,
@@ -262,6 +264,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::lastfm_get_track_info,
         commands::lastfm_get_track_tags,
         commands::lastfm_get_artist_tags,
+        commands::get_genius_explanation,
         commands::lastfm_apply_community_tags,
         commands::replace_track_tags,
         commands::download_track,

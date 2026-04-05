@@ -206,6 +206,13 @@ export function TrackDetailView({
   const [similarTracks, setSimilarTracks] = useState<Array<{ name: string; artist: { name: string }; match?: string }>>([]);
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
   const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; toptags?: Array<{ name: string }> } | null>(null);
+  const [geniusExplanation, setGeniusExplanation] = useState<{
+    about?: string;
+    annotations: { fragment: string; explanation: string }[];
+    song_url: string;
+  } | null>(null);
+  const [geniusLoading, setGeniusLoading] = useState(false);
+  const [geniusAboutExpanded, setGeniusAboutExpanded] = useState(false);
   const trackIdRef = useRef(trackId);
 
   useEffect(() => { trackIdRef.current = trackId; }, [trackId]);
@@ -221,6 +228,9 @@ export function TrackDetailView({
     setSimilarTracks([]);
     setAudioProps(null);
     setTrackInfo(null);
+    setGeniusExplanation(null);
+    setGeniusLoading(false);
+    setGeniusAboutExpanded(false);
 
     invoke("fetch_lyrics", { trackId, force: false }).catch(() => setLyricsLoading(false));
     invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId }).then(setTrackTags).catch(() => {});
@@ -232,6 +242,12 @@ export function TrackDetailView({
     if (track.artist_name) {
       invoke("lastfm_get_track_tags", { artistName: track.artist_name, trackTitle: track.title }).catch(() => {});
       invoke("lastfm_get_similar_tracks", { artistName: track.artist_name, trackTitle: track.title }).catch(() => {});
+      if (sections.geniusExplanations !== false) {
+        setGeniusLoading(true);
+        invoke<any>("get_genius_explanation", { artistName: track.artist_name, trackTitle: track.title })
+          .then(cached => { if (cached) { setGeniusExplanation(cached); setGeniusLoading(false); } })
+          .catch(() => setGeniusLoading(false));
+      }
       const parseTrackInfo = (resp: any) => {
         const t = resp?.track;
         if (!t) return;
@@ -274,12 +290,19 @@ export function TrackDetailView({
         toptags: Array.isArray(t.toptags?.tag) ? t.toptags.tag : [],
       });
     });
+    const unlistenGenius = listen<any>("genius-explanation", (event) => {
+      if (event.payload) {
+        setGeniusExplanation(event.payload);
+        setGeniusLoading(false);
+      }
+    });
     return () => {
       unlistenLyrics.then(f => f());
       unlistenLyricsErr.then(f => f());
       unlistenSimilar.then(f => f());
       unlistenTags.then(f => f());
       unlistenTrackInfo.then(f => f());
+      unlistenGenius.then(f => f());
     };
   }, []);
 
@@ -343,6 +366,7 @@ export function TrackDetailView({
                   { key: "tags", label: "Tags", visible: sections.tags !== false },
                   { key: "scrobbleHistory", label: "Play History", visible: sections.scrobbleHistory !== false },
                   { key: "similar", label: "Similar Tracks", visible: sections.similar !== false },
+                  { key: "geniusExplanations", label: "Song Explanation", visible: sections.geniusExplanations !== false },
                 ]}
                 onPlay={onPlay}
                 onEnqueue={onEnqueue}
@@ -447,6 +471,50 @@ export function TrackDetailView({
               </div>
             ) : (
               <div className="track-detail-empty">No similar tracks found</div>
+            )}
+          </div>
+        )}
+
+        {sections.geniusExplanations !== false && (
+          <div className="track-detail-genius">
+            <div className="track-detail-section-title">
+              Song Explanation
+              {geniusExplanation?.song_url && (
+                <a className="genius-link" onClick={() => openUrl(geniusExplanation.song_url)} title="View on Genius">
+                  View on Genius &#x2197;
+                </a>
+              )}
+            </div>
+            {geniusLoading ? (
+              <div className="track-detail-empty">Loading...</div>
+            ) : geniusExplanation ? (
+              <div className="genius-content">
+                {geniusExplanation.about && (
+                  <div className={`genius-about${!geniusAboutExpanded && geniusExplanation.about.length > 300 ? " genius-about-collapsed" : ""}`}>
+                    <p>{geniusExplanation.about}</p>
+                    {geniusExplanation.about.length > 300 && (
+                      <button className="genius-about-toggle" onClick={() => setGeniusAboutExpanded(v => !v)}>
+                        {geniusAboutExpanded ? "Show less" : "Show more"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {geniusExplanation.annotations.length > 0 && (
+                  <div className="genius-annotations">
+                    {geniusExplanation.annotations.map((ann, i) => (
+                      <div key={i} className="genius-annotation">
+                        <div className="genius-annotation-fragment">{ann.fragment}</div>
+                        <div className="genius-annotation-explanation">{ann.explanation}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!geniusExplanation.about && geniusExplanation.annotations.length === 0 && (
+                  <div className="track-detail-empty">No explanations available</div>
+                )}
+              </div>
+            ) : (
+              <div className="track-detail-empty">No Genius explanation found</div>
             )}
           </div>
         )}

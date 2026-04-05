@@ -416,7 +416,7 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `trackLikedFirst` | `boolean` | `false` |
 | `artistSections` | `object` (`{ topSongs, about, albums, similarArtists }`) | `{ topSongs: true, about: true, albums: true, similarArtists: true }` |
 | `albumSections` | `object` (`{ review, unmatchedTracks }`) | `{ review: true, unmatchedTracks: true }` |
-| `trackSections` | `object` (`{ lyrics, tags, scrobbleHistory, similar }`) | `{ lyrics: true, tags: true, scrobbleHistory: true, similar: true }` |
+| `trackSections` | `object` (`{ lyrics, tags, scrobbleHistory, similar, geniusExplanations }`) | `{ lyrics: true, tags: true, scrobbleHistory: true, similar: true, geniusExplanations: true }` |
 | `syncWithPlaying` | `boolean` | `false` |
 | `searchIncludeLyrics` | `boolean` | `true` |
 | `selectedTrack` | `number \| null` | `null` |
@@ -678,6 +678,7 @@ The Last.fm client exposes several read-only API methods for fetching metadata. 
 | `lastfm_get_album_info` | `artist_name: String, album_title: String` | `Option<Value>` (cached or async) |
 | `lastfm_get_track_tags` | `artist_name: String, track_title: String` | `Option<Value>` (cached or async) |
 | `lastfm_get_artist_tags` | `artist_name: String` | `Option<Value>` (cached or async) |
+| `get_genius_explanation` | `artist_name: String, track_title: String` | `Option<Value>` (cached or async) |
 | `lastfm_apply_community_tags` | `track_id: i64, tag_names: Vec<String>` | `Vec<(i64, String)>` |
 | `replace_track_tags` | `track_id: i64, tag_names: Vec<String>` | `Vec<(i64, String)>` |
 
@@ -695,6 +696,7 @@ The Last.fm client exposes several read-only API methods for fetching metadata. 
 | `lastfm-album-info` | `Value` (JSON) |
 | `lastfm-track-tags` | `Value` (JSON) |
 | `lastfm-artist-tags` | `Value` (JSON) |
+| `genius-explanation` | `Value` (JSON: `{ about?, annotations[], song_url }`) |
 
 ### 4.22 Collapsible Sidebar
 
@@ -1141,6 +1143,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `lastfm-album-info`         | `Value` (JSON)                 |
 | `lastfm-track-tags`         | `Value` (JSON)                 |
 | `lastfm-artist-tags`        | `Value` (JSON)                 |
+| `genius-explanation`         | `Value` (JSON: `{ about?, annotations[], song_url }`) |
 | `lastfm-album-track-popularity` | `Value` (JSON: artist, album, tracks[]) |
 | `lastfm-artist-track-popularity`| `Value` (JSON: artist, tracks[])        |
 | `lastfm-artist-info-error`      | `{ artist, error }`                     |
@@ -1405,13 +1408,14 @@ An inline detail view for individual tracks, accessible by clicking the track ti
 - **Play button and options menu:** A play button triggers playback. A "..." options menu provides actions like searching on web providers, upgrading via TIDAL, and opening the containing folder.
 - **Last.fm stats:** Listener and scrobble counts from `track.getInfo`.
 - **Inline tags:** Library tags displayed as clickable chips that navigate to the tag detail view.
-- **Section toggles:** Collapsible sections (Lyrics, Tags, Scrobble History, Similar Tracks) with visibility toggles persisted as `trackSections` in the app store.
+- **Section toggles:** Collapsible sections (Lyrics, Tags, Scrobble History, Similar Tracks, Song Explanation) with visibility toggles persisted as `trackSections` in the app store.
 
 **Sections:**
 1. **Scrobble History** — Play history and stats for the track, powered by `get_track_play_history` and `get_track_play_stats` backend commands. Shows play count, first/last played timestamps, and a list of individual play entries with formatted timestamps and relative time (e.g., "5m ago").
 2. **Similar Tracks** — Last.fm similar tracks displayed as comma-separated inline links. Clicking a track name searches the library and navigates to it if found, or shows a status bar message if not found.
 3. **Community Tags** — Tag suggestions from Last.fm (`track.getTopTags`) with "Apply" buttons.
 4. **Lyrics** — Reuses the `LyricsPanel` component (see §4.30). Responsive layout positions lyrics beside the header section when viewport width allows, wrapping below on narrow viewports.
+5. **Song Explanation** — Genius.com editorial description ("About") and crowd-sourced line-by-line annotations, fetched via `get_genius_explanation` (uses Genius public API: `/api/search/multi`, `/api/songs/{id}`, `/api/referents`). Cached in `lastfm_cache` with key `genius_explanation:{artist}:{title}`. The "About" block is collapsible when longer than 300 characters. Each annotation shows the quoted lyric fragment with its community explanation. Includes a "View on Genius" link that opens the song page in the default browser.
 
 **Video track behavior:** When the Track Detail View is active for a currently playing video track, the content area and splitter are hidden, letting the video container fill the entire main area.
 
