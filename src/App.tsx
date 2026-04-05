@@ -410,7 +410,6 @@ function App() {
     addLog,
     queueCollapsed,
     setQueueCollapsed,
-    store,
   });
 
   // Wire plugin host callbacks (uses addLog, library, contextMenuActions defined above)

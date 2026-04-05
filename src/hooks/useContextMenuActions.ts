@@ -28,7 +28,6 @@ interface UseContextMenuActionsDeps {
   addLog: (msg: string) => void;
   queueCollapsed: boolean;
   setQueueCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
-  store: { set: (key: string, value: any) => Promise<void> };
 }
 
 export function useContextMenuActions(deps: UseContextMenuActionsDeps) {

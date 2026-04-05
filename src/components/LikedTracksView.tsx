@@ -133,7 +133,7 @@ export function LikedTracksView({
           onSort={onSort}
           sortIndicator={sortIndicator}
           onToggleLike={onToggleLike}
-            onToggleDislike={onToggleDislike}
+          onToggleDislike={onToggleDislike}
           onTrackDragStart={onTrackDragStart}
           emptyMessage="No liked tracks yet. Click the heart icon on any track to like it."
         />

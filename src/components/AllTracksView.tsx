@@ -173,7 +173,7 @@ export function AllTracksView({
           onSort={onSort}
           sortIndicator={sortIndicator}
           onToggleLike={onToggleLike}
-            onToggleDislike={onToggleDislike}
+          onToggleDislike={onToggleDislike}
           onTrackDragStart={onTrackDragStart}
           emptyMessage="No tracks found. Add a folder or server to start building your library."
           hasMore={hasMore}
