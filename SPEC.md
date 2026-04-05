@@ -111,7 +111,9 @@ When `lofty` returns no usable tags, the following regex patterns are tried in o
 - List view (table) with columns: like (heart icon), track number, title, artist, album, year, quality (bitrate), duration, popularity, file size, collection, added, modified, path. Columns are togglable via a column menu; default visible: like, number, title, artist, album, duration. In list/tiles view modes, tracks use a **two-line layout**: title on line 1 (15px), artist · album on line 2 (13px). **Artist and album names are clickable** in tracks and liked list views, navigating to the respective artist or album detail view.
 - **Multi-selection:** Click to select a single track. Cmd/Ctrl+Click to toggle individual tracks. Shift+Click to select a contiguous range. Cmd/Ctrl+Shift+Click to add a range to the existing selection. Selected rows are visually highlighted. Selection is cleared on view/track-list change and on double-click.
 - Tracks from all enabled collections (local and server) are unified in a single library.
-- **Breadcrumb actions:** Artist detail and tag detail views show "Play All" and "Queue All" buttons in the breadcrumb bar. The All Tracks view does not show these bulk-play buttons.
+- **View titles:** Detail views (Artist Details, Album Details, Tag Details, Track Details) display a simple static title instead of hierarchical breadcrumb trails. "Play All" and "Queue All" buttons are shown in the title bar for artist and tag detail views. The All Tracks view does not show these bulk-play buttons.
+- **Sidebar deselection:** Sidebar items no longer highlight when viewing detail pages — the active indicator smoothly fades out. Sidebar navigation callbacks clear the selected track.
+- **Sync with playback:** A toggle button in the title bar keeps detail views synchronized with the currently playing track. When enabled, navigating to the next track automatically updates the detail view to show the new track's artist, album, or track details (tag detail views are excluded since a track may have many tags). State is persisted as `syncWithPlaying` in the app store.
 
 **View modes:** Artists, Albums, Tags, All Tracks, and Liked views each support three view modes, toggled via a `ViewModeToggle` component in the sort bar:
 - **Basic** — compact table with sortable column headers.
@@ -123,6 +125,23 @@ View mode selections are persisted per entity (`artistViewMode`, `albumViewMode`
 **Artist list sort controls:** A sort bar above the artist list offers Name, Tracks (track count), and Shuffle buttons, plus a heart toggle to float liked artists to the top. Name and Tracks cycle through ascending → descending → unsorted on repeated clicks. Shuffle re-randomizes each click (Fisher-Yates).
 
 **Album grid sort controls:** A sort bar above the album grid offers Name, Artist, Year, Tracks, and Shuffle buttons, plus a heart toggle to float liked albums to the top. Name, Artist, Year, and Tracks cycle asc → desc → unsorted. Shuffle re-randomizes each click. Album cards display a **play button overlay** on hover that plays all tracks in the album.
+
+**Artist detail view enhancements:**
+- **Responsive layout:** The bio/about section sits beside the header when space allows, wrapping below on narrow viewports.
+- **Horizontal album scroll:** Albums are displayed as a single horizontally scrollable row sorted by year (newest first).
+- **Top Songs:** Last.fm `artist.getTopTracks` integration shows track popularity with listener counts. Library tracks are matched and shown as playable links; unmatched Last.fm tracks are indicated separately.
+- **Section toggles:** Collapsible sections (Top Songs, About, Albums, Similar Artists) with visibility toggles persisted as `artistSections` in the app store.
+- **Stats:** Last.fm listeners and scrobbles are displayed under the artist title.
+- **Loading/empty states:** Artist bio shows "Loading..." while fetching from Last.fm and "No bio available" when no data exists. Error events from the backend ensure the frontend can distinguish between loading and empty states.
+
+**Album detail view enhancements:**
+- **Responsive layout:** The album review sits beside the metadata when space allows, wrapping below on narrow viewports.
+- **Sortable popularity column:** Track popularity (Last.fm listener count) can be sorted via column header click.
+- **Unmatched tracks:** Last.fm tracks not found in the local library are shown above the track list in a compact scrollable layout.
+- **Section toggles:** Collapsible sections (Review, Unmatched Tracks) with visibility toggles persisted as `albumSections` in the app store.
+- **Stats:** Album listener and scrobble counts from Last.fm are displayed.
+- **Loading/empty states:** Album review shows "Loading..." while fetching from Last.fm and "No review available" when absent.
+- **Options menu (`AlbumOptionsMenu`):** Restructured with separate "Retrieve Image" and "Retrieve Info" actions, and a "Web Search" submenu for search providers (renamed from "Search").
 
 **Album detail placeholders:** When an album has no cover art, a vinyl disc icon placeholder is displayed. When album wiki info from Last.fm is absent, a "No review available" message is shown.
 
@@ -150,12 +169,13 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 
 **Dual search architecture:** The app has two independent search mechanisms:
 
-1. **Central search dropdown** (`CentralSearchDropdown` component, `useCentralSearch` hook): A pill-shaped input in the caption bar (`Cmd/Ctrl+K` to focus) that queries the FTS5 index with 400ms debounce. Displays up to 5 results in a dropdown with album art (fallback: artist image, then initial letter), two-line rows (title + artist · album subtitle), and keyboard navigation. Enter plays the selected track; `Cmd/Ctrl+Enter` enqueues it. Pressing Enter with no selection commits the query to the current view's search bar. Footer hints show available actions.
+1. **Central search dropdown** (`CentralSearchDropdown` component, `useCentralSearch` hook): A pill-shaped input in the caption bar (`Cmd/Ctrl+K` to focus) that queries artists, albums, and tracks in parallel with 200ms debounce. Results are displayed in grouped sections (Artists, Albums, Tracks) with dynamic slot allocation (~7 total items). Each entity type gets up to 2 base slots, with remaining slots distributed to types that have more results (tracks prioritized). Artist and album results show name/title with track count; clicking navigates to the respective detail view. Track results show album art (fallback: artist image, then initial letter), two-line rows (title + artist · album subtitle). Enter plays the selected track; `Cmd/Ctrl+Enter` enqueues it. Pressing Enter with no selection commits the query to the current view's search bar. Footer hints show available actions. Highlighted results auto-scroll into view during keyboard navigation.
 
 2. **Per-view search bars** (`ViewSearchBar` component, `useViewSearchState` hook): Each view (artists, albums, tags, tracks, liked, history, tidal) has its own independent search bar that filters content within that view. Search state is maintained per-view and persists across view switches. Navigation history stores per-view search queries (via `viewSearchQueries` map) instead of a single shared query. **Arrow key navigation:** Pressing Down/Up in a view search bar navigates the underlying list (highlight moves), Enter activates the highlighted item. **Artist view search** tokenizes the query on whitespace and punctuation (`/[\s.,;:_\-\/\\]+/`), requiring all tokens to match (AND logic) for flexible multi-word lookups.
 
 **FTS5 index:**
-- SQLite FTS5 virtual table indexes: track title, artist name, album title, tag names, filename.
+- SQLite FTS5 virtual table indexes: track title, artist name, album title, tag names, filename, and lyrics text.
+- **Lyrics include/exclude toggle:** A toggle button next to the search input on All Tracks and Liked views controls whether lyrics are included in FTS search. When enabled (default), the full FTS index is searched. When disabled, FTS5 column scoping (`{title artist_name album_title tag_names filename}:`) restricts the search to non-lyrics columns. The toggle state is persisted as `searchIncludeLyrics` in the app store. Central search always includes lyrics.
 - **Accent-insensitive:** all indexed text is stripped of diacritics before insertion via a custom `strip_diacritics()` SQL function (Rust, using `unicode-normalization` crate). Search queries are also normalized before matching. This works for all Unicode scripts (Latin, Greek, Cyrillic, etc.). Client-side list filtering (artists, albums, tags) uses JavaScript `String.normalize("NFD")` with combining-mark removal for the same effect.
 - Search-as-you-type with <100 ms response time.
 - Uses custom SQL functions `filename_from_path()` and `strip_diacritics()` (Rust-implemented) registered at database initialization.
@@ -170,7 +190,6 @@ Tags replace the previous single-genre-per-track model. A track can have **multi
 - Media type (audio vs video) determined by file extension (video: mp4, m4v, mov, webm).
 - Transport controls: play, pause, stop, seek, volume.
 - Position and duration tracked via HTML5 media events (`timeupdate`, `loadedmetadata`, `play`, `pause`, `ended`) — no polling.
-- **Now Playing view:** An expanded view toggled via the expand button in the NowPlayingBar. The NowPlayingBar footer remains visible at the bottom; the Now Playing view fills only the sidebar/main/queue area (grid row 2). The expand button toggles to a collapse icon when the view is open.
 - Video displayed **below the content area** (between the track list and the now-playing bar) with a **resizable splitter**. The splitter is draggable (default height: 300px, persisted as `videoSplitHeight`), has a collapse/expand button to minimize the video, and enforces a 150px minimum track list height. A **fullscreen button overlay** appears on hover in the bottom-right corner of the video, with a tooltip showing the keyboard shortcut (`Cmd/Ctrl+F`) and how to exit (`Esc`). Double-click or `Cmd/Ctrl+F` on the video enters native fullscreen.
 - **Double-click:** Double-clicking a track in any view (All Tracks, Artist, Album, Tag, Liked) plays only that single track — the queue is replaced with just that one track. No additional tracks are queued or auto-played after it finishes (unless Auto Continue is enabled).
 - **Playback error handling:** Error event handlers on `<audio>` and `<video>` elements detect unsupported codecs, network errors, and decode errors. A `PlaybackErrorModal` displays the failed track title, error message, and a **15-second countdown** before automatically skipping to the next track. The modal offers "Dismiss" (stay on current state) and "Skip Now" buttons. The error clears automatically when a new track starts playing.
@@ -252,7 +271,8 @@ When playback reaches the end of the queue in "normal" mode, the player normally
 - **Locate File** (local tracks only): Opens the track's parent directory in the OS file explorer (macOS Finder, Windows Explorer via `raw_arg` for proper path quoting, or Linux xdg-open).
 - **Delete** (local tracks only): Deletes the file from disk and removes the track from the database. Shows a confirmation dialog before proceeding. Supports single and multi-track deletion. If the currently playing track is deleted, playback stops. Only available for local (non-subsonic, non-tidal) tracks. The `delete_tracks` command returns a `DeleteTracksResult` containing `deleted_ids` and a `failures` array (each with `title` and `reason`). The frontend shows: a **status bar message** on full success, an **error modal with a scrollable failure list** on total failure, or both (status bar + error modal) on partial failure.
 - **Upgrade via TIDAL** (local tracks only, when TIDAL is configured): Opens a modal to replace the local file with a higher-quality version from TIDAL (see §4.23).
-- **Search providers**: Dynamic list of enabled search providers (see §4.14). Each provider appears with its icon and a "Search on {name}" label. Clicking opens the provider's URL with `{artist}` and `{title}` placeholders filled in. Only providers with a URL template for the current context (artist/album/track) are shown.
+- **View Details**: Opens the Track Detail View (see §4.31) for the selected track.
+- **Web Search** (submenu, with globe icon): Dynamic list of enabled search providers (see §4.14). Each provider appears with its icon and a "Search on {name}" label. Clicking opens the provider's URL with `{artist}` and `{title}` placeholders filled in. Only providers with a URL template for the current context (artist/album/track) are shown.
 
 ### 4.13 Play History
 
@@ -373,7 +393,7 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `lastfmSessionKey` | `string \| null` | `null` |
 | `lastfmUsername` | `string \| null` | `null` |
 | `trackVideoHistory` | `boolean` | `false` |
-| `videoSplitHeight` | `number` | `300` |
+| `videoLayout` | `object` (`{ dockSide, fitMode, sizes, isCollapsed }`) | `{ dockSide: "bottom", fitMode: "contain", sizes: { top: 300, bottom: 300, left: 400, right: 400 }, isCollapsed: false }` |
 | `sidebarCollapsed` | `boolean` | `false` |
 | `miniWindowX` | `number \| null` | `null` |
 | `miniWindowY` | `number \| null` | `null` |
@@ -394,6 +414,12 @@ UI state is saved to disk via `tauri-plugin-store` and restored on startup so th
 | `filterYoutubeOnly` | `boolean` | `false` |
 | `mediaTypeFilter` | `string` | `"all"` |
 | `trackLikedFirst` | `boolean` | `false` |
+| `artistSections` | `object` (`{ topSongs, about, albums, similarArtists }`) | `{ topSongs: true, about: true, albums: true, similarArtists: true }` |
+| `albumSections` | `object` (`{ review, unmatchedTracks }`) | `{ review: true, unmatchedTracks: true }` |
+| `trackSections` | `object` (`{ lyrics, tags, scrobbleHistory, similar }`) | `{ lyrics: true, tags: true, scrobbleHistory: true, similar: true }` |
+| `syncWithPlaying` | `boolean` | `false` |
+| `searchIncludeLyrics` | `boolean` | `true` |
+| `selectedTrack` | `number \| null` | `null` |
 
 **Behavior:**
 
@@ -623,6 +649,7 @@ The Last.fm client exposes several read-only API methods for fetching metadata. 
 | `get_artist_info(artist)` | `artist.getInfo` | Artist bio, stats, tags, similar |
 | `get_album_info(artist, album)` | `album.getInfo` | Album wiki, tags, tracklist |
 | `get_track_info(artist, track)` | `track.getInfo` | Track listeners, playcount, tags |
+| `get_artist_top_tracks(artist, limit, page)` | `artist.getTopTracks` | Top tracks with listener counts |
 | `get_track_top_tags(artist, track)` | `track.getTopTags` | Community tag suggestions |
 | `get_artist_top_tags(artist)` | `artist.getTopTags` | Artist top tags |
 | `love_track(session_key, artist, track)` | `track.love` | Loves a track (signed POST) |
@@ -698,7 +725,7 @@ Viboplr uses a custom caption bar across all platforms (native window decoration
 - **Window controls (left):** macOS traffic-light–style buttons (close, minimize, maximize) on the left. On Windows/Linux, a `WindowControls` component renders minimize, maximize, and close buttons instead.
 - **Navigation history buttons:** Back and forward arrows for view navigation history.
 - **Draggable spacer:** Flexible empty space that acts as a window drag region (double-click to maximize/restore).
-- **Central search dropdown:** A pill-shaped input with a magnifying glass icon (left) and a clear button (right, shown when query is non-empty). Focused via `Cmd/Ctrl+K`. Queries the FTS5 index and displays a dropdown of up to 5 results with album art, two-line rows, and keyboard navigation (see §4.8 for details). Placeholder: "What do you want to play?".
+- **Central search dropdown:** A pill-shaped input with a magnifying glass icon (left) and a clear button (right, shown when query is non-empty). Focused via `Cmd/Ctrl+K`. Queries artists, albums, and tracks with grouped results (~7 total) and keyboard navigation (see §4.8 for details). Placeholder: "What do you want to play?".
 - **Draggable spacer:** Another flexible drag region.
 - **Mini player button:** Labeled "Mini Player" with an icon, positioned to the right of the search bar.
 - **Window controls (right):** On Windows/Linux, a second `WindowControls` instance on the right side. Not rendered on macOS.
@@ -928,6 +955,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `get_track_path`        | `track_id: i64`             | `String` (path or URL)   |
 | `show_in_folder`        | `track_id: i64`             | `()`                     |
 | `rebuild_search_index`  | —                           | `()`                     |
+| `search_all`                | `query: String, limit: i64`                                           | `SearchAllResults` (artists, albums, tracks) |
 | `get_auto_continue_track` | `strategy: String, current_track_id: i64, format_filter: Option<String>` | `Option<Track>` |
 | `delete_tracks`           | `track_ids: Vec<i64>`                     | `DeleteTracksResult` (deleted_ids + failures) |
 | `get_cached_waveform`     | `track_id: i64`                           | `Option<Vec<f32>>`       |
@@ -945,6 +973,7 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `query`          | `Option<String>`| `null`  |
 | `liked_only`     | `bool`          | `false` |
 | `has_youtube_url` | `bool`         | `false` |
+| `include_lyrics` | `bool`          | `true`  |
 | `media_type`     | `Option<String>`| `null`  |
 | `sort_field`     | `Option<String>`| `null`  |
 | `sort_dir`       | `Option<String>`| `null`  |
@@ -977,6 +1006,8 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `reconnect_history_artist`       | `history_artist_id: i64`               | `Option<i64>`                |
 | `get_track_rank`                 | `track_id: i64`                        | `Option<i64>`                |
 | `get_artist_rank`                | `artist_id: i64`                       | `Option<i64>`                |
+| `get_track_play_history`         | `track_id: i64`                        | `Vec<TrackPlayEntry>`        |
+| `get_track_play_stats`           | `track_id: i64`                        | `Option<TrackPlayStats>`     |
 
 ### Image Commands
 
@@ -1019,6 +1050,8 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `lastfm_import_history`   | —                                           | `()` (background thread)       |
 | `lastfm_cancel_import`    | —                                           | `()`                           |
 | `lastfm_get_album_track_popularity` | `artist_name: String, album_title: String` | `Option<Value>` (cached or async) |
+| `lastfm_get_artist_track_popularity`| `artist_name: String`                      | `Option<Value>` (cached or async) |
+| `get_track_file_info`               | `track_id: i64`                            | `Value` (format, bitrate, sample rate, file size) |
 
 ### Download Commands
 
@@ -1109,6 +1142,9 @@ CREATE VIRTUAL TABLE tracks_fts USING fts5(
 | `lastfm-track-tags`         | `Value` (JSON)                 |
 | `lastfm-artist-tags`        | `Value` (JSON)                 |
 | `lastfm-album-track-popularity` | `Value` (JSON: artist, album, tracks[]) |
+| `lastfm-artist-track-popularity`| `Value` (JSON: artist, tracks[])        |
+| `lastfm-artist-info-error`      | `{ artist, error }`                     |
+| `lastfm-album-info-error`       | `{ artist, album, error }`              |
 | `lyrics-loaded`                 | `{ track_id, text, kind, provider }`     |
 | `lyrics-error`                  | `{ track_id, error }`                    |
 
@@ -1335,7 +1371,7 @@ The UI uses CSS animations and transitions for micro-interactions and state chan
 
 ### 4.30 Lyrics
 
-Lyrics are fetched from external providers, stored per-track in the database, and displayed in the Now Playing View with synchronized scrolling for timestamped lyrics.
+Lyrics are fetched from external providers, stored per-track in the database, and displayed in the Track Detail View (see §4.31) with synchronized scrolling for timestamped lyrics.
 
 **Provider system:** A trait-based `LyricProvider` fallback chain (`lyric_provider/mod.rs`) mirrors the image provider pattern. Each provider implements `fetch_lyrics(artist, title, duration_secs)` returning a `LyricResult` with text, kind (`Synced` or `Plain`), and provider name. The chain iterates providers sequentially, returning the first success.
 
@@ -1346,9 +1382,9 @@ Lyrics are fetched from external providers, stored per-track in the database, an
 
 **Failure tracking:** Reuses the `image_fetch_failures` table with `kind = 'lyrics'`. Failed fetches are recorded to avoid retrying. Force refresh clears the failure record.
 
-**Auto-fetch on playback:** When a track starts playing and the Now Playing View is open, the frontend calls `fetch_lyrics(track_id, false)`. The backend checks the database first (emits `lyrics-loaded` immediately if cached), then checks the failure cache, then spawns a background thread for the provider chain. An `AtomicI64` tracks the currently-fetching track ID to avoid emitting events for stale fetches.
+**Auto-fetch on playback:** When a track starts playing and the Track Detail View is open, the frontend calls `fetch_lyrics(track_id, false)`. The backend checks the database first (emits `lyrics-loaded` immediately if cached), then checks the failure cache, then spawns a background thread for the provider chain. An `AtomicI64` tracks the currently-fetching track ID to avoid emitting events for stale fetches. The backend emits `lyrics-error` events for all early-return paths (no artist/title, fetch failure) so the frontend can show the correct state instead of staying on "Loading".
 
-**Display (`LyricsPanel` component):** Rendered in the right column of the Now Playing View (album and artist cards are moved to the left column).
+**Display (`LyricsPanel` component):** Rendered in the Track Detail View (see §4.31) as the last section, with responsive layout that places it beside the header when viewport width allows.
 
 - **Synced lyrics:** LRC timestamps are parsed into timed lines. The current line (based on playback position) is highlighted at full opacity with larger font weight; surrounding lines are dimmed (0.4 opacity). Auto-scrolls to keep the current line centered. Manual scrolling pauses auto-scroll for 5 seconds.
 - **Plain lyrics:** Full text displayed with normal scrolling, no line highlighting.
@@ -1358,6 +1394,28 @@ Lyrics are fetched from external providers, stored per-track in the database, an
 - **Actions:** Edit (✎), reset to provider lyrics (↺, shown for manual), re-fetch (↻, shown for provider lyrics).
 
 **FTS integration:** The `tracks_fts` index includes a `lyrics_text` column. When lyrics are saved, the FTS entry is updated. For synced lyrics, LRC timestamps are stripped before indexing via a `strip_lrc_timestamps` regex. The `check_lyrics_match` command checks which track IDs from a set matched a query in the lyrics column, enabling "lyrics" badges on search results.
+
+### 4.31 Track Detail View
+
+An inline detail view for individual tracks, accessible by clicking the track title in the NowPlayingBar or via the "View Details" context menu action.
+
+**Layout (`TrackDetailView` component):** A hero header matching the artist/album detail view pattern, with responsive flex-wrap layout:
+
+- **Hero header:** Album art (or initial-letter fallback), track title, artist name (clickable → artist detail), album title (clickable → album detail), duration, and audio quality stats (format, bitrate, sample rate, file size) fetched via the `get_track_file_info` command.
+- **Play button and options menu:** A play button triggers playback. A "..." options menu provides actions like searching on web providers, upgrading via TIDAL, and opening the containing folder.
+- **Last.fm stats:** Listener and scrobble counts from `track.getInfo`.
+- **Inline tags:** Library tags displayed as clickable chips that navigate to the tag detail view.
+- **Section toggles:** Collapsible sections (Lyrics, Tags, Scrobble History, Similar Tracks) with visibility toggles persisted as `trackSections` in the app store.
+
+**Sections:**
+1. **Scrobble History** — Play history and stats for the track, powered by `get_track_play_history` and `get_track_play_stats` backend commands. Shows play count, first/last played timestamps, and a list of individual play entries with formatted timestamps and relative time (e.g., "5m ago").
+2. **Similar Tracks** — Last.fm similar tracks displayed as comma-separated inline links. Clicking a track name searches the library and navigates to it if found, or shows a status bar message if not found.
+3. **Community Tags** — Tag suggestions from Last.fm (`track.getTopTags`) with "Apply" buttons.
+4. **Lyrics** — Reuses the `LyricsPanel` component (see §4.30). Responsive layout positions lyrics beside the header section when viewport width allows, wrapping below on narrow viewports.
+
+**Video track behavior:** When the Track Detail View is active for a currently playing video track, the content area and splitter are hidden, letting the video container fill the entire main area.
+
+**Navigation:** The Track Detail View is a full detail view that can be navigated to via the navigation history (Back/Forward). Clicking the track title in the NowPlayingBar navigates to the track detail, and the "View Details" context menu item does the same.
 
 ## 11. Out of Scope (v1)
 
