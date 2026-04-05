@@ -86,12 +86,8 @@ export default function LyricsPanel({ trackId, positionSecs, lyrics, loading, on
   if (loading) {
     return (
       <div className="np-lyrics">
-        <div className="np-lyrics-header">
-          <span className="np-section-title">Lyrics</span>
-        </div>
-        <div className="np-lyrics-body np-lyrics-center">
-          <span className="np-lyrics-loading">Loading…</span>
-        </div>
+        <div className="track-detail-section-title">Lyrics</div>
+        <div className="track-detail-empty">Loading…</div>
       </div>
     );
   }
@@ -99,16 +95,16 @@ export default function LyricsPanel({ trackId, positionSecs, lyrics, loading, on
   if (editing) {
     return (
       <div className="np-lyrics">
-        <div className="np-lyrics-header">
-          <span className="np-section-title">Edit Lyrics</span>
-          <div className="np-lyrics-actions">
+        <div className="track-detail-section-title">
+          Edit Lyrics
+          <span className="np-lyrics-actions">
             <select value={editKind} onChange={e => setEditKind(e.target.value as "plain" | "synced")}>
               <option value="plain">Plain</option>
               <option value="synced">Synced (LRC)</option>
             </select>
             <button className="np-lyrics-btn" onClick={handleSave}>Save</button>
             <button className="np-lyrics-btn" onClick={() => setEditing(false)}>Cancel</button>
-          </div>
+          </span>
         </div>
         <textarea
           className="np-lyrics-editor"
@@ -123,25 +119,20 @@ export default function LyricsPanel({ trackId, positionSecs, lyrics, loading, on
   if (!lyrics) {
     return (
       <div className="np-lyrics">
-        <div className="np-lyrics-header">
-          <span className="np-section-title">Lyrics</span>
-          <div className="np-lyrics-actions">
-            <button className="np-lyrics-btn" onClick={startEdit} title="Add lyrics manually">✎</button>
-          </div>
+        <div className="track-detail-section-title">
+          Lyrics
+          <button className="np-lyrics-btn" onClick={startEdit} title="Add lyrics manually">✎</button>
         </div>
-        <div className="np-lyrics-body np-lyrics-center">
-          <span className="np-lyrics-empty">No lyrics found</span>
-          <button className="np-lyrics-btn" onClick={startEdit}>Add manually</button>
-        </div>
+        <div className="track-detail-empty">No lyrics found</div>
       </div>
     );
   }
 
   return (
     <div className="np-lyrics">
-      <div className="np-lyrics-header">
-        <span className="np-section-title">Lyrics</span>
-        <div className="np-lyrics-actions">
+      <div className="track-detail-section-title">
+        Lyrics
+        <span className="np-lyrics-actions">
           <span className={`np-lyrics-badge ${lyrics.kind === "synced" ? "np-lyrics-badge-synced" : ""}`}>
             {lyrics.kind}
           </span>
@@ -152,7 +143,7 @@ export default function LyricsPanel({ trackId, positionSecs, lyrics, loading, on
           {lyrics.provider !== "manual" && (
             <button className="np-lyrics-btn" onClick={onForceRefresh} title="Re-fetch lyrics">↻</button>
           )}
-        </div>
+        </span>
       </div>
       <div className="np-lyrics-body" ref={scrollRef} onScroll={handleScroll}>
         {lrcLines ? (

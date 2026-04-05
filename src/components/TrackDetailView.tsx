@@ -232,7 +232,16 @@ export function TrackDetailView({
     setGeniusLoading(false);
     setGeniusAboutExpanded(false);
 
-    invoke("fetch_lyrics", { trackId, force: false }).catch(() => setLyricsLoading(false));
+    invoke<{ track_id: number; text: string; kind: string; provider: string } | null>("get_lyrics", { trackId }).then(cached => {
+      if (cached) {
+        setLyrics({ text: cached.text, kind: cached.kind, provider: cached.provider });
+        setLyricsLoading(false);
+      } else {
+        invoke("fetch_lyrics", { trackId, force: false }).catch(() => setLyricsLoading(false));
+      }
+    }).catch(() => {
+      invoke("fetch_lyrics", { trackId, force: false }).catch(() => setLyricsLoading(false));
+    });
     invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId }).then(setTrackTags).catch(() => {});
     invoke<TrackPlayStats | null>("get_track_play_stats", { trackId }).then(s => { if (s) setPlayStats(s); }).catch(() => {});
     invoke<Array<{ played_at: number }>>("get_track_play_history", { trackId, limit: 50 }).then(setPlayHistory).catch(() => {});
@@ -426,55 +435,6 @@ export function TrackDetailView({
           </div>
         </div>
 
-        {/* Play History + Similar Tracks — sit right of header when space allows */}
-        {sections.scrobbleHistory !== false && (
-          <div className="track-detail-scrobbles">
-            <div className="track-detail-section-title">
-              Play History
-              {playStats && <span className="track-detail-count"> ({formatCount(playStats.play_count)})</span>}
-            </div>
-            {playHistory.length > 0 ? (
-              <div className="scrobble-list">
-                {playHistory.map((entry, i) => (
-                  <div key={i} className="scrobble-entry">
-                    {formatTimestamp(entry.played_at)}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="track-detail-empty">No play history</div>
-            )}
-          </div>
-        )}
-
-        {sections.similar !== false && (
-          <div className="track-detail-similar">
-            <div className="track-detail-section-title">Similar Tracks</div>
-            {similarTracks.length > 0 ? (
-              <div className="similar-tracks-list">
-                {similarTracks.slice(0, 20).map((st, i) => {
-                  const matchPct = st.match ? Math.round(parseFloat(st.match) * 100) : null;
-                  return (
-                    <div key={i} className="similar-track-row">
-                      <div className="similar-track-info">
-                        <span className="similar-track-name">{st.name}</span>
-                        <span className="similar-track-artist">{st.artist.name}</span>
-                      </div>
-                      {matchPct != null && <span className="similar-track-match">{matchPct}%</span>}
-                      <button className="similar-track-yt" title="Watch on YouTube" onClick={async () => {
-                        const q = encodeURIComponent(`${st.name} ${st.artist.name}`);
-                        await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-                      }}>&#9654;</button>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="track-detail-empty">No similar tracks found</div>
-            )}
-          </div>
-        )}
-
         {sections.geniusExplanations !== false && (
           <div className="track-detail-genius">
             <div className="track-detail-section-title">
@@ -518,22 +478,69 @@ export function TrackDetailView({
             )}
           </div>
         )}
-      </div>
 
-      {/* Lyrics — last section */}
-      {sections.lyrics !== false && (
-        <div className="track-detail-lyrics-main">
-          <LyricsPanel
-            trackId={trackId}
-            positionSecs={isCurrentTrack ? positionSecs : 0}
-            lyrics={lyrics}
-            loading={lyricsLoading}
-            onSave={handleSaveLyrics}
-            onReset={handleResetLyrics}
-            onForceRefresh={handleForceRefreshLyrics}
-          />
-        </div>
-      )}
+        {sections.lyrics !== false && (
+          <div className="track-detail-lyrics-section">
+            <LyricsPanel
+              trackId={trackId}
+              positionSecs={isCurrentTrack ? positionSecs : 0}
+              lyrics={lyrics}
+              loading={lyricsLoading}
+              onSave={handleSaveLyrics}
+              onReset={handleResetLyrics}
+              onForceRefresh={handleForceRefreshLyrics}
+            />
+          </div>
+        )}
+
+        {sections.similar !== false && (
+          <div className="track-detail-similar">
+            <div className="track-detail-section-title">Similar Tracks</div>
+            {similarTracks.length > 0 ? (
+              <div className="similar-tracks-list">
+                {similarTracks.slice(0, 20).map((st, i) => {
+                  const matchPct = st.match ? Math.round(parseFloat(st.match) * 100) : null;
+                  return (
+                    <div key={i} className="similar-track-row">
+                      <div className="similar-track-info">
+                        <span className="similar-track-name">{st.name}</span>
+                        <span className="similar-track-artist">{st.artist.name}</span>
+                      </div>
+                      {matchPct != null && <span className="similar-track-match">{matchPct}%</span>}
+                      <button className="similar-track-yt" title="Watch on YouTube" onClick={async () => {
+                        const q = encodeURIComponent(`${st.name} ${st.artist.name}`);
+                        await openUrl(`https://www.youtube.com/results?search_query=${q}`);
+                      }}>&#9654;</button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="track-detail-empty">No similar tracks found</div>
+            )}
+          </div>
+        )}
+
+        {sections.scrobbleHistory !== false && (
+          <div className="track-detail-scrobbles">
+            <div className="track-detail-section-title">
+              Play History
+              {playStats && <span className="track-detail-count"> ({formatCount(playStats.play_count)})</span>}
+            </div>
+            {playHistory.length > 0 ? (
+              <div className="scrobble-list">
+                {playHistory.map((entry, i) => (
+                  <div key={i} className="scrobble-entry">
+                    {formatTimestamp(entry.played_at)}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="track-detail-empty">No play history</div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -3890,25 +3890,20 @@ body {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
 }
 
 .track-detail-top {
-  display: flex;
-  flex-wrap: wrap;
   padding: 24px 16px;
-  gap: 16px 24px;
-  min-width: 300px;
-  flex: 1 1 400px;
+  columns: 300px;
+  column-gap: 24px;
 }
 
 .track-detail-header {
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  min-width: 220px;
+  column-span: all;
+  margin-bottom: 16px;
 }
 
 .track-detail-art {
@@ -3991,22 +3986,17 @@ body {
   margin-top: 6px;
 }
 
-/* Lyrics — sits right of top when space allows, wraps below when narrow */
-.track-detail-lyrics-main {
-  padding: 16px;
-  flex: 1 1 300px;
-  min-height: 200px;
-  max-height: 100%;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
+/* Lyrics — inline section within track-detail-top */
+.track-detail-top > .track-detail-lyrics-section {
+  break-inside: avoid;
+  margin-bottom: 16px;
 }
 
 /* Play History / Similar Tracks — flex children of track-detail-top */
 .track-detail-top > .track-detail-scrobbles,
 .track-detail-top > .track-detail-similar {
-  flex: 1;
-  min-width: 200px;
+  break-inside: avoid;
+  margin-bottom: 16px;
 }
 
 .track-detail-section-title {
@@ -4148,8 +4138,8 @@ body {
 
 /* Genius Song Explanation section */
 .track-detail-top > .track-detail-genius {
-  flex: 1;
-  min-width: 200px;
+  break-inside: avoid;
+  margin-bottom: 16px;
 }
 
 .genius-link {
@@ -6969,14 +6959,6 @@ body {
 .np-lyrics {
   display: flex;
   flex-direction: column;
-  height: 100%;
-}
-.np-lyrics-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 0 8px 0;
-  flex-shrink: 0;
 }
 .np-lyrics-actions {
   display: flex;
