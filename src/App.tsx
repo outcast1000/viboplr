@@ -2230,7 +2230,7 @@ function App() {
       {/* Caption bar - full width */}
       <div className="search-bar" data-tauri-drag-region onDoubleClick={handleCaptionDoubleClick}>
         <WindowControls position="left" />
-          <div className="caption-brand">
+          <div className="caption-brand" data-tauri-drag-region>
             <svg width="34" height="34" viewBox="0 0 512 512" fill="none" style={{ marginRight: "-6px" }}>
               <defs>
                 <linearGradient id="captionVGrad" x1="0" y1="0" x2="1" y2="1">
