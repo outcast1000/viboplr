@@ -37,6 +37,7 @@ import { useLastfm } from "./hooks/useLastfm";
 import { useDownloads } from "./hooks/useDownloads";
 import { useLikeActions } from "./hooks/useLikeActions";
 import { useCollectionActions } from "./hooks/useCollectionActions";
+import { useArtistInfo } from "./hooks/useArtistInfo";
 import type { TidalSearchTrackLike } from "./types/plugin";
 import { WindowControls } from "./components/WindowControls";
 import { useViewSearchState } from "./hooks/useViewSearchState";
@@ -152,13 +153,26 @@ function App() {
   const beforeNavRef = useRef<() => void>(() => {});
   const viewSearch = useViewSearchState();
   const [currentView, setCurrentView] = useState<View>("all");
-  const [albumTrackPopularity, setAlbumTrackPopularity] = useState<Record<number, number>>({});
-  const [artistTrackPopularity, setArtistTrackPopularity] = useState<Record<number, number>>({});
-  const [artistTopTracks, setArtistTopTracks] = useState<Array<{ name: string; listeners: number; libraryTrack?: Track }>>([]);
   // Only pass debouncedTrackQuery for views that need server-side track search
   const needsServerSearch = currentView === "all" || currentView === "liked";
-  const trackPopularity = Object.keys(albumTrackPopularity).length > 0 ? albumTrackPopularity : artistTrackPopularity;
-  const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "", trackPopularity, setNavError);
+
+  // Need to initialize library first to get selection state, then artistInfo will compute popularity
+  const [trackPopularityState, setTrackPopularityState] = useState<Record<number, number>>({});
+  const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "", trackPopularityState, setNavError);
+
+  const artistInfo = useArtistInfo({
+    selectedArtist: library.selectedArtist,
+    selectedAlbum: library.selectedAlbum,
+    artists: library.artists,
+    albums: library.albums,
+    tracks: library.tracks,
+  });
+
+  // Update trackPopularity state when artistInfo changes
+  useEffect(() => {
+    setTrackPopularityState(artistInfo.trackPopularity);
+  }, [artistInfo.trackPopularity]);
+
   const queueHook = useQueue(restoredRef, playback.handlePlay, library.collections);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
@@ -343,13 +357,6 @@ function App() {
   const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
-  const [artistBio, setArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
-  const [artistInfoLoading, setArtistInfoLoading] = useState(false);
-  const [albumWiki, setAlbumWiki] = useState<string | null>(null);
-  const [albumInfoLoading, setAlbumInfoLoading] = useState(false);
-  const [albumUnmatchedTracks, setAlbumUnmatchedTracks] = useState<Array<{ name: string; listeners: number }>>([]);
-  const [similarArtists, setSimilarArtists] = useState<Array<{ name: string; match: string }>>([]);
-  const [infoRefreshCounter, setInfoRefreshCounter] = useState(0);
 
   const [showHelp, setShowHelp] = useState(false);
 
@@ -881,147 +888,6 @@ function App() {
     if (library.selectedTag === null) return;
     tagImageCache.fetchOnDemand({ id: library.selectedTag });
   }, [library.selectedTag]);
-
-  // Fetch Last.fm artist bio and similar artists when selected artist changes
-  useEffect(() => {
-    setArtistBio(null);
-    setArtistInfoLoading(false);
-    setSimilarArtists([]);
-    if (library.selectedArtist === null) return;
-    const artist = library.artists.find(a => a.id === library.selectedArtist);
-    if (!artist) return;
-
-    setArtistInfoLoading(true);
-    const parseArtistInfo = (resp: { artist?: { bio?: { summary?: string }; stats?: { listeners?: string; playcount?: string } } } | null) => {
-      if (resp?.artist?.bio?.summary) {
-        setArtistBio({
-          summary: resp.artist.bio.summary.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim(),
-          listeners: resp.artist.stats?.listeners ?? "",
-          playcount: resp.artist.stats?.playcount ?? "",
-        });
-      }
-      setArtistInfoLoading(false);
-    };
-    const parseSimilar = (resp: { similarartists?: { artist?: Array<{ name: string; match: string }> } } | null) => {
-      setSimilarArtists(resp?.similarartists?.artist ?? []);
-    };
-
-    // invoke returns cached data immediately, or null if fetching in background
-    invoke<any>("lastfm_get_artist_info", { artistName: artist.name })
-      .then(resp => { if (resp) parseArtistInfo(resp); })
-      .catch(() => setArtistInfoLoading(false));
-    invoke<any>("lastfm_get_similar_artists", { artistName: artist.name })
-      .then(resp => { if (resp) parseSimilar(resp); })
-      .catch(() => {});
-
-    // Listen for async results from background fetches
-    const unlistenInfo = listen<any>("lastfm-artist-info", (event) => parseArtistInfo(event.payload));
-    const unlistenInfoError = listen<any>("lastfm-artist-info-error", () => setArtistInfoLoading(false));
-    const unlistenSimilar = listen<any>("lastfm-similar-artists", (event) => parseSimilar(event.payload));
-
-    return () => {
-      unlistenInfo.then(f => f());
-      unlistenInfoError.then(f => f());
-      unlistenSimilar.then(f => f());
-    };
-  }, [library.selectedArtist, library.artists, infoRefreshCounter]);
-
-  // Fetch Last.fm album wiki when selected album changes
-  useEffect(() => {
-    setAlbumWiki(null);
-    setAlbumInfoLoading(false);
-    if (library.selectedAlbum === null) return;
-    const album = library.albums.find(a => a.id === library.selectedAlbum);
-    if (!album) return;
-    const artistName = library.artists.find(a => a.id === album.artist_id)?.name;
-    if (!artistName) return;
-
-    setAlbumInfoLoading(true);
-    const parseAlbumInfo = (resp: { album?: { wiki?: { summary?: string } } } | null) => {
-      if (resp?.album?.wiki?.summary) {
-        setAlbumWiki(resp.album.wiki.summary.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim());
-      }
-      setAlbumInfoLoading(false);
-    };
-
-    invoke<any>("lastfm_get_album_info", { artistName, albumTitle: album.title })
-      .then(resp => { if (resp) parseAlbumInfo(resp); })
-      .catch(() => setAlbumInfoLoading(false));
-
-    const unlistenAlbum = listen<any>("lastfm-album-info", (event) => parseAlbumInfo(event.payload));
-    const unlistenAlbumError = listen<any>("lastfm-album-info-error", () => setAlbumInfoLoading(false));
-    return () => { unlistenAlbum.then(f => f()); unlistenAlbumError.then(f => f()); };
-  }, [library.selectedAlbum, library.albums, library.artists, infoRefreshCounter]);
-
-  // Fetch Last.fm track popularity when selected album changes
-  useEffect(() => {
-    setAlbumTrackPopularity({});
-    setAlbumUnmatchedTracks([]);
-    if (library.selectedAlbum === null) return;
-    const album = library.albums.find(a => a.id === library.selectedAlbum);
-    if (!album) return;
-    const artistName = library.artists.find(a => a.id === album.artist_id)?.name;
-    if (!artistName) return;
-
-    const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().trim()).replace(/[^a-z0-9]/g, "");
-    const matchPopularity = (resp: { tracks?: Array<{ name: string; listeners: number }> } | null) => {
-      if (!resp?.tracks) return;
-      const popMap: Record<number, number> = {};
-      const unmatched: Array<{ name: string; listeners: number }> = [];
-      const localTracks = library.tracks;
-      for (const lfmTrack of resp.tracks) {
-        const norm = normalizeTitle(lfmTrack.name);
-        const match = localTracks.find(t => normalizeTitle(t.title) === norm);
-        if (match && lfmTrack.listeners > 0) {
-          popMap[match.id] = lfmTrack.listeners;
-        } else {
-          unmatched.push({ name: lfmTrack.name, listeners: lfmTrack.listeners });
-        }
-      }
-      setAlbumTrackPopularity(popMap);
-      setAlbumUnmatchedTracks(unmatched);
-    };
-
-    invoke<any>("lastfm_get_album_track_popularity", { artistName, albumTitle: album.title })
-      .then(resp => { if (resp) matchPopularity(resp); })
-      .catch(() => {});
-
-    const unlistenPop = listen<any>("lastfm-album-track-popularity", (event) => matchPopularity(event.payload));
-    return () => { unlistenPop.then(f => f()); };
-  }, [library.selectedAlbum, library.albums, library.artists, library.tracks]);
-
-  // Fetch Last.fm artist top tracks popularity when selected artist changes (no album selected)
-  useEffect(() => {
-    setArtistTrackPopularity({});
-    setArtistTopTracks([]);
-    if (library.selectedArtist === null || library.selectedAlbum !== null) return;
-    const artist = library.artists.find(a => a.id === library.selectedArtist);
-    if (!artist) return;
-
-    const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().trim()).replace(/[^a-z0-9]/g, "");
-    const matchPopularity = (resp: { tracks?: Array<{ name: string; listeners: number }> } | null) => {
-      if (!resp?.tracks) return;
-      const popMap: Record<number, number> = {};
-      const topList: Array<{ name: string; listeners: number; libraryTrack?: Track }> = [];
-      for (const lfmTrack of resp.tracks) {
-        const norm = normalizeTitle(lfmTrack.name);
-        const match = library.tracks.find(t => normalizeTitle(t.title) === norm);
-        if (match && lfmTrack.listeners > 0) {
-          popMap[match.id] = lfmTrack.listeners;
-        }
-        topList.push({ name: lfmTrack.name, listeners: lfmTrack.listeners, libraryTrack: match ?? undefined });
-      }
-      setArtistTrackPopularity(popMap);
-      setArtistTopTracks(topList);
-    };
-
-    invoke<any>("lastfm_get_artist_track_popularity", { artistName: artist.name })
-      .then(resp => { if (resp) matchPopularity(resp); })
-      .catch(() => {});
-
-    const unlistenPop = listen<any>("lastfm-artist-track-popularity", (event) => matchPopularity(event.payload));
-    return () => { unlistenPop.then(f => f()); };
-  }, [library.selectedArtist, library.selectedAlbum, library.artists, library.tracks]);
 
   // Resolve track for the detail view — try local lookups (sync), fall back to backend (async)
   const detailTrackLocal = useMemo(() => {
@@ -2271,35 +2137,35 @@ function App() {
                             if (!artist) return;
                             artistImageCache.forceFetchImage({ id: selectedArtist, name: artist.name });
                             invoke("clear_lastfm_cache_for_entity", { kind: "artist", name: artist.name });
-                            setInfoRefreshCounter(c => c + 1);
+                            artistInfo.refreshInfo();
                           }}
                         />
                       </h2>
                       <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
-                      {artistInfoLoading && !artistBio && (
+                      {artistInfo.artistInfoLoading && !artistInfo.artistBio && (
                         <span className="artist-bio-stats lastfm-loading">Fetching info from Last.fm…</span>
                       )}
-                      {artistBio && (artistBio.listeners || artistBio.playcount) && (
+                      {artistInfo.artistBio && (artistInfo.artistBio.listeners || artistInfo.artistBio.playcount) && (
                         <span className="artist-bio-stats">
-                          {artistBio.listeners && <>{parseInt(artistBio.listeners).toLocaleString()} listeners</>}
-                          {artistBio.listeners && artistBio.playcount && " \u00B7 "}
-                          {artistBio.playcount && <>{parseInt(artistBio.playcount).toLocaleString()} scrobbles</>}
+                          {artistInfo.artistBio.listeners && <>{parseInt(artistInfo.artistBio.listeners).toLocaleString()} listeners</>}
+                          {artistInfo.artistBio.listeners && artistInfo.artistBio.playcount && " \u00B7 "}
+                          {artistInfo.artistBio.playcount && <>{parseInt(artistInfo.artistBio.playcount).toLocaleString()} scrobbles</>}
                         </span>
                       )}
                     </div>
                   </div>
-                  {artistTopTracks.length > 0 && (
+                  {artistInfo.artistTopTracks.length > 0 && (
                     <div className="artist-bio-title section-header" onClick={() => handleToggleArtistSection("topSongs")}>
                       <svg className={`section-chevron${artistSections.topSongs === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                       Top Songs
                     </div>
                   )}
-                  {artistSections.topSongs !== false && artistTopTracks.length > 0 && (() => {
-                    const maxPop = artistTopTracks[0]?.listeners ?? 1;
+                  {artistSections.topSongs !== false && artistInfo.artistTopTracks.length > 0 && (() => {
+                    const maxPop = artistInfo.artistTopTracks[0]?.listeners ?? 1;
                     return (
                       <div className="artist-top-songs-section">
                         <div className="top-songs-list">
-                          {artistTopTracks.map((entry, i) => {
+                          {artistInfo.artistTopTracks.map((entry, i) => {
                             const pct = maxPop > 0 ? (entry.listeners / maxPop) * 100 : 0;
                             const inLibrary = !!entry.libraryTrack;
                             return (
@@ -2352,13 +2218,13 @@ function App() {
                   </div>
                   {artistSections.about !== false && (
                     <div className="artist-bio-section">
-                      {artistInfoLoading && !artistBio && (
+                      {artistInfo.artistInfoLoading && !artistInfo.artistBio && (
                         <div className="lastfm-loading-text">Loading…</div>
                       )}
-                      {artistBio && (
-                        <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: artistBio.summary }} />
+                      {artistInfo.artistBio && (
+                        <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: artistInfo.artistBio.summary }} />
                       )}
-                      {!artistInfoLoading && !artistBio && (
+                      {!artistInfo.artistInfoLoading && !artistInfo.artistBio && (
                         <div className="lastfm-empty-text">No artist info available on Last.fm</div>
                       )}
                     </div>
@@ -2416,21 +2282,21 @@ function App() {
                     onToggleLike={likeActions.handleToggleLike}
                     onToggleDislike={likeActions.handleToggleDislike}
                     onTrackDragStart={handleTrackDragStart}
-                    trackPopularity={artistTrackPopularity}
+                    trackPopularity={artistInfo.artistTrackPopularity}
                     emptyMessage="No tracks found for this artist."
                   />
                 </div>
 
-                {similarArtists.length > 0 && (
+                {artistInfo.similarArtists.length > 0 && (
                   <div className="section-title section-header" onClick={() => handleToggleArtistSection("similarArtists")}>
                     <svg className={`section-chevron${artistSections.similarArtists === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                     Similar Artists
                   </div>
                 )}
-                {artistSections.similarArtists !== false && similarArtists.length > 0 && (
+                {artistSections.similarArtists !== false && artistInfo.similarArtists.length > 0 && (
                   <div className="artist-section">
                     <div className="similar-artists-row">
-                      {similarArtists.slice(0, 8).map(sa => {
+                      {artistInfo.similarArtists.slice(0, 8).map(sa => {
                         const localArtist = artists.find(a => a.name.toLowerCase() === sa.name.toLowerCase());
                         return (
                           <div
@@ -2802,7 +2668,7 @@ function App() {
                         onRetrieveInfo={() => {
                           if (!album) return;
                           invoke("clear_lastfm_cache_for_entity", { kind: "album", name: album.title, artistName: album.artist_name });
-                          setInfoRefreshCounter(c => c + 1);
+                          artistInfo.refreshInfo();
                         }}
                       />
                     </h2>
@@ -2825,13 +2691,13 @@ function App() {
                   </div>
                   {albumSections.review !== false && (
                     <>
-                      {albumInfoLoading && !albumWiki && (
+                      {artistInfo.albumInfoLoading && !artistInfo.albumWiki && (
                         <div className="lastfm-loading-text">Loading…</div>
                       )}
-                      {albumWiki && (
-                        <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: albumWiki }} />
+                      {artistInfo.albumWiki && (
+                        <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: artistInfo.albumWiki }} />
                       )}
-                      {!albumInfoLoading && !albumWiki && (
+                      {!artistInfo.albumInfoLoading && !artistInfo.albumWiki && (
                         <div className="lastfm-empty-text">No album review available on Last.fm</div>
                       )}
                     </>
@@ -3035,18 +2901,18 @@ function App() {
           {/* Artist album detail - always basic TrackList */}
           {(view === "artists" && selectedAlbum !== null) && (
             <>
-              {albumUnmatchedTracks.length > 0 && (
+              {artistInfo.albumUnmatchedTracks.length > 0 && (
                 <div className="unmatched-tracks-title section-header" onClick={() => handleToggleAlbumSection("unmatchedTracks")}>
                   <svg className={`section-chevron${albumSections.unmatchedTracks === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                   Not in library
                 </div>
               )}
-              {albumSections.unmatchedTracks !== false && albumUnmatchedTracks.length > 0 && (() => {
-                const maxPop = Math.max(...albumUnmatchedTracks.map(t => t.listeners), ...Object.values(albumTrackPopularity), 0);
+              {albumSections.unmatchedTracks !== false && artistInfo.albumUnmatchedTracks.length > 0 && (() => {
+                const maxPop = Math.max(...artistInfo.albumUnmatchedTracks.map(t => t.listeners), ...Object.values(artistInfo.albumTrackPopularity), 0);
                 return (
                   <div className="unmatched-tracks">
                     <div className="unmatched-tracks-list">
-                      {albumUnmatchedTracks.map((t, i) => {
+                      {artistInfo.albumUnmatchedTracks.map((t, i) => {
                         const pct = maxPop > 0 ? (t.listeners / maxPop) * 100 : 0;
                         return (
                           <div key={i} className="unmatched-track-row">
@@ -3084,7 +2950,7 @@ function App() {
                 onToggleLike={likeActions.handleToggleLike}
                 onToggleDislike={likeActions.handleToggleDislike}
                 onTrackDragStart={handleTrackDragStart}
-                trackPopularity={albumTrackPopularity}
+                trackPopularity={artistInfo.albumTrackPopularity}
                 emptyMessage="No tracks found."
               />
             </>
