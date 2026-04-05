@@ -264,6 +264,7 @@ function App() {
       library.setSelectedArtist(null);
       library.setSelectedAlbum(null);
       library.setSelectedTag(null);
+      library.setSelectedTrack(null);
       viewSearch.setQuery("all", query);
     },
     onNavigateToArtist: (artistId) => {
