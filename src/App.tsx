@@ -742,25 +742,22 @@ function App() {
           const entries = queueEntries as QueueEntry[];
           const minimalTracks = entries.map(e => queueEntryToTrack(e));
 
-          // Collect file:// URIs for bulk DB lookup to get full metadata (id, album_id, etc.)
-          const filePaths = entries
-            .filter(e => e.url.startsWith("file://"))
+          // Collect file:// and subsonic:// URIs for bulk DB lookup to get full metadata
+          const libraryPaths = entries
+            .filter(e => e.url.startsWith("file://") || e.url.startsWith("subsonic://"))
             .map(e => e.url);
 
           let dbTracks: Track[] = [];
-          if (filePaths.length > 0) {
-            dbTracks = await invoke<Track[]>("get_tracks_by_paths", { paths: filePaths }).catch(() => []);
+          if (libraryPaths.length > 0) {
+            dbTracks = await invoke<Track[]>("get_tracks_by_paths", { paths: libraryPaths }).catch(() => []);
           }
           const dbByPath = new Map(dbTracks.map(t => [t.path, t]));
 
           restoredTracks = minimalTracks.map((t, i) => {
             const entry = entries[i];
-            if (entry.url.startsWith("file://")) {
-              const dbTrack = dbByPath.get(t.path);
-              if (dbTrack) return { ...dbTrack, url: entry.url };
-              return t; // external file not in library
-            }
-            return t; // subsonic/tidal: use reconstructed track
+            const dbTrack = dbByPath.get(t.path);
+            if (dbTrack) return { ...dbTrack, url: entry.url };
+            return t; // tidal or not in library
           });
         }
 
