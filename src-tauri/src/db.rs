@@ -292,7 +292,7 @@ impl Database {
                 artist_name,
                 album_title,
                 tag_names,
-                filename,
+                path,
                 lyrics_text,
                 content='',
                 tokenize='unicode61 remove_diacritics 2'
@@ -859,7 +859,7 @@ impl Database {
                  artist_name,
                  album_title,
                  tag_names,
-                 filename,
+                 path,
                  lyrics_text,
                  content='',
                  tokenize='unicode61 remove_diacritics 2'
@@ -877,7 +877,7 @@ impl Database {
                  artist_name,
                  album_title,
                  tag_names,
-                 filename,
+                 path,
                  lyrics_text,
                  content='',
                  tokenize='unicode61 remove_diacritics 2'
@@ -885,10 +885,10 @@ impl Database {
         )?;
         conn.execute_batch(
             &format!(
-                "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, filename, lyrics_text)
+                "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, path, lyrics_text)
                  SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')), strip_diacritics(COALESCE(al.title, '')),
                         strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
-                        strip_diacritics(filename_from_path(t.path)),
+                        strip_diacritics(t.path),
                         strip_diacritics(COALESCE(ly.text, ''))
                  FROM tracks t
                  LEFT JOIN artists ar ON t.artist_id = ar.id
@@ -990,7 +990,7 @@ impl Database {
         let fts_query = if opts.include_lyrics {
             words
         } else {
-            format!("{{title artist_name album_title tag_names filename}}:{}", words)
+            format!("{{title artist_name album_title tag_names path}}:{}", words)
         };
 
         let mut sql = format!(
@@ -1790,10 +1790,10 @@ impl Database {
 
         conn.execute(
             &format!(
-                "INSERT OR REPLACE INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, filename, lyrics_text)
+                "INSERT OR REPLACE INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, path, lyrics_text)
                  SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')), strip_diacritics(COALESCE(al.title, '')),
                         strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
-                        strip_diacritics(filename_from_path(t.path)),
+                        strip_diacritics(t.path),
                         strip_diacritics(COALESCE(?2, ''))
                  FROM tracks t
                  LEFT JOIN artists ar ON t.artist_id = ar.id
