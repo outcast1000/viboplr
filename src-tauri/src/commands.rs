@@ -933,6 +933,12 @@ pub fn clear_lastfm_cache_for_entity(state: State<'_, AppState>, kind: String, n
         if let Some(artist) = artist_name {
             let _ = state.db.lastfm_cache_delete(&format!("album_info:{}:{}", artist.to_lowercase(), lower));
         }
+    } else if kind == "track" {
+        if let Some(artist) = artist_name {
+            let artist_lower = artist.to_lowercase();
+            let _ = state.db.lastfm_cache_delete(&format!("track_tags:{}:{}", artist_lower, lower));
+            let _ = state.db.lastfm_cache_delete(&format!("track_info:{}:{}", artist_lower, lower));
+        }
     }
     Ok(())
 }

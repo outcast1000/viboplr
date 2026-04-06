@@ -449,6 +449,55 @@
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 6px;
+  align-items: center;
+}
+
+.track-tags-edit {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  align-items: center;
+}
+
+.track-tags-edit-input {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  padding: 4px 8px;
+  outline: none;
+}
+
+.track-tags-edit-input:focus {
+  border-color: var(--accent);
+}
+
+.track-tags-edit-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.track-tags-edit-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+
+.track-tags-edit-btn.save {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.track-tags-edit-btn.save:hover {
+  background: var(--accent);
+  color: var(--bg-primary);
 }
 
 /* Lyrics — inline section within track-detail-top */
@@ -526,6 +575,29 @@
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-tertiary);
   cursor: default;
+}
+
+.track-tag-applied {
+  border-style: solid;
+  opacity: 0.5;
+  cursor: default;
+}
+
+.track-detail-no-tags {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+.track-detail-community-label {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.track-detail-community-tags {
+  margin-top: 2px;
 }
 
 .scrobble-list {

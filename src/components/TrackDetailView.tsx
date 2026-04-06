@@ -9,6 +9,13 @@ import { IconPlay, IconEnqueue, IconFolder, IconInfo, IconGlobe } from "./Icons"
 import LyricsPanel from "./LyricsPanel";
 import "./TrackDetailView.css";
 
+/** Last.fm returns a single object instead of an array when there's 1 item */
+function asArray<T>(val: T | T[] | undefined | null): T[] {
+  if (Array.isArray(val)) return val;
+  if (val != null && typeof val === "object") return [val];
+  return [];
+}
+
 function displayPath(path: string): string {
   if (path.startsWith("subsonic://") || path.startsWith("tidal://")) return path;
   const sep = path.includes("\\") ? "\\" : "/";
@@ -178,6 +185,9 @@ export function TrackDetailView({
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
   const [communityTags, setCommunityTags] = useState<Array<{ name: string; count?: number }>>([]);
+  const [artistTags, setArtistTags] = useState<Array<{ name: string; count?: number }>>([]);
+  const [editingTags, setEditingTags] = useState(false);
+  const [tagInput, setTagInput] = useState("");
   const [playStats, setPlayStats] = useState<TrackPlayStats | null>(null);
   const [playHistory, setPlayHistory] = useState<Array<{ played_at: number }>>([]);
   const [similarTracks, setSimilarTracks] = useState<Array<{ name: string; artist: { name: string }; match?: string }>>([]);
@@ -199,6 +209,8 @@ export function TrackDetailView({
     setLyricsLoading(true);
     setTrackTags([]);
     setCommunityTags([]);
+    setArtistTags([]);
+    setEditingTags(false);
     setPlayStats(null);
     setPlayHistory([]);
     setSimilarTracks([]);
@@ -224,7 +236,18 @@ export function TrackDetailView({
       .then(setAudioProps).catch(() => {});
 
     if (track.artist_name) {
-      invoke("lastfm_get_track_tags", { artistName: track.artist_name, trackTitle: track.title }).catch(() => {});
+      invoke<any>("lastfm_get_track_tags", { artistName: track.artist_name, trackTitle: track.title }).then(cached => {
+        if (cached) {
+          const tags = asArray(cached?.toptags?.tag);
+          if (tags.length > 0) setCommunityTags(tags);
+        }
+      }).catch(() => {});
+      invoke<any>("lastfm_get_artist_tags", { artistName: track.artist_name }).then(cached => {
+        if (cached) {
+          const tags = asArray(cached?.toptags?.tag);
+          if (tags.length > 0) setArtistTags(tags);
+        }
+      }).catch(() => {});
       invoke("lastfm_get_similar_tracks", { artistName: track.artist_name, trackTitle: track.title }).catch(() => {});
       if (sections.geniusExplanations !== false) {
         setGeniusLoading(true);
@@ -247,7 +270,7 @@ export function TrackDetailView({
         setTrackInfo({
           listeners: t.listeners,
           playcount: t.playcount,
-          toptags: Array.isArray(t.toptags?.tag) ? t.toptags.tag : [],
+          toptags: asArray(t.toptags?.tag),
         });
       };
       invoke<any>("lastfm_get_track_info", { artistName: track.artist_name, trackTitle: track.title })
@@ -271,8 +294,12 @@ export function TrackDetailView({
       if (Array.isArray(tracks)) setSimilarTracks(tracks);
     });
     const unlistenTags = listen<any>("lastfm-track-tags", (event) => {
-      const tags = event.payload?.toptags?.tag;
-      if (Array.isArray(tags)) setCommunityTags(tags);
+      const tags = asArray(event.payload?.toptags?.tag);
+      if (tags.length > 0) setCommunityTags(tags);
+    });
+    const unlistenArtistTags = listen<any>("lastfm-artist-tags", (event) => {
+      const tags = asArray(event.payload?.toptags?.tag);
+      if (tags.length > 0) setArtistTags(tags);
     });
     const unlistenTrackInfo = listen<any>("lastfm-track-info", (event) => {
       const t = event.payload?.track;
@@ -280,7 +307,7 @@ export function TrackDetailView({
       setTrackInfo({
         listeners: t.listeners,
         playcount: t.playcount,
-        toptags: Array.isArray(t.toptags?.tag) ? t.toptags.tag : [],
+        toptags: asArray(t.toptags?.tag),
       });
     });
     const unlistenGenius = listen<any>("genius-explanation", (event) => {
@@ -294,6 +321,7 @@ export function TrackDetailView({
       unlistenLyricsErr.then(f => f());
       unlistenSimilar.then(f => f());
       unlistenTags.then(f => f());
+      unlistenArtistTags.then(f => f());
       unlistenTrackInfo.then(f => f());
       unlistenGenius.then(f => f());
     };
@@ -329,8 +357,43 @@ export function TrackDetailView({
     } catch (e) { console.error("Failed to apply tag:", e); }
   }, [trackId, addLog]);
 
+  const handleStartEditTags = useCallback(() => {
+    setTagInput(trackTags.map(t => t.name).join(", "));
+    setEditingTags(true);
+  }, [trackTags]);
+
+  const handleSaveTags = useCallback(async () => {
+    const tagNames = tagInput.split(",").map(s => s.trim()).filter(Boolean);
+    try {
+      const result = await invoke<Array<[number, string]>>("replace_track_tags", { trackId, tagNames });
+      setTrackTags(result.map(([id, name]) => ({ id, name })));
+      setEditingTags(false);
+      addLog(`Updated tags`);
+    } catch (e) { console.error("Failed to save tags:", e); }
+  }, [trackId, tagInput, addLog]);
+
   const assignedTagNames = new Set(trackTags.map(t => t.name.toLowerCase()));
-  const filteredCommunityTags = communityTags.filter(t => !assignedTagNames.has(t.name.toLowerCase()));
+
+  const allCommunityTags = (() => {
+    const seen = new Set<string>();
+    const merged: Array<{ name: string }> = [];
+    for (const t of communityTags) {
+      const key = t.name.toLowerCase();
+      if (!seen.has(key)) { seen.add(key); merged.push(t); }
+    }
+    for (const t of (trackInfo?.toptags ?? [])) {
+      const key = t.name.toLowerCase();
+      if (!seen.has(key)) { seen.add(key); merged.push(t); }
+    }
+    // Fall back to artist tags if no track-level community tags
+    if (merged.length === 0) {
+      for (const t of artistTags) {
+        const key = t.name.toLowerCase();
+        if (!seen.has(key)) { seen.add(key); merged.push(t); }
+      }
+    }
+    return merged;
+  })();
 
   return (
     <div className="track-detail">
@@ -399,24 +462,50 @@ export function TrackDetailView({
                 displayPath(track.path)
               )}
             </div>
-            {(trackTags.length > 0 || filteredCommunityTags.length > 0 || (trackInfo?.toptags && trackInfo.toptags.length > 0)) && (
+            {editingTags ? (
+              <div className="track-tags-edit">
+                <input
+                  className="track-tags-edit-input"
+                  value={tagInput}
+                  onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") handleSaveTags(); if (e.key === "Escape") setEditingTags(false); }}
+                  placeholder="tag1, tag2, tag3..."
+                  autoFocus
+                />
+                <button className="track-tags-edit-btn save" onClick={handleSaveTags}>Save</button>
+                <button className="track-tags-edit-btn" onClick={() => setEditingTags(false)}>Cancel</button>
+              </div>
+            ) : (
               <>
-                <div className="track-detail-section-title section-header" onClick={() => onToggleSection("tags")}>
-                  <svg className={`section-chevron${sections.tags === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                  Tags
-                </div>
-                {sections.tags !== false && (
+                {trackTags.length > 0 && (
                   <div className="track-detail-tags-inline">
                     {trackTags.map(tag => (
                       <span key={tag.id} className="track-tag-chip" onClick={() => onTagClick(tag.id)}>{tag.name}</span>
                     ))}
-                    {filteredCommunityTags.slice(0, 15).map(tag => (
-                      <span key={tag.name} className="track-tag-chip track-tag-suggestion" onClick={() => handleApplyTag(tag.name)}>
-                        + {tag.name}
+                    <button className="track-tags-edit-btn" onClick={handleStartEditTags} title="Edit tags">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                    </button>
+                  </div>
+                )}
+                {trackTags.length === 0 && (
+                  <div className="track-detail-tags-inline">
+                    <span className="track-detail-no-tags">No tags</span>
+                    <button className="track-tags-edit-btn" onClick={handleStartEditTags} title="Edit tags">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                    </button>
+                  </div>
+                )}
+                {allCommunityTags.length > 0 && (
+                  <div className="track-detail-tags-inline track-detail-community-tags">
+                    <span className="track-detail-community-label">Community</span>
+                    {allCommunityTags.slice(0, 15).map(tag => (
+                      <span
+                        key={tag.name}
+                        className={`track-tag-chip ${assignedTagNames.has(tag.name.toLowerCase()) ? "track-tag-applied" : "track-tag-suggestion"}`}
+                        onClick={() => !assignedTagNames.has(tag.name.toLowerCase()) && handleApplyTag(tag.name)}
+                      >
+                        {assignedTagNames.has(tag.name.toLowerCase()) ? tag.name : `+ ${tag.name}`}
                       </span>
-                    ))}
-                    {trackInfo?.toptags?.filter(t => !assignedTagNames.has(t.name.toLowerCase()) && !filteredCommunityTags.some(c => c.name.toLowerCase() === t.name.toLowerCase())).slice(0, 10).map(tag => (
-                      <span key={`lfm-${tag.name}`} className="track-tag-chip track-tag-lastfm">{tag.name}</span>
                     ))}
                   </div>
                 )}
