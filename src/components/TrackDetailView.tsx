@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Track } from "../types";
+import type { Track, Collection } from "../types";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
 import { IconPlay, IconEnqueue, IconFolder, IconGlobe, IconLastfm } from "./Icons";
@@ -159,6 +159,7 @@ interface TrackDetailViewProps {
   onEnqueue: () => void;
   onPlayNext: () => void;
   onShowInFolder: () => void;
+  collections: Collection[];
   providers: SearchProviderConfig[];
   addLog: (msg: string) => void;
 }
@@ -168,7 +169,7 @@ export function TrackDetailView({
   positionSecs, isCurrentTrack,
   sections, onToggleSection, onArtistClick, onAlbumClick, onTagClick,
   onPlay, onEnqueue, onPlayNext, onShowInFolder,
-  providers, addLog,
+  collections, providers, addLog,
 }: TrackDetailViewProps) {
   const [lyrics, setLyrics] = useState<{ text: string; kind: string; provider: string } | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
@@ -459,16 +460,26 @@ export function TrackDetailView({
             </div>
             <div className="track-detail-path">
               <span className="track-detail-path-text">
-                {track.path.startsWith("subsonic://") && track.collection_name ? (
-                  <>{track.collection_name} <span className="track-detail-sep">·</span> {track.subsonic_id ?? track.path}</>
-                ) : (
-                  track.path
-                )}
+                {(() => {
+                  if (track.path.startsWith("subsonic://") && track.subsonic_id) {
+                    const col = collections.find(c => c.id === track.collection_id);
+                    const base = (col?.url ?? "").replace(/\/+$/, "");
+                    return `${base}/share/${track.subsonic_id}`;
+                  }
+                  return `file://${track.path}`;
+                })()}
               </span>
-              <button className="track-detail-path-btn" onClick={onShowInFolder} title="Show in folder">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-              </button>
-              <button className="track-detail-path-btn" onClick={() => navigator.clipboard.writeText(track.path)} title="Copy path">
+              {!track.path.startsWith("subsonic://") && (
+                <button className="track-detail-path-btn" onClick={onShowInFolder} title="Show in folder">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                </button>
+              )}
+              <button className="track-detail-path-btn" onClick={() => {
+                const text = track.path.startsWith("subsonic://") && track.subsonic_id
+                  ? `${(collections.find(c => c.id === track.collection_id)?.url ?? "").replace(/\/+$/, "")}/share/${track.subsonic_id}`
+                  : track.path;
+                navigator.clipboard.writeText(text);
+              }} title="Copy path">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               </button>
             </div>

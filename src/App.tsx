@@ -1645,6 +1645,7 @@ function App() {
                 onEnqueue={() => queueHook.enqueueTracks([track])}
                 onPlayNext={() => queueHook.playNextInQueue(track)}
                 onShowInFolder={() => invoke("show_in_folder", { trackId: library.selectedTrack })}
+                collections={library.collections}
                 providers={searchProviders}
                 addLog={addLog}
               />
