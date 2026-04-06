@@ -1073,23 +1073,20 @@
 }
 
 .entity-list-dislike {
-  width: 16px;
+  width: 20px;
   flex-shrink: 0;
   text-align: center;
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   color: var(--text-tertiary);
   cursor: pointer;
-  opacity: 0.4;
 }
 
 .entity-list-dislike:hover {
-  color: var(--text-secondary);
-  opacity: 1;
+  color: var(--error);
 }
 
 .entity-list-dislike.active {
-  color: var(--text-secondary);
-  opacity: 1;
+  color: var(--error);
 }
 
 .entity-list-img {

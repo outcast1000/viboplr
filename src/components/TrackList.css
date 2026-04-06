@@ -152,19 +152,12 @@
   color: var(--error);
 }
 
-.col-like .dislike-btn {
-  font-size: var(--fs-sm);
-  opacity: 0.4;
-}
-
 .col-like .dislike-btn:hover {
-  color: var(--text-secondary);
-  opacity: 1;
+  color: var(--error);
 }
 
 .col-like .dislike-btn.active {
-  color: var(--text-secondary);
-  opacity: 1;
+  color: var(--error);
 }
 
 .col-num {

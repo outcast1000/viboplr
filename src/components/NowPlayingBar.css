@@ -22,6 +22,7 @@
   align-items: center;
   overflow: hidden;
   transition: filter 0.15s;
+  border: 1px solid var(--border);
 }
 .now-seek-bar:hover {
   filter: brightness(1.15);
