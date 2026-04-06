@@ -488,6 +488,20 @@ export function usePlugins(
         enabled !== null
           ? new Set(enabled)
           : new Set<string>();
+
+      // Auto-enable built-in plugins that provide informationTypes.
+      // These replace built-in functionality and should be active by default.
+      let enabledSetDirty = false;
+      for (const plugin of installed) {
+        if (plugin.builtin && plugin.manifest.contributes?.informationTypes?.length && !enabledSet.has(plugin.id)) {
+          enabledSet.add(plugin.id);
+          enabledSetDirty = true;
+        }
+      }
+      if (enabledSetDirty) {
+        await store.set("enabledPlugins", Array.from(enabledSet));
+      }
+
       enabledPluginsRef.current = enabledSet;
 
       const states: PluginState[] = [];
