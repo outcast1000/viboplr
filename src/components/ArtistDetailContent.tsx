@@ -8,6 +8,8 @@ import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { ImageActions } from "./ImageActions";
 import { TrackList } from "./TrackList";
+import { InformationSections } from "./InformationSections";
+import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 
 interface ArtistDetailContentProps {
   selectedArtist: number;
@@ -49,6 +51,7 @@ interface ArtistDetailContentProps {
   searchProviders: SearchProviderConfig[];
   addLog: (message: string) => void;
   artists: Artist[];
+  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity) => Promise<InfoFetchResult>;
 }
 
 export function ArtistDetailContent({
@@ -91,6 +94,7 @@ export function ArtistDetailContent({
   searchProviders,
   addLog,
   artists,
+  invokeInfoFetch,
 }: ArtistDetailContentProps) {
   const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(ARTIST_DETAIL_COLUMNS);
 
@@ -210,25 +214,15 @@ export function ArtistDetailContent({
             })()}
           </div>
         )}
-        <div className="section-wide">
-          <div className="artist-bio-title section-header" onClick={() => onToggleSection("about")}>
-            <svg className={`section-chevron${sections.about === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-            About
-          </div>
-          {sections.about !== false && (
-            <>
-              {artistInfoLoading && !artistBio && (
-                <div className="lastfm-loading-text">Loading…</div>
-              )}
-              {artistBio && (
-                <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: artistBio.summary }} />
-              )}
-              {!artistInfoLoading && !artistBio && (
-                <div className="lastfm-empty-text">No artist info available on Last.fm</div>
-              )}
-            </>
-          )}
-        </div>
+        <InformationSections
+          entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
+          exclude={["artist_stats", "artist_top_tracks", "similar_artists"]}
+          invokeInfoFetch={invokeInfoFetch}
+          onEntityClick={(kind, id) => {
+            if (kind === "artist" && id) onArtistClick(id);
+            if (kind === "album" && id) onAlbumClick(id);
+          }}
+        />
       </div>
 
       {artistAlbums.length > 0 && (

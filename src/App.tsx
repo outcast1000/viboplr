@@ -1751,6 +1751,7 @@ function App() {
                 searchProviders={searchProviders}
                 addLog={addLog}
                 artists={artists}
+                invokeInfoFetch={plugins.invokeInfoFetch}
               />
             );
           })()}
