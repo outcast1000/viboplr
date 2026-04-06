@@ -9,7 +9,7 @@ function makeTrack(overrides: Partial<Track> = {}): Track {
     track_number: null, duration_secs: null, format: null, file_size: null,
     collection_id: null, collection_name: null,
     liked: 0, youtube_url: null,
-    added_at: null, modified_at: null,
+    added_at: null, modified_at: null, relative_path: null,
     ...overrides,
   };
 }

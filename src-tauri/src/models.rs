@@ -76,6 +76,7 @@ pub struct Track {
     pub youtube_url: Option<String>,
     pub added_at: Option<i64>,
     pub modified_at: Option<i64>,
+    pub relative_path: Option<String>,
 }
 
 impl Track {

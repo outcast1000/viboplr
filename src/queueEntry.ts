@@ -100,6 +100,7 @@ export function queueEntryToTrack(entry: QueueEntry): Track {
     youtube_url: null,
     added_at: null,
     modified_at: null,
+    relative_path: null,
     url: entry.url,
   };
 }

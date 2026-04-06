@@ -41,6 +41,7 @@ export interface Track {
   youtube_url: string | null;
   added_at: number | null;
   modified_at: number | null;
+  relative_path: string | null;
   /** Playback URL computed when the track enters the queue (e.g. file://, tidal://, subsonic://) */
   url?: string;
 }

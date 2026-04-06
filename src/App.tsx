@@ -210,6 +210,7 @@ function App() {
       youtube_url: null,
       added_at: null,
       modified_at: null,
+      relative_path: null,
     };
   }, []);
   const downloadFormatRef = useRef("flac");

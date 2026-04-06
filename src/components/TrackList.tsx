@@ -76,10 +76,6 @@ function formatDate(epochSecs: number | null): string {
   return new Date(epochSecs * 1000).toLocaleDateString();
 }
 
-function filenameFromPath(path: string): string {
-  const sep = path.includes("\\") ? "\\" : "/";
-  return path.split(sep).pop() ?? path;
-}
 
 export function computeSelection(
   current: Set<number>,
@@ -461,7 +457,7 @@ export function TrackList({
       case "duration":
         return <span key="duration" className="col-duration">{formatDuration(t.duration_secs)}</span>;
       case "path":
-        return <span key="path" className="col-path" title={t.path}>{filenameFromPath(t.path)}</span>;
+        return <span key="path" className="col-path" title={t.path}>{t.relative_path ?? t.path}</span>;
       case "year":
         return <span key="year" className="col-year">{t.year ?? ""}</span>;
       case "quality":

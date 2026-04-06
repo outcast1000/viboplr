@@ -30,6 +30,7 @@ function makeTrack(overrides: Partial<Track> = {}): Track {
     youtube_url: null,
     added_at: null,
     modified_at: null,
+    relative_path: null,
     ...overrides,
   };
 }
@@ -191,6 +192,7 @@ describe("queueEntryToTrack", () => {
       youtube_url: null,
       added_at: null,
       modified_at: null,
+      relative_path: null,
       url: "file:///music/song.mp3",
     });
   });
@@ -273,6 +275,7 @@ describe("queueEntryToTrack", () => {
       youtube_url: null,
       added_at: null,
       modified_at: null,
+      relative_path: null,
       url: "subsonic://server.com/abc123",
     });
   });

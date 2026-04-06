@@ -47,7 +47,7 @@ const TRACK_SELECT: &str =
      END, \
      t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
      t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.liked, t.youtube_url, \
-     t.added_at, t.modified_at \
+     t.added_at, t.modified_at, t.path \
      FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id \
      LEFT JOIN collections co ON t.collection_id = co.id";
 
@@ -74,6 +74,7 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
         youtube_url: row.get(15)?,
         added_at: row.get(16)?,
         modified_at: row.get(17)?,
+        relative_path: row.get(18)?,
     })
 }
 
@@ -995,7 +996,7 @@ impl Database {
         let mut sql = format!(
             "SELECT t.id, {}, t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
              t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.liked, t.youtube_url, \
-             t.added_at, t.modified_at \
+             t.added_at, t.modified_at, t.path \
              FROM tracks_fts fts \
              JOIN tracks t ON fts.rowid = t.id \
              LEFT JOIN artists ar ON t.artist_id = ar.id \
