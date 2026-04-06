@@ -440,50 +440,60 @@ export function TrackDetailView({
               )}
               {track.year && <span className="track-detail-sep"> ({track.year})</span>}
             </div>
-            {(playStats || trackInfo) && (
+            {trackInfo && (trackInfo.listeners || trackInfo.playcount) && (
               <div className="track-detail-stats">
-                {playStats && <>{formatCount(playStats.play_count)} plays</>}
-                {playStats?.last_played_at && <> &middot; Last played {relativeTime(playStats.last_played_at)}</>}
-                {trackInfo?.listeners && <>{playStats ? <> &middot; </> : null}{parseInt(trackInfo.listeners).toLocaleString()} listeners</>}
-                {trackInfo?.playcount && <> &middot; {parseInt(trackInfo.playcount).toLocaleString()} scrobbles</>}
-                {trackInfo?.url && (
+                {trackInfo.listeners && <>{parseInt(trackInfo.listeners).toLocaleString()} listeners</>}
+                {trackInfo.playcount && <>{trackInfo.listeners ? <> &middot; </> : null}{parseInt(trackInfo.playcount).toLocaleString()} scrobbles</>}
+                {trackInfo.url && (
                   <> &middot; <a className="track-detail-lastfm-link" onClick={() => openUrl(trackInfo.url!)} title="View on Last.fm"><IconLastfm size={12} /></a></>
                 )}
               </div>
             )}
-            <div className="track-detail-stats">
-              {formatDuration(track.duration_secs)}
-              {track.format && <> &middot; {track.format.toUpperCase()}</>}
-              {audioProps?.bitrate && <> &middot; {audioProps.bitrate} kbps</>}
-              {audioProps?.sample_rate && <> &middot; {(audioProps.sample_rate / 1000).toFixed(1)} kHz</>}
-              {audioProps?.bit_depth && <> &middot; {audioProps.bit_depth}-bit</>}
-            </div>
-            <div className="track-detail-path">
-              <span className="track-detail-path-text">
-                {(() => {
-                  if (track.path.startsWith("subsonic://") && track.subsonic_id) {
-                    const col = collections.find(c => c.id === track.collection_id);
-                    const base = (col?.url ?? "").replace(/\/+$/, "");
-                    return `${base}/share/${track.subsonic_id}`;
-                  }
-                  return `file://${track.path}`;
-                })()}
-              </span>
-              {!track.path.startsWith("subsonic://") && (
-                <button className="track-detail-path-btn" onClick={onShowInFolder} title="Show in folder">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                </button>
-              )}
-              <button className="track-detail-path-btn" onClick={() => {
-                const text = track.path.startsWith("subsonic://") && track.subsonic_id
-                  ? `${(collections.find(c => c.id === track.collection_id)?.url ?? "").replace(/\/+$/, "")}/share/${track.subsonic_id}`
-                  : track.path;
-                navigator.clipboard.writeText(text);
-              }} title="Copy path">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              </button>
-            </div>
-            {editingTags ? (
+            <button className="track-detail-toggle" onClick={() => onToggleSection("details")}>
+              <span>{sections.details !== false ? "Less" : "More"}</span>
+              <svg className={`track-detail-toggle-chevron${sections.details !== false ? " open" : ""}`} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            {sections.details !== false && (
+              <>
+                {playStats && (
+                  <div className="track-detail-stats">
+                    {formatCount(playStats.play_count)} plays
+                    {playStats.last_played_at && <> &middot; Last played {relativeTime(playStats.last_played_at)}</>}
+                  </div>
+                )}
+                <div className="track-detail-stats">
+                  {formatDuration(track.duration_secs)}
+                  {track.format && <> &middot; {track.format.toUpperCase()}</>}
+                  {audioProps?.bitrate && <> &middot; {audioProps.bitrate} kbps</>}
+                  {audioProps?.sample_rate && <> &middot; {(audioProps.sample_rate / 1000).toFixed(1)} kHz</>}
+                  {audioProps?.bit_depth && <> &middot; {audioProps.bit_depth}-bit</>}
+                </div>
+                <div className="track-detail-path">
+                  <span className="track-detail-path-text">
+                    {(() => {
+                      if (track.path.startsWith("subsonic://") && track.subsonic_id) {
+                        const col = collections.find(c => c.id === track.collection_id);
+                        const base = (col?.url ?? "").replace(/\/+$/, "");
+                        return `${base}/share/${track.subsonic_id}`;
+                      }
+                      return `file://${track.path}`;
+                    })()}
+                  </span>
+                  {!track.path.startsWith("subsonic://") && (
+                    <button className="track-detail-path-btn" onClick={onShowInFolder} title="Show in folder">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                    </button>
+                  )}
+                  <button className="track-detail-path-btn" onClick={() => {
+                    const text = track.path.startsWith("subsonic://") && track.subsonic_id
+                      ? `${(collections.find(c => c.id === track.collection_id)?.url ?? "").replace(/\/+$/, "")}/share/${track.subsonic_id}`
+                      : track.path;
+                    navigator.clipboard.writeText(text);
+                  }} title="Copy path">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  </button>
+                </div>
+                {editingTags ? (
               <div className="track-tags-edit">
                 <input
                   className="track-tags-edit-input"
@@ -513,6 +523,8 @@ export function TrackDetailView({
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
                 </button>
               </div>
+            )}
+              </>
             )}
           </div>
         </div>

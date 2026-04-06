@@ -434,6 +434,31 @@
   color: var(--text-tertiary);
 }
 
+.track-detail-toggle {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: var(--fs-2xs);
+  cursor: pointer;
+  padding: 0;
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.track-detail-toggle:hover {
+  color: var(--text-secondary);
+}
+
+.track-detail-toggle-chevron {
+  transition: transform 0.2s ease;
+}
+
+.track-detail-toggle-chevron.open {
+  transform: rotate(180deg);
+}
+
 .track-detail-lastfm-link {
   color: #d51007;
   cursor: pointer;
