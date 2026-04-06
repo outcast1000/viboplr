@@ -1043,11 +1043,11 @@ function App() {
           }
           case "ArrowUp":
             e.preventDefault();
-            playback.handleVolume(Math.min(1, s.volume + 0.1));
+            playback.handleVolume(Math.min(1, s.volume + 0.05));
             return;
           case "ArrowDown":
             e.preventDefault();
-            playback.handleVolume(Math.max(0, s.volume - 0.1));
+            playback.handleVolume(Math.max(0, s.volume - 0.05));
             return;
           case "/":
             e.preventDefault();
