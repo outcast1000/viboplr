@@ -437,7 +437,8 @@
 .track-detail-label {
   color: var(--text-secondary);
   font-weight: 600;
-  margin-right: 6px;
+  display: block;
+  margin-bottom: 2px;
 }
 
 .track-detail-toggle {
@@ -482,6 +483,7 @@
   font-size: var(--fs-xs);
   color: var(--text-tertiary);
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: 4px;
 }
@@ -519,6 +521,7 @@
 
 .track-tags-edit {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   width: 100%;
   align-items: center;
