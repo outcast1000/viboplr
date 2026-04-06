@@ -254,7 +254,7 @@
 }
 
 .col-popularity {
-  width: 160px;
+  width: 120px;
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
