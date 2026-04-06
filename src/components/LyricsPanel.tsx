@@ -155,7 +155,7 @@ export default function LyricsPanel({ trackId, artistName, title, positionSecs, 
 
   return (
     <div>
-      <div className="track-detail-section-title">Lyrics</div>
+      {!hideTitle && <div className="track-detail-section-title">Lyrics</div>}
       <div className="np-lyrics-actions">
         <span className={`np-lyrics-badge ${lyrics.kind === "synced" ? "np-lyrics-badge-synced" : ""}`}>
           {lyrics.kind}
