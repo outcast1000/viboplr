@@ -159,23 +159,20 @@
 }
 
 .now-dislike-btn {
-  font-size: var(--fs-xs);
+  font-size: var(--fs-base);
   color: var(--text-tertiary);
   cursor: pointer;
   transition: color 0.15s;
   flex-shrink: 0;
-  opacity: 0.5;
   line-height: 1;
 }
 
 .now-dislike-btn:hover {
-  color: var(--text-secondary);
-  opacity: 1;
+  color: var(--error);
 }
 
 .now-dislike-btn.disliked {
-  color: var(--text-secondary);
-  opacity: 1;
+  color: var(--error);
 }
 
 .now-title {

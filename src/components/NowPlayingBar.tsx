@@ -256,7 +256,7 @@ export function NowPlayingBar({
               </button>
               {onToggleDislike && <button
                 ref={dislikeBtnRef}
-                className={`g-btn g-btn-xs${currentTrack.liked === -1 ? " disliked" : ""}`}
+                className={`g-btn g-btn-sm now-dislike-btn${currentTrack.liked === -1 ? " disliked" : ""}`}
                 onClick={() => {
                   dislikeBtnRef.current?.classList.add("anim-heart-bounce-subtle");
                   onToggleDislike();
@@ -264,7 +264,7 @@ export function NowPlayingBar({
                 onAnimationEnd={() => dislikeBtnRef.current?.classList.remove("anim-heart-bounce-subtle")}
                 title={currentTrack.liked === -1 ? "Remove dislike" : "Dislike"}
               >
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
               </button>}
             </div>
           )}
