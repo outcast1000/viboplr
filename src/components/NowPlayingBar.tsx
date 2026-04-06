@@ -140,7 +140,10 @@ export function NowPlayingBar({
         };
     const progress = durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0;
     return (
-      <footer className="now-playing now-playing-mini" onMouseDown={handleDrag} onDoubleClick={isMac ? (e) => {
+      <footer className="now-playing now-playing-mini" onMouseDown={handleDrag} onWheel={(e) => {
+          e.preventDefault();
+          onVolume(Math.min(1, Math.max(0, volume + (e.deltaY < 0 ? 0.05 : -0.05))));
+        }} onDoubleClick={isMac ? (e) => {
           if (!(e.target as HTMLElement).closest("button")) onToggleMiniMode();
         } : undefined}>
         <div className="now-info">
