@@ -255,9 +255,8 @@ The `LyricsRenderer` wraps the existing `LyricsPanel` with these additional conc
 
 - **Playback sync**: Receives playback position as a prop from the detail view for real-time line highlighting
 - **Manual editing**: User edits write to `information_values` with `plugin_id: "manual"`, overriding the provider chain. Reset deletes the manual entry and triggers a normal provider fetch.
-- **FTS indexing**: On any write where `information_type_id = "lyrics"`, the storage layer additionally updates the `tracks_fts` index (stripping LRC timestamps for synced lyrics).
 
-These concerns are scoped to the renderer and storage layer, not the plugin system.
+These concerns are scoped to the renderer, not the plugin system. Information values (including lyrics) are **not** indexed in FTS — the full-text search index covers only core library metadata (title, artist, album, tags, filename).
 
 ## Frontend: InformationSections Component
 
@@ -318,7 +317,7 @@ Incremental, one info type at a time:
 4. **`artist_top_tracks`** + **`album_track_popularity`** — validates ranked_list
 5. **`track_stats`** + **`artist_stats`** — validates stat_grid
 6. **`community_tags`** — validates tag_list
-7. **`lyrics`** — validates lyrics renderer, migrates off dedicated `lyrics` table. **FTS note:** the `rebuild_fts()` logic in `db.rs` must be updated to read lyrics from `information_values` (where `information_type_id = 'lyrics'`) instead of the `lyrics` table. LRC timestamps are still stripped before indexing.
+7. **`lyrics`** — validates lyrics renderer, migrates off dedicated `lyrics` table. The `lyrics_text` column is removed from the FTS index during this step — lyrics search is dropped in favor of keeping FTS focused on core library metadata.
 8. **`explanation`** — validates annotated_text
 9. **`album_review`** — final cleanup
 
