@@ -16,12 +16,6 @@ function asArray<T>(val: T | T[] | undefined | null): T[] {
   return [];
 }
 
-function displayPath(path: string): string {
-  if (path.startsWith("subsonic://") || path.startsWith("tidal://")) return path;
-  const sep = path.includes("\\") ? "\\" : "/";
-  return path.split(sep).pop() ?? path;
-}
-
 function formatCount(n: number): string {
   if (n >= 1_000_000) {
     const v = n / 1_000_000;
@@ -464,12 +458,20 @@ export function TrackDetailView({
                 {trackInfo?.playcount && <> &middot; {parseInt(trackInfo.playcount).toLocaleString()} scrobbles</>}
               </div>
             )}
-            <div className="track-detail-path" title={track.path}>
-              {track.path.startsWith("subsonic://") && track.collection_name ? (
-                <>{track.collection_name} <span className="track-detail-sep">·</span> {track.subsonic_id ?? displayPath(track.path)}</>
-              ) : (
-                displayPath(track.path)
-              )}
+            <div className="track-detail-path">
+              <span className="track-detail-path-text">
+                {track.path.startsWith("subsonic://") && track.collection_name ? (
+                  <>{track.collection_name} <span className="track-detail-sep">·</span> {track.subsonic_id ?? track.path}</>
+                ) : (
+                  track.path
+                )}
+              </span>
+              <button className="track-detail-path-btn" onClick={onShowInFolder} title="Show in folder">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              </button>
+              <button className="track-detail-path-btn" onClick={() => navigator.clipboard.writeText(track.path)} title="Copy path">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
             </div>
             {editingTags ? (
               <div className="track-tags-edit">

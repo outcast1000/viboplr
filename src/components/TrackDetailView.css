@@ -437,11 +437,31 @@
 .track-detail-path {
   font-size: var(--fs-2xs);
   color: var(--text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
   margin-top: 2px;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.track-detail-path-text {
+  word-break: break-all;
+  min-width: 0;
+}
+
+.track-detail-path-btn {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 1px;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.track-detail-path-btn:hover {
+  opacity: 1;
+  color: var(--text-primary);
 }
 
 .track-detail-tags-inline {
