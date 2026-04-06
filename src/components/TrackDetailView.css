@@ -577,27 +577,33 @@
   cursor: default;
 }
 
-.track-tag-applied {
-  border-style: solid;
-  opacity: 0.5;
-  cursor: default;
+.track-tag-assigned {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
 }
 
-.track-detail-no-tags {
-  font-size: var(--fs-xs);
+.track-tag-assigned .track-tag-name {
+  cursor: pointer;
+}
+
+.track-tag-assigned .track-tag-remove {
+  cursor: pointer;
+  opacity: 0;
+  font-size: var(--fs-sm);
+  line-height: 1;
   color: var(--text-tertiary);
+  transition: opacity 0.15s, color 0.15s;
+  padding: 0 2px;
 }
 
-.track-detail-community-label {
-  font-size: var(--fs-xs);
-  color: var(--text-tertiary);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+.track-tag-assigned:hover .track-tag-remove {
+  opacity: 1;
 }
 
-.track-detail-community-tags {
-  margin-top: 2px;
+.track-tag-assigned .track-tag-remove:hover {
+  color: var(--text-primary);
 }
 
 .scrobble-list {

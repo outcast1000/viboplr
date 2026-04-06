@@ -357,6 +357,15 @@ export function TrackDetailView({
     } catch (e) { console.error("Failed to apply tag:", e); }
   }, [trackId, addLog]);
 
+  const handleRemoveTag = useCallback(async (tagToRemove: { id: number; name: string }) => {
+    const remaining = trackTags.filter(t => t.id !== tagToRemove.id).map(t => t.name);
+    try {
+      const result = await invoke<Array<[number, string]>>("replace_track_tags", { trackId, tagNames: remaining });
+      setTrackTags(result.map(([id, name]) => ({ id, name })));
+      addLog(`Removed tag "${tagToRemove.name}"`);
+    } catch (e) { console.error("Failed to remove tag:", e); }
+  }, [trackId, trackTags, addLog]);
+
   const handleStartEditTags = useCallback(() => {
     setTagInput(trackTags.map(t => t.name).join(", "));
     setEditingTags(true);
@@ -476,40 +485,22 @@ export function TrackDetailView({
                 <button className="track-tags-edit-btn" onClick={() => setEditingTags(false)}>Cancel</button>
               </div>
             ) : (
-              <>
-                {trackTags.length > 0 && (
-                  <div className="track-detail-tags-inline">
-                    {trackTags.map(tag => (
-                      <span key={tag.id} className="track-tag-chip" onClick={() => onTagClick(tag.id)}>{tag.name}</span>
-                    ))}
-                    <button className="track-tags-edit-btn" onClick={handleStartEditTags} title="Edit tags">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-                    </button>
-                  </div>
-                )}
-                {trackTags.length === 0 && (
-                  <div className="track-detail-tags-inline">
-                    <span className="track-detail-no-tags">No tags</span>
-                    <button className="track-tags-edit-btn" onClick={handleStartEditTags} title="Edit tags">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-                    </button>
-                  </div>
-                )}
-                {allCommunityTags.length > 0 && (
-                  <div className="track-detail-tags-inline track-detail-community-tags">
-                    <span className="track-detail-community-label">Community</span>
-                    {allCommunityTags.slice(0, 15).map(tag => (
-                      <span
-                        key={tag.name}
-                        className={`track-tag-chip ${assignedTagNames.has(tag.name.toLowerCase()) ? "track-tag-applied" : "track-tag-suggestion"}`}
-                        onClick={() => !assignedTagNames.has(tag.name.toLowerCase()) && handleApplyTag(tag.name)}
-                      >
-                        {assignedTagNames.has(tag.name.toLowerCase()) ? tag.name : `+ ${tag.name}`}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </>
+              <div className="track-detail-tags-inline">
+                {trackTags.map(tag => (
+                  <span key={tag.id} className="track-tag-chip track-tag-assigned">
+                    <span className="track-tag-name" onClick={() => onTagClick(tag.id)}>{tag.name}</span>
+                    <span className="track-tag-remove" onClick={() => handleRemoveTag(tag)} title="Remove tag">&times;</span>
+                  </span>
+                ))}
+                {allCommunityTags.filter(t => !assignedTagNames.has(t.name.toLowerCase())).slice(0, 15).map(tag => (
+                  <span key={tag.name} className="track-tag-chip track-tag-suggestion" onClick={() => handleApplyTag(tag.name)}>
+                    + {tag.name}
+                  </span>
+                ))}
+                <button className="track-tags-edit-btn" onClick={handleStartEditTags} title="Edit tags">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                </button>
+              </div>
             )}
           </div>
         </div>
