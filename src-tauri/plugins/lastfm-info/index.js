@@ -24,4 +24,6 @@ function activate(api) {
   });
 }
 
-module.exports = { activate };
+function deactivate() {}
+
+return { activate: activate, deactivate: deactivate };
