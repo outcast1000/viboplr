@@ -2861,6 +2861,63 @@ pub fn plugin_storage_delete(state: State<'_, AppState>, plugin_id: String, key:
     state.db.plugin_storage_delete(&plugin_id, &key)
 }
 
+// ── Information Type commands ────────────────────────────────
+
+#[tauri::command]
+pub fn info_rebuild_types(
+    state: State<'_, AppState>,
+    types: Vec<(String, String, String, String, String, i64, i64, i64)>,
+) -> Result<(), String> {
+    state.db.info_rebuild_types(&types).map_err(|e| e.to_string())?;
+    state.db.info_cleanup_orphaned_values().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn info_get_types_for_entity(
+    state: State<'_, AppState>,
+    entity: String,
+) -> Result<Vec<(String, String, String, String, i64, i64, i64)>, String> {
+    state.db.info_get_types_for_entity(&entity).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn info_get_value(
+    state: State<'_, AppState>,
+    type_id: String,
+    entity_key: String,
+) -> Result<Option<(String, String, i64)>, String> {
+    state.db.info_get_value(&type_id, &entity_key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn info_get_values_for_entity(
+    state: State<'_, AppState>,
+    entity_key: String,
+) -> Result<Vec<(String, String, String, i64)>, String> {
+    state.db.info_get_values_for_entity(&entity_key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn info_upsert_value(
+    state: State<'_, AppState>,
+    type_id: String,
+    entity_key: String,
+    value: String,
+    status: String,
+) -> Result<(), String> {
+    state.db.info_upsert_value(&type_id, &entity_key, &value, &status).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn info_delete_value(
+    state: State<'_, AppState>,
+    type_id: String,
+    entity_key: String,
+) -> Result<(), String> {
+    state.db.info_delete_value(&type_id, &entity_key).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::new();
