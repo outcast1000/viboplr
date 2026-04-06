@@ -68,7 +68,6 @@ import type { HistoryViewHandle } from "./components/HistoryView";
 import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
-import { TrackPropertiesModal } from "./components/TrackPropertiesModal";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { UpgradeTrackModal } from "./components/UpgradeTrackModal";
 import BulkEditModal from "./components/BulkEditModal";
@@ -1646,7 +1645,6 @@ function App() {
                 onEnqueue={() => queueHook.enqueueTracks([track])}
                 onPlayNext={() => queueHook.playNextInQueue(track)}
                 onShowInFolder={() => invoke("show_in_folder", { trackId: library.selectedTrack })}
-                onShowProperties={() => contextMenuActions.setPropertiesTrack(track)}
                 providers={searchProviders}
                 addLog={addLog}
               />
@@ -2175,7 +2173,6 @@ function App() {
           onEnqueue={contextMenuActions.handleContextEnqueue}
           onShowInFolder={contextMenuActions.handleShowInFolder}
           onWatchOnYoutube={contextMenuActions.handleWatchOnYoutube}
-          onShowProperties={contextMenuActions.handleShowProperties}
           onViewDetails={contextMenuActions.contextMenu.target.kind === "track" ? () => library.handleTrackClick(contextMenuActions.contextMenu!.target.kind === "track" ? contextMenuActions.contextMenu!.target.trackId : 0) : undefined}
           onBulkEdit={contextMenuActions.handleBulkEdit}
           onDelete={contextMenuActions.handleDeleteRequest}
@@ -2268,50 +2265,6 @@ function App() {
           downloadFormat={downloads.downloadFormat}
           onClose={() => contextMenuActions.setUpgradeTrack(null)}
           onUpgraded={(msg) => { contextMenuActions.setUpgradeTrack(null); library.loadTracks(); addLog(msg); }}
-        />
-      )}
-
-      {contextMenuActions.propertiesTrack && (
-        <TrackPropertiesModal
-          track={contextMenuActions.propertiesTrack}
-          collections={library.collections}
-          onClose={() => contextMenuActions.setPropertiesTrack(null)}
-          onYoutubeUrlChange={(trackId, url) => {
-            library.setTracks(prev => prev.map(t => t.id === trackId ? { ...t, youtube_url: url } : t));
-            contextMenuActions.setPropertiesTrack(prev => prev && prev.id === trackId ? { ...prev, youtube_url: url } : prev);
-          }}
-          similarActions={{
-            isLocal: (artist, title) =>
-              library.tracks.some(t =>
-                t.title.toLowerCase() === title.toLowerCase() &&
-                t.artist_name?.toLowerCase() === artist.toLowerCase()
-              ),
-            onPlay: (artist, title) => {
-              const t = library.tracks.find(tr =>
-                tr.title.toLowerCase() === title.toLowerCase() &&
-                tr.artist_name?.toLowerCase() === artist.toLowerCase()
-              );
-              if (t) queueHook.playTracks([t], 0);
-            },
-            onSearchTidal: (title: string, artist: string) => {
-              plugins.dispatchContextMenuAction("tidal-browse", "search-tidal", {
-                kind: "track",
-                title,
-                artistName: artist,
-              });
-            },
-            onWatchYoutube: async (artist, title) => {
-              try {
-                const result = await invoke<{ url: string; video_title: string | null }>(
-                  "search_youtube", { title, artistName: artist }
-                );
-                await openUrl(result.url);
-              } catch {
-                const q = encodeURIComponent(`${title} ${artist}`);
-                await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-              }
-            },
-          }}
         />
       )}
 

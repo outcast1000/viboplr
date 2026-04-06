@@ -434,6 +434,19 @@
   color: var(--text-tertiary);
 }
 
+.track-detail-lastfm-link {
+  color: #d51007;
+  cursor: pointer;
+  display: inline-flex;
+  vertical-align: middle;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+
+.track-detail-lastfm-link:hover {
+  opacity: 1;
+}
+
 .track-detail-path {
   font-size: var(--fs-2xs);
   color: var(--text-tertiary);

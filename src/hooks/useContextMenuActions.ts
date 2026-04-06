@@ -37,7 +37,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const [youtubeFeedback, setYoutubeFeedback] = useState<{
     trackId: number; url: string; videoTitle: string;
   } | null>(null);
-  const [propertiesTrack, setPropertiesTrack] = useState<Track | null>(null);
   const [bulkEditTracks, setBulkEditTracks] = useState<Track[] | null>(null);
   const [upgradeTrack, setUpgradeTrack] = useState<Track | null>(null);
 
@@ -220,14 +219,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }
 
-  function handleShowProperties() {
-    if (!contextMenu || contextMenu.target.kind !== "track") return;
-    const { trackId } = contextMenu.target;
-    const track = library.tracks.find(t => t.id === trackId);
-    if (track) setPropertiesTrack(track);
-    setContextMenu(null);
-  }
-
   function handleBulkEdit() {
     if (!contextMenu || contextMenu.target.kind !== "multi-track") return;
     const { trackIds } = contextMenu.target;
@@ -318,8 +309,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     contextMenu,
     setContextMenu,
     youtubeFeedback,
-    propertiesTrack,
-    setPropertiesTrack,
     bulkEditTracks,
     setBulkEditTracks,
     upgradeTrack,
@@ -338,7 +327,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleContextEnqueue,
     handleEnqueue,
     handleShowInFolder,
-    handleShowProperties,
     handleBulkEdit,
     handleDeleteRequest,
     handleDeleteConfirm,

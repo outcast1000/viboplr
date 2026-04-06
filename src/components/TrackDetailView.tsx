@@ -5,7 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track } from "../types";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
-import { IconPlay, IconEnqueue, IconFolder, IconInfo, IconGlobe } from "./Icons";
+import { IconPlay, IconEnqueue, IconFolder, IconGlobe, IconLastfm } from "./Icons";
 import LyricsPanel from "./LyricsPanel";
 import "./TrackDetailView.css";
 
@@ -64,7 +64,7 @@ interface TrackPlayStats {
 
 function TrackActions({
   track, providers,
-  onPlay, onEnqueue, onPlayNext, onShowInFolder, onShowProperties,
+  onPlay, onEnqueue, onPlayNext, onShowInFolder,
 }: {
   track: Track;
   providers: SearchProviderConfig[];
@@ -72,7 +72,6 @@ function TrackActions({
   onEnqueue: () => void;
   onPlayNext: () => void;
   onShowInFolder: () => void;
-  onShowProperties: () => void;
 }) {
   const [open_menu, setOpenMenu] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -116,9 +115,6 @@ function TrackActions({
               <IconFolder size={14} /><span>Show in Folder</span>
             </button>
           )}
-          <button onClick={() => { setOpenMenu(false); onShowProperties(); }}>
-            <IconInfo size={14} /><span>Properties</span>
-          </button>
           {trackProviders.length > 0 && (
             <>
               <div className="artist-image-menu-separator" />
@@ -163,7 +159,6 @@ interface TrackDetailViewProps {
   onEnqueue: () => void;
   onPlayNext: () => void;
   onShowInFolder: () => void;
-  onShowProperties: () => void;
   providers: SearchProviderConfig[];
   addLog: (msg: string) => void;
 }
@@ -172,7 +167,7 @@ export function TrackDetailView({
   trackId, track, albumImagePath,
   positionSecs, isCurrentTrack,
   sections, onToggleSection, onArtistClick, onAlbumClick, onTagClick,
-  onPlay, onEnqueue, onPlayNext, onShowInFolder, onShowProperties,
+  onPlay, onEnqueue, onPlayNext, onShowInFolder,
   providers, addLog,
 }: TrackDetailViewProps) {
   const [lyrics, setLyrics] = useState<{ text: string; kind: string; provider: string } | null>(null);
@@ -186,7 +181,7 @@ export function TrackDetailView({
   const [playHistory, setPlayHistory] = useState<Array<{ played_at: number }>>([]);
   const [similarTracks, setSimilarTracks] = useState<Array<{ name: string; artist: { name: string }; match?: string }>>([]);
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
-  const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; toptags?: Array<{ name: string }> } | null>(null);
+  const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; toptags?: Array<{ name: string }>; url?: string } | null>(null);
   const [geniusExplanation, setGeniusExplanation] = useState<{
     about?: string;
     annotations: { fragment: string; explanation: string }[];
@@ -265,6 +260,7 @@ export function TrackDetailView({
           listeners: t.listeners,
           playcount: t.playcount,
           toptags: asArray(t.toptags?.tag),
+          url: t.url,
         });
       };
       invoke<any>("lastfm_get_track_info", { artistName: track.artist_name, trackTitle: track.title })
@@ -302,6 +298,7 @@ export function TrackDetailView({
         listeners: t.listeners,
         playcount: t.playcount,
         toptags: asArray(t.toptags?.tag),
+        url: t.url,
       });
     });
     const unlistenGenius = listen<any>("genius-explanation", (event) => {
@@ -424,7 +421,6 @@ export function TrackDetailView({
                 onEnqueue={onEnqueue}
                 onPlayNext={onPlayNext}
                 onShowInFolder={onShowInFolder}
-                onShowProperties={onShowProperties}
               />
             </h2>
             <div className="track-detail-meta">
@@ -443,6 +439,17 @@ export function TrackDetailView({
               )}
               {track.year && <span className="track-detail-sep"> ({track.year})</span>}
             </div>
+            {(playStats || trackInfo) && (
+              <div className="track-detail-stats">
+                {playStats && <>{formatCount(playStats.play_count)} plays</>}
+                {playStats?.last_played_at && <> &middot; Last played {relativeTime(playStats.last_played_at)}</>}
+                {trackInfo?.listeners && <>{playStats ? <> &middot; </> : null}{parseInt(trackInfo.listeners).toLocaleString()} listeners</>}
+                {trackInfo?.playcount && <> &middot; {parseInt(trackInfo.playcount).toLocaleString()} scrobbles</>}
+                {trackInfo?.url && (
+                  <> &middot; <a className="track-detail-lastfm-link" onClick={() => openUrl(trackInfo.url!)} title="View on Last.fm"><IconLastfm size={12} /></a></>
+                )}
+              </div>
+            )}
             <div className="track-detail-stats">
               {formatDuration(track.duration_secs)}
               {track.format && <> &middot; {track.format.toUpperCase()}</>}
@@ -450,14 +457,6 @@ export function TrackDetailView({
               {audioProps?.sample_rate && <> &middot; {(audioProps.sample_rate / 1000).toFixed(1)} kHz</>}
               {audioProps?.bit_depth && <> &middot; {audioProps.bit_depth}-bit</>}
             </div>
-            {(playStats || trackInfo) && (
-              <div className="track-detail-stats">
-                {playStats && <>{formatCount(playStats.play_count)} plays</>}
-                {playStats?.last_played_at && <> &middot; Last played {relativeTime(playStats.last_played_at)}</>}
-                {trackInfo?.listeners && <>{playStats ? <> &middot; </> : null}{parseInt(trackInfo.listeners).toLocaleString()} listeners</>}
-                {trackInfo?.playcount && <> &middot; {parseInt(trackInfo.playcount).toLocaleString()} scrobbles</>}
-              </div>
-            )}
             <div className="track-detail-path">
               <span className="track-detail-path-text">
                 {track.path.startsWith("subsonic://") && track.collection_name ? (
