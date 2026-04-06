@@ -12,13 +12,7 @@ pub fn sync_collection(
 ) -> Result<(), String> {
     let start = std::time::Instant::now();
 
-    let host = client
-        .base_url()
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .trim_end_matches('/');
-
-    // Build set of all existing paths for this collection (including already-deleted)
+    // Build set of all existing relative paths (track IDs) for this collection
     let existing_paths: HashSet<String> = db
         .get_track_paths_for_collection(collection_id)
         .map_err(|e| e.to_string())?
@@ -85,7 +79,7 @@ pub fn sync_collection(
                 .and_then(|name| db.get_or_create_artist(name).ok())
                 .or(artist_id);
 
-            let path = format!("subsonic://{}/{}", host, track.id);
+            let path = track.id.clone();
             seen_paths.insert(path.clone());
 
             if let Ok(track_db_id) = db.upsert_track(
@@ -99,7 +93,6 @@ pub fn sync_collection(
                 track.size,
                 None,
                 Some(collection_id),
-                Some(&track.id),
                 album.year,
             ) {
                 // Tag from track genre or album genre
@@ -125,7 +118,7 @@ pub fn sync_collection(
         .into_iter()
         .filter(|p| !seen_paths.contains(p))
         .collect();
-    db.delete_tracks_by_paths(&removed)
+    db.delete_tracks_by_paths_in_collection(collection_id, &removed)
         .map_err(|e| e.to_string())?;
 
     db.rebuild_fts().map_err(|e| e.to_string())?;

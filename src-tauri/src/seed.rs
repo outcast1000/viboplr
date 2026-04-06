@@ -125,11 +125,11 @@ pub fn seed_database(
         let duration = rng.range(120, 360) as f64;
         let file_size = rng.range(3_000_000, 10_000_000) as i64;
 
-        // Build a fake artist name from the artist_id for path purposes
+        // Build a relative path for the fake track
         let artist_name = format!("Artist{}", artist_id);
         let album_title = &album_titles[album_idx];
         let path = format!(
-            "/fake/music/{}/{}/{:02} - {}.mp3",
+            "{}/{}/{:02} - {}.mp3",
             artist_name, album_title, track_num, title
         );
 
@@ -144,7 +144,6 @@ pub fn seed_database(
             Some(file_size),
             None,
             Some(collection_id),
-            None,
             None,
         )
         .map_err(|e| e.to_string())?;

@@ -420,34 +420,24 @@ pub fn get_track_path(state: State<'_, AppState>, track_id: i64) -> Result<Strin
         .get_track_by_id(track_id)
         .map_err(|e| e.to_string())?;
 
-    if let Some(remote_id) = &track.subsonic_id {
+    if let Some(remote_id) = track.remote_id() {
         let collection_id = track
             .collection_id
-            .ok_or("Track has remote_id but no collection_id")?;
-        let collection = state
+            .ok_or("Track has remote path but no collection_id")?;
+        let creds = state
             .db
-            .get_collection_by_id(collection_id)
+            .get_collection_credentials(collection_id)
             .map_err(|e| e.to_string())?;
-
-        match collection.kind.as_str() {
-            "subsonic" => {
-                let creds = state
-                    .db
-                    .get_collection_credentials(collection_id)
-                    .map_err(|e| e.to_string())?;
-                let client = SubsonicClient::from_stored(
-                    &creds.url,
-                    &creds.username,
-                    &creds.password_token,
-                    creds.salt.as_deref(),
-                    &creds.auth_method,
-                );
-                Ok(client.stream_url(remote_id))
-            }
-            _ => Err(format!("Unknown collection kind: {}", collection.kind)),
-        }
+        let client = SubsonicClient::from_stored(
+            &creds.url,
+            &creds.username,
+            &creds.password_token,
+            creds.salt.as_deref(),
+            &creds.auth_method,
+        );
+        Ok(client.stream_url(remote_id))
     } else {
-        Ok(track.path)
+        Ok(track.filesystem_path().unwrap_or(&track.path).to_string())
     }
 }
 
@@ -592,11 +582,12 @@ pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), S
         .map_err(|e| e.to_string())?;
 
     // Only show in folder for local tracks
-    if track.subsonic_id.is_some() {
+    if track.is_remote() {
         return Err("Cannot open folder for server tracks".to_string());
     }
 
-    let path = std::path::Path::new(&track.path);
+    let fs_path = track.filesystem_path().ok_or("Track has no local file path")?;
+    let path = std::path::Path::new(fs_path);
     #[cfg(target_os = "macos")]
     std::process::Command::new("open")
         .arg("-R")
@@ -697,14 +688,15 @@ pub fn delete_tracks(state: State<'_, AppState>, track_ids: Vec<i64>) -> Result<
     let mut deleted_ids = Vec::new();
     let mut failures = Vec::new();
     for track in &tracks {
-        if track.subsonic_id.is_some() {
+        if track.is_remote() {
             failures.push(DeleteFailure {
                 title: track.title.clone(),
                 reason: "Remote tracks cannot be deleted locally".to_string(),
             });
             continue;
         }
-        let path = std::path::Path::new(&track.path);
+        let fs_path = track.filesystem_path().unwrap_or(&track.path);
+        let path = std::path::Path::new(fs_path);
         if path.exists() {
             if let Err(e) = std::fs::remove_file(path) {
                 log::warn!("Failed to delete file {}: {}", track.path, e);
@@ -757,9 +749,9 @@ pub fn bulk_update_tracks(
         genre: fields.tag_names.as_ref().map(|tags| tags.join(", ")),
     };
 
-    for (_track_id, path, subsonic_id, collection_id) in &track_info {
+    for (_track_id, path, collection_id) in &track_info {
         // Skip non-local files
-        if subsonic_id.is_some() {
+        if path.starts_with("subsonic://") || path.starts_with("tidal://") {
             continue;
         }
         if let Some(cid) = collection_id {
@@ -771,7 +763,9 @@ pub fn bulk_update_tracks(
             continue;
         }
 
-        let file_path = std::path::Path::new(path);
+        // Strip file:// prefix for filesystem access
+        let bare_path = path.strip_prefix("file://").unwrap_or(path);
+        let file_path = std::path::Path::new(bare_path);
         if !file_path.exists() {
             continue;
         }
@@ -1025,24 +1019,6 @@ pub fn get_auto_continue_track(
 
 // --- Playlist commands ---
 
-#[tauri::command]
-pub fn save_playlist(
-    state: State<'_, AppState>,
-    path: String,
-    track_ids: Vec<i64>,
-) -> Result<(), String> {
-    let tracks = state.db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())?;
-    let mut content = String::from("#EXTM3U\n");
-    for track in &tracks {
-        let duration = track.duration_secs.unwrap_or(0.0) as i64;
-        let artist = track.artist_name.as_deref().unwrap_or("Unknown");
-        content.push_str(&format!("#EXTINF:{},{} - {}\n", duration, artist, track.title));
-        content.push_str(&track.path);
-        content.push('\n');
-    }
-    std::fs::write(&path, content).map_err(|e| format!("Failed to write playlist: {}", e))
-}
-
 #[derive(Debug, Deserialize)]
 pub struct QueueEntryPayload {
     pub location: String,
@@ -1069,7 +1045,6 @@ pub fn save_playlist_entries(
 
 #[tauri::command]
 pub fn load_playlist(
-    state: State<'_, AppState>,
     path: String,
 ) -> Result<PlaylistLoadResult, String> {
     let content = std::fs::read_to_string(&path)
@@ -1077,15 +1052,13 @@ pub fn load_playlist(
     let playlist_path = std::path::Path::new(&path);
     let parent_dir = playlist_path.parent();
 
-    // Parse EXTINF metadata alongside locations
-    let mut entries: Vec<(String, Option<String>, Option<String>, Option<f64>)> = Vec::new(); // (location, title, artist, duration)
+    let mut entries: Vec<PlaylistEntry> = Vec::new();
     let mut pending_extinf: Option<(String, Option<String>, f64)> = None; // (title, artist, duration)
 
     for line in content.lines() {
         let line = line.trim();
         if line.is_empty() { continue; }
         if line.starts_with("#EXTINF:") {
-            // Parse: #EXTINF:duration,Artist - Title
             if let Some(rest) = line.strip_prefix("#EXTINF:") {
                 let parts: Vec<&str> = rest.splitn(2, ',').collect();
                 let dur = parts.first().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
@@ -1101,127 +1074,32 @@ pub fn load_playlist(
         }
         if line.starts_with('#') { continue; }
 
-        // Resolve the location
-        let location = if line.contains("://") || std::path::Path::new(line).is_absolute() {
-            line.to_string()
+        // Resolve the location to a URI
+        let url = if line.contains("://") || std::path::Path::new(line).is_absolute() {
+            // Absolute path without scheme → add file://
+            if !line.contains("://") {
+                format!("file://{}", line)
+            } else {
+                line.to_string()
+            }
         } else if let Some(parent) = parent_dir {
-            // Relative path — resolve relative to playlist, treat as file://
+            // Relative path — resolve relative to playlist
             format!("file://{}", parent.join(line).to_string_lossy())
         } else {
             format!("file://{}", line)
         };
 
         let (title, artist, dur) = pending_extinf.take().unwrap_or_else(|| {
-            // Derive title from location
-            let name = location.rsplit('/').next().unwrap_or(&location).to_string();
+            let name = url.rsplit('/').next().unwrap_or(&url).to_string();
             (name, None, 0.0)
         });
 
-        entries.push((location, Some(title), artist, Some(dur)));
-    }
-
-    // Resolve entries to Track objects
-    let mut tracks: Vec<Track> = Vec::new();
-    let mut not_found = 0usize;
-
-    // Batch-resolve file:// paths
-    let file_paths: Vec<String> = entries.iter()
-        .filter(|(loc, _, _, _)| loc.starts_with("file://"))
-        .map(|(loc, _, _, _)| loc[7..].to_string())
-        .collect();
-    let db_tracks = if !file_paths.is_empty() {
-        state.db.get_tracks_by_paths(&file_paths).map_err(|e| e.to_string())?
-    } else {
-        Vec::new()
-    };
-    let db_by_path: std::collections::HashMap<String, &Track> =
-        db_tracks.iter().map(|t| (t.path.clone(), t)).collect();
-
-    let mut tidal_counter: i64 = -200000;
-
-    for (location, title, artist, dur) in &entries {
-        if location.starts_with("file://") {
-            let file_path = &location[7..];
-            if let Some(track) = db_by_path.get(file_path) {
-                tracks.push((*track).clone());
-            } else {
-                not_found += 1;
-            }
-        } else if location.starts_with("tidal://") {
-            let tidal_id = &location[8..];
-            tidal_counter -= 1;
-            tracks.push(Track {
-                id: tidal_counter,
-                path: String::new(),
-                title: title.clone().unwrap_or_default(),
-                artist_id: None,
-                artist_name: artist.clone(),
-                album_id: None,
-                album_title: None,
-                year: None,
-                track_number: None,
-                duration_secs: *dur,
-                format: None,
-                file_size: None,
-                collection_id: None,
-                collection_name: None,
-                subsonic_id: Some(tidal_id.to_string()),
-                liked: 0,
-                youtube_url: None,
-                added_at: None,
-                modified_at: None,
-            });
-        } else if location.starts_with("subsonic://") {
-            // Parse subsonic://{host}/{subsonic_id}
-            let rest = location.strip_prefix("subsonic://").unwrap();
-            let id_match = rest.rfind('/').map(|i| &rest[i + 1..]).filter(|s| !s.is_empty());
-            if let Some(remote_id) = id_match {
-                let collections = state.db.get_collections().map_err(|e| e.to_string())?;
-                let mut found = false;
-                for col in collections.iter().filter(|c| c.kind == "subsonic") {
-                    if let Ok(matched) = state.db.get_tracks_by_subsonic_id(remote_id, col.id) {
-                        if let Some(track) = matched.into_iter().next() {
-                            tracks.push(track);
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-                if !found {
-                    // Create minimal track
-                    tracks.push(Track {
-                        id: 0,
-                        path: String::new(),
-                        title: title.clone().unwrap_or_default(),
-                        artist_id: None,
-                        artist_name: artist.clone(),
-                        album_id: None,
-                        album_title: None,
-                        year: None,
-                        track_number: None,
-                        duration_secs: *dur,
-                        format: None,
-                        file_size: None,
-                        collection_id: None,
-                        collection_name: None,
-                        subsonic_id: Some(remote_id.to_string()),
-                        liked: 0,
-                        youtube_url: None,
-                        added_at: None,
-                        modified_at: None,
-                    });
-                }
-            } else {
-                not_found += 1;
-            }
-        } else {
-            // Legacy: plain file path (backward compat with old M3U files)
-            if let Some(track) = db_by_path.get(location.as_str()) {
-                tracks.push((*track).clone());
-            } else {
-                not_found += 1;
-            }
-        }
+        entries.push(PlaylistEntry {
+            url,
+            title,
+            artist_name: artist,
+            duration_secs: Some(dur),
+        });
     }
 
     let playlist_name = playlist_path
@@ -1231,8 +1109,7 @@ pub fn load_playlist(
         .to_string();
 
     Ok(PlaylistLoadResult {
-        tracks,
-        not_found_count: not_found,
+        entries,
         playlist_name,
     })
 }
@@ -1595,11 +1472,13 @@ pub fn get_track_audio_properties(
         .db
         .get_track_by_id(track_id)
         .map_err(|e| e.to_string())?;
-    let path = track.path;
+    let bare_path = track.filesystem_path()
+        .ok_or("Track has no local file path")?
+        .to_string();
 
     use lofty::prelude::*;
 
-    let tagged_file = lofty::probe::Probe::open(&path)
+    let tagged_file = lofty::probe::Probe::open(&bare_path)
         .and_then(|p| p.read())
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -2390,11 +2269,11 @@ pub fn download_track(
     let fmt = DownloadFormat::from_str(&format)?;
 
     // Look up track metadata from DB
-    let tracks = state
+    let track = state
         .db
-        .get_tracks_by_subsonic_id(&remote_track_id, source_collection_id)
-        .map_err(|e| e.to_string())?;
-    let track = tracks.first().ok_or("Track not found in database")?;
+        .get_track_by_remote_id(&remote_track_id, source_collection_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Track not found in database")?;
 
     // Look up destination collection path
     let dest_collection = state
@@ -2406,7 +2285,7 @@ pub fn download_track(
         .ok_or("Destination collection has no path")?;
 
     // Resolve cover URL
-    let cover_url = resolve_cover_url(&state.db, track, source_collection_id);
+    let cover_url = resolve_cover_url(&state.db, &track, source_collection_id);
 
     let collection = state
         .db
@@ -2546,7 +2425,10 @@ pub async fn tidal_download_preview(
         let actual_ext = stream_info.extension();
 
         // Build temp path next to original file
-        let old_path = std::path::Path::new(&track.path);
+        let bare = track.filesystem_path()
+            .ok_or("Track has no local file path")?
+            .to_string();
+        let old_path = std::path::Path::new(&bare);
         let parent = old_path.parent().ok_or("Track has no parent directory")?;
         let stem = old_path.file_stem().and_then(|s| s.to_str()).unwrap_or("track");
         let new_filename = format!("{}.upgrade.{}", stem, actual_ext);
@@ -2658,8 +2540,12 @@ pub async fn confirm_track_upgrade(
     let db = state.db.clone();
     let track = db.get_track_by_id(track_id).map_err(|e| e.to_string())?;
 
+    let bare_old = track.filesystem_path()
+        .ok_or("Track has no local file path")?
+        .to_string();
+
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let old_path = std::path::Path::new(&track.path);
+        let old_path = std::path::Path::new(&bare_old);
         let new_file = std::path::Path::new(&new_path);
 
         if !new_file.exists() {
@@ -2688,9 +2574,12 @@ pub async fn confirm_track_upgrade(
             .map_err(|e| format!("Failed to rename file: {}", e))?;
 
         // Remove old track from DB and re-scan the new file
-        let _ = db.remove_track_by_path(&track.path);
+        let _ = db.remove_track_by_id(track.id);
         let collection_id = track.collection_id;
-        crate::scanner::process_media_file(&db, &final_path, collection_id);
+        let collection_root = collection_id
+            .and_then(|cid| db.get_collection_by_id(cid).ok())
+            .and_then(|c| c.path);
+        crate::scanner::process_media_file(&db, &final_path, collection_id, collection_root.as_deref());
         let _ = db.rebuild_fts();
         let _ = db.recompute_counts();
 
@@ -2750,7 +2639,10 @@ pub async fn save_track_as_copy(
 
         // Register in library
         let collection_id = track.collection_id;
-        crate::scanner::process_media_file(&db, &final_path, collection_id);
+        let collection_root = collection_id
+            .and_then(|cid| db.get_collection_by_id(cid).ok())
+            .and_then(|c| c.path);
+        crate::scanner::process_media_file(&db, &final_path, collection_id, collection_root.as_deref());
         let _ = db.rebuild_fts();
         let _ = db.recompute_counts();
 
@@ -3102,9 +2994,21 @@ mod tests {
         }
     }
 
+    /// Helper: get or create a test collection
+    fn test_collection_id(state: &AppState) -> i64 {
+        let collections = state.db.get_collections().unwrap();
+        if let Some(c) = collections.iter().find(|c| c.name == "TestCol") {
+            return c.id;
+        }
+        state.db.add_collection("local", "TestCol", Some("/test"), None, None, None, None, None)
+            .expect("add_collection failed")
+            .id
+    }
+
     /// Helper: insert a track directly through the DB layer
     fn insert_track(state: &AppState, path: &str, title: &str, artist_id: Option<i64>, album_id: Option<i64>) -> i64 {
-        state.db.upsert_track(path, title, artist_id, album_id, None, Some(200.0), Some("mp3"), Some(5_000_000), None, None, None, None)
+        let cid = test_collection_id(state);
+        state.db.upsert_track(path, title, artist_id, album_id, None, Some(200.0), Some("mp3"), Some(5_000_000), None, Some(cid), None)
             .expect("upsert_track failed")
     }
 
@@ -3130,8 +3034,8 @@ mod tests {
         let state = test_state();
         let artist_id = state.db.get_or_create_artist("Test Artist").unwrap();
         let album_id = state.db.get_or_create_album("Test Album", Some(artist_id), None).unwrap();
-        insert_track(&state, "/a.mp3", "Alpha Song", Some(artist_id), Some(album_id));
-        insert_track(&state, "/b.mp3", "Beta Song", Some(artist_id), None);
+        insert_track(&state, "a.mp3", "Alpha Song", Some(artist_id), Some(album_id));
+        insert_track(&state, "b.mp3", "Beta Song", Some(artist_id), None);
 
         state.db.rebuild_fts().unwrap();
 
@@ -3149,7 +3053,7 @@ mod tests {
         let state = test_state();
         let artist_id = state.db.get_or_create_artist("Artist").unwrap();
         let album_id = state.db.get_or_create_album("Album", Some(artist_id), None).unwrap();
-        let track_id = insert_track(&state, "/t.mp3", "Track", Some(artist_id), Some(album_id));
+        let track_id = insert_track(&state, "t.mp3", "Track", Some(artist_id), Some(album_id));
 
         // Track liked
         state.db.toggle_liked("tracks", track_id, 1).unwrap();
@@ -3184,8 +3088,8 @@ mod tests {
     #[test]
     fn test_record_and_get_plays() {
         let state = test_state();
-        let t1 = insert_track(&state, "/a.mp3", "Song A", None, None);
-        let t2 = insert_track(&state, "/b.mp3", "Song B", None, None);
+        let t1 = insert_track(&state, "a.mp3", "Song A", None, None);
+        let t2 = insert_track(&state, "b.mp3", "Song B", None, None);
 
         state.db.record_play(t1).unwrap();
         state.db.record_play(t1).unwrap(); // deduplicated (same track within 30s)

@@ -37,7 +37,6 @@ export interface Track {
   file_size: number | null;
   collection_id: number | null;
   collection_name: string | null;
-  subsonic_id: string | null;
   liked: number;
   youtube_url: string | null;
   added_at: number | null;
@@ -110,9 +109,15 @@ export interface HistoryArtistStats {
   rank: number;
 }
 
+export interface PlaylistEntry {
+  url: string;
+  title: string;
+  artist_name: string | null;
+  duration_secs: number | null;
+}
+
 export interface PlaylistLoadResult {
-  tracks: Track[];
-  not_found_count: number;
+  entries: PlaylistEntry[];
   playlist_name: string;
 }
 

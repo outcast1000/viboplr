@@ -160,10 +160,10 @@ fn fallback_from_filename(path: &Path, duration_secs: Option<f64>) -> ParsedTags
     let grandparent = path.parent().and_then(|p| p.parent()).and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("");
 
     // Build "grandparent/parent/stem" for path-based regex matching
-    let path_str = format!("{}/{}/{}", grandparent, parent, stem);
+    let path_uri = format!("{}/{}/{}", grandparent, parent, stem);
 
     for regex in FALLBACK_PATTERNS.iter() {
-        if let Some(caps) = regex.captures(&path_str) {
+        if let Some(caps) = regex.captures(&path_uri) {
             return ParsedTags {
                 title: caps.name("title").map(|m| m.as_str().trim().to_string())
                     .unwrap_or_else(|| stem.to_string()),
@@ -207,7 +207,7 @@ pub fn scan_folder(
 
     info!("Scan started: {} ({} media files found)", folder_path, total);
 
-    // Second pass: process files and collect seen paths
+    // Second pass: process files and collect seen relative paths
     let mut scanned: u64 = 0;
     let mut seen_paths: HashSet<String> = HashSet::with_capacity(total as usize);
     for entry in WalkDir::new(&root)
@@ -216,21 +216,22 @@ pub fn scan_folder(
         .filter(|e| e.file_type().is_file() && is_media_file(e.path()) && e.metadata().map(|m| m.len() > 0).unwrap_or(false))
     {
         let path = entry.path();
-        seen_paths.insert(path.to_string_lossy().to_string());
-        process_media_file(db, path, collection_id);
+        let relative = path.strip_prefix(&root).unwrap_or(path).to_string_lossy().to_string();
+        seen_paths.insert(relative);
+        process_media_file(db, path, collection_id, Some(folder_path));
         scanned += 1;
         if scanned % 10 == 0 || scanned == total {
             progress_callback(scanned, total);
         }
     }
 
-    // Soft-delete tracks whose files no longer exist on disk
+    // Delete tracks whose files no longer exist on disk
     if let Some(cid) = collection_id {
         if let Ok(db_paths) = db.get_local_track_paths_for_collection(cid) {
             let missing: Vec<String> = db_paths.into_iter().filter(|p| !seen_paths.contains(p)).collect();
             if !missing.is_empty() {
                 info!("Deleting {} tracks no longer on disk", missing.len());
-                let _ = db.delete_tracks_by_paths(&missing);
+                let _ = db.delete_tracks_by_paths_in_collection(cid, &missing);
             }
         }
     }
@@ -239,8 +240,16 @@ pub fn scan_folder(
     info!("Scan complete: {} files in {:.1}s", scanned, elapsed.as_secs_f64());
 }
 
-pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>) {
-    let path_str = path.to_string_lossy().to_string();
+pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>) {
+    // Compute relative path by stripping collection root
+    let relative_path = match collection_root {
+        Some(root) => path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string(),
+        None => path.to_string_lossy().to_string(),
+    };
 
     let metadata = std::fs::metadata(path).ok();
 
@@ -255,16 +264,16 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
         .map(|d| d.as_secs() as i64);
 
     // Skip if file hasn't changed since last scan
-    let stored_modified = db.get_track_modified_at_by_path(&path_str);
+    let stored_modified = db.get_track_modified_at_by_path(&relative_path, collection_id);
     if let (Some(stored), Some(current)) = (stored_modified, modified_at) {
         if stored >= current {
             return; // File unchanged, skip
         }
-        info!("Updated file: {}", path_str);
+        info!("Updated file: {}", relative_path);
     } else if stored_modified.is_some() {
-        info!("Updated file: {}", path_str);
+        info!("Updated file: {}", relative_path);
     } else {
-        info!("New file: {}", path_str);
+        info!("New file: {}", relative_path);
     }
 
     let format = path
@@ -283,7 +292,7 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
             .map(|f| f.properties().duration().as_secs_f64())
             .filter(|&d| d > 0.0);
         let _ = db.upsert_track(
-            &path_str,
+            &relative_path,
             &title,
             None,
             None,
@@ -293,7 +302,6 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
             file_size,
             modified_at,
             collection_id,
-            None,
             None,
         );
         return;
@@ -312,7 +320,7 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
         .and_then(|title| db.get_or_create_album(title, artist_id, tags.year).ok());
 
     if let Ok(track_id) = db.upsert_track(
-        &path_str,
+        &relative_path,
         &tags.title,
         artist_id,
         album_id,
@@ -322,7 +330,6 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
         file_size,
         modified_at,
         collection_id,
-        None,
         tags.year,
     ) {
         if let Some(genre) = &tags.genre {

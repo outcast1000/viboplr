@@ -19,49 +19,48 @@ export type ParsedUrl =
 let tidalIdCounter = -100000;
 
 /**
- * Computes the playback URL for a track based on its source.
- *
- * Rules:
- * - TIDAL (empty path + subsonic_id): tidal://{subsonic_id}
- * - Subsonic (collection.kind === "subsonic"): subsonic://{host}/{subsonic_id}
- * - Everything else: file://{track.path}
+ * Returns true if this is a remote track (subsonic:// or tidal://).
  */
-export function computeUrl(track: Track, collections: Collection[]): string {
-  // TIDAL: empty path + subsonic_id
-  if (track.path === "" && track.subsonic_id) {
-    return `tidal://${track.subsonic_id}`;
-  }
-
-  // Check collection kind for Subsonic
-  if (track.collection_id !== null) {
-    const collection = collections.find((c) => c.id === track.collection_id);
-    if (collection) {
-      if (collection.kind === "subsonic" && track.subsonic_id && collection.url) {
-        let host = collection.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
-        return `subsonic://${host}/${track.subsonic_id}`;
-      }
-    }
-  }
-
-  // Fallback to file://
-  return `file://${track.path}`;
+export function isRemoteTrack(track: Track): boolean {
+  return track.path.startsWith("subsonic://") || track.path.startsWith("tidal://");
 }
 
 /**
- * Stamps a url on a track for queue use. If the track already has a url, keeps it.
- * Otherwise computes one from the track's source info.
+ * Extracts the remote ID from a subsonic:// or tidal:// path.
  */
-export function stampUrl(track: Track, collections: Collection[]): Track {
+export function remoteId(track: Track): string | null {
+  if (track.path.startsWith("tidal://")) return track.path.substring(8);
+  if (track.path.startsWith("subsonic://")) {
+    const rest = track.path.substring(11);
+    const lastSlash = rest.lastIndexOf("/");
+    return lastSlash >= 0 ? rest.substring(lastSlash + 1) || null : null;
+  }
+  return null;
+}
+
+/**
+ * Returns the canonical URL for a track.
+ * Since track.path is already a URI (file://, subsonic://, tidal://),
+ * this just returns track.path (or track.url if already stamped).
+ */
+export function computeUrl(track: Track, _collections: Collection[]): string {
+  return track.url ?? track.path;
+}
+
+/**
+ * Stamps a url on a track for queue use. Since path is already a URI, just copies it.
+ */
+export function stampUrl(track: Track, _collections: Collection[]): Track {
   if (track.url) return track;
-  return { ...track, url: computeUrl(track, collections) };
+  return { ...track, url: track.path };
 }
 
 /**
  * Converts a Track to a QueueEntry for serialization.
  */
-export function trackToQueueEntry(track: Track, collections: Collection[]): QueueEntry {
+export function trackToQueueEntry(track: Track, _collections: Collection[]): QueueEntry {
   return {
-    url: track.url ?? computeUrl(track, collections),
+    url: track.url ?? track.path,
     title: track.title,
     artist_name: track.artist_name,
     album_title: track.album_title,
@@ -75,30 +74,16 @@ export function trackToQueueEntry(track: Track, collections: Collection[]): Queu
 /**
  * Converts a QueueEntry back to a Track.
  *
- * Rules:
- * - file:// → set path (strip prefix), id=0, subsonic_id=null
- * - tidal:// → set subsonic_id (strip prefix), negative id (unique), path=""
- * - subsonic:// → extract id from ?id= param, set subsonic_id, id=0, path=""
+ * path = url (the canonical URI) for all schemes.
+ * TIDAL tracks get unique negative IDs since they aren't in the library.
  */
 export function queueEntryToTrack(entry: QueueEntry): Track {
   const parsed = parseUrlScheme(entry.url);
-
-  let id = 0;
-  let path = "";
-  let subsonic_id: string | null = null;
-
-  if (parsed.scheme === "file") {
-    path = parsed.path;
-  } else if (parsed.scheme === "tidal") {
-    id = tidalIdCounter--;
-    subsonic_id = parsed.id;
-  } else if (parsed.scheme === "subsonic") {
-    subsonic_id = parsed.id || null;
-  }
+  const id = parsed.scheme === "tidal" ? tidalIdCounter-- : 0;
 
   return {
     id,
-    path,
+    path: entry.url,
     title: entry.title,
     artist_id: null,
     artist_name: entry.artist_name,
@@ -111,7 +96,6 @@ export function queueEntryToTrack(entry: QueueEntry): Track {
     file_size: null,
     collection_id: null,
     collection_name: null,
-    subsonic_id,
     liked: 0,
     youtube_url: null,
     added_at: null,

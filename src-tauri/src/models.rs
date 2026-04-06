@@ -72,11 +72,30 @@ pub struct Track {
     pub file_size: Option<i64>,
     pub collection_id: Option<i64>,
     pub collection_name: Option<String>,
-    pub subsonic_id: Option<String>,
     pub liked: i32,
     pub youtube_url: Option<String>,
     pub added_at: Option<i64>,
     pub modified_at: Option<i64>,
+}
+
+impl Track {
+    /// Returns true if this track is from a remote server (subsonic:// or tidal://).
+    pub fn is_remote(&self) -> bool {
+        self.path.starts_with("subsonic://") || self.path.starts_with("tidal://")
+    }
+
+    /// Returns the bare filesystem path by stripping the file:// prefix.
+    /// Returns None for remote tracks.
+    pub fn filesystem_path(&self) -> Option<&str> {
+        self.path.strip_prefix("file://")
+    }
+
+    /// Extracts the remote track ID from a subsonic:// path (last path segment).
+    pub fn remote_id(&self) -> Option<&str> {
+        self.path.strip_prefix("subsonic://")
+            .and_then(|rest| rest.rfind('/').map(|i| &rest[i + 1..]))
+            .filter(|id| !id.is_empty())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,9 +213,16 @@ pub struct TrackPlayStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaylistEntry {
+    pub url: String,
+    pub title: String,
+    pub artist_name: Option<String>,
+    pub duration_secs: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaylistLoadResult {
-    pub tracks: Vec<Track>,
-    pub not_found_count: usize,
+    pub entries: Vec<PlaylistEntry>,
     pub playlist_name: String,
 }
 

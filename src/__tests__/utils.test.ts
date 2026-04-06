@@ -4,10 +4,10 @@ import type { Track } from "../types";
 
 function makeTrack(overrides: Partial<Track> = {}): Track {
   return {
-    id: 1, path: "/test.mp3", title: "Test", artist_id: null,
+    id: 1, path: "file:///test.mp3", title: "Test", artist_id: null,
     artist_name: null, album_id: null, album_title: null, year: null,
     track_number: null, duration_secs: null, format: null, file_size: null,
-    collection_id: null, collection_name: null, subsonic_id: null,
+    collection_id: null, collection_name: null,
     liked: 0, youtube_url: null,
     added_at: null, modified_at: null,
     ...overrides,

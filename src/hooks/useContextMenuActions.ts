@@ -50,7 +50,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     if (selectedTrackIds.size > 1) {
       setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-track", trackIds: [...selectedTrackIds] } });
     } else {
-      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: !!track.subsonic_id, title: track.title, artistName: track.artist_name } });
+      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: track.path.startsWith("subsonic://"), title: track.title, artistName: track.artist_name } });
     }
   }
 

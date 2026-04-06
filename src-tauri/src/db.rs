@@ -21,9 +21,32 @@ pub fn strip_lrc_timestamps(text: &str) -> String {
 }
 
 
+/// SQL expression that reconstructs the full URI from the relative path stored in
+/// `tracks.path` and the parent collection's root (path or url).
+///
+/// Local collections:   file://{collection.path}/{track.path}
+/// Subsonic collections: subsonic://{host}/{track.path}
+/// Fallback:            track.path as-is
+const PATH_EXPR: &str =
+    "CASE \
+       WHEN co.kind = 'local' AND co.path IS NOT NULL \
+         THEN 'file://' || co.path || '/' || t.path \
+       WHEN co.kind = 'subsonic' AND co.url IS NOT NULL \
+         THEN 'subsonic://' || REPLACE(REPLACE(RTRIM(co.url, '/'), 'https://', ''), 'http://', '') || '/' || t.path \
+       ELSE t.path \
+     END";
+
 const TRACK_SELECT: &str =
-    "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
-     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.youtube_url, \
+    "SELECT t.id, \
+     CASE \
+       WHEN co.kind = 'local' AND co.path IS NOT NULL \
+         THEN 'file://' || co.path || '/' || t.path \
+       WHEN co.kind = 'subsonic' AND co.url IS NOT NULL \
+         THEN 'subsonic://' || REPLACE(REPLACE(RTRIM(co.url, '/'), 'https://', ''), 'http://', '') || '/' || t.path \
+       ELSE t.path \
+     END, \
+     t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
+     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.liked, t.youtube_url, \
      t.added_at, t.modified_at \
      FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id \
      LEFT JOIN collections co ON t.collection_id = co.id";
@@ -47,11 +70,10 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
         file_size: row.get(11)?,
         collection_id: row.get(12)?,
         collection_name: row.get(13)?,
-        subsonic_id: row.get(14)?,
-        liked: row.get::<_, i32>(15).unwrap_or(0),
-        youtube_url: row.get(16)?,
-        added_at: row.get(17)?,
-        modified_at: row.get(18)?,
+        liked: row.get::<_, i32>(14).unwrap_or(0),
+        youtube_url: row.get(15)?,
+        added_at: row.get(16)?,
+        modified_at: row.get(17)?,
     })
 }
 
@@ -233,7 +255,7 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS tracks (
                 id            INTEGER PRIMARY KEY,
-                path          TEXT NOT NULL UNIQUE,
+                path          TEXT NOT NULL,
                 title         TEXT NOT NULL,
                 artist_id     INTEGER REFERENCES artists(id),
                 album_id      INTEGER REFERENCES albums(id),
@@ -244,9 +266,10 @@ impl Database {
                 modified_at   INTEGER,
                 added_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 collection_id INTEGER REFERENCES collections(id),
-                subsonic_id   TEXT,
                 liked         INTEGER NOT NULL DEFAULT 0,
-                year          INTEGER
+                year          INTEGER,
+                youtube_url   TEXT,
+                UNIQUE(collection_id, path)
             );
 
             CREATE TABLE IF NOT EXISTS track_tags (
@@ -493,6 +516,78 @@ impl Database {
             conn.execute("UPDATE db_version SET version = 12 WHERE rowid = 1", [])?;
         }
 
+        if version < 13 {
+            let _ = conn.execute_batch("ALTER TABLE tracks DROP COLUMN subsonic_id");
+            conn.execute("UPDATE db_version SET version = 13 WHERE rowid = 1", [])?;
+        }
+
+        if version < 14 {
+            // Store all local paths as file:// URIs for consistency with subsonic:// paths
+            conn.execute_batch(
+                "UPDATE tracks SET path = 'file://' || path WHERE path NOT LIKE '%://%'"
+            )?;
+            conn.execute("UPDATE db_version SET version = 14 WHERE rowid = 1", [])?;
+        }
+
+        if version < 15 {
+            // Switch to relative paths: strip collection root from track paths.
+            // Local tracks: file:///Users/alex/Music/Artist/track.mp3 → Artist/track.mp3
+            // Subsonic tracks: subsonic://host/trackId → trackId
+
+            // Table-swap FIRST to change UNIQUE(path) → UNIQUE(collection_id, path).
+            // Path stripping can cause collisions under the old single-column constraint
+            // (e.g. two collections with the same relative path), so the new composite
+            // constraint must be in place before we modify paths.
+            conn.execute_batch(
+                "CREATE TABLE tracks_new ( \
+                    id            INTEGER PRIMARY KEY, \
+                    path          TEXT NOT NULL, \
+                    title         TEXT NOT NULL, \
+                    artist_id     INTEGER REFERENCES artists(id), \
+                    album_id      INTEGER REFERENCES albums(id), \
+                    track_number  INTEGER, \
+                    duration_secs REAL, \
+                    format        TEXT, \
+                    file_size     INTEGER, \
+                    modified_at   INTEGER, \
+                    added_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), \
+                    collection_id INTEGER REFERENCES collections(id), \
+                    liked         INTEGER NOT NULL DEFAULT 0, \
+                    year          INTEGER, \
+                    youtube_url   TEXT, \
+                    UNIQUE(collection_id, path) \
+                 ); \
+                 INSERT INTO tracks_new SELECT * FROM tracks; \
+                 DROP TABLE tracks; \
+                 ALTER TABLE tracks_new RENAME TO tracks; \
+                 CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id); \
+                 CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id); \
+                 CREATE INDEX IF NOT EXISTS idx_tracks_collection_id ON tracks(collection_id)"
+            )?;
+
+            // Now strip file:// prefix + collection.path + '/' from local tracks
+            conn.execute_batch(
+                "UPDATE tracks SET path = SUBSTR(tracks.path, LENGTH('file://' || co.path || '/') + 1) \
+                 FROM collections co \
+                 WHERE tracks.collection_id = co.id \
+                   AND tracks.path LIKE 'file://%' \
+                   AND co.path IS NOT NULL"
+            )?;
+
+            // Strip subsonic://host/ prefix from subsonic tracks.
+            conn.execute_batch(
+                "UPDATE tracks SET path = SUBSTR(tracks.path, LENGTH('subsonic://' || \
+                 REPLACE(REPLACE(RTRIM(co.url, '/'), 'https://', ''), 'http://', '') || '/') + 1) \
+                 FROM collections co \
+                 WHERE tracks.collection_id = co.id \
+                   AND tracks.path LIKE 'subsonic://%' \
+                   AND co.url IS NOT NULL"
+            )?;
+
+            conn.execute("UPDATE db_version SET version = 15 WHERE rowid = 1", [])?;
+            migrated = true;
+        }
+
         drop(conn);
         if version < 12 {
             crate::timing::timer().time("db: rebuild_fts_for_lyrics", || self.rebuild_fts())?;
@@ -721,25 +816,23 @@ impl Database {
         file_size: Option<i64>,
         modified_at: Option<i64>,
         collection_id: Option<i64>,
-        subsonic_id: Option<&str>,
         year: Option<i32>,
     ) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, subsonic_id, year)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-             ON CONFLICT(path) DO UPDATE SET
+            "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(collection_id, path) DO UPDATE SET
                 title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id,
                 track_number=excluded.track_number,
                 duration_secs=excluded.duration_secs, format=excluded.format,
                 file_size=excluded.file_size, modified_at=excluded.modified_at,
-                collection_id=excluded.collection_id, subsonic_id=excluded.subsonic_id,
                 year=excluded.year",
-            params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, subsonic_id, year],
+            params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year],
         )?;
         let id: i64 = conn.query_row(
-            "SELECT id FROM tracks WHERE path = ?1",
-            params![path],
+            "SELECT id FROM tracks WHERE collection_id IS ?1 AND path = ?2",
+            params![collection_id, path],
             |row| row.get(0),
         )?;
         Ok(id)
@@ -899,15 +992,16 @@ impl Database {
             format!("{{title artist_name album_title tag_names filename}}:{}", words)
         };
 
-        let mut sql = String::from(
-            "SELECT t.id, t.path, t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
-             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.subsonic_id, t.liked, t.youtube_url, \
+        let mut sql = format!(
+            "SELECT t.id, {}, t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
+             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.liked, t.youtube_url, \
              t.added_at, t.modified_at \
              FROM tracks_fts fts \
              JOIN tracks t ON fts.rowid = t.id \
              LEFT JOIN artists ar ON t.artist_id = ar.id \
              LEFT JOIN albums al ON t.album_id = al.id \
-             LEFT JOIN collections co ON t.collection_id = co.id"
+             LEFT JOIN collections co ON t.collection_id = co.id",
+            PATH_EXPR
         );
 
         if opts.tag_id.is_some() {
@@ -1197,16 +1291,21 @@ impl Database {
         rows.collect()
     }
 
-    pub fn delete_tracks_by_paths(&self, paths: &[String]) -> SqlResult<()> {
+    pub fn delete_tracks_by_paths_in_collection(&self, collection_id: i64, paths: &[String]) -> SqlResult<()> {
         if paths.is_empty() {
             return Ok(());
         }
         let conn = self.conn.lock().unwrap();
         for chunk in paths.chunks(500) {
             let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-            let sql = format!("DELETE FROM tracks WHERE path IN ({})", placeholders);
+            let sql = format!(
+                "DELETE FROM tracks WHERE collection_id = ?1 AND path IN ({})",
+                placeholders
+            );
             let mut stmt = conn.prepare(&sql)?;
-            let params: Vec<&dyn rusqlite::types::ToSql> = chunk.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+            let mut params: Vec<&dyn rusqlite::types::ToSql> = Vec::with_capacity(chunk.len() + 1);
+            params.push(&collection_id);
+            params.extend(chunk.iter().map(|p| p as &dyn rusqlite::types::ToSql));
             stmt.execute(params.as_slice())?;
         }
         Ok(())
@@ -1228,7 +1327,7 @@ impl Database {
     }
 
     /// Bulk update metadata fields on multiple tracks in a single transaction.
-    /// Returns Vec of (track_id, path, subsonic_id, collection_id) for file writing.
+    /// Returns Vec of (track_id, path, collection_id) for file writing.
     pub fn bulk_update_tracks(
         &self,
         track_ids: &[i64],
@@ -1236,7 +1335,7 @@ impl Database {
         album_title: Option<&str>,
         year: Option<i32>,
         tag_names: Option<&[String]>,
-    ) -> SqlResult<Vec<(i64, String, Option<String>, Option<i64>)>> {
+    ) -> SqlResult<Vec<(i64, String, Option<i64>)>> {
         if track_ids.is_empty() {
             return Ok(vec![]);
         }
@@ -1250,7 +1349,7 @@ impl Database {
             let conn = self.conn.lock().unwrap();
             conn.execute_batch("BEGIN")?;
 
-            let inner = (|| -> SqlResult<Vec<(i64, String, Option<String>, Option<i64>)>> {
+            let inner = (|| -> SqlResult<Vec<(i64, String, Option<i64>)>> {
                 // Step 1: Artist
                 let new_artist_id: Option<i64> = if let Some(name) = artist_name {
                     let existing: Option<i64> = conn.query_row(
@@ -1418,13 +1517,15 @@ impl Database {
                     conn.execute(&sql, param_refs.as_slice())?;
                 }
 
-                // Step 6: Collect track info for file writing
-                let mut results: Vec<(i64, String, Option<String>, Option<i64>)> = Vec::new();
+                // Step 6: Collect track info for file writing (reconstruct full URI)
+                let mut results: Vec<(i64, String, Option<i64>)> = Vec::new();
                 for chunk in track_ids.chunks(500) {
                     let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
                     let sql = format!(
-                        "SELECT id, path, subsonic_id, collection_id FROM tracks WHERE id IN ({})",
-                        placeholders
+                        "SELECT t.id, {}, t.collection_id \
+                         FROM tracks t LEFT JOIN collections co ON t.collection_id = co.id \
+                         WHERE t.id IN ({})",
+                        PATH_EXPR, placeholders
                     );
                     let mut stmt = conn.prepare(&sql)?;
                     let params: Vec<&dyn rusqlite::types::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
@@ -1432,8 +1533,7 @@ impl Database {
                         Ok((
                             row.get::<_, i64>(0)?,
                             row.get::<_, String>(1)?,
-                            row.get::<_, Option<String>>(2)?,
-                            row.get::<_, Option<i64>>(3)?,
+                            row.get::<_, Option<i64>>(2)?,
                         ))
                     })?;
                     for row in rows {
@@ -1464,23 +1564,23 @@ impl Database {
         result
     }
 
-    pub fn get_tracks_by_subsonic_id(
+    pub fn get_track_by_remote_id(
         &self,
-        subsonic_id: &str,
+        remote_id: &str,
         collection_id: i64,
-    ) -> SqlResult<Vec<Track>> {
+    ) -> SqlResult<Option<Track>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(&format!(
-            "{} WHERE t.subsonic_id = ?1 AND t.collection_id = ?2",
+            "{} WHERE t.path = ?1 AND t.collection_id = ?2",
             TRACK_SELECT
         ))?;
-        let tracks = stmt
-            .query_map(params![subsonic_id, collection_id], |row| {
+        let track = stmt
+            .query_map(params![remote_id, collection_id], |row| {
                 track_from_row(row)
             })?
             .filter_map(|r| r.ok())
-            .collect();
-        Ok(tracks)
+            .next();
+        Ok(track)
     }
 
     pub fn get_tracks_by_ids(&self, ids: &[i64]) -> SqlResult<Vec<Track>> {
@@ -1498,26 +1598,32 @@ impl Database {
         Ok(ids.iter().filter_map(|id| track_map.get(id).cloned()).collect())
     }
 
-    pub fn get_tracks_by_paths(&self, paths: &[String]) -> SqlResult<Vec<Track>> {
-        if paths.is_empty() {
+    /// Looks up tracks by full URI (e.g. file:///music/song.mp3).
+    /// Uses the path reconstruction expression to match against the stored relative paths.
+    pub fn get_tracks_by_paths(&self, uris: &[String]) -> SqlResult<Vec<Track>> {
+        if uris.is_empty() {
             return Ok(vec![]);
         }
         let conn = self.conn.lock().unwrap();
-        let placeholders = paths.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let sql = format!("{} WHERE t.path IN ({})", TRACK_SELECT, placeholders);
+        let placeholders = uris.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        // Filter on the reconstructed full URI (same CASE expression as TRACK_SELECT)
+        let sql = format!(
+            "{} WHERE {} IN ({})",
+            TRACK_SELECT, PATH_EXPR, placeholders
+        );
         let mut stmt = conn.prepare(&sql)?;
-        let params: Vec<&dyn rusqlite::types::ToSql> = paths.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
+        let params: Vec<&dyn rusqlite::types::ToSql> = uris.iter().map(|p| p as &dyn rusqlite::types::ToSql).collect();
         let rows = stmt.query_map(params.as_slice(), |row| track_from_row(row))?;
         let track_map: std::collections::HashMap<String, Track> = rows.filter_map(|r| r.ok()).map(|t| (t.path.clone(), t)).collect();
         // Return in input order, skipping missing paths
-        Ok(paths.iter().filter_map(|p| track_map.get(p).cloned()).collect())
+        Ok(uris.iter().filter_map(|p| track_map.get(p).cloned()).collect())
     }
 
-    pub fn get_track_modified_at_by_path(&self, path: &str) -> Option<i64> {
+    pub fn get_track_modified_at_by_path(&self, path: &str, collection_id: Option<i64>) -> Option<i64> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT modified_at FROM tracks WHERE path = ?1",
-            params![path],
+            "SELECT modified_at FROM tracks WHERE path = ?1 AND collection_id IS ?2",
+            params![path, collection_id],
             |row| row.get(0),
         )
         .optional()
@@ -1526,17 +1632,12 @@ impl Database {
     }
 
     pub fn get_local_track_paths_for_collection(&self, collection_id: i64) -> SqlResult<Vec<String>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT path FROM tracks WHERE collection_id = ?1 AND subsonic_id IS NULL"
-        )?;
-        let rows = stmt.query_map(params![collection_id], |row| row.get(0))?;
-        rows.collect()
+        self.get_track_paths_for_collection(collection_id)
     }
 
-    pub fn remove_track_by_path(&self, path: &str) -> SqlResult<()> {
+    pub fn remove_track_by_id(&self, track_id: i64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM tracks WHERE path = ?1", params![path])?;
+        conn.execute("DELETE FROM tracks WHERE id = ?1", params![track_id])?;
         Ok(())
     }
 
@@ -1770,6 +1871,8 @@ impl Database {
         }
     }
 
+    /// Returns the full filesystem path for a local track in the given album.
+    /// Used for extracting embedded cover art.
     pub fn get_track_path_for_album(
         &self,
         album_title: &str,
@@ -1778,17 +1881,19 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         match artist_name {
             Some(artist) => conn.query_row(
-                "SELECT t.path FROM tracks t \
+                "SELECT co.path || '/' || t.path FROM tracks t \
                  JOIN albums a ON t.album_id = a.id \
                  LEFT JOIN artists ar ON t.artist_id = ar.id \
-                 WHERE a.title = ?1 AND ar.name = ?2 AND t.subsonic_id IS NULL LIMIT 1",
+                 LEFT JOIN collections co ON t.collection_id = co.id \
+                 WHERE a.title = ?1 AND ar.name = ?2 AND co.kind = 'local' LIMIT 1",
                 params![album_title, artist],
                 |row| row.get(0),
             ),
             None => conn.query_row(
-                "SELECT t.path FROM tracks t \
+                "SELECT co.path || '/' || t.path FROM tracks t \
                  JOIN albums a ON t.album_id = a.id \
-                 WHERE a.title = ?1 AND t.subsonic_id IS NULL LIMIT 1",
+                 LEFT JOIN collections co ON t.collection_id = co.id \
+                 WHERE a.title = ?1 AND co.kind = 'local' LIMIT 1",
                 params![album_title],
                 |row| row.get(0),
             ),
@@ -2392,20 +2497,35 @@ mod tests {
         Database::new_in_memory().expect("Failed to create in-memory database")
     }
 
+    /// Helper: create a test collection and return its id.
+    /// Uses upsert semantics so repeated calls return the same collection.
+    fn test_collection(db: &Database) -> i64 {
+        // Check if our test collection already exists
+        let collections = db.get_collections().unwrap();
+        if let Some(c) = collections.iter().find(|c| c.name == "Test") {
+            return c.id;
+        }
+        db.add_collection("local", "Test", Some("/test"), None, None, None, None, None)
+            .expect("add_collection failed")
+            .id
+    }
+
     /// Helper: insert a track and return its id
     fn insert_track(db: &Database, path: &str, title: &str, artist_id: Option<i64>, album_id: Option<i64>) -> i64 {
-        db.upsert_track(path, title, artist_id, album_id, None, Some(180.0), Some("mp3"), Some(5_000_000), None, None, None, None)
+        let cid = test_collection(db);
+        db.upsert_track(path, title, artist_id, album_id, None, Some(180.0), Some("mp3"), Some(5_000_000), None, Some(cid), None)
             .expect("upsert_track failed")
     }
 
     #[test]
     fn test_upsert_and_get_track() {
         let db = test_db();
+        let cid = test_collection(&db);
         let artist_id = db.get_or_create_artist("Pink Floyd").unwrap();
         let album_id = db.get_or_create_album("Dark Side", Some(artist_id), Some(1973)).unwrap();
         let track_id = db.upsert_track(
-            "/music/time.mp3", "Time", Some(artist_id), Some(album_id),
-            Some(4), Some(413.0), Some("mp3"), Some(10_000_000), None, None, None, None,
+            "music/time.mp3", "Time", Some(artist_id), Some(album_id),
+            Some(4), Some(413.0), Some("mp3"), Some(10_000_000), None, Some(cid), None,
         ).unwrap();
 
         let track = db.get_track_by_id(track_id).unwrap();
@@ -2422,10 +2542,14 @@ mod tests {
     #[test]
     fn test_upsert_track_deduplication() {
         let db = test_db();
-        let id1 = insert_track(&db, "/music/song.mp3", "Song V1", None, None);
+        let cid = test_collection(&db);
+        let id1 = db.upsert_track(
+            "music/song.mp3", "Song V1", None, None,
+            None, Some(180.0), Some("mp3"), Some(5_000_000), None, Some(cid), None,
+        ).unwrap();
         let id2 = db.upsert_track(
-            "/music/song.mp3", "Song V2", None, None,
-            None, Some(200.0), Some("mp3"), None, None, None, None, None,
+            "music/song.mp3", "Song V2", None, None,
+            None, Some(200.0), Some("mp3"), None, None, Some(cid), None,
         ).unwrap();
 
         assert_eq!(id1, id2, "upsert should return same id for same path");
@@ -2460,7 +2584,7 @@ mod tests {
     #[test]
     fn test_tags_many_to_many() {
         let db = test_db();
-        let track_id = insert_track(&db, "/music/song.mp3", "Song", None, None);
+        let track_id = insert_track(&db, "music/song.mp3", "Song", None, None);
         let tag_rock = db.get_or_create_tag("Rock").unwrap();
         let tag_alt = db.get_or_create_tag("Alternative").unwrap();
 
@@ -2481,9 +2605,9 @@ mod tests {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Pink Floyd").unwrap();
         let album_id = db.get_or_create_album("Dark Side", Some(artist_id), None).unwrap();
-        insert_track(&db, "/music/time.mp3", "Time", Some(artist_id), Some(album_id));
-        insert_track(&db, "/music/money.mp3", "Money", Some(artist_id), Some(album_id));
-        insert_track(&db, "/music/creep.mp3", "Creep", None, None);
+        insert_track(&db, "music/time.mp3", "Time", Some(artist_id), Some(album_id));
+        insert_track(&db, "music/money.mp3", "Money", Some(artist_id), Some(album_id));
+        insert_track(&db, "music/creep.mp3", "Creep", None, None);
 
         db.rebuild_fts().unwrap();
 
@@ -2509,8 +2633,8 @@ mod tests {
         let album1 = db.get_or_create_album("Album X", Some(artist1), None).unwrap();
         let tag_rock = db.get_or_create_tag("Rock").unwrap();
 
-        let t1 = insert_track(&db, "/a1.mp3", "Song Alpha", Some(artist1), Some(album1));
-        insert_track(&db, "/a2.mp3", "Song Alpha Two", Some(artist2), None);
+        let t1 = insert_track(&db, "a1.mp3", "Song Alpha", Some(artist1), Some(album1));
+        insert_track(&db, "a2.mp3", "Song Alpha Two", Some(artist2), None);
         db.add_track_tag(t1, tag_rock).unwrap();
         db.toggle_liked("tracks", t1, 1).unwrap();
 
@@ -2538,8 +2662,8 @@ mod tests {
     #[test]
     fn test_play_history() {
         let db = test_db();
-        let t1 = insert_track(&db, "/a.mp3", "Song A", None, None);
-        let t2 = insert_track(&db, "/b.mp3", "Song B", None, None);
+        let t1 = insert_track(&db, "a.mp3", "Song A", None, None);
+        let t2 = insert_track(&db, "b.mp3", "Song B", None, None);
 
         db.record_play(t1).unwrap();
         db.record_play(t1).unwrap(); // deduplicated (same track within 30s)
@@ -2556,8 +2680,8 @@ mod tests {
     #[test]
     fn test_play_history_dedup() {
         let db = test_db();
-        let t1 = insert_track(&db, "/a.mp3", "Song A", None, None);
-        let t2 = insert_track(&db, "/b.mp3", "Song B", None, None);
+        let t1 = insert_track(&db, "a.mp3", "Song A", None, None);
+        let t2 = insert_track(&db, "b.mp3", "Song B", None, None);
 
         // Same track twice in quick succession → deduplicated
         db.record_play(t1).unwrap();
@@ -2600,9 +2724,9 @@ mod tests {
         let db = test_db();
         let col = db.add_collection("local", "Music", Some("/music"), None, None, None, None, None).unwrap();
 
-        db.upsert_track("/a.mp3", "Song A", None, None, None, Some(180.0), Some("mp3"), Some(5_000_000), None, Some(col.id), None, None).unwrap();
-        db.upsert_track("/b.flac", "Song B", None, None, None, Some(240.0), Some("flac"), Some(30_000_000), None, Some(col.id), None, None).unwrap();
-        db.upsert_track("/c.mp4", "Video C", None, None, None, Some(300.0), Some("mp4"), Some(100_000_000), None, Some(col.id), None, None).unwrap();
+        db.upsert_track("a.mp3", "Song A", None, None, None, Some(180.0), Some("mp3"), Some(5_000_000), None, Some(col.id), None).unwrap();
+        db.upsert_track("b.flac", "Song B", None, None, None, Some(240.0), Some("flac"), Some(30_000_000), None, Some(col.id), None).unwrap();
+        db.upsert_track("c.mp4", "Video C", None, None, None, Some(300.0), Some("mp4"), Some(100_000_000), None, Some(col.id), None).unwrap();
 
         let stats = db.get_collection_stats().unwrap();
         assert_eq!(stats.len(), 1);
@@ -2627,7 +2751,7 @@ mod tests {
     fn test_history_record_and_query() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Radiohead").unwrap();
-        let track_id = insert_track(&db, "/music/creep.mp3", "Creep", Some(artist_id), None);
+        let track_id = insert_track(&db, "music/creep.mp3", "Creep", Some(artist_id), None);
 
         db.record_history_play(track_id).unwrap();
 
@@ -2643,7 +2767,7 @@ mod tests {
     fn test_history_ghost_entries() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Nirvana").unwrap();
-        let track_id = insert_track(&db, "/music/smells.mp3", "Smells Like Teen Spirit", Some(artist_id), None);
+        let track_id = insert_track(&db, "music/smells.mp3", "Smells Like Teen Spirit", Some(artist_id), None);
 
         db.record_history_play(track_id).unwrap();
 
@@ -2660,7 +2784,7 @@ mod tests {
     fn test_history_reconnect() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Björk").unwrap();
-        let track_id = insert_track(&db, "/music/army.mp3", "Army of Me", Some(artist_id), None);
+        let track_id = insert_track(&db, "music/army.mp3", "Army of Me", Some(artist_id), None);
 
         db.record_history_play(track_id).unwrap();
         db.delete_tracks_by_ids(&[track_id]).unwrap();
@@ -2671,7 +2795,7 @@ mod tests {
 
         // Re-add with same artist+title but different path
         let artist_id2 = db.get_or_create_artist("Björk").unwrap();
-        let track_id2 = insert_track(&db, "/new_music/army.mp3", "Army of Me", Some(artist_id2), None);
+        let track_id2 = insert_track(&db, "new_music/army.mp3", "Army of Me", Some(artist_id2), None);
 
         // Reconnection happens when the track is played again (upsert updates library_track_id)
         db.record_history_play(track_id2).unwrap();
@@ -2684,7 +2808,7 @@ mod tests {
     fn test_reconnect_history_track() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Radiohead").unwrap();
-        let track_id = insert_track(&db, "/music/creep.mp3", "Creep", Some(artist_id), None);
+        let track_id = insert_track(&db, "music/creep.mp3", "Creep", Some(artist_id), None);
 
         db.record_history_play(track_id).unwrap();
         let recent = db.get_history_recent(10).unwrap();
@@ -2697,7 +2821,7 @@ mod tests {
 
         // Re-add same song with different path
         let artist_id2 = db.get_or_create_artist("Radiohead").unwrap();
-        let track_id2 = insert_track(&db, "/new/creep.flac", "Creep", Some(artist_id2), None);
+        let track_id2 = insert_track(&db, "new/creep.flac", "Creep", Some(artist_id2), None);
 
         // Dynamic reconnection
         let result = db.reconnect_history_track(ht_id).unwrap();
@@ -2713,7 +2837,7 @@ mod tests {
     fn test_reconnect_history_track_not_found() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Missing Artist").unwrap();
-        let track_id = insert_track(&db, "/music/gone.mp3", "Gone Song", Some(artist_id), None);
+        let track_id = insert_track(&db, "music/gone.mp3", "Gone Song", Some(artist_id), None);
 
         db.record_history_play(track_id).unwrap();
         let recent = db.get_history_recent(10).unwrap();
@@ -2730,7 +2854,7 @@ mod tests {
     fn test_reconnect_history_artist() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Portishead").unwrap();
-        let track_id = insert_track(&db, "/music/glory.mp3", "Glory Box", Some(artist_id), None);
+        let track_id = insert_track(&db, "music/glory.mp3", "Glory Box", Some(artist_id), None);
 
         db.record_history_play(track_id).unwrap();
 
@@ -2751,7 +2875,7 @@ mod tests {
     fn test_reconnect_history_artist_not_found() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Ephemeral Band").unwrap();
-        let track_id = insert_track(&db, "/music/temp.mp3", "Temp Song", Some(artist_id), None);
+        let track_id = insert_track(&db, "music/temp.mp3", "Temp Song", Some(artist_id), None);
 
         db.record_history_play(track_id).unwrap();
         let artists = db.get_history_most_played_artists(10).unwrap();
@@ -2772,7 +2896,7 @@ mod tests {
     fn test_history_dedup() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Tool").unwrap();
-        let track_id = insert_track(&db, "/music/lateralus.mp3", "Lateralus", Some(artist_id), None);
+        let track_id = insert_track(&db, "music/lateralus.mp3", "Lateralus", Some(artist_id), None);
 
         db.record_history_play(track_id).unwrap();
         // Second call within 30 seconds should be deduplicated
@@ -2787,8 +2911,8 @@ mod tests {
     fn test_history_most_played() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Daft Punk").unwrap();
-        let t1 = insert_track(&db, "/music/around.mp3", "Around the World", Some(artist_id), None);
-        let t2 = insert_track(&db, "/music/harder.mp3", "Harder Better Faster", Some(artist_id), None);
+        let t1 = insert_track(&db, "music/around.mp3", "Around the World", Some(artist_id), None);
+        let t2 = insert_track(&db, "music/harder.mp3", "Harder Better Faster", Some(artist_id), None);
 
         // Record plays with manual SQL to bypass dedup
         {
@@ -2845,9 +2969,9 @@ mod tests {
         let db = test_db();
         let a1 = db.get_or_create_artist("Artist A").unwrap();
         let a2 = db.get_or_create_artist("Artist B").unwrap();
-        let t1 = insert_track(&db, "/music/t1.mp3", "Track 1", Some(a1), None);
-        let t2 = insert_track(&db, "/music/t2.mp3", "Track 2", Some(a1), None);
-        let t3 = insert_track(&db, "/music/t3.mp3", "Track 3", Some(a2), None);
+        let t1 = insert_track(&db, "music/t1.mp3", "Track 1", Some(a1), None);
+        let t2 = insert_track(&db, "music/t2.mp3", "Track 2", Some(a1), None);
+        let t3 = insert_track(&db, "music/t3.mp3", "Track 3", Some(a2), None);
 
         // Record via SQL to bypass dedup
         {
@@ -2891,7 +3015,7 @@ mod tests {
         let db = test_db();
         // Greek artist
         let a1 = db.get_or_create_artist("Σωκράτης").unwrap();
-        let t1 = insert_track(&db, "/music/greek.mp3", "Τραγούδι", Some(a1), None);
+        let t1 = insert_track(&db, "music/greek.mp3", "Τραγούδι", Some(a1), None);
         db.record_history_play(t1).unwrap();
 
         let recent = db.get_history_recent(10).unwrap();
@@ -2901,7 +3025,7 @@ mod tests {
 
         // Cyrillic artist
         let a2 = db.get_or_create_artist("Кино").unwrap();
-        let t2 = insert_track(&db, "/music/russian.mp3", "Группа крови", Some(a2), None);
+        let t2 = insert_track(&db, "music/russian.mp3", "Группа крови", Some(a2), None);
         db.record_history_play(t2).unwrap();
 
         let recent = db.get_history_recent(10).unwrap();
@@ -2913,9 +3037,9 @@ mod tests {
     fn test_track_rank() {
         let db = test_db();
         let a1 = db.get_or_create_artist("Artist A").unwrap();
-        let t1 = insert_track(&db, "/music/r1.mp3", "Top Track", Some(a1), None);
-        let t2 = insert_track(&db, "/music/r2.mp3", "Mid Track", Some(a1), None);
-        let t3 = insert_track(&db, "/music/r3.mp3", "Low Track", Some(a1), None);
+        let t1 = insert_track(&db, "music/r1.mp3", "Top Track", Some(a1), None);
+        let t2 = insert_track(&db, "music/r2.mp3", "Mid Track", Some(a1), None);
+        let t3 = insert_track(&db, "music/r3.mp3", "Low Track", Some(a1), None);
 
         {
             let conn = db.conn.lock().unwrap();
@@ -2949,7 +3073,7 @@ mod tests {
     fn test_track_rank_no_history() {
         let db = test_db();
         let a1 = db.get_or_create_artist("Artist A").unwrap();
-        let t1 = insert_track(&db, "/music/norank.mp3", "No History", Some(a1), None);
+        let t1 = insert_track(&db, "music/norank.mp3", "No History", Some(a1), None);
 
         assert_eq!(db.get_track_rank(t1).unwrap(), None);
     }
@@ -2986,7 +3110,7 @@ mod tests {
     fn test_lyrics_table_exists() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Test Artist").unwrap();
-        let track_id = insert_track(&db, "/test/lyrics.mp3", "Test Song", Some(artist_id), None);
+        let track_id = insert_track(&db, "test/lyrics.mp3", "Test Song", Some(artist_id), None);
         let conn = db.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO lyrics (track_id, text, kind, provider) VALUES (?1, ?2, ?3, ?4)",
@@ -3004,7 +3128,7 @@ mod tests {
     fn test_save_and_get_lyrics() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Artist").unwrap();
-        let track_id = insert_track(&db, "/test/song.mp3", "Song", Some(artist_id), None);
+        let track_id = insert_track(&db, "test/song.mp3", "Song", Some(artist_id), None);
 
         assert!(db.get_lyrics(track_id).unwrap().is_none());
 
@@ -3021,7 +3145,7 @@ mod tests {
     fn test_save_lyrics_upsert() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Artist").unwrap();
-        let track_id = insert_track(&db, "/test/song.mp3", "Song", Some(artist_id), None);
+        let track_id = insert_track(&db, "test/song.mp3", "Song", Some(artist_id), None);
 
         db.save_lyrics(track_id, "V1", "plain", "lrclib").unwrap();
         db.save_lyrics(track_id, "[00:01.00]V2", "synced", "lrclib").unwrap();
@@ -3035,7 +3159,7 @@ mod tests {
     fn test_delete_lyrics() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Artist").unwrap();
-        let track_id = insert_track(&db, "/test/song.mp3", "Song", Some(artist_id), None);
+        let track_id = insert_track(&db, "test/song.mp3", "Song", Some(artist_id), None);
 
         db.save_lyrics(track_id, "Text", "plain", "manual").unwrap();
         assert!(db.get_lyrics(track_id).unwrap().is_some());
@@ -3048,7 +3172,7 @@ mod tests {
     fn test_lyrics_cascade_on_track_delete() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Artist").unwrap();
-        let track_id = insert_track(&db, "/test/song.mp3", "Song", Some(artist_id), None);
+        let track_id = insert_track(&db, "test/song.mp3", "Song", Some(artist_id), None);
 
         db.save_lyrics(track_id, "Text", "plain", "lrclib").unwrap();
         db.delete_tracks_by_ids(&[track_id]).unwrap();
@@ -3075,7 +3199,7 @@ mod tests {
     fn test_lyrics_in_fts_search() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Artist").unwrap();
-        let track_id = insert_track(&db, "/test/song.mp3", "Song Title", Some(artist_id), None);
+        let track_id = insert_track(&db, "test/song.mp3", "Song Title", Some(artist_id), None);
 
         db.save_lyrics(track_id, "unique_lyric_word in a song", "plain", "lrclib").unwrap();
         db.rebuild_fts().unwrap();

@@ -104,14 +104,16 @@ function App() {
   trackVideoHistoryRef.current = trackVideoHistory;
   const advanceIndexRef = useRef<() => void>(() => {});
   const resolveTrackSrcRef = useRef<(track: Track) => Promise<string>>(async (track) => {
-    const pathOrUrl = await invoke<string>("get_track_path", { trackId: track.id });
-    return track.subsonic_id ? pathOrUrl : convertFileSrc(pathOrUrl);
+    const parsed = parseUrlScheme(track.url ?? track.path);
+    if (parsed.scheme === "file") return convertFileSrc(parsed.path);
+    if (parsed.scheme === "tidal") return invoke<string>("tidal_get_stream_url", { tidalTrackId: parsed.id, quality: null });
+    return invoke<string>("resolve_subsonic_location", { location: parsed.url });
   });
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef);
   const waveformPeaks = useWaveform(
     playback.currentTrack?.id ?? null,
     playback.currentTrack?.file_size ?? null,
-    playback.currentTrack?.subsonic_id ?? null,
+    playback.currentTrack ? playback.currentTrack.path.startsWith("subsonic://") || playback.currentTrack.path.startsWith("tidal://") : false,
     playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
     playback.currentAssetUrl,
   );
@@ -191,7 +193,7 @@ function App() {
     const id = tidalIdCounterRef.current--;
     return {
       id,
-      path: "",
+      path: `tidal://${info.tidal_id}`,
       title: info.title,
       artist_id: null,
       artist_name: info.artist_name ?? null,
@@ -204,7 +206,6 @@ function App() {
       file_size: null,
       collection_id: null,
       collection_name: null,
-      subsonic_id: info.tidal_id,
       liked: 0,
       youtube_url: null,
       added_at: null,
@@ -740,10 +741,10 @@ function App() {
           const entries = queueEntries as QueueEntry[];
           const minimalTracks = entries.map(e => queueEntryToTrack(e));
 
-          // Collect file:// paths for bulk DB lookup to get full metadata (id, album_id, etc.)
+          // Collect file:// URIs for bulk DB lookup to get full metadata (id, album_id, etc.)
           const filePaths = entries
             .filter(e => e.url.startsWith("file://"))
-            .map(e => e.url.slice(7));
+            .map(e => e.url);
 
           let dbTracks: Track[] = [];
           if (filePaths.length > 0) {

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import type { Track, PlaylistLoadResult, Collection } from "../types";
-import { trackToQueueEntry, stampUrl } from "../queueEntry";
+import type { Track, PlaylistLoadResult, PlaylistEntry, Collection } from "../types";
+import { trackToQueueEntry, queueEntryToTrack, stampUrl } from "../queueEntry";
 import { store } from "../store";
 
 export function useQueue(
@@ -403,10 +403,22 @@ export function useQueue(
     });
     if (!filePath) return;
     const result = await invoke<PlaylistLoadResult>("load_playlist", { path: filePath });
-    if (result.tracks.length > 0) {
-      setQueue(result.tracks);
+    if (result.entries.length > 0) {
+      const tracks = result.entries.map((e: PlaylistEntry) =>
+        queueEntryToTrack({
+          url: e.url,
+          title: e.title,
+          artist_name: e.artist_name,
+          album_title: null,
+          duration_secs: e.duration_secs,
+          track_number: null,
+          year: null,
+          format: null,
+        })
+      );
+      setQueue(tracks);
       setQueueIndex(0);
-      handlePlay(result.tracks[0]);
+      handlePlay(tracks[0]);
       setPlaylistName(result.playlist_name);
     }
   }

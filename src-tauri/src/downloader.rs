@@ -337,7 +337,7 @@ pub fn process_download(
 
         // Register in library
         if request.dest_collection_id > 0 {
-            scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id));
+            scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id), Some(&request.dest_collection_path));
 
             if request.is_batch_last {
                 let _ = db.rebuild_fts();
@@ -472,7 +472,7 @@ pub fn process_download(
     })?;
 
     // Step 6: Register in library
-    scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id));
+    scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id), Some(&request.dest_collection_path));
 
     if request.is_batch_last {
         let _ = db.rebuild_fts();

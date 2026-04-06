@@ -7,7 +7,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 export function useWaveform(
   trackId: number | null,
   fileSize: number | null,
-  subsonicId: string | null,
+  isRemote: boolean,
   isVideo: boolean,
   assetUrl: string | null,
 ): number[] | null {
@@ -18,7 +18,7 @@ export function useWaveform(
     setPeaks(null);
 
     if (!trackId) return;
-    if (subsonicId) return;
+    if (isRemote) return;
     if (isVideo) return;
     if (fileSize && fileSize > MAX_FILE_SIZE) return;
 
@@ -98,7 +98,7 @@ export function useWaveform(
       cancelled = true;
       controller.abort();
     };
-  }, [trackId, fileSize, subsonicId, isVideo, assetUrl]);
+  }, [trackId, fileSize, isRemote, isVideo, assetUrl]);
 
   return peaks;
 }

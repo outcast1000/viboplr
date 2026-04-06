@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Track } from "../types";
+import { remoteId } from "../queueEntry";
 import type { AppStore } from "../store";
 
 export interface DownloadStatus {
@@ -59,11 +60,12 @@ export function useDownloads(
 
   async function downloadTrack(trackId: number, destCollectionId: number, tracks: Track[]) {
     const track = tracks.find(t => t.id === trackId);
-    if (!track?.subsonic_id || !track.collection_id) return;
+    const rid = track ? remoteId(track) : null;
+    if (!rid || !track?.collection_id) return;
     try {
       await invoke("download_track", {
         sourceCollectionId: track.collection_id,
-        remoteTrackId: track.subsonic_id,
+        remoteTrackId: rid,
         destCollectionId,
         format: downloadFormat,
       });
