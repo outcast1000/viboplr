@@ -19,6 +19,7 @@ import type {
   GalleryPluginEntry,
   PluginGalleryIndex,
 } from "../types/plugin";
+import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 
 const PLUGIN_GALLERY_BASE_URL =
   "https://raw.githubusercontent.com/outcast1000/viboplr-plugins/main/plugins/";
@@ -48,6 +49,7 @@ interface LoadedPlugin {
   uiActionHandlers: Map<string, (data: unknown) => void>;
   deepLinkHandlers: Array<(url: string) => void>;
   oauthCallbackHandlers: Array<(queryString: string) => void>;
+  infoFetchHandlers: Map<string, (entity: InfoEntity) => Promise<InfoFetchResult>>;
 }
 
 type EventHandlers = {
@@ -353,9 +355,16 @@ export function usePlugins(
         },
 
         informationTypes: {
-          onFetch: (_infoTypeId, _handler) => {
-            // TODO: implement in Task 5
-            return () => {};
+          onFetch(
+            infoTypeId: string,
+            handler: (entity: InfoEntity) => Promise<InfoFetchResult>,
+          ): () => void {
+            loaded.infoFetchHandlers.set(infoTypeId, handler);
+            const unsub = () => {
+              loaded.infoFetchHandlers.delete(infoTypeId);
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
           },
           async invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
             return invoke<T>(command, args ?? {});
@@ -429,6 +438,7 @@ export function usePlugins(
         uiActionHandlers: new Map(),
         deepLinkHandlers: [],
         oauthCallbackHandlers: [],
+        infoFetchHandlers: new Map(),
       };
 
       try {
@@ -483,6 +493,7 @@ export function usePlugins(
       const states: PluginState[] = [];
       const sidebar: PluginSidebarItem[] = [];
       const menus: PluginMenuItem[] = [];
+      const allInfoTypes: Array<[string, string, string, string, string, number, number, number]> = [];
 
       for (const plugin of installed) {
         const m = plugin.manifest;
@@ -549,7 +560,16 @@ export function usePlugins(
               });
             }
           }
+          if (contrib.informationTypes) {
+            for (const it of contrib.informationTypes) {
+              allInfoTypes.push([it.id, it.name, it.entity, it.displayKind, plugin.id, it.ttl, it.order, it.priority]);
+            }
+          }
         }
+      }
+
+      if (allInfoTypes.length > 0) {
+        await invoke("info_rebuild_types", { types: allInfoTypes });
       }
 
       // Sort by plugin name for consistent display
@@ -740,6 +760,17 @@ export function usePlugins(
     }
   }, []);
 
+  const invokeInfoFetch = useCallback(
+    async (pluginId: string, infoTypeId: string, entity: InfoEntity): Promise<InfoFetchResult> => {
+      const loaded = loadedPluginsRef.current.get(pluginId);
+      if (!loaded) return { status: "error" };
+      const handler = loaded.infoFetchHandlers.get(infoTypeId);
+      if (!handler) return { status: "error" };
+      return handler(entity);
+    },
+    [],
+  );
+
   return {
     pluginStates,
     sidebarItems,
@@ -759,5 +790,6 @@ export function usePlugins(
     fetchPluginGallery,
     installFromGallery,
     deletePlugin,
+    invokeInfoFetch,
   };
 }
