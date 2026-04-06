@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getInitials, formatCount } from "../utils";
 import type { Artist, Album, Track, ColumnConfig, SortField } from "../types";
 import type { SearchProviderConfig } from "../searchProviders";
+import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { ImageActions } from "./ImageActions";
 import { TrackList } from "./TrackList";
@@ -30,8 +32,6 @@ interface ArtistDetailContentProps {
   highlightedIndex: number;
   sortField: SortField | null;
   trackListRef: React.RefObject<HTMLDivElement | null>;
-  trackColumns: ColumnConfig[];
-  onTrackColumnsChange: (cols: ColumnConfig[]) => void;
   onPlayTracks: (tracks: Track[], index: number) => void;
   onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<number>) => void;
   onArtistClick: (id: number) => void;
@@ -73,8 +73,6 @@ export function ArtistDetailContent({
   highlightedIndex,
   sortField,
   trackListRef,
-  trackColumns,
-  onTrackColumnsChange,
   onPlayTracks,
   onTrackContextMenu,
   onArtistClick,
@@ -92,6 +90,8 @@ export function ArtistDetailContent({
   addLog,
   artists,
 }: ArtistDetailContentProps) {
+  const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(ARTIST_DETAIL_COLUMNS);
+
   return (
     <div className="artist-detail">
       <div className="artist-detail-top">
@@ -270,7 +270,7 @@ export function ArtistDetailContent({
           sortField={sortField}
           trackListRef={trackListRef}
           columns={trackColumns}
-          onColumnsChange={onTrackColumnsChange}
+          onColumnsChange={setTrackColumns}
           onDoubleClick={onPlayTracks}
           onContextMenu={onTrackContextMenu}
           onArtistClick={onArtistClick}

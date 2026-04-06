@@ -12,6 +12,25 @@ export const DEFAULT_TRACK_COLUMNS: ColumnConfig[] = ALL_COLUMN_IDS.map(id => ({
   visible: DEFAULT_VISIBLE.has(id),
 }));
 
+const ARTIST_DETAIL_VISIBLE: Set<TrackColumnId> = new Set(["like", "num", "title", "album", "duration", "popularity"]);
+const ALBUM_DETAIL_VISIBLE: Set<TrackColumnId> = new Set(["like", "num", "title", "duration", "popularity"]);
+const TAG_DETAIL_VISIBLE: Set<TrackColumnId> = new Set(["like", "num", "title", "artist", "album", "duration"]);
+
+export const ARTIST_DETAIL_COLUMNS: ColumnConfig[] = ALL_COLUMN_IDS.map(id => ({
+  id,
+  visible: ARTIST_DETAIL_VISIBLE.has(id),
+}));
+
+export const ALBUM_DETAIL_COLUMNS: ColumnConfig[] = ALL_COLUMN_IDS.map(id => ({
+  id,
+  visible: ALBUM_DETAIL_VISIBLE.has(id),
+}));
+
+export const TAG_DETAIL_COLUMNS: ColumnConfig[] = ALL_COLUMN_IDS.map(id => ({
+  id,
+  visible: TAG_DETAIL_VISIBLE.has(id),
+}));
+
 export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNavigate?: () => void, debouncedTrackQuery?: string, trackPopularity?: Record<number, number>, onNavigationError?: (message: string) => void) {
   const [view, setView] = useState<View>("all");
   const [artists, setArtists] = useState<Artist[]>([]);

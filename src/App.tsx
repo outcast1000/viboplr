@@ -18,7 +18,7 @@ import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
 import { useQueue } from "./hooks/useQueue";
-import { useLibrary, DEFAULT_TRACK_COLUMNS } from "./hooks/useLibrary";
+import { useLibrary, DEFAULT_TRACK_COLUMNS, ALBUM_DETAIL_COLUMNS, TAG_DETAIL_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
 import { useImageCache } from "./hooks/useImageCache";
 import { useAutoContinue } from "./hooks/useAutoContinue";
@@ -302,6 +302,8 @@ function App() {
       return next;
     });
   };
+  const [albumDetailColumns, setAlbumDetailColumns] = useState(ALBUM_DETAIL_COLUMNS);
+  const [tagDetailColumns, setTagDetailColumns] = useState(TAG_DETAIL_COLUMNS);
   const [albumSections, setAlbumSections] = useState<Record<string, boolean>>({ review: true, unmatchedTracks: true });
   const handleToggleAlbumSection = (key: string) => {
     setAlbumSections(prev => {
@@ -1704,8 +1706,6 @@ function App() {
                 highlightedIndex={highlightedIndex}
                 sortField={sortField}
                 trackListRef={trackListRef}
-                trackColumns={library.trackColumns}
-                onTrackColumnsChange={library.setTrackColumns}
                 onPlayTracks={queueHook.playTracks}
                 onTrackContextMenu={contextMenuActions.handleTrackContextMenu}
                 onArtistClick={library.handleArtistClick}
@@ -1856,7 +1856,7 @@ function App() {
               highlightedIndex={highlightedIndex}
               sortField={sortField}
               trackListRef={trackListRef}
-              columns={library.trackColumns}
+              columns={selectedTag !== null ? tagDetailColumns : library.trackColumns}
               trackViewMode={library.trackViewMode}
               sortBarCollapsed={library.sortBarCollapsed}
               trackLikedFirst={library.trackLikedFirst}
@@ -1867,7 +1867,7 @@ function App() {
               albumImages={albumImageCache.images}
               hasMore={library.hasMore}
               loadingMore={library.loadingMore}
-              onColumnsChange={library.setTrackColumns}
+              onColumnsChange={selectedTag !== null ? setTagDetailColumns : library.setTrackColumns}
               onDoubleClick={queueHook.playTracks}
               onContextMenu={contextMenuActions.handleTrackContextMenu}
               onArtistClick={library.handleArtistClick}
@@ -1946,8 +1946,8 @@ function App() {
                 highlightedIndex={highlightedIndex}
                 sortField={sortField}
                 trackListRef={trackListRef}
-                columns={library.trackColumns}
-                onColumnsChange={library.setTrackColumns}
+                columns={albumDetailColumns}
+                onColumnsChange={setAlbumDetailColumns}
                 onDoubleClick={queueHook.playTracks}
                 onContextMenu={contextMenuActions.handleTrackContextMenu}
                 onArtistClick={library.handleArtistClick}
