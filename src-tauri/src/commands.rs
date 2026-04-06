@@ -2017,7 +2017,7 @@ pub fn lastfm_get_artist_info_sync(state: State<'_, AppState>, artist_name: Stri
             let _ = state.db.lastfm_cache_set(&cache_key, &value);
             Ok(Some(value))
         }
-        Err(_) => Ok(None),
+        Err(e) => Err(e.to_string()),
     }
 }
 

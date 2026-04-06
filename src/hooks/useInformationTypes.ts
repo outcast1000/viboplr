@@ -51,6 +51,10 @@ export function useInformationTypes({
     return () => { mountedRef.current = false; };
   }, []);
 
+  // Stabilize exclude to avoid infinite re-render from new array references
+  const excludeKey = exclude?.join(",") ?? "";
+  const entityKeyRef = useRef<string>("");
+
   const loadSections = useCallback(async () => {
     if (!entity) {
       setSections([]);
@@ -65,6 +69,8 @@ export function useInformationTypes({
 
     // 2. Query all cached values for this entity
     const entityKey = `${entity.kind}:${entity.id}`;
+    entityKeyRef.current = entityKey;
+    const excludeSet = excludeKey ? new Set(excludeKey.split(",")) : null;
     const cached = await invoke<Array<[string, string, string, number]>>(
       "info_get_values_for_entity",
       { entityKey },
@@ -81,7 +87,7 @@ export function useInformationTypes({
     const uniqueTypes: Array<{ id: string; name: string; displayKind: DisplayKind; pluginId: string; ttl: number }> = [];
     for (const [id, name, displayKind, pluginId, ttl] of types) {
       if (seenIds.has(id)) continue;
-      if (exclude?.includes(id)) continue;
+      if (excludeSet?.has(id)) continue;
       seenIds.add(id);
       uniqueTypes.push({ id, name, displayKind: displayKind as DisplayKind, pluginId, ttl });
     }
@@ -146,7 +152,8 @@ export function useInformationTypes({
             status: result.status,
           });
 
-          if (mountedRef.current && result.status === "ok") {
+          // Guard: only update UI if we're still showing the same entity
+          if (mountedRef.current && entityKeyRef.current === entityKey && result.status === "ok") {
             setSections((prev) => {
               const next = [...prev];
               const existing = next.find((s) => s.typeId === typeId);
@@ -155,8 +162,7 @@ export function useInformationTypes({
               }
               return next;
             });
-          } else if (mountedRef.current && result.status !== "ok") {
-            // Remove section if fetch returned not_found or error
+          } else if (mountedRef.current && entityKeyRef.current === entityKey && result.status !== "ok") {
             setSections((prev) => prev.filter((s) => s.typeId !== typeId));
           }
         } catch {
@@ -166,7 +172,7 @@ export function useInformationTypes({
             value: "{}",
             status: "error",
           }).catch(() => {});
-          if (mountedRef.current) {
+          if (mountedRef.current && entityKeyRef.current === entityKey) {
             setSections((prev) => prev.filter((s) => s.typeId !== typeId));
           }
         } finally {
@@ -175,8 +181,7 @@ export function useInformationTypes({
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entity?.kind, entity?.id, exclude, invokeInfoFetch]);
-  // Note: entity.name deliberately excluded — cache is keyed by ID, not name.
+  }, [entity?.kind, entity?.id, excludeKey, invokeInfoFetch]);
 
   useEffect(() => {
     loadSections();

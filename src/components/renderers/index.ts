@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import "./renderers.css";
 import { RichTextRenderer } from "./RichTextRenderer";
 import { HtmlRenderer } from "./HtmlRenderer";
 import { EntityListRenderer } from "./EntityListRenderer";
