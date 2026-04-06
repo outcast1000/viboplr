@@ -30,10 +30,21 @@ export type PluginEventName =
   | "track:scrobbled"
   | "track:liked";
 
+export interface PluginManifestInfoType {
+  id: string;
+  name: string;
+  entity: "artist" | "album" | "track" | "tag";
+  displayKind: string;
+  ttl: number;
+  order: number;
+  priority: number;
+}
+
 export interface PluginManifestContributes {
   sidebarItems?: PluginManifestSidebarItem[];
   contextMenuItems?: PluginManifestContextMenuItem[];
   eventHooks?: PluginEventName[];
+  informationTypes?: PluginManifestInfoType[];
 }
 
 export interface PluginManifest {
@@ -248,6 +259,16 @@ export interface PluginNetworkAPI {
   startOAuthListener(): Promise<number>;
 }
 
+export interface PluginInformationTypesAPI {
+  onFetch(
+    infoTypeId: string,
+    handler: (entity: import("./informationTypes").InfoEntity) => Promise<import("./informationTypes").InfoFetchResult>,
+  ): () => void;
+  /** Call a Tauri command from within an info fetch handler. Allows internal
+   *  plugins to reuse existing backend commands (e.g. lastfm_get_artist_info). */
+  invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
+}
+
 export interface ViboplrPluginAPI {
   library: PluginLibraryAPI;
   playback: PluginPlaybackAPI;
@@ -257,6 +278,7 @@ export interface ViboplrPluginAPI {
   network: PluginNetworkAPI;
   tidal: PluginTidalAPI;
   collections: PluginCollectionsAPI;
+  informationTypes: PluginInformationTypesAPI;
 }
 
 // -- Gallery types --

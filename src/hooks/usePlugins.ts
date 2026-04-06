@@ -351,6 +351,16 @@ export function usePlugins(
             return playbackCallbacksRef.current?.getDownloadFormat() ?? "flac";
           },
         },
+
+        informationTypes: {
+          onFetch: (_infoTypeId, _handler) => {
+            // TODO: implement in Task 5
+            return () => {};
+          },
+          async invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+            return invoke<T>(command, args ?? {});
+          },
+        },
       };
     },
     [currentTrackRef, playingRef, positionRef],
