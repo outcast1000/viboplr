@@ -754,6 +754,99 @@
   color: var(--accent);
 }
 
+/* YouTube save modal */
+.youtube-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.youtube-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+}
+
+.youtube-modal-icon {
+  color: #FF0000;
+  margin-bottom: 12px;
+}
+
+.youtube-modal-text {
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.youtube-modal-link {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  margin-bottom: 20px;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.youtube-modal-link:hover {
+  text-decoration: underline;
+}
+
+.youtube-modal-input {
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  box-sizing: border-box;
+}
+
+.youtube-modal-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.youtube-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.youtube-modal-btn {
+  padding: 6px 20px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.youtube-modal-btn:hover {
+  background: var(--bg-hover);
+}
+
+.youtube-modal-btn.yes {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+}
+
+.youtube-modal-btn.yes:hover {
+  opacity: 0.85;
+}
+
 /* Genius Song Explanation section */
 .track-detail-top > .track-detail-genius {
   break-inside: avoid;

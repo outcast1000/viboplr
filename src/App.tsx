@@ -1648,6 +1648,7 @@ function App() {
                 collections={library.collections}
                 providers={searchProviders}
                 addLog={addLog}
+                onUpdateTrack={(update) => library.setTracks(prev => prev.map(t => t.id === library.selectedTrack ? { ...t, ...update } : t))}
               />
             );
           })()}

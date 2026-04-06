@@ -5,7 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Collection } from "../types";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
-import { IconPlay, IconEnqueue, IconFolder, IconGlobe, IconLastfm } from "./Icons";
+import { IconPlay, IconEnqueue, IconFolder, IconGlobe, IconLastfm, IconYoutube } from "./Icons";
 import LyricsPanel from "./LyricsPanel";
 import "./TrackDetailView.css";
 
@@ -65,6 +65,7 @@ interface TrackPlayStats {
 function TrackActions({
   track, providers,
   onPlay, onEnqueue, onPlayNext, onShowInFolder,
+  onYoutubeFound, onSetYoutubeUrl,
 }: {
   track: Track;
   providers: SearchProviderConfig[];
@@ -72,6 +73,8 @@ function TrackActions({
   onEnqueue: () => void;
   onPlayNext: () => void;
   onShowInFolder: () => void;
+  onYoutubeFound: (url: string, videoTitle: string) => void;
+  onSetYoutubeUrl: () => void;
 }) {
   const [open_menu, setOpenMenu] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -115,6 +118,28 @@ function TrackActions({
               <IconFolder size={14} /><span>Show in Folder</span>
             </button>
           )}
+          <button onClick={async () => {
+            setOpenMenu(false);
+            if (track.youtube_url) {
+              await openUrl(track.youtube_url);
+            } else {
+              try {
+                const result = await invoke<{ url: string; video_title: string | null }>(
+                  "search_youtube", { title: track.title, artistName: track.artist_name }
+                );
+                await openUrl(result.url);
+                onYoutubeFound(result.url, result.video_title ?? track.title);
+              } catch {
+                const q = encodeURIComponent(`${track.title} ${track.artist_name ?? ""}`);
+                await openUrl(`https://www.youtube.com/results?search_query=${q}`);
+              }
+            }
+          }}>
+            <IconYoutube size={14} /><span>Find in YouTube</span>
+          </button>
+          <button onClick={() => { setOpenMenu(false); onSetYoutubeUrl(); }}>
+            <IconYoutube size={14} /><span>Set YouTube URL</span>
+          </button>
           {trackProviders.length > 0 && (
             <>
               <div className="artist-image-menu-separator" />
@@ -162,6 +187,7 @@ interface TrackDetailViewProps {
   collections: Collection[];
   providers: SearchProviderConfig[];
   addLog: (msg: string) => void;
+  onUpdateTrack: (update: Partial<Track>) => void;
 }
 
 export function TrackDetailView({
@@ -169,7 +195,7 @@ export function TrackDetailView({
   positionSecs, isCurrentTrack,
   sections, onToggleSection, onArtistClick, onAlbumClick, onTagClick,
   onPlay, onEnqueue, onPlayNext, onShowInFolder,
-  collections, providers, addLog,
+  collections, providers, addLog, onUpdateTrack,
 }: TrackDetailViewProps) {
   const [lyrics, setLyrics] = useState<{ text: string; kind: string; provider: string } | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
@@ -189,6 +215,8 @@ export function TrackDetailView({
     song_url: string;
   } | null>(null);
   const [geniusLoading, setGeniusLoading] = useState(false);
+  const [youtubeFeedback, setYoutubeFeedback] = useState<{ url: string; videoTitle: string } | null>(null);
+  const [youtubeUrlEdit, setYoutubeUrlEdit] = useState<string | null>(null);
   const trackIdRef = useRef(trackId);
 
   useEffect(() => { trackIdRef.current = trackId; }, [trackId]);
@@ -208,6 +236,8 @@ export function TrackDetailView({
     setTrackInfo(null);
     setGeniusExplanation(null);
     setGeniusLoading(false);
+    setYoutubeFeedback(null);
+    setYoutubeUrlEdit(null);
 
     invoke<{ track_id: number; text: string; kind: string; provider: string } | null>("get_lyrics", { trackId }).then(cached => {
       if (cached) {
@@ -415,6 +445,11 @@ export function TrackDetailView({
             <h2>
               {track.title}
               <button className="artist-play-btn" title="Play" onClick={onPlay}>&#9654;</button>
+              {track.youtube_url && (
+                <button className="artist-play-btn youtube-btn" title="Watch on YouTube" onClick={() => openUrl(track.youtube_url!)}>
+                  <IconYoutube size={16} />
+                </button>
+              )}
               <TrackActions
                 track={track}
                 providers={providers}
@@ -422,6 +457,8 @@ export function TrackDetailView({
                 onEnqueue={onEnqueue}
                 onPlayNext={onPlayNext}
                 onShowInFolder={onShowInFolder}
+                onYoutubeFound={(url, videoTitle) => setYoutubeFeedback({ url, videoTitle })}
+                onSetYoutubeUrl={() => setYoutubeUrlEdit(track.youtube_url ?? "")}
               />
             </h2>
             <div className="track-detail-meta">
@@ -664,6 +701,80 @@ export function TrackDetailView({
           </>)}
         </div>
       </div>
+
+      {youtubeFeedback && (
+        <div className="youtube-modal-overlay" onClick={() => setYoutubeFeedback(null)}>
+          <div className="youtube-modal" onClick={e => e.stopPropagation()}>
+            <div className="youtube-modal-icon"><IconYoutube size={24} /></div>
+            <div className="youtube-modal-text">
+              Is this the right video for "<strong>{track.title}</strong>"?<br />
+              Save this link for future use?
+            </div>
+            <a className="youtube-modal-link" onClick={() => openUrl(youtubeFeedback.url)}>{youtubeFeedback.url}</a>
+            <div className="youtube-modal-actions">
+              <button className="youtube-modal-btn" onClick={() => setYoutubeFeedback(null)}>No</button>
+              <button className="youtube-modal-btn yes" onClick={async () => {
+                await invoke("set_track_youtube_url", { trackId, url: youtubeFeedback.url });
+                onUpdateTrack({ youtube_url: youtubeFeedback.url });
+                addLog("Saved YouTube link");
+                setYoutubeFeedback(null);
+              }}>Yes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {youtubeUrlEdit !== null && (
+        <div className="youtube-modal-overlay">
+          <div className="youtube-modal" onClick={e => e.stopPropagation()}>
+            <div className="youtube-modal-icon"><IconYoutube size={24} /></div>
+            <div className="youtube-modal-text">Set YouTube URL for "<strong>{track.title}</strong>"</div>
+            <input
+              className="youtube-modal-input"
+              value={youtubeUrlEdit}
+              onChange={e => setYoutubeUrlEdit(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  const url = youtubeUrlEdit.trim();
+                  if (url) {
+                    invoke("set_track_youtube_url", { trackId, url });
+                    onUpdateTrack({ youtube_url: url });
+                    addLog("Saved YouTube URL");
+                  } else {
+                    invoke("clear_track_youtube_url", { trackId });
+                    onUpdateTrack({ youtube_url: null });
+                    addLog("Cleared YouTube URL");
+                  }
+                  setYoutubeUrlEdit(null);
+                }
+                if (e.key === "Escape") setYoutubeUrlEdit(null);
+              }}
+              placeholder="https://www.youtube.com/watch?v=..."
+              autoFocus
+            />
+            <div className="youtube-modal-actions">
+              <button className="youtube-modal-btn" onClick={() => setYoutubeUrlEdit(null)}>Cancel</button>
+              {track.youtube_url && (
+                <button className="youtube-modal-btn" onClick={async () => {
+                  await invoke("clear_track_youtube_url", { trackId });
+                  onUpdateTrack({ youtube_url: null });
+                  addLog("Cleared YouTube URL");
+                  setYoutubeUrlEdit(null);
+                }}>Clear</button>
+              )}
+              <button className="youtube-modal-btn yes" onClick={async () => {
+                const url = youtubeUrlEdit.trim();
+                if (url) {
+                  await invoke("set_track_youtube_url", { trackId, url });
+                  onUpdateTrack({ youtube_url: url });
+                  addLog("Saved YouTube URL");
+                }
+                setYoutubeUrlEdit(null);
+              }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

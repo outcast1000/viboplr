@@ -275,6 +275,14 @@
   background: var(--accent-dim);
 }
 
+.artist-play-btn.youtube-btn {
+  color: #FF0000;
+}
+
+.artist-play-btn.youtube-btn:hover {
+  background: rgba(255, 0, 0, 0.1);
+}
+
 .artist-image-menu-wrapper {
   position: relative;
   display: inline-flex;
