@@ -63,6 +63,87 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.5</span>
+          <span class="timeline-date">April 6, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>resizable playlist panel with persistent width and edge collapse button</li>
+          <li>scroll wheel changes volume in mini player</li>
+          <li>per-view default column configs for detail views</li>
+          <li>index full relative path instead of filename in FTS search</li>
+          <li>expose relative_path field and show raw DB path in track list</li>
+          <li>YouTube integration in track detail view</li>
+          <li>collapsible details section with persistent show more/less toggle</li>
+          <li>show full URI path in track details</li>
+          <li>show full path in track details with locate and copy buttons</li>
+          <li>revamp track detail tags with community fallback and edit button</li>
+          <li><strong>refactor</strong>: extract LikedTracksView component from App.tsx</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>consistent dislike button styling and seek bar border</li>
+          <li>dislike button style matches like button in now-playing bar</li>
+          <li>auto-continue excludes tracks already in the queue</li>
+          <li>smaller vertically stacked close/restore buttons in mini player</li>
+          <li>remove focus outline on mini player buttons</li>
+          <li>reduce volume arrow key step from 10% to 5%</li>
+          <li>reduce popularity column width by 25%</li>
+          <li>strip parenthesized content when matching track popularity</li>
+          <li>group section titles with content in detail views</li>
+          <li>restore full metadata for subsonic tracks on app restart</li>
+          <li>respect hideTitle prop in lyrics panel main view</li>
+          <li>consistent font size and inline labels for track detail sections</li>
+          <li>update Issues.md with additional details and clarify existing points</li>
+          <li>merge assigned and community tags into single line with add/remove</li>
+          <li>central search footer only visible with results and pinned at bottom</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li>unify detail view sections with generic section-narrow/section-wide classes</li>
+          <li>store relative paths in DB, reconstruct full URIs in SQL</li>
+          <li>remove TrackPropertiesModal and move stats to track detail</li>
+          <li>extract AllTracksView component from App.tsx</li>
+          <li>extract TagListView component from App.tsx</li>
+          <li>extract AlbumDetailHeader component from App.tsx</li>
+          <li>extract AlbumListView component from App.tsx</li>
+          <li>extract ArtistDetailContent component from App.tsx</li>
+          <li>extract ArtistListView component from App.tsx</li>
+          <li>extract CaptionBar component from App.tsx</li>
+          <li>extract useContextMenuActions hook from App.tsx</li>
+          <li>extract useArtistInfo hook from App.tsx</li>
+          <li>extract useCollectionActions hook from App.tsx</li>
+          <li>extract useLikeActions hook from App.tsx</li>
+          <li>extract useDownloads hook from App.tsx</li>
+          <li>extract useLastfm hook from App.tsx</li>
+          <li>move stripAccents and formatCount to utils.ts</li>
+          </ul>
+          <h4>Documentation</h4>
+          <ul>
+          <li>remove FTS indexing from information type system</li>
+          <li>address spec review findings for information type system</li>
+          <li>add information type plugin system design spec</li>
+          </ul>
+          <h4>Chores</h4>
+          <ul>
+          <li>add Issues.md to .gitignore</li>
+          <li>clean up minor issues from refactoring review</li>
+          </ul>
+          <h4>Other</h4>
+          <ul>
+          <li>Removing src/components/Issues.md from the project as it is no longer needed. This file contained documentation for issues related to the project, but we have decided to remove it to streamline our documentation and focus on more relevant content. The information in Issues.md has been either integrated into other documentation or deemed unnecessary for our current needs.</li>
+          <li>Issues</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.5/Viboplr_0.9.5_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.5_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.5/Viboplr_0.9.5_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.5_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.4</span>
           <span class="timeline-date">April 5, 2026</span>
         </div>
