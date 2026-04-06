@@ -348,6 +348,37 @@ impl Database {
                 PRIMARY KEY (plugin_id, key)
             );
 
+            CREATE TABLE IF NOT EXISTS information_types (
+                id              TEXT NOT NULL,
+                name            TEXT NOT NULL,
+                entity          TEXT NOT NULL,
+                display_kind    TEXT NOT NULL,
+                plugin_id       TEXT NOT NULL,
+                ttl             INTEGER NOT NULL,
+                sort_order      INTEGER NOT NULL DEFAULT 500,
+                priority        INTEGER NOT NULL DEFAULT 500,
+                PRIMARY KEY (id, plugin_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS information_values (
+                information_type_id  TEXT NOT NULL,
+                entity_key           TEXT NOT NULL,
+                value                TEXT NOT NULL,
+                status               TEXT NOT NULL DEFAULT 'ok',
+                fetched_at           INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                PRIMARY KEY (information_type_id, entity_key)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_info_values_entity ON information_values(entity_key);
+
+            CREATE TABLE IF NOT EXISTS information_type_providers (
+                information_type_id  TEXT NOT NULL,
+                plugin_id            TEXT NOT NULL,
+                user_priority        INTEGER NOT NULL,
+                enabled              INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (information_type_id, plugin_id)
+            );
+
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
@@ -597,6 +628,40 @@ impl Database {
                 "UPDATE tracks SET path_normalized = strip_diacritics(unicode_lower(path)) WHERE path_normalized IS NULL"
             )?;
             conn.execute("UPDATE db_version SET version = 16 WHERE rowid = 1", [])?;
+            migrated = true;
+        }
+
+        if version < 17 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS information_types (
+                    id              TEXT NOT NULL,
+                    name            TEXT NOT NULL,
+                    entity          TEXT NOT NULL,
+                    display_kind    TEXT NOT NULL,
+                    plugin_id       TEXT NOT NULL,
+                    ttl             INTEGER NOT NULL,
+                    sort_order      INTEGER NOT NULL DEFAULT 500,
+                    priority        INTEGER NOT NULL DEFAULT 500,
+                    PRIMARY KEY (id, plugin_id)
+                );
+                CREATE TABLE IF NOT EXISTS information_values (
+                    information_type_id  TEXT NOT NULL,
+                    entity_key           TEXT NOT NULL,
+                    value                TEXT NOT NULL,
+                    status               TEXT NOT NULL DEFAULT 'ok',
+                    fetched_at           INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                    PRIMARY KEY (information_type_id, entity_key)
+                );
+                CREATE INDEX IF NOT EXISTS idx_info_values_entity ON information_values(entity_key);
+                CREATE TABLE IF NOT EXISTS information_type_providers (
+                    information_type_id  TEXT NOT NULL,
+                    plugin_id            TEXT NOT NULL,
+                    user_priority        INTEGER NOT NULL,
+                    enabled              INTEGER NOT NULL DEFAULT 1,
+                    PRIMARY KEY (information_type_id, plugin_id)
+                );"
+            )?;
+            conn.execute("UPDATE db_version SET version = 17 WHERE rowid = 1", [])?;
             migrated = true;
         }
 
@@ -2519,6 +2584,139 @@ impl Database {
         ).map_err(|e| e.to_string())?;
         Ok(())
     }
+
+    // ── Information Types ────────────────────────────────────────
+
+    /// Rebuild the information_types table from plugin manifests.
+    /// Called on startup after plugins are loaded.
+    pub fn info_rebuild_types(&self, types: &[(String, String, String, String, String, i64, i64, i64)]) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM information_types", [])?;
+        let mut stmt = conn.prepare(
+            "INSERT INTO information_types (id, name, entity, display_kind, plugin_id, ttl, sort_order, priority)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+        )?;
+        for t in types {
+            stmt.execute(rusqlite::params![t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7])?;
+        }
+        Ok(())
+    }
+
+    /// Get all registered info types for an entity kind, ordered by sort_order.
+    pub fn info_get_types_for_entity(&self, entity: &str) -> SqlResult<Vec<(String, String, String, String, i64, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, display_kind, plugin_id, ttl, sort_order, priority
+             FROM information_types WHERE entity = ?1 ORDER BY sort_order, id"
+        )?;
+        let rows = stmt.query_map([entity], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?))
+        })?.collect::<SqlResult<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Get a single cached info value.
+    /// Returns (value, status, fetched_at) or None.
+    pub fn info_get_value(&self, type_id: &str, entity_key: &str) -> SqlResult<Option<(String, String, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT value, status, fetched_at FROM information_values
+             WHERE information_type_id = ?1 AND entity_key = ?2"
+        )?;
+        let result = stmt.query_row(rusqlite::params![type_id, entity_key], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        });
+        match result {
+            Ok(r) => Ok(Some(r)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Get all cached info values for an entity key.
+    /// Returns vec of (information_type_id, value, status, fetched_at).
+    pub fn info_get_values_for_entity(&self, entity_key: &str) -> SqlResult<Vec<(String, String, String, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT information_type_id, value, status, fetched_at FROM information_values
+             WHERE entity_key = ?1"
+        )?;
+        let rows = stmt.query_map([entity_key], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?.collect::<SqlResult<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Upsert an info value (insert or update).
+    pub fn info_upsert_value(&self, type_id: &str, entity_key: &str, value: &str, status: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO information_values (information_type_id, entity_key, value, status, fetched_at)
+             VALUES (?1, ?2, ?3, ?4, strftime('%s', 'now'))
+             ON CONFLICT(information_type_id, entity_key)
+             DO UPDATE SET value = excluded.value, status = excluded.status, fetched_at = excluded.fetched_at",
+            rusqlite::params![type_id, entity_key, value, status],
+        )?;
+        Ok(())
+    }
+
+    /// Delete a cached info value.
+    pub fn info_delete_value(&self, type_id: &str, entity_key: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM information_values WHERE information_type_id = ?1 AND entity_key = ?2",
+            rusqlite::params![type_id, entity_key],
+        )?;
+        Ok(())
+    }
+
+    /// Delete all cached values for an entity.
+    pub fn info_delete_all_for_entity(&self, entity_key: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM information_values WHERE entity_key = ?1",
+            [entity_key],
+        )?;
+        Ok(())
+    }
+
+    /// Cleanup orphaned values whose information_type_id has no matching registration.
+    pub fn info_cleanup_orphaned_values(&self) -> SqlResult<usize> {
+        let conn = self.conn.lock().unwrap();
+        let count = conn.execute(
+            "DELETE FROM information_values
+             WHERE information_type_id NOT IN (SELECT DISTINCT id FROM information_types)",
+            [],
+        )?;
+        Ok(count)
+    }
+
+    /// Get provider ordering for an info type.
+    /// Returns vec of (plugin_id, user_priority, enabled).
+    pub fn info_get_providers(&self, type_id: &str) -> SqlResult<Vec<(String, i64, bool)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT plugin_id, user_priority, enabled FROM information_type_providers
+             WHERE information_type_id = ?1 ORDER BY user_priority"
+        )?;
+        let rows = stmt.query_map([type_id], |row| {
+            Ok((row.get(0)?, row.get::<_, i64>(1)?, row.get::<_, bool>(2)?))
+        })?.collect::<SqlResult<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Set user-configured provider ordering for an info type.
+    pub fn info_set_provider(&self, type_id: &str, plugin_id: &str, priority: i64, enabled: bool) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO information_type_providers (information_type_id, plugin_id, user_priority, enabled)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(information_type_id, plugin_id)
+             DO UPDATE SET user_priority = excluded.user_priority, enabled = excluded.enabled",
+            rusqlite::params![type_id, plugin_id, priority, enabled as i32],
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -3245,5 +3443,74 @@ mod tests {
         let opts_no_lyrics = crate::models::TrackQuery { query: Some("unique_lyric_word".to_string()), include_lyrics: false, ..Default::default() };
         let results_no_lyrics = db.get_tracks(&opts_no_lyrics).unwrap();
         assert_eq!(results_no_lyrics.len(), 0);
+    }
+
+    #[test]
+    fn test_info_upsert_and_get() {
+        let db = test_db();
+        // No value yet
+        assert!(db.info_get_value("artist_bio", "artist:1").unwrap().is_none());
+
+        // Insert
+        db.info_upsert_value("artist_bio", "artist:1", r#"{"summary":"bio"}"#, "ok").unwrap();
+        let row = db.info_get_value("artist_bio", "artist:1").unwrap().unwrap();
+        assert_eq!(row.0, r#"{"summary":"bio"}"#); // value
+        assert_eq!(row.1, "ok"); // status
+        assert!(row.2 > 0); // fetched_at
+
+        // Upsert overwrites
+        db.info_upsert_value("artist_bio", "artist:1", "{}", "not_found").unwrap();
+        let row = db.info_get_value("artist_bio", "artist:1").unwrap().unwrap();
+        assert_eq!(row.1, "not_found");
+    }
+
+    #[test]
+    fn test_info_get_values_for_entity() {
+        let db = test_db();
+        db.info_upsert_value("artist_bio", "artist:1", r#"{"summary":"bio"}"#, "ok").unwrap();
+        db.info_upsert_value("similar_artists", "artist:1", r#"{"items":[]}"#, "ok").unwrap();
+        db.info_upsert_value("artist_bio", "artist:2", r#"{"summary":"other"}"#, "ok").unwrap();
+
+        let rows = db.info_get_values_for_entity("artist:1").unwrap();
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn test_info_delete_value() {
+        let db = test_db();
+        db.info_upsert_value("artist_bio", "artist:1", r#"{"summary":"bio"}"#, "ok").unwrap();
+        db.info_delete_value("artist_bio", "artist:1").unwrap();
+        assert!(db.info_get_value("artist_bio", "artist:1").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_info_cleanup_orphans() {
+        let db = test_db();
+        // Insert a value with no matching info_type registration
+        db.info_upsert_value("orphan_type", "artist:1", "{}", "ok").unwrap();
+        assert!(db.info_get_value("orphan_type", "artist:1").unwrap().is_some());
+
+        // Cleanup should remove it (no rows in information_types)
+        db.info_cleanup_orphaned_values().unwrap();
+        assert!(db.info_get_value("orphan_type", "artist:1").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_info_cleanup_preserves_registered_types() {
+        let db = test_db();
+        // Register an info type
+        db.info_rebuild_types(&[
+            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+             "lastfm-info".into(), 7776000, 200, 100),
+        ]).unwrap();
+        // Insert values: one for registered type, one orphan
+        db.info_upsert_value("artist_bio", "artist:1", r#"{"summary":"bio"}"#, "ok").unwrap();
+        db.info_upsert_value("orphan_type", "artist:1", "{}", "ok").unwrap();
+
+        db.info_cleanup_orphaned_values().unwrap();
+
+        // Registered type preserved, orphan deleted
+        assert!(db.info_get_value("artist_bio", "artist:1").unwrap().is_some());
+        assert!(db.info_get_value("orphan_type", "artist:1").unwrap().is_none());
     }
 }
