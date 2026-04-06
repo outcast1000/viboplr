@@ -111,6 +111,11 @@ export function NowPlayingBar({
   const likeBtnRef = useRef<HTMLButtonElement>(null);
   const dislikeBtnRef = useRef<HTMLButtonElement>(null);
 
+  // Blur any focused element when entering mini mode so no button appears selected
+  useEffect(() => {
+    if (miniMode) (document.activeElement as HTMLElement)?.blur();
+  }, [miniMode]);
+
   if (miniMode) {
     const handleDrag = isMac
       ? (e: React.MouseEvent) => {
