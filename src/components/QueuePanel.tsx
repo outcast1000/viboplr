@@ -68,6 +68,7 @@ interface QueuePanelProps {
   externalDropTarget: number | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  onResizeWidth: (width: number) => void;
 }
 
 const AUTO_APPROVE_SECS = 10;
@@ -76,7 +77,7 @@ export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistName,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
   onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSavePlaylist, onLoadPlaylist, onContextMenu, externalDropTarget,
-  collapsed, onToggleCollapsed,
+  collapsed, onToggleCollapsed, onResizeWidth,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
@@ -250,8 +251,27 @@ export function QueuePanel({
     }
   }
 
+  const [resizing, setResizing] = useState(false);
+
+  function handleResizeMouseDown(e: React.MouseEvent) {
+    e.preventDefault();
+    setResizing(true);
+    const onMouseMove = (ev: MouseEvent) => {
+      const newWidth = Math.max(200, Math.min(600, window.innerWidth - ev.clientX));
+      onResizeWidth(newWidth);
+    };
+    const onMouseUp = () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      setResizing(false);
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
   return (
     <aside className={`queue-panel${collapsed ? " collapsed" : ""}`} ref={queuePanelRef} tabIndex={-1} onKeyDown={handleKeyDown}>
+      {!collapsed && <div className={`queue-resize-handle${resizing ? " active" : ""}`} onMouseDown={handleResizeMouseDown} />}
       {collapsed ? (
         <div className="queue-collapsed-strip" onClick={onToggleCollapsed}>
           <span className="queue-collapsed-label">Playlist</span>
@@ -266,13 +286,6 @@ export function QueuePanel({
           <button className="g-btn g-btn-sm" onClick={onLoadPlaylist} title="Load playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>' }} />
           <button className="g-btn g-btn-sm" onClick={onSavePlaylist} title="Save playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>' }} />
           <button className="g-btn g-btn-sm" onClick={onClear} title="Clear playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' }} />
-          <button className="g-btn g-btn-sm" onClick={onToggleCollapsed} title="Collapse playlist">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <line x1="15" y1="3" x2="15" y2="21" />
-              <polyline points="11 9 8 12 11 15" />
-            </svg>
-          </button>
         </div>
       </div>
       {pendingEnqueue && (

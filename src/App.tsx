@@ -333,6 +333,7 @@ function App() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
+  const [queueWidth, setQueueWidth] = useState(300);
 
   // Updater
   const updater = useAppUpdater(addLog);
@@ -621,7 +622,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedDownloadFormat, savedSortBarCollapsed, savedLastfmAutoImportEnabled, savedLastfmAutoImportIntervalMins, savedLastfmLastImportAt, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedSearchIncludeLyrics] = await timeAsync("store.restore (50 keys)", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, savedSortBarCollapsed, savedLastfmAutoImportEnabled, savedLastfmAutoImportIntervalMins, savedLastfmLastImportAt, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedSearchIncludeLyrics] = await timeAsync("store.restore (50 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -654,6 +655,7 @@ function App() {
           store.get<string | null>("lastfmUsername"),
           store.get<boolean>("sidebarCollapsed"),
           store.get<boolean>("queueCollapsed"),
+          store.get<number | null>("queueWidth"),
           store.get<string | null>("downloadFormat"),
           store.get<boolean>("sortBarCollapsed"),
           store.get<boolean>("lastfmAutoImportEnabled"),
@@ -813,6 +815,7 @@ function App() {
         }
         if (savedSidebarCollapsed) setSidebarCollapsed(true);
         if (savedQueueCollapsed) setQueueCollapsed(true);
+        if (savedQueueWidth && savedQueueWidth >= 200 && savedQueueWidth <= 600) setQueueWidth(savedQueueWidth);
         if (savedDownloadFormat && ["flac", "aac"].includes(savedDownloadFormat)) { downloads.setFormat(savedDownloadFormat, store); }
         if (savedSortBarCollapsed) library.setSortBarCollapsed(true);
         const savedLoggingEnabled = await store.get<boolean>("loggingEnabled");
@@ -1312,6 +1315,11 @@ function App() {
     });
   }
 
+  function handleResizeQueueWidth(width: number) {
+    setQueueWidth(width);
+    store.set("queueWidth", width);
+  }
+
   // Bridge for keyboard shortcuts
   handleToggleLikeRef.current = likeActions.handleToggleLike;
 
@@ -1414,7 +1422,7 @@ function App() {
   };
 
   return (
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} onClick={() => contextMenuActions.setContextMenu(null)}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties} onClick={() => contextMenuActions.setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -2184,7 +2192,19 @@ function App() {
           externalDropTarget={contextMenuActions.externalDropTarget}
           collapsed={queueCollapsed}
           onToggleCollapsed={handleToggleQueueCollapsed}
+          onResizeWidth={handleResizeQueueWidth}
         />
+      {!queueCollapsed && (
+        <button
+          className="g-btn g-btn-xs queue-collapse-btn"
+          onClick={handleToggleQueueCollapsed}
+          title="Collapse playlist"
+        >
+          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 6 15 12 9 18" />
+          </svg>
+        </button>
+      )}
 
       {contextMenuActions.contextMenu && (
         <ContextMenu

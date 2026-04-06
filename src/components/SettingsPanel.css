@@ -161,6 +161,32 @@
   margin-right: -12px;
 }
 
+.queue-collapse-btn {
+  grid-column: 3;
+  grid-row: 2;
+  position: relative;
+  z-index: 10;
+  align-self: center;
+  justify-self: start;
+  margin-left: -12px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  width: 24px;
+  height: 24px;
+  pointer-events: auto;
+}
+
+.queue-collapse-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--accent-dim);
+}
+
 .update-badge {
   position: absolute;
   top: 6px;
