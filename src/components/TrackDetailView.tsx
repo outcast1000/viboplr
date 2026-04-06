@@ -457,11 +457,13 @@ export function TrackDetailView({
               <>
                 {playStats && (
                   <div className="track-detail-stats">
-                    {formatCount(playStats.play_count)} plays
-                    {playStats.last_played_at && <> &middot; Last played {relativeTime(playStats.last_played_at)}</>}
+                    <span className="track-detail-label">Plays</span>
+                    {formatCount(playStats.play_count)}
+                    {playStats.last_played_at && <> &middot; Last {relativeTime(playStats.last_played_at)}</>}
                   </div>
                 )}
                 <div className="track-detail-stats">
+                  <span className="track-detail-label">Format</span>
                   {formatDuration(track.duration_secs)}
                   {track.format && <> &middot; {track.format.toUpperCase()}</>}
                   {audioProps?.bitrate && <> &middot; {audioProps.bitrate} kbps</>}
@@ -469,6 +471,7 @@ export function TrackDetailView({
                   {audioProps?.bit_depth && <> &middot; {audioProps.bit_depth}-bit</>}
                 </div>
                 <div className="track-detail-path">
+                  <span className="track-detail-label">Path</span>
                   <span className="track-detail-path-text">
                     {(() => {
                       if (track.path.startsWith("subsonic://") && track.subsonic_id) {
@@ -495,6 +498,7 @@ export function TrackDetailView({
                 </div>
                 {editingTags ? (
               <div className="track-tags-edit">
+                <span className="track-detail-label">Tags</span>
                 <input
                   className="track-tags-edit-input"
                   value={tagInput}
@@ -508,6 +512,7 @@ export function TrackDetailView({
               </div>
             ) : (
               <div className="track-detail-tags-inline">
+                <span className="track-detail-label">Tags</span>
                 {trackTags.map(tag => (
                   <span key={tag.id} className="track-tag-chip track-tag-assigned">
                     <span className="track-tag-name" onClick={() => onTagClick(tag.id)}>{tag.name}</span>

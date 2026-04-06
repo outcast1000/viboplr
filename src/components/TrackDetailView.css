@@ -434,6 +434,12 @@
   color: var(--text-tertiary);
 }
 
+.track-detail-label {
+  color: var(--text-secondary);
+  font-weight: 600;
+  margin-right: 6px;
+}
+
 .track-detail-toggle {
   background: none;
   border: none;
@@ -473,9 +479,8 @@
 }
 
 .track-detail-path {
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-xs);
   color: var(--text-tertiary);
-  margin-top: 2px;
   display: flex;
   align-items: flex-start;
   gap: 4px;
@@ -506,8 +511,10 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 6px;
+  margin-top: 4px;
   align-items: center;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
 }
 
 .track-tags-edit {
@@ -515,6 +522,9 @@
   gap: 6px;
   width: 100%;
   align-items: center;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  margin-top: 4px;
 }
 
 .track-tags-edit-input {
@@ -523,7 +533,7 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-primary);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   padding: 4px 8px;
   outline: none;
 }
