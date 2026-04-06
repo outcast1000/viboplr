@@ -1010,10 +1010,11 @@ pub fn get_auto_continue_track(
     strategy: String,
     current_track_id: i64,
     format_filter: Option<String>,
+    exclude_ids: Option<Vec<i64>>,
 ) -> Result<Option<Track>, String> {
     state
         .db
-        .get_auto_continue_track(&strategy, current_track_id, format_filter.as_deref())
+        .get_auto_continue_track(&strategy, current_track_id, format_filter.as_deref(), exclude_ids.as_deref().unwrap_or(&[]))
         .map_err(|e| e.to_string())
 }
 

@@ -69,7 +69,7 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
     return "random";
   }
 
-  async function fetchTrack(currentTrack: Track): Promise<Track | null> {
+  async function fetchTrack(currentTrack: Track, excludeIds?: number[]): Promise<Track | null> {
     const strategy = pickStrategy();
     const formatFilter = sameFormat ? (isVideoTrack(currentTrack) ? "video" : "audio") : null;
     try {
@@ -77,6 +77,7 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
         strategy,
         currentTrackId: currentTrack.id,
         formatFilter,
+        excludeIds: excludeIds ?? null,
       });
       if (track) return track;
       // Fallback to random if strategy returned nothing
@@ -85,6 +86,7 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
           strategy: "random",
           currentTrackId: currentTrack.id,
           formatFilter,
+          excludeIds: excludeIds ?? null,
         });
       }
       return null;

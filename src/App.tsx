@@ -1180,13 +1180,16 @@ function App() {
   playNextRef.current = queueHook.playNext;
   const addToQueueAndPlayRef = useRef(queueHook.addToQueueAndPlay);
   addToQueueAndPlayRef.current = queueHook.addToQueueAndPlay;
+  const queueRef = useRef(queueHook.queue);
+  queueRef.current = queueHook.queue;
 
   const handleNext = useCallback(async () => {
     if (!playNextRef.current()) {
       const ac = autoContinueRef.current;
       const track = currentTrackRef.current;
       if (ac.enabled && track) {
-        const next = await ac.fetchTrack(track);
+        const excludeIds = queueRef.current.map(t => t.id);
+        const next = await ac.fetchTrack(track, excludeIds);
         if (next) {
           addToQueueAndPlayRef.current(next);
           return;
