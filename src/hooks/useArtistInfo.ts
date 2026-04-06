@@ -119,7 +119,7 @@ export function useArtistInfo(deps: {
     const artistName = deps.artists.find(a => a.id === album.artist_id)?.name;
     if (!artistName) return;
 
-    const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().trim()).replace(/[^a-z0-9]/g, "");
+    const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().replace(/\([^)]*\)/g, "").trim()).replace(/[^a-z0-9]/g, "");
     const matchPopularity = (resp: { tracks?: Array<{ name: string; listeners: number }> } | null) => {
       if (!resp?.tracks) return;
       const popMap: Record<number, number> = {};
@@ -154,7 +154,7 @@ export function useArtistInfo(deps: {
     const artist = deps.artists.find(a => a.id === deps.selectedArtist);
     if (!artist) return;
 
-    const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().trim()).replace(/[^a-z0-9]/g, "");
+    const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().replace(/\([^)]*\)/g, "").trim()).replace(/[^a-z0-9]/g, "");
     const matchPopularity = (resp: { tracks?: Array<{ name: string; listeners: number }> } | null) => {
       if (!resp?.tracks) return;
       const popMap: Record<number, number> = {};
