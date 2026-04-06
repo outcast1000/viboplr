@@ -149,7 +149,7 @@ export function ArtistDetailContent({
           </div>
         </div>
         {artistTopTracks.length > 0 && (
-          <div className="artist-top-songs-section">
+          <div className="section-narrow">
             <div className="artist-bio-title section-header" onClick={() => onToggleSection("topSongs")}>
               <svg className={`section-chevron${sections.topSongs === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
               Top Songs
@@ -161,10 +161,27 @@ export function ArtistDetailContent({
                   {artistTopTracks.map((entry, i) => {
                     const pct = maxPop > 0 ? (entry.listeners / maxPop) * 100 : 0;
                     const inLibrary = !!entry.libraryTrack;
+                    const handleAction = async () => {
+                      if (inLibrary) {
+                        onPlayTracks([entry.libraryTrack!], 0);
+                      } else {
+                        addLog("Searching YouTube...");
+                        try {
+                          const result = await invoke<{ url: string; video_title: string | null }>(
+                            "search_youtube", { title: entry.name, artistName: artist?.name ?? "" }
+                          );
+                          await openUrl(result.url);
+                        } catch {
+                          const q = encodeURIComponent(`${entry.name} ${artist?.name ?? ""}`);
+                          await openUrl(`https://www.youtube.com/results?search_query=${q}`);
+                        }
+                      }
+                    };
                     return (
                       <div
                         key={`${entry.name}-${i}`}
                         className={`top-song-row${inLibrary ? "" : " top-song-missing"}`}
+                        onDoubleClick={handleAction}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           onTopSongContextMenu(e, entry, artist?.name ?? "");
@@ -174,22 +191,7 @@ export function ArtistDetailContent({
                         <button
                           className="top-song-action-btn"
                           title={inLibrary ? "Play" : "Watch on YouTube"}
-                          onClick={async () => {
-                            if (inLibrary) {
-                              onPlayTracks([entry.libraryTrack!], 0);
-                            } else {
-                              addLog("Searching YouTube...");
-                              try {
-                                const result = await invoke<{ url: string; video_title: string | null }>(
-                                  "search_youtube", { title: entry.name, artistName: artist?.name ?? "" }
-                                );
-                                await openUrl(result.url);
-                              } catch {
-                                const q = encodeURIComponent(`${entry.name} ${artist?.name ?? ""}`);
-                                await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-                              }
-                            }
-                          }}
+                          onClick={handleAction}
                         >
                           {inLibrary ? "\u25B6" : <svg width="14" height="10" viewBox="0 0 28 20" fill="currentColor"><path d="M27.4 3.1s-.3-1.9-1.1-2.8C25.1-.9 23.7-.9 23-.9 19.2-1.2 14-1.2 14-1.2h0s-5.2 0-9 .3c-.7.1-2.1.1-3.3 1.1C.9 1.2.6 3.1.6 3.1S.3 5.3.3 7.6v2.1c0 2.2.3 4.5.3 4.5s.3 1.9 1.1 2.8c1.2 1.2 2.7 1.2 3.4 1.3 2.4.2 10.3.3 10.3.3s5.2 0 9-.3c.7-.1 2.1-.1 3.3-1.1.8-.9 1.1-2.8 1.1-2.8s.3-2.2.3-4.5V7.6c0-2.2-.3-4.5-.3-4.5zM11.1 13.2V5.4l8.9 3.9-8.9 3.9z"/></svg>}
                         </button>
@@ -206,7 +208,7 @@ export function ArtistDetailContent({
             })()}
           </div>
         )}
-        <div className="artist-bio-section">
+        <div className="section-wide">
           <div className="artist-bio-title section-header" onClick={() => onToggleSection("about")}>
             <svg className={`section-chevron${sections.about === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
             About

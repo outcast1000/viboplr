@@ -95,7 +95,7 @@ export function AlbumDetailHeader({
           </span>
         </div>
       </div>
-      <div className="album-wiki-section">
+      <div className="section-wide">
         <div className="artist-bio-title section-header" onClick={() => onToggleSection("review")}>
           <svg className={`section-chevron${sections.review === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           Review
