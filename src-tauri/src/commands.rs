@@ -2006,6 +2006,22 @@ pub fn lastfm_get_artist_info(state: State<'_, AppState>, app: AppHandle, artist
 }
 
 #[tauri::command]
+pub fn lastfm_get_artist_info_sync(state: State<'_, AppState>, artist_name: String) -> Result<Option<serde_json::Value>, String> {
+    let cache_key = format!("artist_info:{}", artist_name.to_lowercase());
+    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
+        return Ok(Some(cached));
+    }
+    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
+    match lastfm.get_artist_info(&artist_name) {
+        Ok(value) => {
+            let _ = state.db.lastfm_cache_set(&cache_key, &value);
+            Ok(Some(value))
+        }
+        Err(_) => Ok(None),
+    }
+}
+
+#[tauri::command]
 pub fn lastfm_get_album_info(state: State<'_, AppState>, app: AppHandle, artist_name: String, album_title: String) -> Option<serde_json::Value> {
     let cache_key = format!("album_info:{}:{}", artist_name.to_lowercase(), album_title.to_lowercase());
     if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
