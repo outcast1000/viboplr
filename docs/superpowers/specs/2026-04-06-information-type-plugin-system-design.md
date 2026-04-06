@@ -215,24 +215,29 @@ When cached data is stale, the full fallback chain is replayed from the top. The
 
 ## Display Kinds & Renderers
 
-Eight generic renderers cover all existing and foreseeable information types:
+Ten standard renderers that plugins pick from. Each renderer has a fixed JSON schema that the plugin must conform to:
 
 | Display Kind | JSON Schema | Renders As | Covers |
 |---|---|---|---|
-| `rich_text` | `{ summary: string, full?: string }` (HTML) | Collapsible rich text block | Artist bio, album review |
-| `entity_list` | `{ items: [{ name, subtitle?, match?, image?, url?, libraryId?, libraryKind? }] }` | List with optional match bars | Similar tracks, similar artists |
+| `rich_text` | `{ summary: string, full?: string }` (HTML) | Collapsible rich text block with expand/collapse | Artist bio, album review |
+| `html` | `{ content: string }` (sanitized HTML) | Raw HTML block, no structure — just render | Pre-formatted plugin content |
+| `entity_list` | `{ items: [{ name, subtitle?, match?, image?, url?, libraryId?, libraryKind? }] }` | List with optional match bars, clickable items | Similar tracks, similar artists |
 | `stat_grid` | `{ items: [{ label, value, unit? }] }` | Grid of stat cards | Listeners, scrobbles, play count |
-| `lyrics` | `{ text: string, kind: "plain"\|"synced", lines?: [...] }` | Lyrics view with optional sync | Lyrics |
+| `lyrics` | `{ text: string, kind: "plain"\|"synced", lines?: [...] }` | Lyrics view with optional playback sync | Lyrics |
 | `tag_list` | `{ tags: [{ name, url? }], suggestable?: boolean }` | Tag pills, optionally actionable | Community tags, top tags |
 | `ranked_list` | `{ items: [{ name, subtitle?, value: number, maxValue?: number, libraryId?, libraryKind? }] }` | Rows with popularity bars | Top tracks, track popularity |
 | `annotated_text` | `{ overview?: string, sections: [{ heading?, text }] }` | Structured text sections | Genius explanations |
 | `key_value` | `{ items: [{ key, value }] }` | Two-column detail rows | Audio properties |
+| `image_gallery` | `{ images: [{ url, caption?, source? }] }` | Image gallery with navigation/lightbox. Single image renders as hero. | Artist photos, album art variants, concert posters |
+
+**`rich_text` vs `html`:** `rich_text` is for structured content where the app controls the UX (summary with optional expand to full). `html` is the escape hatch for plugins that return pre-formatted content that doesn't fit the summary/full structure. Both use the same sanitization allowlist (`b, i, em, strong, h2, h3, p, br, a, ul, ol, li`).
 
 Renderer lookup is a static map:
 
 ```tsx
 const renderers: Record<string, ComponentType<{ data: unknown }>> = {
   rich_text: RichTextRenderer,
+  html: HtmlRenderer,
   entity_list: EntityListRenderer,
   stat_grid: StatGridRenderer,
   lyrics: LyricsRenderer,
@@ -240,6 +245,7 @@ const renderers: Record<string, ComponentType<{ data: unknown }>> = {
   ranked_list: RankedListRenderer,
   annotated_text: AnnotatedTextRenderer,
   key_value: KeyValueRenderer,
+  image_gallery: ImageGalleryRenderer,
 };
 ```
 
