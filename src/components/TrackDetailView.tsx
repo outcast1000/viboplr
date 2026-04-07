@@ -115,7 +115,7 @@ function TrackActions({
           <div className="artist-image-menu-separator" />
           {!track.path.startsWith("subsonic://") && !track.path.startsWith("tidal://") && (
             <button onClick={() => { setOpenMenu(false); onShowInFolder(); }}>
-              <IconFolder size={14} /><span>Show in Folder</span>
+              <IconFolder size={14} /><span>Open Containing Folder</span>
             </button>
           )}
           <button onClick={async () => {
@@ -513,7 +513,7 @@ export function TrackDetailView({
                     {track.path}
                   </span>
                   {track.path.startsWith("file://") && (
-                    <button className="track-detail-path-btn" onClick={onShowInFolder} title="Show in folder">
+                    <button className="track-detail-path-btn" onClick={onShowInFolder} title="Open containing folder">
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                     </button>
                   )}

@@ -212,7 +212,7 @@ export function ContextMenu({
       )}
       {target.kind === "track" && !target.subsonic && (
         <div className="context-menu-item" onClick={onShowInFolder}>
-          <IconFolder size={14} /><span>Locate File</span>
+          <IconFolder size={14} /><span>Open Containing Folder</span>
         </div>
       )}
       {target.kind === "track" && onWatchOnYoutube && (
