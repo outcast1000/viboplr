@@ -27,6 +27,7 @@ interface LikedTracksViewProps {
   onToggleLike: (track: Track) => void;
   onToggleDislike: (track: Track) => void;
   onTrackDragStart: (dragTracks: Track[]) => void;
+  onDeleteTracks?: (trackIds: number[]) => void;
   onSearchChange: (query: string) => void;
   searchNav: {
     onArrowDown: () => void;
@@ -60,6 +61,7 @@ export function LikedTracksView({
   onToggleLike,
   onToggleDislike,
   onTrackDragStart,
+  onDeleteTracks,
   onSearchChange,
   searchNav,
   onFetchAlbumImage,
@@ -135,6 +137,7 @@ export function LikedTracksView({
           onToggleLike={onToggleLike}
           onToggleDislike={onToggleDislike}
           onTrackDragStart={onTrackDragStart}
+          onDeleteTracks={onDeleteTracks}
           emptyMessage="No liked tracks yet. Click the heart icon on any track to like it."
         />
       )}

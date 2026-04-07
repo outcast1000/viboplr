@@ -41,6 +41,7 @@ interface ArtistDetailContentProps {
   onToggleLike: (track: Track) => void;
   onToggleDislike: (track: Track) => void;
   onTrackDragStart: (tracks: Track[]) => void;
+  onDeleteTracks?: (trackIds: number[]) => void;
   onToggleArtistLike: (artistId: number) => void;
   onRefreshInfo: () => void;
   onTopSongContextMenu: (e: React.MouseEvent, entry: { name: string; listeners: number; libraryTrack?: Track }, artistName: string) => void;
@@ -82,6 +83,7 @@ export function ArtistDetailContent({
   onToggleLike,
   onToggleDislike,
   onTrackDragStart,
+  onDeleteTracks,
   onToggleArtistLike,
   onRefreshInfo,
   onTopSongContextMenu,
@@ -280,6 +282,7 @@ export function ArtistDetailContent({
           onToggleLike={onToggleLike}
           onToggleDislike={onToggleDislike}
           onTrackDragStart={onTrackDragStart}
+          onDeleteTracks={onDeleteTracks}
           trackPopularity={artistTrackPopularity}
           emptyMessage="No tracks found for this artist."
         />

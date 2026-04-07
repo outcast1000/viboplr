@@ -32,6 +32,7 @@ interface AllTracksViewProps {
   onToggleLike: (track: Track) => void;
   onToggleDislike: (track: Track) => void;
   onTrackDragStart: (dragTracks: Track[]) => void;
+  onDeleteTracks?: (trackIds: number[]) => void;
   onSearchChange: (query: string) => void;
   searchNav: {
     onArrowDown: () => void;
@@ -74,6 +75,7 @@ export function AllTracksView({
   onToggleLike,
   onToggleDislike,
   onTrackDragStart,
+  onDeleteTracks,
   onSearchChange,
   searchNav,
   onFetchAlbumImage,
@@ -175,6 +177,7 @@ export function AllTracksView({
           onToggleLike={onToggleLike}
           onToggleDislike={onToggleDislike}
           onTrackDragStart={onTrackDragStart}
+          onDeleteTracks={onDeleteTracks}
           emptyMessage="No tracks found. Add a folder or server to start building your library."
           hasMore={hasMore}
           loadingMore={loadingMore}

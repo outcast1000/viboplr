@@ -416,6 +416,17 @@ function App() {
     setQueueCollapsed,
   });
 
+  const handleDeleteTracks = useCallback((trackIds: number[]) => {
+    const idSet = new Set(trackIds);
+    const selected = library.tracks.filter(t => idSet.has(t.id));
+    const localIds = selected.filter(t => !t.path.startsWith("subsonic://") && !t.path.startsWith("tidal://")).map(t => t.id);
+    if (localIds.length === 0) return;
+    const title = localIds.length === 1
+      ? (selected.find(t => t.id === localIds[0])?.title ?? "track")
+      : `${localIds.length} tracks`;
+    contextMenuActions.setDeleteConfirm({ trackIds: localIds, title });
+  }, [library.tracks, contextMenuActions.setDeleteConfirm]);
+
   // Wire plugin host callbacks (uses addLog, library, contextMenuActions defined above)
   pluginHostCallbacksRef.current = {
     navigateToPluginView: (pluginId, viewId) => {
@@ -1726,6 +1737,7 @@ function App() {
                 onToggleLike={likeActions.handleToggleLike}
                 onToggleDislike={likeActions.handleToggleDislike}
                 onTrackDragStart={contextMenuActions.handleTrackDragStart}
+                onDeleteTracks={handleDeleteTracks}
                 onToggleArtistLike={likeActions.handleToggleArtistLike}
                 onRefreshInfo={() => {
                   if (!artist) return;
@@ -1888,6 +1900,7 @@ function App() {
               onToggleLike={likeActions.handleToggleLike}
               onToggleDislike={likeActions.handleToggleDislike}
               onTrackDragStart={contextMenuActions.handleTrackDragStart}
+              onDeleteTracks={handleDeleteTracks}
               onSearchChange={(q) => viewSearch.setQuery("all", q)}
               searchNav={trackSearchNav}
               onFetchAlbumImage={albumImageCache.fetchOnDemand}
@@ -1968,6 +1981,7 @@ function App() {
                 onToggleLike={likeActions.handleToggleLike}
                 onToggleDislike={likeActions.handleToggleDislike}
                 onTrackDragStart={contextMenuActions.handleTrackDragStart}
+                onDeleteTracks={handleDeleteTracks}
                 trackPopularity={artistInfo.albumTrackPopularity}
                 emptyMessage="No tracks found."
               />
@@ -1999,6 +2013,7 @@ function App() {
               onToggleLike={likeActions.handleToggleLike}
               onToggleDislike={likeActions.handleToggleDislike}
               onTrackDragStart={contextMenuActions.handleTrackDragStart}
+              onDeleteTracks={handleDeleteTracks}
               onSearchChange={(q) => viewSearch.setQuery("liked", q)}
               searchNav={likedSearchNav}
               onFetchAlbumImage={albumImageCache.fetchOnDemand}
@@ -2323,7 +2338,7 @@ function App() {
             <p className="delete-confirm-warning">This will permanently delete the file{contextMenuActions.deleteConfirm.trackIds.length > 1 ? "s" : ""} from disk.</p>
             <div className="modal-actions">
               <button className="modal-btn modal-btn-cancel" onClick={() => contextMenuActions.setDeleteConfirm(null)}>Cancel</button>
-              <button className="modal-btn modal-btn-danger" onClick={contextMenuActions.handleDeleteConfirm}>Delete</button>
+              <button className="modal-btn modal-btn-danger" onClick={contextMenuActions.handleDeleteConfirm} autoFocus>Delete</button>
             </div>
           </div>
         </div>

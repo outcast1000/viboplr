@@ -127,6 +127,7 @@ interface TrackListProps {
   onToggleLike: (track: Track) => void;
   onToggleDislike?: (track: Track) => void;
   onTrackDragStart?: (tracks: Track[]) => void;
+  onDeleteTracks?: (trackIds: number[]) => void;
   trackPopularity?: Record<number, number>;
   emptyMessage?: string;
   hasMore?: boolean;
@@ -139,7 +140,7 @@ export function TrackList({
   sortField, trackListRef, columns, onColumnsChange,
   onDoubleClick, onContextMenu, onArtistClick, onAlbumClick,
   onSort, sortIndicator, onToggleLike, onToggleDislike, onTrackDragStart,
-  trackPopularity,
+  onDeleteTracks, trackPopularity,
   emptyMessage = "No tracks found.",
   hasMore = false, loadingMore = false, onLoadMore,
 }: TrackListProps) {
@@ -196,11 +197,15 @@ export function TrackList({
         } else if (selectedIds.size > 0) {
           setSelectedIds(new Set());
         }
+      } else if ((e.key === "Delete" || e.key === "Backspace") && selectedIds.size > 0 && onDeleteTracks) {
+        if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
+        e.preventDefault();
+        onDeleteTracks([...selectedIds]);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [columnMenuPos, selectedIds.size]);
+  }, [columnMenuPos, selectedIds, onDeleteTracks]);
 
   function handleRowClick(e: React.MouseEvent, index: number) {
     if (didDragRowRef.current) return;
