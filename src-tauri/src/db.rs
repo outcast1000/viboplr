@@ -270,6 +270,7 @@ impl Database {
                 liked         INTEGER NOT NULL DEFAULT 0,
                 year          INTEGER,
                 youtube_url   TEXT,
+                path_normalized TEXT,
                 UNIQUE(collection_id, path)
             );
 
@@ -292,7 +293,6 @@ impl Database {
                 artist_name,
                 album_title,
                 tag_names,
-                path,
                 lyrics_text,
                 content='',
                 tokenize='unicode61 remove_diacritics 2'
@@ -556,6 +556,7 @@ impl Database {
                     liked         INTEGER NOT NULL DEFAULT 0, \
                     year          INTEGER, \
                     youtube_url   TEXT, \
+                    path_normalized TEXT, \
                     UNIQUE(collection_id, path) \
                  ); \
                  INSERT INTO tracks_new SELECT * FROM tracks; \
@@ -589,9 +590,19 @@ impl Database {
             migrated = true;
         }
 
+        if version < 16 {
+            // Column may already exist from init_tables on fresh databases
+            let _ = conn.execute("ALTER TABLE tracks ADD COLUMN path_normalized TEXT", []);
+            conn.execute_batch(
+                "UPDATE tracks SET path_normalized = strip_diacritics(unicode_lower(path)) WHERE path_normalized IS NULL"
+            )?;
+            conn.execute("UPDATE db_version SET version = 16 WHERE rowid = 1", [])?;
+            migrated = true;
+        }
+
         drop(conn);
-        if version < 12 {
-            crate::timing::timer().time("db: rebuild_fts_for_lyrics", || self.rebuild_fts())?;
+        if version < 12 || version < 16 {
+            crate::timing::timer().time("db: rebuild_fts", || self.rebuild_fts())?;
         }
         if migrated {
             crate::timing::timer().time("db: recompute_counts", || self.recompute_counts())?;
@@ -821,14 +832,14 @@ impl Database {
     ) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO tracks (path, path_normalized, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year)
+             VALUES (?1, strip_diacritics(unicode_lower(?1)), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(collection_id, path) DO UPDATE SET
                 title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id,
                 track_number=excluded.track_number,
                 duration_secs=excluded.duration_secs, format=excluded.format,
                 file_size=excluded.file_size, modified_at=excluded.modified_at,
-                year=excluded.year",
+                year=excluded.year, path_normalized=excluded.path_normalized",
             params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year],
         )?;
         let id: i64 = conn.query_row(
@@ -859,7 +870,6 @@ impl Database {
                  artist_name,
                  album_title,
                  tag_names,
-                 path,
                  lyrics_text,
                  content='',
                  tokenize='unicode61 remove_diacritics 2'
@@ -877,7 +887,6 @@ impl Database {
                  artist_name,
                  album_title,
                  tag_names,
-                 path,
                  lyrics_text,
                  content='',
                  tokenize='unicode61 remove_diacritics 2'
@@ -885,10 +894,9 @@ impl Database {
         )?;
         conn.execute_batch(
             &format!(
-                "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, path, lyrics_text)
+                "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, lyrics_text)
                  SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')), strip_diacritics(COALESCE(al.title, '')),
                         strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
-                        strip_diacritics(t.path),
                         strip_diacritics(COALESCE(ly.text, ''))
                  FROM tracks t
                  LEFT JOIN artists ar ON t.artist_id = ar.id
@@ -987,32 +995,45 @@ impl Database {
             .map(|w| format!("\"{}\"*", w.replace('"', "")))
             .collect::<Vec<_>>()
             .join(" AND ");
-        let fts_query = if opts.include_lyrics {
-            words
+        let has_fts_words = !words.is_empty();
+
+        let fts_query = if has_fts_words {
+            if opts.include_lyrics {
+                words
+            } else {
+                format!("{{title artist_name album_title tag_names}}:{}", words)
+            }
         } else {
-            format!("{{title artist_name album_title tag_names path}}:{}", words)
+            String::new()
         };
 
-        let mut sql = format!(
-            "SELECT t.id, {}, t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
-             t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.liked, t.youtube_url, \
-             t.added_at, t.modified_at, t.path \
-             FROM tracks_fts fts \
-             JOIN tracks t ON fts.rowid = t.id \
-             LEFT JOIN artists ar ON t.artist_id = ar.id \
-             LEFT JOIN albums al ON t.album_id = al.id \
-             LEFT JOIN collections co ON t.collection_id = co.id",
-            PATH_EXPR
+        // LIKE parameter for exact substring match on pre-computed normalized path
+        let normalized_lower = normalized.to_lowercase();
+        let like_param = format!(
+            "%{}%",
+            normalized_lower.replace('%', "\\%").replace('_', "\\_")
         );
+
+        let mut sql = TRACK_SELECT.to_string();
 
         if opts.tag_id.is_some() {
             sql.push_str(" JOIN track_tags tt ON tt.track_id = t.id");
         }
 
-        sql.push_str(" WHERE tracks_fts MATCH ?1");
+        // Match either FTS (for title/artist/album/tags) OR LIKE (for path substring)
+        let mut param_idx;
+        if has_fts_words {
+            sql.push_str(
+                " WHERE (EXISTS (SELECT 1 FROM tracks_fts WHERE tracks_fts MATCH ?1 AND rowid = t.id) \
+                 OR t.path_normalized LIKE ?2 ESCAPE '\\')"
+            );
+            param_idx = 3;
+        } else {
+            sql.push_str(" WHERE t.path_normalized LIKE ?1 ESCAPE '\\'");
+            param_idx = 2;
+        }
         sql.push_str(&format!(" {}", ENABLED_COLLECTION_FILTER));
 
-        let mut param_idx = 2;
         if opts.artist_id.is_some() {
             sql.push_str(&format!(" AND t.artist_id = ?{}", param_idx));
             param_idx += 1;
@@ -1052,7 +1073,10 @@ impl Database {
         let mut stmt = conn.prepare(&sql)?;
 
         let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-        params_vec.push(Box::new(fts_query));
+        if has_fts_words {
+            params_vec.push(Box::new(fts_query));
+        }
+        params_vec.push(Box::new(like_param));
         if let Some(aid) = opts.artist_id {
             params_vec.push(Box::new(aid));
         }
@@ -1790,10 +1814,9 @@ impl Database {
 
         conn.execute(
             &format!(
-                "INSERT OR REPLACE INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, path, lyrics_text)
+                "INSERT OR REPLACE INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, lyrics_text)
                  SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')), strip_diacritics(COALESCE(al.title, '')),
                         strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
-                        strip_diacritics(t.path),
                         strip_diacritics(COALESCE(?2, ''))
                  FROM tracks t
                  LEFT JOIN artists ar ON t.artist_id = ar.id
