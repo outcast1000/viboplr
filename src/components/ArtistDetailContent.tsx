@@ -214,15 +214,17 @@ export function ArtistDetailContent({
             })()}
           </div>
         )}
-        <InformationSections
-          entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
-          exclude={["artist_stats", "artist_top_tracks", "similar_artists"]}
-          invokeInfoFetch={invokeInfoFetch}
-          onEntityClick={(kind, id) => {
-            if (kind === "artist" && id) onArtistClick(id);
-            if (kind === "album" && id) onAlbumClick(id);
-          }}
-        />
+        <div className="section-wide">
+          <InformationSections
+            entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
+            exclude={["artist_stats", "artist_top_tracks", "similar_artists"]}
+            invokeInfoFetch={invokeInfoFetch}
+            onEntityClick={(kind, id) => {
+              if (kind === "artist" && id) onArtistClick(id);
+              if (kind === "album" && id) onAlbumClick(id);
+            }}
+          />
+        </div>
       </div>
 
       {artistAlbums.length > 0 && (

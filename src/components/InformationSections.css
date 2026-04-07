@@ -7,8 +7,26 @@
   margin-bottom: 4px;
 }
 
+/* Match the existing section title style (artist-bio-title) */
+.info-section > .section-title {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+
+/* Match the existing bio text style (artist-bio-text) */
 .info-section-content {
-  padding: 8px 0;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.info-section-content a {
+  color: var(--accent);
 }
 
 .info-section-skeleton {
