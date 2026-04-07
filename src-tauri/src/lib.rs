@@ -338,7 +338,20 @@ pub fn run() {
             }
         }
 
-        let name = profile.unwrap_or_else(|| "default".to_string());
+        let name = profile.unwrap_or_else(|| {
+            #[cfg(debug_assertions)]
+            {
+                let manifest_dir = env!("CARGO_MANIFEST_DIR");
+                let worktree_name = std::path::Path::new(manifest_dir)
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("dev");
+                format!("dev-{}", worktree_name)
+            }
+            #[cfg(not(debug_assertions))]
+            { "default".to_string() }
+        });
 
         // Validate profile name: alphanumeric, hyphens, underscores, 1-64 chars
         if name.is_empty() || name.len() > 64
