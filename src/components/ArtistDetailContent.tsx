@@ -148,8 +148,8 @@ export function ArtistDetailContent({
             </span>
           </div>
         </div>
-        <div className="section-wide">
-          <InformationSections
+        <InformationSections
+            placement="right"
             entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
             exclude={["artist_stats"]}
             invokeInfoFetch={invokeInfoFetch}
@@ -159,7 +159,19 @@ export function ArtistDetailContent({
             }}
             resolveEntity={resolveEntity}
           />
-        </div>
+      </div>
+      <div className="section-wide">
+        <InformationSections
+          placement="below"
+          entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
+          exclude={["artist_stats"]}
+          invokeInfoFetch={invokeInfoFetch}
+          onEntityClick={(kind, id) => {
+            if (kind === "artist" && id) onArtistClick(id);
+            if (kind === "album" && id) onAlbumClick(id);
+          }}
+          resolveEntity={resolveEntity}
+        />
       </div>
 
       {artistAlbums.length > 0 && (

@@ -630,6 +630,19 @@
   min-width: 250px;
 }
 
+/* Right-placement InformationSections beside entity headers */
+.artist-detail-top > .information-sections--right,
+.album-detail-top > .information-sections--right {
+  flex: 1 1 auto;
+  min-width: 250px;
+}
+
+/* Standalone .section-wide outside *-detail-top containers */
+.artist-detail-top + .section-wide,
+.album-detail-top + .section-wide {
+  padding: 0 16px;
+}
+
 .tiles-scroll {
   padding: 16px;
 }
