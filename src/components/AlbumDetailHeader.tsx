@@ -47,64 +47,73 @@ export function AlbumDetailHeader({
   } : null;
 
   return (
-    <div className="album-detail-top">
-      <div className="album-detail-header">
-        <div className="album-detail-art">
-          {albumImagePath ? (
-            <img className="album-detail-art-img" src={convertFileSrc(albumImagePath)} alt={album?.title} />
-          ) : (
-            <svg className="album-detail-art-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          )}
-        </div>
-        <div className="album-detail-info">
-          <h2>
-            {album?.title ?? "Unknown"}
-            <span
-              className={`detail-like-btn${album?.liked === 1 ? " liked" : ""}`}
-              onClick={() => onToggleAlbumLike(selectedAlbum)}
-              title={album?.liked === 1 ? "Unlike album" : "Like album"}
-            >{album?.liked === 1 ? "\u2665" : "\u2661"}</span>
-            {sortedTracks.length > 0 && (
-              <button
-                className="artist-play-btn"
-                title="Play All"
-                onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
-              >&#9654;</button>
+    <>
+      <div className="album-detail-top">
+        <div className="album-detail-header">
+          <div className="album-detail-art">
+            {albumImagePath ? (
+              <img className="album-detail-art-img" src={convertFileSrc(albumImagePath)} alt={album?.title} />
+            ) : (
+              <svg className="album-detail-art-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
             )}
-            <AlbumOptionsMenu
-              albumId={selectedAlbum}
-              albumImagePath={albumImagePath}
-              albumTitle={album?.title ?? ""}
-              artistName={album?.artist_name ?? ""}
-              providers={albumProviders}
-              onImageSet={onImageSet}
-              onImageRemoved={onImageRemoved}
-              onRetrieveImage={onRetrieveImage}
-              onRetrieveInfo={onRetrieveInfo}
-            />
-          </h2>
-          {album?.artist_name && (
-            <span
-              className="album-detail-artist-name"
-              onClick={() => { if (album.artist_id) onArtistClick(album.artist_id); }}
-            >{album.artist_name}</span>
-          )}
-          <span className="artist-meta">
-            {album?.year && <>{album.year} {"\u00B7"} </>}
-            {album?.track_count ?? 0} tracks
-          </span>
+          </div>
+          <div className="album-detail-info">
+            <h2>
+              {album?.title ?? "Unknown"}
+              <span
+                className={`detail-like-btn${album?.liked === 1 ? " liked" : ""}`}
+                onClick={() => onToggleAlbumLike(selectedAlbum)}
+                title={album?.liked === 1 ? "Unlike album" : "Like album"}
+              >{album?.liked === 1 ? "\u2665" : "\u2661"}</span>
+              {sortedTracks.length > 0 && (
+                <button
+                  className="artist-play-btn"
+                  title="Play All"
+                  onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
+                >&#9654;</button>
+              )}
+              <AlbumOptionsMenu
+                albumId={selectedAlbum}
+                albumImagePath={albumImagePath}
+                albumTitle={album?.title ?? ""}
+                artistName={album?.artist_name ?? ""}
+                providers={albumProviders}
+                onImageSet={onImageSet}
+                onImageRemoved={onImageRemoved}
+                onRetrieveImage={onRetrieveImage}
+                onRetrieveInfo={onRetrieveInfo}
+              />
+            </h2>
+            {album?.artist_name && (
+              <span
+                className="album-detail-artist-name"
+                onClick={() => { if (album.artist_id) onArtistClick(album.artist_id); }}
+              >{album.artist_name}</span>
+            )}
+            <span className="artist-meta">
+              {album?.year && <>{album.year} {"\u00B7"} </>}
+              {album?.track_count ?? 0} tracks
+            </span>
+          </div>
         </div>
-      </div>
-      <div className="section-wide">
         <InformationSections
+          placement="right"
           entity={albumEntity}
           exclude={[]}
           invokeInfoFetch={invokeInfoFetch}
         />
       </div>
-    </div>
+      <div className="section-wide">
+        <InformationSections
+          placement="below"
+          entity={albumEntity}
+          exclude={[]}
+          invokeInfoFetch={invokeInfoFetch}
+        />
+      </div>
+    </>
   );
 }
