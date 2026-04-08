@@ -92,8 +92,12 @@
   border-bottom-color: var(--accent);
 }
 
-/* Remove the 120px height cap when placement is specified */
-.information-sections--right .info-section-content,
+/* Remove the 120px height cap for below-placement */
 .information-sections--below .info-section-content {
   max-height: none;
+}
+
+/* Right-placement: taller cap with scroll */
+.information-sections--right .info-section-content {
+  max-height: 300px;
 }
