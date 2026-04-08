@@ -850,61 +850,6 @@
   opacity: 0.85;
 }
 
-/* Genius Song Explanation section */
-.track-detail-top > .track-detail-genius {
-  break-inside: avoid;
-  margin-bottom: 16px;
-}
-
-.genius-link {
-  font-size: var(--fs-2xs);
-  color: var(--accent);
-  cursor: pointer;
-  margin-left: 8px;
-  text-transform: none;
-  font-weight: 400;
-}
-
-.genius-link:hover {
-  text-decoration: underline;
-}
-
-.genius-about {
-  position: relative;
-}
-
-.genius-about p {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  line-height: 1.5;
-  margin: 0 0 8px;
-}
-
-
-.genius-annotations {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.genius-annotation {
-  border-left: 3px solid rgba(var(--accent-rgb), 0.4);
-  padding-left: 10px;
-}
-
-.genius-annotation-fragment {
-  font-size: var(--fs-sm);
-  color: var(--text-primary);
-  font-style: italic;
-  line-height: 1.4;
-  margin-bottom: 4px;
-}
-
-.genius-annotation-explanation {
-  font-size: var(--fs-xs);
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
 
 .album-card-body {
   padding: 8px 10px;

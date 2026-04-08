@@ -204,12 +204,6 @@ export function TrackDetailView({
   const [similarTracks, setSimilarTracks] = useState<Array<{ name: string; artist: { name: string }; match?: string }>>([]);
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
   const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; toptags?: Array<{ name: string }>; url?: string } | null>(null);
-  const [geniusExplanation, setGeniusExplanation] = useState<{
-    about?: string;
-    annotations: { fragment: string; explanation: string }[];
-    song_url: string;
-  } | null>(null);
-  const [geniusLoading, setGeniusLoading] = useState(false);
   const [youtubeFeedback, setYoutubeFeedback] = useState<{ url: string; videoTitle: string } | null>(null);
   const [youtubeUrlEdit, setYoutubeUrlEdit] = useState<string | null>(null);
   const trackIdRef = useRef(trackId);
@@ -229,8 +223,6 @@ export function TrackDetailView({
     setSimilarTracks([]);
     setAudioProps(null);
     setTrackInfo(null);
-    setGeniusExplanation(null);
-    setGeniusLoading(false);
     setYoutubeFeedback(null);
     setYoutubeUrlEdit(null);
 
@@ -288,19 +280,6 @@ export function TrackDetailView({
         if (val.url) info.url = val.url;
         setTrackInfo(info);
       }).catch(() => {});
-      if (sections.geniusExplanations !== false) {
-        setGeniusLoading(true);
-        invoke<any>("get_genius_explanation", { artistName: track.artist_name, trackTitle: track.title })
-          .then(cached => {
-            if (cached) {
-              setGeniusExplanation(cached);
-              setGeniusLoading(false);
-            } else {
-              setTimeout(() => setGeniusLoading(false), 15000);
-            }
-          })
-          .catch(() => setGeniusLoading(false));
-      }
     }
   }, [trackId, track.artist_name, track.title, invokeInfoFetch]);
 
@@ -314,16 +293,9 @@ export function TrackDetailView({
     const unlistenLyricsErr = listen<{ track_id: number }>("lyrics-error", (event) => {
       if (event.payload.track_id === trackIdRef.current) setLyricsLoading(false);
     });
-    const unlistenGenius = listen<any>("genius-explanation", (event) => {
-      if (event.payload) {
-        setGeniusExplanation(event.payload);
-        setGeniusLoading(false);
-      }
-    });
     return () => {
       unlistenLyrics.then(f => f());
       unlistenLyricsErr.then(f => f());
-      unlistenGenius.then(f => f());
     };
   }, []);
 
@@ -539,45 +511,6 @@ export function TrackDetailView({
           </div>
         </div>
 
-        <div className="track-detail-genius">
-          <div className="track-detail-section-title section-header" onClick={() => onToggleSection("geniusExplanations")}>
-            <svg className={`section-chevron${sections.geniusExplanations === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-            Song Explanation
-            {geniusExplanation?.song_url && (
-              <a className="genius-link" onClick={(e) => { e.stopPropagation(); openUrl(geniusExplanation.song_url); }} title="View on Genius">
-                View on Genius &#x2197;
-              </a>
-            )}
-          </div>
-          {sections.geniusExplanations !== false && (<>
-            {geniusLoading ? (
-              <div className="track-detail-empty">Loading...</div>
-            ) : geniusExplanation ? (
-              <div className="genius-content">
-                {geniusExplanation.about && (
-                  <div className="genius-about">
-                    <p>{geniusExplanation.about}</p>
-                  </div>
-                )}
-                {geniusExplanation.annotations.length > 0 && (
-                  <div className="genius-annotations">
-                    {geniusExplanation.annotations.map((ann, i) => (
-                      <div key={i} className="genius-annotation">
-                        <div className="genius-annotation-fragment">{ann.fragment}</div>
-                        <div className="genius-annotation-explanation">{ann.explanation}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {!geniusExplanation.about && geniusExplanation.annotations.length === 0 && (
-                  <div className="track-detail-empty">No explanations available</div>
-                )}
-              </div>
-            ) : (
-              <div className="track-detail-empty">No Genius explanation found</div>
-            )}
-          </>)}
-        </div>
 
         <div className="track-detail-lyrics-section">
           <div className="track-detail-section-title section-header" onClick={() => onToggleSection("lyrics")}>
