@@ -20,12 +20,15 @@
 }
 
 .info-section-view-on {
+  display: block;
+  margin-top: 6px;
   font-size: var(--fs-2xs);
   color: var(--text-secondary);
   text-decoration: none;
   text-transform: none;
   letter-spacing: 0;
   opacity: 0.6;
+  text-align: right;
 }
 
 .info-section-view-on:hover {

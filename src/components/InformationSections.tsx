@@ -93,11 +93,6 @@ export function InformationSections({
               {tab.name}
             </div>
           ))}
-          {meta?.url && meta?.providerName && (
-            <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); openUrl(meta.url!); }}>
-              View on {meta.providerName}
-            </a>
-          )}
         </div>
         <div className="info-section-content">
           {activeEntry.kind === "custom" ? (
@@ -112,6 +107,11 @@ export function InformationSections({
             ) : null;
           })()}
         </div>
+        {meta?.url && meta?.providerName && (
+          <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); openUrl(meta.url!); }}>
+            View on {meta.providerName}
+          </a>
+        )}
       </div>
     );
   }
@@ -144,20 +144,22 @@ export function InformationSections({
         <div className="section-title section-header" onClick={() => toggleCollapse(section.typeId)}>
           <svg className={`section-chevron${isCollapsed ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           {section.name}
-          {singleMeta?.url && singleMeta?.providerName && (
-            <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openUrl(singleMeta.url!); }}>
-              View on {singleMeta.providerName}
-            </a>
-          )}
         </div>
         {!isCollapsed && (
-          <div className="info-section-content">
-            {section.state.kind === "loading" ? (
-              <div className="info-section-skeleton" />
-            ) : section.state.kind === "loaded" && section.state.data ? (
-              <Renderer data={section.state.data} onEntityClick={onEntityClick} onAction={onAction} resolveEntity={resolveEntity} />
-            ) : null}
-          </div>
+          <>
+            <div className="info-section-content">
+              {section.state.kind === "loading" ? (
+                <div className="info-section-skeleton" />
+              ) : section.state.kind === "loaded" && section.state.data ? (
+                <Renderer data={section.state.data} onEntityClick={onEntityClick} onAction={onAction} resolveEntity={resolveEntity} />
+              ) : null}
+            </div>
+            {singleMeta?.url && singleMeta?.providerName && (
+              <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); openUrl(singleMeta.url!); }}>
+                View on {singleMeta.providerName}
+              </a>
+            )}
+          </>
         )}
       </div>
     </div>
