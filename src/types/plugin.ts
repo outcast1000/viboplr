@@ -40,11 +40,19 @@ export interface PluginManifestInfoType {
   priority: number;
 }
 
+export interface PluginManifestSettingsPanel {
+  id: string;
+  label: string;
+  icon?: string;
+  order?: number;
+}
+
 export interface PluginManifestContributes {
   sidebarItems?: PluginManifestSidebarItem[];
   contextMenuItems?: PluginManifestContextMenuItem[];
   eventHooks?: PluginEventName[];
   informationTypes?: PluginManifestInfoType[];
+  settingsPanel?: PluginManifestSettingsPanel;
 }
 
 export interface PluginManifest {
@@ -127,7 +135,7 @@ export type PluginViewData =
     }
   | { type: "text"; content: string }
   | { type: "stats-grid"; items: StatItem[] }
-  | { type: "button"; label: string; action: string }
+  | { type: "button"; label: string; action: string; variant?: "accent" | "secondary"; disabled?: boolean; style?: Record<string, string> }
   | {
       type: "layout";
       direction: "vertical" | "horizontal";
@@ -146,7 +154,12 @@ export type PluginViewData =
       activeTab: string;
       action: string;
     }
-  | { type: "loading"; message?: string };
+  | { type: "loading"; message?: string }
+  | { type: "toggle"; label: string; description?: string; action: string; checked: boolean; disabled?: boolean }
+  | { type: "select"; label: string; description?: string; action: string; value: string; options: { value: string; label: string }[] }
+  | { type: "progress-bar"; value: number; max: number; label?: string }
+  | { type: "settings-row"; label: string; description?: string; control: PluginViewData }
+  | { type: "section"; title: string; children: PluginViewData[] };
 
 // -- Plugin API (what plugins receive) --
 
@@ -175,6 +188,8 @@ export interface PluginLibraryAPI {
     limit?: number;
     days?: number;
   }): Promise<HistoryMostPlayed[]>;
+  recordHistoryPlaysBatch(plays: { artist: string; track: string; playedAt: number }[]): Promise<{ imported: number; skipped: number }>;
+  applyTags(trackId: number, tagNames: string[]): Promise<Array<{ id: number; name: string }>>;
 }
 
 export interface PluginPlaybackAPI {
@@ -314,9 +329,18 @@ export interface PluginMenuItem {
   targets: PluginTargetKind[];
 }
 
+export interface PluginSettingsPanel {
+  pluginId: string;
+  id: string;
+  label: string;
+  icon?: string;
+  order: number;
+}
+
 export interface PluginRegistry {
   plugins: PluginState[];
   sidebarItems: PluginSidebarItem[];
   menuItems: PluginMenuItem[];
   viewData: Map<string, PluginViewData>;
+  settingsPanels: PluginSettingsPanel[];
 }

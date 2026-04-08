@@ -21,9 +21,11 @@ export function PluginViewRenderer({
   if (!data) {
     return (
       <div className="plugin-view">
-        <div className="plugin-view-header">
-          <h2>{pluginName}</h2>
-        </div>
+        {pluginName && (
+          <div className="plugin-view-header">
+            <h2>{pluginName}</h2>
+          </div>
+        )}
         <div className="plugin-view-empty">No content</div>
       </div>
     );
@@ -31,9 +33,11 @@ export function PluginViewRenderer({
 
   return (
     <div className="plugin-view">
-      <div className="plugin-view-header">
-        <h2>{pluginName}</h2>
-      </div>
+      {pluginName && (
+        <div className="plugin-view-header">
+          <h2>{pluginName}</h2>
+        </div>
+      )}
       <div className="plugin-view-content">
         <PluginViewNode
           node={data}
@@ -93,8 +97,10 @@ function PluginViewNode({
     case "button":
       return (
         <button
-          className="plugin-button"
+          className={`plugin-button${node.variant === "accent" ? " plugin-button-accent" : ""}`}
           onClick={() => onAction?.(node.action)}
+          disabled={node.disabled}
+          style={node.style as React.CSSProperties | undefined}
         >
           {node.label}
         </button>
@@ -137,6 +143,58 @@ function PluginViewNode({
       );
     case "loading":
       return <PluginLoading message={node.message} />;
+    case "toggle":
+      return (
+        <PluginToggle
+          label={node.label}
+          description={node.description}
+          checked={node.checked}
+          action={node.action}
+          onAction={onAction}
+          disabled={node.disabled}
+        />
+      );
+    case "select":
+      return (
+        <PluginSelect
+          label={node.label}
+          description={node.description}
+          value={node.value}
+          options={node.options}
+          action={node.action}
+          onAction={onAction}
+        />
+      );
+    case "progress-bar":
+      return <PluginProgressBar value={node.value} max={node.max} label={node.label} />;
+    case "settings-row":
+      return (
+        <PluginSettingsRow label={node.label} description={node.description}>
+          <PluginViewNode
+            node={node.control}
+            currentTrack={currentTrack}
+            onPlayTrack={onPlayTrack}
+            onAction={onAction}
+          />
+        </PluginSettingsRow>
+      );
+    case "section":
+      return (
+        <div className="settings-group">
+          <div className="settings-group-title">{node.title}</div>
+          <div className="settings-card">
+            {node.children.map((child, i) => (
+              <PluginViewNode
+                key={i}
+                node={child}
+                currentTrack={currentTrack}
+                onPlayTrack={onPlayTrack}
+                onAction={onAction}
+              />
+            ))}
+          </div>
+        </div>
+      );
     default:
       return null;
   }
@@ -467,6 +525,122 @@ function PluginLoading({ message }: { message?: string }) {
     <div className="plugin-loading">
       <div className="plugin-loading-spinner" />
       {message && <div>{message}</div>}
+    </div>
+  );
+}
+
+// -- Toggle --
+
+function PluginToggle({
+  label,
+  description,
+  checked,
+  action,
+  onAction,
+  disabled,
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  action: string;
+  onAction?: (actionId: string, data?: unknown) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className={`plugin-settings-row${disabled ? " plugin-settings-row-disabled" : ""}`}>
+      <div className="plugin-settings-row-info">
+        <span className="plugin-settings-label">{label}</span>
+        {description && <span className="plugin-settings-description">{description}</span>}
+      </div>
+      <button
+        className={`plugin-toggle${checked ? " plugin-toggle-on" : ""}`}
+        onClick={() => onAction?.(action, { value: !checked })}
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+      >
+        <span className="plugin-toggle-thumb" />
+      </button>
+    </div>
+  );
+}
+
+// -- Select --
+
+function PluginSelect({
+  label,
+  description,
+  value,
+  options,
+  action,
+  onAction,
+}: {
+  label: string;
+  description?: string;
+  value: string;
+  options: { value: string; label: string }[];
+  action: string;
+  onAction?: (actionId: string, data?: unknown) => void;
+}) {
+  return (
+    <div className="plugin-settings-row">
+      <div className="plugin-settings-row-info">
+        <span className="plugin-settings-label">{label}</span>
+        {description && <span className="plugin-settings-description">{description}</span>}
+      </div>
+      <select
+        className="plugin-select"
+        value={value}
+        onChange={(e) => onAction?.(action, { value: e.target.value })}
+      >
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+// -- Progress Bar --
+
+function PluginProgressBar({
+  value,
+  max,
+  label,
+}: {
+  value: number;
+  max: number;
+  label?: string;
+}) {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  return (
+    <div className="plugin-progress">
+      <div className="plugin-progress-bar">
+        <div className="plugin-progress-fill" style={{ width: `${pct}%` }} />
+      </div>
+      {label && <div className="plugin-progress-label">{label}</div>}
+    </div>
+  );
+}
+
+// -- Settings Row --
+
+function PluginSettingsRow({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="plugin-settings-row">
+      <div className="plugin-settings-row-info">
+        <span className="plugin-settings-label">{label}</span>
+        {description && <span className="plugin-settings-description">{description}</span>}
+      </div>
+      {children}
     </div>
   );
 }

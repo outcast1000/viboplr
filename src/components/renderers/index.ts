@@ -10,6 +10,7 @@ import { AnnotatedTextRenderer } from "./AnnotatedTextRenderer";
 import { KeyValueRenderer } from "./KeyValueRenderer";
 import { ImageGalleryRenderer } from "./ImageGalleryRenderer";
 import { LyricsRenderer } from "./LyricsRenderer";
+import { TitleLineRenderer } from "./TitleLineRenderer";
 
 export interface RendererProps {
   data: unknown;
@@ -28,4 +29,5 @@ export const renderers: Record<string, ComponentType<RendererProps>> = {
   annotated_text: AnnotatedTextRenderer,
   key_value: KeyValueRenderer,
   image_gallery: ImageGalleryRenderer,
+  title_line: TitleLineRenderer,
 };

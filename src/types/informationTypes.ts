@@ -14,7 +14,8 @@ export type DisplayKind =
   | "ranked_list"
   | "annotated_text"
   | "key_value"
-  | "image_gallery";
+  | "image_gallery"
+  | "title_line";
 
 /** Declared in plugin manifest contributes.informationTypes */
 export interface InfoTypeDeclaration {
@@ -148,4 +149,13 @@ export interface ImageGalleryImage {
 
 export interface ImageGalleryData {
   images: ImageGalleryImage[];
+}
+
+export interface TitleLineItem {
+  label: string;
+  value: string | number;
+}
+
+export interface TitleLineData {
+  items: TitleLineItem[];
 }

@@ -35,16 +35,25 @@ export function InformationSections({
   return (
     <div className="information-sections">
       {sections.map((section) => {
+        if (section.displayKind === "title_line") return null;
         const Renderer = renderers[section.displayKind];
         if (!Renderer) return null;
 
         const isCollapsed = collapsed[section.typeId] === true;
+        const meta = section.state.kind === "loaded" && section.state.data
+          ? (section.state.data as Record<string, unknown>)?._meta as { url?: string; providerName?: string } | undefined
+          : undefined;
 
         return (
           <div key={section.typeId} className="info-section">
             <div className="section-title section-header" onClick={() => toggleCollapse(section.typeId)}>
               <svg className={`section-chevron${isCollapsed ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
               {section.name}
+              {meta?.url && meta?.providerName && (
+                <a className="info-section-view-on" href={meta.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                  View on {meta.providerName}
+                </a>
+              )}
             </div>
             {!isCollapsed && (
               <div className="info-section-content">

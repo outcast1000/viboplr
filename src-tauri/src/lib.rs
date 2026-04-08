@@ -17,7 +17,7 @@ mod tag_writer;
 mod timing;
 mod downloader;
 mod genius;
-mod lastfm;
+
 mod lyric_provider;
 
 use commands::{AppState, DownloadQueue, ImageDownloadRequest};
@@ -71,7 +71,6 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::fetch_album_image,
         commands::fetch_tag_image,
         commands::clear_image_failures,
-        commands::clear_lastfm_cache_for_entity,
         commands::record_play,
         commands::get_history_recent,
         commands::get_history_most_played,
@@ -102,30 +101,6 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::set_track_youtube_url,
         commands::clear_track_youtube_url,
         commands::get_track_audio_properties,
-        commands::lastfm_get_auth_url,
-        commands::lastfm_authenticate,
-        commands::lastfm_set_session,
-        commands::lastfm_disconnect,
-        commands::lastfm_get_status,
-        commands::lastfm_now_playing,
-        commands::lastfm_scrobble,
-        commands::lastfm_import_history,
-        commands::lastfm_cancel_import,
-        commands::lastfm_start_auto_import,
-        commands::lastfm_stop_auto_import,
-        commands::lastfm_set_auto_import_interval,
-        commands::lastfm_love_track,
-        commands::lastfm_unlove_track,
-        commands::lastfm_get_similar_artists,
-        commands::lastfm_get_similar_tracks,
-        commands::lastfm_get_artist_info,
-        commands::lastfm_get_artist_info_sync,
-        commands::lastfm_get_album_info,
-        commands::lastfm_get_album_track_popularity,
-        commands::lastfm_get_artist_track_popularity,
-        commands::lastfm_get_track_info,
-        commands::lastfm_get_track_tags,
-        commands::lastfm_get_artist_tags,
         commands::get_genius_explanation,
         commands::lastfm_apply_community_tags,
         commands::replace_track_tags,
@@ -153,12 +128,17 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::plugin_storage_get,
         commands::plugin_storage_set,
         commands::plugin_storage_delete,
+
+        commands::plugin_get_lastfm_credentials,
+        commands::plugin_record_history_plays_batch,
+        commands::plugin_apply_tags,
         commands::info_rebuild_types,
         commands::info_get_types_for_entity,
         commands::info_get_value,
         commands::info_get_values_for_entity,
         commands::info_upsert_value,
         commands::info_delete_value,
+        commands::info_delete_values_for_type,
         commands::plugin_fetch,
         commands::fetch_plugin_gallery,
         commands::install_gallery_plugin,
@@ -215,7 +195,6 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::fetch_album_image,
         commands::fetch_tag_image,
         commands::clear_image_failures,
-        commands::clear_lastfm_cache_for_entity,
         commands::record_play,
         commands::get_history_recent,
         commands::get_history_most_played,
@@ -246,30 +225,6 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::set_track_youtube_url,
         commands::clear_track_youtube_url,
         commands::get_track_audio_properties,
-        commands::lastfm_get_auth_url,
-        commands::lastfm_authenticate,
-        commands::lastfm_set_session,
-        commands::lastfm_disconnect,
-        commands::lastfm_get_status,
-        commands::lastfm_now_playing,
-        commands::lastfm_scrobble,
-        commands::lastfm_import_history,
-        commands::lastfm_cancel_import,
-        commands::lastfm_start_auto_import,
-        commands::lastfm_stop_auto_import,
-        commands::lastfm_set_auto_import_interval,
-        commands::lastfm_love_track,
-        commands::lastfm_unlove_track,
-        commands::lastfm_get_similar_artists,
-        commands::lastfm_get_similar_tracks,
-        commands::lastfm_get_artist_info,
-        commands::lastfm_get_artist_info_sync,
-        commands::lastfm_get_album_info,
-        commands::lastfm_get_album_track_popularity,
-        commands::lastfm_get_artist_track_popularity,
-        commands::lastfm_get_track_info,
-        commands::lastfm_get_track_tags,
-        commands::lastfm_get_artist_tags,
         commands::get_genius_explanation,
         commands::lastfm_apply_community_tags,
         commands::replace_track_tags,
@@ -297,12 +252,17 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::plugin_storage_get,
         commands::plugin_storage_set,
         commands::plugin_storage_delete,
+
+        commands::plugin_get_lastfm_credentials,
+        commands::plugin_record_history_plays_batch,
+        commands::plugin_apply_tags,
         commands::info_rebuild_types,
         commands::info_get_types_for_entity,
         commands::info_get_value,
         commands::info_get_values_for_entity,
         commands::info_upsert_value,
         commands::info_delete_value,
+        commands::info_delete_values_for_type,
         commands::plugin_fetch,
         commands::fetch_plugin_gallery,
         commands::install_gallery_plugin,
@@ -919,12 +879,6 @@ pub fn run() {
                     profile_name,
                     download_queue,
                     track_download_manager: dl_manager,
-                    lastfm: crate::lastfm::LastfmClient::new(crate::commands::LASTFM_API_KEY, crate::commands::LASTFM_API_SECRET),
-                    lastfm_session: Mutex::new(None),
-                    lastfm_importing: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                    auto_import_running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                    auto_import_interval: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(60)),
-                    auto_import_last_at: std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0)),
                     tidal_client,
                     native_plugins_dir,
                     lyric_provider,
@@ -949,12 +903,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             match &event {
-                tauri::RunEvent::Exit => {
-                    if let Some(state) = app.try_state::<commands::AppState>() {
-                        // Stop Last.fm auto-import thread
-                        state.auto_import_running.store(false, std::sync::atomic::Ordering::SeqCst);
-                    }
-                }
+                tauri::RunEvent::Exit => {}
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Opened { urls } => {
                     eprintln!("[RunEvent::Opened] urls: {:?}", urls);

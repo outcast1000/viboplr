@@ -11,6 +11,7 @@ import type {
   PluginState,
   PluginSidebarItem,
   PluginMenuItem,
+  PluginSettingsPanel,
   PluginViewData,
   PluginContextMenuTarget,
   ViboplrPluginAPI,
@@ -87,6 +88,7 @@ export function usePlugins(
   const [viewData, setViewData] = useState<Map<string, PluginViewData>>(
     new Map(),
   );
+  const [settingsPanels, setSettingsPanels] = useState<PluginSettingsPanel[]>([]);
   const [galleryPlugins, setGalleryPlugins] = useState<GalleryPluginEntry[]>(
     [],
   );
@@ -174,6 +176,14 @@ export function usePlugins(
             return invoke("get_history_most_played", {
               limit: opts?.limit ?? 20,
             });
+          },
+          async recordHistoryPlaysBatch(plays) {
+            const tuples = plays.map(p => [p.artist, p.track, p.playedAt] as [string, string, number]);
+            const [imported, skipped] = await invoke<[number, number]>("plugin_record_history_plays_batch", { plays: tuples });
+            return { imported, skipped };
+          },
+          async applyTags(trackId, tagNames) {
+            return invoke<Array<{ id: number; name: string }>>("plugin_apply_tags", { trackId, tagNames });
           },
         },
 
@@ -507,6 +517,7 @@ export function usePlugins(
       const states: PluginState[] = [];
       const sidebar: PluginSidebarItem[] = [];
       const menus: PluginMenuItem[] = [];
+      const settings: PluginSettingsPanel[] = [];
       const allInfoTypes: Array<[string, string, string, string, string, number, number, number]> = [];
 
       for (const plugin of installed) {
@@ -579,20 +590,52 @@ export function usePlugins(
               allInfoTypes.push([it.id, it.name, it.entity, it.displayKind, plugin.id, it.ttl, it.order, it.priority]);
             }
           }
+          if (contrib.settingsPanel) {
+            const sp = contrib.settingsPanel;
+            settings.push({
+              pluginId: plugin.id,
+              id: sp.id,
+              label: sp.label,
+              icon: sp.icon,
+              order: sp.order ?? 100,
+            });
+          }
         }
       }
 
       if (allInfoTypes.length > 0) {
         await invoke("info_rebuild_types", { types: allInfoTypes });
+
+        // Invalidate info caches when a plugin version changes
+        const storedVersions = (await store.get<Record<string, string>>("pluginInfoVersions")) ?? {};
+        const newVersions: Record<string, string> = { ...storedVersions };
+        let versionsDirty = false;
+        for (const st of states) {
+          if (st.status !== "active" || !st.manifest.contributes?.informationTypes?.length) continue;
+          const prev = storedVersions[st.id];
+          if (prev !== st.manifest.version) {
+            for (const it of st.manifest.contributes.informationTypes) {
+              await invoke("info_delete_values_for_type", { typeId: it.id }).catch(() => {});
+            }
+            newVersions[st.id] = st.manifest.version;
+            versionsDirty = true;
+          }
+        }
+        if (versionsDirty) {
+          await store.set("pluginInfoVersions", newVersions);
+        }
       }
 
       // Sort by plugin name for consistent display
       sidebar.sort((a, b) => a.label.localeCompare(b.label));
       menus.sort((a, b) => a.label.localeCompare(b.label));
 
+      settings.sort((a, b) => a.order - b.order);
+
       setPluginStates(states);
       setSidebarItems(sidebar);
       setMenuItems(menus);
+      setSettingsPanels(settings);
     } catch (e) {
       console.error("Failed to load plugins:", e);
     }
@@ -789,6 +832,7 @@ export function usePlugins(
     pluginStates,
     sidebarItems,
     menuItems,
+    settingsPanels,
     viewData,
     getViewData,
     dispatchEvent,

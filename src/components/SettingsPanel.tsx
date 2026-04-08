@@ -2,16 +2,17 @@ import { useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SearchProviderConfig } from "../searchProviders";
 import { DEFAULT_PROVIDERS, getDomainFromUrl } from "../searchProviders";
-import { IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
+import { IconGoogle, IconX, IconYoutube, IconGenius } from "./Icons";
 import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { SkinInfo, GallerySkinEntry } from "../types/skin";
-import type { PluginState, GalleryPluginEntry } from "../types/plugin";
+import type { PluginState, PluginSettingsPanel, PluginViewData, GalleryPluginEntry } from "../types/plugin";
+import { PluginViewRenderer } from "./PluginViewRenderer";
 import "./SettingsPanel.css";
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
   google: IconGoogle,
-  lastfm: IconLastfm,
+
   x: IconX,
   youtube: IconYoutube,
   genius: IconGenius,
@@ -69,15 +70,6 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   );
 }
 
-function formatTimeAgo(unixTimestamp: number): string {
-  const now = Math.floor(Date.now() / 1000);
-  const diff = now - unixTimestamp;
-  if (diff < 60) return "Just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)} minutes ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
-  return `${Math.floor(diff / 86400)} days ago`;
-}
-
 interface SettingsPanelProps {
   searchProviders: SearchProviderConfig[];
   onClose: () => void;
@@ -97,21 +89,6 @@ interface SettingsPanelProps {
   backendTimings: TimingEntry[];
   frontendTimings: TimingEntry[];
   onFetchBackendTimings: () => void;
-  lastfmConnected: boolean;
-  lastfmUsername: string | null;
-  onLastfmConnect: () => void;
-  onLastfmDisconnect: () => void;
-  onLastfmImportHistory: () => void;
-  onLastfmCancelImport: () => void;
-  lastfmImporting: boolean;
-  lastfmImportProgress: { page: number; total_pages: number; imported: number; skipped: number } | null;
-  lastfmImportResult: { imported: number; skipped: number } | null;
-  onLastfmImportResultDismiss: () => void;
-  lastfmAutoImportEnabled: boolean;
-  onLastfmAutoImportToggle: (enabled: boolean) => void;
-  lastfmAutoImportIntervalMins: number;
-  onLastfmAutoImportIntervalChange: (mins: number) => void;
-  lastfmLastImportAt: number | null;
   downloadFormat: string;
   onDownloadFormatChange: (format: string) => void;
   // Skins
@@ -137,6 +114,10 @@ interface SettingsPanelProps {
   galleryPluginsError?: string | null;
   onFetchPluginGallery?: () => void;
   onInstallPluginFromGallery?: (entry: GalleryPluginEntry) => Promise<{ ok: boolean; error?: string }>;
+  // Plugin settings panels
+  pluginSettingsPanels?: PluginSettingsPanel[];
+  getPluginViewData?: (pluginId: string, viewId: string) => PluginViewData | undefined;
+  onPluginAction?: (pluginId: string, actionId: string, data?: unknown) => void;
   // Logging
   loggingEnabled: boolean;
   onLoggingEnabledChange: (enabled: boolean) => void;
@@ -150,7 +131,7 @@ interface ProviderFormData {
   trackUrl: string;
 }
 
-type SettingsTab = "general" | "skins" | "plugins" | "lastfm" | "providers" | "debug";
+type SettingsTab = "general" | "skins" | "plugins" | "providers" | "debug" | `plugin:${string}`;
 
 export function SettingsPanel({
   searchProviders,
@@ -168,21 +149,6 @@ export function SettingsPanel({
   backendTimings,
   frontendTimings,
   onFetchBackendTimings,
-  lastfmConnected,
-  lastfmUsername,
-  onLastfmConnect,
-  onLastfmDisconnect,
-  onLastfmImportHistory,
-  onLastfmCancelImport,
-  lastfmImporting,
-  lastfmImportProgress,
-  lastfmImportResult,
-  onLastfmImportResultDismiss,
-  lastfmAutoImportEnabled,
-  onLastfmAutoImportToggle,
-  lastfmAutoImportIntervalMins,
-  onLastfmAutoImportIntervalChange,
-  lastfmLastImportAt,
   downloadFormat,
   onDownloadFormatChange,
   activeSkinId,
@@ -206,6 +172,9 @@ export function SettingsPanel({
   galleryPluginsError,
   onFetchPluginGallery,
   onInstallPluginFromGallery,
+  pluginSettingsPanels,
+  getPluginViewData,
+  onPluginAction,
   loggingEnabled,
   onLoggingEnabledChange,
   onOpenLogsFolder,
@@ -284,15 +253,21 @@ export function SettingsPanel({
 
   const isEditing = editingId !== null || adding;
 
-  const [showImportModal, setShowImportModal] = useState(false);
 
   const skinsIcon = <svg {...iconProps}><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12" r="1.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.7 1.5-1.5 0-.4-.1-.7-.4-1-.2-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H16c3.3 0 6-2.7 6-6 0-5.5-4.5-9.5-10-9.5z"/></svg>;
+
+  const pluginIcon = <svg {...iconProps}><path d="M20 8h-2.81a5.45 5.45 0 0 1-.19-1.57A3.44 3.44 0 0 0 13.56 3 3.44 3.44 0 0 0 10 6.43c0 .55.07 1.07.19 1.57H8a2 2 0 0 0-2 2v2.81c-.5-.12-1.02-.19-1.57-.19A3.44 3.44 0 0 0 1 16.06 3.44 3.44 0 0 0 4.43 19.5c.55 0 1.07-.07 1.57-.19V22a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2.69c.5.12 1.02.19 1.57.19A3.44 3.44 0 0 0 23 15.94a3.44 3.44 0 0 0-3.43-3.44c-.55 0-1.07.07-1.57.19V10a2 2 0 0 0-2-2z"/></svg>;
 
   const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
     { key: "general", label: "General", icon: navIcons.general },
     { key: "skins", label: "Skins", icon: skinsIcon },
-    { key: "plugins", label: "Plugins", icon: <svg {...iconProps}><path d="M20 8h-2.81a5.45 5.45 0 0 1-.19-1.57A3.44 3.44 0 0 0 13.56 3 3.44 3.44 0 0 0 10 6.43c0 .55.07 1.07.19 1.57H8a2 2 0 0 0-2 2v2.81c-.5-.12-1.02-.19-1.57-.19A3.44 3.44 0 0 0 1 16.06 3.44 3.44 0 0 0 4.43 19.5c.55 0 1.07-.07 1.57-.19V22a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2.69c.5.12 1.02.19 1.57.19A3.44 3.44 0 0 0 23 15.94a3.44 3.44 0 0 0-3.43-3.44c-.55 0-1.07.07-1.57.19V10a2 2 0 0 0-2-2z"/></svg> },
-    { key: "lastfm", label: "Last.fm", icon: <>{IconLastfm({ size: 18 })}</> },
+    { key: "plugins", label: "Plugins", icon: pluginIcon },
+    // Plugin-contributed settings panels
+    ...(pluginSettingsPanels ?? []).map(sp => ({
+      key: `plugin:${sp.pluginId}:${sp.id}` as SettingsTab,
+      label: sp.label,
+      icon: pluginIcon,
+    })),
     { key: "providers", label: "Providers", icon: navIcons.providers },
     { key: "debug", label: "Debug", icon: navIcons.debug },
   ];
@@ -685,163 +660,6 @@ export function SettingsPanel({
               </div>
             )}
 
-            {settingsTab === "lastfm" && (
-              <>
-                <div className="settings-group">
-                  <div className="settings-group-title">Account</div>
-                  <div className="settings-card">
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Connection</span>
-                        <span className="settings-description">
-                          {lastfmConnected
-                            ? <>Scrobbling as <strong style={{ color: "#d51007" }}>{lastfmUsername}</strong></>
-                            : "Connect to scrobble your plays"
-                          }
-                        </span>
-                      </div>
-                      {lastfmConnected ? (
-                        <button className="settings-btn-secondary" onClick={onLastfmDisconnect}>Disconnect</button>
-                      ) : (
-                        <button className="settings-btn-accent" onClick={onLastfmConnect} style={{ background: "#d51007", borderColor: "#d51007" }}>Connect</button>
-                      )}
-                    </div>
-                    {lastfmConnected && lastfmUsername && (
-                      <div className="settings-row">
-                        <div className="settings-row-info">
-                          <span className="settings-label">Profile</span>
-                          <span className="settings-description">
-                            <a href="#" onClick={(e) => { e.preventDefault(); openUrl(`https://www.last.fm/user/${lastfmUsername}`); }}>
-                              last.fm/user/{lastfmUsername}
-                            </a>
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="settings-group">
-                  <div className="settings-group-title">History</div>
-                  <div className="settings-card">
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Import scrobble history</span>
-                        <span className="settings-description">
-                          Import your complete listening history from Last.fm
-                        </span>
-                      </div>
-                      <button
-                        className="settings-btn-secondary"
-                        onClick={() => { setShowImportModal(true); onLastfmImportHistory(); }}
-                        disabled={!lastfmConnected || lastfmImporting}
-                      >
-                        Import
-                      </button>
-                    </div>
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Auto-import</span>
-                        <span className="settings-description">
-                          Periodically import new scrobbles in the background
-                        </span>
-                      </div>
-                      <ToggleSwitch
-                        checked={lastfmAutoImportEnabled}
-                        onChange={(v) => { if (lastfmConnected) onLastfmAutoImportToggle(v); }}
-                      />
-                    </div>
-                    {lastfmAutoImportEnabled && lastfmConnected && (
-                      <>
-                        <div className="settings-row">
-                          <div className="settings-row-info">
-                            <span className="settings-label">Import interval</span>
-                            <span className="settings-description">
-                              How often to check for new scrobbles
-                            </span>
-                          </div>
-                          <select
-                            className="settings-select"
-                            value={lastfmAutoImportIntervalMins}
-                            onChange={(e) => onLastfmAutoImportIntervalChange(Number(e.target.value))}
-                          >
-                            <option value={15}>15 minutes</option>
-                            <option value={30}>30 minutes</option>
-                            <option value={60}>1 hour</option>
-                            <option value={120}>2 hours</option>
-                            <option value={240}>4 hours</option>
-                          </select>
-                        </div>
-                        <div className="settings-row">
-                          <div className="settings-row-info">
-                            <span className="settings-label">Last synced</span>
-                            <span className="settings-description">
-                              {lastfmLastImportAt
-                                ? formatTimeAgo(lastfmLastImportAt)
-                                : "Never"
-                              }
-                            </span>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {showImportModal && (
-                  <div className="lastfm-import-modal-overlay" onClick={() => { if (!lastfmImporting) { setShowImportModal(false); onLastfmImportResultDismiss(); } }}>
-                    <div className="lastfm-import-modal" onClick={e => e.stopPropagation()}>
-                      <h3>Import Last.fm History</h3>
-
-                      {lastfmImporting && lastfmImportProgress && (
-                        <div className="lastfm-import-progress">
-                          <div className="lastfm-import-progress-bar">
-                            <div
-                              className="lastfm-import-progress-fill"
-                              style={{ width: `${Math.round((lastfmImportProgress.page / lastfmImportProgress.total_pages) * 100)}%` }}
-                            />
-                          </div>
-                          <div className="lastfm-import-stats">
-                            <span>Page {lastfmImportProgress.page} of {lastfmImportProgress.total_pages}</span>
-                            <span>{lastfmImportProgress.imported} imported, {lastfmImportProgress.skipped} skipped</span>
-                          </div>
-                        </div>
-                      )}
-
-                      {lastfmImporting && !lastfmImportProgress && (
-                        <div className="lastfm-import-progress">
-                          <span className="lastfm-import-status">Connecting to Last.fm...</span>
-                        </div>
-                      )}
-
-                      {!lastfmImporting && lastfmImportResult && (
-                        <div className="lastfm-import-done">
-                          <span className="lastfm-import-status">Import complete</span>
-                          <span className="lastfm-import-stats-final">
-                            {lastfmImportResult.imported} imported, {lastfmImportResult.skipped} skipped
-                          </span>
-                        </div>
-                      )}
-
-                      {!lastfmImporting && !lastfmImportResult && (
-                        <div className="lastfm-import-done">
-                          <span className="lastfm-import-status">Import cancelled</span>
-                        </div>
-                      )}
-
-                      <div className="lastfm-import-modal-actions">
-                        {lastfmImporting ? (
-                          <button className="settings-btn-secondary" onClick={onLastfmCancelImport}>Cancel</button>
-                        ) : (
-                          <button className="settings-btn-accent" onClick={() => { setShowImportModal(false); onLastfmImportResultDismiss(); }}>Close</button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-
             {settingsTab === "providers" && (
               <div className="settings-group">
                 <div className="settings-group-title">Search Providers</div>
@@ -992,6 +810,24 @@ export function SettingsPanel({
                 <TimingTable title="Frontend" entries={frontendTimings} />
               </div>
             )}
+
+            {/* Plugin-contributed settings panels */}
+            {settingsTab.startsWith("plugin:") && (() => {
+              const parts = settingsTab.split(":");
+              const pluginId = parts[1];
+              const viewId = parts.slice(2).join(":");
+              const data = getPluginViewData?.(pluginId, viewId);
+              return (
+                <div className="plugin-settings-panel">
+                  <PluginViewRenderer
+                    pluginName=""
+                    data={data}
+                    currentTrack={null}
+                    onAction={(actionId, actionData) => onPluginAction?.(pluginId, actionId, actionData)}
+                  />
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>

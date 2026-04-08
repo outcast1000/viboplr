@@ -1,12 +1,11 @@
 use serde::{Serialize, Deserialize};
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::AtomicI64;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::db::Database;
 use crate::downloader::{DownloadFormat, DownloadManager, DownloadRequest};
-use crate::lastfm::LastfmClient;
 use crate::models::*;
 use crate::tidal::{self, TidalClient};
 use crate::scanner;
@@ -43,12 +42,6 @@ pub struct AppState {
     pub profile_name: String,
     pub download_queue: Arc<DownloadQueue>,
     pub track_download_manager: Arc<DownloadManager>,
-    pub lastfm: LastfmClient,
-    pub lastfm_session: Mutex<Option<(String, String)>>,  // (session_key, username)
-    pub lastfm_importing: Arc<AtomicBool>,
-    pub auto_import_running: Arc<AtomicBool>,
-    pub auto_import_interval: Arc<AtomicU64>,  // minutes
-    pub auto_import_last_at: Arc<AtomicI64>,   // unix timestamp, 0 = never
     pub tidal_client: Arc<TidalClient>,
     pub native_plugins_dir: Option<std::path::PathBuf>,
     pub lyric_provider: Arc<dyn crate::lyric_provider::LyricProvider>,
@@ -916,27 +909,6 @@ pub fn clear_image_failures(state: State<'_, AppState>) -> Result<(), String> {
     state.db.clear_image_failures().map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn clear_lastfm_cache_for_entity(state: State<'_, AppState>, kind: String, name: String, artist_name: Option<String>) -> Result<(), String> {
-    let lower = name.to_lowercase();
-    if kind == "artist" {
-        let _ = state.db.lastfm_cache_delete(&format!("artist_info:{}", lower));
-        let _ = state.db.lastfm_cache_delete(&format!("similar_artists:{}", lower));
-        let _ = state.db.lastfm_cache_delete(&format!("artist_tags:{}", lower));
-    } else if kind == "album" {
-        if let Some(artist) = artist_name {
-            let _ = state.db.lastfm_cache_delete(&format!("album_info:{}:{}", artist.to_lowercase(), lower));
-        }
-    } else if kind == "track" {
-        if let Some(artist) = artist_name {
-            let artist_lower = artist.to_lowercase();
-            let _ = state.db.lastfm_cache_delete(&format!("track_tags:{}:{}", artist_lower, lower));
-            let _ = state.db.lastfm_cache_delete(&format!("track_info:{}:{}", artist_lower, lower));
-        }
-    }
-    Ok(())
-}
-
 // --- Play history commands ---
 
 #[tauri::command]
@@ -1491,744 +1463,6 @@ pub fn get_track_audio_properties(
         channels: props.channels(),
         bitrate: props.overall_bitrate(),
     })
-}
-
-// --- Last.fm commands ---
-
-#[tauri::command]
-pub fn lastfm_get_auth_url(state: State<'_, AppState>) -> Result<String, String> {
-    Ok(state.lastfm.get_auth_url("viboplr://lastfm-callback"))
-}
-
-#[tauri::command]
-pub fn lastfm_authenticate(state: State<'_, AppState>, token: String) -> Result<(LastfmStatus, String), String> {
-    let (session_key, username) = state.lastfm.get_session(&token).map_err(|e| e.to_string())?;
-    *state.lastfm_session.lock().unwrap() = Some((session_key.clone(), username.clone()));
-    Ok((LastfmStatus { connected: true, username: Some(username) }, session_key))
-}
-
-#[tauri::command]
-pub fn lastfm_set_session(state: State<'_, AppState>, session_key: String, username: String) {
-    *state.lastfm_session.lock().unwrap() = Some((session_key, username));
-}
-
-#[tauri::command]
-pub fn lastfm_disconnect(state: State<'_, AppState>) {
-    *state.lastfm_session.lock().unwrap() = None;
-}
-
-#[tauri::command]
-pub fn lastfm_get_status(state: State<'_, AppState>) -> LastfmStatus {
-    let session = state.lastfm_session.lock().unwrap();
-    match session.as_ref() {
-        Some((_, username)) => LastfmStatus { connected: true, username: Some(username.clone()) },
-        None => LastfmStatus { connected: false, username: None },
-    }
-}
-
-#[tauri::command]
-pub fn lastfm_now_playing(state: State<'_, AppState>, app: AppHandle, track_id: i64) {
-    let session = state.lastfm_session.lock().unwrap().clone();
-    let Some((session_key, _)) = session else { return };
-
-    let track = match state.db.get_track_by_id(track_id) {
-        Ok(t) => t,
-        _ => return,
-    };
-    let Some(artist) = track.artist_name.as_deref() else { return };
-
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    let title = track.title.clone();
-    let artist_str = artist.to_string();
-    let album = track.album_title.clone();
-    let duration = track.duration_secs;
-    let app_handle = app.clone();
-
-    thread::spawn(move || {
-        if let Err(e) = lastfm.update_now_playing(
-            &session_key, &artist_str, &title, album.as_deref(), duration,
-        ) {
-            log::warn!("Last.fm now_playing error: {}", e);
-            if e.to_string().starts_with("auth_error:") {
-                let _ = app_handle.emit("lastfm-auth-error", ());
-            }
-        }
-    });
-}
-
-#[tauri::command]
-pub fn lastfm_scrobble(state: State<'_, AppState>, app: AppHandle, track_id: i64, started_at: i64) {
-    let session = state.lastfm_session.lock().unwrap().clone();
-    let Some((session_key, _)) = session else { return };
-
-    let track = match state.db.get_track_by_id(track_id) {
-        Ok(t) => t,
-        _ => return,
-    };
-    let Some(artist) = track.artist_name.as_deref() else { return };
-
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    let title = track.title.clone();
-    let artist_str = artist.to_string();
-    let album = track.album_title.clone();
-    let duration = track.duration_secs;
-    let app_handle = app.clone();
-
-    thread::spawn(move || {
-        if let Err(e) = lastfm.scrobble(
-            &session_key, &artist_str, &title, started_at, album.as_deref(), duration,
-        ) {
-            log::warn!("Last.fm scrobble error: {}", e);
-            if e.to_string().starts_with("auth_error:") {
-                let _ = app_handle.emit("lastfm-auth-error", ());
-            }
-        }
-    });
-}
-
-#[tauri::command]
-pub fn lastfm_import_history(
-    state: State<'_, AppState>,
-    app: AppHandle,
-    last_import_at: Option<i64>,
-) -> Result<(), String> {
-    if state.lastfm_importing.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
-        return Err("Import already in progress".to_string());
-    }
-
-    let session = state.lastfm_session.lock().unwrap().clone();
-    let (_, username) = session.ok_or("Not connected to Last.fm")?;
-
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    let db = state.db.clone();
-    let app_handle = app.clone();
-    let importing_flag = state.lastfm_importing.clone();
-    let auto_last_at = state.auto_import_last_at.clone();
-
-    let from = match last_import_at {
-        Some(ts) if ts > 0 => Some(ts + 1),
-        _ => None,
-    };
-
-    let timestamp_before = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-
-    thread::spawn(move || {
-        let mut total_imported: u64 = 0;
-        let mut total_skipped: u64 = 0;
-        let mut page: u32 = 1;
-        let limit: u32 = 200;
-
-        let result: Result<(), String> = (|| {
-            let first_resp = lastfm.get_recent_tracks(&username, 1, limit, from)
-                .map_err(|e| e.to_string())?;
-            let total_pages: u32 = first_resp.recenttracks.attr.total_pages.parse().unwrap_or(1);
-
-            let plays: Vec<(String, String, i64)> = first_resp.recenttracks.track.iter()
-                .filter(|t| t.date.is_some())
-                .filter_map(|t| {
-                    t.date.as_ref().and_then(|d| d.uts.parse::<i64>().ok())
-                        .map(|ts| (t.artist.text.clone(), t.name.clone(), ts))
-                })
-                .collect();
-
-            if !plays.is_empty() {
-                let (imp, skip) = db.record_history_plays_batch(&plays).map_err(|e| e.to_string())?;
-                total_imported += imp;
-                total_skipped += skip;
-            }
-
-            let _ = app_handle.emit("lastfm-import-progress", serde_json::json!({
-                "page": 1, "total_pages": total_pages,
-                "imported": total_imported, "skipped": total_skipped,
-                "source": "manual",
-            }));
-
-            page = 2;
-            while page <= total_pages {
-                if !importing_flag.load(Ordering::SeqCst) {
-                    return Err("cancelled".to_string());
-                }
-
-                std::thread::sleep(std::time::Duration::from_millis(200));
-
-                let resp = lastfm.get_recent_tracks(&username, page, limit, from)
-                    .map_err(|e| e.to_string())?;
-
-                let plays: Vec<(String, String, i64)> = resp.recenttracks.track.iter()
-                    .filter(|t| t.date.is_some())
-                    .filter_map(|t| {
-                        t.date.as_ref().and_then(|d| d.uts.parse::<i64>().ok())
-                            .map(|ts| (t.artist.text.clone(), t.name.clone(), ts))
-                    })
-                    .collect();
-
-                if !plays.is_empty() {
-                    let (imp, skip) = db.record_history_plays_batch(&plays).map_err(|e| e.to_string())?;
-                    total_imported += imp;
-                    total_skipped += skip;
-
-                    // Early stop: full page all skipped by dedup
-                    if from.is_some() && imp == 0 {
-                        break;
-                    }
-                }
-
-                let _ = app_handle.emit("lastfm-import-progress", serde_json::json!({
-                    "page": page, "total_pages": total_pages,
-                    "imported": total_imported, "skipped": total_skipped,
-                    "source": "manual",
-                }));
-
-                page += 1;
-            }
-
-            Ok(())
-        })();
-
-        importing_flag.store(false, Ordering::SeqCst);
-
-        match result {
-            Ok(()) => {
-                // Update shared last_at so auto-import picks it up
-                auto_last_at.store(timestamp_before, Ordering::SeqCst);
-                let _ = app_handle.emit("lastfm-import-complete", serde_json::json!({
-                    "imported": total_imported,
-                    "skipped": total_skipped,
-                    "timestamp": timestamp_before,
-                    "source": "manual",
-                }));
-            }
-            Err(e) => {
-                let _ = app_handle.emit("lastfm-import-error", serde_json::json!({
-                    "message": e,
-                    "source": "manual",
-                }));
-            }
-        }
-    });
-
-    Ok(())
-}
-
-#[tauri::command]
-pub fn lastfm_cancel_import(state: State<'_, AppState>) {
-    state.lastfm_importing.store(false, Ordering::SeqCst);
-}
-
-#[tauri::command]
-pub fn lastfm_start_auto_import(
-    state: State<'_, AppState>,
-    app: AppHandle,
-    interval_mins: u64,
-    last_import_at: Option<i64>,
-) -> Result<(), String> {
-    // Double-start guard
-    if state.auto_import_running.load(Ordering::SeqCst) {
-        return Ok(());
-    }
-    state.auto_import_running.store(true, Ordering::SeqCst);
-    state.auto_import_interval.store(interval_mins, Ordering::SeqCst);
-    if let Some(ts) = last_import_at {
-        state.auto_import_last_at.store(ts, Ordering::SeqCst);
-    }
-
-    let running = state.auto_import_running.clone();
-    let interval = state.auto_import_interval.clone();
-    let last_at = state.auto_import_last_at.clone();
-    let importing = state.lastfm_importing.clone();
-    let db = state.db.clone();
-    let app_handle = app.clone();
-
-    thread::spawn(move || {
-        // Initial delay to let the app finish initializing
-        if !running.load(Ordering::SeqCst) { return; }
-        thread::sleep(std::time::Duration::from_secs(10));
-
-        loop {
-            let interval_secs = interval.load(Ordering::SeqCst) * 60;
-            let mut elapsed = 0u64;
-
-            // Sleep in 10-sec chunks, checking running flag
-            while elapsed < interval_secs {
-                if !running.load(Ordering::SeqCst) { return; }
-                thread::sleep(std::time::Duration::from_secs(10));
-                elapsed += 10;
-            }
-
-            if !running.load(Ordering::SeqCst) { return; }
-
-            // Re-read session each cycle (may have reconnected/disconnected)
-            let username = {
-                let state = app_handle.state::<AppState>();
-                let session = state.lastfm_session.lock().unwrap().clone();
-                match session {
-                    Some((_, u)) => u,
-                    None => {
-                        log::info!("Last.fm auto-import: not connected, skipping cycle");
-                        continue;
-                    }
-                }
-            };
-
-            // Try to acquire the import lock
-            if importing.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
-                log::info!("Last.fm auto-import: manual import in progress, skipping cycle");
-                continue;
-            }
-
-            let timestamp_before = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs() as i64;
-
-            let stored_last_at = last_at.load(Ordering::SeqCst);
-            let from = if stored_last_at > 0 { Some(stored_last_at + 1) } else { None };
-
-            log::info!("Last.fm auto-import: starting (from={:?})", from);
-
-            let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-            let mut total_imported: u64 = 0;
-            let mut total_skipped: u64 = 0;
-
-            let result: Result<(), String> = (|| {
-                let first_resp = lastfm.get_recent_tracks(&username, 1, 200, from)
-                    .map_err(|e| e.to_string())?;
-                let total_pages: u32 = first_resp.recenttracks.attr.total_pages.parse().unwrap_or(1);
-
-                let plays: Vec<(String, String, i64)> = first_resp.recenttracks.track.iter()
-                    .filter(|t| t.date.is_some())
-                    .filter_map(|t| {
-                        t.date.as_ref().and_then(|d| d.uts.parse::<i64>().ok())
-                            .map(|ts| (t.artist.text.clone(), t.name.clone(), ts))
-                    })
-                    .collect();
-
-                if !plays.is_empty() {
-                    let (imp, skip) = db.record_history_plays_batch(&plays).map_err(|e| e.to_string())?;
-                    total_imported += imp;
-                    total_skipped += skip;
-                }
-
-                // Early stop: if first page yielded nothing new and we had a from filter
-                if from.is_some() && total_imported == 0 && total_pages <= 1 {
-                    return Ok(());
-                }
-
-                let mut page: u32 = 2;
-                while page <= total_pages {
-                    if !running.load(Ordering::SeqCst) || !importing.load(Ordering::SeqCst) {
-                        return Err("cancelled".to_string());
-                    }
-
-                    thread::sleep(std::time::Duration::from_millis(200));
-
-                    let resp = lastfm.get_recent_tracks(&username, page, 200, from)
-                        .map_err(|e| e.to_string())?;
-
-                    let plays: Vec<(String, String, i64)> = resp.recenttracks.track.iter()
-                        .filter(|t| t.date.is_some())
-                        .filter_map(|t| {
-                            t.date.as_ref().and_then(|d| d.uts.parse::<i64>().ok())
-                                .map(|ts| (t.artist.text.clone(), t.name.clone(), ts))
-                        })
-                        .collect();
-
-                    if !plays.is_empty() {
-                        let (imp, skip) = db.record_history_plays_batch(&plays).map_err(|e| e.to_string())?;
-                        total_imported += imp;
-                        total_skipped += skip;
-
-                        // Early stop: full page all skipped
-                        if imp == 0 {
-                            break;
-                        }
-                    }
-
-                    page += 1;
-                }
-
-                Ok(())
-            })();
-
-            importing.store(false, Ordering::SeqCst);
-
-            match result {
-                Ok(()) => {
-                    last_at.store(timestamp_before, Ordering::SeqCst);
-                    log::info!("Last.fm auto-import complete: {} imported, {} skipped", total_imported, total_skipped);
-                    let _ = app_handle.emit("lastfm-import-complete", serde_json::json!({
-                        "imported": total_imported,
-                        "skipped": total_skipped,
-                        "timestamp": timestamp_before,
-                        "source": "auto",
-                    }));
-                }
-                Err(ref e) if e == "cancelled" => {
-                    log::info!("Last.fm auto-import cancelled");
-                }
-                Err(e) => {
-                    log::warn!("Last.fm auto-import error: {}", e);
-                    let _ = app_handle.emit("lastfm-import-error", serde_json::json!({
-                        "message": e,
-                        "source": "auto",
-                    }));
-                }
-            }
-        }
-    });
-
-    Ok(())
-}
-
-#[tauri::command]
-pub fn lastfm_stop_auto_import(state: State<'_, AppState>) {
-    state.auto_import_running.store(false, Ordering::SeqCst);
-    // Also clear importing so the inner pagination loop exits promptly
-    state.lastfm_importing.store(false, Ordering::SeqCst);
-}
-
-#[tauri::command]
-pub fn lastfm_set_auto_import_interval(state: State<'_, AppState>, interval_mins: u64) {
-    state.auto_import_interval.store(interval_mins, Ordering::SeqCst);
-}
-
-#[tauri::command]
-pub fn lastfm_love_track(state: State<'_, AppState>, app: AppHandle, track_id: i64) {
-    let session = state.lastfm_session.lock().unwrap().clone();
-    let Some((session_key, _)) = session else { return };
-
-    let track = match state.db.get_track_by_id(track_id) {
-        Ok(t) => t,
-        _ => return,
-    };
-    let Some(artist) = track.artist_name.as_deref() else { return };
-
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    let title = track.title.clone();
-    let artist_str = artist.to_string();
-    let app_handle = app.clone();
-
-    thread::spawn(move || {
-        if let Err(e) = lastfm.love_track(&session_key, &artist_str, &title) {
-            log::warn!("Last.fm love error: {}", e);
-            if e.to_string().starts_with("auth_error:") {
-                let _ = app_handle.emit("lastfm-auth-error", ());
-            }
-        }
-    });
-}
-
-#[tauri::command]
-pub fn lastfm_unlove_track(state: State<'_, AppState>, app: AppHandle, track_id: i64) {
-    let session = state.lastfm_session.lock().unwrap().clone();
-    let Some((session_key, _)) = session else { return };
-
-    let track = match state.db.get_track_by_id(track_id) {
-        Ok(t) => t,
-        _ => return,
-    };
-    let Some(artist) = track.artist_name.as_deref() else { return };
-
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    let title = track.title.clone();
-    let artist_str = artist.to_string();
-    let app_handle = app.clone();
-
-    thread::spawn(move || {
-        if let Err(e) = lastfm.unlove_track(&session_key, &artist_str, &title) {
-            log::warn!("Last.fm unlove error: {}", e);
-            if e.to_string().starts_with("auth_error:") {
-                let _ = app_handle.emit("lastfm-auth-error", ());
-            }
-        }
-    });
-}
-
-#[tauri::command]
-pub fn lastfm_get_similar_artists(state: State<'_, AppState>, app: AppHandle, artist_name: String, limit: Option<u32>) -> Option<serde_json::Value> {
-    let cache_key = format!("similar_artists:{}", artist_name.to_lowercase());
-    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
-        return Some(cached);
-    }
-    let db = state.db.clone();
-    let lim = limit.unwrap_or(10);
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    thread::spawn(move || {
-        if let Ok(value) = lastfm.get_similar_artists(&artist_name, lim) {
-            let _ = db.lastfm_cache_set(&cache_key, &value);
-            let _ = app.emit("lastfm-similar-artists", value);
-        }
-    });
-    None
-}
-
-#[tauri::command]
-pub fn lastfm_get_similar_tracks(state: State<'_, AppState>, app: AppHandle, artist_name: String, track_title: String, limit: Option<u32>) -> Option<serde_json::Value> {
-    let cache_key = format!("similar_tracks:{}:{}", artist_name.to_lowercase(), track_title.to_lowercase());
-    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
-        return Some(cached);
-    }
-    let db = state.db.clone();
-    let lim = limit.unwrap_or(10);
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    thread::spawn(move || {
-        if let Ok(value) = lastfm.get_similar_tracks(&artist_name, &track_title, lim) {
-            let _ = db.lastfm_cache_set(&cache_key, &value);
-            let _ = app.emit("lastfm-similar-tracks", value);
-        }
-    });
-    None
-}
-
-#[tauri::command]
-pub fn lastfm_get_artist_info(state: State<'_, AppState>, app: AppHandle, artist_name: String) -> Option<serde_json::Value> {
-    let cache_key = format!("artist_info:{}", artist_name.to_lowercase());
-    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
-        return Some(cached);
-    }
-    let db = state.db.clone();
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    thread::spawn(move || {
-        match lastfm.get_artist_info(&artist_name) {
-            Ok(value) => {
-                let _ = db.lastfm_cache_set(&cache_key, &value);
-                let _ = app.emit("lastfm-artist-info", value);
-            }
-            Err(_) => {
-                let _ = app.emit("lastfm-artist-info-error", artist_name);
-            }
-        }
-    });
-    None
-}
-
-#[tauri::command]
-pub fn lastfm_get_artist_info_sync(state: State<'_, AppState>, artist_name: String) -> Result<Option<serde_json::Value>, String> {
-    let cache_key = format!("artist_info:{}", artist_name.to_lowercase());
-    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
-        return Ok(Some(cached));
-    }
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    match lastfm.get_artist_info(&artist_name) {
-        Ok(value) => {
-            let _ = state.db.lastfm_cache_set(&cache_key, &value);
-            Ok(Some(value))
-        }
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[tauri::command]
-pub fn lastfm_get_album_info(state: State<'_, AppState>, app: AppHandle, artist_name: String, album_title: String) -> Option<serde_json::Value> {
-    let cache_key = format!("album_info:{}:{}", artist_name.to_lowercase(), album_title.to_lowercase());
-    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
-        return Some(cached);
-    }
-    let db = state.db.clone();
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    thread::spawn(move || {
-        match lastfm.get_album_info(&artist_name, &album_title) {
-            Ok(value) => {
-                let _ = db.lastfm_cache_set(&cache_key, &value);
-                let _ = app.emit("lastfm-album-info", value);
-            }
-            Err(_) => {
-                let _ = app.emit("lastfm-album-info-error", album_title);
-            }
-        }
-    });
-    None
-}
-
-#[tauri::command]
-pub fn lastfm_get_album_track_popularity(
-    state: State<'_, AppState>,
-    app: AppHandle,
-    artist_name: String,
-    album_title: String,
-) -> Option<serde_json::Value> {
-    let cache_key = format!(
-        "album_track_pop:{}:{}",
-        artist_name.to_lowercase(),
-        album_title.to_lowercase()
-    );
-    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
-        return Some(cached);
-    }
-    let db = state.db.clone();
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    thread::spawn(move || {
-        // Get album info to extract track names
-        let album_cache_key = format!(
-            "album_info:{}:{}",
-            artist_name.to_lowercase(),
-            album_title.to_lowercase()
-        );
-        let album_info = db
-            .lastfm_cache_get(&album_cache_key)
-            .ok()
-            .flatten()
-            .or_else(|| lastfm.get_album_info(&artist_name, &album_title).ok());
-
-        let Some(album_info) = album_info else { return };
-
-        let tracks = album_info
-            .get("album")
-            .and_then(|a| a.get("tracks"))
-            .and_then(|t| t.get("track"))
-            .and_then(|t| t.as_array());
-
-        let Some(tracks) = tracks else { return };
-
-        // Fetch track.getInfo for each track to get listeners/playcount
-        let mut results = Vec::new();
-        for track in tracks {
-            let Some(track_name) = track.get("name").and_then(|n| n.as_str()) else {
-                continue;
-            };
-
-            if let Ok(info) = lastfm.get_track_info(&artist_name, track_name) {
-                let listeners = info
-                    .get("track")
-                    .and_then(|t| t.get("listeners"))
-                    .and_then(|l| l.as_str())
-                    .and_then(|l| l.parse::<u64>().ok())
-                    .unwrap_or(0);
-                let playcount = info
-                    .get("track")
-                    .and_then(|t| t.get("playcount"))
-                    .and_then(|p| p.as_str())
-                    .and_then(|p| p.parse::<u64>().ok())
-                    .unwrap_or(0);
-
-                results.push(serde_json::json!({
-                    "name": track_name,
-                    "listeners": listeners,
-                    "playcount": playcount,
-                }));
-            }
-        }
-
-        let value = serde_json::json!({
-            "artist": artist_name,
-            "album": album_title,
-            "tracks": results,
-        });
-
-        let _ = db.lastfm_cache_set(&cache_key, &value);
-        let _ = app.emit("lastfm-album-track-popularity", &value);
-    });
-    None
-}
-
-#[tauri::command]
-pub fn lastfm_get_artist_track_popularity(
-    state: State<'_, AppState>,
-    app: AppHandle,
-    artist_name: String,
-) -> Option<serde_json::Value> {
-    let cache_key = format!("artist_top_tracks:{}", artist_name.to_lowercase());
-    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
-        return Some(cached);
-    }
-    let db = state.db.clone();
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    thread::spawn(move || {
-        let Ok(resp) = lastfm.get_artist_top_tracks(&artist_name, 200, 1) else {
-            return;
-        };
-
-        let tracks = resp
-            .get("toptracks")
-            .and_then(|t| t.get("track"))
-            .and_then(|t| t.as_array());
-
-        let Some(tracks) = tracks else { return };
-
-        let mut results = Vec::new();
-        for track in tracks {
-            let Some(name) = track.get("name").and_then(|n| n.as_str()) else {
-                continue;
-            };
-            let listeners = track
-                .get("listeners")
-                .and_then(|l| l.as_str())
-                .and_then(|l| l.parse::<u64>().ok())
-                .unwrap_or(0);
-            results.push(serde_json::json!({
-                "name": name,
-                "listeners": listeners,
-            }));
-        }
-
-        let value = serde_json::json!({
-            "artist": artist_name,
-            "tracks": results,
-        });
-
-        let _ = db.lastfm_cache_set(&cache_key, &value);
-        let _ = app.emit("lastfm-artist-track-popularity", &value);
-    });
-    None
-}
-
-#[tauri::command]
-pub fn lastfm_get_track_info(state: State<'_, AppState>, app: AppHandle, artist_name: String, track_title: String) -> Option<serde_json::Value> {
-    let cache_key = format!("track_info:{}:{}", artist_name.to_lowercase(), track_title.to_lowercase());
-    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
-        return Some(cached);
-    }
-    let db = state.db.clone();
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    thread::spawn(move || {
-        match lastfm.get_track_info(&artist_name, &track_title) {
-            Ok(value) => {
-                let _ = db.lastfm_cache_set(&cache_key, &value);
-                let _ = app.emit("lastfm-track-info", value);
-            }
-            Err(_) => {
-                let _ = app.emit("lastfm-track-info-error", ());
-            }
-        }
-    });
-    None
-}
-
-#[tauri::command]
-pub fn lastfm_get_track_tags(state: State<'_, AppState>, app: AppHandle, artist_name: String, track_title: String) -> Option<serde_json::Value> {
-    let cache_key = format!("track_tags:{}:{}", artist_name.to_lowercase(), track_title.to_lowercase());
-    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
-        return Some(cached);
-    }
-    let db = state.db.clone();
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    thread::spawn(move || {
-        if let Ok(value) = lastfm.get_track_top_tags(&artist_name, &track_title) {
-            let _ = db.lastfm_cache_set(&cache_key, &value);
-            let _ = app.emit("lastfm-track-tags", value);
-        }
-    });
-    None
-}
-
-#[tauri::command]
-pub fn lastfm_get_artist_tags(state: State<'_, AppState>, app: AppHandle, artist_name: String) -> Option<serde_json::Value> {
-    let cache_key = format!("artist_tags:{}", artist_name.to_lowercase());
-    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
-        return Some(cached);
-    }
-    let db = state.db.clone();
-    let lastfm = LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET);
-    thread::spawn(move || {
-        if let Ok(value) = lastfm.get_artist_top_tags(&artist_name) {
-            let _ = db.lastfm_cache_set(&cache_key, &value);
-            let _ = app.emit("lastfm-artist-tags", value);
-        }
-    });
-    None
 }
 
 #[tauri::command]
@@ -2877,6 +2111,34 @@ pub fn plugin_storage_delete(state: State<'_, AppState>, plugin_id: String, key:
     state.db.plugin_storage_delete(&plugin_id, &key)
 }
 
+#[tauri::command]
+pub fn plugin_get_lastfm_credentials() -> (String, String) {
+    (LASTFM_API_KEY.to_string(), LASTFM_API_SECRET.to_string())
+}
+
+#[tauri::command]
+pub fn plugin_record_history_plays_batch(
+    state: State<'_, AppState>,
+    plays: Vec<(String, String, i64)>,
+) -> Result<(u64, u64), String> {
+    state.db.record_history_plays_batch(&plays).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn plugin_apply_tags(
+    state: State<'_, AppState>,
+    track_id: i64,
+    tag_names: Vec<String>,
+) -> Result<Vec<(i64, String)>, String> {
+    let mut result = Vec::new();
+    for name in &tag_names {
+        let tag_id = state.db.get_or_create_tag(name).map_err(|e| e.to_string())?;
+        state.db.add_track_tag(track_id, tag_id).map_err(|e| e.to_string())?;
+        result.push((tag_id, name.clone()));
+    }
+    Ok(result)
+}
+
 // ── Information Type commands ────────────────────────────────
 
 #[tauri::command]
@@ -2932,6 +2194,14 @@ pub fn info_delete_value(
     entity_key: String,
 ) -> Result<(), String> {
     state.db.info_delete_value(&type_id, &entity_key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn info_delete_values_for_type(
+    state: State<'_, AppState>,
+    type_id: String,
+) -> Result<usize, String> {
+    state.db.info_delete_values_for_type(&type_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3055,12 +2325,6 @@ mod tests {
                 condvar: Condvar::new(),
             }),
             track_download_manager: Arc::new(DownloadManager::new()),
-            lastfm: LastfmClient::new(LASTFM_API_KEY, LASTFM_API_SECRET),
-            lastfm_session: Mutex::new(None),
-            lastfm_importing: Arc::new(AtomicBool::new(false)),
-            auto_import_running: Arc::new(AtomicBool::new(false)),
-            auto_import_interval: Arc::new(AtomicU64::new(60)),
-            auto_import_last_at: Arc::new(AtomicI64::new(0)),
             tidal_client: Arc::new(TidalClient::new(None)),
             native_plugins_dir: None,
             lyric_provider: Arc::new(crate::lyric_provider::LyricFallbackChain::new(vec![])),

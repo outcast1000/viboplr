@@ -9,14 +9,13 @@ import { AlbumCardArt } from "./AlbumCardArt";
 import { ImageActions } from "./ImageActions";
 import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
+import { TitleLineInfo } from "./TitleLineInfo";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 
 interface ArtistDetailContentProps {
   selectedArtist: number;
   artist: Artist | undefined;
   artistImagePath: string | null;
-  artistBio: { summary: string; listeners: string; playcount: string } | null;
-  artistInfoLoading: boolean;
   similarArtists: Array<{ name: string; match: string }>;
   artistTopTracks: Array<{ name: string; listeners: number; libraryTrack?: Track }>;
   artistTrackPopularity: Record<number, number>;
@@ -58,8 +57,6 @@ export function ArtistDetailContent({
   selectedArtist,
   artist,
   artistImagePath,
-  artistBio,
-  artistInfoLoading,
   similarArtists,
   artistTopTracks,
   artistTrackPopularity,
@@ -142,16 +139,12 @@ export function ArtistDetailContent({
               />
             </h2>
             <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
-            {artistInfoLoading && !artistBio && (
-              <span className="artist-bio-stats lastfm-loading">Fetching info from Last.fm…</span>
-            )}
-            {artistBio && (artistBio.listeners || artistBio.playcount) && (
-              <span className="artist-bio-stats">
-                {artistBio.listeners && <>{parseInt(artistBio.listeners).toLocaleString()} listeners</>}
-                {artistBio.listeners && artistBio.playcount && " \u00B7 "}
-                {artistBio.playcount && <>{parseInt(artistBio.playcount).toLocaleString()} scrobbles</>}
-              </span>
-            )}
+            <span className="artist-bio-stats">
+              <TitleLineInfo
+                entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
+                invokeInfoFetch={invokeInfoFetch}
+              />
+            </span>
           </div>
         </div>
         {artistTopTracks.length > 0 && (

@@ -33,7 +33,7 @@ import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useSkins } from "./hooks/useSkins";
 import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
-import { useLastfm } from "./hooks/useLastfm";
+
 import { useDownloads } from "./hooks/useDownloads";
 import { useLikeActions } from "./hooks/useLikeActions";
 import { useCollectionActions } from "./hooks/useCollectionActions";
@@ -341,9 +341,6 @@ function App() {
   // Skins
   const skins = useSkins();
 
-  // Last.fm
-  const lastfm = useLastfm(store, addLog, historyRef);
-
   // Downloads
   const downloads = useDownloads(downloadFormatRef, addLog);
 
@@ -366,7 +363,6 @@ function App() {
     queueHook: {
       setQueue: queueHook.setQueue,
     },
-    lastfmConnected: lastfm.lastfmConnected,
     plugins: {
       dispatchEvent: plugins.dispatchEvent,
     },
@@ -583,26 +579,6 @@ function App() {
         if (handled.has(raw)) continue;
         handled.add(raw);
         console.log("[deep-link] received:", raw);
-        // Handle Last.fm callback
-        if (raw.startsWith("viboplr://lastfm-callback")) {
-          try {
-            const url = new URL(raw);
-            const token = url.searchParams.get("token");
-            if (token) {
-              invoke<[{ connected: boolean; username: string | null }, string]>("lastfm_authenticate", { token })
-                .then(async ([status, sessionKey]) => {
-                  lastfm.setLastfmConnected(status.connected);
-                  lastfm.setLastfmUsername(status.username ?? null);
-                  await store.set("lastfmSessionKey", sessionKey);
-                  await store.set("lastfmUsername", status.username);
-                })
-                .catch((e: unknown) => console.error("Last.fm auth failed:", e));
-            }
-          } catch (e) {
-            console.error("Failed to parse Last.fm callback URL:", e);
-          }
-          break;
-        }
         // Handle Subsonic deep links
         const parsed = parseSubsonicUrl(raw);
         if (parsed) {
@@ -633,7 +609,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedLastfmSessionKey, savedLastfmUsername, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, savedSortBarCollapsed, savedLastfmAutoImportEnabled, savedLastfmAutoImportIntervalMins, savedLastfmLastImportAt, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedSearchIncludeLyrics] = await timeAsync("store.restore (50 keys)", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, savedSortBarCollapsed, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedSearchIncludeLyrics] = await timeAsync("store.restore (45 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -662,16 +638,11 @@ function App() {
           store.get<string | null>("likedViewMode"),
           store.get<VideoLayoutState | null>("videoLayout"),
           store.get<number | null>("videoSplitHeight"),
-          store.get<string | null>("lastfmSessionKey"),
-          store.get<string | null>("lastfmUsername"),
           store.get<boolean>("sidebarCollapsed"),
           store.get<boolean>("queueCollapsed"),
           store.get<number | null>("queueWidth"),
           store.get<string | null>("downloadFormat"),
           store.get<boolean>("sortBarCollapsed"),
-          store.get<boolean>("lastfmAutoImportEnabled"),
-          store.get<number>("lastfmAutoImportIntervalMins"),
-          store.get<number | null>("lastfmLastImportAt"),
           store.get<string | null>("artistSortField"),
           store.get<string>("artistSortDir"),
           store.get<boolean>("artistLikedFirst"),
@@ -695,22 +666,39 @@ function App() {
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory) setTrackVideoHistory(true);
-        if (savedLastfmSessionKey && savedLastfmUsername) {
-          lastfm.setLastfmConnected(true);
-          lastfm.setLastfmUsername(savedLastfmUsername);
-          invoke("lastfm_set_session", { sessionKey: savedLastfmSessionKey, username: savedLastfmUsername }).catch(console.error);
-        }
-        if (savedLastfmAutoImportEnabled) lastfm.setLastfmAutoImportEnabled(true);
-        if (savedLastfmAutoImportIntervalMins) lastfm.setLastfmAutoImportIntervalMins(savedLastfmAutoImportIntervalMins);
-        if (savedLastfmLastImportAt) lastfm.setLastfmLastImportAt(savedLastfmLastImportAt);
 
-        // Start auto-import if enabled and connected
-        if (savedLastfmSessionKey && savedLastfmUsername && savedLastfmAutoImportEnabled) {
-          invoke("lastfm_start_auto_import", {
-            intervalMins: savedLastfmAutoImportIntervalMins || 60,
-            lastImportAt: savedLastfmLastImportAt ?? null,
+        // One-time migration: move Last.fm session from app store to plugin storage
+        const [migrateSessionKey, migrateUsername, migrateAutoEnabled, migrateAutoInterval, migrateLastImportAt] = await Promise.all([
+          store.get<string | null>("lastfmSessionKey"),
+          store.get<string | null>("lastfmUsername"),
+          store.get<boolean>("lastfmAutoImportEnabled"),
+          store.get<number>("lastfmAutoImportIntervalMins"),
+          store.get<number | null>("lastfmLastImportAt"),
+        ]);
+        if (migrateSessionKey && migrateUsername) {
+          invoke("plugin_storage_set", {
+            pluginId: "lastfm",
+            key: "lastfm_session",
+            value: JSON.stringify({ sessionKey: migrateSessionKey, username: migrateUsername }),
           }).catch(console.error);
+          if (migrateAutoEnabled || migrateAutoInterval || migrateLastImportAt) {
+            invoke("plugin_storage_set", {
+              pluginId: "lastfm",
+              key: "lastfm_auto_import",
+              value: JSON.stringify({
+                enabled: !!migrateAutoEnabled,
+                intervalMins: migrateAutoInterval || 60,
+                lastImportAt: migrateLastImportAt ?? null,
+              }),
+            }).catch(console.error);
+          }
+          store.set("lastfmSessionKey", null);
+          store.set("lastfmUsername", null);
+          store.set("lastfmAutoImportEnabled", null);
+          store.set("lastfmAutoImportIntervalMins", null);
+          store.set("lastfmLastImportAt", null);
         }
+
         if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "added", "modified", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
         if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
         if (tCols && Array.isArray(tCols) && tCols.length > 0) {
@@ -1559,21 +1547,6 @@ function App() {
           backendTimings={backendTimings}
           frontendTimings={getTimingEntries()}
           onFetchBackendTimings={() => invoke<TimingEntry[]>("get_startup_timings").then(setBackendTimings)}
-          lastfmConnected={lastfm.lastfmConnected}
-          lastfmUsername={lastfm.lastfmUsername}
-          onLastfmConnect={lastfm.handleLastfmConnect}
-          onLastfmDisconnect={lastfm.handleLastfmDisconnect}
-          onLastfmImportHistory={lastfm.handleLastfmImportHistory}
-          onLastfmCancelImport={lastfm.handleLastfmCancelImport}
-          lastfmImporting={lastfm.lastfmImporting}
-          lastfmImportProgress={lastfm.lastfmImportProgress}
-          lastfmImportResult={lastfm.lastfmImportResult}
-          onLastfmImportResultDismiss={() => lastfm.setLastfmImportResult(null)}
-          lastfmAutoImportEnabled={lastfm.lastfmAutoImportEnabled}
-          onLastfmAutoImportToggle={lastfm.handleLastfmAutoImportToggle}
-          lastfmAutoImportIntervalMins={lastfm.lastfmAutoImportIntervalMins}
-          onLastfmAutoImportIntervalChange={lastfm.handleLastfmAutoImportIntervalChange}
-          lastfmLastImportAt={lastfm.lastfmLastImportAt}
           downloadFormat={downloads.downloadFormat}
           onDownloadFormatChange={(format) => downloads.setFormat(format, store)}
           activeSkinId={skins.activeSkinId}
@@ -1600,6 +1573,9 @@ function App() {
           galleryPluginsError={plugins.galleryError}
           onFetchPluginGallery={plugins.fetchPluginGallery}
           onInstallPluginFromGallery={plugins.installFromGallery}
+          pluginSettingsPanels={plugins.settingsPanels}
+          getPluginViewData={plugins.getViewData}
+          onPluginAction={plugins.dispatchUIAction}
           loggingEnabled={loggingEnabled}
           onLoggingEnabledChange={handleLoggingEnabledChange}
           onOpenLogsFolder={handleOpenLogsFolder}
@@ -1709,8 +1685,7 @@ function App() {
                 selectedArtist={selectedArtist}
                 artist={artist}
                 artistImagePath={artistImagePath}
-                artistBio={artistInfo.artistBio}
-                artistInfoLoading={artistInfo.artistInfoLoading}
+
                 similarArtists={artistInfo.similarArtists}
                 artistTopTracks={artistInfo.artistTopTracks}
                 artistTrackPopularity={artistInfo.artistTrackPopularity}
@@ -1741,7 +1716,6 @@ function App() {
                 onToggleArtistLike={likeActions.handleToggleArtistLike}
                 onRefreshInfo={() => {
                   if (!artist) return;
-                  invoke("clear_lastfm_cache_for_entity", { kind: "artist", name: artist.name });
                   artistInfo.refreshInfo();
                 }}
                 onTopSongContextMenu={(e, entry, artistName) => {
@@ -1864,7 +1838,6 @@ function App() {
                 }}
                 onRetrieveInfo={() => {
                   if (!album) return;
-                  invoke("clear_lastfm_cache_for_entity", { kind: "album", name: album.title, artistName: album.artist_name });
                   artistInfo.refreshInfo();
                 }}
               />

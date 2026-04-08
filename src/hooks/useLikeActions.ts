@@ -30,12 +30,11 @@ interface UseLikeActionsDeps {
   library: LibraryDeps;
   playback: PlaybackDeps;
   queueHook: QueueDeps;
-  lastfmConnected: boolean;
   plugins: PluginsDeps;
 }
 
 export function useLikeActions(deps: UseLikeActionsDeps) {
-  const { library, playback, queueHook, lastfmConnected, plugins } = deps;
+  const { library, playback, queueHook, plugins } = deps;
 
   async function handleToggleLike(track: Track) {
     const newLiked = track.liked === 1 ? 0 : 1;
@@ -46,10 +45,6 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
         playback.setCurrentTrack({ ...playback.currentTrack, liked: newLiked });
       }
       queueHook.setQueue(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
-      if (lastfmConnected) {
-        const cmd = newLiked === 1 ? "lastfm_love_track" : "lastfm_unlove_track";
-        invoke(cmd, { trackId: track.id }).catch(console.error);
-      }
       plugins.dispatchEvent("track:liked", track, newLiked === 1);
     } catch (e) {
       console.error("Failed to toggle like:", e);

@@ -2670,6 +2670,16 @@ impl Database {
         Ok(())
     }
 
+    /// Delete all cached values for a given info type (across all entities).
+    pub fn info_delete_values_for_type(&self, type_id: &str) -> SqlResult<usize> {
+        let conn = self.conn.lock().unwrap();
+        let count = conn.execute(
+            "DELETE FROM information_values WHERE information_type_id = ?1",
+            [type_id],
+        )?;
+        Ok(count)
+    }
+
     /// Delete all cached values for an entity.
     pub fn info_delete_all_for_entity(&self, entity_key: &str) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();

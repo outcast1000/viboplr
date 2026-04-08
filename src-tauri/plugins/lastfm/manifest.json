@@ -1,0 +1,36 @@
+{
+  "id": "lastfm",
+  "name": "Last.fm",
+  "version": "1.0.1",
+  "author": "Viboplr",
+  "description": "Scrobbling, now playing, history import, and metadata from Last.fm",
+  "minAppVersion": "0.9.4",
+  "contributes": {
+    "informationTypes": [
+      {
+        "id": "artist_bio",
+        "name": "About",
+        "entity": "artist",
+        "displayKind": "rich_text",
+        "ttl": 7776000,
+        "order": 200,
+        "priority": 100
+      },
+      {
+        "id": "artist_stats",
+        "name": "Stats",
+        "entity": "artist",
+        "displayKind": "title_line",
+        "ttl": 7776000,
+        "order": 100,
+        "priority": 100
+      }
+    ],
+    "eventHooks": ["track:started", "track:scrobbled", "track:liked"],
+    "settingsPanel": {
+      "id": "lastfm-settings",
+      "label": "Last.fm",
+      "order": 40
+    }
+  }
+}

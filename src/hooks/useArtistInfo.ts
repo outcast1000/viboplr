@@ -9,8 +9,6 @@ export interface UseArtistInfoReturn {
   albumTrackPopularity: Record<number, number>;
   artistTrackPopularity: Record<number, number>;
   artistTopTracks: Array<{ name: string; listeners: number; libraryTrack?: Track }>;
-  artistBio: { summary: string; listeners: string; playcount: string } | null;
-  artistInfoLoading: boolean;
   albumWiki: string | null;
   albumInfoLoading: boolean;
   albumUnmatchedTracks: Array<{ name: string; listeners: number }>;
@@ -28,8 +26,6 @@ export function useArtistInfo(deps: {
   const [albumTrackPopularity, setAlbumTrackPopularity] = useState<Record<number, number>>({});
   const [artistTrackPopularity, setArtistTrackPopularity] = useState<Record<number, number>>({});
   const [artistTopTracks, setArtistTopTracks] = useState<Array<{ name: string; listeners: number; libraryTrack?: Track }>>([]);
-  const [artistBio, setArtistBio] = useState<{ summary: string; listeners: string; playcount: string } | null>(null);
-  const [artistInfoLoading, setArtistInfoLoading] = useState(false);
   const [albumWiki, setAlbumWiki] = useState<string | null>(null);
   const [albumInfoLoading, setAlbumInfoLoading] = useState(false);
   const [albumUnmatchedTracks, setAlbumUnmatchedTracks] = useState<Array<{ name: string; listeners: number }>>([]);
@@ -38,49 +34,10 @@ export function useArtistInfo(deps: {
 
   const trackPopularity = Object.keys(albumTrackPopularity).length > 0 ? albumTrackPopularity : artistTrackPopularity;
 
-  // Fetch Last.fm artist bio and similar artists when selected artist changes
+  // Reset similar artists when selected artist changes
   useEffect(() => {
-    setArtistBio(null);
-    setArtistInfoLoading(false);
     setSimilarArtists([]);
-    if (deps.selectedArtist === null) return;
-    const artist = deps.artists.find(a => a.id === deps.selectedArtist);
-    if (!artist) return;
-
-    setArtistInfoLoading(true);
-    const parseArtistInfo = (resp: { artist?: { bio?: { summary?: string }; stats?: { listeners?: string; playcount?: string } } } | null) => {
-      if (resp?.artist?.bio?.summary) {
-        setArtistBio({
-          summary: resp.artist.bio.summary.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim(),
-          listeners: resp.artist.stats?.listeners ?? "",
-          playcount: resp.artist.stats?.playcount ?? "",
-        });
-      }
-      setArtistInfoLoading(false);
-    };
-    const parseSimilar = (resp: { similarartists?: { artist?: Array<{ name: string; match: string }> } } | null) => {
-      setSimilarArtists(resp?.similarartists?.artist ?? []);
-    };
-
-    // invoke returns cached data immediately, or null if fetching in background
-    invoke<any>("lastfm_get_artist_info", { artistName: artist.name })
-      .then(resp => { if (resp) parseArtistInfo(resp); })
-      .catch(() => setArtistInfoLoading(false));
-    invoke<any>("lastfm_get_similar_artists", { artistName: artist.name })
-      .then(resp => { if (resp) parseSimilar(resp); })
-      .catch(() => {});
-
-    // Listen for async results from background fetches
-    const unlistenInfo = listen<any>("lastfm-artist-info", (event) => parseArtistInfo(event.payload));
-    const unlistenInfoError = listen<any>("lastfm-artist-info-error", () => setArtistInfoLoading(false));
-    const unlistenSimilar = listen<any>("lastfm-similar-artists", (event) => parseSimilar(event.payload));
-
-    return () => {
-      unlistenInfo.then(f => f());
-      unlistenInfoError.then(f => f());
-      unlistenSimilar.then(f => f());
-    };
-  }, [deps.selectedArtist, deps.artists, infoRefreshCounter]);
+  }, [deps.selectedArtist]);
 
   // Fetch Last.fm album wiki when selected album changes
   useEffect(() => {
@@ -188,8 +145,6 @@ export function useArtistInfo(deps: {
     albumTrackPopularity,
     artistTrackPopularity,
     artistTopTracks,
-    artistBio,
-    artistInfoLoading,
     albumWiki,
     albumInfoLoading,
     albumUnmatchedTracks,

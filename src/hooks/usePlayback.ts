@@ -240,7 +240,6 @@ export function usePlayback(
     scrobbledRef.current = false;
     setScrobbled(false);
     playStartedAtRef.current = Math.floor(Date.now() / 1000);
-    invoke("lastfm_now_playing", { trackId: nextTrack.id }).catch(console.error);
 
     // Start incoming element
     incoming.volume = 0;
@@ -306,7 +305,6 @@ export function usePlayback(
     scrobbledRef.current = false;
     setScrobbled(false);
     playStartedAtRef.current = Math.floor(Date.now() / 1000);
-    invoke("lastfm_now_playing", { trackId: nextTrack.id }).catch(console.error);
 
     // Clear preload state
     preloadedTrackRef.current = null;
@@ -358,7 +356,6 @@ export function usePlayback(
     scrobbledRef.current = false;
     setScrobbled(false);
     playStartedAtRef.current = Math.floor(Date.now() / 1000);
-    if (track.id > 0) invoke("lastfm_now_playing", { trackId: track.id }).catch(console.error);
 
     // Always reset to slot A on explicit play
     setActiveSlot("A");
@@ -463,7 +460,6 @@ export function usePlayback(
         scrobbledRef.current = true;
         setScrobbled(true);
         invoke("record_play", { trackId: currentTrack.id }).catch(console.error);
-        invoke("lastfm_scrobble", { trackId: currentTrack.id, startedAt: playStartedAtRef.current }).catch(console.error);
       }
     }
 
