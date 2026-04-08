@@ -1,5 +1,6 @@
 import { renderers } from "./renderers";
-import type { InfoEntity } from "../types/informationTypes";
+import type { InfoEntity, InfoPlacement } from "../types/informationTypes";
+import { getInfoPlacement } from "../types/informationTypes";
 import { useInformationTypes } from "../hooks/useInformationTypes";
 import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -8,6 +9,7 @@ import "./InformationSections.css";
 interface InformationSectionsProps {
   entity: InfoEntity | null;
   exclude?: string[];
+  placement?: InfoPlacement;
   invokeInfoFetch: (
     pluginId: string,
     infoTypeId: string,
@@ -21,6 +23,7 @@ interface InformationSectionsProps {
 export function InformationSections({
   entity,
   exclude,
+  placement,
   invokeInfoFetch,
   onEntityClick,
   onAction,
@@ -28,20 +31,65 @@ export function InformationSections({
 }: InformationSectionsProps) {
   const { sections } = useInformationTypes({ entity, exclude, invokeInfoFetch });
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [activeTab, setActiveTab] = useState<string | null>(null);
 
-  if (!sections.length) return null;
+  const filtered = placement
+    ? sections.filter(s => s.displayKind !== "title_line" && getInfoPlacement(s.displayKind) === placement)
+    : sections.filter(s => s.displayKind !== "title_line");
+
+  if (!filtered.length) return null;
 
   const toggleCollapse = (typeId: string) => {
     setCollapsed((prev) => ({ ...prev, [typeId]: !prev[typeId] }));
   };
 
+  const useTabMode = placement === "right" && filtered.length > 1;
+
+  if (useTabMode) {
+    const resolvedTab = (activeTab && filtered.some(s => s.typeId === activeTab))
+      ? activeTab
+      : filtered[0].typeId;
+    const activeSection = filtered.find(s => s.typeId === resolvedTab)!;
+    const Renderer = renderers[activeSection.displayKind];
+    const meta = activeSection.state.kind === "loaded" && activeSection.state.data
+      ? (activeSection.state.data as Record<string, unknown>)?._meta as { url?: string; providerName?: string } | undefined
+      : undefined;
+
+    return (
+      <div className={`information-sections information-sections--${placement}`}>
+        <div className="info-sections-tabs">
+          {filtered.map(section => (
+            <div
+              key={section.typeId}
+              className={`info-sections-tab${section.typeId === resolvedTab ? " active" : ""}`}
+              onClick={() => setActiveTab(section.typeId)}
+            >
+              {section.name}
+            </div>
+          ))}
+          {meta?.url && meta?.providerName && (
+            <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); openUrl(meta.url!); }}>
+              View on {meta.providerName}
+            </a>
+          )}
+        </div>
+        <div className="info-section-content">
+          {activeSection.state.kind === "loading" ? (
+            <div className="info-section-skeleton" />
+          ) : activeSection.state.kind === "loaded" && activeSection.state.data && Renderer ? (
+            <Renderer data={activeSection.state.data} onEntityClick={onEntityClick} onAction={onAction} resolveEntity={resolveEntity} />
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  // Stacked/collapsible rendering (existing behavior)
   return (
-    <div className="information-sections">
-      {sections.map((section) => {
-        if (section.displayKind === "title_line") return null;
+    <div className={`information-sections${placement ? ` information-sections--${placement}` : ""}`}>
+      {filtered.map((section) => {
         const Renderer = renderers[section.displayKind];
         if (!Renderer) return null;
-
         const isCollapsed = collapsed[section.typeId] === true;
         const meta = section.state.kind === "loaded" && section.state.data
           ? (section.state.data as Record<string, unknown>)?._meta as { url?: string; providerName?: string } | undefined
