@@ -1,6 +1,7 @@
 .information-sections {
   display: flex;
   flex-direction: column;
+  column-span: all;
 }
 
 .info-section {
