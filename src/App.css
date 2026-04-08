@@ -636,6 +636,7 @@
   flex: 0 1 auto;
   min-width: 180px;
   max-width: 240px;
+  margin-left: auto;
 }
 
 /* Standalone .section-wide outside *-detail-top containers */
