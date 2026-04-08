@@ -53,8 +53,8 @@ export function ArtistDetailContent({
   artist,
   artistImagePath,
   artistTrackPopularity,
-  sections,
-  onToggleSection,
+  sections: _sections,
+  onToggleSection: _onToggleSection,
   sortedTracks,
   artistAlbums,
   artistImages,
@@ -160,42 +160,37 @@ export function ArtistDetailContent({
             resolveEntity={resolveEntity}
           />
       </div>
-      {artistAlbums.length > 0 && (
-        <div className="artist-section artist-albums-section">
-          <div className="section-title section-header" onClick={() => onToggleSection("albums")}>
-            <svg className={`section-chevron${sections.albums === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-            Albums
-          </div>
-          {sections.albums !== false && (
-            <div className="album-scroll">
-              {artistAlbums.map((a) => (
-                <div key={a.id} className="album-card" onClick={() => onAlbumClick(a.id)} onContextMenu={(e) => onAlbumContextMenu(e, a.id)}>
-                  <div className="album-card-art-wrapper">
-                    <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={onFetchAlbumImage} />
-                    <button className="album-card-play-btn" title="Play album" onClick={async (e) => {
-                      e.stopPropagation();
-                      const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: a.id } });
-                      if (albumTracks.length > 0) onPlayTracks(albumTracks, 0);
-                    }}>&#9654;</button>
-                  </div>
-                  <div className="album-card-body">
-                    <div className="album-card-title" title={a.title}>{a.title}</div>
-                    <div className="album-card-info">
-                      {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       <div className="section-wide">
         <InformationSections
           placement="below"
           entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
           exclude={["artist_stats"]}
+          customTabs={artistAlbums.length > 0 ? [{
+            id: "albums",
+            name: "Albums",
+            content: (
+              <div className="album-scroll">
+                {artistAlbums.map((a) => (
+                  <div key={a.id} className="album-card" onClick={() => onAlbumClick(a.id)} onContextMenu={(e) => onAlbumContextMenu(e, a.id)}>
+                    <div className="album-card-art-wrapper">
+                      <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={onFetchAlbumImage} />
+                      <button className="album-card-play-btn" title="Play album" onClick={async (e) => {
+                        e.stopPropagation();
+                        const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: a.id } });
+                        if (albumTracks.length > 0) onPlayTracks(albumTracks, 0);
+                      }}>&#9654;</button>
+                    </div>
+                    <div className="album-card-body">
+                      <div className="album-card-title" title={a.title}>{a.title}</div>
+                      <div className="album-card-info">
+                        {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ),
+          }] : undefined}
           invokeInfoFetch={invokeInfoFetch}
           onEntityClick={(kind, id) => {
             if (kind === "artist" && id) onArtistClick(id);
