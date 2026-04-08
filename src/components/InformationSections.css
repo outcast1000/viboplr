@@ -92,7 +92,8 @@
   border-bottom-color: var(--accent);
 }
 
-/* Right-placement: remove the 120px height cap */
-.information-sections--right .info-section-content {
+/* Remove the 120px height cap when placement is specified */
+.information-sections--right .info-section-content,
+.information-sections--below .info-section-content {
   max-height: none;
 }

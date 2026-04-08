@@ -641,6 +641,7 @@
 .artist-detail-top + .section-wide,
 .album-detail-top + .section-wide {
   padding: 0 16px;
+  max-width: none;
 }
 
 .tiles-scroll {
