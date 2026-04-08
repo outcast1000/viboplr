@@ -14,6 +14,7 @@ export type DisplayKind =
   | "tag_list"
   | "ranked_list"
   | "annotated_text"
+  | "annotations"
   | "key_value"
   | "image_gallery"
   | "title_line";
@@ -136,6 +137,11 @@ export interface RankedListData {
 export interface AnnotatedTextData {
   overview?: string;
   sections: Array<{ heading?: string; text: string }>;
+}
+
+export interface AnnotationsData {
+  overview?: string;
+  annotations: Array<{ fragment: string; explanation: string }>;
 }
 
 export interface KeyValueData {
