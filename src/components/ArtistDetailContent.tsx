@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { getInitials, formatCount } from "../utils";
+import { getInitials } from "../utils";
 import type { Artist, Album, Track, ColumnConfig, SortField } from "../types";
 import type { SearchProviderConfig } from "../searchProviders";
 import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
@@ -11,14 +10,11 @@ import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
-import type { SectionMeta } from "../hooks/useArtistInfo";
 
 interface ArtistDetailContentProps {
   selectedArtist: number;
   artist: Artist | undefined;
   artistImagePath: string | null;
-  similarArtists: Array<{ name: string; match: string }>;
-  artistTopTracks: Array<{ name: string; listeners: number; libraryTrack?: Track }>;
   artistTrackPopularity: Record<number, number>;
   sections: Record<string, boolean>;
   onToggleSection: (key: string) => void;
@@ -46,12 +42,9 @@ interface ArtistDetailContentProps {
   onDeleteTracks?: (trackIds: number[]) => void;
   onToggleArtistLike: (artistId: number) => void;
   onRefreshInfo: () => void;
-  onTopSongContextMenu: (e: React.MouseEvent, entry: { name: string; listeners: number; libraryTrack?: Track }, artistName: string) => void;
   onAlbumContextMenu: (e: React.MouseEvent, albumId: number) => void;
   searchProviders: SearchProviderConfig[];
-  addLog: (message: string) => void;
   artists: Artist[];
-  sectionMeta: Record<string, SectionMeta>;
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity) => Promise<InfoFetchResult>;
 }
 
@@ -59,8 +52,6 @@ export function ArtistDetailContent({
   selectedArtist,
   artist,
   artistImagePath,
-  similarArtists,
-  artistTopTracks,
   artistTrackPopularity,
   sections,
   onToggleSection,
@@ -88,15 +79,22 @@ export function ArtistDetailContent({
   onDeleteTracks,
   onToggleArtistLike,
   onRefreshInfo,
-  onTopSongContextMenu,
   onAlbumContextMenu,
   searchProviders,
-  addLog,
   artists,
-  sectionMeta,
   invokeInfoFetch,
 }: ArtistDetailContentProps) {
   const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(ARTIST_DETAIL_COLUMNS);
+
+  const resolveEntity = (kind: string, name: string) => {
+    if (kind === "artist") {
+      const match = artists.find(a => a.name.toLowerCase() === name.toLowerCase());
+      if (!match) return undefined;
+      const imgPath = artistImages[match.id];
+      return { id: match.id, imageSrc: imgPath ? convertFileSrc(imgPath) : undefined };
+    }
+    return undefined;
+  };
 
   return (
     <div className="artist-detail">
@@ -150,80 +148,16 @@ export function ArtistDetailContent({
             </span>
           </div>
         </div>
-        {artistTopTracks.length > 0 && (
-          <div className="section-narrow">
-            <div className="artist-bio-title section-header" onClick={() => onToggleSection("topSongs")}>
-              <svg className={`section-chevron${sections.topSongs === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-              Top Songs
-              {sectionMeta.artistTopTracks?.url && sectionMeta.artistTopTracks?.providerName && (
-                <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openUrl(sectionMeta.artistTopTracks.url!); }}>
-                  View on {sectionMeta.artistTopTracks.providerName}
-                </a>
-              )}
-            </div>
-            {sections.topSongs !== false && (() => {
-              const maxPop = artistTopTracks[0]?.listeners ?? 1;
-              return (
-                <div className="top-songs-list">
-                  {artistTopTracks.map((entry, i) => {
-                    const pct = maxPop > 0 ? (entry.listeners / maxPop) * 100 : 0;
-                    const inLibrary = !!entry.libraryTrack;
-                    const handleAction = async () => {
-                      if (inLibrary) {
-                        onPlayTracks([entry.libraryTrack!], 0);
-                      } else {
-                        addLog("Searching YouTube...");
-                        try {
-                          const result = await invoke<{ url: string; video_title: string | null }>(
-                            "search_youtube", { title: entry.name, artistName: artist?.name ?? "" }
-                          );
-                          await openUrl(result.url);
-                        } catch {
-                          const q = encodeURIComponent(`${entry.name} ${artist?.name ?? ""}`);
-                          await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-                        }
-                      }
-                    };
-                    return (
-                      <div
-                        key={`${entry.name}-${i}`}
-                        className={`top-song-row${inLibrary ? "" : " top-song-missing"}`}
-                        onDoubleClick={handleAction}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          onTopSongContextMenu(e, entry, artist?.name ?? "");
-                        }}
-                      >
-                        <span className="top-song-rank">{i + 1}</span>
-                        <button
-                          className="top-song-action-btn"
-                          title={inLibrary ? "Play" : "Watch on YouTube"}
-                          onClick={handleAction}
-                        >
-                          {inLibrary ? "\u25B6" : <svg width="14" height="10" viewBox="0 0 28 20" fill="currentColor"><path d="M27.4 3.1s-.3-1.9-1.1-2.8C25.1-.9 23.7-.9 23-.9 19.2-1.2 14-1.2 14-1.2h0s-5.2 0-9 .3c-.7.1-2.1.1-3.3 1.1C.9 1.2.6 3.1.6 3.1S.3 5.3.3 7.6v2.1c0 2.2.3 4.5.3 4.5s.3 1.9 1.1 2.8c1.2 1.2 2.7 1.2 3.4 1.3 2.4.2 10.3.3 10.3.3s5.2 0 9-.3c.7-.1 2.1-.1 3.3-1.1.8-.9 1.1-2.8 1.1-2.8s.3-2.2.3-4.5V7.6c0-2.2-.3-4.5-.3-4.5zM11.1 13.2V5.4l8.9 3.9-8.9 3.9z"/></svg>}
-                        </button>
-                        <span className="col-popularity top-song-pop">
-                          <span className="popularity-fill" style={{ width: `${pct}%` }} />
-                          <span className="popularity-count">{formatCount(entry.listeners)}</span>
-                        </span>
-                        <span className="top-song-title">{entry.name}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-          </div>
-        )}
         <div className="section-wide">
           <InformationSections
             entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
-            exclude={["artist_stats", "artist_top_tracks", "similar_artists"]}
+            exclude={["artist_stats"]}
             invokeInfoFetch={invokeInfoFetch}
             onEntityClick={(kind, id) => {
               if (kind === "artist" && id) onArtistClick(id);
               if (kind === "album" && id) onAlbumClick(id);
             }}
+            resolveEntity={resolveEntity}
           />
         </div>
       </div>
@@ -284,44 +218,6 @@ export function ArtistDetailContent({
           emptyMessage="No tracks found for this artist."
         />
       </div>
-
-      {similarArtists.length > 0 && (
-        <div className="artist-section">
-          <div className="section-title section-header" onClick={() => onToggleSection("similarArtists")}>
-            <svg className={`section-chevron${sections.similarArtists === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-            Similar Artists
-            {sectionMeta.similarArtists?.url && sectionMeta.similarArtists?.providerName && (
-              <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openUrl(sectionMeta.similarArtists.url!); }}>
-                View on {sectionMeta.similarArtists.providerName}
-              </a>
-            )}
-          </div>
-          {sections.similarArtists !== false && (
-            <div className="similar-artists-row">
-              {similarArtists.slice(0, 8).map(sa => {
-                const localArtist = artists.find(a => a.name.toLowerCase() === sa.name.toLowerCase());
-                return (
-                  <div
-                    key={sa.name}
-                    className={`similar-artist-card${localArtist ? " clickable" : ""}`}
-                    onClick={() => localArtist && onArtistClick(localArtist.id)}
-                  >
-                    <div className="similar-artist-avatar">
-                      {localArtist && artistImages[localArtist.id] ? (
-                        <img src={convertFileSrc(artistImages[localArtist.id]!)} alt={sa.name} />
-                      ) : (
-                        sa.name[0]?.toUpperCase() ?? "?"
-                      )}
-                    </div>
-                    <span className="similar-artist-name" title={sa.name}>{sa.name}</span>
-                    <span className="similar-artist-match">{Math.round(parseFloat(sa.match) * 100)}%</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

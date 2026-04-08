@@ -8,6 +8,7 @@ export type DisplayKind =
   | "rich_text"
   | "html"
   | "entity_list"
+  | "entity_cards"
   | "stat_grid"
   | "lyrics"
   | "tag_list"

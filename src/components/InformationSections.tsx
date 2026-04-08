@@ -15,6 +15,7 @@ interface InformationSectionsProps {
   ) => Promise<import("../types/informationTypes").InfoFetchResult>;
   onEntityClick?: (kind: string, id?: number, name?: string) => void;
   onAction?: (actionId: string, payload?: unknown) => void;
+  resolveEntity?: (kind: string, name: string) => { id?: number; imageSrc?: string } | undefined;
 }
 
 export function InformationSections({
@@ -23,6 +24,7 @@ export function InformationSections({
   invokeInfoFetch,
   onEntityClick,
   onAction,
+  resolveEntity,
 }: InformationSectionsProps) {
   const { sections } = useInformationTypes({ entity, exclude, invokeInfoFetch });
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -61,7 +63,7 @@ export function InformationSections({
                 {section.state.kind === "loading" ? (
                   <div className="info-section-skeleton" />
                 ) : section.state.kind === "loaded" && section.state.data ? (
-                  <Renderer data={section.state.data} onEntityClick={onEntityClick} onAction={onAction} />
+                  <Renderer data={section.state.data} onEntityClick={onEntityClick} onAction={onAction} resolveEntity={resolveEntity} />
                 ) : null}
               </div>
             )}

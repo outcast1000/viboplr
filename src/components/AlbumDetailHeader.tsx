@@ -101,7 +101,7 @@ export function AlbumDetailHeader({
       <div className="section-wide">
         <InformationSections
           entity={albumEntity}
-          exclude={["album_track_popularity"]}
+          exclude={[]}
           invokeInfoFetch={invokeInfoFetch}
         />
       </div>

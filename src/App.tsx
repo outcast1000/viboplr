@@ -2,18 +2,17 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrent as getDeepLinkCurrent } from "@tauri-apps/plugin-deep-link";
 import { listen } from "@tauri-apps/api/event";
 import "./base.css";
 import "./App.css";
 
 import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField } from "./types";
-import { isVideoTrack, parseSubsonicUrl, stripAccents, formatCount } from "./utils";
+import { isVideoTrack, parseSubsonicUrl, stripAccents } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
-import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext, buildSearchUrl, getDomainFromUrl } from "./searchProviders";
+import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
@@ -294,7 +293,6 @@ function App() {
   const [clearing, setClearing] = useState(false);
   const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
   const [syncProgress, setSyncProgress] = useState({ synced: 0, total: 0, collection: "" });
-  const [topSongMenu, setTopSongMenu] = useState<{ x: number; y: number; entry: { name: string; listeners: number; libraryTrack?: Track }; artistName: string } | null>(null);
   const [artistSections, setArtistSections] = useState<Record<string, boolean>>({ topSongs: true, about: true, albums: true, similarArtists: true });
   const handleToggleArtistSection = (key: string) => {
     setArtistSections(prev => {
@@ -305,14 +303,6 @@ function App() {
   };
   const [albumDetailColumns, setAlbumDetailColumns] = useState(ALBUM_DETAIL_COLUMNS);
   const [tagDetailColumns, setTagDetailColumns] = useState(TAG_DETAIL_COLUMNS);
-  const [albumSections, setAlbumSections] = useState<Record<string, boolean>>({ review: true, unmatchedTracks: true });
-  const handleToggleAlbumSection = (key: string) => {
-    setAlbumSections(prev => {
-      const next = { ...prev, [key]: !prev[key] };
-      store.set("albumSections", next);
-      return next;
-    });
-  };
   const [trackSections, setTrackSections] = useState<Record<string, boolean>>({ lyrics: true, tags: true, scrobbleHistory: true, similar: true });
   const handleToggleTrackSection = (key: string) => {
     setTrackSections(prev => {
@@ -822,8 +812,6 @@ function App() {
         if (savedLoggingEnabled) setLoggingEnabled(true);
         const savedArtistSections = await store.get<Record<string, boolean>>("artistSections");
         if (savedArtistSections) setArtistSections(savedArtistSections);
-        const savedAlbumSections = await store.get<Record<string, boolean>>("albumSections");
-        if (savedAlbumSections) setAlbumSections(savedAlbumSections);
         const savedTrackSections = await store.get<Record<string, boolean>>("trackSections");
         if (savedTrackSections) setTrackSections(savedTrackSections);
         const savedSyncWithPlaying = await store.get<boolean>("syncWithPlaying");
@@ -1687,9 +1675,6 @@ function App() {
                 selectedArtist={selectedArtist}
                 artist={artist}
                 artistImagePath={artistImagePath}
-
-                similarArtists={artistInfo.similarArtists}
-                artistTopTracks={artistInfo.artistTopTracks}
                 artistTrackPopularity={artistInfo.artistTrackPopularity}
                 sections={artistSections}
                 onToggleSection={handleToggleArtistSection}
@@ -1720,14 +1705,9 @@ function App() {
                   if (!artist) return;
                   artistInfo.refreshInfo();
                 }}
-                onTopSongContextMenu={(e, entry, artistName) => {
-                  setTopSongMenu({ x: e.clientX, y: e.clientY, entry, artistName });
-                }}
                 onAlbumContextMenu={contextMenuActions.handleAlbumContextMenu}
                 searchProviders={searchProviders}
-                addLog={addLog}
                 artists={artists}
-                sectionMeta={artistInfo.sectionMeta}
                 invokeInfoFetch={plugins.invokeInfoFetch}
               />
             );
@@ -1889,72 +1869,6 @@ function App() {
           {/* Artist album detail - always basic TrackList */}
           {(view === "artists" && selectedAlbum !== null) && (
             <>
-              {artistInfo.albumTopTracks.length > 0 && (
-                <div className="section-narrow">
-                  <div className="section-title section-header" onClick={() => handleToggleAlbumSection("topSongs")}>
-                    <svg className={`section-chevron${albumSections.topSongs === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    Top Songs
-                    {artistInfo.sectionMeta.albumTopTracks?.url && artistInfo.sectionMeta.albumTopTracks?.providerName && (
-                      <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openUrl(artistInfo.sectionMeta.albumTopTracks.url!); }}>
-                        View on {artistInfo.sectionMeta.albumTopTracks.providerName}
-                      </a>
-                    )}
-                  </div>
-                  {albumSections.topSongs !== false && (() => {
-                    const maxPop = artistInfo.albumTopTracks[0]?.listeners ?? 1;
-                    const artistName = artists.find(a => a.id === selectedArtist)?.name ?? "";
-                    return (
-                      <div className="top-songs-list">
-                        {artistInfo.albumTopTracks.map((entry, i) => {
-                          const pct = maxPop > 0 ? (entry.listeners / maxPop) * 100 : 0;
-                          const inLibrary = !!entry.libraryTrack;
-                          const handleAction = async () => {
-                            if (inLibrary) {
-                              queueHook.playTracks([entry.libraryTrack!], 0);
-                            } else {
-                              addLog("Searching YouTube...");
-                              try {
-                                const result = await invoke<{ url: string; video_title: string | null }>(
-                                  "search_youtube", { title: entry.name, artistName }
-                                );
-                                await openUrl(result.url);
-                              } catch {
-                                const q = encodeURIComponent(`${entry.name} ${artistName}`);
-                                await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-                              }
-                            }
-                          };
-                          return (
-                            <div
-                              key={`${entry.name}-${i}`}
-                              className={`top-song-row${inLibrary ? "" : " top-song-missing"}`}
-                              onDoubleClick={handleAction}
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                setTopSongMenu({ x: e.clientX, y: e.clientY, entry, artistName });
-                              }}
-                            >
-                              <span className="top-song-rank">{i + 1}</span>
-                              <button
-                                className="top-song-action-btn"
-                                title={inLibrary ? "Play" : "Watch on YouTube"}
-                                onClick={handleAction}
-                              >
-                                {inLibrary ? "\u25B6" : <svg width="14" height="10" viewBox="0 0 28 20" fill="currentColor"><path d="M27.4 3.1s-.3-1.9-1.1-2.8C25.1-.9 23.7-.9 23-.9 19.2-1.2 14-1.2 14-1.2h0s-5.2 0-9 .3c-.7.1-2.1.1-3.3 1.1C.9 1.2.6 3.1.6 3.1S.3 5.3.3 7.6v2.1c0 2.2.3 4.5.3 4.5s.3 1.9 1.1 2.8c1.2 1.2 2.7 1.2 3.4 1.3 2.4.2 10.3.3 10.3.3s5.2 0 9-.3c.7-.1 2.1-.1 3.3-1.1.8-.9 1.1-2.8 1.1-2.8s.3-2.2.3-4.5V7.6c0-2.2-.3-4.5-.3-4.5zM11.1 13.2V5.4l8.9 3.9-8.9 3.9z"/></svg>}
-                              </button>
-                              <span className="col-popularity top-song-pop">
-                                <span className="popularity-fill" style={{ width: `${pct}%` }} />
-                                <span className="popularity-count">{formatCount(entry.listeners)}</span>
-                              </span>
-                              <span className="top-song-title">{entry.name}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
               <TrackList
                 tracks={sortedTracks}
                 currentTrack={playback.currentTrack}
@@ -2253,59 +2167,6 @@ function App() {
           onSetFitMode={videoLayout.setFitMode}
         />
       )}
-
-      {topSongMenu && (() => {
-        const { entry, artistName } = topSongMenu;
-        const inLibrary = !!entry.libraryTrack;
-        const trackProviders = getProvidersForContext(searchProviders, "track");
-        return (
-          <div className="context-menu-backdrop" onClick={() => setTopSongMenu(null)} onContextMenu={(e) => { e.preventDefault(); setTopSongMenu(null); }}>
-            <div className="context-menu" style={{ left: topSongMenu.x, top: topSongMenu.y }} onClick={(e) => e.stopPropagation()}>
-              {inLibrary && (
-                <>
-                  <div className="context-menu-item" onClick={() => {
-                    setTopSongMenu(null);
-                    queueHook.addToQueue(entry.libraryTrack!);
-                    addLog(`Enqueued "${entry.name}"`);
-                  }}>Enqueue</div>
-                  <div className="context-menu-item" onClick={() => {
-                    setTopSongMenu(null);
-                    library.handleLocateTrack(entry.libraryTrack!.title, entry.libraryTrack!.artist_name, entry.libraryTrack!.album_title, () => {
-                      library.setView("all");
-                      library.setSelectedArtist(null);
-                      library.setSelectedAlbum(null);
-                      library.setSelectedTag(null);
-                      viewSearch.setQuery("all", entry.libraryTrack!.title);
-                    });
-                  }}>Locate</div>
-                </>
-              )}
-              {!inLibrary && (
-                <div className="context-menu-item" style={{ opacity: 0.5, cursor: "default" }}>Not in library</div>
-              )}
-              {trackProviders.length > 0 && (
-                <div className="artist-image-menu-submenu">
-                  <div className="context-menu-item artist-image-menu-submenu-trigger">
-                    Web Search<span className="artist-image-menu-chevron">{"\u203A"}</span>
-                  </div>
-                  <div className="artist-image-menu-submenu-list">
-                    {trackProviders.map((provider) => {
-                      const url = buildSearchUrl(provider.trackUrl!, { title: entry.name, artist: artistName });
-                      const domain = getDomainFromUrl(provider.trackUrl || "");
-                      return (
-                        <button key={provider.id} onClick={() => { setTopSongMenu(null); openUrl(url); }}>
-                          {domain && <img className="provider-icon-img" src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`} width={14} height={14} alt="" />}
-                          <span>{provider.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
 
       {contextMenuActions.upgradeTrack && (
         <UpgradeTrackModal

@@ -38,7 +38,7 @@
         "id": "similar_artists",
         "name": "Similar Artists",
         "entity": "artist",
-        "displayKind": "entity_list",
+        "displayKind": "entity_cards",
         "ttl": 7776000,
         "order": 500,
         "priority": 100
