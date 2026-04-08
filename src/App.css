@@ -633,8 +633,9 @@
 /* Right-placement InformationSections beside entity headers */
 .artist-detail-top > .information-sections--right,
 .album-detail-top > .information-sections--right {
-  flex: 1 1 auto;
-  min-width: 250px;
+  flex: 0 1 auto;
+  min-width: 180px;
+  max-width: 240px;
 }
 
 /* Standalone .section-wide outside *-detail-top containers */

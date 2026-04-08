@@ -97,7 +97,7 @@
   max-height: none;
 }
 
-/* Right-placement: taller cap with scroll */
+/* Right-placement: compact height with scroll */
 .information-sections--right .info-section-content {
-  max-height: 300px;
+  max-height: 180px;
 }
