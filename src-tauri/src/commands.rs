@@ -2105,12 +2105,11 @@ pub fn plugin_apply_tags(
 // ── Information Type commands ────────────────────────────────
 
 #[tauri::command]
-pub fn info_rebuild_types(
+pub fn info_sync_types(
     state: State<'_, AppState>,
     types: Vec<(String, String, String, String, String, i64, i64, i64)>,
 ) -> Result<(), String> {
-    state.db.info_rebuild_types(&types).map_err(|e| e.to_string())?;
-    state.db.info_cleanup_orphaned_values().map_err(|e| e.to_string())?;
+    state.db.info_sync_types(&types).map_err(|e| e.to_string())?;
     Ok(())
 }
 

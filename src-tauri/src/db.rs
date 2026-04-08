@@ -357,6 +357,7 @@ impl Database {
                 ttl             INTEGER NOT NULL,
                 sort_order      INTEGER NOT NULL DEFAULT 500,
                 priority        INTEGER NOT NULL DEFAULT 500,
+                active          INTEGER NOT NULL DEFAULT 1,
                 PRIMARY KEY (id, plugin_id)
             );
 
@@ -662,6 +663,15 @@ impl Database {
                 );"
             )?;
             conn.execute("UPDATE db_version SET version = 17 WHERE rowid = 1", [])?;
+            migrated = true;
+        }
+
+        if version < 18 {
+            let _ = conn.execute(
+                "ALTER TABLE information_types ADD COLUMN active INTEGER NOT NULL DEFAULT 1",
+                [],
+            );
+            conn.execute("UPDATE db_version SET version = 18 WHERE rowid = 1", [])?;
             migrated = true;
         }
 
@@ -2587,18 +2597,30 @@ impl Database {
 
     // ── Information Types ────────────────────────────────────────
 
-    /// Rebuild the information_types table from plugin manifests.
-    /// Called on startup after plugins are loaded.
-    pub fn info_rebuild_types(&self, types: &[(String, String, String, String, String, i64, i64, i64)]) -> SqlResult<()> {
+    /// Sync the information_types table from plugin manifests.
+    /// Deactivates all types, then upserts incoming types as active.
+    /// Types from missing plugins remain with active = 0.
+    pub fn info_sync_types(&self, types: &[(String, String, String, String, String, i64, i64, i64)]) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM information_types", [])?;
+        conn.execute_batch("BEGIN")?;
+        conn.execute("UPDATE information_types SET active = 0", [])?;
         let mut stmt = conn.prepare(
-            "INSERT INTO information_types (id, name, entity, display_kind, plugin_id, ttl, sort_order, priority)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+            "INSERT INTO information_types (id, name, entity, display_kind, plugin_id, ttl, sort_order, priority, active)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)
+             ON CONFLICT(id, plugin_id)
+             DO UPDATE SET name = excluded.name,
+                           entity = excluded.entity,
+                           display_kind = excluded.display_kind,
+                           ttl = excluded.ttl,
+                           sort_order = excluded.sort_order,
+                           priority = excluded.priority,
+                           active = 1"
         )?;
         for t in types {
             stmt.execute(rusqlite::params![t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7])?;
         }
+        drop(stmt);
+        conn.execute_batch("COMMIT")?;
         Ok(())
     }
 
@@ -2607,7 +2629,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, name, display_kind, plugin_id, ttl, sort_order, priority
-             FROM information_types WHERE entity = ?1 ORDER BY sort_order, id"
+             FROM information_types WHERE entity = ?1 AND active = 1 ORDER BY sort_order, id"
         )?;
         let rows = stmt.query_map([entity], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?))
@@ -2688,17 +2710,6 @@ impl Database {
             [entity_key],
         )?;
         Ok(())
-    }
-
-    /// Cleanup orphaned values whose information_type_id has no matching registration.
-    pub fn info_cleanup_orphaned_values(&self) -> SqlResult<usize> {
-        let conn = self.conn.lock().unwrap();
-        let count = conn.execute(
-            "DELETE FROM information_values
-             WHERE information_type_id NOT IN (SELECT DISTINCT id FROM information_types)",
-            [],
-        )?;
-        Ok(count)
     }
 
     /// Get provider ordering for an info type.
@@ -3494,33 +3505,29 @@ mod tests {
     }
 
     #[test]
-    fn test_info_cleanup_orphans() {
+    fn test_info_sync_types_activates_and_deactivates() {
         let db = test_db();
-        // Insert a value with no matching info_type registration
-        db.info_upsert_value("orphan_type", "artist:1", "{}", "ok").unwrap();
-        assert!(db.info_get_value("orphan_type", "artist:1").unwrap().is_some());
 
-        // Cleanup should remove it (no rows in information_types)
-        db.info_cleanup_orphaned_values().unwrap();
-        assert!(db.info_get_value("orphan_type", "artist:1").unwrap().is_none());
-    }
-
-    #[test]
-    fn test_info_cleanup_preserves_registered_types() {
-        let db = test_db();
-        // Register an info type
-        db.info_rebuild_types(&[
+        // Sync two types
+        db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm-info".into(), 7776000, 200, 100),
+             "lastfm".into(), 7776000, 200, 100),
+            ("artist_tags".into(), "Tags".into(), "artist".into(), "tag_list".into(),
+             "lastfm".into(), 7776000, 300, 100),
         ]).unwrap();
-        // Insert values: one for registered type, one orphan
-        db.info_upsert_value("artist_bio", "artist:1", r#"{"summary":"bio"}"#, "ok").unwrap();
-        db.info_upsert_value("orphan_type", "artist:1", "{}", "ok").unwrap();
 
-        db.info_cleanup_orphaned_values().unwrap();
+        // Both should be visible
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        assert_eq!(types.len(), 2);
 
-        // Registered type preserved, orphan deleted
-        assert!(db.info_get_value("artist_bio", "artist:1").unwrap().is_some());
-        assert!(db.info_get_value("orphan_type", "artist:1").unwrap().is_none());
+        // Sync with only one type — the other should be deactivated
+        db.info_sync_types(&[
+            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+             "lastfm".into(), 7776000, 200, 100),
+        ]).unwrap();
+
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        assert_eq!(types.len(), 1);
+        assert_eq!(types[0].0, "artist_bio");
     }
 }
