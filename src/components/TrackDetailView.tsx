@@ -499,68 +499,62 @@ export function TrackDetailView({
         </div>
 
 
-        <div className="track-detail-lyrics-section">
-          <div className="track-detail-section-title section-header" onClick={() => onToggleSection("lyrics")}>
-            <svg className={`section-chevron${sections.lyrics === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-            Lyrics
-          </div>
-          {sections.lyrics !== false && (
-            <LyricsPanel
-              trackId={trackId}
-              artistName={track.artist_name ?? ""}
-              title={track.title}
-              positionSecs={isCurrentTrack ? positionSecs : 0}
-              lyrics={lyrics}
-              loading={lyricsLoading}
-              onSave={handleSaveLyrics}
-              onReset={handleResetLyrics}
-              onForceRefresh={handleForceRefreshLyrics}
-              hideTitle
-            />
-          )}
-        </div>
-
-        <div className="track-detail-scrobbles">
-          <div className="track-detail-section-title section-header" onClick={() => onToggleSection("scrobbleHistory")}>
-            <svg className={`section-chevron${sections.scrobbleHistory === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-              Play History
-              {playStats && <span className="track-detail-count"> ({formatCount(playStats.play_count)})</span>}
-            </div>
-          {sections.scrobbleHistory !== false && (<>
-            {playHistory.length > 0 ? (
-              <div className="scrobble-list">
-                {(() => {
-                  const groups: { year: number; entries: typeof playHistory }[] = [];
-                  for (const entry of playHistory) {
-                    const year = new Date(entry.played_at * 1000).getFullYear();
-                    const last = groups[groups.length - 1];
-                    if (last && last.year === year) {
-                      last.entries.push(entry);
-                    } else {
-                      groups.push({ year, entries: [entry] });
-                    }
-                  }
-                  return groups.map(({ year, entries }) => (
-                    <div key={year} className="scrobble-year-group">
-                      <div className="scrobble-year-label">{year}</div>
-                      {entries.map((entry, i) => (
-                        <div key={i} className="scrobble-entry">
-                          {formatTimestamp(entry.played_at)}
-                        </div>
-                      ))}
-                    </div>
-                  ));
-                })()}
-              </div>
-            ) : (
-              <div className="track-detail-empty">No play history</div>
-            )}
-          </>)}
-        </div>
         <InformationSections
           placement="below"
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
           invokeInfoFetch={invokeInfoFetch}
+          customTabs={[
+            {
+              id: "lyrics",
+              name: "Lyrics",
+              content: (
+                <LyricsPanel
+                  trackId={trackId}
+                  artistName={track.artist_name ?? ""}
+                  title={track.title}
+                  positionSecs={isCurrentTrack ? positionSecs : 0}
+                  lyrics={lyrics}
+                  loading={lyricsLoading}
+                  onSave={handleSaveLyrics}
+                  onReset={handleResetLyrics}
+                  onForceRefresh={handleForceRefreshLyrics}
+                  hideTitle
+                />
+              ),
+            },
+            {
+              id: "play-history",
+              name: `Play History${playStats ? ` (${formatCount(playStats.play_count)})` : ""}`,
+              content: playHistory.length > 0 ? (
+                <div className="scrobble-list">
+                  {(() => {
+                    const groups: { year: number; entries: typeof playHistory }[] = [];
+                    for (const entry of playHistory) {
+                      const year = new Date(entry.played_at * 1000).getFullYear();
+                      const last = groups[groups.length - 1];
+                      if (last && last.year === year) {
+                        last.entries.push(entry);
+                      } else {
+                        groups.push({ year, entries: [entry] });
+                      }
+                    }
+                    return groups.map(({ year, entries }) => (
+                      <div key={year} className="scrobble-year-group">
+                        <div className="scrobble-year-label">{year}</div>
+                        {entries.map((entry, i) => (
+                          <div key={i} className="scrobble-entry">
+                            {formatTimestamp(entry.played_at)}
+                          </div>
+                        ))}
+                      </div>
+                    ));
+                  })()}
+                </div>
+              ) : (
+                <div className="track-detail-empty">No play history</div>
+              ),
+            },
+          ]}
         />
       </div>
 
