@@ -3530,4 +3530,57 @@ mod tests {
         assert_eq!(types.len(), 1);
         assert_eq!(types[0].0, "artist_bio");
     }
+
+    #[test]
+    fn test_info_sync_updates_metadata() {
+        let db = test_db();
+
+        // Initial sync
+        db.info_sync_types(&[
+            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+             "lastfm".into(), 7776000, 200, 100),
+        ]).unwrap();
+
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        assert_eq!(types[0].1, "About"); // name
+
+        // Re-sync with updated name and ttl
+        db.info_sync_types(&[
+            ("artist_bio".into(), "Biography".into(), "artist".into(), "rich_text".into(),
+             "lastfm".into(), 86400, 200, 100),
+        ]).unwrap();
+
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        assert_eq!(types.len(), 1);
+        assert_eq!(types[0].1, "Biography"); // name updated
+        assert_eq!(types[0].4, 86400);       // ttl updated
+    }
+
+    #[test]
+    fn test_info_sync_reactivation_preserves_cached_values() {
+        let db = test_db();
+
+        // Sync a type and cache a value
+        db.info_sync_types(&[
+            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+             "lastfm".into(), 7776000, 200, 100),
+        ]).unwrap();
+        db.info_upsert_value("artist_bio", "artist:1", r#"{"summary":"bio"}"#, "ok").unwrap();
+
+        // Sync with empty list — type deactivated
+        db.info_sync_types(&[]).unwrap();
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        assert_eq!(types.len(), 0);
+        // But cached value still exists
+        assert!(db.info_get_value("artist_bio", "artist:1").unwrap().is_some());
+
+        // Re-sync — type reactivated, cached value still there
+        db.info_sync_types(&[
+            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+             "lastfm".into(), 7776000, 200, 100),
+        ]).unwrap();
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        assert_eq!(types.len(), 1);
+        assert!(db.info_get_value("artist_bio", "artist:1").unwrap().is_some());
+    }
 }
