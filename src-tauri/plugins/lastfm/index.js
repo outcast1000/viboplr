@@ -624,6 +624,7 @@ function activate(api) {
           name: st.name,
           subtitle: artist,
           match: parseFloat(st.match || "0"),
+          url: "https://www.youtube.com/results?search_query=" + encodeURIComponent(st.name + " " + artist),
         });
       }
       return { status: "ok", value: { items: items } };

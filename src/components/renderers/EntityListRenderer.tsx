@@ -1,3 +1,4 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { RendererProps } from "./index";
 import type { EntityListData } from "../../types/informationTypes";
 
@@ -24,8 +25,8 @@ export function EntityListRenderer({ data, onEntityClick }: RendererProps) {
             </div>
           )}
           {item.url && (
-            <a href={item.url} target="_blank" rel="noopener noreferrer" className="entity-list-link" onClick={(e) => e.stopPropagation()}>
-              ↗
+            <a href="#" className="entity-list-link" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openUrl(item.url!); }}>
+              ▶
             </a>
           )}
         </div>

@@ -202,7 +202,6 @@ export function TrackDetailView({
   const [tagInput, setTagInput] = useState("");
   const [playStats, setPlayStats] = useState<TrackPlayStats | null>(null);
   const [playHistory, setPlayHistory] = useState<Array<{ played_at: number }>>([]);
-  const [similarTracks, setSimilarTracks] = useState<Array<{ name: string; artist: { name: string }; match?: string }>>([]);
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
   const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; toptags?: Array<{ name: string }>; url?: string } | null>(null);
   const [youtubeFeedback, setYoutubeFeedback] = useState<{ url: string; videoTitle: string } | null>(null);
@@ -221,7 +220,6 @@ export function TrackDetailView({
     setEditingTags(false);
     setPlayStats(null);
     setPlayHistory([]);
-    setSimilarTracks([]);
     setAudioProps(null);
     setTrackInfo(null);
     setYoutubeFeedback(null);
@@ -251,18 +249,6 @@ export function TrackDetailView({
         const val = result.value as any;
         if (val?.tags?.length) setCommunityTags(val.tags);
         if (val?.artistTags?.length) setArtistTags(val.artistTags);
-      }).catch(() => {});
-      // Fetch similar tracks
-      invokeInfoFetch("lastfm", "similar_tracks", trackEntity).then(result => {
-        if (result.status !== "ok") return;
-        const items = (result.value as any)?.items;
-        if (Array.isArray(items)) {
-          setSimilarTracks(items.map((it: any) => ({
-            name: it.name,
-            artist: { name: it.subtitle || "" },
-            match: it.match != null ? String(it.match) : undefined,
-          })));
-        }
       }).catch(() => {});
       // Fetch track info (listeners, playcount, tags, url)
       invokeInfoFetch("lastfm", "track_info", trackEntity).then(result => {
@@ -534,37 +520,6 @@ export function TrackDetailView({
           )}
         </div>
 
-        <div className="track-detail-similar">
-          <div className="track-detail-section-title section-header" onClick={() => onToggleSection("similar")}>
-            <svg className={`section-chevron${sections.similar === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-            Similar Tracks
-          </div>
-          {sections.similar !== false && (<>
-            {similarTracks.length > 0 ? (
-              <div className="similar-tracks-list">
-                {similarTracks.slice(0, 20).map((st, i) => {
-                  const matchPct = st.match ? Math.round(parseFloat(st.match) * 100) : null;
-                  return (
-                    <div key={i} className="similar-track-row">
-                      <div className="similar-track-info">
-                        <span className="similar-track-name">{st.name}</span>
-                        <span className="similar-track-artist">{st.artist.name}</span>
-                      </div>
-                      {matchPct != null && <span className="similar-track-match">{matchPct}%</span>}
-                      <button className="similar-track-yt" title="Watch on YouTube" onClick={async () => {
-                        const q = encodeURIComponent(`${st.name} ${st.artist.name}`);
-                        await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-                      }}>&#9654;</button>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="track-detail-empty">No similar tracks found</div>
-            )}
-          </>)}
-        </div>
-
         <div className="track-detail-scrobbles">
           <div className="track-detail-section-title section-header" onClick={() => onToggleSection("scrobbleHistory")}>
             <svg className={`section-chevron${sections.scrobbleHistory === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -605,7 +560,6 @@ export function TrackDetailView({
         <InformationSections
           placement="below"
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
-          exclude={["similar_tracks"]}
           invokeInfoFetch={invokeInfoFetch}
         />
       </div>
