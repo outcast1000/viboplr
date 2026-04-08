@@ -16,8 +16,6 @@ mod sync;
 mod tag_writer;
 mod timing;
 mod downloader;
-mod genius;
-
 mod lyric_provider;
 
 use commands::{AppState, DownloadQueue, ImageDownloadRequest};
@@ -101,7 +99,6 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::set_track_youtube_url,
         commands::clear_track_youtube_url,
         commands::get_track_audio_properties,
-        commands::get_genius_explanation,
         commands::replace_track_tags,
         commands::download_track,
         commands::download_album,
@@ -224,7 +221,6 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::set_track_youtube_url,
         commands::clear_track_youtube_url,
         commands::get_track_audio_properties,
-        commands::get_genius_explanation,
         commands::replace_track_tags,
         commands::download_track,
         commands::download_album,

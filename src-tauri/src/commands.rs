@@ -1466,32 +1466,6 @@ pub fn get_track_audio_properties(
 }
 
 #[tauri::command]
-pub fn get_genius_explanation(state: State<'_, AppState>, app: AppHandle, artist_name: String, track_title: String) -> Option<serde_json::Value> {
-    let cache_key = format!("genius_explanation:{}:{}", artist_name.to_lowercase(), track_title.to_lowercase());
-    if let Ok(Some(cached)) = state.db.lastfm_cache_get(&cache_key) {
-        return Some(cached);
-    }
-    let db = state.db.clone();
-    thread::spawn(move || {
-        let client = crate::genius::GeniusClient::new();
-        let result = (|| -> Result<(), String> {
-            let (song_id, _song_url) = client.search(&artist_name, &track_title)?
-                .ok_or_else(|| "Song not found on Genius".to_string())?;
-            let explanation = client.get_explanation(song_id)?;
-            let value = serde_json::to_value(&explanation)
-                .map_err(|e| format!("Failed to serialize Genius explanation: {}", e))?;
-            let _ = db.lastfm_cache_set(&cache_key, &value);
-            let _ = app.emit("genius-explanation", &value);
-            Ok(())
-        })();
-        if let Err(e) = result {
-            log::warn!("Genius explanation fetch failed for '{}' - '{}': {}", artist_name, track_title, e);
-        }
-    });
-    None
-}
-
-#[tauri::command]
 pub fn replace_track_tags(state: State<'_, AppState>, track_id: i64, tag_names: Vec<String>) -> Result<Vec<(i64, String)>, String> {
     state.db.replace_track_tags(track_id, &tag_names).map_err(|e| e.to_string())
 }
