@@ -14,11 +14,11 @@ The plugin follows the same pattern as the Last.fm plugin: a frontend JavaScript
 
 Declares 3 information types:
 
-| id | entity | displayKind | name | ttl | order |
-|----|--------|-------------|------|-----|-------|
-| `genius_song_explanation` | track | `annotations` | Song Explanation | 7776000 (90d) | 50 |
-| `genius_artist_description` | artist | `rich_text` | Description | 7776000 (90d) | 50 |
-| `genius_album_description` | album | `rich_text` | Description | 7776000 (90d) | 50 |
+| id | entity | displayKind | name | ttl | order | priority |
+|----|--------|-------------|------|-----|-------|----------|
+| `genius_song_explanation` | track | `annotations` | Song Explanation | 7776000 (90d) | 50 | 100 |
+| `genius_artist_description` | artist | `rich_text` | Description | 7776000 (90d) | 50 | 100 |
+| `genius_album_description` | album | `rich_text` | Description | 7776000 (90d) | 50 | 100 |
 
 ### index.js
 
@@ -35,15 +35,17 @@ All API calls hit Genius's internal web API (no auth required):
   2. `GET genius.com/api/referents?song_id={songId}&per_page=50&text_format=plain` — extracts annotations, filters out section headers like `[Verse 1]`
   - Returns `AnnotationsData` with `_meta: { url, providerName: "Genius" }`
 
-- `getArtistDescription(api, artistId)` — `GET genius.com/api/artists/{artistId}` — extracts artist description as HTML.
-  - Returns `RichTextData` with `_meta: { url, providerName: "Genius" }`
+- `getArtistDescription(api, artistId)` — `GET genius.com/api/artists/{artistId}` — extracts `description.html` for `full` field and `description_preview` for `summary` field.
+  - Returns `RichTextData { summary, full }` with `_meta: { url, providerName: "Genius" }`
 
-- `getAlbumDescription(api, albumId)` — `GET genius.com/api/albums/{albumId}` — extracts album description as HTML.
-  - Returns `RichTextData` with `_meta: { url, providerName: "Genius" }`
+- `getAlbumDescription(api, albumId)` — `GET genius.com/api/albums/{albumId}` — extracts `description_preview` for `summary` field and `description.html` for `full` field.
+  - Returns `RichTextData { summary, full }` with `_meta: { url, providerName: "Genius" }`
 
 **onFetch handlers** — registered for each information type, orchestrate search + fetch, return `{ status: "ok", value }` or `{ status: "not_found" }`.
 
 ## New DisplayKind: `annotations`
+
+> **Note:** This is distinct from the existing `annotated_text` displayKind, which uses `<h4>` headings and plain paragraphs. The `annotations` kind has a different visual treatment (left accent border, italic quoted fragments) that preserves the existing Genius UI. The data shape also differs: `annotations` uses `fragment`/`explanation` pairs rather than `heading`/`text` sections.
 
 ### Type definition (in `informationTypes.ts`)
 
@@ -88,6 +90,10 @@ Registered in `src/components/renderers/index.ts` renderer map.
 ### Frontend removals
 - `TrackDetailView.tsx`: Remove `geniusExplanation` state, `geniusLoading` state, the `get_genius_explanation` invoke call, the `genius-explanation` event listener, and the Genius rendering block
 - `TrackDetailView.css`: Remove `.genius-*` CSS classes (`.genius-link`, `.genius-about`, `.genius-annotations`, `.genius-annotation`, `.genius-annotation-fragment`, `.genius-annotation-explanation`)
+- `store.ts`: Remove `geniusExplanations` from `trackSections` default
+
+### Not removed
+- The `builtin-genius` search provider in `searchProviders.ts` and `IconGenius` in `Icons.tsx` are part of the web-search-provider system, not the hardcoded Genius integration. They must NOT be removed.
 
 ## Data Flow
 
@@ -114,3 +120,4 @@ Registered in `src/components/renderers/index.ts` renderer map.
 | `src-tauri/src/commands.rs` | Remove `get_genius_explanation` command |
 | `src/components/TrackDetailView.tsx` | Remove Genius state, invoke, listener, rendering |
 | `src/components/TrackDetailView.css` | Remove `.genius-*` styles |
+| `src/store.ts` | Remove `geniusExplanations` from `trackSections` default |
