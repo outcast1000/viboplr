@@ -3,18 +3,12 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Collection } from "../types";
+import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
 import { IconPlay, IconEnqueue, IconFolder, IconGlobe, IconLastfm, IconYoutube } from "./Icons";
 import LyricsPanel from "./LyricsPanel";
 import "./TrackDetailView.css";
-
-/** Last.fm returns a single object instead of an array when there's 1 item */
-function asArray<T>(val: T | T[] | undefined | null): T[] {
-  if (Array.isArray(val)) return val;
-  if (val != null && typeof val === "object") return [val];
-  return [];
-}
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) {
@@ -188,6 +182,7 @@ interface TrackDetailViewProps {
   providers: SearchProviderConfig[];
   addLog: (msg: string) => void;
   onUpdateTrack: (update: Partial<Track>) => void;
+  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity) => Promise<InfoFetchResult>;
 }
 
 export function TrackDetailView({
@@ -195,7 +190,7 @@ export function TrackDetailView({
   positionSecs, isCurrentTrack,
   sections, onToggleSection, onArtistClick, onAlbumClick, onTagClick,
   onPlay, onEnqueue, onPlayNext, onShowInFolder,
-  collections: _collections, providers, addLog, onUpdateTrack,
+  collections: _collections, providers, addLog, onUpdateTrack, invokeInfoFetch,
 }: TrackDetailViewProps) {
   const [lyrics, setLyrics] = useState<{ text: string; kind: string; provider: string } | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
@@ -256,19 +251,43 @@ export function TrackDetailView({
       .then(setAudioProps).catch(() => {});
 
     if (track.artist_name) {
-      invoke<any>("lastfm_get_track_tags", { artistName: track.artist_name, trackTitle: track.title }).then(cached => {
-        if (cached) {
-          const tags = asArray(cached?.toptags?.tag);
-          if (tags.length > 0) setCommunityTags(tags);
+      const trackEntity: InfoEntity = { kind: "track", name: track.title, id: trackId, artistName: track.artist_name };
+      // Fetch track tags + artist tags (combined in one info type)
+      invokeInfoFetch("lastfm", "track_tags", trackEntity).then(result => {
+        if (result.status !== "ok") return;
+        const val = result.value as any;
+        if (val?.tags?.length) setCommunityTags(val.tags);
+        if (val?.artistTags?.length) setArtistTags(val.artistTags);
+      }).catch(() => {});
+      // Fetch similar tracks
+      invokeInfoFetch("lastfm", "similar_tracks", trackEntity).then(result => {
+        if (result.status !== "ok") return;
+        const items = (result.value as any)?.items;
+        if (Array.isArray(items)) {
+          setSimilarTracks(items.map((it: any) => ({
+            name: it.name,
+            artist: { name: it.subtitle || "" },
+            match: it.match != null ? String(it.match) : undefined,
+          })));
         }
       }).catch(() => {});
-      invoke<any>("lastfm_get_artist_tags", { artistName: track.artist_name }).then(cached => {
-        if (cached) {
-          const tags = asArray(cached?.toptags?.tag);
-          if (tags.length > 0) setArtistTags(tags);
+      // Fetch track info (listeners, playcount, tags, url)
+      invokeInfoFetch("lastfm", "track_info", trackEntity).then(result => {
+        if (result.status !== "ok") return;
+        const val = result.value as any;
+        if (!val) return;
+        const items = val.items as Array<{ label: string; value: number }> | undefined;
+        const info: { listeners?: string; playcount?: string; toptags?: Array<{ name: string }>; url?: string } = {};
+        if (items) {
+          for (const item of items) {
+            if (item.label === "listeners") info.listeners = String(item.value);
+            if (item.label === "scrobbles") info.playcount = String(item.value);
+          }
         }
+        if (val.toptags) info.toptags = val.toptags;
+        if (val.url) info.url = val.url;
+        setTrackInfo(info);
       }).catch(() => {});
-      invoke("lastfm_get_similar_tracks", { artistName: track.artist_name, trackTitle: track.title }).catch(() => {});
       if (sections.geniusExplanations !== false) {
         setGeniusLoading(true);
         invoke<any>("get_genius_explanation", { artistName: track.artist_name, trackTitle: track.title })
@@ -277,28 +296,13 @@ export function TrackDetailView({
               setGeniusExplanation(cached);
               setGeniusLoading(false);
             } else {
-              // No cache — backend spawns async fetch. Fallback timeout in case
-              // the event is missed (listener race) or backend errors silently.
               setTimeout(() => setGeniusLoading(false), 15000);
             }
           })
           .catch(() => setGeniusLoading(false));
       }
-      const parseTrackInfo = (resp: any) => {
-        const t = resp?.track;
-        if (!t) return;
-        setTrackInfo({
-          listeners: t.listeners,
-          playcount: t.playcount,
-          toptags: asArray(t.toptags?.tag),
-          url: t.url,
-        });
-      };
-      invoke<any>("lastfm_get_track_info", { artistName: track.artist_name, trackTitle: track.title })
-        .then(resp => { if (resp) parseTrackInfo(resp); })
-        .catch(() => {});
     }
-  }, [trackId, track.artist_name, track.title]);
+  }, [trackId, track.artist_name, track.title, invokeInfoFetch]);
 
   useEffect(() => {
     const unlistenLyrics = listen<{ track_id: number; text: string; kind: string; provider: string }>("lyrics-loaded", (event) => {
@@ -310,28 +314,6 @@ export function TrackDetailView({
     const unlistenLyricsErr = listen<{ track_id: number }>("lyrics-error", (event) => {
       if (event.payload.track_id === trackIdRef.current) setLyricsLoading(false);
     });
-    const unlistenSimilar = listen<any>("lastfm-similar-tracks", (event) => {
-      const tracks = event.payload?.similartracks?.track;
-      if (Array.isArray(tracks)) setSimilarTracks(tracks);
-    });
-    const unlistenTags = listen<any>("lastfm-track-tags", (event) => {
-      const tags = asArray(event.payload?.toptags?.tag);
-      if (tags.length > 0) setCommunityTags(tags);
-    });
-    const unlistenArtistTags = listen<any>("lastfm-artist-tags", (event) => {
-      const tags = asArray(event.payload?.toptags?.tag);
-      if (tags.length > 0) setArtistTags(tags);
-    });
-    const unlistenTrackInfo = listen<any>("lastfm-track-info", (event) => {
-      const t = event.payload?.track;
-      if (!t) return;
-      setTrackInfo({
-        listeners: t.listeners,
-        playcount: t.playcount,
-        toptags: asArray(t.toptags?.tag),
-        url: t.url,
-      });
-    });
     const unlistenGenius = listen<any>("genius-explanation", (event) => {
       if (event.payload) {
         setGeniusExplanation(event.payload);
@@ -341,10 +323,6 @@ export function TrackDetailView({
     return () => {
       unlistenLyrics.then(f => f());
       unlistenLyricsErr.then(f => f());
-      unlistenSimilar.then(f => f());
-      unlistenTags.then(f => f());
-      unlistenArtistTags.then(f => f());
-      unlistenTrackInfo.then(f => f());
       unlistenGenius.then(f => f());
     };
   }, []);
@@ -370,7 +348,7 @@ export function TrackDetailView({
 
   const handleApplyTag = useCallback(async (tagName: string) => {
     try {
-      const result = await invoke<Array<[number, string]>>("lastfm_apply_community_tags", { trackId, tagNames: [tagName] });
+      const result = await invoke<Array<[number, string]>>("plugin_apply_tags", { trackId, tagNames: [tagName] });
       if (result.length > 0) {
         setTrackTags(prev => [...prev, ...result.map(([id, name]) => ({ id, name }))]);
         setCommunityTags(prev => prev.filter(t => t.name.toLowerCase() !== tagName.toLowerCase()));

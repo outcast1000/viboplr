@@ -1,20 +1,23 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import type { Album, Track, Artist } from "../types";
+import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { stripAccents } from "../utils";
+
+export interface SectionMeta { url?: string; providerName?: string }
 
 export interface UseArtistInfoReturn {
   trackPopularity: Record<number, number>;
   albumTrackPopularity: Record<number, number>;
   artistTrackPopularity: Record<number, number>;
   artistTopTracks: Array<{ name: string; listeners: number; libraryTrack?: Track }>;
-  albumWiki: string | null;
-  albumInfoLoading: boolean;
+  albumTopTracks: Array<{ name: string; listeners: number; libraryTrack?: Track }>;
   albumUnmatchedTracks: Array<{ name: string; listeners: number }>;
   similarArtists: Array<{ name: string; match: string }>;
+  sectionMeta: Record<string, SectionMeta>;
   refreshInfo: () => void;
 }
+
+const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().replace(/\([^)]*\)/g, "").trim()).replace(/[^a-z0-9]/g, "");
 
 export function useArtistInfo(deps: {
   selectedArtist: number | null;
@@ -22,53 +25,22 @@ export function useArtistInfo(deps: {
   artists: Artist[];
   albums: Album[];
   tracks: Track[];
+  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity) => Promise<InfoFetchResult>;
 }): UseArtistInfoReturn {
   const [albumTrackPopularity, setAlbumTrackPopularity] = useState<Record<number, number>>({});
   const [artistTrackPopularity, setArtistTrackPopularity] = useState<Record<number, number>>({});
   const [artistTopTracks, setArtistTopTracks] = useState<Array<{ name: string; listeners: number; libraryTrack?: Track }>>([]);
-  const [albumWiki, setAlbumWiki] = useState<string | null>(null);
-  const [albumInfoLoading, setAlbumInfoLoading] = useState(false);
+  const [albumTopTracks, setAlbumTopTracks] = useState<Array<{ name: string; listeners: number; libraryTrack?: Track }>>([]);
   const [albumUnmatchedTracks, setAlbumUnmatchedTracks] = useState<Array<{ name: string; listeners: number }>>([]);
   const [similarArtists, setSimilarArtists] = useState<Array<{ name: string; match: string }>>([]);
-  const [infoRefreshCounter, setInfoRefreshCounter] = useState(0);
+  const [sectionMeta, setSectionMeta] = useState<Record<string, SectionMeta>>({});
 
   const trackPopularity = Object.keys(albumTrackPopularity).length > 0 ? albumTrackPopularity : artistTrackPopularity;
 
-  // Reset similar artists when selected artist changes
-  useEffect(() => {
-    setSimilarArtists([]);
-  }, [deps.selectedArtist]);
-
-  // Fetch Last.fm album wiki when selected album changes
-  useEffect(() => {
-    setAlbumWiki(null);
-    setAlbumInfoLoading(false);
-    if (deps.selectedAlbum === null) return;
-    const album = deps.albums.find(a => a.id === deps.selectedAlbum);
-    if (!album) return;
-    const artistName = deps.artists.find(a => a.id === album.artist_id)?.name;
-    if (!artistName) return;
-
-    setAlbumInfoLoading(true);
-    const parseAlbumInfo = (resp: { album?: { wiki?: { summary?: string } } } | null) => {
-      if (resp?.album?.wiki?.summary) {
-        setAlbumWiki(resp.album.wiki.summary.replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?/, "").trim());
-      }
-      setAlbumInfoLoading(false);
-    };
-
-    invoke<any>("lastfm_get_album_info", { artistName, albumTitle: album.title })
-      .then(resp => { if (resp) parseAlbumInfo(resp); })
-      .catch(() => setAlbumInfoLoading(false));
-
-    const unlistenAlbum = listen<any>("lastfm-album-info", (event) => parseAlbumInfo(event.payload));
-    const unlistenAlbumError = listen<any>("lastfm-album-info-error", () => setAlbumInfoLoading(false));
-    return () => { unlistenAlbum.then(f => f()); unlistenAlbumError.then(f => f()); };
-  }, [deps.selectedAlbum, deps.albums, deps.artists, infoRefreshCounter]);
-
-  // Fetch Last.fm track popularity when selected album changes
+  // Fetch album track popularity when selected album changes
   useEffect(() => {
     setAlbumTrackPopularity({});
+    setAlbumTopTracks([]);
     setAlbumUnmatchedTracks([]);
     if (deps.selectedAlbum === null) return;
     const album = deps.albums.find(a => a.id === deps.selectedAlbum);
@@ -76,34 +48,37 @@ export function useArtistInfo(deps: {
     const artistName = deps.artists.find(a => a.id === album.artist_id)?.name;
     if (!artistName) return;
 
-    const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().replace(/\([^)]*\)/g, "").trim()).replace(/[^a-z0-9]/g, "");
-    const matchPopularity = (resp: { tracks?: Array<{ name: string; listeners: number }> } | null) => {
-      if (!resp?.tracks) return;
+    let cancelled = false;
+    deps.invokeInfoFetch("lastfm", "album_track_popularity", {
+      kind: "album", name: album.title, id: album.id, artistName,
+    }).then(result => {
+      if (cancelled || result.status !== "ok") return;
+      const items = (result.value as any)?.items as Array<{ name: string; value: number }> | undefined;
+      if (!items) return;
       const popMap: Record<number, number> = {};
       const unmatched: Array<{ name: string; listeners: number }> = [];
-      const localTracks = deps.tracks;
-      for (const lfmTrack of resp.tracks) {
-        const norm = normalizeTitle(lfmTrack.name);
-        const match = localTracks.find(t => normalizeTitle(t.title) === norm);
-        if (match && lfmTrack.listeners > 0) {
-          popMap[match.id] = lfmTrack.listeners;
+      const topList: Array<{ name: string; listeners: number; libraryTrack?: Track }> = [];
+      for (const item of items) {
+        const norm = normalizeTitle(item.name);
+        const match = deps.tracks.find(t => normalizeTitle(t.title) === norm);
+        if (match && item.value > 0) {
+          popMap[match.id] = item.value;
         } else {
-          unmatched.push({ name: lfmTrack.name, listeners: lfmTrack.listeners });
+          unmatched.push({ name: item.name, listeners: item.value });
         }
+        topList.push({ name: item.name, listeners: item.value, libraryTrack: match ?? undefined });
       }
+      topList.sort((a, b) => b.listeners - a.listeners);
+      const meta = (result.value as any)?._meta as SectionMeta | undefined;
+      if (meta) setSectionMeta(prev => ({ ...prev, albumTopTracks: meta }));
       setAlbumTrackPopularity(popMap);
+      setAlbumTopTracks(topList);
       setAlbumUnmatchedTracks(unmatched);
-    };
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [deps.selectedAlbum, deps.albums, deps.artists, deps.tracks, deps.invokeInfoFetch]);
 
-    invoke<any>("lastfm_get_album_track_popularity", { artistName, albumTitle: album.title })
-      .then(resp => { if (resp) matchPopularity(resp); })
-      .catch(() => {});
-
-    const unlistenPop = listen<any>("lastfm-album-track-popularity", (event) => matchPopularity(event.payload));
-    return () => { unlistenPop.then(f => f()); };
-  }, [deps.selectedAlbum, deps.albums, deps.artists, deps.tracks]);
-
-  // Fetch Last.fm artist top tracks popularity when selected artist changes (no album selected)
+  // Fetch artist top tracks + popularity when selected artist changes (no album selected)
   useEffect(() => {
     setArtistTrackPopularity({});
     setArtistTopTracks([]);
@@ -111,33 +86,57 @@ export function useArtistInfo(deps: {
     const artist = deps.artists.find(a => a.id === deps.selectedArtist);
     if (!artist) return;
 
-    const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().replace(/\([^)]*\)/g, "").trim()).replace(/[^a-z0-9]/g, "");
-    const matchPopularity = (resp: { tracks?: Array<{ name: string; listeners: number }> } | null) => {
-      if (!resp?.tracks) return;
+    let cancelled = false;
+    deps.invokeInfoFetch("lastfm", "artist_top_tracks", {
+      kind: "artist", name: artist.name, id: artist.id,
+    }).then(result => {
+      if (cancelled || result.status !== "ok") return;
+      const items = (result.value as any)?.items as Array<{ name: string; value: number }> | undefined;
+      if (!items) return;
       const popMap: Record<number, number> = {};
       const topList: Array<{ name: string; listeners: number; libraryTrack?: Track }> = [];
-      for (const lfmTrack of resp.tracks) {
-        const norm = normalizeTitle(lfmTrack.name);
+      for (const item of items) {
+        const norm = normalizeTitle(item.name);
         const match = deps.tracks.find(t => normalizeTitle(t.title) === norm);
-        if (match && lfmTrack.listeners > 0) {
-          popMap[match.id] = lfmTrack.listeners;
+        if (match && item.value > 0) {
+          popMap[match.id] = item.value;
         }
-        topList.push({ name: lfmTrack.name, listeners: lfmTrack.listeners, libraryTrack: match ?? undefined });
+        topList.push({ name: item.name, listeners: item.value, libraryTrack: match ?? undefined });
       }
+      const meta = (result.value as any)?._meta as SectionMeta | undefined;
+      if (meta) setSectionMeta(prev => ({ ...prev, artistTopTracks: meta }));
       setArtistTrackPopularity(popMap);
       setArtistTopTracks(topList);
-    };
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [deps.selectedArtist, deps.selectedAlbum, deps.artists, deps.tracks, deps.invokeInfoFetch]);
 
-    invoke<any>("lastfm_get_artist_track_popularity", { artistName: artist.name })
-      .then(resp => { if (resp) matchPopularity(resp); })
-      .catch(() => {});
+  // Fetch similar artists when selected artist changes
+  useEffect(() => {
+    setSimilarArtists([]);
+    if (deps.selectedArtist === null) return;
+    const artist = deps.artists.find(a => a.id === deps.selectedArtist);
+    if (!artist) return;
 
-    const unlistenPop = listen<any>("lastfm-artist-track-popularity", (event) => matchPopularity(event.payload));
-    return () => { unlistenPop.then(f => f()); };
-  }, [deps.selectedArtist, deps.selectedAlbum, deps.artists, deps.tracks]);
+    let cancelled = false;
+    deps.invokeInfoFetch("lastfm", "similar_artists", {
+      kind: "artist", name: artist.name, id: artist.id,
+    }).then(result => {
+      if (cancelled || result.status !== "ok") return;
+      const items = (result.value as any)?.items as Array<{ name: string; match?: number }> | undefined;
+      if (!items) return;
+      const meta = (result.value as any)?._meta as SectionMeta | undefined;
+      if (meta) setSectionMeta(prev => ({ ...prev, similarArtists: meta }));
+      setSimilarArtists(items.map(item => ({
+        name: item.name,
+        match: String(item.match ?? 0),
+      })));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [deps.selectedArtist, deps.artists, deps.invokeInfoFetch]);
 
   const refreshInfo = () => {
-    setInfoRefreshCounter(c => c + 1);
+    // No-op — info types handle their own caching/refresh
   };
 
   return {
@@ -145,10 +144,10 @@ export function useArtistInfo(deps: {
     albumTrackPopularity,
     artistTrackPopularity,
     artistTopTracks,
-    albumWiki,
-    albumInfoLoading,
+    albumTopTracks,
     albumUnmatchedTracks,
     similarArtists,
+    sectionMeta,
     refreshInfo,
   };
 }

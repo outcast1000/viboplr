@@ -1,17 +1,15 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Album, Track } from "../types";
 import type { SearchProviderConfig } from "../searchProviders";
+import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { getProvidersForContext } from "../searchProviders";
 import { AlbumOptionsMenu } from "./AlbumOptionsMenu";
+import { InformationSections } from "./InformationSections";
 
 interface AlbumDetailHeaderProps {
   selectedAlbum: number;
   album: Album | undefined;
   albumImagePath: string | null;
-  albumWiki: string | null;
-  albumInfoLoading: boolean;
-  sections: Record<string, boolean>;
-  onToggleSection: (key: string) => void;
   sortedTracks: Track[];
   searchProviders: SearchProviderConfig[];
   onArtistClick: (artistId: number) => void;
@@ -21,16 +19,13 @@ interface AlbumDetailHeaderProps {
   onImageRemoved: (id: number) => void;
   onRetrieveImage: () => void;
   onRetrieveInfo: () => void;
+  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity) => Promise<InfoFetchResult>;
 }
 
 export function AlbumDetailHeader({
   selectedAlbum,
   album,
   albumImagePath,
-  albumWiki,
-  albumInfoLoading,
-  sections,
-  onToggleSection,
   sortedTracks,
   searchProviders,
   onArtistClick,
@@ -40,8 +35,16 @@ export function AlbumDetailHeader({
   onImageRemoved,
   onRetrieveImage,
   onRetrieveInfo,
+  invokeInfoFetch,
 }: AlbumDetailHeaderProps) {
   const albumProviders = getProvidersForContext(searchProviders, "album");
+
+  const albumEntity: InfoEntity | null = album ? {
+    kind: "album",
+    name: album.title,
+    id: album.id,
+    artistName: album.artist_name ?? undefined,
+  } : null;
 
   return (
     <div className="album-detail-top">
@@ -96,23 +99,11 @@ export function AlbumDetailHeader({
         </div>
       </div>
       <div className="section-wide">
-        <div className="artist-bio-title section-header" onClick={() => onToggleSection("review")}>
-          <svg className={`section-chevron${sections.review === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          Review
-        </div>
-        {sections.review !== false && (
-          <>
-            {albumInfoLoading && !albumWiki && (
-              <div className="lastfm-loading-text">Loading…</div>
-            )}
-            {albumWiki && (
-              <div className="artist-bio-text" dangerouslySetInnerHTML={{ __html: albumWiki }} />
-            )}
-            {!albumInfoLoading && !albumWiki && (
-              <div className="lastfm-empty-text">No album review available on Last.fm</div>
-            )}
-          </>
-        )}
+        <InformationSections
+          entity={albumEntity}
+          exclude={["album_track_popularity"]}
+          invokeInfoFetch={invokeInfoFetch}
+        />
       </div>
     </div>
   );

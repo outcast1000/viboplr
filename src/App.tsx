@@ -163,19 +163,6 @@ function App() {
   const [trackPopularityState, setTrackPopularityState] = useState<Record<number, number>>({});
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "", trackPopularityState, setNavError);
 
-  const artistInfo = useArtistInfo({
-    selectedArtist: library.selectedArtist,
-    selectedAlbum: library.selectedAlbum,
-    artists: library.artists,
-    albums: library.albums,
-    tracks: library.tracks,
-  });
-
-  // Update trackPopularity state when artistInfo changes
-  useEffect(() => {
-    setTrackPopularityState(artistInfo.trackPopularity);
-  }, [artistInfo.trackPopularity]);
-
   const queueHook = useQueue(restoredRef, playback.handlePlay, library.collections);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
@@ -228,6 +215,20 @@ function App() {
   }), [queueHook, tidalTrackToTrackFn]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current);
+
+  const artistInfo = useArtistInfo({
+    selectedArtist: library.selectedArtist,
+    selectedAlbum: library.selectedAlbum,
+    artists: library.artists,
+    albums: library.albums,
+    tracks: library.tracks,
+    invokeInfoFetch: plugins.invokeInfoFetch,
+  });
+
+  // Update trackPopularity state when artistInfo changes
+  useEffect(() => {
+    setTrackPopularityState(artistInfo.trackPopularity);
+  }, [artistInfo.trackPopularity]);
 
   // Plugin event: track started
   const prevTrackIdRef = useRef<number | null>(null);
@@ -1648,6 +1649,7 @@ function App() {
                 providers={searchProviders}
                 addLog={addLog}
                 onUpdateTrack={(update) => library.setTracks(prev => prev.map(t => t.id === library.selectedTrack ? { ...t, ...update } : t))}
+                invokeInfoFetch={plugins.invokeInfoFetch}
               />
             );
           })()}
@@ -1725,6 +1727,7 @@ function App() {
                 searchProviders={searchProviders}
                 addLog={addLog}
                 artists={artists}
+                sectionMeta={artistInfo.sectionMeta}
                 invokeInfoFetch={plugins.invokeInfoFetch}
               />
             );
@@ -1821,10 +1824,6 @@ function App() {
                 selectedAlbum={selectedAlbum}
                 album={album}
                 albumImagePath={albumImagePath}
-                albumWiki={artistInfo.albumWiki}
-                albumInfoLoading={artistInfo.albumInfoLoading}
-                sections={albumSections}
-                onToggleSection={handleToggleAlbumSection}
                 sortedTracks={sortedTracks}
                 searchProviders={searchProviders}
                 onArtistClick={library.handleArtistClick}
@@ -1840,6 +1839,7 @@ function App() {
                   if (!album) return;
                   artistInfo.refreshInfo();
                 }}
+                invokeInfoFetch={plugins.invokeInfoFetch}
               />
             );
           })()}
@@ -1889,46 +1889,64 @@ function App() {
           {/* Artist album detail - always basic TrackList */}
           {(view === "artists" && selectedAlbum !== null) && (
             <>
-              {artistInfo.albumUnmatchedTracks.length > 0 && (
+              {artistInfo.albumTopTracks.length > 0 && (
                 <div className="section-narrow">
-                  <div className="section-title section-header" onClick={() => handleToggleAlbumSection("unmatchedTracks")}>
-                    <svg className={`section-chevron${albumSections.unmatchedTracks === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    Not in Library
+                  <div className="section-title section-header" onClick={() => handleToggleAlbumSection("topSongs")}>
+                    <svg className={`section-chevron${albumSections.topSongs === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    Top Songs
+                    {artistInfo.sectionMeta.albumTopTracks?.url && artistInfo.sectionMeta.albumTopTracks?.providerName && (
+                      <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openUrl(artistInfo.sectionMeta.albumTopTracks.url!); }}>
+                        View on {artistInfo.sectionMeta.albumTopTracks.providerName}
+                      </a>
+                    )}
                   </div>
-                  {albumSections.unmatchedTracks !== false && (() => {
-                    const maxPop = Math.max(...artistInfo.albumUnmatchedTracks.map(t => t.listeners), ...Object.values(artistInfo.albumTrackPopularity), 0);
+                  {albumSections.topSongs !== false && (() => {
+                    const maxPop = artistInfo.albumTopTracks[0]?.listeners ?? 1;
                     const artistName = artists.find(a => a.id === selectedArtist)?.name ?? "";
                     return (
                       <div className="top-songs-list">
-                        {artistInfo.albumUnmatchedTracks.map((t, i) => {
-                          const pct = maxPop > 0 ? (t.listeners / maxPop) * 100 : 0;
+                        {artistInfo.albumTopTracks.map((entry, i) => {
+                          const pct = maxPop > 0 ? (entry.listeners / maxPop) * 100 : 0;
+                          const inLibrary = !!entry.libraryTrack;
                           const handleAction = async () => {
-                            addLog("Searching YouTube...");
-                            try {
-                              const result = await invoke<{ url: string; video_title: string | null }>(
-                                "search_youtube", { title: t.name, artistName }
-                              );
-                              await openUrl(result.url);
-                            } catch {
-                              const q = encodeURIComponent(`${t.name} ${artistName}`);
-                              await openUrl(`https://www.youtube.com/results?search_query=${q}`);
+                            if (inLibrary) {
+                              queueHook.playTracks([entry.libraryTrack!], 0);
+                            } else {
+                              addLog("Searching YouTube...");
+                              try {
+                                const result = await invoke<{ url: string; video_title: string | null }>(
+                                  "search_youtube", { title: entry.name, artistName }
+                                );
+                                await openUrl(result.url);
+                              } catch {
+                                const q = encodeURIComponent(`${entry.name} ${artistName}`);
+                                await openUrl(`https://www.youtube.com/results?search_query=${q}`);
+                              }
                             }
                           };
                           return (
-                            <div key={i} className="top-song-row top-song-missing" onDoubleClick={handleAction}>
+                            <div
+                              key={`${entry.name}-${i}`}
+                              className={`top-song-row${inLibrary ? "" : " top-song-missing"}`}
+                              onDoubleClick={handleAction}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                setTopSongMenu({ x: e.clientX, y: e.clientY, entry, artistName });
+                              }}
+                            >
                               <span className="top-song-rank">{i + 1}</span>
-                              <button className="top-song-action-btn" title="Watch on YouTube" onClick={handleAction}>
-                                <svg width="14" height="10" viewBox="0 0 28 20" fill="currentColor"><path d="M27.4 3.1s-.3-1.9-1.1-2.8C25.1-.9 23.7-.9 23-.9 19.2-1.2 14-1.2 14-1.2h0s-5.2 0-9 .3c-.7.1-2.1.1-3.3 1.1C.9 1.2.6 3.1.6 3.1S.3 5.3.3 7.6v2.1c0 2.2.3 4.5.3 4.5s.3 1.9 1.1 2.8c1.2 1.2 2.7 1.2 3.4 1.3 2.4.2 10.3.3 10.3.3s5.2 0 9-.3c.7-.1 2.1-.1 3.3-1.1.8-.9 1.1-2.8 1.1-2.8s.3-2.2.3-4.5V7.6c0-2.2-.3-4.5-.3-4.5zM11.1 13.2V5.4l8.9 3.9-8.9 3.9z"/></svg>
+                              <button
+                                className="top-song-action-btn"
+                                title={inLibrary ? "Play" : "Watch on YouTube"}
+                                onClick={handleAction}
+                              >
+                                {inLibrary ? "\u25B6" : <svg width="14" height="10" viewBox="0 0 28 20" fill="currentColor"><path d="M27.4 3.1s-.3-1.9-1.1-2.8C25.1-.9 23.7-.9 23-.9 19.2-1.2 14-1.2 14-1.2h0s-5.2 0-9 .3c-.7.1-2.1.1-3.3 1.1C.9 1.2.6 3.1.6 3.1S.3 5.3.3 7.6v2.1c0 2.2.3 4.5.3 4.5s.3 1.9 1.1 2.8c1.2 1.2 2.7 1.2 3.4 1.3 2.4.2 10.3.3 10.3.3s5.2 0 9-.3c.7-.1 2.1-.1 3.3-1.1.8-.9 1.1-2.8 1.1-2.8s.3-2.2.3-4.5V7.6c0-2.2-.3-4.5-.3-4.5zM11.1 13.2V5.4l8.9 3.9-8.9 3.9z"/></svg>}
                               </button>
                               <span className="col-popularity top-song-pop">
-                                {t.listeners > 0 && (
-                                  <>
-                                    <span className="popularity-fill" style={{ width: `${pct}%` }} />
-                                    <span className="popularity-count">{formatCount(t.listeners)}</span>
-                                  </>
-                                )}
+                                <span className="popularity-fill" style={{ width: `${pct}%` }} />
+                                <span className="popularity-count">{formatCount(entry.listeners)}</span>
                               </span>
-                              <span className="top-song-title">{t.name}</span>
+                              <span className="top-song-title">{entry.name}</span>
                             </div>
                           );
                         })}

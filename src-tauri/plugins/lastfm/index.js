@@ -348,26 +348,43 @@ function activate(api) {
 
   // ===== Information Types =====
 
-  api.informationTypes.onFetch("artist_bio", function (entity) {
-    if (entity.kind !== "artist") return Promise.resolve({ status: "not_found" });
+  var stripReadMore = function (html) {
+    return (html || "")
+      .replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?\s*/gi, "")
+      .replace(/User-contributed text is available under the Creative Commons[^.]*\.\s*(additional terms may apply\.)?\s*/gi, "")
+      .trim();
+  };
 
-    var cacheKey = "artist_info:" + entity.name.toLowerCase();
+  function fetchArtistInfo(artistName) {
+    var cacheKey = "artist_info:" + artistName.toLowerCase();
     return cacheGet(cacheKey).then(function (cached) {
       if (cached) return cached;
-      return lastfmGet("artist.getInfo", [["artist", entity.name], ["autocorrect", "1"]]).then(function (data) {
+      return lastfmGet("artist.getInfo", [["artist", artistName], ["autocorrect", "1"]]).then(function (data) {
         cacheSet(cacheKey, data);
         return data;
       });
-    }).then(function (data) {
+    });
+  }
+
+  function fetchAlbumInfo(artistName, albumName) {
+    var cacheKey = "album_info:" + artistName.toLowerCase() + ":" + albumName.toLowerCase();
+    return cacheGet(cacheKey).then(function (cached) {
+      if (cached) return cached;
+      return lastfmGet("album.getInfo", [["artist", artistName], ["album", albumName], ["autocorrect", "1"]]).then(function (data) {
+        cacheSet(cacheKey, data);
+        return data;
+      });
+    });
+  }
+
+  // --- Artist info types ---
+
+  api.informationTypes.onFetch("artist_bio", function (entity) {
+    if (entity.kind !== "artist") return Promise.resolve({ status: "not_found" });
+    return fetchArtistInfo(entity.name).then(function (data) {
       if (!data || !data.artist || !data.artist.bio || !data.artist.bio.summary) {
         return { status: "not_found" };
       }
-      var stripReadMore = function (html) {
-        return (html || "")
-          .replace(/<a [^>]*>Read more on Last\.fm<\/a>\.?\s*/gi, "")
-          .replace(/User-contributed text is available under the Creative Commons[^.]*\.\s*(additional terms may apply\.)?\s*/gi, "")
-          .trim();
-      };
       var artistUrl = (data.artist.url) || ("https://www.last.fm/music/" + encodeURIComponent(entity.name));
       return {
         status: "ok",
@@ -377,37 +394,233 @@ function activate(api) {
           _meta: { url: artistUrl, providerName: "Last.fm" },
         },
       };
-    }).catch(function () {
-      return { status: "error" };
-    });
+    }).catch(function () { return { status: "error" }; });
   });
 
   api.informationTypes.onFetch("artist_stats", function (entity) {
     if (entity.kind !== "artist") return Promise.resolve({ status: "not_found" });
+    return fetchArtistInfo(entity.name).then(function (data) {
+      if (!data || !data.artist || !data.artist.stats) return { status: "not_found" };
+      var items = [];
+      if (data.artist.stats.listeners) items.push({ label: "listeners", value: Number(data.artist.stats.listeners) });
+      if (data.artist.stats.playcount) items.push({ label: "scrobbles", value: Number(data.artist.stats.playcount) });
+      if (items.length === 0) return { status: "not_found" };
+      return { status: "ok", value: { items: items } };
+    }).catch(function () { return { status: "error" }; });
+  });
 
-    var cacheKey = "artist_info:" + entity.name.toLowerCase();
+  api.informationTypes.onFetch("similar_artists", function (entity) {
+    if (entity.kind !== "artist") return Promise.resolve({ status: "not_found" });
+    return fetchArtistInfo(entity.name).then(function (data) {
+      if (!data || !data.artist || !data.artist.similar || !data.artist.similar.artist) return { status: "not_found" };
+      var list = Array.isArray(data.artist.similar.artist) ? data.artist.similar.artist : [data.artist.similar.artist];
+      if (list.length === 0) return { status: "not_found" };
+      var items = [];
+      for (var i = 0; i < list.length; i++) {
+        var sa = list[i];
+        items.push({
+          name: sa.name,
+          match: parseFloat(sa.match || "0"),
+          libraryKind: "artist",
+        });
+      }
+      var artistUrl = (data.artist.url) || ("https://www.last.fm/music/" + encodeURIComponent(entity.name));
+      return { status: "ok", value: { items: items, _meta: { url: artistUrl + "/+similar", providerName: "Last.fm" } } };
+    }).catch(function () { return { status: "error" }; });
+  });
+
+  api.informationTypes.onFetch("artist_top_tracks", function (entity) {
+    if (entity.kind !== "artist") return Promise.resolve({ status: "not_found" });
+    var cacheKey = "artist_top_tracks:" + entity.name.toLowerCase();
     return cacheGet(cacheKey).then(function (cached) {
       if (cached) return cached;
-      return lastfmGet("artist.getInfo", [["artist", entity.name], ["autocorrect", "1"]]).then(function (data) {
+      return lastfmGet("artist.getTopTracks", [["artist", entity.name], ["autocorrect", "1"], ["limit", "50"]]).then(function (data) {
         cacheSet(cacheKey, data);
         return data;
       });
     }).then(function (data) {
-      if (!data || !data.artist || !data.artist.stats) {
-        return { status: "not_found" };
-      }
+      if (!data || !data.toptracks || !data.toptracks.track) return { status: "not_found" };
+      var tracks = Array.isArray(data.toptracks.track) ? data.toptracks.track : [data.toptracks.track];
+      if (tracks.length === 0) return { status: "not_found" };
       var items = [];
-      if (data.artist.stats.listeners) {
-        items.push({ label: "listeners", value: Number(data.artist.stats.listeners) });
+      for (var i = 0; i < tracks.length; i++) {
+        items.push({
+          name: tracks[i].name,
+          value: parseInt(tracks[i].listeners || tracks[i].playcount || "0", 10),
+          libraryKind: "track",
+        });
       }
-      if (data.artist.stats.playcount) {
-        items.push({ label: "scrobbles", value: Number(data.artist.stats.playcount) });
+      return { status: "ok", value: { items: items, _meta: { url: "https://www.last.fm/music/" + encodeURIComponent(entity.name) + "/+tracks", providerName: "Last.fm" } } };
+    }).catch(function () { return { status: "error" }; });
+  });
+
+  // --- Album info types ---
+
+  api.informationTypes.onFetch("album_wiki", function (entity) {
+    if (entity.kind !== "album") return Promise.resolve({ status: "not_found" });
+    var artistName = entity.artistName || "";
+    if (!artistName) return Promise.resolve({ status: "not_found" });
+    return fetchAlbumInfo(artistName, entity.name).then(function (data) {
+      if (!data || !data.album || !data.album.wiki || !data.album.wiki.summary) return { status: "not_found" };
+      var albumUrl = (data.album.url) || ("https://www.last.fm/music/" + encodeURIComponent(artistName) + "/" + encodeURIComponent(entity.name));
+      return {
+        status: "ok",
+        value: {
+          summary: stripReadMore(data.album.wiki.summary),
+          full: stripReadMore(data.album.wiki.content) || undefined,
+          _meta: { url: albumUrl, providerName: "Last.fm" },
+        },
+      };
+    }).catch(function () { return { status: "error" }; });
+  });
+
+  api.informationTypes.onFetch("album_track_popularity", function (entity) {
+    if (entity.kind !== "album") return Promise.resolve({ status: "not_found" });
+    var artistName = entity.artistName || "";
+    if (!artistName) return Promise.resolve({ status: "not_found" });
+    // album.getInfo doesn't include per-track listeners, so we need to
+    // fetch track.getInfo for each track individually
+    var popCacheKey = "album_track_pop:" + artistName.toLowerCase() + ":" + entity.name.toLowerCase();
+    return cacheGet(popCacheKey).then(function (cached) {
+      if (cached) return cached;
+      return fetchAlbumInfo(artistName, entity.name).then(function (data) {
+        if (!data || !data.album || !data.album.tracks || !data.album.tracks.track) return null;
+        var tracks = Array.isArray(data.album.tracks.track) ? data.album.tracks.track : [data.album.tracks.track];
+        if (tracks.length === 0) return null;
+        var fetches = [];
+        for (var i = 0; i < tracks.length; i++) {
+          (function (trackName) {
+            fetches.push(
+              lastfmGet("track.getInfo", [["artist", artistName], ["track", trackName], ["autocorrect", "1"]])
+                .then(function (info) {
+                  var listeners = parseInt((info.track && info.track.listeners) || "0", 10);
+                  return { name: trackName, listeners: listeners };
+                })
+                .catch(function () { return { name: trackName, listeners: 0 }; })
+            );
+          })(tracks[i].name);
+        }
+        return Promise.all(fetches).then(function (results) {
+          cacheSet(popCacheKey, results);
+          return results;
+        });
+      });
+    }).then(function (results) {
+      if (!results) return { status: "not_found" };
+      var items = [];
+      for (var i = 0; i < results.length; i++) {
+        items.push({ name: results[i].name, value: results[i].listeners });
       }
+      var albumUrl = "https://www.last.fm/music/" + encodeURIComponent(entity.artistName) + "/" + encodeURIComponent(entity.name);
+      return { status: "ok", value: { items: items, _meta: { url: albumUrl, providerName: "Last.fm" } } };
+    }).catch(function () { return { status: "error" }; });
+  });
+
+  // --- Track info types ---
+
+  api.informationTypes.onFetch("track_info", function (entity) {
+    if (entity.kind !== "track") return Promise.resolve({ status: "not_found" });
+    var artistName = entity.artistName || "";
+    if (!artistName) return Promise.resolve({ status: "not_found" });
+    var cacheKey = "track_info:" + artistName.toLowerCase() + ":" + entity.name.toLowerCase();
+    return cacheGet(cacheKey).then(function (cached) {
+      if (cached) return cached;
+      return lastfmGet("track.getInfo", [["artist", artistName], ["track", entity.name], ["autocorrect", "1"]]).then(function (data) {
+        cacheSet(cacheKey, data);
+        return data;
+      });
+    }).then(function (data) {
+      if (!data || !data.track) return { status: "not_found" };
+      var t = data.track;
+      var items = [];
+      if (t.listeners) items.push({ label: "listeners", value: Number(t.listeners) });
+      if (t.playcount) items.push({ label: "scrobbles", value: Number(t.playcount) });
       if (items.length === 0) return { status: "not_found" };
-      return { status: "ok", value: { items: items } };
-    }).catch(function () {
-      return { status: "error" };
+      var trackUrl = t.url || ("https://www.last.fm/music/" + encodeURIComponent(artistName) + "/_/" + encodeURIComponent(entity.name));
+      return {
+        status: "ok",
+        value: {
+          items: items,
+          toptags: (t.toptags && t.toptags.tag) ? (Array.isArray(t.toptags.tag) ? t.toptags.tag : [t.toptags.tag]) : [],
+          url: trackUrl,
+          _meta: { url: trackUrl, providerName: "Last.fm" },
+        },
+      };
+    }).catch(function () { return { status: "error" }; });
+  });
+
+  api.informationTypes.onFetch("track_tags", function (entity) {
+    if (entity.kind !== "track") return Promise.resolve({ status: "not_found" });
+    var artistName = entity.artistName || "";
+    if (!artistName) return Promise.resolve({ status: "not_found" });
+    var trackCacheKey = "track_tags:" + artistName.toLowerCase() + ":" + entity.name.toLowerCase();
+    var artistCacheKey = "artist_tags:" + artistName.toLowerCase();
+
+    var trackTagsP = cacheGet(trackCacheKey).then(function (cached) {
+      if (cached) return cached;
+      return lastfmGet("track.getTopTags", [["artist", artistName], ["track", entity.name], ["autocorrect", "1"]]).then(function (data) {
+        cacheSet(trackCacheKey, data);
+        return data;
+      });
     });
+
+    var artistTagsP = cacheGet(artistCacheKey).then(function (cached) {
+      if (cached) return cached;
+      return lastfmGet("artist.getTopTags", [["artist", artistName], ["autocorrect", "1"]]).then(function (data) {
+        cacheSet(artistCacheKey, data);
+        return data;
+      });
+    });
+
+    return Promise.all([trackTagsP, artistTagsP]).then(function (results) {
+      var trackData = results[0];
+      var artistData = results[1];
+      var tags = [];
+      var artistTags = [];
+      if (trackData && trackData.toptags && trackData.toptags.tag) {
+        var tt = Array.isArray(trackData.toptags.tag) ? trackData.toptags.tag : [trackData.toptags.tag];
+        for (var i = 0; i < tt.length; i++) {
+          if (tt[i].name) tags.push({ name: tt[i].name, url: tt[i].url });
+        }
+      }
+      if (artistData && artistData.toptags && artistData.toptags.tag) {
+        var at = Array.isArray(artistData.toptags.tag) ? artistData.toptags.tag : [artistData.toptags.tag];
+        for (var j = 0; j < at.length; j++) {
+          if (at[j].name) artistTags.push({ name: at[j].name, url: at[j].url });
+        }
+      }
+      if (tags.length === 0 && artistTags.length === 0) return { status: "not_found" };
+      return { status: "ok", value: { tags: tags, artistTags: artistTags, suggestable: true } };
+    }).catch(function () { return { status: "error" }; });
+  });
+
+  api.informationTypes.onFetch("similar_tracks", function (entity) {
+    if (entity.kind !== "track") return Promise.resolve({ status: "not_found" });
+    var artistName = entity.artistName || "";
+    if (!artistName) return Promise.resolve({ status: "not_found" });
+    var cacheKey = "similar_tracks:" + artistName.toLowerCase() + ":" + entity.name.toLowerCase();
+    return cacheGet(cacheKey).then(function (cached) {
+      if (cached) return cached;
+      return lastfmGet("track.getSimilar", [["artist", artistName], ["track", entity.name], ["autocorrect", "1"], ["limit", "20"]]).then(function (data) {
+        cacheSet(cacheKey, data);
+        return data;
+      });
+    }).then(function (data) {
+      if (!data || !data.similartracks || !data.similartracks.track) return { status: "not_found" };
+      var tracks = Array.isArray(data.similartracks.track) ? data.similartracks.track : [data.similartracks.track];
+      if (tracks.length === 0) return { status: "not_found" };
+      var items = [];
+      for (var i = 0; i < tracks.length; i++) {
+        var st = tracks[i];
+        var artist = (st.artist && (st.artist.name || st.artist["#text"])) || "";
+        items.push({
+          name: st.name,
+          subtitle: artist,
+          match: parseFloat(st.match || "0"),
+        });
+      }
+      return { status: "ok", value: { items: items } };
+    }).catch(function () { return { status: "error" }; });
   });
 
   // ===== History Import =====

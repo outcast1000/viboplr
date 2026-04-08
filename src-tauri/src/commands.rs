@@ -1492,17 +1492,6 @@ pub fn get_genius_explanation(state: State<'_, AppState>, app: AppHandle, artist
 }
 
 #[tauri::command]
-pub fn lastfm_apply_community_tags(state: State<'_, AppState>, track_id: i64, tag_names: Vec<String>) -> Result<Vec<(i64, String)>, String> {
-    let mut applied = Vec::new();
-    for name in &tag_names {
-        let tag_id = state.db.get_or_create_tag(name).map_err(|e| e.to_string())?;
-        state.db.add_track_tag(track_id, tag_id).map_err(|e| e.to_string())?;
-        applied.push((tag_id, name.clone()));
-    }
-    Ok(applied)
-}
-
-#[tauri::command]
 pub fn replace_track_tags(state: State<'_, AppState>, track_id: i64, tag_names: Vec<String>) -> Result<Vec<(i64, String)>, String> {
     state.db.replace_track_tags(track_id, &tag_names).map_err(|e| e.to_string())
 }

@@ -11,6 +11,7 @@ import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
+import type { SectionMeta } from "../hooks/useArtistInfo";
 
 interface ArtistDetailContentProps {
   selectedArtist: number;
@@ -50,6 +51,7 @@ interface ArtistDetailContentProps {
   searchProviders: SearchProviderConfig[];
   addLog: (message: string) => void;
   artists: Artist[];
+  sectionMeta: Record<string, SectionMeta>;
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity) => Promise<InfoFetchResult>;
 }
 
@@ -91,6 +93,7 @@ export function ArtistDetailContent({
   searchProviders,
   addLog,
   artists,
+  sectionMeta,
   invokeInfoFetch,
 }: ArtistDetailContentProps) {
   const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(ARTIST_DETAIL_COLUMNS);
@@ -152,6 +155,11 @@ export function ArtistDetailContent({
             <div className="artist-bio-title section-header" onClick={() => onToggleSection("topSongs")}>
               <svg className={`section-chevron${sections.topSongs === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
               Top Songs
+              {sectionMeta.artistTopTracks?.url && sectionMeta.artistTopTracks?.providerName && (
+                <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openUrl(sectionMeta.artistTopTracks.url!); }}>
+                  View on {sectionMeta.artistTopTracks.providerName}
+                </a>
+              )}
             </div>
             {sections.topSongs !== false && (() => {
               const maxPop = artistTopTracks[0]?.listeners ?? 1;
@@ -282,6 +290,11 @@ export function ArtistDetailContent({
           <div className="section-title section-header" onClick={() => onToggleSection("similarArtists")}>
             <svg className={`section-chevron${sections.similarArtists === false ? " collapsed" : ""}`} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
             Similar Artists
+            {sectionMeta.similarArtists?.url && sectionMeta.similarArtists?.providerName && (
+              <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openUrl(sectionMeta.similarArtists.url!); }}>
+                View on {sectionMeta.similarArtists.providerName}
+              </a>
+            )}
           </div>
           {sections.similarArtists !== false && (
             <div className="similar-artists-row">

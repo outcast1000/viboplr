@@ -1,12 +1,21 @@
 {
   "id": "lastfm",
   "name": "Last.fm",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "author": "Viboplr",
   "description": "Scrobbling, now playing, history import, and metadata from Last.fm",
   "minAppVersion": "0.9.4",
   "contributes": {
     "informationTypes": [
+      {
+        "id": "artist_stats",
+        "name": "Stats",
+        "entity": "artist",
+        "displayKind": "title_line",
+        "ttl": 7776000,
+        "order": 100,
+        "priority": 100
+      },
       {
         "id": "artist_bio",
         "name": "About",
@@ -17,12 +26,66 @@
         "priority": 100
       },
       {
-        "id": "artist_stats",
-        "name": "Stats",
+        "id": "artist_top_tracks",
+        "name": "Top Songs",
         "entity": "artist",
-        "displayKind": "title_line",
+        "displayKind": "ranked_list",
+        "ttl": 604800,
+        "order": 50,
+        "priority": 100
+      },
+      {
+        "id": "similar_artists",
+        "name": "Similar Artists",
+        "entity": "artist",
+        "displayKind": "entity_list",
         "ttl": 7776000,
+        "order": 500,
+        "priority": 100
+      },
+      {
+        "id": "album_wiki",
+        "name": "Review",
+        "entity": "album",
+        "displayKind": "rich_text",
+        "ttl": 7776000,
+        "order": 200,
+        "priority": 100
+      },
+      {
+        "id": "album_track_popularity",
+        "name": "Track Popularity",
+        "entity": "album",
+        "displayKind": "ranked_list",
+        "ttl": 604800,
+        "order": 300,
+        "priority": 100
+      },
+      {
+        "id": "track_info",
+        "name": "Track Stats",
+        "entity": "track",
+        "displayKind": "title_line",
+        "ttl": 604800,
         "order": 100,
+        "priority": 100
+      },
+      {
+        "id": "track_tags",
+        "name": "Community Tags",
+        "entity": "track",
+        "displayKind": "tag_list",
+        "ttl": 604800,
+        "order": 200,
+        "priority": 100
+      },
+      {
+        "id": "similar_tracks",
+        "name": "Similar Tracks",
+        "entity": "track",
+        "displayKind": "entity_list",
+        "ttl": 7776000,
+        "order": 300,
         "priority": 100
       }
     ],
