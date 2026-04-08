@@ -1,0 +1,39 @@
+{
+  "id": "genius",
+  "name": "Genius",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Song explanations, artist descriptions, and album descriptions from Genius",
+  "minAppVersion": "0.9.4",
+  "contributes": {
+    "informationTypes": [
+      {
+        "id": "genius_song_explanation",
+        "name": "Song Explanation",
+        "entity": "track",
+        "displayKind": "annotations",
+        "ttl": 7776000,
+        "order": 400,
+        "priority": 100
+      },
+      {
+        "id": "genius_artist_description",
+        "name": "Description",
+        "entity": "artist",
+        "displayKind": "rich_text",
+        "ttl": 7776000,
+        "order": 250,
+        "priority": 100
+      },
+      {
+        "id": "genius_album_description",
+        "name": "Description",
+        "entity": "album",
+        "displayKind": "rich_text",
+        "ttl": 7776000,
+        "order": 250,
+        "priority": 100
+      }
+    ]
+  }
+}
