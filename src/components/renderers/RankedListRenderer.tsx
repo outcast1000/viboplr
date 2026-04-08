@@ -1,6 +1,22 @@
 import type { RendererProps } from "./index";
 import type { RankedListData } from "../../types/informationTypes";
 
+function formatCount(n: number): string {
+  if (n >= 1_000_000) {
+    const v = n / 1_000_000;
+    if (v >= 100) return `${Math.round(v)}M`;
+    if (v >= 10) return `${v.toFixed(1).replace(/\.0$/, "")}M`;
+    return `${v.toFixed(2).replace(/\.?0+$/, "")}M`;
+  }
+  if (n >= 1_000) {
+    const v = n / 1_000;
+    if (v >= 100) return `${Math.round(v)}K`;
+    if (v >= 10) return `${v.toFixed(1).replace(/\.0$/, "")}K`;
+    return `${v.toFixed(2).replace(/\.?0+$/, "")}K`;
+  }
+  return String(n);
+}
+
 export function RankedListRenderer({ data, onEntityClick }: RendererProps) {
   const d = data as RankedListData;
   if (!d?.items?.length) return null;
@@ -20,10 +36,10 @@ export function RankedListRenderer({ data, onEntityClick }: RendererProps) {
             <span className="ranked-list-name">{item.name}</span>
             {item.subtitle && <span className="ranked-list-subtitle">{item.subtitle}</span>}
           </div>
-          <div className="ranked-list-bar-container">
-            <div className="ranked-list-bar" style={{ width: maxVal > 0 ? `${(item.value / maxVal) * 100}%` : "0%" }} />
-          </div>
-          <span className="ranked-list-value">{item.value.toLocaleString()}</span>
+          <span className="ranked-list-popularity">
+            <span className="ranked-list-popularity-fill" style={{ width: maxVal > 0 ? `${(item.value / maxVal) * 100}%` : "0%" }} />
+            <span className="ranked-list-popularity-count">{formatCount(item.value)}</span>
+          </span>
         </div>
       ))}
     </div>
