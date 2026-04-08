@@ -43,7 +43,7 @@ export function InformationSections({
     setCollapsed((prev) => ({ ...prev, [typeId]: !prev[typeId] }));
   };
 
-  const useTabMode = placement === "right" && filtered.length > 1;
+  const useTabMode = filtered.length > 1;
 
   if (useTabMode) {
     const resolvedTab = (activeTab && filtered.some(s => s.typeId === activeTab))
@@ -56,7 +56,7 @@ export function InformationSections({
       : undefined;
 
     return (
-      <div className={`information-sections information-sections--${placement}`}>
+      <div className={`information-sections${placement ? ` information-sections--${placement}` : ""}`}>
         <div className="info-sections-tabs">
           {filtered.map(section => (
             <div
