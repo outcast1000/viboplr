@@ -813,3 +813,35 @@
   color: var(--text-secondary);
   margin-top: 2px;
 }
+
+/* Track details info section */
+.track-details-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.track-details-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--fs-xs);
+}
+
+.track-details-label {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  min-width: 54px;
+}
+
+.track-details-value {
+  color: var(--text-secondary);
+}
+
+.track-details-path {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  word-break: break-all;
+  min-width: 0;
+}

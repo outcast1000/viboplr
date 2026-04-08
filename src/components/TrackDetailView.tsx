@@ -170,8 +170,6 @@ interface TrackDetailViewProps {
   albumImagePath: string | null;
   positionSecs: number;
   isCurrentTrack: boolean;
-  sections: Record<string, boolean>;
-  onToggleSection: (key: string) => void;
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
   onTagClick: (tagId: number) => void;
@@ -189,7 +187,7 @@ interface TrackDetailViewProps {
 export function TrackDetailView({
   trackId, track, albumImagePath,
   positionSecs, isCurrentTrack,
-  sections, onToggleSection, onArtistClick, onAlbumClick, onTagClick,
+  onArtistClick, onAlbumClick, onTagClick,
   onPlay, onEnqueue, onPlayNext, onShowInFolder,
   collections: _collections, providers, addLog, onUpdateTrack, invokeInfoFetch,
 }: TrackDetailViewProps) {
@@ -423,44 +421,7 @@ export function TrackDetailView({
                 )}
               </div>
             )}
-            <button className="track-detail-toggle" onClick={() => onToggleSection("details")}>
-              <span>{sections.details !== false ? "Less" : "More"}</span>
-              <svg className={`track-detail-toggle-chevron${sections.details !== false ? " open" : ""}`} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-            </button>
-            {sections.details !== false && (
-              <>
-                {playStats && (
-                  <div className="track-detail-stats">
-                    <span className="track-detail-label">Plays</span>
-                    {formatCount(playStats.play_count)}
-                    {playStats.last_played_at && <> &middot; Last {relativeTime(playStats.last_played_at)}</>}
-                  </div>
-                )}
-                <div className="track-detail-stats">
-                  <span className="track-detail-label">Format</span>
-                  {formatDuration(track.duration_secs)}
-                  {track.format && <> &middot; {track.format.toUpperCase()}</>}
-                  {audioProps?.bitrate && <> &middot; {audioProps.bitrate} kbps</>}
-                  {audioProps?.sample_rate && <> &middot; {(audioProps.sample_rate / 1000).toFixed(1)} kHz</>}
-                  {audioProps?.bit_depth && <> &middot; {audioProps.bit_depth}-bit</>}
-                </div>
-                <div className="track-detail-path">
-                  <span className="track-detail-label">Path</span>
-                  <span className="track-detail-path-text">
-                    {track.path}
-                  </span>
-                  {track.path.startsWith("file://") && (
-                    <button className="track-detail-path-btn" onClick={onShowInFolder} title="Open containing folder">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                    </button>
-                  )}
-                  <button className="track-detail-path-btn" onClick={() => {
-                    navigator.clipboard.writeText(track.path);
-                  }} title="Copy path">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                  </button>
-                </div>
-                {editingTags ? (
+            {editingTags ? (
               <div className="track-tags-edit">
                 <span className="track-detail-label">Tags</span>
                 <input
@@ -493,8 +454,6 @@ export function TrackDetailView({
                 </button>
               </div>
             )}
-              </>
-            )}
           </div>
         </div>
 
@@ -504,6 +463,72 @@ export function TrackDetailView({
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
           invokeInfoFetch={invokeInfoFetch}
           customTabs={[
+            {
+              id: "details",
+              name: "Details",
+              content: (
+                <div className="track-details-section">
+                  {playStats && (
+                    <div className="track-details-row">
+                      <span className="track-details-label">Plays</span>
+                      <span className="track-details-value">
+                        {playStats.play_count}
+                        {playStats.last_played_at && <> &middot; last {relativeTime(playStats.last_played_at)}</>}
+                      </span>
+                    </div>
+                  )}
+                  {track.duration_secs != null && (
+                    <div className="track-details-row">
+                      <span className="track-details-label">Duration</span>
+                      <span className="track-details-value">{formatDuration(track.duration_secs)}</span>
+                    </div>
+                  )}
+                  {track.format && (
+                    <div className="track-details-row">
+                      <span className="track-details-label">Format</span>
+                      <span className="track-details-value">
+                        {track.format.toUpperCase()}
+                        {audioProps?.bitrate ? ` · ${audioProps.bitrate} kbps` : ""}
+                        {audioProps?.sample_rate ? ` · ${(audioProps.sample_rate / 1000).toFixed(1)} kHz` : ""}
+                        {audioProps?.bit_depth ? ` · ${audioProps.bit_depth}-bit` : ""}
+                      </span>
+                    </div>
+                  )}
+                  {track.file_size != null && (
+                    <div className="track-details-row">
+                      <span className="track-details-label">Size</span>
+                      <span className="track-details-value">
+                        {track.file_size >= 1048576
+                          ? `${(track.file_size / 1048576).toFixed(1)} MB`
+                          : `${Math.round(track.file_size / 1024)} KB`}
+                      </span>
+                    </div>
+                  )}
+                  {track.path && (
+                    <div className="track-details-row">
+                      <span className="track-details-label">Path</span>
+                      <span className="track-details-value track-details-path">
+                        <span className="track-detail-path-text">{track.path}</span>
+                        {!track.path.startsWith("subsonic://") && !track.path.startsWith("tidal://") && (
+                          <button className="track-detail-path-btn" onClick={onShowInFolder} title="Show in folder">
+                            <IconFolder size={12} />
+                          </button>
+                        )}
+                        <button className="track-detail-path-btn" onClick={() => { navigator.clipboard.writeText(track.path); addLog("Copied path"); }} title="Copy path">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                        </button>
+                      </span>
+                    </div>
+                  )}
+                  {track.added_at && (
+                    <div className="track-details-row">
+                      <span className="track-details-label">Added</span>
+                      <span className="track-details-value">{formatTimestamp(track.added_at)}</span>
+                    </div>
+                  )}
+                </div>
+              ),
+            },
             {
               id: "lyrics",
               name: "Lyrics",

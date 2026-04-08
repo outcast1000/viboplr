@@ -303,14 +303,6 @@ function App() {
   };
   const [albumDetailColumns, setAlbumDetailColumns] = useState(ALBUM_DETAIL_COLUMNS);
   const [tagDetailColumns, setTagDetailColumns] = useState(TAG_DETAIL_COLUMNS);
-  const [trackSections, setTrackSections] = useState<Record<string, boolean>>({ lyrics: true, tags: true, scrobbleHistory: true, similar: true });
-  const handleToggleTrackSection = (key: string) => {
-    setTrackSections(prev => {
-      const next = { ...prev, [key]: !prev[key] };
-      store.set("trackSections", next);
-      return next;
-    });
-  };
   const [detailTrack, setDetailTrack] = useState<Track | null>(null);
   const [syncWithPlaying, setSyncWithPlaying] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
@@ -812,8 +804,6 @@ function App() {
         if (savedLoggingEnabled) setLoggingEnabled(true);
         const savedArtistSections = await store.get<Record<string, boolean>>("artistSections");
         if (savedArtistSections) setArtistSections(savedArtistSections);
-        const savedTrackSections = await store.get<Record<string, boolean>>("trackSections");
-        if (savedTrackSections) setTrackSections(savedTrackSections);
         const savedSyncWithPlaying = await store.get<boolean>("syncWithPlaying");
         if (savedSyncWithPlaying != null) setSyncWithPlaying(savedSyncWithPlaying);
         const savedSelectedTrack = await store.get<number | null>("selectedTrack");
@@ -1624,8 +1614,6 @@ function App() {
                 albumImagePath={track.album_id ? albumImageCache.images[track.album_id] ?? null : null}
                 positionSecs={isCurrentTrack ? playback.positionSecs : 0}
                 isCurrentTrack={isCurrentTrack}
-                sections={trackSections}
-                onToggleSection={handleToggleTrackSection}
                 onArtistClick={library.handleArtistClick}
                 onAlbumClick={library.handleAlbumClick}
                 onTagClick={(tagId) => { library.setSelectedTrack(null); library.setSelectedTag(tagId); library.setView("tags"); }}
