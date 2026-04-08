@@ -8,6 +8,7 @@ import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
 import { IconPlay, IconEnqueue, IconFolder, IconGlobe, IconLastfm, IconYoutube } from "./Icons";
 import LyricsPanel from "./LyricsPanel";
+import { InformationSections } from "./InformationSections";
 import "./TrackDetailView.css";
 
 function formatCount(n: number): string {
@@ -601,6 +602,11 @@ export function TrackDetailView({
             )}
           </>)}
         </div>
+        <InformationSections
+          placement="below"
+          entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
+          invokeInfoFetch={invokeInfoFetch}
+        />
       </div>
 
       {youtubeFeedback && (
