@@ -65,3 +65,9 @@
 .gallery-dot.active { background: var(--accent); }
 
 .renderer-lyrics .lyrics-plain { white-space: pre-wrap; font-size: var(--fs-sm); line-height: 1.6; }
+
+.renderer-annotations .annotations-overview { font-size: var(--fs-sm); color: var(--text-secondary); line-height: 1.5; margin: 0 0 8px; }
+.renderer-annotations .annotations-list { display: flex; flex-direction: column; gap: 12px; }
+.renderer-annotations .annotations-item { border-left: 3px solid rgba(var(--accent-rgb), 0.4); padding-left: 10px; }
+.renderer-annotations .annotations-fragment { font-size: var(--fs-sm); color: var(--text-primary); font-style: italic; line-height: 1.4; margin-bottom: 4px; }
+.renderer-annotations .annotations-explanation { font-size: var(--fs-xs); color: var(--text-secondary); line-height: 1.5; }

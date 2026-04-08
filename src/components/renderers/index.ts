@@ -8,6 +8,7 @@ import { StatGridRenderer } from "./StatGridRenderer";
 import { TagListRenderer } from "./TagListRenderer";
 import { RankedListRenderer } from "./RankedListRenderer";
 import { AnnotatedTextRenderer } from "./AnnotatedTextRenderer";
+import { AnnotationsRenderer } from "./AnnotationsRenderer";
 import { KeyValueRenderer } from "./KeyValueRenderer";
 import { ImageGalleryRenderer } from "./ImageGalleryRenderer";
 import { LyricsRenderer } from "./LyricsRenderer";
@@ -30,6 +31,7 @@ export const renderers: Record<string, ComponentType<RendererProps>> = {
   tag_list: TagListRenderer,
   ranked_list: RankedListRenderer,
   annotated_text: AnnotatedTextRenderer,
+  annotations: AnnotationsRenderer,
   key_value: KeyValueRenderer,
   image_gallery: ImageGalleryRenderer,
   title_line: TitleLineRenderer,
