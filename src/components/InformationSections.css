@@ -65,9 +65,26 @@
 
 .info-sections-tabs {
   display: flex;
+  align-items: center;
   gap: 0;
   border-bottom: 1px solid var(--border);
   margin-bottom: 8px;
+}
+
+.info-sections-collapse {
+  flex-shrink: 0;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  margin-right: 4px;
+}
+
+.info-sections-collapse:hover {
+  opacity: 0.8;
+}
+
+.info-sections-collapse.collapsed {
+  transform: rotate(-90deg);
 }
 
 .info-sections-tab {
