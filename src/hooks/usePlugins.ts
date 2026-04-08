@@ -604,7 +604,7 @@ export function usePlugins(
       }
 
       if (allInfoTypes.length > 0) {
-        await invoke("info_rebuild_types", { types: allInfoTypes });
+        await invoke("info_sync_types", { types: allInfoTypes });
 
         // Invalidate info caches when a plugin version changes
         const storedVersions = (await store.get<Record<string, string>>("pluginInfoVersions")) ?? {};
