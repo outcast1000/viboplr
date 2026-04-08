@@ -160,20 +160,6 @@ export function ArtistDetailContent({
             resolveEntity={resolveEntity}
           />
       </div>
-      <div className="section-wide">
-        <InformationSections
-          placement="below"
-          entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
-          exclude={["artist_stats"]}
-          invokeInfoFetch={invokeInfoFetch}
-          onEntityClick={(kind, id) => {
-            if (kind === "artist" && id) onArtistClick(id);
-            if (kind === "album" && id) onAlbumClick(id);
-          }}
-          resolveEntity={resolveEntity}
-        />
-      </div>
-
       {artistAlbums.length > 0 && (
         <div className="artist-section artist-albums-section">
           <div className="section-title section-header" onClick={() => onToggleSection("albums")}>
@@ -204,6 +190,20 @@ export function ArtistDetailContent({
           )}
         </div>
       )}
+
+      <div className="section-wide">
+        <InformationSections
+          placement="below"
+          entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
+          exclude={["artist_stats"]}
+          invokeInfoFetch={invokeInfoFetch}
+          onEntityClick={(kind, id) => {
+            if (kind === "artist" && id) onArtistClick(id);
+            if (kind === "album" && id) onAlbumClick(id);
+          }}
+          resolveEntity={resolveEntity}
+        />
+      </div>
 
       <div className="artist-section">
         <div className="section-title">All Tracks</div>
