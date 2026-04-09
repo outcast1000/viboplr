@@ -335,9 +335,15 @@ export function usePlugins(
           },
           async downloadTrack(trackId, opts) {
             const format = opts?.format || (playbackCallbacksRef.current?.getDownloadFormat() ?? "flac");
+            let collectionId = opts?.collectionId ?? null;
+            if (!collectionId) {
+              const all = await invoke<Collection[]>("get_collections");
+              const tidalCol = all.find((c) => c.kind === "tidal");
+              collectionId = tidalCol?.id ?? null;
+            }
             await invoke("tidal_save_track", {
               tidalTrackId: trackId,
-              destCollectionId: opts?.collectionId ?? null,
+              destCollectionId: collectionId,
               format,
             });
           },
