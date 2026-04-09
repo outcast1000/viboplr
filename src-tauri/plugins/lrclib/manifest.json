@@ -1,0 +1,21 @@
+{
+  "id": "lrclib",
+  "name": "LRCLIB",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Synced and plain lyrics from LRCLIB",
+  "minAppVersion": "0.9.5",
+  "contributes": {
+    "informationTypes": [
+      {
+        "id": "lyrics",
+        "name": "Lyrics",
+        "entity": "track",
+        "displayKind": "lyrics",
+        "ttl": 7776000,
+        "order": 400,
+        "priority": 100
+      }
+    ]
+  }
+}
