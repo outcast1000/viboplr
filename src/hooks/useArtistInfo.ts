@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { Album, Track, Artist } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { stripAccents } from "../utils";
@@ -12,6 +13,13 @@ export interface UseArtistInfoReturn {
 
 const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().replace(/\([^)]*\)/g, "").trim()).replace(/[^a-z0-9]/g, "");
 
+// Backend returns: [type_id, name, display_kind, ttl, sort_order, providers: [plugin_id, integer_id][]]
+type BackendTypeRow = [string, string, string, number, number, Array<[string, number]>];
+
+/**
+ * Discovers ranked_list info types dynamically and fetches track popularity
+ * with provider fallback. No hardcoded plugin IDs or type IDs.
+ */
 export function useArtistInfo(deps: {
   selectedArtist: number | null;
   selectedAlbum: number | null;
@@ -35,22 +43,34 @@ export function useArtistInfo(deps: {
     if (!artistName) return;
 
     let cancelled = false;
-    deps.invokeInfoFetch("lastfm", "album_track_popularity", {
-      kind: "album", name: album.title, id: album.id, artistName,
-    }).then(result => {
-      if (cancelled || result.status !== "ok") return;
-      const items = (result.value as any)?.items as Array<{ name: string; value: number }> | undefined;
-      if (!items) return;
-      const popMap: Record<number, number> = {};
-      for (const item of items) {
-        const norm = normalizeTitle(item.name);
-        const match = deps.tracks.find(t => normalizeTitle(t.title) === norm);
-        if (match && item.value > 0) {
-          popMap[match.id] = item.value;
-        }
+    (async () => {
+      // Discover ranked_list types for album entity
+      const types = await invoke<BackendTypeRow[]>("info_get_types_for_entity", { entity: "album" });
+      const rankedType = types.find(([, , displayKind]) => displayKind === "ranked_list");
+      if (!rankedType || cancelled) return;
+
+      const [typeId, , , , , providers] = rankedType;
+      const entity: InfoEntity = { kind: "album", name: album.title, id: album.id, artistName };
+
+      // Try providers in priority order (fallback chain)
+      for (const [pluginId] of providers) {
+        if (cancelled) return;
+        try {
+          const result = await deps.invokeInfoFetch(pluginId, typeId, entity);
+          if (cancelled || result.status !== "ok") continue;
+          const items = (result.value as any)?.items as Array<{ name: string; value: number }> | undefined;
+          if (!items) continue;
+          const popMap: Record<number, number> = {};
+          for (const item of items) {
+            const norm = normalizeTitle(item.name);
+            const match = deps.tracks.find(t => normalizeTitle(t.title) === norm);
+            if (match && item.value > 0) popMap[match.id] = item.value;
+          }
+          setAlbumTrackPopularity(popMap);
+          return; // Success — stop trying providers
+        } catch { continue; }
       }
-      setAlbumTrackPopularity(popMap);
-    }).catch(() => {});
+    })();
     return () => { cancelled = true; };
   }, [deps.selectedAlbum, deps.albums, deps.artists, deps.tracks, deps.invokeInfoFetch]);
 
@@ -62,22 +82,33 @@ export function useArtistInfo(deps: {
     if (!artist) return;
 
     let cancelled = false;
-    deps.invokeInfoFetch("lastfm", "artist_top_tracks", {
-      kind: "artist", name: artist.name, id: artist.id,
-    }).then(result => {
-      if (cancelled || result.status !== "ok") return;
-      const items = (result.value as any)?.items as Array<{ name: string; value: number }> | undefined;
-      if (!items) return;
-      const popMap: Record<number, number> = {};
-      for (const item of items) {
-        const norm = normalizeTitle(item.name);
-        const match = deps.tracks.find(t => normalizeTitle(t.title) === norm);
-        if (match && item.value > 0) {
-          popMap[match.id] = item.value;
-        }
+    (async () => {
+      // Discover ranked_list types for artist entity
+      const types = await invoke<BackendTypeRow[]>("info_get_types_for_entity", { entity: "artist" });
+      const rankedType = types.find(([, , displayKind]) => displayKind === "ranked_list");
+      if (!rankedType || cancelled) return;
+
+      const [typeId, , , , , providers] = rankedType;
+      const entity: InfoEntity = { kind: "artist", name: artist.name, id: artist.id };
+
+      for (const [pluginId] of providers) {
+        if (cancelled) return;
+        try {
+          const result = await deps.invokeInfoFetch(pluginId, typeId, entity);
+          if (cancelled || result.status !== "ok") continue;
+          const items = (result.value as any)?.items as Array<{ name: string; value: number }> | undefined;
+          if (!items) continue;
+          const popMap: Record<number, number> = {};
+          for (const item of items) {
+            const norm = normalizeTitle(item.name);
+            const match = deps.tracks.find(t => normalizeTitle(t.title) === norm);
+            if (match && item.value > 0) popMap[match.id] = item.value;
+          }
+          setArtistTrackPopularity(popMap);
+          return;
+        } catch { continue; }
       }
-      setArtistTrackPopularity(popMap);
-    }).catch(() => {});
+    })();
     return () => { cancelled = true; };
   }, [deps.selectedArtist, deps.selectedAlbum, deps.artists, deps.tracks, deps.invokeInfoFetch]);
 
