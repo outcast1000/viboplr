@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Collection } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
 import { IconPlay, IconEnqueue, IconFolder, IconGlobe, IconLastfm, IconYoutube } from "./Icons";
-import LyricsPanel from "./LyricsPanel";
+
 import { InformationSections } from "./InformationSections";
 import "./TrackDetailView.css";
 
@@ -191,8 +191,6 @@ export function TrackDetailView({
   onPlay, onEnqueue, onPlayNext, onShowInFolder,
   collections: _collections, providers, addLog, onUpdateTrack, invokeInfoFetch,
 }: TrackDetailViewProps) {
-  const [lyrics, setLyrics] = useState<{ text: string; kind: string; provider: string } | null>(null);
-  const [lyricsLoading, setLyricsLoading] = useState(false);
   const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
   const [communityTags, setCommunityTags] = useState<Array<{ name: string; count?: number }>>([]);
   const [artistTags, setArtistTags] = useState<Array<{ name: string; count?: number }>>([]);
@@ -210,8 +208,6 @@ export function TrackDetailView({
 
   // Fetch all data when trackId changes
   useEffect(() => {
-    setLyrics(null);
-    setLyricsLoading(true);
     setTrackTags([]);
     setCommunityTags([]);
     setArtistTags([]);
@@ -223,16 +219,6 @@ export function TrackDetailView({
     setYoutubeFeedback(null);
     setYoutubeUrlEdit(null);
 
-    invoke<{ track_id: number; text: string; kind: string; provider: string } | null>("get_lyrics", { trackId }).then(cached => {
-      if (cached) {
-        setLyrics({ text: cached.text, kind: cached.kind, provider: cached.provider });
-        setLyricsLoading(false);
-      } else {
-        invoke("fetch_lyrics", { trackId, force: false }).catch(() => setLyricsLoading(false));
-      }
-    }).catch(() => {
-      invoke("fetch_lyrics", { trackId, force: false }).catch(() => setLyricsLoading(false));
-    });
     invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId }).then(setTrackTags).catch(() => {});
     invoke<TrackPlayStats | null>("get_track_play_stats", { trackId }).then(s => { if (s) setPlayStats(s); }).catch(() => {});
     invoke<Array<{ played_at: number }>>("get_track_play_history", { trackId, limit: 50 }).then(setPlayHistory).catch(() => {});
@@ -267,41 +253,6 @@ export function TrackDetailView({
       }).catch(() => {});
     }
   }, [trackId, track.artist_name, track.title, invokeInfoFetch]);
-
-  useEffect(() => {
-    const unlistenLyrics = listen<{ track_id: number; text: string; kind: string; provider: string }>("lyrics-loaded", (event) => {
-      if (event.payload.track_id === trackIdRef.current) {
-        setLyrics({ text: event.payload.text, kind: event.payload.kind, provider: event.payload.provider });
-        setLyricsLoading(false);
-      }
-    });
-    const unlistenLyricsErr = listen<{ track_id: number }>("lyrics-error", (event) => {
-      if (event.payload.track_id === trackIdRef.current) setLyricsLoading(false);
-    });
-    return () => {
-      unlistenLyrics.then(f => f());
-      unlistenLyricsErr.then(f => f());
-    };
-  }, []);
-
-  const handleSaveLyrics = useCallback(async (text: string, kind: string) => {
-    try {
-      const result = await invoke<{ text: string; kind: string; provider: string }>("save_manual_lyrics", { trackId, text, kind });
-      setLyrics(result);
-    } catch (e) { console.error("Failed to save lyrics:", e); }
-  }, [trackId]);
-
-  const handleResetLyrics = useCallback(() => {
-    setLyrics(null);
-    setLyricsLoading(true);
-    invoke("reset_lyrics", { trackId }).catch(() => setLyricsLoading(false));
-  }, [trackId]);
-
-  const handleForceRefreshLyrics = useCallback(() => {
-    setLyrics(null);
-    setLyricsLoading(true);
-    invoke("fetch_lyrics", { trackId, force: true }).catch(() => setLyricsLoading(false));
-  }, [trackId]);
 
   const handleApplyTag = useCallback(async (tagName: string) => {
     try {
@@ -462,6 +413,7 @@ export function TrackDetailView({
           placement="below"
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
           invokeInfoFetch={invokeInfoFetch}
+          positionSecs={isCurrentTrack ? positionSecs : 0}
           customTabs={[
             {
               id: "details",
@@ -530,24 +482,6 @@ export function TrackDetailView({
               ),
             },
             {
-              id: "lyrics",
-              name: "Lyrics",
-              content: (
-                <LyricsPanel
-                  trackId={trackId}
-                  artistName={track.artist_name ?? ""}
-                  title={track.title}
-                  positionSecs={isCurrentTrack ? positionSecs : 0}
-                  lyrics={lyrics}
-                  loading={lyricsLoading}
-                  onSave={handleSaveLyrics}
-                  onReset={handleResetLyrics}
-                  onForceRefresh={handleForceRefreshLyrics}
-                  hideTitle
-                />
-              ),
-            },
-            {
               id: "play-history",
               name: `Play History${playStats ? ` (${formatCount(playStats.play_count)})` : ""}`,
               content: playHistory.length > 0 ? (
@@ -580,6 +514,22 @@ export function TrackDetailView({
               ),
             },
           ]}
+          onEntityClick={(kind, id) => {
+            if (kind === "artist" && id) onArtistClick(id);
+            if (kind === "album" && id) onAlbumClick(id);
+            if (kind === "tag" && id) onTagClick(id);
+          }}
+        />
+        <InformationSections
+          placement="right"
+          entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
+          invokeInfoFetch={invokeInfoFetch}
+          positionSecs={isCurrentTrack ? positionSecs : 0}
+          onEntityClick={(kind, id) => {
+            if (kind === "artist" && id) onArtistClick(id);
+            if (kind === "album" && id) onAlbumClick(id);
+            if (kind === "tag" && id) onTagClick(id);
+          }}
         />
       </div>
 
