@@ -17,7 +17,7 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-export function RankedListRenderer({ data, onEntityClick }: RendererProps) {
+export function RankedListRenderer({ data, onEntityClick, onAction, resolveEntity }: RendererProps) {
   const d = data as RankedListData;
   if (!d?.items?.length) return null;
 
@@ -25,23 +25,52 @@ export function RankedListRenderer({ data, onEntityClick }: RendererProps) {
 
   return (
     <div className="renderer-ranked-list">
-      {d.items.map((item, i) => (
-        <div
-          key={i}
-          className={`ranked-list-item${item.libraryId ? " clickable" : ""}`}
-          onClick={() => item.libraryId && onEntityClick?.(item.libraryKind ?? "track", item.libraryId, item.name)}
-        >
-          <span className="ranked-list-rank">{i + 1}</span>
-          <div className="ranked-list-text">
-            <span className="ranked-list-name">{item.name}</span>
-            {item.subtitle && <span className="ranked-list-subtitle">{item.subtitle}</span>}
+      {d.items.map((item, i) => {
+        const resolved = item.libraryKind === "track" && !item.libraryId && resolveEntity
+          ? resolveEntity("track", item.subtitle ? `${item.name}|||${item.subtitle}` : item.name)
+          : undefined;
+        const trackId = item.libraryId ?? resolved?.id;
+
+        return (
+          <div
+            key={i}
+            className={`ranked-list-item${(item.libraryId || resolved?.id) ? " clickable" : ""}`}
+            onClick={() => {
+              const id = item.libraryId ?? resolved?.id;
+              if (id) onEntityClick?.(item.libraryKind ?? "track", id, item.name);
+            }}
+          >
+            <span className="ranked-list-rank">{i + 1}</span>
+            <div className="ranked-list-text">
+              <span className="ranked-list-name">{item.name}</span>
+              {item.subtitle && <span className="ranked-list-subtitle">{item.subtitle}</span>}
+            </div>
+            <span className="ranked-list-popularity">
+              <span className="ranked-list-popularity-fill" style={{ width: maxVal > 0 ? `${(item.value / maxVal) * 100}%` : "0%" }} />
+              <span className="ranked-list-popularity-count">{formatCount(item.value)}</span>
+            </span>
+            {item.libraryKind === "track" && (
+              <div className="ranked-list-actions">
+                {trackId ? (
+                  <button
+                    className="ranked-list-action-btn"
+                    title="Play"
+                    onClick={(e) => { e.stopPropagation(); onAction?.("play-track", { id: trackId }); }}
+                  >&#9654;</button>
+                ) : (
+                  <button
+                    className="ranked-list-action-btn"
+                    title="Search on YouTube"
+                    onClick={(e) => { e.stopPropagation(); onAction?.("youtube-search", { name: item.name, artist: item.subtitle }); }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.38.55A3.02 3.02 0 0 0 .5 6.19 31.8 31.8 0 0 0 0 12a31.8 31.8 0 0 0 .5 5.81 3.02 3.02 0 0 0 2.12 2.14c1.88.55 9.38.55 9.38.55s7.5 0 9.38-.55a3.02 3.02 0 0 0 2.12-2.14A31.8 31.8 0 0 0 24 12a31.8 31.8 0 0 0-.5-5.81zM9.75 15.02V8.98L15.5 12l-5.75 3.02z"/></svg>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          <span className="ranked-list-popularity">
-            <span className="ranked-list-popularity-fill" style={{ width: maxVal > 0 ? `${(item.value / maxVal) * 100}%` : "0%" }} />
-            <span className="ranked-list-popularity-count">{formatCount(item.value)}</span>
-          </span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

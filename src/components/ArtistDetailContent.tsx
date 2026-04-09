@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getInitials } from "../utils";
 import type { Artist, Album, Track, ColumnConfig, SortField } from "../types";
@@ -93,8 +93,24 @@ export function ArtistDetailContent({
       const imgPath = artistImages[match.id];
       return { id: match.id, imageSrc: imgPath ? convertFileSrc(imgPath) : undefined };
     }
+    if (kind === "track") {
+      // name format: "trackName|||artistName" or just "trackName"
+      const [trackName, artistName] = name.includes("|||") ? name.split("|||") : [name, artist?.name];
+      const match = sortedTracks.find(t =>
+        t.title.toLowerCase() === trackName.toLowerCase() &&
+        (!artistName || (t.artist_name ?? "").toLowerCase() === artistName.toLowerCase())
+      );
+      if (match) return { id: match.id };
+    }
     return undefined;
   };
+
+  const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
+    if (actionId === "play-track") {
+      const t = payload as Track | undefined;
+      if (t) onPlayTracks([t], 0);
+    }
+  }, [onPlayTracks]);
 
   return (
     <div className="artist-detail">
@@ -157,6 +173,7 @@ export function ArtistDetailContent({
               if (kind === "artist" && id) onArtistClick(id);
               if (kind === "album" && id) onAlbumClick(id);
             }}
+            onAction={handleInfoAction}
             resolveEntity={resolveEntity}
           />
       </div>
@@ -196,6 +213,7 @@ export function ArtistDetailContent({
             if (kind === "artist" && id) onArtistClick(id);
             if (kind === "album" && id) onAlbumClick(id);
           }}
+          onAction={handleInfoAction}
           resolveEntity={resolveEntity}
         />
       </div>

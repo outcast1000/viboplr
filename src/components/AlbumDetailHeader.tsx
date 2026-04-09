@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Album, Track } from "../types";
 import type { SearchProviderConfig } from "../searchProviders";
@@ -38,6 +39,13 @@ export function AlbumDetailHeader({
   invokeInfoFetch,
 }: AlbumDetailHeaderProps) {
   const albumProviders = getProvidersForContext(searchProviders, "album");
+
+  const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
+    if (actionId === "play-track") {
+      const t = payload as Track | undefined;
+      if (t) onPlayTracks([t], 0);
+    }
+  }, [onPlayTracks]);
 
   const albumEntity: InfoEntity | null = album ? {
     kind: "album",
@@ -104,6 +112,7 @@ export function AlbumDetailHeader({
           entity={albumEntity}
           exclude={[]}
           invokeInfoFetch={invokeInfoFetch}
+          onAction={handleInfoAction}
         />
       </div>
       <div className="section-wide">
@@ -112,6 +121,7 @@ export function AlbumDetailHeader({
           entity={albumEntity}
           exclude={[]}
           invokeInfoFetch={invokeInfoFetch}
+          onAction={handleInfoAction}
         />
       </div>
     </>

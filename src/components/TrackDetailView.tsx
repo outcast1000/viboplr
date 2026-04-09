@@ -177,6 +177,7 @@ interface TrackDetailViewProps {
   onEnqueue: () => void;
   onPlayNext: () => void;
   onShowInFolder: () => void;
+  onPlayTrack: (track: Track) => void;
   collections: Collection[];
   providers: SearchProviderConfig[];
   addLog: (msg: string) => void;
@@ -188,7 +189,7 @@ export function TrackDetailView({
   trackId, track, albumImagePath,
   positionSecs, isCurrentTrack,
   onArtistClick, onAlbumClick, onTagClick,
-  onPlay, onEnqueue, onPlayNext, onShowInFolder,
+  onPlay, onEnqueue, onPlayNext, onShowInFolder, onPlayTrack,
   collections: _collections, providers, addLog, onUpdateTrack, invokeInfoFetch,
 }: TrackDetailViewProps) {
   const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
@@ -288,6 +289,13 @@ export function TrackDetailView({
       addLog(`Updated tags`);
     } catch (e) { console.error("Failed to save tags:", e); }
   }, [trackId, tagInput, addLog]);
+
+  const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
+    if (actionId === "play-track") {
+      const t = payload as Track | undefined;
+      if (t) onPlayTrack(t);
+    }
+  }, [onPlayTrack]);
 
   const assignedTagNames = new Set(trackTags.map(t => t.name.toLowerCase()));
 
@@ -418,6 +426,7 @@ export function TrackDetailView({
             if (kind === "album" && id) onAlbumClick(id);
             if (kind === "tag" && id) onTagClick(id);
           }}
+          onAction={handleInfoAction}
         />
       </div>
       <div className="section-wide">
@@ -532,6 +541,7 @@ export function TrackDetailView({
             if (kind === "album" && id) onAlbumClick(id);
             if (kind === "tag" && id) onTagClick(id);
           }}
+          onAction={handleInfoAction}
         />
       </div>
 

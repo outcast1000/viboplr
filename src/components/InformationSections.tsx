@@ -72,6 +72,22 @@ export function InformationSections({
       }
       return;
     }
+    if (actionId === "play-track") {
+      const p = payload as { id: number } | undefined;
+      if (p?.id) {
+        const track = await invoke<{ id: number; path: string; title: string; artist_name?: string; album_title?: string; duration_secs?: number } | null>("get_track", { trackId: p.id });
+        if (track && onAction) onAction("play-track", track);
+      }
+      return;
+    }
+    if (actionId === "youtube-search") {
+      const p = payload as { name: string; artist?: string } | undefined;
+      if (p) {
+        const q = encodeURIComponent(`${p.name} ${p.artist ?? ""}`);
+        openUrl(`https://www.youtube.com/results?search_query=${q}`);
+      }
+      return;
+    }
     if (onAction) onAction(actionId, payload);
   }, [entity, onAction, reloadCache]);
 
