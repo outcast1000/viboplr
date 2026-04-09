@@ -349,36 +349,29 @@ impl Database {
             );
 
             CREATE TABLE IF NOT EXISTS information_types (
-                id              TEXT NOT NULL,
-                name            TEXT NOT NULL,
-                entity          TEXT NOT NULL,
-                display_kind    TEXT NOT NULL,
-                plugin_id       TEXT NOT NULL,
-                ttl             INTEGER NOT NULL,
-                sort_order      INTEGER NOT NULL DEFAULT 500,
-                priority        INTEGER NOT NULL DEFAULT 500,
-                active          INTEGER NOT NULL DEFAULT 1,
-                PRIMARY KEY (id, plugin_id)
+                id           INTEGER PRIMARY KEY,
+                type_id      TEXT NOT NULL,
+                name         TEXT NOT NULL,
+                entity       TEXT NOT NULL,
+                display_kind TEXT NOT NULL,
+                plugin_id    TEXT NOT NULL,
+                ttl          INTEGER NOT NULL,
+                sort_order   INTEGER NOT NULL DEFAULT 500,
+                priority     INTEGER NOT NULL DEFAULT 500,
+                active       INTEGER NOT NULL DEFAULT 1,
+                UNIQUE (type_id, plugin_id)
             );
 
             CREATE TABLE IF NOT EXISTS information_values (
-                information_type_id  TEXT NOT NULL,
-                entity_key           TEXT NOT NULL,
-                value                TEXT NOT NULL,
-                status               TEXT NOT NULL DEFAULT 'ok',
-                fetched_at           INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                information_type_id INTEGER NOT NULL REFERENCES information_types(id),
+                entity_key          TEXT NOT NULL,
+                value               TEXT NOT NULL,
+                status              TEXT NOT NULL DEFAULT 'ok',
+                fetched_at          INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 PRIMARY KEY (information_type_id, entity_key)
             );
 
             CREATE INDEX IF NOT EXISTS idx_info_values_entity ON information_values(entity_key);
-
-            CREATE TABLE IF NOT EXISTS information_type_providers (
-                information_type_id  TEXT NOT NULL,
-                plugin_id            TEXT NOT NULL,
-                user_priority        INTEGER NOT NULL,
-                enabled              INTEGER NOT NULL DEFAULT 1,
-                PRIMARY KEY (information_type_id, plugin_id)
-            );
 
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
@@ -666,12 +659,35 @@ impl Database {
             migrated = true;
         }
 
-        if version < 18 {
-            let _ = conn.execute(
-                "ALTER TABLE information_types ADD COLUMN active INTEGER NOT NULL DEFAULT 1",
-                [],
-            );
-            conn.execute("UPDATE db_version SET version = 18 WHERE rowid = 1", [])?;
+        if version < 19 {
+            conn.execute_batch(
+                "DROP TABLE IF EXISTS information_type_providers;
+                 DROP TABLE IF EXISTS information_values;
+                 DROP TABLE IF EXISTS information_types;
+                 CREATE TABLE information_types (
+                     id           INTEGER PRIMARY KEY,
+                     type_id      TEXT NOT NULL,
+                     name         TEXT NOT NULL,
+                     entity       TEXT NOT NULL,
+                     display_kind TEXT NOT NULL,
+                     plugin_id    TEXT NOT NULL,
+                     ttl          INTEGER NOT NULL,
+                     sort_order   INTEGER NOT NULL DEFAULT 500,
+                     priority     INTEGER NOT NULL DEFAULT 500,
+                     active       INTEGER NOT NULL DEFAULT 1,
+                     UNIQUE (type_id, plugin_id)
+                 );
+                 CREATE TABLE information_values (
+                     information_type_id INTEGER NOT NULL REFERENCES information_types(id),
+                     entity_key          TEXT NOT NULL,
+                     value               TEXT NOT NULL,
+                     status              TEXT NOT NULL DEFAULT 'ok',
+                     fetched_at          INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                     PRIMARY KEY (information_type_id, entity_key)
+                 );
+                 CREATE INDEX IF NOT EXISTS idx_info_values_entity ON information_values(entity_key);"
+            )?;
+            conn.execute("UPDATE db_version SET version = 19 WHERE rowid = 1", [])?;
             migrated = true;
         }
 
@@ -2605,9 +2621,9 @@ impl Database {
         conn.execute_batch("BEGIN")?;
         conn.execute("UPDATE information_types SET active = 0", [])?;
         let mut stmt = conn.prepare(
-            "INSERT INTO information_types (id, name, entity, display_kind, plugin_id, ttl, sort_order, priority, active)
+            "INSERT INTO information_types (type_id, name, entity, display_kind, plugin_id, ttl, sort_order, priority, active)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)
-             ON CONFLICT(id, plugin_id)
+             ON CONFLICT(type_id, plugin_id)
              DO UPDATE SET name = excluded.name,
                            entity = excluded.entity,
                            display_kind = excluded.display_kind,
@@ -2624,28 +2640,59 @@ impl Database {
         Ok(())
     }
 
-    /// Get all registered info types for an entity kind, ordered by sort_order.
-    pub fn info_get_types_for_entity(&self, entity: &str) -> SqlResult<Vec<(String, String, String, String, i64, i64, i64)>> {
+    /// Get all active info types for an entity kind, grouped by type_id.
+    /// Returns vec of (type_id, name, display_kind, ttl, sort_order, providers)
+    /// where providers is a vec of (plugin_id, integer_id) ordered by priority.
+    /// Metadata comes from the highest-priority (lowest priority value) provider.
+    pub fn info_get_types_for_entity(&self, entity: &str) -> SqlResult<Vec<(String, String, String, i64, i64, Vec<(String, i64)>)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, display_kind, plugin_id, ttl, sort_order, priority
-             FROM information_types WHERE entity = ?1 AND active = 1 ORDER BY sort_order, id"
+            "SELECT id, type_id, name, display_kind, plugin_id, ttl, sort_order, priority
+             FROM information_types
+             WHERE entity = ?1 AND active = 1
+             ORDER BY sort_order, type_id, priority ASC"
         )?;
         let rows = stmt.query_map([entity], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?))
+            Ok((
+                row.get::<_, i64>(0)?,    // id
+                row.get::<_, String>(1)?,  // type_id
+                row.get::<_, String>(2)?,  // name
+                row.get::<_, String>(3)?,  // display_kind
+                row.get::<_, String>(4)?,  // plugin_id
+                row.get::<_, i64>(5)?,     // ttl
+                row.get::<_, i64>(6)?,     // sort_order
+                row.get::<_, i64>(7)?,     // priority
+            ))
         })?.collect::<SqlResult<Vec<_>>>()?;
-        Ok(rows)
+
+        // Group by type_id: first row per type_id provides metadata, all rows contribute to provider chain
+        let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut result: Vec<(String, String, String, i64, i64, Vec<(String, i64)>)> = Vec::new();
+
+        for (id, type_id, name, display_kind, plugin_id, ttl, sort_order, _priority) in rows {
+            if let Some(&idx) = seen.get(&type_id) {
+                // Add provider to existing entry
+                result[idx].5.push((plugin_id, id));
+            } else {
+                // New type_id — first (highest priority) provider sets metadata
+                let idx = result.len();
+                seen.insert(type_id.clone(), idx);
+                result.push((type_id, name, display_kind, ttl, sort_order, vec![(plugin_id, id)]));
+            }
+        }
+
+        Ok(result)
     }
 
-    /// Get a single cached info value.
+    /// Get a single cached info value by integer type ID.
     /// Returns (value, status, fetched_at) or None.
-    pub fn info_get_value(&self, type_id: &str, entity_key: &str) -> SqlResult<Option<(String, String, i64)>> {
+    pub fn info_get_value(&self, information_type_id: i64, entity_key: &str) -> SqlResult<Option<(String, String, i64)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT value, status, fetched_at FROM information_values
              WHERE information_type_id = ?1 AND entity_key = ?2"
         )?;
-        let result = stmt.query_row(rusqlite::params![type_id, entity_key], |row| {
+        let result = stmt.query_row(rusqlite::params![information_type_id, entity_key], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
         });
         match result {
@@ -2656,47 +2703,50 @@ impl Database {
     }
 
     /// Get all cached info values for an entity key.
-    /// Returns vec of (information_type_id, value, status, fetched_at).
-    pub fn info_get_values_for_entity(&self, entity_key: &str) -> SqlResult<Vec<(String, String, String, i64)>> {
+    /// Returns vec of (integer_id, type_id, value, status, fetched_at).
+    pub fn info_get_values_for_entity(&self, entity_key: &str) -> SqlResult<Vec<(i64, String, String, String, i64)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT information_type_id, value, status, fetched_at FROM information_values
-             WHERE entity_key = ?1"
+            "SELECT iv.information_type_id, it.type_id, iv.value, iv.status, iv.fetched_at
+             FROM information_values iv
+             JOIN information_types it ON it.id = iv.information_type_id
+             WHERE iv.entity_key = ?1"
         )?;
         let rows = stmt.query_map([entity_key], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
         })?.collect::<SqlResult<Vec<_>>>()?;
         Ok(rows)
     }
 
-    /// Upsert an info value (insert or update).
-    pub fn info_upsert_value(&self, type_id: &str, entity_key: &str, value: &str, status: &str) -> SqlResult<()> {
+    /// Upsert an info value (insert or update) using integer type ID.
+    pub fn info_upsert_value(&self, information_type_id: i64, entity_key: &str, value: &str, status: &str) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO information_values (information_type_id, entity_key, value, status, fetched_at)
              VALUES (?1, ?2, ?3, ?4, strftime('%s', 'now'))
              ON CONFLICT(information_type_id, entity_key)
              DO UPDATE SET value = excluded.value, status = excluded.status, fetched_at = excluded.fetched_at",
-            rusqlite::params![type_id, entity_key, value, status],
+            rusqlite::params![information_type_id, entity_key, value, status],
         )?;
         Ok(())
     }
 
-    /// Delete a cached info value.
-    pub fn info_delete_value(&self, type_id: &str, entity_key: &str) -> SqlResult<()> {
+    /// Delete a cached info value by integer type ID.
+    pub fn info_delete_value(&self, information_type_id: i64, entity_key: &str) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "DELETE FROM information_values WHERE information_type_id = ?1 AND entity_key = ?2",
-            rusqlite::params![type_id, entity_key],
+            rusqlite::params![information_type_id, entity_key],
         )?;
         Ok(())
     }
 
-    /// Delete all cached values for a given info type (across all entities).
+    /// Delete all cached values for a given type_id string (across all providers and entities).
     pub fn info_delete_values_for_type(&self, type_id: &str) -> SqlResult<usize> {
         let conn = self.conn.lock().unwrap();
         let count = conn.execute(
-            "DELETE FROM information_values WHERE information_type_id = ?1",
+            "DELETE FROM information_values
+             WHERE information_type_id IN (SELECT id FROM information_types WHERE type_id = ?1)",
             [type_id],
         )?;
         Ok(count)
@@ -2708,33 +2758,6 @@ impl Database {
         conn.execute(
             "DELETE FROM information_values WHERE entity_key = ?1",
             [entity_key],
-        )?;
-        Ok(())
-    }
-
-    /// Get provider ordering for an info type.
-    /// Returns vec of (plugin_id, user_priority, enabled).
-    pub fn info_get_providers(&self, type_id: &str) -> SqlResult<Vec<(String, i64, bool)>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT plugin_id, user_priority, enabled FROM information_type_providers
-             WHERE information_type_id = ?1 ORDER BY user_priority"
-        )?;
-        let rows = stmt.query_map([type_id], |row| {
-            Ok((row.get(0)?, row.get::<_, i64>(1)?, row.get::<_, bool>(2)?))
-        })?.collect::<SqlResult<Vec<_>>>()?;
-        Ok(rows)
-    }
-
-    /// Set user-configured provider ordering for an info type.
-    pub fn info_set_provider(&self, type_id: &str, plugin_id: &str, priority: i64, enabled: bool) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO information_type_providers (information_type_id, plugin_id, user_priority, enabled)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(information_type_id, plugin_id)
-             DO UPDATE SET user_priority = excluded.user_priority, enabled = excluded.enabled",
-            rusqlite::params![type_id, plugin_id, priority, enabled as i32],
         )?;
         Ok(())
     }
@@ -3469,46 +3492,69 @@ mod tests {
     #[test]
     fn test_info_upsert_and_get() {
         let db = test_db();
+        db.info_sync_types(&[
+            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+             "lastfm".into(), 7776000, 200, 100),
+        ]).unwrap();
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        let int_id = types[0].5[0].1;
+
         // No value yet
-        assert!(db.info_get_value("artist_bio", "artist:1").unwrap().is_none());
+        assert!(db.info_get_value(int_id, "artist:Daft Punk").unwrap().is_none());
 
         // Insert
-        db.info_upsert_value("artist_bio", "artist:1", r#"{"summary":"bio"}"#, "ok").unwrap();
-        let row = db.info_get_value("artist_bio", "artist:1").unwrap().unwrap();
-        assert_eq!(row.0, r#"{"summary":"bio"}"#); // value
-        assert_eq!(row.1, "ok"); // status
-        assert!(row.2 > 0); // fetched_at
+        db.info_upsert_value(int_id, "artist:Daft Punk", r#"{"summary":"bio"}"#, "ok").unwrap();
+        let row = db.info_get_value(int_id, "artist:Daft Punk").unwrap().unwrap();
+        assert_eq!(row.0, r#"{"summary":"bio"}"#);
+        assert_eq!(row.1, "ok");
+        assert!(row.2 > 0);
 
         // Upsert overwrites
-        db.info_upsert_value("artist_bio", "artist:1", "{}", "not_found").unwrap();
-        let row = db.info_get_value("artist_bio", "artist:1").unwrap().unwrap();
+        db.info_upsert_value(int_id, "artist:Daft Punk", "{}", "not_found").unwrap();
+        let row = db.info_get_value(int_id, "artist:Daft Punk").unwrap().unwrap();
         assert_eq!(row.1, "not_found");
     }
 
     #[test]
     fn test_info_get_values_for_entity() {
         let db = test_db();
-        db.info_upsert_value("artist_bio", "artist:1", r#"{"summary":"bio"}"#, "ok").unwrap();
-        db.info_upsert_value("similar_artists", "artist:1", r#"{"items":[]}"#, "ok").unwrap();
-        db.info_upsert_value("artist_bio", "artist:2", r#"{"summary":"other"}"#, "ok").unwrap();
+        db.info_sync_types(&[
+            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+             "lastfm".into(), 7776000, 200, 100),
+            ("similar_artists".into(), "Similar".into(), "artist".into(), "entity_list".into(),
+             "lastfm".into(), 7776000, 300, 100),
+        ]).unwrap();
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        let bio_id = types.iter().find(|t| t.0 == "artist_bio").unwrap().5[0].1;
+        let similar_id = types.iter().find(|t| t.0 == "similar_artists").unwrap().5[0].1;
 
-        let rows = db.info_get_values_for_entity("artist:1").unwrap();
+        db.info_upsert_value(bio_id, "artist:Daft Punk", r#"{"summary":"bio"}"#, "ok").unwrap();
+        db.info_upsert_value(similar_id, "artist:Daft Punk", r#"{"items":[]}"#, "ok").unwrap();
+        db.info_upsert_value(bio_id, "artist:Radiohead", r#"{"summary":"other"}"#, "ok").unwrap();
+
+        let rows = db.info_get_values_for_entity("artist:Daft Punk").unwrap();
         assert_eq!(rows.len(), 2);
     }
 
     #[test]
     fn test_info_delete_value() {
         let db = test_db();
-        db.info_upsert_value("artist_bio", "artist:1", r#"{"summary":"bio"}"#, "ok").unwrap();
-        db.info_delete_value("artist_bio", "artist:1").unwrap();
-        assert!(db.info_get_value("artist_bio", "artist:1").unwrap().is_none());
+        db.info_sync_types(&[
+            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+             "lastfm".into(), 7776000, 200, 100),
+        ]).unwrap();
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        let int_id = types[0].5[0].1;
+
+        db.info_upsert_value(int_id, "artist:Daft Punk", r#"{"summary":"bio"}"#, "ok").unwrap();
+        db.info_delete_value(int_id, "artist:Daft Punk").unwrap();
+        assert!(db.info_get_value(int_id, "artist:Daft Punk").unwrap().is_none());
     }
 
     #[test]
     fn test_info_sync_types_activates_and_deactivates() {
         let db = test_db();
 
-        // Sync two types
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
              "lastfm".into(), 7776000, 200, 100),
@@ -3516,7 +3562,6 @@ mod tests {
              "lastfm".into(), 7776000, 300, 100),
         ]).unwrap();
 
-        // Both should be visible
         let types = db.info_get_types_for_entity("artist").unwrap();
         assert_eq!(types.len(), 2);
 
@@ -3535,14 +3580,13 @@ mod tests {
     fn test_info_sync_updates_metadata() {
         let db = test_db();
 
-        // Initial sync
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
              "lastfm".into(), 7776000, 200, 100),
         ]).unwrap();
 
         let types = db.info_get_types_for_entity("artist").unwrap();
-        assert_eq!(types[0].1, "About"); // name
+        assert_eq!(types[0].1, "About");
 
         // Re-sync with updated name and ttl
         db.info_sync_types(&[
@@ -3552,27 +3596,28 @@ mod tests {
 
         let types = db.info_get_types_for_entity("artist").unwrap();
         assert_eq!(types.len(), 1);
-        assert_eq!(types[0].1, "Biography"); // name updated
-        assert_eq!(types[0].4, 86400);       // ttl updated
+        assert_eq!(types[0].1, "Biography");
+        assert_eq!(types[0].3, 86400); // ttl updated
     }
 
     #[test]
     fn test_info_sync_reactivation_preserves_cached_values() {
         let db = test_db();
 
-        // Sync a type and cache a value
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
              "lastfm".into(), 7776000, 200, 100),
         ]).unwrap();
-        db.info_upsert_value("artist_bio", "artist:1", r#"{"summary":"bio"}"#, "ok").unwrap();
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        let int_id = types[0].5[0].1;
+
+        db.info_upsert_value(int_id, "artist:Daft Punk", r#"{"summary":"bio"}"#, "ok").unwrap();
 
         // Sync with empty list — type deactivated
         db.info_sync_types(&[]).unwrap();
-        let types = db.info_get_types_for_entity("artist").unwrap();
-        assert_eq!(types.len(), 0);
-        // But cached value still exists
-        assert!(db.info_get_value("artist_bio", "artist:1").unwrap().is_some());
+        assert_eq!(db.info_get_types_for_entity("artist").unwrap().len(), 0);
+        // Cached value still exists (query by integer id directly)
+        assert!(db.info_get_value(int_id, "artist:Daft Punk").unwrap().is_some());
 
         // Re-sync — type reactivated, cached value still there
         db.info_sync_types(&[
@@ -3581,6 +3626,74 @@ mod tests {
         ]).unwrap();
         let types = db.info_get_types_for_entity("artist").unwrap();
         assert_eq!(types.len(), 1);
-        assert!(db.info_get_value("artist_bio", "artist:1").unwrap().is_some());
+        // Integer id is preserved across deactivation/reactivation
+        assert_eq!(types[0].5[0].1, int_id);
+        assert!(db.info_get_value(int_id, "artist:Daft Punk").unwrap().is_some());
+    }
+
+    #[test]
+    fn test_info_provider_chain_ordering() {
+        let db = test_db();
+
+        // Two plugins provide the same type_id with different priorities
+        db.info_sync_types(&[
+            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+             "lastfm".into(), 7776000, 200, 100),
+            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+             "genius".into(), 7776000, 200, 200),
+        ]).unwrap();
+
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        assert_eq!(types.len(), 1); // Grouped into one entry
+        assert_eq!(types[0].5.len(), 2); // Two providers
+        assert_eq!(types[0].5[0].0, "lastfm"); // Higher priority (lower value) first
+        assert_eq!(types[0].5[1].0, "genius");
+    }
+
+    #[test]
+    fn test_info_get_values_for_entity_returns_type_id() {
+        let db = test_db();
+
+        db.info_sync_types(&[
+            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+             "lastfm".into(), 7776000, 200, 100),
+        ]).unwrap();
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        let int_id = types[0].5[0].1;
+
+        db.info_upsert_value(int_id, "artist:Daft Punk", r#"{"summary":"bio"}"#, "ok").unwrap();
+
+        let values = db.info_get_values_for_entity("artist:Daft Punk").unwrap();
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].0, int_id);           // integer id
+        assert_eq!(values[0].1, "artist_bio");     // string type_id
+        assert_eq!(values[0].3, "ok");             // status
+    }
+
+    #[test]
+    fn test_info_delete_values_for_type_by_string() {
+        let db = test_db();
+
+        db.info_sync_types(&[
+            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+             "lastfm".into(), 7776000, 200, 100),
+        ]).unwrap();
+        let types = db.info_get_types_for_entity("artist").unwrap();
+        let int_id = types[0].5[0].1;
+
+        db.info_upsert_value(int_id, "artist:Daft Punk", r#"{"summary":"bio"}"#, "ok").unwrap();
+        db.info_upsert_value(int_id, "artist:Radiohead", r#"{"summary":"bio2"}"#, "ok").unwrap();
+
+        let count = db.info_delete_values_for_type("artist_bio").unwrap();
+        assert_eq!(count, 2);
+        assert!(db.info_get_value(int_id, "artist:Daft Punk").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_info_fk_constraint() {
+        let db = test_db();
+        // Inserting a value with a non-existent information_type_id should fail
+        let result = db.info_upsert_value(99999, "artist:Daft Punk", "{}", "ok");
+        assert!(result.is_err());
     }
 }
