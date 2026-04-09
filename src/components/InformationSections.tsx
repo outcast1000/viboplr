@@ -80,6 +80,34 @@ export function InformationSections({
       }
       return;
     }
+    if (actionId === "play-or-youtube") {
+      const p = payload as { name: string; artist?: string } | undefined;
+      if (p) {
+        try {
+          const results = await invoke<Array<{ id: number; title: string; artist_name?: string }>>(
+            "get_tracks", { opts: { query: p.name, limit: 10 } }
+          );
+          const match = results.find(t =>
+            t.title.toLowerCase() === p.name.toLowerCase() &&
+            (!p.artist || (t.artist_name ?? "").toLowerCase() === p.artist.toLowerCase())
+          );
+          if (match) {
+            const track = await invoke<{ id: number; path: string; title: string; artist_name?: string; album_title?: string; duration_secs?: number } | null>("get_track_by_id", { trackId: match.id });
+            if (track && onAction) { onAction("play-track", track); return; }
+          }
+        } catch { /* fall through to youtube */ }
+        try {
+          const result = await invoke<{ url: string; video_title: string | null }>(
+            "search_youtube", { title: p.name, artistName: p.artist ?? null }
+          );
+          openUrl(result.url);
+        } catch {
+          const q = encodeURIComponent(`${p.name} ${p.artist ?? ""}`);
+          openUrl(`https://www.youtube.com/results?search_query=${q}`);
+        }
+      }
+      return;
+    }
     if (actionId === "youtube-search") {
       const p = payload as { name: string; artist?: string } | undefined;
       if (p) {
