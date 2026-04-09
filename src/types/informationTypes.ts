@@ -45,23 +45,29 @@ export type InfoFetchResult =
   | { status: "not_found" }
   | { status: "error" };
 
-/** Registered info type (from DB, includes plugin_id) */
+/** Provider in a fallback chain */
+export interface InfoProvider {
+  pluginId: string;
+  integerId: number;
+}
+
+/** Registered info type with provider chain (from DB, grouped by type_id) */
 export interface RegisteredInfoType {
-  id: string;
+  typeId: string;
   name: string;
   displayKind: DisplayKind;
-  pluginId: string;
   ttl: number;
   sortOrder: number;
-  priority: number;
+  providers: InfoProvider[];
 }
 
 /** Cached info value (from DB) */
 export interface CachedInfoValue {
-  informationTypeId: string;
-  value: string; // JSON string
+  integerId: number;
+  typeId: string;
+  value: string;
   status: InfoStatus;
-  fetchedAt: number; // unix timestamp
+  fetchedAt: number;
 }
 
 /** Resolved section state for rendering */
@@ -180,4 +186,14 @@ const RIGHT_DISPLAY_KINDS: ReadonlySet<DisplayKind> = new Set([
 
 export function getInfoPlacement(displayKind: DisplayKind): InfoPlacement {
   return RIGHT_DISPLAY_KINDS.has(displayKind) ? "right" : "below";
+}
+
+/** Build a name-based entity key (decoupled from library IDs) */
+export function buildEntityKey(entity: InfoEntity): string {
+  switch (entity.kind) {
+    case "artist": return `artist:${entity.name}`;
+    case "album":  return `album:${entity.artistName ?? ""}:${entity.name}`;
+    case "track":  return `track:${entity.artistName ?? ""}:${entity.name}`;
+    case "tag":    return `tag:${entity.name}`;
+  }
 }
