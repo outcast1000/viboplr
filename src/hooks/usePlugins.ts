@@ -334,12 +334,12 @@ export function usePlugins(
             });
           },
           async downloadTrack(trackId, opts) {
-            const args: Record<string, unknown> = {
+            const format = opts?.format || (playbackCallbacksRef.current?.getDownloadFormat() ?? "flac");
+            await invoke("tidal_save_track", {
               tidalTrackId: trackId,
               destCollectionId: opts?.collectionId ?? null,
-            };
-            if (opts?.format) args.format = opts.format;
-            await invoke("tidal_save_track", args);
+              format,
+            });
           },
           async downloadAlbum(albumId, opts) {
             await invoke("download_album", {
