@@ -6,6 +6,7 @@ import type {
   DisplayKind,
   InfoFetchResult,
 } from "../types/informationTypes";
+import { buildEntityKey } from "../types/informationTypes";
 
 const ERROR_TTL = 3600; // 1 hour in seconds
 
@@ -37,6 +38,11 @@ interface UseInformationTypesOpts {
   ) => Promise<InfoFetchResult>;
 }
 
+// Backend returns: [type_id, name, display_kind, ttl, sort_order, providers: [plugin_id, integer_id][]]
+type BackendTypeRow = [string, string, string, number, number, Array<[string, number]>];
+// Backend returns: [integer_id, type_id, value, status, fetched_at]
+type BackendValueRow = [number, string, string, string, number];
+
 export function useInformationTypes({
   entity,
   exclude,
@@ -51,7 +57,6 @@ export function useInformationTypes({
     return () => { mountedRef.current = false; };
   }, []);
 
-  // Stabilize exclude to avoid infinite re-render from new array references
   const excludeKey = exclude?.join(",") ?? "";
   const entityKeyRef = useRef<string>("");
 
@@ -61,47 +66,46 @@ export function useInformationTypes({
       return;
     }
 
-    // 1. Query registered info types for this entity kind
-    const types = await invoke<Array<[string, string, string, string, number, number, number]>>(
+    // 1. Query registered info types for this entity kind (with provider chains)
+    const types = await invoke<BackendTypeRow[]>(
       "info_get_types_for_entity",
       { entity: entity.kind },
     );
 
-    // 2. Query all cached values for this entity
-    const entityKey = `${entity.kind}:${entity.id}`;
+    // 2. Query all cached values for this entity (name-based key)
+    const entityKey = buildEntityKey(entity);
     entityKeyRef.current = entityKey;
     const excludeSet = excludeKey ? new Set(excludeKey.split(",")) : null;
-    const cached = await invoke<Array<[string, string, string, number]>>(
+    const cached = await invoke<BackendValueRow[]>(
       "info_get_values_for_entity",
       { entityKey },
     );
-    const cacheMap = new Map(cached.map(([typeId, value, status, fetchedAt]) => [typeId, { value, status, fetchedAt }]));
+    // Map from type_id string → { integerId, value, status, fetchedAt }
+    const cacheMap = new Map(
+      cached.map(([integerId, typeId, value, status, fetchedAt]) => [
+        typeId,
+        { integerId, value, status, fetchedAt },
+      ]),
+    );
 
     const now = Math.floor(Date.now() / 1000);
 
-    // Deduplicate info types by id (pick lowest sort_order per id).
-    // TODO: Multi-provider fallback — when multiple plugins register the same ID,
-    // query info_get_providers for user-configured priority and try providers in order.
-    // For now, uses the first provider (lowest sort_order) only.
-    const seenIds = new Set<string>();
-    const uniqueTypes: Array<{ id: string; name: string; displayKind: DisplayKind; pluginId: string; ttl: number }> = [];
-    for (const [id, name, displayKind, pluginId, ttl] of types) {
-      if (seenIds.has(id)) continue;
-      if (excludeSet?.has(id)) continue;
-      seenIds.add(id);
-      uniqueTypes.push({ id, name, displayKind: displayKind as DisplayKind, pluginId, ttl });
-    }
-
-    // 3. Build initial section states
+    // 3. Build section states with provider chains
     const newSections: InfoSection[] = [];
-    const fetchNeeded: Array<{ typeId: string; pluginId: string; index: number }> = [];
+    const fetchNeeded: Array<{
+      typeId: string;
+      providers: Array<[string, number]>; // [pluginId, integerId]
+      index: number;
+    }> = [];
 
-    for (const t of uniqueTypes) {
-      const entry = cacheMap.get(t.id);
+    for (const [typeId, name, displayKind, ttl, _sortOrder, providers] of types) {
+      if (excludeSet?.has(typeId)) continue;
+
+      const entry = cacheMap.get(typeId);
       const action = decideCacheAction(
         entry?.status ?? null,
         entry?.fetchedAt ?? null,
-        t.ttl,
+        ttl,
         now,
       );
 
@@ -113,52 +117,70 @@ export function useInformationTypes({
         let parsed: unknown;
         try { parsed = JSON.parse(entry!.value); } catch { parsed = null; }
         newSections.push({
-          typeId: t.id,
-          name: t.name,
-          displayKind: t.displayKind,
+          typeId,
+          name,
+          displayKind: displayKind as DisplayKind,
           state: { kind: "loaded", data: parsed, stale: action === "render_and_refetch" },
         });
         if (action === "render_and_refetch") {
-          fetchNeeded.push({ typeId: t.id, pluginId: t.pluginId, index: idx });
+          fetchNeeded.push({ typeId, providers, index: idx });
         }
       } else {
         // loading
         newSections.push({
-          typeId: t.id,
-          name: t.name,
-          displayKind: t.displayKind,
+          typeId,
+          name,
+          displayKind: displayKind as DisplayKind,
           state: { kind: "loading" },
         });
-        fetchNeeded.push({ typeId: t.id, pluginId: t.pluginId, index: idx });
+        fetchNeeded.push({ typeId, providers, index: idx });
       }
     }
 
     if (mountedRef.current) setSections(newSections);
 
-    // 4. Fire fetches in parallel
-    for (const { typeId, pluginId } of fetchNeeded) {
+    // 4. Fire fetches with provider fallback
+    for (const { typeId, providers } of fetchNeeded) {
       const dedupKey = `${typeId}:${entityKey}`;
       if (inFlightRef.current.has(dedupKey)) continue;
       inFlightRef.current.add(dedupKey);
 
       (async () => {
+        let usedIntegerId = providers[0]?.[1] ?? 0;
         try {
-          const result = await invokeInfoFetch(pluginId, typeId, entity);
+          let result: InfoFetchResult = { status: "error" };
+
+          // Try providers in priority order (fallback chain)
+          for (const [pluginId, integerId] of providers) {
+            result = await invokeInfoFetch(pluginId, typeId, entity);
+            usedIntegerId = integerId;
+            if (result.status === "ok") break;
+          }
+
           const value = result.status === "ok" ? JSON.stringify(result.value) : "{}";
           await invoke("info_upsert_value", {
-            typeId,
+            informationTypeId: usedIntegerId,
             entityKey,
             value,
             status: result.status,
           });
 
-          // Guard: only update UI if we're still showing the same entity
+          // Clean up stale cached values from other providers for this type_id
+          for (const [, integerId] of providers) {
+            if (integerId !== usedIntegerId) {
+              await invoke("info_delete_value", {
+                informationTypeId: integerId,
+                entityKey,
+              }).catch(() => {});
+            }
+          }
+
           if (mountedRef.current && entityKeyRef.current === entityKey && result.status === "ok") {
             setSections((prev) => {
               const next = [...prev];
               const existing = next.find((s) => s.typeId === typeId);
               if (existing) {
-                existing.state = { kind: "loaded", data: result.value, stale: false };
+                existing.state = { kind: "loaded", data: (result as any).value, stale: false };
               }
               return next;
             });
@@ -167,7 +189,7 @@ export function useInformationTypes({
           }
         } catch {
           await invoke("info_upsert_value", {
-            typeId,
+            informationTypeId: usedIntegerId,
             entityKey,
             value: "{}",
             status: "error",
@@ -181,7 +203,7 @@ export function useInformationTypes({
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entity?.kind, entity?.id, excludeKey, invokeInfoFetch]);
+  }, [entity?.kind, entity?.id, entity?.name, entity?.artistName, excludeKey, invokeInfoFetch]);
 
   useEffect(() => {
     loadSections();
@@ -190,9 +212,19 @@ export function useInformationTypes({
   const refresh = useCallback(
     async (typeId: string) => {
       if (!entity) return;
-      const entityKey = `${entity.kind}:${entity.id}`;
-      // Delete cached value to force refetch
-      await invoke("info_delete_value", { typeId, entityKey });
+      const entityKey = buildEntityKey(entity);
+      // Find the cached value's integer ID to delete it
+      const cached = await invoke<BackendValueRow[]>(
+        "info_get_values_for_entity",
+        { entityKey },
+      );
+      const entry = cached.find(([, tid]) => tid === typeId);
+      if (entry) {
+        await invoke("info_delete_value", {
+          informationTypeId: entry[0],
+          entityKey,
+        });
+      }
       loadSections();
     },
     [entity, loadSections],
