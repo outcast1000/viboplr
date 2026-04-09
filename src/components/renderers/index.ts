@@ -19,6 +19,7 @@ export interface RendererProps {
   onEntityClick?: (kind: string, id?: number, name?: string) => void;
   onAction?: (actionId: string, payload?: unknown) => void;
   resolveEntity?: (kind: string, name: string) => { id?: number; imageSrc?: string } | undefined;
+  context?: { positionSecs?: number };
 }
 
 export const renderers: Record<string, ComponentType<RendererProps>> = {
