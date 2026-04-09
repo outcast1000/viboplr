@@ -171,7 +171,7 @@ function activate(api) {
     }).catch(function () { return { status: "error" }; });
   });
 
-  api.informationTypes.onFetch("genius_artist_description", function (entity) {
+  api.informationTypes.onFetch("artist_bio", function (entity) {
     if (entity.kind !== "artist") return Promise.resolve({ status: "not_found" });
     return searchArtist(entity.name).then(function (found) {
       if (!found) return { status: "not_found" };
@@ -182,7 +182,7 @@ function activate(api) {
     }).catch(function () { return { status: "error" }; });
   });
 
-  api.informationTypes.onFetch("genius_album_description", function (entity) {
+  api.informationTypes.onFetch("album_wiki", function (entity) {
     if (entity.kind !== "album") return Promise.resolve({ status: "not_found" });
     var artistName = entity.artistName || "";
     if (!artistName) return Promise.resolve({ status: "not_found" });

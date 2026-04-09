@@ -17,22 +17,22 @@
         "priority": 100
       },
       {
-        "id": "genius_artist_description",
-        "name": "Description",
+        "id": "artist_bio",
+        "name": "About",
         "entity": "artist",
         "displayKind": "rich_text",
         "ttl": 7776000,
-        "order": 250,
-        "priority": 100
+        "order": 200,
+        "priority": 200
       },
       {
-        "id": "genius_album_description",
-        "name": "Description",
+        "id": "album_wiki",
+        "name": "Review",
         "entity": "album",
         "displayKind": "rich_text",
         "ttl": 7776000,
-        "order": 250,
-        "priority": 100
+        "order": 200,
+        "priority": 200
       }
     ]
   }
