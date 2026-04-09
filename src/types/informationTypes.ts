@@ -181,7 +181,6 @@ const RIGHT_DISPLAY_KINDS: ReadonlySet<DisplayKind> = new Set([
   "ranked_list",
   "tag_list",
   "image_gallery",
-  "lyrics",
 ]);
 
 export function getInfoPlacement(displayKind: DisplayKind): InfoPlacement {
