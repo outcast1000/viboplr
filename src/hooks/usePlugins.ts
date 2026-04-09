@@ -338,8 +338,8 @@ export function usePlugins(
             let collectionId = opts?.collectionId ?? null;
             if (!collectionId) {
               const all = await invoke<Collection[]>("get_collections");
-              const tidalCol = all.find((c) => c.kind === "tidal");
-              collectionId = tidalCol?.id ?? null;
+              const localCol = all.find((c) => c.kind === "local" && c.path);
+              collectionId = localCol?.id ?? null;
             }
             await invoke("tidal_save_track", {
               tidalTrackId: trackId,
