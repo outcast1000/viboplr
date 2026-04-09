@@ -3,8 +3,10 @@ import type { InfoEntity, InfoPlacement } from "../types/informationTypes";
 import { getInfoPlacement } from "../types/informationTypes";
 import { useInformationTypes } from "../hooks/useInformationTypes";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { buildEntityKey } from "../types/informationTypes";
 import "./InformationSections.css";
 
 export interface CustomTab {
@@ -18,6 +20,7 @@ interface InformationSectionsProps {
   exclude?: string[];
   placement?: InfoPlacement;
   customTabs?: CustomTab[];
+  positionSecs?: number;
   invokeInfoFetch: (
     pluginId: string,
     infoTypeId: string,
@@ -37,14 +40,40 @@ export function InformationSections({
   exclude,
   placement,
   customTabs,
+  positionSecs,
   invokeInfoFetch,
   onEntityClick,
   onAction,
   resolveEntity,
 }: InformationSectionsProps) {
-  const { sections } = useInformationTypes({ entity, exclude, invokeInfoFetch });
+  const { sections, reloadCache } = useInformationTypes({ entity, exclude, invokeInfoFetch });
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+
+  const handleAction = useCallback(async (actionId: string, payload?: unknown) => {
+    if (actionId === "save-lyrics" && entity) {
+      const p = payload as { text: string; kind: string } | undefined;
+      if (!p) return;
+      const entityKey = buildEntityKey(entity);
+      const cached = await invoke<[number, string, string, string, number][]>(
+        "info_get_values_for_entity",
+        { entityKey },
+      );
+      const lyricsEntry = cached.find(([, typeId]) => typeId === "lyrics");
+      if (lyricsEntry) {
+        await invoke("info_upsert_value", {
+          informationTypeId: lyricsEntry[0],
+          entityKey,
+          value: JSON.stringify({ text: p.text, kind: p.kind }),
+          status: "ok",
+        });
+        // Reload from cache (does NOT delete+refetch like refresh does)
+        reloadCache();
+      }
+      return;
+    }
+    if (onAction) onAction(actionId, payload);
+  }, [entity, onAction, reloadCache]);
 
   const filtered = placement
     ? sections.filter(s => s.displayKind !== "title_line" && getInfoPlacement(s.displayKind) === placement)
@@ -106,7 +135,7 @@ export function InformationSections({
               return s.state.kind === "loading" ? (
                 <div className="info-section-skeleton" />
               ) : s.state.kind === "loaded" && s.state.data && Renderer ? (
-                <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={onAction} resolveEntity={resolveEntity} />
+                <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={handleAction} resolveEntity={resolveEntity} context={positionSecs != null ? { positionSecs } : undefined} />
               ) : null;
             })()}
           </div>

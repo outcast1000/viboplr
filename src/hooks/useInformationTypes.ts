@@ -230,5 +230,5 @@ export function useInformationTypes({
     [entity, loadSections],
   );
 
-  return { sections, refresh };
+  return { sections, refresh, reloadCache: loadSections };
 }
