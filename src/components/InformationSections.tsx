@@ -75,7 +75,7 @@ export function InformationSections({
     if (actionId === "play-track") {
       const p = payload as { id: number } | undefined;
       if (p?.id) {
-        const track = await invoke<{ id: number; path: string; title: string; artist_name?: string; album_title?: string; duration_secs?: number } | null>("get_track", { trackId: p.id });
+        const track = await invoke<{ id: number; path: string; title: string; artist_name?: string; album_title?: string; duration_secs?: number } | null>("get_track_by_id", { trackId: p.id });
         if (track && onAction) onAction("play-track", track);
       }
       return;
