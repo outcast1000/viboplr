@@ -1199,9 +1199,9 @@ pub fn tidal_save_track(
     tidal_track_id: String,
     dest_collection_id: Option<i64>,
     custom_dest_path: Option<String>,
-    format: String,
+    format: Option<String>,
 ) -> Result<u64, String> {
-    let fmt = DownloadFormat::from_str(&format)?;
+    let fmt = DownloadFormat::from_str(format.as_deref().unwrap_or("flac"))?;
     let client = state.tidal_client.clone();
 
     let info = client
