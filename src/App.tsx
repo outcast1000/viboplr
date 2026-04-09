@@ -2054,13 +2054,9 @@ function App() {
           onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
           onRemove={queueHook.removeFromQueue}
           onLocateTrack={(track) => {
-            library.handleLocateTrack(track.title, track.artist_name, track.album_title, () => {
-              library.setView("all");
-              library.setSelectedArtist(null);
-              library.setSelectedAlbum(null);
-              library.setSelectedTag(null);
-              viewSearch.setQuery("all", track.title);
-            });
+            if (track.id) {
+              library.handleTrackClick(track.id);
+            }
           }}
           onMoveMultiple={queueHook.moveMultiple}
           onClear={queueHook.clearQueue}
