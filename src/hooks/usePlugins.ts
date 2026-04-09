@@ -335,7 +335,7 @@ export function usePlugins(
           },
           async downloadTrack(trackId, opts) {
             await invoke("tidal_save_track", {
-              trackId,
+              tidalTrackId: trackId,
               collectionId: opts?.collectionId ?? null,
               format: opts?.format ?? null,
             });
