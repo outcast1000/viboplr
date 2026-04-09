@@ -1,6 +1,9 @@
 .information-sections {
   display: flex;
   flex-direction: column;
+}
+
+.information-sections--below {
   column-span: all;
 }
 
@@ -115,7 +118,10 @@
   max-height: none;
 }
 
-/* Right-placement: compact height with scroll */
+/* Right-placement: compact height with scroll, stay in column */
+.information-sections--right {
+  break-inside: avoid;
+}
 .information-sections--right .info-section-content {
   max-height: 180px;
 }
