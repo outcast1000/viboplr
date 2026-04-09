@@ -29,7 +29,7 @@ src-tauri/.cargo/
 
 .worktrees/
 worktrees/
-.claude/skills/
+.claude/
 .superpowers/
 docs/superpowers/
 Issues.md
