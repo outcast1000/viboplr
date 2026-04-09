@@ -906,33 +906,15 @@ function App() {
     return () => { cancelled = true; };
   }, [library.selectedTrack, detailTrackLocal]);
 
-  // Sync detail view with currently playing track
+  // Sync detail view with currently playing track — always navigate to track detail
   const syncRef = useRef(syncWithPlaying);
   syncRef.current = syncWithPlaying;
   useEffect(() => {
     if (!syncRef.current || !playback.currentTrack) return;
     const ct = playback.currentTrack;
-    const inDetailView = library.selectedTrack !== null || library.selectedAlbum !== null
-      || (library.selectedArtist !== null && library.view === "artists") || library.selectedTag !== null;
-    if (!inDetailView) return;
-
-    if (library.selectedTrack !== null) {
-      // Track detail → follow to new track
-      if (ct.id && ct.id !== library.selectedTrack) {
-        library.setSelectedTrack(ct.id);
-      }
-    } else if (library.selectedAlbum !== null) {
-      // Album detail → follow to new track's album
-      if (ct.album_id && ct.album_id !== library.selectedAlbum) {
-        library.handleAlbumClick(ct.album_id, ct.artist_id);
-      }
-    } else if (library.selectedArtist !== null) {
-      // Artist detail → follow to new track's artist
-      if (ct.artist_id && ct.artist_id !== library.selectedArtist) {
-        library.handleArtistClick(ct.artist_id);
-      }
+    if (ct.id && ct.id !== library.selectedTrack) {
+      library.handleTrackClick(ct.id);
     }
-    // Tag detail: don't auto-navigate (ambiguous — track may have many tags)
   }, [playback.currentTrack?.id]);
 
   const handleToggleSync = useCallback(() => {
@@ -940,19 +922,14 @@ function App() {
       const next = !prev;
       store.set("syncWithPlaying", next);
       if (next && playback.currentTrack) {
-        // Immediately sync to current track
         const ct = playback.currentTrack;
-        if (library.selectedTrack !== null && ct.id && ct.id !== library.selectedTrack) {
-          library.setSelectedTrack(ct.id);
-        } else if (library.selectedAlbum !== null && ct.album_id && ct.album_id !== library.selectedAlbum) {
-          library.handleAlbumClick(ct.album_id, ct.artist_id);
-        } else if (library.selectedArtist !== null && ct.artist_id && ct.artist_id !== library.selectedArtist) {
-          library.handleArtistClick(ct.artist_id);
+        if (ct.id) {
+          library.handleTrackClick(ct.id);
         }
       }
       return next;
     });
-  }, [playback.currentTrack, library.selectedTrack, library.selectedAlbum, library.selectedArtist]);
+  }, [playback.currentTrack]);
 
   // Fetch album/artist image when current track changes (for Now Playing bar)
   useEffect(() => {
