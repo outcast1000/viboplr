@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { store } from "../store";
 import type { Track, Collection } from "../types";
 import type {
@@ -336,14 +337,21 @@ export function usePlugins(
           async downloadTrack(trackId, opts) {
             const format = opts?.format || (playbackCallbacksRef.current?.getDownloadFormat() ?? "flac");
             let collectionId = opts?.collectionId ?? null;
+            let customDestPath: string | null = null;
             if (!collectionId) {
               const all = await invoke<Collection[]>("get_collections");
               const localCol = all.find((c) => c.kind === "local" && c.path);
               collectionId = localCol?.id ?? null;
             }
+            if (!collectionId) {
+              const picked = await openDialog({ directory: true, title: "Choose download folder" });
+              if (!picked) return;
+              customDestPath = picked as string;
+            }
             await invoke("tidal_save_track", {
               tidalTrackId: trackId,
               destCollectionId: collectionId,
+              customDestPath,
               format,
             });
           },
