@@ -360,8 +360,7 @@
 .track-detail-top {
   padding: 24px 16px;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 24px;
 }
 
@@ -370,6 +369,7 @@
   align-items: flex-start;
   gap: 16px;
   min-width: 220px;
+  flex: 1 1 0;
 }
 
 .track-detail-art {
@@ -574,10 +574,11 @@
 
 /* Right-placement InformationSections beside track header */
 .track-detail-top > .information-sections--right {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 180px;
-  max-width: 240px;
+  max-width: 280px;
   margin-left: auto;
+  overflow-y: auto;
 }
 
 /* Below-placement section-wide after track-detail-top */

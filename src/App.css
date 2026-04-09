@@ -191,8 +191,7 @@
 
 .artist-detail-top {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: stretch;
   padding: 24px 16px;
   gap: 16px 24px;
   border-bottom: 1px solid var(--border);
@@ -203,6 +202,7 @@
   align-items: flex-start;
   gap: 16px;
   min-width: 220px;
+  flex: 1 1 0;
 }
 
 .artist-avatar {
@@ -633,10 +633,11 @@
 /* Right-placement InformationSections beside entity headers */
 .artist-detail-top > .information-sections--right,
 .album-detail-top > .information-sections--right {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 180px;
-  max-width: 240px;
+  max-width: 280px;
   margin-left: auto;
+  overflow-y: auto;
 }
 
 /* Standalone .section-wide outside *-detail-top containers */
@@ -736,8 +737,7 @@
 
 .album-detail-top {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: stretch;
   padding: 24px 16px;
   gap: 16px 24px;
   border-bottom: 1px solid var(--border);
@@ -748,6 +748,7 @@
   align-items: flex-start;
   gap: 16px;
   min-width: 260px;
+  flex: 1 1 0;
 }
 
 .album-detail-art {

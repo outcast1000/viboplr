@@ -118,10 +118,12 @@
   max-height: none;
 }
 
-/* Right-placement: compact height with scroll, stay in column */
+/* Right-placement: height controlled by parent flex stretch */
 .information-sections--right {
   break-inside: avoid;
 }
 .information-sections--right .info-section-content {
-  max-height: 180px;
+  max-height: none;
+  flex: 1 1 0;
+  overflow-y: auto;
 }
