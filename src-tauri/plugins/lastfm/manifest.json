@@ -83,7 +83,7 @@
         "id": "similar_tracks",
         "name": "Similar Tracks",
         "entity": "track",
-        "displayKind": "entity_list",
+        "displayKind": "ranked_list",
         "ttl": 7776000,
         "order": 300,
         "priority": 100
