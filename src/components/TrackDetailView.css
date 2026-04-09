@@ -359,16 +359,18 @@
 
 .track-detail-top {
   padding: 24px 16px;
-  columns: 300px;
-  column-gap: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 24px;
 }
 
 .track-detail-header {
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  column-span: all;
-  margin-bottom: 16px;
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 .track-detail-art {
@@ -571,17 +573,18 @@
   color: var(--bg-primary);
 }
 
-/* Lyrics — inline section within track-detail-top */
-.track-detail-top > .track-detail-lyrics-section {
-  break-inside: avoid;
-  margin-bottom: 16px;
+/* Right-placement InformationSections beside track header */
+.track-detail-top > .information-sections--right {
+  flex: 0 1 auto;
+  min-width: 180px;
+  max-width: 240px;
+  margin-left: auto;
 }
 
-/* Play History / Similar Tracks — flex children of track-detail-top */
-.track-detail-top > .track-detail-scrobbles,
-.track-detail-top > .track-detail-similar {
-  break-inside: avoid;
-  margin-bottom: 16px;
+/* Below-placement section-wide after track-detail-top */
+.track-detail-top + .section-wide {
+  padding: 0 16px;
+  max-width: none;
 }
 
 .track-detail-section-title {
