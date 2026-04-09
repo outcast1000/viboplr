@@ -410,6 +410,7 @@ export function TrackDetailView({
         <InformationSections
           placement="right"
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
+          exclude={["track_tags"]}
           invokeInfoFetch={invokeInfoFetch}
           positionSecs={isCurrentTrack ? positionSecs : 0}
           onEntityClick={(kind, id) => {
@@ -423,6 +424,7 @@ export function TrackDetailView({
         <InformationSections
           placement="below"
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
+          exclude={["track_tags"]}
           invokeInfoFetch={invokeInfoFetch}
           positionSecs={isCurrentTrack ? positionSecs : 0}
           customTabs={[
