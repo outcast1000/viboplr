@@ -335,12 +335,6 @@ impl Database {
                 UNIQUE(kind, item_id)
             );
 
-            CREATE TABLE IF NOT EXISTS lastfm_cache (
-                cache_key  TEXT PRIMARY KEY,
-                value      TEXT NOT NULL,
-                cached_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-            );
-
             CREATE TABLE IF NOT EXISTS plugin_storage (
                 plugin_id  TEXT NOT NULL,
                 key        TEXT NOT NULL,
@@ -688,6 +682,12 @@ impl Database {
                  CREATE INDEX IF NOT EXISTS idx_info_values_entity ON information_values(entity_key);"
             )?;
             conn.execute("UPDATE db_version SET version = 19 WHERE rowid = 1", [])?;
+            migrated = true;
+        }
+
+        if version < 20 {
+            conn.execute_batch("DROP TABLE IF EXISTS lastfm_cache;")?;
+            conn.execute("UPDATE db_version SET version = 20 WHERE rowid = 1", [])?;
             migrated = true;
         }
 
@@ -2541,47 +2541,6 @@ impl Database {
         } else {
             Ok(None)
         }
-    }
-
-    // --- Last.fm cache ---
-
-    const LASTFM_CACHE_TTL_SECS: i64 = 90 * 24 * 60 * 60; // ~3 months
-
-    pub fn lastfm_cache_get(&self, key: &str) -> SqlResult<Option<serde_json::Value>> {
-        let conn = self.conn.lock().unwrap();
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
-        let cutoff = now - Self::LASTFM_CACHE_TTL_SECS;
-        let mut stmt = conn.prepare(
-            "SELECT value FROM lastfm_cache WHERE cache_key = ?1 AND cached_at > ?2"
-        )?;
-        let result = stmt.query_row(params![key, cutoff], |row| {
-            let json_str: String = row.get(0)?;
-            Ok(json_str)
-        });
-        match result {
-            Ok(json_str) => Ok(serde_json::from_str(&json_str).ok()),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
-        }
-    }
-
-    pub fn lastfm_cache_delete(&self, key_prefix: &str) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "DELETE FROM lastfm_cache WHERE cache_key LIKE ?1",
-            params![format!("{}%", key_prefix)],
-        )?;
-        Ok(())
-    }
-
-    pub fn lastfm_cache_set(&self, key: &str, value: &serde_json::Value) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        let json_str = serde_json::to_string(value).unwrap_or_default();
-        conn.execute(
-            "INSERT OR REPLACE INTO lastfm_cache (cache_key, value, cached_at) VALUES (?1, ?2, strftime('%s', 'now'))",
-            params![key, json_str],
-        )?;
-        Ok(())
     }
 
     pub fn plugin_storage_get(&self, plugin_id: &str, key: &str) -> Result<Option<String>, String> {
