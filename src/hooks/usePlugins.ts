@@ -336,21 +336,26 @@ export function usePlugins(
           },
           async downloadTrack(trackId, opts) {
             const format = opts?.format || (playbackCallbacksRef.current?.getDownloadFormat() ?? "flac");
-            let collectionId = opts?.collectionId ?? null;
+            let destCollectionId: number | null = opts?.collectionId ?? null;
             let customDestPath: string | null = null;
-            if (!collectionId) {
-              const all = await invoke<Collection[]>("get_collections");
-              const localCol = all.find((c) => c.kind === "local" && c.path);
-              collectionId = localCol?.id ?? null;
+            if (!destCollectionId) {
+              try {
+                const all = await invoke<Collection[]>("get_collections");
+                const localCol = all.find((c) => c.kind === "local" && c.path);
+                if (localCol) destCollectionId = localCol.id;
+              } catch { /* ignore */ }
             }
-            if (!collectionId) {
-              const picked = await openDialog({ directory: true, title: "Choose download folder" });
-              if (!picked) return;
-              customDestPath = picked as string;
+            if (!destCollectionId) {
+              try {
+                const picked = await openDialog({ directory: true, title: "Choose download folder" });
+                if (!picked) return;
+                customDestPath = typeof picked === "string" ? picked : picked[0];
+              } catch { return; }
             }
+            if (!destCollectionId && !customDestPath) return;
             await invoke("tidal_save_track", {
               tidalTrackId: trackId,
-              destCollectionId: collectionId,
+              destCollectionId,
               customDestPath,
               format,
             });
