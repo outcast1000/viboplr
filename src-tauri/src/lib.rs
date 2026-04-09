@@ -16,8 +16,6 @@ mod sync;
 mod tag_writer;
 mod timing;
 mod downloader;
-mod lyric_provider;
-
 use commands::{AppState, DownloadQueue, ImageDownloadRequest};
 use db::Database;
 use downloader::DownloadManager;
@@ -142,11 +140,6 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::oauth_listen,
         commands::open_logs_folder,
         commands::write_frontend_log,
-        commands::get_lyrics,
-        commands::fetch_lyrics,
-        commands::save_manual_lyrics,
-        commands::reset_lyrics,
-        commands::check_lyrics_match,
     ]
 }
 
@@ -264,11 +257,6 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::oauth_listen,
         commands::open_logs_folder,
         commands::write_frontend_log,
-        commands::get_lyrics,
-        commands::fetch_lyrics,
-        commands::save_manual_lyrics,
-        commands::reset_lyrics,
-        commands::check_lyrics_match,
     ]
 }
 
@@ -860,12 +848,6 @@ pub fn run() {
                 let tidal_client = Arc::new(tidal::TidalClient::new(None));
                 tidal::set_global_client(tidal_client.clone());
 
-                let lyric_provider: Arc<dyn lyric_provider::LyricProvider> = Arc::new(
-                    lyric_provider::LyricFallbackChain::new(vec![
-                        Box::new(lyric_provider::lrclib::LrclibProvider),
-                    ]),
-                );
-
                 app.manage(AppState {
                     db,
                     app_dir,
@@ -875,8 +857,6 @@ pub fn run() {
                     track_download_manager: dl_manager,
                     tidal_client,
                     native_plugins_dir,
-                    lyric_provider,
-                    lyrics_fetching_track_id: Arc::new(std::sync::atomic::AtomicI64::new(0)),
                 });
             });
 

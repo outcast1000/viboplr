@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-fn default_true() -> bool { true }
-
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackQuery {
@@ -13,8 +11,6 @@ pub struct TrackQuery {
     pub liked_only: bool,
     #[serde(default)]
     pub has_youtube_url: bool,
-    #[serde(default = "default_true")]
-    pub include_lyrics: bool,
     pub media_type: Option<String>,
     pub sort_field: Option<String>,
     pub sort_dir: Option<String>,
@@ -97,29 +93,6 @@ impl Track {
             .and_then(|rest| rest.rfind('/').map(|i| &rest[i + 1..]))
             .filter(|id| !id.is_empty())
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Lyrics {
-    pub track_id: i64,
-    pub text: String,
-    pub kind: String,
-    pub provider: String,
-    pub fetched_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LyricsLoaded {
-    pub track_id: i64,
-    pub text: String,
-    pub kind: String,
-    pub provider: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LyricsError {
-    pub track_id: i64,
-    pub error: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
