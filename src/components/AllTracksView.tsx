@@ -18,7 +18,6 @@ interface AllTracksViewProps {
   mediaTypeFilter: "all" | "audio" | "video";
   filterYoutubeOnly: boolean;
   searchQuery: string;
-  searchIncludeLyrics: boolean;
   albumImages: Record<number, string | null>;
   hasMore: boolean;
   loadingMore: boolean;
@@ -44,7 +43,6 @@ interface AllTracksViewProps {
   onSetTrackLikedFirst: (value: boolean | ((prev: boolean) => boolean)) => void;
   onSetMediaTypeFilter: (filter: "all" | "audio" | "video") => void;
   onSetFilterYoutubeOnly: (value: boolean | ((prev: boolean) => boolean)) => void;
-  onSetSearchIncludeLyrics: (value: boolean | ((prev: boolean) => boolean)) => void;
 }
 
 export function AllTracksView({
@@ -61,7 +59,6 @@ export function AllTracksView({
   mediaTypeFilter,
   filterYoutubeOnly,
   searchQuery,
-  searchIncludeLyrics,
   albumImages,
   hasMore,
   loadingMore,
@@ -83,7 +80,6 @@ export function AllTracksView({
   onSetTrackLikedFirst,
   onSetMediaTypeFilter,
   onSetFilterYoutubeOnly,
-  onSetSearchIncludeLyrics,
 }: AllTracksViewProps) {
   return (
     <>
@@ -147,15 +143,7 @@ export function AllTracksView({
         onQueryChange={onSearchChange}
         placeholder="Search tracks..."
         {...searchNav}
-      >
-        <button
-          className={`search-lyrics-toggle${searchIncludeLyrics ? " active" : ""}`}
-          onClick={() => onSetSearchIncludeLyrics(v => !v)}
-          title={searchIncludeLyrics ? "Lyrics included in search" : "Lyrics excluded from search"}
-        >
-          Lyrics
-        </button>
-      </ViewSearchBar>
+      />
 
       {/* Tracks: Basic view */}
       {trackViewMode === "basic" && (

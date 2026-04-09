@@ -592,7 +592,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, savedSortBarCollapsed, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedSearchIncludeLyrics] = await timeAsync("store.restore (45 keys)", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, savedSortBarCollapsed, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst] = await timeAsync("store.restore (45 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -638,7 +638,6 @@ function App() {
           store.get<boolean>("filterYoutubeOnly"),
           store.get<string>("mediaTypeFilter"),
           store.get<boolean>("trackLikedFirst"),
-          store.get<boolean | null>("searchIncludeLyrics"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sa !== undefined && sa !== null) {
@@ -788,7 +787,6 @@ function App() {
         if (savedFilterYoutubeOnly) library.setFilterYoutubeOnly(true);
         if (savedMediaTypeFilter && ["all", "audio", "video"].includes(savedMediaTypeFilter)) library.setMediaTypeFilter(savedMediaTypeFilter as "all" | "audio" | "video");
         if (savedTrackLikedFirst) library.setTrackLikedFirst(true);
-        if (savedSearchIncludeLyrics === false) library.setSearchIncludeLyrics(false);
         if (savedVideoLayout) {
           videoLayout.restoreLayout(savedVideoLayout);
         } else if (savedVideoSplitHeight && savedVideoSplitHeight > 0) {
@@ -1828,7 +1826,6 @@ function App() {
               mediaTypeFilter={library.mediaTypeFilter}
               filterYoutubeOnly={library.filterYoutubeOnly}
               searchQuery={viewSearch.getQuery("all")}
-              searchIncludeLyrics={library.searchIncludeLyrics}
               albumImages={albumImageCache.images}
               hasMore={library.hasMore}
               loadingMore={library.loadingMore}
@@ -1850,7 +1847,6 @@ function App() {
               onSetTrackLikedFirst={library.setTrackLikedFirst}
               onSetMediaTypeFilter={library.setMediaTypeFilter}
               onSetFilterYoutubeOnly={library.setFilterYoutubeOnly}
-              onSetSearchIncludeLyrics={library.setSearchIncludeLyrics}
             />
           )}
 
@@ -1895,7 +1891,6 @@ function App() {
               likedViewMode={library.likedViewMode}
               sortBarCollapsed={library.sortBarCollapsed}
               searchQuery={viewSearch.getQuery("liked")}
-              searchIncludeLyrics={library.searchIncludeLyrics}
               albumImages={albumImageCache.images}
               onColumnsChange={library.setTrackColumns}
               onDoubleClick={queueHook.playTracks}
@@ -1911,7 +1906,6 @@ function App() {
               onSearchChange={(q) => viewSearch.setQuery("liked", q)}
               searchNav={likedSearchNav}
               onFetchAlbumImage={albumImageCache.fetchOnDemand}
-              onSetSearchIncludeLyrics={library.setSearchIncludeLyrics}
             />
           )}
 

@@ -15,7 +15,6 @@ interface LikedTracksViewProps {
   likedViewMode: "basic" | "list" | "tiles";
   sortBarCollapsed: boolean;
   searchQuery: string;
-  searchIncludeLyrics: boolean;
   albumImages: Record<number, string | null>;
   onColumnsChange: (cols: ColumnConfig[]) => void;
   onDoubleClick: (tracks: Track[], index: number) => void;
@@ -35,7 +34,6 @@ interface LikedTracksViewProps {
     onEnter: () => void;
   };
   onFetchAlbumImage: (album: Album) => void;
-  onSetSearchIncludeLyrics: (value: boolean | ((prev: boolean) => boolean)) => void;
 }
 
 export function LikedTracksView({
@@ -49,7 +47,6 @@ export function LikedTracksView({
   likedViewMode,
   sortBarCollapsed,
   searchQuery,
-  searchIncludeLyrics,
   albumImages,
   onColumnsChange,
   onDoubleClick,
@@ -65,7 +62,6 @@ export function LikedTracksView({
   onSearchChange,
   searchNav,
   onFetchAlbumImage,
-  onSetSearchIncludeLyrics,
 }: LikedTracksViewProps) {
   return (
     <>
@@ -107,15 +103,7 @@ export function LikedTracksView({
         onQueryChange={onSearchChange}
         placeholder="Search liked tracks..."
         {...searchNav}
-      >
-        <button
-          className={`search-lyrics-toggle${searchIncludeLyrics ? " active" : ""}`}
-          onClick={() => onSetSearchIncludeLyrics(v => !v)}
-          title={searchIncludeLyrics ? "Lyrics included in search" : "Lyrics excluded from search"}
-        >
-          Lyrics
-        </button>
-      </ViewSearchBar>
+      />
 
       {/* Liked: Basic view */}
       {likedViewMode === "basic" && (
