@@ -124,7 +124,7 @@ export function Sidebar({
               return (
                 <button
                   key={viewKey}
-                  className={`nav-btn ${view === viewKey ? "active" : ""}`}
+                  className={`nav-btn ${noDetail && view === viewKey ? "active" : ""}`}
                   onClick={() => onPluginView?.(item.pluginId, item.id)}
                   title={item.label}
                 >
