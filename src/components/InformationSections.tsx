@@ -83,8 +83,15 @@ export function InformationSections({
     if (actionId === "youtube-search") {
       const p = payload as { name: string; artist?: string } | undefined;
       if (p) {
-        const q = encodeURIComponent(`${p.name} ${p.artist ?? ""}`);
-        openUrl(`https://www.youtube.com/results?search_query=${q}`);
+        try {
+          const result = await invoke<{ url: string; video_title: string | null }>(
+            "search_youtube", { title: p.name, artistName: p.artist ?? null }
+          );
+          openUrl(result.url);
+        } catch {
+          const q = encodeURIComponent(`${p.name} ${p.artist ?? ""}`);
+          openUrl(`https://www.youtube.com/results?search_query=${q}`);
+        }
       }
       return;
     }
