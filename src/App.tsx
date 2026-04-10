@@ -87,7 +87,7 @@ function App() {
   const getScrollEl = useCallback(() => {
     const el = contentRef.current;
     if (!el) return null;
-    return el.querySelector<HTMLElement>('.track-list, .entity-list, .entity-table, .album-grid, .artist-detail, .history-view, .collections-view, .plugin-view');
+    return el.querySelector<HTMLElement>('.track-list, .entity-list, .entity-table, .album-grid, .artist-detail, .history-view, .collections-view, .plugin-view, .settings-content-body');
   }, []);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HistoryViewHandle>(null);
@@ -311,7 +311,7 @@ function App() {
   const [syncWithPlaying, setSyncWithPlaying] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
+
   const { sessionLog, addLog } = useSessionLog();
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
@@ -1448,7 +1448,14 @@ function App() {
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
         }}
-        onShowSettings={() => setShowSettings(true)}
+        onShowSettings={() => {
+          pushAndScroll();
+          library.setView("settings");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSelectedTrack(null);
+        }}
         updateAvailable={updater.updateState.available !== null}
         pluginNavItems={plugins.sidebarItems}
         onPluginView={(pluginId, viewId) => {
@@ -1486,60 +1493,6 @@ function App() {
         />
       )}
 
-      {showSettings && (
-        <SettingsPanel
-          searchProviders={searchProviders}
-          onClose={() => setShowSettings(false)}
-          onSeedDatabase={handleSeedDatabase}
-          onClearDatabase={handleClearDatabase}
-          clearing={clearing}
-          onClearImageFailures={handleClearImageFailures}
-          onSaveProviders={handleSaveProviders}
-          crossfadeSecs={crossfadeSecs}
-          onCrossfadeChange={handleCrossfadeChange}
-          trackVideoHistory={trackVideoHistory}
-          onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
-          appVersion={updater.appVersion}
-          updateState={updater.updateState}
-          onCheckForUpdates={updater.handleCheckForUpdates}
-          onInstallUpdate={updater.handleInstallUpdate}
-          backendTimings={backendTimings}
-          frontendTimings={getTimingEntries()}
-          onFetchBackendTimings={() => invoke<TimingEntry[]>("get_startup_timings").then(setBackendTimings)}
-          downloadFormat={downloads.downloadFormat}
-          onDownloadFormatChange={(format) => downloads.setFormat(format, store)}
-          activeSkinId={skins.activeSkinId}
-          installedSkins={skins.installedSkins}
-          onApplySkin={skins.applySkin}
-          onImportSkin={handleImportSkin}
-          onDeleteSkin={skins.deleteSkin}
-          gallerySkins={skins.gallerySkins}
-          galleryLoading={skins.galleryLoading}
-          galleryError={skins.galleryError}
-          onFetchGallery={skins.fetchGallery}
-          onInstallFromGallery={skins.installFromGallery}
-          pluginStates={plugins.pluginStates}
-          onTogglePlugin={plugins.togglePlugin}
-          onReloadPlugin={plugins.reloadPlugin}
-          onReloadAllPlugins={plugins.reloadAllPlugins}
-          onOpenPluginsFolder={async () => {
-            const dir = await invoke<string>("plugin_get_dir");
-            await invoke("open_folder", { folderPath: dir });
-          }}
-          onDeletePlugin={plugins.deletePlugin}
-          galleryPlugins={plugins.galleryPlugins}
-          galleryPluginsLoading={plugins.galleryLoading}
-          galleryPluginsError={plugins.galleryError}
-          onFetchPluginGallery={plugins.fetchPluginGallery}
-          onInstallPluginFromGallery={plugins.installFromGallery}
-          pluginSettingsPanels={plugins.settingsPanels}
-          getPluginViewData={plugins.getViewData}
-          onPluginAction={plugins.dispatchUIAction}
-          loggingEnabled={loggingEnabled}
-          onLoggingEnabledChange={handleLoggingEnabledChange}
-          onOpenLogsFolder={handleOpenLogsFolder}
-        />
-      )}
 
       {/* Caption bar - full width */}
       <CaptionBar
@@ -1943,6 +1896,60 @@ function App() {
               />
             );
           })()}
+          {/* Settings view */}
+          {view === "settings" && (
+            <SettingsPanel
+              searchProviders={searchProviders}
+              onSeedDatabase={handleSeedDatabase}
+              onClearDatabase={handleClearDatabase}
+              clearing={clearing}
+              onClearImageFailures={handleClearImageFailures}
+              onSaveProviders={handleSaveProviders}
+              crossfadeSecs={crossfadeSecs}
+              onCrossfadeChange={handleCrossfadeChange}
+              trackVideoHistory={trackVideoHistory}
+              onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
+              appVersion={updater.appVersion}
+              updateState={updater.updateState}
+              onCheckForUpdates={updater.handleCheckForUpdates}
+              onInstallUpdate={updater.handleInstallUpdate}
+              backendTimings={backendTimings}
+              frontendTimings={getTimingEntries()}
+              onFetchBackendTimings={() => invoke<TimingEntry[]>("get_startup_timings").then(setBackendTimings)}
+              downloadFormat={downloads.downloadFormat}
+              onDownloadFormatChange={(format) => downloads.setFormat(format, store)}
+              activeSkinId={skins.activeSkinId}
+              installedSkins={skins.installedSkins}
+              onApplySkin={skins.applySkin}
+              onImportSkin={handleImportSkin}
+              onDeleteSkin={skins.deleteSkin}
+              gallerySkins={skins.gallerySkins}
+              galleryLoading={skins.galleryLoading}
+              galleryError={skins.galleryError}
+              onFetchGallery={skins.fetchGallery}
+              onInstallFromGallery={skins.installFromGallery}
+              pluginStates={plugins.pluginStates}
+              onTogglePlugin={plugins.togglePlugin}
+              onReloadPlugin={plugins.reloadPlugin}
+              onReloadAllPlugins={plugins.reloadAllPlugins}
+              onOpenPluginsFolder={async () => {
+                const dir = await invoke<string>("plugin_get_dir");
+                await invoke("open_folder", { folderPath: dir });
+              }}
+              onDeletePlugin={plugins.deletePlugin}
+              galleryPlugins={plugins.galleryPlugins}
+              galleryPluginsLoading={plugins.galleryLoading}
+              galleryPluginsError={plugins.galleryError}
+              onFetchPluginGallery={plugins.fetchPluginGallery}
+              onInstallPluginFromGallery={plugins.installFromGallery}
+              pluginSettingsPanels={plugins.settingsPanels}
+              getPluginViewData={plugins.getViewData}
+              onPluginAction={plugins.dispatchUIAction}
+              loggingEnabled={loggingEnabled}
+              onLoggingEnabledChange={handleLoggingEnabledChange}
+              onOpenLogsFolder={handleOpenLogsFolder}
+            />
+          )}
           </>}
         </div>
 
