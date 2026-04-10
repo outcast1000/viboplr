@@ -32,9 +32,9 @@ Cached values will expire naturally via TTL. Users can manually refresh individu
 
 **File:** `src/components/InformationSections.tsx`
 
-Add a small refresh icon button (circular arrow SVG) in the tab bar, aligned to the right. Clicking it calls `refresh(typeId)` from `useInformationTypes` for the currently active plugin tab. The button is only shown for plugin tabs (not custom tabs).
+Add a small refresh icon button (circular arrow SVG) in the tab bar, aligned to the right. Clicking it calls `refresh(typeId)` from `useInformationTypes` for the currently active plugin tab. The component currently destructures only `{ sections, reloadCache }` from the hook — it needs to also destructure `refresh`. The button is only shown for plugin tabs (not custom tabs). The button is hidden when the section is collapsed.
 
-While a refresh is in progress, the section shows the skeleton loading state. The refresh function already exists in `useInformationTypes.ts` — it deletes the cached value and re-runs the fetch chain.
+While a refresh is in progress, the section shows the skeleton loading state. The `refresh` function already exists in `useInformationTypes.ts:212-231` — it deletes the cached value and re-runs the fetch chain.
 
 **File:** `src/components/InformationSections.css`
 
@@ -46,14 +46,15 @@ Style the refresh button: small (14x14), secondary text color, low opacity (0.4)
 
 **File:** `src/types/informationTypes.ts`
 
-Add `"empty"` to the `InfoSection` state kind union:
+Add `"empty"` to the `InfoSection` state kind union and remove `"hidden"` (nothing will return it after this change):
 ```typescript
 state:
   | { kind: "loading" }
   | { kind: "loaded"; data: unknown; stale: boolean }
   | { kind: "empty" }
-  | { kind: "hidden" };
 ```
+
+Also remove the `"hidden"` CacheAction from `useInformationTypes.ts` — replace all uses with `"empty"`.
 
 **File:** `src/hooks/useInformationTypes.ts`
 
@@ -90,15 +91,15 @@ When the fetch chain completes with a non-ok result (lines 187-188), instead of 
 
 ## Change 4: Consistent "View on {providerName}"
 
-Currently, `_meta` is only available when a section is loaded with data. To show it for empty sections:
+Currently, `_meta` is only extracted from loaded data (`state.kind === "loaded"`). The `InfoFetchResult` type only carries `value` on `status: "ok"` — `not_found` and `error` results have no value field. So `_meta` is only available when data is successfully loaded.
 
-**File:** `src/hooks/useInformationTypes.ts`
+For loaded sections, `_meta` is already extracted and the "View on" link renders. No change needed there.
 
-When the fetch chain completes with `not_found`, check if the result value contains `_meta` (some plugins return `_meta` even on not_found). If so, include it in the cached value. When building sections for the `"empty"` state, parse the cached value to extract `_meta` if available.
+For empty sections, `_meta` is not available since no successful fetch occurred. The "View on" link simply won't render for empty sections. This is acceptable — there's no meaningful provider URL to link to when no data was found.
 
 **File:** `src/components/InformationSections.tsx`
 
-Extract `_meta` from empty sections the same way as loaded sections. The existing "View on {providerName}" link renders for any plugin section where `_meta.url` and `_meta.providerName` are present, regardless of load/empty state.
+Move the `_meta` extraction and "View on {providerName}" link rendering so it works for both loaded and empty sections uniformly. For loaded sections, extract `_meta` from the data as before. For empty sections, `meta` will be `undefined` and the link won't render. No special handling needed — the existing conditional `{meta?.url && meta?.providerName && ...}` already handles this.
 
 ## Testing
 
