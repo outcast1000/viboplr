@@ -1633,10 +1633,6 @@ function App() {
                 onDeleteTracks={handleDeleteTracks}
                 onToggleArtistLike={likeActions.handleToggleArtistLike}
                 onToggleArtistHate={likeActions.handleToggleArtistHate}
-                onRefreshInfo={() => {
-                  if (!artist) return;
-                  artistInfo.refreshInfo();
-                }}
                 onAlbumContextMenu={contextMenuActions.handleAlbumContextMenu}
                 searchProviders={searchProviders}
                 artists={artists}
@@ -1759,10 +1755,6 @@ function App() {
                 onRetrieveImage={() => {
                   if (!album) return;
                   albumImageCache.forceFetchImage({ id: selectedAlbum, title: album.title, artist_name: album.artist_name });
-                }}
-                onRetrieveInfo={() => {
-                  if (!album) return;
-                  artistInfo.refreshInfo();
                 }}
                 invokeInfoFetch={plugins.invokeInfoFetch}
                 pluginNames={plugins.pluginNames}

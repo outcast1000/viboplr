@@ -105,7 +105,7 @@ export function ImageActions({ entityId, entityType, entityName, imagePath, prov
                 onRefresh();
               }}
             >
-              <IconRefresh size={14} /><span>Refresh Info</span>
+              <IconRefresh size={14} /><span>Retrieve Image</span>
             </button>
           )}
           {activeProviders.length > 0 && entityName && (

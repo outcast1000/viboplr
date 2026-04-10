@@ -20,7 +20,6 @@ interface AlbumDetailHeaderProps {
   onImageSet: (id: number, path: string) => void;
   onImageRemoved: (id: number) => void;
   onRetrieveImage: () => void;
-  onRetrieveInfo: () => void;
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
   pluginNames?: Map<string, string>;
 }
@@ -38,7 +37,6 @@ export function AlbumDetailHeader({
   onImageSet,
   onImageRemoved,
   onRetrieveImage,
-  onRetrieveInfo,
   invokeInfoFetch,
   pluginNames,
 }: AlbumDetailHeaderProps) {
@@ -71,6 +69,16 @@ export function AlbumDetailHeader({
                 <circle cx="12" cy="12" r="3" />
               </svg>
             )}
+            <AlbumOptionsMenu
+              albumId={selectedAlbum}
+              albumImagePath={albumImagePath}
+              albumTitle={album?.title ?? ""}
+              artistName={album?.artist_name ?? ""}
+              providers={albumProviders}
+              onImageSet={onImageSet}
+              onImageRemoved={onImageRemoved}
+              onRetrieveImage={onRetrieveImage}
+            />
           </div>
           <div className="album-detail-info">
             <h2>
@@ -98,17 +106,6 @@ export function AlbumDetailHeader({
                   onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
                 >&#9654;</button>
               )}
-              <AlbumOptionsMenu
-                albumId={selectedAlbum}
-                albumImagePath={albumImagePath}
-                albumTitle={album?.title ?? ""}
-                artistName={album?.artist_name ?? ""}
-                providers={albumProviders}
-                onImageSet={onImageSet}
-                onImageRemoved={onImageRemoved}
-                onRetrieveImage={onRetrieveImage}
-                onRetrieveInfo={onRetrieveInfo}
-              />
             </h2>
             {album?.artist_name && (
               <span

@@ -217,6 +217,22 @@
   font-weight: 700;
   color: var(--accent);
   flex-shrink: 0;
+  position: relative;
+}
+
+.artist-avatar > .artist-image-menu-wrapper {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+}
+
+.artist-avatar > .artist-image-menu-wrapper .artist-image-menu-trigger {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.artist-avatar:hover > .artist-image-menu-wrapper .artist-image-menu-trigger {
+  opacity: 1;
 }
 
 .artist-avatar-img {
@@ -764,6 +780,22 @@
   color: var(--text-secondary);
   flex-shrink: 0;
   overflow: hidden;
+  position: relative;
+}
+
+.album-detail-art > .artist-image-menu-wrapper {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+}
+
+.album-detail-art > .artist-image-menu-wrapper .artist-image-menu-trigger {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.album-detail-art:hover > .artist-image-menu-wrapper .artist-image-menu-trigger {
+  opacity: 1;
 }
 
 .album-detail-art-img {

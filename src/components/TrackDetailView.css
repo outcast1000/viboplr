@@ -849,6 +849,38 @@
   min-width: 0;
 }
 
+/* Inline web search links in track detail meta */
+.track-detail-web-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.track-detail-web-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  padding: 2px;
+  border-radius: 3px;
+  transition: color 0.15s, opacity 0.15s;
+  opacity: 0.6;
+}
+
+.track-detail-web-link:hover {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.track-detail-web-link img {
+  border-radius: 2px;
+}
+
 /* YouTube row in track detail */
 .track-detail-youtube-row {
   display: flex;

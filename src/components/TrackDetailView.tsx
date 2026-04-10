@@ -5,8 +5,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Collection } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { SearchProviderConfig } from "../searchProviders";
-import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
-import { IconPlay, IconEnqueue, IconFolder, IconGlobe, IconLastfm, IconYoutube } from "./Icons";
+import { getProvidersForContext, buildSearchUrl, getDomainFromUrl } from "../searchProviders";
+import { IconPlay, IconEnqueue, IconFolder, IconGlobe, IconLastfm, IconYoutube, IconGoogle, IconX, IconGenius } from "./Icons";
 
 import { InformationSections } from "./InformationSections";
 import "./TrackDetailView.css";
@@ -58,12 +58,11 @@ interface TrackPlayStats {
 // --- TrackActions dropdown (modeled after ImageActions) ---
 
 function TrackActions({
-  track, providers,
+  track,
   onPlay, onEnqueue, onPlayNext, onShowInFolder,
   onYoutubeFound, onSetYoutubeUrl,
 }: {
   track: Track;
-  providers: SearchProviderConfig[];
   onPlay: () => void;
   onEnqueue: () => void;
   onPlayNext: () => void;
@@ -84,8 +83,6 @@ function TrackActions({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open_menu]);
-
-  const trackProviders = getProvidersForContext(providers, "track");
 
   return (
     <div className="artist-image-menu-wrapper" ref={wrapperRef}>
@@ -135,27 +132,6 @@ function TrackActions({
           <button onClick={() => { setOpenMenu(false); onSetYoutubeUrl(); }}>
             <IconYoutube size={14} /><span>Set YouTube URL</span>
           </button>
-          {trackProviders.length > 0 && (
-            <>
-              <div className="artist-image-menu-separator" />
-              <div className="artist-image-menu-submenu">
-                <button className="artist-image-menu-submenu-trigger">
-                  <IconGlobe size={14} /><span>Web Search</span><span className="artist-image-menu-chevron">{"\u203A"}</span>
-                </button>
-                <div className="artist-image-menu-submenu-list">
-                  {trackProviders.map((provider) => {
-                    const template = provider.trackUrl!;
-                    const url = buildSearchUrl(template, { title: track.title, artist: track.artist_name ?? undefined });
-                    return (
-                      <button key={provider.id} onClick={() => { setOpenMenu(false); openUrl(url); }}>
-                        <span>{provider.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </>
-          )}
         </div>
       )}
     </div>
@@ -361,7 +337,6 @@ export function TrackDetailView({
               </button>
               <TrackActions
                 track={track}
-                providers={providers}
                 onPlay={onPlay}
                 onEnqueue={onEnqueue}
                 onPlayNext={onPlayNext}
@@ -385,6 +360,25 @@ export function TrackDetailView({
                 </>
               )}
               {track.year && <span className="track-detail-sep"> ({track.year})</span>}
+              {(() => {
+                const trackProviders = getProvidersForContext(providers, "track");
+                if (!trackProviders.length) return null;
+                const builtinIcons: Record<string, (p: { size?: number }) => React.ReactNode> = { google: IconGoogle, lastfm: IconLastfm, x: IconX, youtube: IconYoutube, genius: IconGenius };
+                return (
+                  <span className="track-detail-web-links">
+                    {trackProviders.map((provider) => {
+                      const url = buildSearchUrl(provider.trackUrl!, { title: track.title, artist: track.artist_name ?? undefined });
+                      const Icon = provider.builtinIcon && builtinIcons[provider.builtinIcon] ? builtinIcons[provider.builtinIcon] : null;
+                      const domain = getDomainFromUrl(provider.trackUrl || "");
+                      return (
+                        <button key={provider.id} className="track-detail-web-link" onClick={() => openUrl(url)} title={provider.name}>
+                          {Icon ? <Icon size={12} /> : domain ? <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`} width={12} height={12} alt="" /> : <IconGlobe size={12} />}
+                        </button>
+                      );
+                    })}
+                  </span>
+                );
+              })()}
             </div>
             {trackInfo && (trackInfo.listeners || trackInfo.playcount) && (
               <div className="track-detail-stats">

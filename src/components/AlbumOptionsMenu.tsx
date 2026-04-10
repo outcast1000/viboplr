@@ -37,10 +37,9 @@ interface AlbumOptionsMenuProps {
   onImageSet: (id: number, path: string) => void;
   onImageRemoved: (id: number) => void;
   onRetrieveImage: () => void;
-  onRetrieveInfo: () => void;
 }
 
-export function AlbumOptionsMenu({ albumId, albumImagePath, albumTitle, artistName, providers, onImageSet, onImageRemoved, onRetrieveImage, onRetrieveInfo }: AlbumOptionsMenuProps) {
+export function AlbumOptionsMenu({ albumId, albumImagePath, albumTitle, artistName, providers, onImageSet, onImageRemoved, onRetrieveImage }: AlbumOptionsMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -103,15 +102,6 @@ export function AlbumOptionsMenu({ albumId, albumImagePath, albumTitle, artistNa
             }}
           >
             <IconRefresh size={14} /><span>Retrieve Image</span>
-          </button>
-          <div className="artist-image-menu-separator" />
-          <button
-            onClick={() => {
-              setIsOpen(false);
-              onRetrieveInfo();
-            }}
-          >
-            <IconRefresh size={14} /><span>Retrieve Album Info</span>
           </button>
           {providers.length > 0 && (
             <>

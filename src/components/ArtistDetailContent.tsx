@@ -42,7 +42,6 @@ interface ArtistDetailContentProps {
   onDeleteTracks?: (trackIds: number[]) => void;
   onToggleArtistLike: (artistId: number) => void;
   onToggleArtistHate: (artistId: number) => void;
-  onRefreshInfo: () => void;
   onAlbumContextMenu: (e: React.MouseEvent, albumId: number) => void;
   searchProviders: SearchProviderConfig[];
   artists: Artist[];
@@ -81,7 +80,6 @@ export function ArtistDetailContent({
   onDeleteTracks,
   onToggleArtistLike,
   onToggleArtistHate,
-  onRefreshInfo,
   onAlbumContextMenu,
   searchProviders,
   artists,
@@ -126,6 +124,21 @@ export function ArtistDetailContent({
             ) : (
               artist ? getInitials(artist.name) : "?"
             )}
+            <ImageActions
+              entityId={selectedArtist}
+              entityType="artist"
+              entityName={artist?.name}
+              imagePath={artistImagePath}
+              providers={searchProviders}
+              onImageSet={(id, path) => onSetArtistImage({ ...artistImages, [id]: path })}
+              onImageRemoved={(id) => {
+                onSetArtistImage({ ...artistImages, [id]: null });
+              }}
+              onRefresh={() => {
+                if (!artist) return;
+                onForceFetchArtistImage({ id: selectedArtist, name: artist.name });
+              }}
+            />
           </div>
           <div className="artist-header-info">
             <h2>
@@ -153,22 +166,6 @@ export function ArtistDetailContent({
                   onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
                 >&#9654;</button>
               )}
-              <ImageActions
-                entityId={selectedArtist}
-                entityType="artist"
-                entityName={artist?.name}
-                imagePath={artistImagePath}
-                providers={searchProviders}
-                onImageSet={(id, path) => onSetArtistImage({ ...artistImages, [id]: path })}
-                onImageRemoved={(id) => {
-                  onSetArtistImage({ ...artistImages, [id]: null });
-                }}
-                onRefresh={() => {
-                  if (!artist) return;
-                  onForceFetchArtistImage({ id: selectedArtist, name: artist.name });
-                  onRefreshInfo();
-                }}
-              />
             </h2>
             <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
             <span className="artist-bio-stats">
