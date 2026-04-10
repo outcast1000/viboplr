@@ -1,0 +1,21 @@
+{
+  "id": "lyrics-ovh",
+  "name": "Lyrics.ovh",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Plain lyrics from Lyrics.ovh",
+  "minAppVersion": "0.9.5",
+  "contributes": {
+    "informationTypes": [
+      {
+        "id": "lyrics",
+        "name": "Lyrics",
+        "entity": "track",
+        "displayKind": "lyrics",
+        "ttl": 7776000,
+        "order": 400,
+        "priority": 300
+      }
+    ]
+  }
+}

@@ -156,6 +156,46 @@ function activate(api) {
     });
   }
 
+  // --- Lyrics scraping ---
+
+  function decodeHtmlEntities(str) {
+    return str
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#x27;/g, "'")
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
+      .replace(/&#x2019;/g, "\u2019");
+  }
+
+  function scrapeLyrics(url) {
+    return api.network.fetch(url).then(function (resp) {
+      if (resp.status !== 200) return null;
+      return resp.text().then(function (html) {
+        // Genius SSR renders lyrics in data-lyrics-container divs (one per verse)
+        // Use lookahead to handle nested divs within containers
+        var pattern = /data-lyrics-container="true"[^>]*>([\s\S]*?)(?=<div data-lyrics-container|<div class="LyricsFooter|$)/g;
+        var parts = [];
+        var match;
+        while ((match = pattern.exec(html)) !== null) {
+          var block = match[1];
+          // Convert <br> to newlines
+          block = block.replace(/<br\s*\/?>/gi, "\n");
+          // Strip HTML tags
+          block = block.replace(/<[^>]+>/g, "");
+          // Decode HTML entities
+          block = decodeHtmlEntities(block);
+          block = block.trim();
+          if (block) parts.push(block);
+        }
+        if (parts.length === 0) return null;
+        return parts.join("\n\n");
+      });
+    });
+  }
+
   // --- onFetch handlers ---
 
   api.informationTypes.onFetch("genius_song_explanation", function (entity) {
@@ -191,6 +231,19 @@ function activate(api) {
       return getAlbumDescription(found.id, found.url).then(function (result) {
         if (!result) return { status: "not_found" };
         return { status: "ok", value: result };
+      });
+    }).catch(function () { return { status: "error" }; });
+  });
+
+  api.informationTypes.onFetch("lyrics", function (entity) {
+    if (entity.kind !== "track") return Promise.resolve({ status: "not_found" });
+    var artistName = entity.artistName || "";
+    if (!entity.name || !artistName) return Promise.resolve({ status: "not_found" });
+    return searchSong(artistName, entity.name).then(function (found) {
+      if (!found) return { status: "not_found" };
+      return scrapeLyrics(found.url).then(function (text) {
+        if (!text) return { status: "not_found" };
+        return { status: "ok", value: { text: text, kind: "plain" } };
       });
     }).catch(function () { return { status: "error" }; });
   });

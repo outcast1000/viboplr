@@ -33,6 +33,15 @@
         "ttl": 7776000,
         "order": 200,
         "priority": 200
+      },
+      {
+        "id": "lyrics",
+        "name": "Lyrics",
+        "entity": "track",
+        "displayKind": "lyrics",
+        "ttl": 7776000,
+        "order": 400,
+        "priority": 200
       }
     ]
   }
