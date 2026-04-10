@@ -50,7 +50,7 @@ Key fields:
 
 ### 1. Search (`searchArtist`)
 
-- **Request**: `GET https://www.allmusic.com/search/artists/{encodedName}`
+- **Request**: `GET https://www.allmusic.com/search/artists/{encodeURIComponent(name)}`
 - **Parse**: Regex-extract the first `href="/artist/{slug}-{mnId}"` from the HTML. The AllMusic ID format is `mn` followed by 10 digits (e.g., `mn0000326249`).
 - **Return**: `{ id: "mn0000326249", url: "https://www.allmusic.com/artist/radiohead-mn0000326249" }` or `null`.
 
@@ -58,6 +58,7 @@ Key fields:
 
 - **Request**: `GET https://www.allmusic.com/artist/{mnId}/biographyAjax`
   - This AJAX endpoint returns an HTML fragment (not a full page) containing the biography within `<div id="biography">`.
+  - Use `resp.text()` (not `resp.json()`) since the response is HTML.
 - **Parse**:
   1. Extract the author from the `<h2>` tag (pattern: `"by Author Name"`).
   2. Strip `<span class="inlineImage ...">...</span>` blocks (album cover images embedded in the text).
@@ -104,6 +105,11 @@ Regex strategy:
 4. `/<p[^>]*>([\s\S]*?)<\/p>/g` — extract paragraph contents.
 5. `/<[^>]+>/g` — strip remaining HTML tags to get plain text.
 6. Trim whitespace and collapse multiple spaces/newlines.
+
+## Notes
+
+- Both HTTP requests go through `api.network.fetch()` which delegates to the Rust backend's `plugin_fetch` command. This sets a `Viboplr/0.1.0` User-Agent by default. AllMusic may require a browser-like User-Agent — if so, pass a custom `User-Agent` header via the `init` parameter.
+- Both search and bio fetch use `resp.text()` since responses are HTML.
 
 ## Error Handling
 
