@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, type ReactNode } from "react";
+import React, { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SearchProviderConfig } from "../searchProviders";
@@ -150,13 +150,17 @@ function ProviderPrioritySection({
 }) {
   const [entityData, setEntityData] = useState<Map<string, ProviderRow[]>>(new Map());
   const [collapsedEntities, setCollapsedEntities] = useState<Set<string>>(new Set());
-  const [dragState, setDragState] = useState<{
+  const [loading, setLoading] = useState(true);
+
+  // Manual mouse-event drag (HTML5 DnD is unreliable in WKWebView with user-select:none)
+  const dragRef = useRef<{
     entity: string;
-    rowTypeId: string;
-    rowKind: "images" | "info";
+    row: ProviderRow;
     sourceIndex: number;
   } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const dragOverIndexRef = useRef<number | null>(null);
+  const didDragRef = useRef(false);
+  const ghostRef = useRef<HTMLDivElement | null>(null);
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -208,49 +212,12 @@ function ProviderPrioritySection({
     }
   };
 
-  const handleDragStart = (
-    e: React.DragEvent,
-    entity: string,
-    row: ProviderRow,
-    index: number,
-  ) => {
-    setDragState({
-      entity,
-      rowTypeId: row.typeId,
-      rowKind: row.kind,
-      sourceIndex: index,
-    });
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", String(index));
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  };
-
-  const handleDrop = async (
-    e: React.DragEvent,
-    entity: string,
-    row: ProviderRow,
-    targetIndex: number,
-  ) => {
-    e.preventDefault();
-    if (!dragState) return;
-    if (dragState.entity !== entity || dragState.rowTypeId !== row.typeId) return;
-
-    const sourceIndex = dragState.sourceIndex;
-    if (sourceIndex === targetIndex) {
-      setDragState(null);
-      return;
-    }
-
-    // Reorder providers
+  const applyReorder = async (row: ProviderRow, sourceIndex: number, targetIndex: number) => {
+    if (sourceIndex === targetIndex) return;
     const providers = [...row.providers];
     const [moved] = providers.splice(sourceIndex, 1);
     providers.splice(targetIndex, 0, moved);
 
-    // Recalculate priorities (100, 200, 300...)
     const updates: Promise<void>[] = [];
     for (let i = 0; i < providers.length; i++) {
       const newPriority = (i + 1) * 100;
@@ -281,11 +248,75 @@ function ProviderPrioritySection({
     } catch (e) {
       console.error("Failed to update priorities:", e);
     }
-    setDragState(null);
   };
 
-  const handleDragEnd = () => {
-    setDragState(null);
+  const handlePillMouseDown = (
+    e: React.MouseEvent,
+    entity: string,
+    row: ProviderRow,
+    index: number,
+    displayName: string,
+  ) => {
+    if (e.button !== 0) return;
+    dragRef.current = { entity, row, sourceIndex: index };
+    dragOverIndexRef.current = null;
+    didDragRef.current = false;
+
+    function findPillIndex(el: Element | null): number | null {
+      while (el) {
+        const idx = el.getAttribute("data-pill-index");
+        if (idx !== null) return parseInt(idx, 10);
+        el = el.parentElement;
+      }
+      return null;
+    }
+
+    function showGhost(x: number, y: number) {
+      if (!ghostRef.current) {
+        const ghost = document.createElement("div");
+        ghost.className = "provider-pill-ghost";
+        ghost.textContent = displayName;
+        document.body.appendChild(ghost);
+        ghostRef.current = ghost;
+      }
+      ghostRef.current.style.left = `${x + 12}px`;
+      ghostRef.current.style.top = `${y - 10}px`;
+    }
+
+    function removeGhost() {
+      if (ghostRef.current) {
+        ghostRef.current.remove();
+        ghostRef.current = null;
+      }
+    }
+
+    function onMouseMove(ev: MouseEvent) {
+      if (!dragRef.current) return;
+      if (!didDragRef.current) {
+        didDragRef.current = true;
+      }
+      showGhost(ev.clientX, ev.clientY);
+      const target = document.elementFromPoint(ev.clientX, ev.clientY);
+      const overIdx = target ? findPillIndex(target) : null;
+      dragOverIndexRef.current = overIdx;
+    }
+
+    function onMouseUp() {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      removeGhost();
+      const drag = dragRef.current;
+      const targetIdx = dragOverIndexRef.current;
+      if (didDragRef.current && drag && targetIdx !== null && targetIdx !== drag.sourceIndex) {
+        applyReorder(drag.row, drag.sourceIndex, targetIdx);
+      }
+      dragRef.current = null;
+      dragOverIndexRef.current = null;
+      setTimeout(() => { didDragRef.current = false; }, 0);
+    }
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
   };
 
   const handleReset = async () => {
@@ -384,12 +415,9 @@ function ProviderPrioritySection({
                             )}
                             <span
                               className={`provider-pill${!provider.active ? " provider-pill-disabled" : ""}${isMulti ? " provider-pill-draggable" : ""}`}
-                              draggable={isMulti}
-                              onDragStart={(e) => handleDragStart(e, entity, row, i)}
-                              onDragOver={isMulti ? handleDragOver : undefined}
-                              onDrop={isMulti ? (e) => handleDrop(e, entity, row, i) : undefined}
-                              onDragEnd={handleDragEnd}
-                              onClick={() => handleToggleActive(row, provider)}
+                              data-pill-index={i}
+                              onMouseDown={isMulti ? (e) => handlePillMouseDown(e, entity, row, i, provider.displayName) : undefined}
+                              onClick={() => { if (!didDragRef.current) handleToggleActive(row, provider); }}
                               title={`${provider.displayName} (priority ${provider.priority})${!provider.active ? " - disabled" : ""}\nClick to ${provider.active ? "disable" : "enable"}`}
                             >
                               {isMulti && (

@@ -1072,8 +1072,19 @@
   cursor: grab;
 }
 
-.provider-pill-draggable:active {
-  cursor: grabbing;
+.provider-pill-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  white-space: nowrap;
 }
 
 .provider-pill-handle {
