@@ -189,6 +189,81 @@ fn fallback_from_filename(path: &Path, duration_secs: Option<f64>) -> ParsedTags
     }
 }
 
+/// Noise terms to filter out of video filename tags (case-insensitive).
+static VIDEO_TAG_NOISE: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    HashSet::from([
+        // Resolutions
+        "1080p", "720p", "4k", "2160p", "uhd", "hd", "fhd", "qhd", "480p", "360p",
+        // Codecs
+        "h264", "h265", "hevc", "av1", "vp9", "x264", "x265", "aac", "h.264", "h.265",
+        // Sources
+        "bluray", "bdrip", "webrip", "hdtv", "dvdrip", "web-dl", "brrip",
+        // Other noise
+        "official video", "music video", "mv", "hq", "lq", "official", "video",
+    ])
+});
+
+/// Regex to match bracketed or parenthesized groups in filenames.
+static BRACKET_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\(([^)]+)\)|\[([^\]]+)\]").unwrap()
+});
+
+/// Extract tags for a video file from its folder hierarchy and filename keywords.
+/// Returns up to 2 folder-name tags + any non-noise bracketed/parenthesized keywords.
+fn extract_video_tags(path: &Path, collection_root: Option<&str>) -> Vec<String> {
+    let mut tags: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    // 1. Folder tags: walk up from parent, up to 2 levels, stopping at collection root
+    let root = collection_root.map(Path::new);
+    if let Some(mut dir) = path.parent() {
+        for _ in 0..2 {
+            // Stop if we've reached the collection root
+            if let Some(r) = root {
+                if dir == r {
+                    break;
+                }
+            }
+            if let Some(name) = dir.file_name().and_then(|n| n.to_str()) {
+                let trimmed = name.trim().to_string();
+                if !trimmed.is_empty() {
+                    let key = trimmed.to_lowercase();
+                    if !seen.contains(&key) {
+                        seen.insert(key);
+                        tags.push(trimmed);
+                    }
+                }
+            }
+            match dir.parent() {
+                Some(p) => dir = p,
+                None => break,
+            }
+        }
+    }
+
+    // 2. Keyword tags: extract bracketed/parenthesized groups from filename
+    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+        for cap in BRACKET_RE.captures_iter(stem) {
+            let text = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str().trim().to_string());
+            if let Some(t) = text {
+                if t.is_empty() { continue; }
+                let lower = t.to_lowercase();
+                // Skip if the whole group is noise
+                if VIDEO_TAG_NOISE.contains(lower.as_str()) { continue; }
+                // Skip if every word in the group is noise
+                let words: Vec<&str> = lower.split_whitespace().collect();
+                if words.len() > 1 && words.iter().all(|w| VIDEO_TAG_NOISE.contains(w)) { continue; }
+                if !seen.contains(&lower) {
+                    seen.insert(lower);
+                    tags.push(t);
+                }
+            }
+        }
+    }
+
+    tags
+}
+
 pub fn scan_folder(
     db: &Arc<Database>,
     folder_path: &str,
@@ -291,7 +366,7 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
             .ok()
             .map(|f| f.properties().duration().as_secs_f64())
             .filter(|&d| d > 0.0);
-        let _ = db.upsert_track(
+        if let Ok(track_id) = db.upsert_track(
             &relative_path,
             &title,
             None,
@@ -303,7 +378,13 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
             modified_at,
             collection_id,
             None,
-        );
+        ) {
+            for tag_name in extract_video_tags(path, collection_root) {
+                if let Ok(tag_id) = db.get_or_create_tag(&tag_name) {
+                    let _ = db.add_track_tag(track_id, tag_id);
+                }
+            }
+        }
         return;
     }
 
@@ -478,5 +559,65 @@ mod tests {
         let utf8_bytes = "café".as_bytes();
         let garbled: String = utf8_bytes.iter().map(|&b| b as char).collect();
         assert_eq!(fix_encoding(&garbled), "café");
+    }
+
+    #[test]
+    fn test_extract_video_tags_folders() {
+        let path = Path::new("/Music/Concerts/Rock/show.mp4");
+        let tags = extract_video_tags(path, Some("/Music"));
+        assert!(tags.contains(&"Rock".to_string()));
+        assert!(tags.contains(&"Concerts".to_string()));
+        assert!(!tags.contains(&"Music".to_string())); // collection root excluded
+    }
+
+    #[test]
+    fn test_extract_video_tags_max_two_levels() {
+        let path = Path::new("/root/A/B/C/video.mp4");
+        let tags = extract_video_tags(path, Some("/root"));
+        // Only C and B, not A
+        assert!(tags.contains(&"C".to_string()));
+        assert!(tags.contains(&"B".to_string()));
+        assert!(!tags.contains(&"A".to_string()));
+    }
+
+    #[test]
+    fn test_extract_video_tags_keywords() {
+        let path = Path::new("/videos/Concert (Live) [Acoustic].mp4");
+        let tags = extract_video_tags(path, Some("/videos"));
+        assert!(tags.contains(&"Live".to_string()));
+        assert!(tags.contains(&"Acoustic".to_string()));
+    }
+
+    #[test]
+    fn test_extract_video_tags_filters_noise() {
+        let path = Path::new("/videos/Song (1080p) [H264] (Live).mp4");
+        let tags = extract_video_tags(path, Some("/videos"));
+        assert!(!tags.iter().any(|t| t.eq_ignore_ascii_case("1080p")));
+        assert!(!tags.iter().any(|t| t.eq_ignore_ascii_case("H264")));
+        assert!(tags.contains(&"Live".to_string()));
+    }
+
+    #[test]
+    fn test_extract_video_tags_filters_multi_word_noise() {
+        let path = Path::new("/videos/Song [Official Video].mp4");
+        let tags = extract_video_tags(path, Some("/videos"));
+        assert!(!tags.iter().any(|t| t.eq_ignore_ascii_case("Official Video")));
+    }
+
+    #[test]
+    fn test_extract_video_tags_deduplicates() {
+        // Folder named "Live" + keyword (Live) should produce only one tag
+        let path = Path::new("/root/Live/Concert (Live).mp4");
+        let tags = extract_video_tags(path, Some("/root"));
+        let live_count = tags.iter().filter(|t| t.to_lowercase() == "live").count();
+        assert_eq!(live_count, 1);
+    }
+
+    #[test]
+    fn test_extract_video_tags_no_collection_root() {
+        let path = Path::new("/A/B/video.mp4");
+        let tags = extract_video_tags(path, None);
+        assert!(tags.contains(&"B".to_string()));
+        assert!(tags.contains(&"A".to_string()));
     }
 }
