@@ -405,7 +405,7 @@ function activate(api) {
       if (data.artist.stats.listeners) items.push({ label: "listeners", value: Number(data.artist.stats.listeners) });
       if (data.artist.stats.playcount) items.push({ label: "scrobbles", value: Number(data.artist.stats.playcount) });
       if (items.length === 0) return { status: "not_found" };
-      return { status: "ok", value: { items: items } };
+      return { status: "ok", value: { items: items, _meta: { providerName: "Last.fm", homepageUrl: "https://www.last.fm" } } };
     }).catch(function () { return { status: "error" }; });
   });
 
@@ -597,7 +597,7 @@ function activate(api) {
         }
       }
       if (tags.length === 0 && artistTags.length === 0) return { status: "not_found" };
-      return { status: "ok", value: { tags: tags, artistTags: artistTags, suggestable: true } };
+      return { status: "ok", value: { tags: tags, artistTags: artistTags, suggestable: true, _meta: { providerName: "Last.fm", homepageUrl: "https://www.last.fm" } } };
     }).catch(function () { return { status: "error" }; });
   });
 
@@ -627,7 +627,7 @@ function activate(api) {
           libraryKind: "track",
         });
       }
-      return { status: "ok", value: { items: items } };
+      return { status: "ok", value: { items: items, _meta: { providerName: "Last.fm", homepageUrl: "https://www.last.fm" } } };
     }).catch(function () { return { status: "error" }; });
   });
 

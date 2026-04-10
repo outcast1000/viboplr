@@ -21,7 +21,7 @@ function activate(api) {
         if (!lyrics || !lyrics.trim()) return { status: "not_found" };
         return {
           status: "ok",
-          value: { text: lyrics.trim(), kind: "plain" },
+          value: { text: lyrics.trim(), kind: "plain", _meta: { providerName: "Lyrics.ovh", homepageUrl: "https://lyrics.ovh" } },
         };
       });
     }).catch(function () {

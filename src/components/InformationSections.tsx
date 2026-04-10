@@ -145,12 +145,12 @@ export function InformationSections({
     : getTabId(tabs[0]);
   const activeEntry = tabs.find(t => getTabId(t) === resolvedTab)!;
 
-  // Extract meta for "View on Provider" link (plugin sections only)
-  let meta: { url?: string; providerName?: string } | undefined;
+  // Extract meta for provider attribution (plugin sections only)
+  let meta: { url?: string; providerName?: string; homepageUrl?: string } | undefined;
   if (activeEntry.kind === "plugin") {
     const s = activeEntry.section;
     meta = s.state.kind === "loaded" && s.state.data
-      ? (s.state.data as Record<string, unknown>)?._meta as { url?: string; providerName?: string } | undefined
+      ? (s.state.data as Record<string, unknown>)?._meta as { url?: string; providerName?: string; homepageUrl?: string } | undefined
       : undefined;
   }
 
@@ -203,11 +203,17 @@ export function InformationSections({
               ) : null;
             })()}
           </div>
-          {meta?.url && meta?.providerName && (
+          {meta?.providerName && (meta?.url ? (
             <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); openUrl(meta.url!); }}>
               View on {meta.providerName}
             </a>
-          )}
+          ) : (
+            <span className="info-section-view-on">
+              Source: {meta.homepageUrl ? (
+                <a href="#" onClick={(e) => { e.preventDefault(); openUrl(meta!.homepageUrl!); }}>{meta.providerName}</a>
+              ) : meta.providerName}
+            </span>
+          ))}
         </>
       )}
     </div>

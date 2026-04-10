@@ -31,14 +31,14 @@ function activate(api) {
       if (syncedLyrics && syncedLyrics.trim()) {
         return {
           status: "ok",
-          value: { text: syncedLyrics, kind: "synced" },
+          value: { text: syncedLyrics, kind: "synced", _meta: { providerName: "LRCLIB", homepageUrl: "https://lrclib.net" } },
         };
       }
 
       if (plainLyrics && plainLyrics.trim()) {
         return {
           status: "ok",
-          value: { text: plainLyrics, kind: "plain" },
+          value: { text: plainLyrics, kind: "plain", _meta: { providerName: "LRCLIB", homepageUrl: "https://lrclib.net" } },
         };
       }
 
