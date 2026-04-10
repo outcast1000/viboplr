@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import React, { useState, useEffect, useCallback, type ReactNode } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SearchProviderConfig } from "../searchProviders";
 import { DEFAULT_PROVIDERS, getDomainFromUrl } from "../searchProviders";
@@ -9,6 +10,422 @@ import type { SkinInfo, GallerySkinEntry } from "../types/skin";
 import type { PluginState, PluginSettingsPanel, PluginViewData, GalleryPluginEntry } from "../types/plugin";
 import { PluginViewRenderer } from "./PluginViewRenderer";
 import "./SettingsPanel.css";
+
+// Provider config data shapes from backend
+interface InfoTypeRow {
+  typeId: string;
+  name: string;
+  entity: string;
+  displayKind: string;
+  sortOrder: number;
+  pluginId: string;
+  priority: number;
+  active: boolean;
+}
+
+interface ImageProviderRow {
+  pluginId: string;
+  entity: string;
+  priority: number;
+  active: boolean;
+  id: number;
+}
+
+interface ProviderPillData {
+  pluginId: string;
+  priority: number;
+  active: boolean;
+  displayName: string;
+}
+
+interface ProviderRow {
+  kind: "images" | "info";
+  typeId: string;  // "images" for image rows, or the info type_id
+  label: string;
+  entity: string;
+  sortOrder: number;
+  providers: ProviderPillData[];
+  hasLockedFirst: boolean; // true for album images (Embedded)
+}
+
+function parseProviderConfig(
+  infoTypes: [string, string, string, string, number, string, number, boolean][],
+  imageProviders: [string, string, number, boolean, number][],
+): Map<string, ProviderRow[]> {
+  const entityMap = new Map<string, ProviderRow[]>();
+
+  // Capitalize plugin name for display
+  function displayName(pluginId: string): string {
+    // Map common plugin IDs to display names
+    const nameMap: Record<string, string> = {
+      "lastfm": "Last.fm",
+      "tidal-browse": "TIDAL",
+      "deezer": "Deezer",
+      "itunes": "iTunes",
+      "audiodb": "TheAudioDB",
+      "musicbrainz": "MusicBrainz",
+      "lrclib": "LRCLIB",
+      "genius": "Genius",
+    };
+    return nameMap[pluginId] ?? pluginId;
+  }
+
+  // Group image providers by entity
+  const imagesByEntity = new Map<string, ImageProviderRow[]>();
+  for (const [pluginId, entity, priority, active, id] of imageProviders) {
+    if (!imagesByEntity.has(entity)) imagesByEntity.set(entity, []);
+    imagesByEntity.get(entity)!.push({ pluginId, entity, priority, active, id });
+  }
+
+  // Group info types by entity and typeId
+  const infoByEntity = new Map<string, Map<string, { name: string; sortOrder: number; providers: InfoTypeRow[] }>>();
+  for (const [typeId, name, entity, displayKind, sortOrder, pluginId, priority, active] of infoTypes) {
+    if (!infoByEntity.has(entity)) infoByEntity.set(entity, new Map());
+    const entityTypes = infoByEntity.get(entity)!;
+    if (!entityTypes.has(typeId)) entityTypes.set(typeId, { name, sortOrder, providers: [] });
+    entityTypes.get(typeId)!.providers.push({ typeId, name, entity, displayKind, sortOrder, pluginId, priority, active });
+  }
+
+  // Collect all entities
+  const allEntities = new Set<string>();
+  for (const entity of imagesByEntity.keys()) allEntities.add(entity);
+  for (const entity of infoByEntity.keys()) allEntities.add(entity);
+
+  // Entity display order
+  const entityOrder: Record<string, number> = { artist: 0, album: 1, track: 2, tag: 3 };
+
+  for (const entity of [...allEntities].sort((a, b) => (entityOrder[a] ?? 99) - (entityOrder[b] ?? 99))) {
+    const rows: ProviderRow[] = [];
+
+    // Image providers row
+    const imgs = imagesByEntity.get(entity);
+    if (imgs && imgs.length > 0) {
+      const sorted = [...imgs].sort((a, b) => a.priority - b.priority);
+      rows.push({
+        kind: "images",
+        typeId: "images",
+        label: "Images",
+        entity,
+        sortOrder: -1, // images first
+        providers: sorted.map(ip => ({
+          pluginId: ip.pluginId,
+          priority: ip.priority,
+          active: ip.active,
+          displayName: displayName(ip.pluginId),
+        })),
+        hasLockedFirst: entity === "album",
+      });
+    }
+
+    // Info type rows
+    const types = infoByEntity.get(entity);
+    if (types) {
+      for (const [typeId, data] of types) {
+        const sorted = [...data.providers].sort((a, b) => a.priority - b.priority);
+        rows.push({
+          kind: "info",
+          typeId,
+          label: data.name,
+          entity,
+          sortOrder: data.sortOrder,
+          providers: sorted.map(ip => ({
+            pluginId: ip.pluginId,
+            priority: ip.priority,
+            active: ip.active,
+            displayName: displayName(ip.pluginId),
+          })),
+          hasLockedFirst: false,
+        });
+      }
+    }
+
+    // Sort: images first, then by sortOrder
+    rows.sort((a, b) => a.sortOrder - b.sortOrder);
+    entityMap.set(entity, rows);
+  }
+
+  return entityMap;
+}
+
+function ProviderPrioritySection({
+  pluginStates,
+}: {
+  pluginStates?: PluginState[];
+}) {
+  const [entityData, setEntityData] = useState<Map<string, ProviderRow[]>>(new Map());
+  const [collapsedEntities, setCollapsedEntities] = useState<Set<string>>(new Set());
+  const [dragState, setDragState] = useState<{
+    entity: string;
+    rowTypeId: string;
+    rowKind: "images" | "info";
+    sourceIndex: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchConfig = useCallback(async () => {
+    try {
+      const [infoTypes, imageProviders] = await invoke<[
+        [string, string, string, string, number, string, number, boolean][],
+        [string, string, number, boolean, number][],
+      ]>("get_all_provider_config");
+      setEntityData(parseProviderConfig(infoTypes, imageProviders));
+    } catch (e) {
+      console.error("Failed to fetch provider config:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchConfig();
+  }, [fetchConfig]);
+
+  const toggleEntity = (entity: string) => {
+    setCollapsedEntities(prev => {
+      const next = new Set(prev);
+      if (next.has(entity)) next.delete(entity);
+      else next.add(entity);
+      return next;
+    });
+  };
+
+  const handleToggleActive = async (row: ProviderRow, provider: ProviderPillData) => {
+    const newActive = !provider.active;
+    try {
+      if (row.kind === "images") {
+        await invoke("update_image_provider_active", {
+          pluginId: provider.pluginId,
+          entity: row.entity,
+          active: newActive,
+        });
+      } else {
+        await invoke("update_info_type_active", {
+          typeId: row.typeId,
+          pluginId: provider.pluginId,
+          active: newActive,
+        });
+      }
+      await fetchConfig();
+    } catch (e) {
+      console.error("Failed to toggle active:", e);
+    }
+  };
+
+  const handleDragStart = (
+    e: React.DragEvent,
+    entity: string,
+    row: ProviderRow,
+    index: number,
+  ) => {
+    // Don't allow dragging locked items (Embedded for album images)
+    if (row.hasLockedFirst && index === 0) {
+      e.preventDefault();
+      return;
+    }
+    setDragState({
+      entity,
+      rowTypeId: row.typeId,
+      rowKind: row.kind,
+      sourceIndex: index,
+    });
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = async (
+    e: React.DragEvent,
+    entity: string,
+    row: ProviderRow,
+    targetIndex: number,
+  ) => {
+    e.preventDefault();
+    if (!dragState) return;
+    if (dragState.entity !== entity || dragState.rowTypeId !== row.typeId) return;
+
+    // Don't allow dropping onto locked position
+    if (row.hasLockedFirst && targetIndex === 0) return;
+
+    const sourceIndex = dragState.sourceIndex;
+    if (sourceIndex === targetIndex) {
+      setDragState(null);
+      return;
+    }
+
+    // Reorder providers
+    const providers = [...row.providers];
+    const [moved] = providers.splice(sourceIndex, 1);
+    providers.splice(targetIndex, 0, moved);
+
+    // Recalculate priorities (100, 200, 300...) skipping locked items
+    const startIdx = row.hasLockedFirst ? 1 : 0;
+    const updates: Promise<void>[] = [];
+    for (let i = startIdx; i < providers.length; i++) {
+      const newPriority = (i - startIdx + 1) * 100;
+      if (providers[i].priority !== newPriority) {
+        if (row.kind === "images") {
+          updates.push(
+            invoke("update_image_provider_priority", {
+              pluginId: providers[i].pluginId,
+              entity: row.entity,
+              priority: newPriority,
+            }) as Promise<void>,
+          );
+        } else {
+          updates.push(
+            invoke("update_info_type_priority", {
+              typeId: row.typeId,
+              pluginId: providers[i].pluginId,
+              priority: newPriority,
+            }) as Promise<void>,
+          );
+        }
+      }
+    }
+
+    try {
+      await Promise.all(updates);
+      await fetchConfig();
+    } catch (e) {
+      console.error("Failed to update priorities:", e);
+    }
+    setDragState(null);
+  };
+
+  const handleDragEnd = () => {
+    setDragState(null);
+  };
+
+  const handleReset = async () => {
+    // Build defaults from plugin manifests
+    const imageDefaults: [string, string, number][] = [];
+    const infoDefaults: [string, string, number][] = [];
+
+    if (pluginStates) {
+      for (const plugin of pluginStates) {
+        const contributes = plugin.manifest.contributes;
+        if (!contributes) continue;
+        if (contributes.imageProviders) {
+          for (const ip of contributes.imageProviders) {
+            imageDefaults.push([plugin.id, ip.entity, ip.priority]);
+          }
+        }
+        if (contributes.informationTypes) {
+          for (const it of contributes.informationTypes) {
+            infoDefaults.push([it.id, plugin.id, it.priority]);
+          }
+        }
+      }
+    }
+
+    try {
+      await invoke("reset_provider_priorities", {
+        imageDefaults,
+        infoDefaults,
+      });
+      await fetchConfig();
+    } catch (e) {
+      console.error("Failed to reset priorities:", e);
+    }
+  };
+
+  const entityLabels: Record<string, string> = {
+    artist: "Artist",
+    album: "Album",
+    track: "Track",
+    tag: "Tag",
+  };
+
+  if (loading) {
+    return (
+      <div className="settings-group">
+        <div className="settings-group-title">Provider Priority</div>
+        <div style={{ color: "var(--text-secondary)", fontSize: "var(--fs-sm)", padding: "12px 0" }}>
+          Loading...
+        </div>
+      </div>
+    );
+  }
+
+  if (entityData.size === 0) {
+    return null;
+  }
+
+  return (
+    <div className="settings-group">
+      <div className="settings-group-title">Provider Priority</div>
+      <div className="provider-priority-container">
+        {[...entityData.entries()].map(([entity, rows]) => (
+          <div key={entity} className="provider-entity-group">
+            <button
+              className="provider-entity-header"
+              onClick={() => toggleEntity(entity)}
+            >
+              <span className={`provider-entity-chevron${collapsedEntities.has(entity) ? "" : " open"}`}>
+                {"\u25B8"}
+              </span>
+              <span className="provider-entity-label">{entityLabels[entity] ?? entity}</span>
+            </button>
+            {!collapsedEntities.has(entity) && (
+              <div className="provider-entity-rows">
+                {rows.map(row => {
+                  const isMulti = row.providers.length > 1 || (row.hasLockedFirst && row.providers.length > 0);
+                  return (
+                    <div key={`${row.kind}-${row.typeId}`} className="provider-priority-row">
+                      <span className="provider-priority-label">{row.label}</span>
+                      <div className="provider-priority-pills">
+                        {row.hasLockedFirst && (
+                          <>
+                            <span className="provider-pill provider-pill-locked">
+                              <span className="provider-pill-lock">{"\uD83D\uDD12"}</span>
+                              Embedded
+                            </span>
+                            {row.providers.length > 0 && (
+                              <span className="provider-pill-arrow">{"\u2192"}</span>
+                            )}
+                          </>
+                        )}
+                        {row.providers.map((provider, i) => (
+                          <React.Fragment key={provider.pluginId}>
+                            {i > 0 && (
+                              <span className="provider-pill-arrow">{"\u2192"}</span>
+                            )}
+                            <span
+                              className={`provider-pill${!provider.active ? " provider-pill-disabled" : ""}${isMulti ? " provider-pill-draggable" : ""}`}
+                              draggable={isMulti && !(row.hasLockedFirst && i === 0)}
+                              onDragStart={(e) => handleDragStart(e, entity, row, i)}
+                              onDragOver={isMulti ? handleDragOver : undefined}
+                              onDrop={isMulti ? (e) => handleDrop(e, entity, row, i) : undefined}
+                              onDragEnd={handleDragEnd}
+                              onClick={() => handleToggleActive(row, provider)}
+                              title={`${provider.displayName} (priority ${provider.priority})${!provider.active ? " - disabled" : ""}\nClick to ${provider.active ? "disable" : "enable"}`}
+                            >
+                              {isMulti && (
+                                <span className="provider-pill-handle">{"\u2630"}</span>
+                              )}
+                              {provider.displayName}
+                            </span>
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="settings-actions-row" style={{ justifyContent: "flex-end" }}>
+        <button className="settings-btn-secondary" onClick={handleReset}>Reset to Defaults</button>
+      </div>
+    </div>
+  );
+}
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
   google: IconGoogle,
@@ -183,6 +600,7 @@ export function SettingsPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<ProviderFormData>({ name: "", artistUrl: "", albumUrl: "", trackUrl: "" });
+  const [searchProvidersCollapsed, setSearchProvidersCollapsed] = useState(false);
 
   function startEdit(provider: SearchProviderConfig) {
     setEditingId(provider.id);
@@ -661,100 +1079,116 @@ export function SettingsPanel({
             )}
 
             {settingsTab === "providers" && (
-              <div className="settings-group">
-                <div className="settings-group-title">Search Providers</div>
-                {isEditing ? (
-                  <div className="settings-card">
-                    <div className="provider-form">
-                      <h3>{adding ? "Add Provider" : "Edit Provider"}</h3>
-                      <div className="provider-form-field">
-                        <label>Name</label>
-                        <input
-                          type="text"
-                          value={form.name}
-                          onChange={(e) => setForm({ ...form, name: e.target.value })}
-                          placeholder="Provider name"
-                        />
-                      </div>
-                      <div className="provider-form-field">
-                        <label>Artist URL Template</label>
-                        <input
-                          type="text"
-                          value={form.artistUrl}
-                          onChange={(e) => setForm({ ...form, artistUrl: e.target.value })}
-                          placeholder="https://example.com/search?q={artist}"
-                        />
-                      </div>
-                      <div className="provider-form-field">
-                        <label>Album URL Template</label>
-                        <input
-                          type="text"
-                          value={form.albumUrl}
-                          onChange={(e) => setForm({ ...form, albumUrl: e.target.value })}
-                          placeholder="https://example.com/search?q={artist}+{title}"
-                        />
-                      </div>
-                      <div className="provider-form-field">
-                        <label>Track URL Template</label>
-                        <input
-                          type="text"
-                          value={form.trackUrl}
-                          onChange={(e) => setForm({ ...form, trackUrl: e.target.value })}
-                          placeholder="https://example.com/search?q={artist}+{title}"
-                        />
-                      </div>
-                      <div className="provider-form-hint">
-                        Use {"{artist}"} and {"{title}"} as placeholders. Leave a URL blank to hide this provider for that context.
-                      </div>
-                      <div className="provider-form-actions">
-                        <button className="settings-btn-secondary" onClick={cancelEdit}>Cancel</button>
-                        <button className="settings-btn-accent" onClick={saveEdit}>Save</button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="settings-card settings-card-flush">
-                      <div className="provider-list">
-                        {searchProviders.map((provider) => (
-                          <div key={provider.id} className={`provider-item ${!provider.enabled ? "provider-disabled" : ""}`}>
-                            <div className="provider-icon">
-                              <SettingsProviderIcon provider={provider} />
+                <>
+                  <div className="settings-group">
+                    <button
+                      className="settings-group-title settings-group-title-collapsible"
+                      onClick={() => setSearchProvidersCollapsed(!searchProvidersCollapsed)}
+                    >
+                      <span className={`provider-entity-chevron${searchProvidersCollapsed ? "" : " open"}`}>
+                        {"\u25B8"}
+                      </span>
+                      Search Providers
+                    </button>
+                    {!searchProvidersCollapsed && (
+                      <>
+                        {isEditing ? (
+                          <div className="settings-card">
+                            <div className="provider-form">
+                              <h3>{adding ? "Add Provider" : "Edit Provider"}</h3>
+                              <div className="provider-form-field">
+                                <label>Name</label>
+                                <input
+                                  type="text"
+                                  value={form.name}
+                                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                                  placeholder="Provider name"
+                                />
+                              </div>
+                              <div className="provider-form-field">
+                                <label>Artist URL Template</label>
+                                <input
+                                  type="text"
+                                  value={form.artistUrl}
+                                  onChange={(e) => setForm({ ...form, artistUrl: e.target.value })}
+                                  placeholder="https://example.com/search?q={artist}"
+                                />
+                              </div>
+                              <div className="provider-form-field">
+                                <label>Album URL Template</label>
+                                <input
+                                  type="text"
+                                  value={form.albumUrl}
+                                  onChange={(e) => setForm({ ...form, albumUrl: e.target.value })}
+                                  placeholder="https://example.com/search?q={artist}+{title}"
+                                />
+                              </div>
+                              <div className="provider-form-field">
+                                <label>Track URL Template</label>
+                                <input
+                                  type="text"
+                                  value={form.trackUrl}
+                                  onChange={(e) => setForm({ ...form, trackUrl: e.target.value })}
+                                  placeholder="https://example.com/search?q={artist}+{title}"
+                                />
+                              </div>
+                              <div className="provider-form-hint">
+                                Use {"{artist}"} and {"{title}"} as placeholders. Leave a URL blank to hide this provider for that context.
+                              </div>
+                              <div className="provider-form-actions">
+                                <button className="settings-btn-secondary" onClick={cancelEdit}>Cancel</button>
+                                <button className="settings-btn-accent" onClick={saveEdit}>Save</button>
+                              </div>
                             </div>
-                            <span className="provider-name">{provider.name}</span>
-                            <div className="provider-contexts">
-                              {provider.artistUrl && <span className="provider-context-chip">Artist</span>}
-                              {provider.albumUrl && <span className="provider-context-chip">Album</span>}
-                              {provider.trackUrl && <span className="provider-context-chip">Track</span>}
-                            </div>
-                            <ToggleSwitch checked={provider.enabled} onChange={() => toggleEnabled(provider.id)} />
-                            <button
-                              className="provider-action"
-                              onClick={() => startEdit(provider)}
-                              title="Edit"
-                            >
-                              {"\u270E"}
-                            </button>
-                            {!provider.id.startsWith("builtin-") && (
-                              <button
-                                className="provider-action provider-delete"
-                                onClick={() => deleteProvider(provider.id)}
-                                title="Delete"
-                              >
-                                {"\u00D7"}
-                              </button>
-                            )}
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="settings-actions-row">
-                      <button className="settings-btn-secondary" onClick={startAdd}>+ Add Provider</button>
-                      <button className="settings-btn-secondary" onClick={resetToDefaults}>Reset to Defaults</button>
-                    </div>
-                  </>
-                )}
-              </div>
+                        ) : (
+                          <>
+                            <div className="settings-card settings-card-flush">
+                              <div className="provider-list">
+                                {searchProviders.map((provider) => (
+                                  <div key={provider.id} className={`provider-item ${!provider.enabled ? "provider-disabled" : ""}`}>
+                                    <div className="provider-icon">
+                                      <SettingsProviderIcon provider={provider} />
+                                    </div>
+                                    <span className="provider-name">{provider.name}</span>
+                                    <div className="provider-contexts">
+                                      {provider.artistUrl && <span className="provider-context-chip">Artist</span>}
+                                      {provider.albumUrl && <span className="provider-context-chip">Album</span>}
+                                      {provider.trackUrl && <span className="provider-context-chip">Track</span>}
+                                    </div>
+                                    <ToggleSwitch checked={provider.enabled} onChange={() => toggleEnabled(provider.id)} />
+                                    <button
+                                      className="provider-action"
+                                      onClick={() => startEdit(provider)}
+                                      title="Edit"
+                                    >
+                                      {"\u270E"}
+                                    </button>
+                                    {!provider.id.startsWith("builtin-") && (
+                                      <button
+                                        className="provider-action provider-delete"
+                                        onClick={() => deleteProvider(provider.id)}
+                                        title="Delete"
+                                      >
+                                        {"\u00D7"}
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="settings-actions-row">
+                              <button className="settings-btn-secondary" onClick={startAdd}>+ Add Provider</button>
+                              <button className="settings-btn-secondary" onClick={resetToDefaults}>Reset to Defaults</button>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <ProviderPrioritySection pluginStates={pluginStates} />
+                </>
             )}
 
             {settingsTab === "debug" && (
