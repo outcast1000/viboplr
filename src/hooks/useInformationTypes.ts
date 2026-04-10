@@ -10,6 +10,7 @@ import type {
 import { buildEntityKey } from "../types/informationTypes";
 
 const ERROR_TTL = 3600; // 1 hour in seconds
+const EMPTY_DELAY_MS = 3000; // show progress for 3s before switching to empty
 
 type CacheAction = "render" | "render_and_refetch" | "loading" | "empty";
 
@@ -222,14 +223,18 @@ export function useInformationTypes({
               return next;
             });
           } else if (mountedRef.current && entityKeyRef.current === entityKey && result.status !== "ok") {
-            setSections((prev) => {
-              const next = [...prev];
-              const existing = next.find((s) => s.typeId === typeId);
-              if (existing) {
-                existing.state = { kind: "empty" };
+            setTimeout(() => {
+              if (mountedRef.current && entityKeyRef.current === entityKey) {
+                setSections((prev) => {
+                  const next = [...prev];
+                  const existing = next.find((s) => s.typeId === typeId);
+                  if (existing) {
+                    existing.state = { kind: "empty" };
+                  }
+                  return next;
+                });
               }
-              return next;
-            });
+            }, EMPTY_DELAY_MS);
           }
         } catch {
           await invoke("info_upsert_value", {
@@ -239,14 +244,18 @@ export function useInformationTypes({
             status: "error",
           }).catch(() => {});
           if (mountedRef.current && entityKeyRef.current === entityKey) {
-            setSections((prev) => {
-              const next = [...prev];
-              const existing = next.find((s) => s.typeId === typeId);
-              if (existing) {
-                existing.state = { kind: "empty" };
+            setTimeout(() => {
+              if (mountedRef.current && entityKeyRef.current === entityKey) {
+                setSections((prev) => {
+                  const next = [...prev];
+                  const existing = next.find((s) => s.typeId === typeId);
+                  if (existing) {
+                    existing.state = { kind: "empty" };
+                  }
+                  return next;
+                });
               }
-              return next;
-            });
+            }, EMPTY_DELAY_MS);
           }
         } finally {
           inFlightRef.current.delete(dedupKey);
