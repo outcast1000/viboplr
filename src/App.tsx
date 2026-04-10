@@ -32,6 +32,7 @@ import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useSkins } from "./hooks/useSkins";
 import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
+import { useImageResolver } from "./hooks/useImageResolver";
 
 import { useDownloads } from "./hooks/useDownloads";
 import { useLikeActions } from "./hooks/useLikeActions";
@@ -214,6 +215,9 @@ function App() {
   }), [queueHook, tidalTrackToTrackFn]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current);
+
+  // Wire up image resolver to handle image-resolve-request events
+  useImageResolver(plugins.invokeImageFetch);
 
   const artistInfo = useArtistInfo({
     selectedArtist: library.selectedArtist,
