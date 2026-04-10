@@ -538,13 +538,10 @@ export function usePlugins(
           ? new Set(enabled)
           : new Set<string>();
 
-      // Auto-enable built-in plugins that provide informationTypes or imageProviders.
-      // These replace built-in functionality and should be active by default.
+      // Auto-enable all built-in plugins except tidal-browse.
       let enabledSetDirty = false;
       for (const plugin of installed) {
-        const contrib = plugin.manifest.contributes;
-        const providesBuiltinFunctionality = contrib?.informationTypes?.length || contrib?.imageProviders?.length;
-        if (plugin.builtin && providesBuiltinFunctionality && !enabledSet.has(plugin.id)) {
+        if (plugin.builtin && plugin.id !== "tidal-browse" && !enabledSet.has(plugin.id)) {
           enabledSet.add(plugin.id);
           enabledSetDirty = true;
         }

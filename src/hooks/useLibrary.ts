@@ -92,7 +92,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [tagViewMode, setTagViewMode] = useState<ViewMode>("tiles");
   const [trackViewMode, setTrackViewMode] = useState<ViewMode>("basic");
   const [likedViewMode, setLikedViewMode] = useState<ViewMode>("basic");
-  const [sortBarCollapsed, setSortBarCollapsed] = useState(false);
+  const [sortBarCollapsed, setSortBarCollapsed] = useState(true);
 
   // Artist-filtered albums for artist detail view (derived, never mutates albums state)
   const artistAlbums = useMemo(() => {
