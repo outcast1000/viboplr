@@ -63,6 +63,164 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.6</span>
+          <span class="timeline-date">April 10, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>add open profile folder button to debug settings</li>
+          <li>default to clean UI with sidebar, queue, and sort bar collapsed</li>
+          <li>add drag-and-drop guidelines and implementation pattern for Tauri's WKWebView</li>
+          <li>update breadcrumb and sidebar for settings view</li>
+          <li>wire settings view into main content area</li>
+          <li>convert SettingsPanel from modal to inline view with horizontal tabs</li>
+          <li>add 'settings' to View union type</li>
+          <li>add Provider Priority section to Settings Providers tab</li>
+          <li>add frontend image resolver hook</li>
+          <li>add JS image provider plugins (deezer, itunes, audiodb, musicbrainz, tidal)</li>
+          <li>add imageProviders API namespace for plugin image fetch handlers</li>
+          <li>replace hardcoded image provider chains with Rust-JS bridge mechanism</li>
+          <li>parse imageProviders from plugin manifests and sync to backend</li>
+          <li>add ImageResolveRegistry and provider management Tauri commands</li>
+          <li>add image_providers table and DB functions for configurable provider priority</li>
+          <li>add play/YouTube buttons to ranked list items (top tracks, similar tracks)</li>
+          <li>thread positionSecs context to renderers, handle save-lyrics action</li>
+          <li>upgrade LyricsRenderer with synced lyrics, editing, and context support</li>
+          <li>add lrclib JS plugin for lyrics via information types</li>
+          <li>rewrite useInformationTypes for provider fallback and name-based entity keys</li>
+          <li>update information type frontend types for integer PK and provider chains</li>
+          <li>refactor information_types to integer PK with FK from information_values</li>
+          <li>call info_sync_types instead of info_rebuild_types</li>
+          <li>replace destructive info_rebuild_types with idempotent info_sync_types</li>
+          <li>add Genius plugin with song explanation, artist/album descriptions</li>
+          <li>add AnnotationsRenderer for Genius song explanations</li>
+          <li>add annotations displayKind and AnnotationsData type</li>
+          <li>double artist avatar (160px) and album art (240px) sizes</li>
+          <li>add customTabs support to InformationSections, move Albums into tabs</li>
+          <li>move Albums section above InformationSections in artist detail</li>
+          <li>album detail uses dual-placement InformationSections layout</li>
+          <li>artist detail uses dual-placement InformationSections layout</li>
+          <li>add placement prop with tab rendering to InformationSections</li>
+          <li>add tab bar and right-placement styles for InformationSections</li>
+          <li>add InfoPlacement type and getInfoPlacement helper</li>
+          <li>integrate remaining Last.fm services into plugin system</li>
+          <li>move Last.fm client from Rust backend to frontend plugin</li>
+          <li>integrate InformationSections into artist detail view, migrate artist_bio</li>
+          <li>add lastfm-info internal plugin with artist_bio info type</li>
+          <li>add InformationSections generic component</li>
+          <li>add 10 display kind renderers for information type system</li>
+          <li>add useInformationTypes hook with fetch lifecycle and caching</li>
+          <li>extend usePlugins with informationTypes API namespace</li>
+          <li>add TypeScript types for information type system</li>
+          <li>add Tauri IPC commands for information type storage</li>
+          <li><strong>db</strong>: add information types plugin system tables and CRUD</li>
+          <li>Delete/Backspace key deletes selected tracks from track list</li>
+          <li>debug builds auto-use dev-{worktree_name} profile</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>update @tauri-apps/plugin-dialog to version 2.7.0</li>
+          <li>resolve Dependabot security vulnerabilities</li>
+          <li>replace HTML5 DnD with manual mouse-event drag for provider pills</li>
+          <li>add pluginStates to fetchConfig deps and remove dead code</li>
+          <li>use plugin manifest names instead of hardcoded display name map</li>
+          <li>correct drag-and-drop logic for album embedded pill</li>
+          <li>add User-Agent header to plugin_fetch for MusicBrainz API compliance</li>
+          <li>remove double URL encoding in musicbrainz album search query</li>
+          <li>narrow entity type and add try/catch in invokeImageFetch</li>
+          <li>genius plugin registers as fallback provider for artist_bio and album_wiki</li>
+          <li>update .gitignore to exclude .claude directory</li>
+          <li>tidal download more robust error handling and dialog fallback</li>
+          <li>tidal download prompts for folder when no local collection exists</li>
+          <li>tidal download resolves first local collection as destination</li>
+          <li>tidal plugin download auto-resolves collection when not provided</li>
+          <li>tidal download respects user's preferred format from settings</li>
+          <li>make tidal_save_track format optional, default to flac</li>
+          <li>tidal download from plugin uses correct arg name tidalTrackId</li>
+          <li>clicking plugin sidebar button (Tidal) clears track detail and returns to view</li>
+          <li>ranked list play button searches DB for track, falls back to YouTube</li>
+          <li>play button on ranked list items — use correct get_track_by_id command</li>
+          <li>YouTube button uses search_youtube for direct video links instead of search page</li>
+          <li>move play/YouTube buttons before title and increase size in ranked lists</li>
+          <li>detail view layout — header fills width, right-placement matches height</li>
+          <li>queue locate track button opens track detail view</li>
+          <li>sync button always navigates to track detail view</li>
+          <li>exclude track_tags from TrackDetailView InformationSections</li>
+          <li>move lyrics to below-placement instead of right</li>
+          <li>let track header size naturally so right-placement sits beside it</li>
+          <li>restructure track detail layout to match artist/album pattern</li>
+          <li>only below-placement InformationSections spans all columns</li>
+          <li>double track detail art size from 120px to 240px</li>
+          <li>make InformationSections span all columns in track detail</li>
+          <li>exclude plugin similar_tracks from TrackDetailView</li>
+          <li>add InformationSections to TrackDetailView for plugin-based content</li>
+          <li>dock right-placement sections to the right edge</li>
+          <li>reduce right-placement section width and height</li>
+          <li>cap right-placement section height at 300px with scroll</li>
+          <li>below-placement tabs use full height and full width</li>
+          <li>use tabs for any placement with 2+ sections, not just right</li>
+          <li>match information sections styling to original About section</li>
+          <li>use return-based export in lastfm-info plugin instead of module.exports</li>
+          <li>auto-enable built-in plugins that provide informationTypes</li>
+          <li>address review issues in information type system</li>
+          <li>rename &quot;Locate File&quot; / &quot;Show in Folder&quot; to &quot;Open Containing Folder&quot;</li>
+          <li>prevent long titles from overflowing modal dialogs</li>
+          <li>path search uses exact substring matching instead of FTS tokenization</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li>remove Rust image provider implementations replaced by JS plugin bridge</li>
+          <li>change Similar Tracks from entity_list to ranked_list display kind</li>
+          <li>remove lyrics search toggle and delete LyricsPanel component</li>
+          <li>delete unused NowPlayingView component</li>
+          <li>remove lyrics state and LyricsPanel from TrackDetailView</li>
+          <li>remove lyrics table, commands, and lyric_provider module</li>
+          <li>drop unused lastfm_cache table and methods</li>
+          <li>useArtistInfo discovers ranked_list types dynamically instead of hardcoding</li>
+          <li>move track details (format, path, plays) into InformationSections tab</li>
+          <li>move Lyrics and Play History into InformationSections tabs</li>
+          <li>remove hardcoded Similar Tracks, add YouTube links to plugin</li>
+          <li>remove genius.rs backend module, now handled by plugin</li>
+          <li>remove hardcoded Genius integration from TrackDetailView</li>
+          <li>unify InformationSections into single tab-based path with collapse</li>
+          <li>use compact popularity bar style in RankedListRenderer</li>
+          <li>move &quot;View on Provider&quot; link to footer below content</li>
+          <li>render Top Songs and Similar Artists as InformationSections</li>
+          </ul>
+          <h4>Documentation</h4>
+          <ul>
+          <li>update PLUGIN-SYSTEM.md and plugin-system skill for image provider refactor</li>
+          <li>add lyrics plugin migration implementation plan</li>
+          <li>add Genius plugin implementation plan</li>
+          <li>address spec review feedback for Genius plugin</li>
+          <li>add Genius plugin design spec</li>
+          <li>add information type plugin system implementation plan</li>
+          <li>add html and image_gallery renderers to info type spec</li>
+          </ul>
+          <h4>Tests</h4>
+          <ul>
+          <li>add info_sync_types tests for metadata update and reactivation</li>
+          <li>add unit tests for information type cache decision logic</li>
+          </ul>
+          <h4>Chores</h4>
+          <ul>
+          <li>add release skill for version bumping workflow</li>
+          <li>update dependencies</li>
+          </ul>
+          <h4>Other</h4>
+          <ul>
+          <li>Refactor: Update .gitignore to remove unnecessary entries; add PLUGIN-SYSTEM.md for comprehensive plugin architecture documentation; introduce ui-guidelines.md for UI design standards and button system specifications.</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.6/Viboplr_0.9.6_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.6_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.6/Viboplr_0.9.6_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.6_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.5</span>
           <span class="timeline-date">April 6, 2026</span>
         </div>
