@@ -1,0 +1,26 @@
+{
+  "id": "lyrics-search",
+  "name": "Lyrics Search",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Meta-search lyrics via DuckDuckGo with whitelisted site scrapers",
+  "minAppVersion": "0.9.5",
+  "contributes": {
+    "informationTypes": [
+      {
+        "id": "lyrics",
+        "name": "Lyrics",
+        "entity": "track",
+        "displayKind": "lyrics",
+        "ttl": 7776000,
+        "order": 400,
+        "priority": 400
+      }
+    ],
+    "settingsPanel": {
+      "id": "lyrics-search-settings",
+      "label": "Lyrics Search",
+      "order": 60
+    }
+  }
+}
