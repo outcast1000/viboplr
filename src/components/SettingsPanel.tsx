@@ -51,23 +51,19 @@ interface ProviderRow {
 function parseProviderConfig(
   infoTypes: [string, string, string, string, number, string, number, boolean][],
   imageProviders: [string, string, number, boolean, number][],
+  pluginStates?: PluginState[],
 ): Map<string, ProviderRow[]> {
   const entityMap = new Map<string, ProviderRow[]>();
 
-  // Capitalize plugin name for display
+  // Look up display name from plugin manifest, fallback to plugin ID
+  const pluginNameMap = new Map<string, string>();
+  if (pluginStates) {
+    for (const ps of pluginStates) {
+      pluginNameMap.set(ps.id, ps.manifest.name);
+    }
+  }
   function displayName(pluginId: string): string {
-    // Map common plugin IDs to display names
-    const nameMap: Record<string, string> = {
-      "lastfm": "Last.fm",
-      "tidal-browse": "TIDAL",
-      "deezer": "Deezer",
-      "itunes": "iTunes",
-      "audiodb": "TheAudioDB",
-      "musicbrainz": "MusicBrainz",
-      "lrclib": "LRCLIB",
-      "genius": "Genius",
-    };
-    return nameMap[pluginId] ?? pluginId;
+    return pluginNameMap.get(pluginId) ?? pluginId;
   }
 
   // Group image providers by entity
@@ -168,7 +164,7 @@ function ProviderPrioritySection({
         [string, string, string, string, number, string, number, boolean][],
         [string, string, number, boolean, number][],
       ]>("get_all_provider_config");
-      setEntityData(parseProviderConfig(infoTypes, imageProviders));
+      setEntityData(parseProviderConfig(infoTypes, imageProviders, pluginStates));
     } catch (e) {
       console.error("Failed to fetch provider config:", e);
     } finally {
@@ -411,7 +407,7 @@ function ProviderPrioritySection({
           </div>
         ))}
       </div>
-      <div className="settings-actions-row" style={{ justifyContent: "flex-end" }}>
+      <div className="settings-actions-row provider-priority-actions">
         <button className="settings-btn-secondary" onClick={handleReset}>Reset to Defaults</button>
       </div>
     </div>

@@ -1180,3 +1180,7 @@
   opacity: 0.5;
   flex-shrink: 0;
 }
+
+.provider-priority-actions {
+  justify-content: flex-end;
+}
