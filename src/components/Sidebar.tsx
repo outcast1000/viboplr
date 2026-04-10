@@ -138,7 +138,7 @@ export function Sidebar({
         )}
       </nav>
 
-      <button className="settings-btn" onClick={onShowSettings} title={collapsed ? "Settings" : undefined}>
+      <button className={`settings-btn${view === "settings" ? " active" : ""}`} onClick={onShowSettings} title={collapsed ? "Settings" : undefined}>
         {icons.settings} {!collapsed && "Settings"}
         {updateAvailable && <span className="update-badge" />}
       </button>

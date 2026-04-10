@@ -1514,26 +1514,28 @@ function App() {
       <main className={`main${library.selectedTrack !== null && playback.currentTrack?.id === library.selectedTrack && isVideoTrack(playback.currentTrack) ? " video-detail" : ""}`} data-dock={playback.currentTrack && isVideoTrack(playback.currentTrack) ? videoLayout.dockSide : undefined}>
         {/* Content area */}
         <div className="content" ref={contentRef} style={playback.currentTrack && isVideoTrack(playback.currentTrack) ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
-          <Breadcrumb
-            view={view}
-            selectedArtist={selectedArtist}
-            selectedAlbum={selectedAlbum}
-            selectedTag={selectedTag}
-            selectedTrack={library.selectedTrack}
-            tracks={tracks}
-            sortedTracks={sortedTracks}
-            onPlayAll={queueHook.playTracks}
-            onEnqueueAll={contextMenuActions.handleEnqueue}
-          >
-            {view === "all" && <ViewModeToggle mode={library.trackViewMode} onChange={library.setTrackViewMode} />}
-            {view === "artists" && selectedArtist === null && <ViewModeToggle mode={library.artistViewMode} onChange={library.setArtistViewMode} />}
-            {view === "albums" && <ViewModeToggle mode={library.albumViewMode} onChange={library.setAlbumViewMode} />}
-            {view === "tags" && selectedTag === null && <ViewModeToggle mode={library.tagViewMode} onChange={library.setTagViewMode} />}
-            {view === "liked" && <ViewModeToggle mode={library.likedViewMode} onChange={library.setLikedViewMode} />}
-            {(view === "all" || view === "artists" || view === "albums" || view === "tags" || view === "liked") && !(view === "artists" && selectedArtist !== null) && !(view === "tags" && selectedTag !== null) && (
-              <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
-            )}
-          </Breadcrumb>
+          {view !== "settings" && (
+            <Breadcrumb
+              view={view}
+              selectedArtist={selectedArtist}
+              selectedAlbum={selectedAlbum}
+              selectedTag={selectedTag}
+              selectedTrack={library.selectedTrack}
+              tracks={tracks}
+              sortedTracks={sortedTracks}
+              onPlayAll={queueHook.playTracks}
+              onEnqueueAll={contextMenuActions.handleEnqueue}
+            >
+              {view === "all" && <ViewModeToggle mode={library.trackViewMode} onChange={library.setTrackViewMode} />}
+              {view === "artists" && selectedArtist === null && <ViewModeToggle mode={library.artistViewMode} onChange={library.setArtistViewMode} />}
+              {view === "albums" && <ViewModeToggle mode={library.albumViewMode} onChange={library.setAlbumViewMode} />}
+              {view === "tags" && selectedTag === null && <ViewModeToggle mode={library.tagViewMode} onChange={library.setTagViewMode} />}
+              {view === "liked" && <ViewModeToggle mode={library.likedViewMode} onChange={library.setLikedViewMode} />}
+              {(view === "all" || view === "artists" || view === "albums" || view === "tags" || view === "liked") && !(view === "artists" && selectedArtist !== null) && !(view === "tags" && selectedTag !== null) && (
+                <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
+              )}
+            </Breadcrumb>
+          )}
 
           {/* Track detail view */}
           {library.selectedTrack !== null && (() => {

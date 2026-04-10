@@ -130,6 +130,11 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+.settings-btn.active {
+  background: rgba(var(--overlay-base), 0.08);
+  border-color: rgba(var(--overlay-base), 0.12);
+  color: var(--text-primary);
+}
 
 .sidebar-collapse-btn {
   grid-column: 1;
