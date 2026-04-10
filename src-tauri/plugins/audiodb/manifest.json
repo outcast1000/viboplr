@@ -1,0 +1,12 @@
+{
+  "id": "audiodb",
+  "name": "TheAudioDB",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Artist images from TheAudioDB",
+  "contributes": {
+    "imageProviders": [
+      { "entity": "artist", "priority": 400 }
+    ]
+  }
+}

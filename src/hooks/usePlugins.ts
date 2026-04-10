@@ -538,11 +538,13 @@ export function usePlugins(
           ? new Set(enabled)
           : new Set<string>();
 
-      // Auto-enable built-in plugins that provide informationTypes.
+      // Auto-enable built-in plugins that provide informationTypes or imageProviders.
       // These replace built-in functionality and should be active by default.
       let enabledSetDirty = false;
       for (const plugin of installed) {
-        if (plugin.builtin && plugin.manifest.contributes?.informationTypes?.length && !enabledSet.has(plugin.id)) {
+        const contrib = plugin.manifest.contributes;
+        const providesBuiltinFunctionality = contrib?.informationTypes?.length || contrib?.imageProviders?.length;
+        if (plugin.builtin && providesBuiltinFunctionality && !enabledSet.has(plugin.id)) {
           enabledSet.add(plugin.id);
           enabledSetDirty = true;
         }

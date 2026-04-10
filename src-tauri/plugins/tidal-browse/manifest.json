@@ -6,6 +6,10 @@
   "description": "Search, stream, and download from TIDAL",
   "minAppVersion": "0.7.0",
   "contributes": {
+    "imageProviders": [
+      { "entity": "artist", "priority": 100 },
+      { "entity": "album", "priority": 100 }
+    ],
     "sidebarItems": [
       { "id": "tidal", "label": "TIDAL", "icon": "tidal" }
     ],

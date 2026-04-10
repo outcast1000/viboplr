@@ -25,6 +25,25 @@ function activate(api) {
     return m + ":" + (s < 10 ? "0" : "") + s;
   }
 
+  // -- Image providers --
+
+  api.imageProviders.onFetch("artist", async function (name) {
+    var results = await api.tidal.search(name, 1);
+    var artist = results && results.artists && results.artists[0];
+    if (!artist || !artist.picture_id) return { status: "not_found" };
+    var url = coverUrl(artist.picture_id, 750);
+    return { status: "ok", url: url };
+  });
+
+  api.imageProviders.onFetch("album", async function (name, artistName) {
+    var query = artistName ? artistName + " " + name : name;
+    var results = await api.tidal.search(query, 1);
+    var album = results && results.albums && results.albums[0];
+    if (!album || !album.cover_id) return { status: "not_found" };
+    var url = coverUrl(album.cover_id, 1280);
+    return { status: "ok", url: url };
+  });
+
   // -- View rendering --
 
   function renderSearchView() {

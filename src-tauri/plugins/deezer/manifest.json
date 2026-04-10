@@ -1,0 +1,13 @@
+{
+  "id": "deezer",
+  "name": "Deezer",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Artist and album images from Deezer",
+  "contributes": {
+    "imageProviders": [
+      { "entity": "artist", "priority": 200 },
+      { "entity": "album", "priority": 300 }
+    ]
+  }
+}

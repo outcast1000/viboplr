@@ -1,0 +1,13 @@
+{
+  "id": "musicbrainz",
+  "name": "MusicBrainz",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Artist and album images from MusicBrainz and Cover Art Archive",
+  "contributes": {
+    "imageProviders": [
+      { "entity": "artist", "priority": 500 },
+      { "entity": "album", "priority": 500 }
+    ]
+  }
+}

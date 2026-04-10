@@ -1,0 +1,13 @@
+{
+  "id": "itunes",
+  "name": "iTunes",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Artist and album images from iTunes",
+  "contributes": {
+    "imageProviders": [
+      { "entity": "artist", "priority": 300 },
+      { "entity": "album", "priority": 200 }
+    ]
+  }
+}
