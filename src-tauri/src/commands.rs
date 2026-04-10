@@ -592,27 +592,7 @@ pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), S
     }
 
     let fs_path = track.filesystem_path().ok_or("Track has no local file path")?;
-    let path = std::path::Path::new(fs_path);
-    #[cfg(target_os = "macos")]
-    std::process::Command::new("open")
-        .arg("-R")
-        .arg(path)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new("explorer")
-            .raw_arg(format!("/select,\"{}\"", path.display()))
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "linux")]
-    std::process::Command::new("xdg-open")
-        .arg(path.parent().unwrap_or(path))
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    tauri_plugin_opener::reveal_item_in_dir(fs_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -621,26 +601,7 @@ pub fn show_in_folder_path(file_path: String) -> Result<(), String> {
     if !path.exists() {
         return Err(format!("File not found: {}", file_path));
     }
-    #[cfg(target_os = "macos")]
-    std::process::Command::new("open")
-        .arg("-R")
-        .arg(path)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new("explorer")
-            .raw_arg(format!("/select,\"{}\"", path.display()))
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "linux")]
-    std::process::Command::new("xdg-open")
-        .arg(path.parent().unwrap_or(path))
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    tauri_plugin_opener::reveal_item_in_dir(path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -649,25 +610,7 @@ pub fn open_folder(folder_path: String) -> Result<(), String> {
     if !path.exists() {
         return Err(format!("Folder not found: {}", folder_path));
     }
-    #[cfg(target_os = "macos")]
-    std::process::Command::new("open")
-        .arg(path)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new("explorer")
-            .raw_arg(format!("\"{}\"", path.display()))
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "linux")]
-    std::process::Command::new("xdg-open")
-        .arg(path)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    tauri_plugin_opener::open_path(folder_path, None::<&str>).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
