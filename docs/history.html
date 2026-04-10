@@ -63,6 +63,53 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.8</span>
+          <span class="timeline-date">April 11, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li><strong>scanner</strong>: extract tags for video files from folders and filename keywords</li>
+          <li><strong>info-sections</strong>: add tabOrder prop for configurable tab ordering</li>
+          <li><strong>info-sections</strong>: show fetch progress with provider names and URLs</li>
+          <li><strong>info-sections</strong>: show Source attribution for all plugin sections</li>
+          <li><strong>info-sections</strong>: add refresh button, dimmed empty tabs, and empty state message</li>
+          <li><strong>info-types</strong>: return empty state instead of hiding sections with no data</li>
+          <li><strong>allmusic</strong>: implement artist bio scraping plugin</li>
+          <li><strong>allmusic</strong>: add plugin manifest for artist bio fallback</li>
+          <li>add lyrics-search meta-search plugin with configurable domains</li>
+          <li>add Genius and Lyrics.ovh as lyrics fallback providers</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li><strong>genius</strong>: add _meta to lyrics response for View on link</li>
+          <li>update tests and CSS for hidden-to-empty rename</li>
+          <li><strong>plugins</strong>: remove version-change cache wipeout that deleted shared type data</li>
+          <li><strong>allmusic</strong>: use full artist URL for biography fetch</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li><strong>waveform</strong>: key cache on file path instead of track ID</li>
+          <li><strong>info-types</strong>: replace hidden state with empty for visible empty sections</li>
+          </ul>
+          <h4>Documentation</h4>
+          <ul>
+          <li>add implementation plan for info sections UX improvements</li>
+          <li>address spec review feedback</li>
+          <li>add info sections UX improvements spec</li>
+          <li>add AllMusic plugin implementation plan</li>
+          <li>address spec review recommendations</li>
+          <li>add AllMusic plugin design spec</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.8/Viboplr_0.9.8_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.8_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.8/Viboplr_0.9.8_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.8_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.7</span>
           <span class="timeline-date">April 10, 2026</span>
         </div>
