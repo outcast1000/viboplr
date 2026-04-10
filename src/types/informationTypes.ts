@@ -78,7 +78,7 @@ export interface InfoSection {
   state:
     | { kind: "loaded"; data: unknown; stale: boolean }
     | { kind: "loading" }
-    | { kind: "hidden" }; // not_found or fresh error
+    | { kind: "empty" };
 }
 
 // ── Display Kind Schemas ──────────────────────────────────
