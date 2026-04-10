@@ -477,7 +477,6 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
 
 interface SettingsPanelProps {
   searchProviders: SearchProviderConfig[];
-  onClose: () => void;
   onSeedDatabase: () => void;
   onClearDatabase: () => void;
   clearing: boolean;
@@ -540,7 +539,6 @@ type SettingsTab = "general" | "skins" | "plugins" | "providers" | "debug" | `pl
 
 export function SettingsPanel({
   searchProviders,
-  onClose,
   onSeedDatabase, onClearDatabase, clearing,
   onClearImageFailures, onSaveProviders,
   crossfadeSecs,
@@ -679,34 +677,23 @@ export function SettingsPanel({
   ];
 
   return (
-    <div className="settings-overlay">
-      <div className="settings-panel">
-        <div className="settings-sidebar">
-          <div className="settings-sidebar-title">Settings</div>
-          <nav className="settings-nav">
-            {navItems.map(item => (
-              <button
-                key={item.key}
-                className={`settings-nav-item ${settingsTab === item.key ? "active" : ""}`}
-                onClick={() => {
-                  setSettingsTab(item.key);
-                  if (item.key === "debug") onFetchBackendTimings();
-                }}
-              >
-                <span className="settings-nav-icon">{item.icon}</span>
-                {item.label}
-              </button>
-            ))}
-          </nav>
-        </div>
+    <div className="settings-view">
+      <div className="settings-tab-bar">
+        {navItems.map(item => (
+          <button
+            key={item.key}
+            className={`settings-tab ${settingsTab === item.key ? "active" : ""}`}
+            onClick={() => {
+              setSettingsTab(item.key);
+              if (item.key === "debug") onFetchBackendTimings();
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
 
-        <div className="settings-content">
-          <div className="settings-content-header">
-            <h2>{navItems.find(n => n.key === settingsTab)?.label}</h2>
-            <button className="settings-close" onClick={onClose}>{"\u00D7"}</button>
-          </div>
-
-          <div className="settings-content-body">
+      <div className="settings-content-body">
             {settingsTab === "general" && (
               <>
                 <div className="settings-group">
@@ -1250,8 +1237,6 @@ export function SettingsPanel({
                 </div>
               );
             })()}
-          </div>
-        </div>
       </div>
     </div>
   );
