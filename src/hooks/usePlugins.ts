@@ -650,7 +650,7 @@ export function usePlugins(
       if (allInfoTypes.length > 0) {
         await invoke("info_sync_types", { types: allInfoTypes });
 
-        // Invalidate info caches when a plugin version changes
+        // Track plugin info versions (no longer invalidates cache)
         const storedVersions = (await store.get<Record<string, string>>("pluginInfoVersions")) ?? {};
         const newVersions: Record<string, string> = { ...storedVersions };
         let versionsDirty = false;
@@ -658,9 +658,6 @@ export function usePlugins(
           if (st.status !== "active" || !st.manifest.contributes?.informationTypes?.length) continue;
           const prev = storedVersions[st.id];
           if (prev !== st.manifest.version) {
-            for (const it of st.manifest.contributes.informationTypes) {
-              await invoke("info_delete_values_for_type", { typeId: it.id }).catch(() => {});
-            }
             newVersions[st.id] = st.manifest.version;
             versionsDirty = true;
           }
