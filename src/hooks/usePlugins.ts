@@ -20,9 +20,9 @@ import type {
   TidalSearchTrackLike,
   GalleryPluginEntry,
   PluginGalleryIndex,
+  ImageFetchResult,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
-import type { ImageFetchResult } from "../types/plugin";
 
 const PLUGIN_GALLERY_BASE_URL =
   "https://raw.githubusercontent.com/outcast1000/viboplr-plugins/main/plugins/";
@@ -878,12 +878,17 @@ export function usePlugins(
   );
 
   const invokeImageFetch = useCallback(
-    async (pluginId: string, entity: string, name: string, artistName?: string): Promise<ImageFetchResult> => {
+    async (pluginId: string, entity: "artist" | "album", name: string, artistName?: string): Promise<ImageFetchResult> => {
       const loaded = loadedPluginsRef.current.get(pluginId);
       if (!loaded) return { status: "error", message: "plugin not loaded" };
       const handler = loaded.imageFetchHandlers.get(entity);
       if (!handler) return { status: "error", message: "no handler for entity" };
-      return handler(name, artistName);
+      try {
+        return await handler(name, artistName);
+      } catch (e) {
+        console.error(`[plugin:${pluginId}] image fetch error for ${entity}:`, e);
+        return { status: "error", message: e instanceof Error ? e.message : String(e) };
+      }
     },
     [],
   );
