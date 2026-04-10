@@ -138,6 +138,10 @@
   opacity: 0.5;
 }
 
+.info-sections-tab.empty.active {
+  opacity: 1;
+}
+
 .info-section-empty {
   font-size: var(--fs-xs);
   color: var(--text-secondary);

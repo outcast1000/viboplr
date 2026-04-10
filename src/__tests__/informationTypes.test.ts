@@ -14,7 +14,7 @@ function decideCacheAction(
   entry: CacheEntry | null,
   ttl: number,
   now: number,
-): "render" | "render_and_refetch" | "loading" | "hidden" {
+): "render" | "render_and_refetch" | "loading" | "empty" {
   if (!entry) return "loading";
 
   const age = now - entry.fetchedAt;
@@ -25,10 +25,10 @@ function decideCacheAction(
     return stale ? "render_and_refetch" : "render";
   }
   if (entry.status === "not_found") {
-    return stale ? "loading" : "hidden";
+    return stale ? "loading" : "empty";
   }
   // error
-  return stale ? "loading" : "hidden";
+  return stale ? "loading" : "empty";
 }
 
 describe("decideCacheAction", () => {
@@ -46,16 +46,16 @@ describe("decideCacheAction", () => {
     expect(decideCacheAction({ status: "ok", fetchedAt: now - 90 * 86400 - 1 }, 90 * 86400, now)).toBe("render_and_refetch");
   });
 
-  it("hides fresh not_found", () => {
-    expect(decideCacheAction({ status: "not_found", fetchedAt: now - 100 }, 90 * 86400, now)).toBe("hidden");
+  it("shows empty state for fresh not_found", () => {
+    expect(decideCacheAction({ status: "not_found", fetchedAt: now - 100 }, 90 * 86400, now)).toBe("empty");
   });
 
   it("retries stale not_found", () => {
     expect(decideCacheAction({ status: "not_found", fetchedAt: now - 90 * 86400 - 1 }, 90 * 86400, now)).toBe("loading");
   });
 
-  it("hides fresh error (within 1 hour)", () => {
-    expect(decideCacheAction({ status: "error", fetchedAt: now - 1800 }, 90 * 86400, now)).toBe("hidden");
+  it("shows empty state for fresh error (within 1 hour)", () => {
+    expect(decideCacheAction({ status: "error", fetchedAt: now - 1800 }, 90 * 86400, now)).toBe("empty");
   });
 
   it("retries stale error (after 1 hour)", () => {
