@@ -27,9 +27,6 @@ dist-ssr
 .env
 src-tauri/.cargo/
 
-.worktrees/
-worktrees/
-.claude/
 .superpowers/
 docs/superpowers/
 Issues.md
