@@ -81,9 +81,12 @@ function activate(api) {
     var refsP = geniusFetch(
       "https://genius.com/api/referents?song_id=" + songId + "&per_page=50&text_format=plain"
     );
-    return Promise.all([songP, refsP]).then(function (results) {
+    var lyricsUrl = songUrl || ("https://genius.com/songs/" + songId);
+    var lyricsP = scrapeLyrics(lyricsUrl).catch(function () { return null; });
+    return Promise.all([songP, refsP, lyricsP]).then(function (results) {
       var songData = results[0];
       var refsData = results[1];
+      var lyricsText = results[2];
 
       var song = (songData && songData.response && songData.response.song) || {};
       var about = song.description_preview || undefined;
@@ -108,11 +111,13 @@ function activate(api) {
         }
       }
 
-      return {
+      var result = {
         overview: about,
         annotations: annotations,
         _meta: { url: url, providerName: "Genius" },
       };
+      if (lyricsText) result.lyrics = lyricsText;
+      return result;
     });
   }
 

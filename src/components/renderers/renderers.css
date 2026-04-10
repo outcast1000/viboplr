@@ -85,3 +85,11 @@
 .renderer-annotations .annotations-item { border-left: 3px solid rgba(var(--accent-rgb), 0.4); padding-left: 10px; }
 .renderer-annotations .annotations-fragment { font-size: var(--fs-sm); color: var(--text-primary); font-style: italic; line-height: 1.4; margin-bottom: 4px; }
 .renderer-annotations .annotations-explanation { font-size: var(--fs-xs); color: var(--text-secondary); line-height: 1.5; }
+
+.renderer-annotations .annotations-lyrics-body { max-height: 400px; overflow-y: auto; }
+.renderer-annotations .annotations-lyrics-blank { height: 12px; }
+.renderer-annotations .annotations-lyrics-line { font-size: var(--fs-sm); line-height: 1.6; padding: 1px 4px; border-radius: 3px; }
+.renderer-annotations .annotations-lyrics-line.annotated { color: var(--accent); cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+.renderer-annotations .annotations-lyrics-line.annotated:hover { background: rgba(var(--accent-rgb), 0.1); }
+.renderer-annotations .annotations-lyrics-line.annotated.expanded { background: rgba(var(--accent-rgb), 0.1); }
+.renderer-annotations .annotations-inline-explanation { font-size: var(--fs-xs); color: var(--text-secondary); line-height: 1.5; border-left: 3px solid rgba(var(--accent-rgb), 0.4); padding: 4px 0 4px 10px; margin: 2px 0 6px 4px; }

@@ -155,6 +155,7 @@ export interface AnnotatedTextData {
 export interface AnnotationsData {
   overview?: string;
   annotations: Array<{ fragment: string; explanation: string }>;
+  lyrics?: string;
 }
 
 export interface KeyValueData {
