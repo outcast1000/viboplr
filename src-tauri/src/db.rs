@@ -350,6 +350,15 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_info_values_entity ON information_values(entity_key);
 
+            CREATE TABLE IF NOT EXISTS image_providers (
+                id          INTEGER PRIMARY KEY,
+                plugin_id   TEXT NOT NULL,
+                entity      TEXT NOT NULL CHECK(entity IN ('artist', 'album')),
+                priority    INTEGER NOT NULL DEFAULT 500,
+                active      INTEGER NOT NULL DEFAULT 1,
+                UNIQUE (plugin_id, entity)
+            );
+
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
@@ -679,6 +688,21 @@ impl Database {
                 "DROP TABLE IF EXISTS lyrics;"
             )?;
             conn.execute("UPDATE db_version SET version = 21 WHERE rowid = 1", [])?;
+            migrated = true;
+        }
+
+        if version < 22 {
+            conn.execute_batch("
+                CREATE TABLE IF NOT EXISTS image_providers (
+                    id          INTEGER PRIMARY KEY,
+                    plugin_id   TEXT NOT NULL,
+                    entity      TEXT NOT NULL CHECK(entity IN ('artist', 'album')),
+                    priority    INTEGER NOT NULL DEFAULT 500,
+                    active      INTEGER NOT NULL DEFAULT 1,
+                    UNIQUE (plugin_id, entity)
+                );
+            ")?;
+            conn.execute("UPDATE db_version SET version = 22 WHERE rowid = 1", [])?;
             migrated = true;
         }
 
@@ -2448,7 +2472,6 @@ impl Database {
                            display_kind = excluded.display_kind,
                            ttl = excluded.ttl,
                            sort_order = excluded.sort_order,
-                           priority = excluded.priority,
                            active = 1"
         )?;
         for t in types {
@@ -2578,6 +2601,180 @@ impl Database {
             "DELETE FROM information_values WHERE entity_key = ?1",
             [entity_key],
         )?;
+        Ok(())
+    }
+
+    // ── Image Providers ─────────────────────────────────────────
+
+    /// Sync the image_providers table from plugin manifests.
+    /// Takes vec of (plugin_id, entity, priority).
+    /// Deactivates all rows, upserts current providers (preserving user-customized priorities),
+    /// reactivates current providers, then deletes orphaned rows.
+    pub fn sync_image_providers(&self, providers: &[(String, String, i64)]) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch("BEGIN")?;
+        // Deactivate all
+        conn.execute("UPDATE image_providers SET active = 0", [])?;
+        // Insert new providers (OR IGNORE preserves existing rows with user-customized priorities)
+        {
+            let mut insert_stmt = conn.prepare(
+                "INSERT OR IGNORE INTO image_providers (plugin_id, entity, priority) VALUES (?1, ?2, ?3)"
+            )?;
+            for p in providers {
+                insert_stmt.execute(rusqlite::params![p.0, p.1, p.2])?;
+            }
+        }
+        // Reactivate current providers
+        {
+            let mut activate_stmt = conn.prepare(
+                "UPDATE image_providers SET active = 1 WHERE plugin_id = ?1 AND entity = ?2"
+            )?;
+            for p in providers {
+                activate_stmt.execute(rusqlite::params![p.0, p.1])?;
+            }
+        }
+        // Delete orphaned rows (plugin_id not in the provided set)
+        if providers.is_empty() {
+            conn.execute("DELETE FROM image_providers", [])?;
+        } else {
+            let placeholders: Vec<String> = providers.iter().map(|_| "?".to_string()).collect();
+            let sql = format!(
+                "DELETE FROM image_providers WHERE plugin_id NOT IN ({})",
+                placeholders.join(", ")
+            );
+            let params: Vec<&dyn rusqlite::types::ToSql> = providers.iter().map(|p| &p.0 as &dyn rusqlite::types::ToSql).collect();
+            conn.execute(&sql, params.as_slice())?;
+        }
+        conn.execute_batch("COMMIT")?;
+        Ok(())
+    }
+
+    /// Get active image providers for an entity, ordered by priority ASC.
+    /// Returns vec of (plugin_id, priority, id).
+    pub fn get_image_providers(&self, entity: &str) -> SqlResult<Vec<(String, i64, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT plugin_id, priority, id FROM image_providers
+             WHERE entity = ?1 AND active = 1
+             ORDER BY priority ASC"
+        )?;
+        let rows = stmt.query_map([entity], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?.collect::<SqlResult<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Get all provider configuration for the Settings UI.
+    /// Returns (info_types, image_providers) where:
+    /// - info_types: vec of (type_id, name, entity, display_kind, sort_order, plugin_id, priority, active)
+    /// - image_providers: vec of (plugin_id, entity, priority, active, id)
+    pub fn get_all_provider_config(&self) -> SqlResult<(
+        Vec<(String, String, String, String, i64, String, i64, bool)>,
+        Vec<(String, String, i64, bool, i64)>,
+    )> {
+        let conn = self.conn.lock().unwrap();
+
+        // All info types
+        let mut info_stmt = conn.prepare(
+            "SELECT type_id, name, entity, display_kind, sort_order, plugin_id, priority, active
+             FROM information_types
+             ORDER BY entity, sort_order, type_id, priority ASC"
+        )?;
+        let info_types = info_stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, bool>(7)?,
+            ))
+        })?.collect::<SqlResult<Vec<_>>>()?;
+
+        // All image providers
+        let mut img_stmt = conn.prepare(
+            "SELECT plugin_id, entity, priority, active, id
+             FROM image_providers
+             ORDER BY entity, priority ASC"
+        )?;
+        let image_providers = img_stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, bool>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })?.collect::<SqlResult<Vec<_>>>()?;
+
+        Ok((info_types, image_providers))
+    }
+
+    /// Update the priority of an image provider.
+    pub fn update_image_provider_priority(&self, plugin_id: &str, entity: &str, priority: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE image_providers SET priority = ?1 WHERE plugin_id = ?2 AND entity = ?3",
+            rusqlite::params![priority, plugin_id, entity],
+        )?;
+        Ok(())
+    }
+
+    /// Update the active state of an image provider.
+    pub fn update_image_provider_active(&self, plugin_id: &str, entity: &str, active: bool) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE image_providers SET active = ?1 WHERE plugin_id = ?2 AND entity = ?3",
+            rusqlite::params![active, plugin_id, entity],
+        )?;
+        Ok(())
+    }
+
+    /// Update the priority of an information type provider.
+    pub fn update_info_type_priority(&self, type_id: &str, plugin_id: &str, priority: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE information_types SET priority = ?1 WHERE type_id = ?2 AND plugin_id = ?3",
+            rusqlite::params![priority, type_id, plugin_id],
+        )?;
+        Ok(())
+    }
+
+    /// Update the active state of an information type provider.
+    pub fn update_info_type_active(&self, type_id: &str, plugin_id: &str, active: bool) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE information_types SET active = ?1 WHERE type_id = ?2 AND plugin_id = ?3",
+            rusqlite::params![active, type_id, plugin_id],
+        )?;
+        Ok(())
+    }
+
+    /// Reset provider priorities to defaults.
+    /// image_defaults: vec of (plugin_id, entity, default_priority) for image_providers.
+    /// info_defaults: vec of (type_id, plugin_id, default_priority) for information_types.
+    pub fn reset_provider_priorities(&self, image_defaults: &[(String, String, i64)], info_defaults: &[(String, String, i64)]) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch("BEGIN")?;
+        {
+            let mut stmt = conn.prepare(
+                "UPDATE image_providers SET priority = ?1 WHERE plugin_id = ?2 AND entity = ?3"
+            )?;
+            for d in image_defaults {
+                stmt.execute(rusqlite::params![d.2, d.0, d.1])?;
+            }
+        }
+        {
+            let mut stmt = conn.prepare(
+                "UPDATE information_types SET priority = ?1 WHERE type_id = ?2 AND plugin_id = ?3"
+            )?;
+            for d in info_defaults {
+                stmt.execute(rusqlite::params![d.2, d.0, d.1])?;
+            }
+        }
+        conn.execute_batch("COMMIT")?;
         Ok(())
     }
 }
