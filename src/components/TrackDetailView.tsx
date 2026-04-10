@@ -178,6 +178,8 @@ interface TrackDetailViewProps {
   onPlayNext: () => void;
   onShowInFolder: () => void;
   onPlayTrack: (track: Track) => void;
+  onToggleLike: () => void;
+  onToggleHate: () => void;
   collections: Collection[];
   providers: SearchProviderConfig[];
   addLog: (msg: string) => void;
@@ -191,6 +193,7 @@ export function TrackDetailView({
   positionSecs, isCurrentTrack,
   onArtistClick, onAlbumClick, onTagClick,
   onPlay, onEnqueue, onPlayNext, onShowInFolder, onPlayTrack,
+  onToggleLike, onToggleHate,
   collections: _collections, providers, addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
 }: TrackDetailViewProps) {
   const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
@@ -340,11 +343,22 @@ export function TrackDetailView({
             <h2>
               {track.title}
               <button className="artist-play-btn" title="Play" onClick={onPlay}>&#9654;</button>
-              {track.youtube_url && (
-                <button className="artist-play-btn youtube-btn" title="Watch on YouTube" onClick={() => openUrl(track.youtube_url!)}>
-                  <IconYoutube size={16} />
-                </button>
-              )}
+              <button
+                className={`detail-love-btn${track.liked === 1 ? " liked" : ""}`}
+                title={track.liked === 1 ? "Unlike" : "Love"}
+                onClick={onToggleLike}
+              >
+                {track.liked === 1
+                  ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                  : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>}
+              </button>
+              <button
+                className={`detail-hate-btn${track.liked === -1 ? " hated" : ""}`}
+                title={track.liked === -1 ? "Remove hate" : "Hate"}
+                onClick={onToggleHate}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
+              </button>
               <TrackActions
                 track={track}
                 providers={providers}
@@ -381,6 +395,32 @@ export function TrackDetailView({
                 )}
               </div>
             )}
+            <div className="track-detail-youtube-row">
+              {track.youtube_url ? (
+                <>
+                  <IconYoutube size={13} />
+                  <a className="track-detail-youtube-link" onClick={() => openUrl(track.youtube_url!)}>{track.youtube_url}</a>
+                  <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit(track.youtube_url ?? "")}>Edit</button>
+                </>
+              ) : (
+                <>
+                  <IconYoutube size={13} />
+                  <button className="track-detail-youtube-action" onClick={async () => {
+                    try {
+                      const result = await invoke<{ url: string; video_title: string | null }>(
+                        "search_youtube", { title: track.title, artistName: track.artist_name }
+                      );
+                      await openUrl(result.url);
+                      setYoutubeFeedback({ url: result.url, videoTitle: result.video_title ?? track.title });
+                    } catch {
+                      const q = encodeURIComponent(`${track.title} ${track.artist_name ?? ""}`);
+                      await openUrl(`https://www.youtube.com/results?search_query=${q}`);
+                    }
+                  }}>Find in YouTube</button>
+                  <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit("")}>Set YouTube URL</button>
+                </>
+              )}
+            </div>
             {editingTags ? (
               <div className="track-tags-edit">
                 <span className="track-detail-label">Tags</span>

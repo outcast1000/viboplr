@@ -402,7 +402,7 @@ export function TrackList({
                   onToggleDislike(t);
                 }}
                 onAnimationEnd={(e) => (e.currentTarget as HTMLElement).classList.remove("anim-heart-bounce-subtle")}
-                title={t.liked === -1 ? "Remove dislike" : "Dislike"}
+                title={t.liked === -1 ? "Remove hate" : "Hate"}
               >
                 {t.liked === -1 ? "\u2716" : "\u2298"}
               </span>

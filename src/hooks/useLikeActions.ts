@@ -77,6 +77,18 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     }
   }
 
+  async function handleToggleArtistHate(artistId: number) {
+    const artist = library.artists.find(a => a.id === artistId);
+    if (!artist) return;
+    const newLiked = artist.liked === -1 ? 0 : -1;
+    try {
+      await invoke("toggle_liked", { kind: "artist", id: artistId, liked: newLiked });
+      library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked: newLiked } : a));
+    } catch (e) {
+      console.error("Failed to toggle artist hate:", e);
+    }
+  }
+
   async function handleToggleAlbumLike(albumId: number) {
     const album = library.albums.find(a => a.id === albumId);
     if (!album) return;
@@ -86,6 +98,18 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
       library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: newLiked } : a));
     } catch (e) {
       console.error("Failed to toggle album like:", e);
+    }
+  }
+
+  async function handleToggleAlbumHate(albumId: number) {
+    const album = library.albums.find(a => a.id === albumId);
+    if (!album) return;
+    const newLiked = album.liked === -1 ? 0 : -1;
+    try {
+      await invoke("toggle_liked", { kind: "album", id: albumId, liked: newLiked });
+      library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: newLiked } : a));
+    } catch (e) {
+      console.error("Failed to toggle album hate:", e);
     }
   }
 
@@ -101,11 +125,26 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     }
   }
 
+  async function handleToggleTagHate(tagId: number) {
+    const tag = library.tags.find(t => t.id === tagId);
+    if (!tag) return;
+    const newLiked = tag.liked === -1 ? 0 : -1;
+    try {
+      await invoke("toggle_liked", { kind: "tag", id: tagId, liked: newLiked });
+      library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked: newLiked } : t));
+    } catch (e) {
+      console.error("Failed to toggle tag hate:", e);
+    }
+  }
+
   return {
     handleToggleLike,
     handleToggleDislike,
     handleToggleArtistLike,
+    handleToggleArtistHate,
     handleToggleAlbumLike,
+    handleToggleAlbumHate,
     handleToggleTagLike,
+    handleToggleTagHate,
   };
 }

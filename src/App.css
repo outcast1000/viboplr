@@ -1150,6 +1150,37 @@
   color: var(--error);
 }
 
+.detail-love-btn,
+.detail-hate-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+  vertical-align: middle;
+}
+
+.detail-love-btn:hover {
+  color: var(--accent);
+}
+
+.detail-love-btn.liked {
+  color: var(--accent);
+}
+
+.detail-hate-btn:hover {
+  color: var(--accent);
+}
+
+.detail-hate-btn.hated {
+  color: var(--accent);
+}
+
 
 /* Modal */
 .modal-overlay {

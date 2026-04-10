@@ -848,3 +848,43 @@
   word-break: break-all;
   min-width: 0;
 }
+
+/* YouTube row in track detail */
+.track-detail-youtube-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+.track-detail-youtube-link {
+  color: var(--text-secondary);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}
+
+.track-detail-youtube-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.track-detail-youtube-action {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: var(--fs-2xs);
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.track-detail-youtube-action:hover {
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
