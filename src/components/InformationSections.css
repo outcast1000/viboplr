@@ -62,6 +62,12 @@
   color: var(--accent);
 }
 
+.info-section-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .info-section-skeleton {
   height: 40px;
   background: var(--bg-secondary);
@@ -170,4 +176,49 @@
 
 .info-sections-refresh:hover {
   opacity: 0.8;
+}
+
+/* ── Fetch progress log ── */
+
+.info-section-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-2xs);
+  font-family: monospace;
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.info-progress-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.info-progress-provider {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.info-progress-url {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.6;
+}
+
+.info-progress-status {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.info-progress-entry.ok .info-progress-status {
+  color: var(--accent);
+}
+
+.info-progress-entry.fail .info-progress-status {
+  opacity: 0.4;
 }

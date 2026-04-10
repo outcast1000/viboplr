@@ -182,7 +182,8 @@ interface TrackDetailViewProps {
   providers: SearchProviderConfig[];
   addLog: (msg: string) => void;
   onUpdateTrack: (update: Partial<Track>) => void;
-  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity) => Promise<InfoFetchResult>;
+  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
+  pluginNames?: Map<string, string>;
 }
 
 export function TrackDetailView({
@@ -190,7 +191,7 @@ export function TrackDetailView({
   positionSecs, isCurrentTrack,
   onArtistClick, onAlbumClick, onTagClick,
   onPlay, onEnqueue, onPlayNext, onShowInFolder, onPlayTrack,
-  collections: _collections, providers, addLog, onUpdateTrack, invokeInfoFetch,
+  collections: _collections, providers, addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
 }: TrackDetailViewProps) {
   const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
   const [communityTags, setCommunityTags] = useState<Array<{ name: string; count?: number }>>([]);
@@ -420,6 +421,7 @@ export function TrackDetailView({
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
           exclude={["track_tags"]}
           invokeInfoFetch={invokeInfoFetch}
+          pluginNames={pluginNames}
           positionSecs={isCurrentTrack ? positionSecs : 0}
           onEntityClick={(kind, id) => {
             if (kind === "artist" && id) onArtistClick(id);
@@ -435,6 +437,7 @@ export function TrackDetailView({
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
           exclude={["track_tags"]}
           invokeInfoFetch={invokeInfoFetch}
+          pluginNames={pluginNames}
           positionSecs={isCurrentTrack ? positionSecs : 0}
           customTabs={[
             {

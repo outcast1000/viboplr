@@ -20,7 +20,8 @@ interface AlbumDetailHeaderProps {
   onImageRemoved: (id: number) => void;
   onRetrieveImage: () => void;
   onRetrieveInfo: () => void;
-  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity) => Promise<InfoFetchResult>;
+  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
+  pluginNames?: Map<string, string>;
 }
 
 export function AlbumDetailHeader({
@@ -37,6 +38,7 @@ export function AlbumDetailHeader({
   onRetrieveImage,
   onRetrieveInfo,
   invokeInfoFetch,
+  pluginNames,
 }: AlbumDetailHeaderProps) {
   const albumProviders = getProvidersForContext(searchProviders, "album");
 
@@ -112,6 +114,7 @@ export function AlbumDetailHeader({
           entity={albumEntity}
           exclude={[]}
           invokeInfoFetch={invokeInfoFetch}
+          pluginNames={pluginNames}
           onAction={handleInfoAction}
         />
       </div>
@@ -121,6 +124,7 @@ export function AlbumDetailHeader({
           entity={albumEntity}
           exclude={[]}
           invokeInfoFetch={invokeInfoFetch}
+          pluginNames={pluginNames}
           onAction={handleInfoAction}
         />
       </div>

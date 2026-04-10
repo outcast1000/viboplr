@@ -70,6 +70,13 @@ export interface CachedInfoValue {
   fetchedAt: number;
 }
 
+/** Progress entry during fetch chain */
+export interface FetchProgressEntry {
+  provider: string;
+  url?: string;
+  status?: "fetching" | "ok" | "not_found" | "error";
+}
+
 /** Resolved section state for rendering */
 export interface InfoSection {
   typeId: string;
@@ -77,7 +84,7 @@ export interface InfoSection {
   displayKind: DisplayKind;
   state:
     | { kind: "loaded"; data: unknown; stale: boolean }
-    | { kind: "loading" }
+    | { kind: "loading"; progress?: FetchProgressEntry[] }
     | { kind: "empty" };
 }
 

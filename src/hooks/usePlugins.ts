@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
@@ -104,6 +104,7 @@ export function usePlugins(
   const hostCallbacksRef = useRef(hostCallbacks);
   hostCallbacksRef.current = hostCallbacks;
 
+  const fetchUrlCallbackRef = useRef<((url: string) => void) | null>(null);
   const loadedPluginsRef = useRef<Map<string, LoadedPlugin>>(new Map());
   const eventHandlersRef = useRef<EventHandlers>({
     "track:started": [],
@@ -275,6 +276,7 @@ export function usePlugins(
 
         network: {
           async fetch(url, init) {
+            fetchUrlCallbackRef.current?.(url);
             const resp = await invoke<{ status: number; body: string }>(
               "plugin_fetch",
               {
@@ -863,12 +865,23 @@ export function usePlugins(
   }, []);
 
   const invokeInfoFetch = useCallback(
-    async (pluginId: string, infoTypeId: string, entity: InfoEntity): Promise<InfoFetchResult> => {
+    async (
+      pluginId: string,
+      infoTypeId: string,
+      entity: InfoEntity,
+      onFetchUrl?: (url: string) => void,
+    ): Promise<InfoFetchResult> => {
       const loaded = loadedPluginsRef.current.get(pluginId);
       if (!loaded) return { status: "error" };
       const handler = loaded.infoFetchHandlers.get(infoTypeId);
       if (!handler) return { status: "error" };
-      return handler(entity);
+      const prev = fetchUrlCallbackRef.current;
+      fetchUrlCallbackRef.current = onFetchUrl ?? null;
+      try {
+        return await handler(entity);
+      } finally {
+        fetchUrlCallbackRef.current = prev;
+      }
     },
     [],
   );
@@ -889,8 +902,14 @@ export function usePlugins(
     [],
   );
 
+  const pluginNames = useMemo(
+    () => new Map(pluginStates.map((s) => [s.id, s.manifest.name])),
+    [pluginStates],
+  );
+
   return {
     pluginStates,
+    pluginNames,
     sidebarItems,
     menuItems,
     settingsPanels,

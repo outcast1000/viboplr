@@ -45,7 +45,8 @@ interface ArtistDetailContentProps {
   onAlbumContextMenu: (e: React.MouseEvent, albumId: number) => void;
   searchProviders: SearchProviderConfig[];
   artists: Artist[];
-  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity) => Promise<InfoFetchResult>;
+  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
+  pluginNames?: Map<string, string>;
 }
 
 export function ArtistDetailContent({
@@ -83,6 +84,7 @@ export function ArtistDetailContent({
   searchProviders,
   artists,
   invokeInfoFetch,
+  pluginNames,
 }: ArtistDetailContentProps) {
   const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(ARTIST_DETAIL_COLUMNS);
 
@@ -169,6 +171,7 @@ export function ArtistDetailContent({
             entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
             exclude={["artist_stats"]}
             invokeInfoFetch={invokeInfoFetch}
+            pluginNames={pluginNames}
             onEntityClick={(kind, id) => {
               if (kind === "artist" && id) onArtistClick(id);
               if (kind === "album" && id) onAlbumClick(id);
@@ -209,6 +212,7 @@ export function ArtistDetailContent({
             ),
           }] : undefined}
           invokeInfoFetch={invokeInfoFetch}
+          pluginNames={pluginNames}
           onEntityClick={(kind, id) => {
             if (kind === "artist" && id) onArtistClick(id);
             if (kind === "album" && id) onAlbumClick(id);

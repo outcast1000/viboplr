@@ -5,6 +5,7 @@ import type {
   InfoSection,
   DisplayKind,
   InfoFetchResult,
+  FetchProgressEntry,
 } from "../types/informationTypes";
 import { buildEntityKey } from "../types/informationTypes";
 
@@ -35,7 +36,10 @@ interface UseInformationTypesOpts {
     pluginId: string,
     infoTypeId: string,
     entity: InfoEntity,
+    onFetchUrl?: (url: string) => void,
   ) => Promise<InfoFetchResult>;
+  /** Map from pluginId → display name, used for progress reporting */
+  pluginNames?: Map<string, string>;
 }
 
 // Backend returns: [type_id, name, display_kind, ttl, sort_order, providers: [plugin_id, integer_id][]]
@@ -47,6 +51,7 @@ export function useInformationTypes({
   entity,
   exclude,
   invokeInfoFetch,
+  pluginNames,
 }: UseInformationTypesOpts) {
   const [sections, setSections] = useState<InfoSection[]>([]);
   const inFlightRef = useRef<Set<string>>(new Set());
@@ -155,13 +160,37 @@ export function useInformationTypes({
 
       (async () => {
         let usedIntegerId = providers[0]?.[1] ?? 0;
+        const progress: FetchProgressEntry[] = [];
+
+        const updateProgress = () => {
+          if (!mountedRef.current || entityKeyRef.current !== entityKey) return;
+          setSections((prev) => {
+            const next = [...prev];
+            const existing = next.find((s) => s.typeId === typeId);
+            if (existing && existing.state.kind === "loading") {
+              existing.state = { kind: "loading", progress: [...progress] };
+            }
+            return next;
+          });
+        };
+
         try {
           let result: InfoFetchResult = { status: "error" };
 
           // Try providers in priority order (fallback chain)
           for (const [pluginId, integerId] of providers) {
-            result = await invokeInfoFetch(pluginId, typeId, entity);
+            const providerName = pluginNames?.get(pluginId) ?? pluginId;
+            const entry: FetchProgressEntry = { provider: providerName, status: "fetching" };
+            progress.push(entry);
+            updateProgress();
+
+            result = await invokeInfoFetch(pluginId, typeId, entity, (url) => {
+              entry.url = url;
+              updateProgress();
+            });
             usedIntegerId = integerId;
+            entry.status = result.status === "ok" ? "ok" : result.status === "not_found" ? "not_found" : "error";
+            updateProgress();
             if (result.status === "ok") break;
           }
 

@@ -1566,6 +1566,7 @@ function App() {
                 addLog={addLog}
                 onUpdateTrack={(update) => library.setTracks(prev => prev.map(t => t.id === library.selectedTrack ? { ...t, ...update } : t))}
                 invokeInfoFetch={plugins.invokeInfoFetch}
+                pluginNames={plugins.pluginNames}
               />
             );
           })()}
@@ -1637,6 +1638,7 @@ function App() {
                 searchProviders={searchProviders}
                 artists={artists}
                 invokeInfoFetch={plugins.invokeInfoFetch}
+                pluginNames={plugins.pluginNames}
               />
             );
           })()}
@@ -1748,6 +1750,7 @@ function App() {
                   artistInfo.refreshInfo();
                 }}
                 invokeInfoFetch={plugins.invokeInfoFetch}
+                pluginNames={plugins.pluginNames}
               />
             );
           })()}

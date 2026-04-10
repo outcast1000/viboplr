@@ -25,7 +25,9 @@ interface InformationSectionsProps {
     pluginId: string,
     infoTypeId: string,
     entity: InfoEntity,
+    onFetchUrl?: (url: string) => void,
   ) => Promise<import("../types/informationTypes").InfoFetchResult>;
+  pluginNames?: Map<string, string>;
   onEntityClick?: (kind: string, id?: number, name?: string) => void;
   onAction?: (actionId: string, payload?: unknown) => void;
   resolveEntity?: (kind: string, name: string) => { id?: number; imageSrc?: string } | undefined;
@@ -42,11 +44,12 @@ export function InformationSections({
   customTabs,
   positionSecs,
   invokeInfoFetch,
+  pluginNames,
   onEntityClick,
   onAction,
   resolveEntity,
 }: InformationSectionsProps) {
-  const { sections, refresh, reloadCache } = useInformationTypes({ entity, exclude, invokeInfoFetch });
+  const { sections, refresh, reloadCache } = useInformationTypes({ entity, exclude, invokeInfoFetch, pluginNames });
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -195,7 +198,23 @@ export function InformationSections({
               const s = activeEntry.section;
               const Renderer = renderers[s.displayKind];
               return s.state.kind === "loading" ? (
-                <div className="info-section-skeleton" />
+                <div className="info-section-loading">
+                  <div className="info-section-skeleton" />
+                  {s.state.progress && s.state.progress.length > 0 && (
+                    <div className="info-section-progress">
+                      {s.state.progress.map((p, i) => (
+                        <div key={i} className={`info-progress-entry${p.status === "ok" ? " ok" : p.status === "not_found" || p.status === "error" ? " fail" : ""}`}>
+                          <span className="info-progress-provider">{p.provider}</span>
+                          {p.url && <span className="info-progress-url">{p.url}</span>}
+                          {p.status === "fetching" && <span className="info-progress-status">...</span>}
+                          {p.status === "ok" && <span className="info-progress-status">found</span>}
+                          {p.status === "not_found" && <span className="info-progress-status">not found</span>}
+                          {p.status === "error" && <span className="info-progress-status">error</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ) : s.state.kind === "loaded" && s.state.data && Renderer ? (
                 <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={handleAction} resolveEntity={resolveEntity} context={positionSecs != null ? { positionSecs } : undefined} />
               ) : s.state.kind === "empty" ? (
