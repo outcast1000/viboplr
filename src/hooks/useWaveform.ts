@@ -5,7 +5,7 @@ const MAX_BUCKETS = 400;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 export function useWaveform(
-  trackId: number | null,
+  trackPath: string | null,
   fileSize: number | null,
   isRemote: boolean,
   isVideo: boolean,
@@ -17,7 +17,7 @@ export function useWaveform(
   useEffect(() => {
     setPeaks(null);
 
-    if (!trackId) return;
+    if (!trackPath) return;
     if (isRemote) return;
     if (isVideo) return;
     if (fileSize && fileSize > MAX_FILE_SIZE) return;
@@ -30,7 +30,7 @@ export function useWaveform(
     (async () => {
       // Check cache first
       try {
-        const cached = await invoke<number[] | null>("get_cached_waveform", { trackId });
+        const cached = await invoke<number[] | null>("get_cached_waveform", { path: trackPath });
         if (cancelled) return;
         if (cached && cached.length > 0) {
           setPeaks(cached);
@@ -86,7 +86,7 @@ export function useWaveform(
         setPeaks(result);
 
         // Cache for next time (fire-and-forget)
-        invoke("cache_waveform", { trackId, peaks: result }).catch(() => {});
+        invoke("cache_waveform", { path: trackPath, peaks: result }).catch(() => {});
       } catch (e) {
         if (!cancelled) {
           console.debug("Waveform analysis failed:", e);
@@ -98,7 +98,7 @@ export function useWaveform(
       cancelled = true;
       controller.abort();
     };
-  }, [trackId, fileSize, isRemote, isVideo, assetUrl]);
+  }, [trackPath, fileSize, isRemote, isVideo, assetUrl]);
 
   return peaks;
 }

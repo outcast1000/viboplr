@@ -111,7 +111,7 @@ function App() {
   });
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef);
   const waveformPeaks = useWaveform(
-    playback.currentTrack?.id ?? null,
+    playback.currentTrack?.path ?? null,
     playback.currentTrack?.file_size ?? null,
     playback.currentTrack ? playback.currentTrack.path.startsWith("subsonic://") || playback.currentTrack.path.startsWith("tidal://") : false,
     playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
