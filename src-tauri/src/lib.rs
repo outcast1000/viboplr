@@ -16,7 +16,7 @@ mod sync;
 mod tag_writer;
 mod timing;
 mod downloader;
-use commands::{AppState, DownloadQueue, ImageDownloadRequest};
+use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry};
 use db::Database;
 use downloader::DownloadManager;
 use image_provider::{
@@ -133,6 +133,14 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::info_upsert_value,
         commands::info_delete_value,
         commands::info_delete_values_for_type,
+        commands::get_image_providers,
+        commands::get_all_provider_config,
+        commands::update_image_provider_priority,
+        commands::update_image_provider_active,
+        commands::update_info_type_priority,
+        commands::update_info_type_active,
+        commands::reset_provider_priorities,
+        commands::image_resolve_response,
         commands::plugin_fetch,
         commands::fetch_plugin_gallery,
         commands::install_gallery_plugin,
@@ -250,6 +258,14 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::info_upsert_value,
         commands::info_delete_value,
         commands::info_delete_values_for_type,
+        commands::get_image_providers,
+        commands::get_all_provider_config,
+        commands::update_image_provider_priority,
+        commands::update_image_provider_active,
+        commands::update_info_type_priority,
+        commands::update_info_type_active,
+        commands::reset_provider_priorities,
+        commands::image_resolve_response,
         commands::plugin_fetch,
         commands::fetch_plugin_gallery,
         commands::install_gallery_plugin,
@@ -857,6 +873,9 @@ pub fn run() {
                     track_download_manager: dl_manager,
                     tidal_client,
                     native_plugins_dir,
+                    image_resolve_registry: Arc::new(ImageResolveRegistry {
+                        pending: Mutex::new(std::collections::HashMap::new()),
+                    }),
                 });
             });
 

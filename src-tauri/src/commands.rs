@@ -1,5 +1,5 @@
 use serde::{Serialize, Deserialize};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -34,6 +34,20 @@ pub struct DownloadQueue {
     pub condvar: Condvar,
 }
 
+/// Result sent back from frontend after resolving an image URL via plugins
+#[derive(Debug, Clone, Deserialize)]
+pub struct ImageResolveResult {
+    pub url: Option<String>,
+    pub headers: Option<std::collections::HashMap<String, String>>,
+    pub data: Option<String>,  // base64 encoded image bytes
+    pub error: Option<String>,
+}
+
+/// Registry for pending image resolve requests (Rust worker -> frontend bridge)
+pub struct ImageResolveRegistry {
+    pub pending: Mutex<std::collections::HashMap<String, mpsc::Sender<ImageResolveResult>>>,
+}
+
 pub struct AppState {
     pub db: Arc<Database>,
     pub app_dir: std::path::PathBuf,
@@ -43,6 +57,7 @@ pub struct AppState {
     pub track_download_manager: Arc<DownloadManager>,
     pub tidal_client: Arc<TidalClient>,
     pub native_plugins_dir: Option<std::path::PathBuf>,
+    pub image_resolve_registry: Arc<ImageResolveRegistry>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2163,6 +2178,94 @@ pub fn info_delete_values_for_type(
     state.db.info_delete_values_for_type(&type_id).map_err(|e| e.to_string())
 }
 
+// ── Image / Info provider commands ─────────────────────────────
+
+#[tauri::command]
+pub fn get_image_providers(
+    state: State<'_, AppState>,
+    entity: String,
+) -> Result<Vec<(String, i64, i64)>, String> {
+    state.db.get_image_providers(&entity).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_all_provider_config(
+    state: State<'_, AppState>,
+) -> Result<(
+    Vec<(String, String, String, String, i64, String, i64, bool)>,
+    Vec<(String, String, i64, bool, i64)>,
+), String> {
+    state.db.get_all_provider_config().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_image_provider_priority(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    entity: String,
+    priority: i64,
+) -> Result<(), String> {
+    state.db.update_image_provider_priority(&plugin_id, &entity, priority).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_image_provider_active(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    entity: String,
+    active: bool,
+) -> Result<(), String> {
+    state.db.update_image_provider_active(&plugin_id, &entity, active).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_info_type_priority(
+    state: State<'_, AppState>,
+    type_id: String,
+    plugin_id: String,
+    priority: i64,
+) -> Result<(), String> {
+    state.db.update_info_type_priority(&type_id, &plugin_id, priority).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_info_type_active(
+    state: State<'_, AppState>,
+    type_id: String,
+    plugin_id: String,
+    active: bool,
+) -> Result<(), String> {
+    state.db.update_info_type_active(&type_id, &plugin_id, active).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reset_provider_priorities(
+    state: State<'_, AppState>,
+    image_defaults: Vec<(String, String, i64)>,
+    info_defaults: Vec<(String, String, i64)>,
+) -> Result<(), String> {
+    state.db.reset_provider_priorities(&image_defaults, &info_defaults).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn image_resolve_response(
+    state: State<'_, AppState>,
+    request_id: String,
+    result: ImageResolveResult,
+) -> Result<(), String> {
+    let sender = {
+        let mut pending = state.image_resolve_registry.pending.lock().unwrap();
+        pending.remove(&request_id)
+    };
+    match sender {
+        Some(tx) => {
+            let _ = tx.send(result);
+            Ok(())
+        }
+        None => Err(format!("No pending image resolve request with id: {}", request_id)),
+    }
+}
+
 #[tauri::command]
 pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>) -> Result<serde_json::Value, String> {
     let client = reqwest::Client::new();
@@ -2286,6 +2389,9 @@ mod tests {
             track_download_manager: Arc::new(DownloadManager::new()),
             tidal_client: Arc::new(TidalClient::new(None)),
             native_plugins_dir: None,
+            image_resolve_registry: Arc::new(ImageResolveRegistry {
+                pending: Mutex::new(std::collections::HashMap::new()),
+            }),
         }
     }
 
