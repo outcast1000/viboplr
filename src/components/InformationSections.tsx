@@ -28,6 +28,8 @@ interface InformationSectionsProps {
     onFetchUrl?: (url: string) => void,
   ) => Promise<import("../types/informationTypes").InfoFetchResult>;
   pluginNames?: Map<string, string>;
+  /** Preferred tab order — tab IDs listed here appear first in this order, rest follow */
+  tabOrder?: string[];
   onEntityClick?: (kind: string, id?: number, name?: string) => void;
   onAction?: (actionId: string, payload?: unknown) => void;
   resolveEntity?: (kind: string, name: string) => { id?: number; imageSrc?: string } | undefined;
@@ -45,6 +47,7 @@ export function InformationSections({
   positionSecs,
   invokeInfoFetch,
   pluginNames,
+  tabOrder,
   onEntityClick,
   onAction,
   resolveEntity,
@@ -138,6 +141,21 @@ export function InformationSections({
     ...(customTabs ?? []).map(ct => ({ kind: "custom" as const, id: ct.id, name: ct.name, content: ct.content })),
     ...filtered.map(s => ({ kind: "plugin" as const, typeId: s.typeId, name: s.name, section: s })),
   ];
+
+  // Apply preferred tab ordering if specified
+  if (tabOrder && tabOrder.length > 0) {
+    tabs.sort((a, b) => {
+      const aId = a.kind === "custom" ? a.id : a.typeId;
+      const bId = b.kind === "custom" ? b.id : b.typeId;
+      const aIdx = tabOrder.indexOf(aId);
+      const bIdx = tabOrder.indexOf(bId);
+      // Tabs in tabOrder come first; among them, preserve tabOrder order; rest keep original order
+      if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
+      if (aIdx >= 0) return -1;
+      if (bIdx >= 0) return 1;
+      return 0;
+    });
+  }
 
   if (!tabs.length) return null;
 
