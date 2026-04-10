@@ -19,9 +19,9 @@ function activate(api) {
   function searchArtist(name) {
     var url = BASE_SEARCH + encodeURIComponent(name);
     return allMusicFetch(url).then(function (html) {
-      var match = html.match(/href="\/artist\/([^"]*-(mn\d{10}))"/);
+      var match = html.match(/href="\/artist\/([^"]*-mn\d{10})"/);
       if (!match) return null;
-      return { id: match[2], url: BASE_ARTIST + match[1] };
+      return { url: BASE_ARTIST + match[1] };
     });
   }
 
@@ -41,8 +41,8 @@ function activate(api) {
 
   // --- Bio fetcher ---
 
-  function getArtistBio(artistId, artistUrl) {
-    var url = BASE_ARTIST + artistId + "/biographyAjax";
+  function getArtistBio(artistUrl) {
+    var url = artistUrl + "/biographyAjax";
     return allMusicFetch(url).then(function (html) {
       // Isolate biography div
       var bioMatch = html.match(/<div id="biography"[^>]*>([\s\S]*?)(?:<\/div>\s*<div|$)/);
@@ -83,7 +83,7 @@ function activate(api) {
     if (entity.kind !== "artist") return Promise.resolve({ status: "not_found" });
     return searchArtist(entity.name).then(function (found) {
       if (!found) return { status: "not_found" };
-      return getArtistBio(found.id, found.url).then(function (result) {
+      return getArtistBio(found.url).then(function (result) {
         if (!result) return { status: "not_found" };
         return { status: "ok", value: result };
       });
