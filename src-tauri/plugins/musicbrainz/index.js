@@ -74,8 +74,8 @@ function activate(api) {
   api.imageProviders.onFetch("album", async function (name, artistName) {
     // Step 1: Search for release-group
     var query = artistName
-      ? "releasegroup:" + encodeURIComponent(name) + " AND artist:" + encodeURIComponent(artistName)
-      : "releasegroup:" + encodeURIComponent(name);
+      ? "releasegroup:" + name + " AND artist:" + artistName
+      : "releasegroup:" + name;
     var searchResp = await api.network.fetch(
       "https://musicbrainz.org/ws/2/release-group/?query=" +
         encodeURIComponent(query) +
