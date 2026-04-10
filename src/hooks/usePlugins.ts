@@ -539,6 +539,7 @@ export function usePlugins(
       const menus: PluginMenuItem[] = [];
       const settings: PluginSettingsPanel[] = [];
       const allInfoTypes: Array<[string, string, string, string, string, number, number, number]> = [];
+      const allImageProviders: [string, string, number][] = []; // [plugin_id, entity, priority]
 
       for (const plugin of installed) {
         const m = plugin.manifest;
@@ -610,6 +611,11 @@ export function usePlugins(
               allInfoTypes.push([it.id, it.name, it.entity, it.displayKind, plugin.id, it.ttl, it.order, it.priority]);
             }
           }
+          if (contrib.imageProviders) {
+            for (const ip of contrib.imageProviders) {
+              allImageProviders.push([plugin.id, ip.entity, ip.priority]);
+            }
+          }
           if (contrib.settingsPanel) {
             const sp = contrib.settingsPanel;
             settings.push({
@@ -644,6 +650,10 @@ export function usePlugins(
         if (versionsDirty) {
           await store.set("pluginInfoVersions", newVersions);
         }
+      }
+
+      if (allImageProviders.length > 0) {
+        await invoke("sync_image_providers", { providers: allImageProviders });
       }
 
       // Sort by plugin name for consistent display

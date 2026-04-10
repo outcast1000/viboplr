@@ -2114,6 +2114,16 @@ pub fn plugin_apply_tags(
     Ok(result)
 }
 
+// ── Image Provider sync command ──────────────────────────────
+
+#[tauri::command]
+pub fn sync_image_providers(
+    state: State<'_, AppState>,
+    providers: Vec<(String, String, i64)>,
+) -> Result<(), String> {
+    state.db.sync_image_providers(&providers).map_err(|e| e.to_string())
+}
+
 // ── Information Type commands ────────────────────────────────
 
 #[tauri::command]

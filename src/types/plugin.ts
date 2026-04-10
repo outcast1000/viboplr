@@ -40,6 +40,11 @@ export interface PluginManifestInfoType {
   priority: number;
 }
 
+export interface PluginManifestImageProvider {
+  entity: "artist" | "album";
+  priority: number;
+}
+
 export interface PluginManifestSettingsPanel {
   id: string;
   label: string;
@@ -52,6 +57,7 @@ export interface PluginManifestContributes {
   contextMenuItems?: PluginManifestContextMenuItem[];
   eventHooks?: PluginEventName[];
   informationTypes?: PluginManifestInfoType[];
+  imageProviders?: PluginManifestImageProvider[];
   settingsPanel?: PluginManifestSettingsPanel;
 }
 
