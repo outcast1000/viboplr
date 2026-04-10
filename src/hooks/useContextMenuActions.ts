@@ -234,6 +234,13 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       setDeleteConfirm({ trackIds: [target.trackId], title: target.title });
     } else if (target.kind === "multi-track") {
       setDeleteConfirm({ trackIds: target.trackIds, title: `${target.trackIds.length} tracks` });
+    } else if (target.kind === "queue-multi") {
+      const tracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
+      const localTracks = tracks.filter(t => !t.path.startsWith("subsonic://") && !t.path.startsWith("tidal://"));
+      if (localTracks.length > 0) {
+        const ids = localTracks.map(t => t.id);
+        setDeleteConfirm({ trackIds: ids, title: localTracks.length === 1 ? localTracks[0].title : `${localTracks.length} tracks` });
+      }
     }
     setContextMenu(null);
   }

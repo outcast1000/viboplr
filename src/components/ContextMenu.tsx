@@ -184,6 +184,14 @@ export function ContextMenu({
             </div>
           </>
         )}
+        {onDelete && (
+          <>
+            <div className="context-menu-separator" />
+            <div className="context-menu-item context-menu-item-danger" onClick={() => { onDelete(); onClose(); }}>
+              <IconTrash size={14} /><span>{count > 1 ? `Delete ${count} tracks` : "Delete"}</span>
+            </div>
+          </>
+        )}
       </div>
     );
   }
