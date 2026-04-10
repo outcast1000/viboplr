@@ -10,7 +10,7 @@ import { buildEntityKey } from "../types/informationTypes";
 
 const ERROR_TTL = 3600; // 1 hour in seconds
 
-type CacheAction = "render" | "render_and_refetch" | "loading" | "hidden";
+type CacheAction = "render" | "render_and_refetch" | "loading" | "empty";
 
 function decideCacheAction(
   status: string | null,
@@ -25,7 +25,7 @@ function decideCacheAction(
 
   if (status === "ok") return stale ? "render_and_refetch" : "render";
   // not_found or error
-  return stale ? "loading" : "hidden";
+  return stale ? "loading" : "empty";
 }
 
 interface UseInformationTypesOpts {
@@ -109,7 +109,15 @@ export function useInformationTypes({
         now,
       );
 
-      if (action === "hidden") continue;
+      if (action === "empty") {
+        newSections.push({
+          typeId,
+          name,
+          displayKind: displayKind as DisplayKind,
+          state: { kind: "empty" },
+        });
+        continue;
+      }
 
       const idx = newSections.length;
 
@@ -185,7 +193,14 @@ export function useInformationTypes({
               return next;
             });
           } else if (mountedRef.current && entityKeyRef.current === entityKey && result.status !== "ok") {
-            setSections((prev) => prev.filter((s) => s.typeId !== typeId));
+            setSections((prev) => {
+              const next = [...prev];
+              const existing = next.find((s) => s.typeId === typeId);
+              if (existing) {
+                existing.state = { kind: "empty" };
+              }
+              return next;
+            });
           }
         } catch {
           await invoke("info_upsert_value", {
@@ -195,7 +210,14 @@ export function useInformationTypes({
             status: "error",
           }).catch(() => {});
           if (mountedRef.current && entityKeyRef.current === entityKey) {
-            setSections((prev) => prev.filter((s) => s.typeId !== typeId));
+            setSections((prev) => {
+              const next = [...prev];
+              const existing = next.find((s) => s.typeId === typeId);
+              if (existing) {
+                existing.state = { kind: "empty" };
+              }
+              return next;
+            });
           }
         } finally {
           inFlightRef.current.delete(dedupKey);
