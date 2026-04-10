@@ -290,6 +290,19 @@ export interface PluginInformationTypesAPI {
   invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
 }
 
+export type ImageFetchResult =
+  | { status: "ok"; url: string; headers?: Record<string, string> }
+  | { status: "ok"; data: string }
+  | { status: "not_found" }
+  | { status: "error"; message?: string };
+
+export interface PluginImageProvidersAPI {
+  onFetch(
+    entity: "artist" | "album",
+    handler: (name: string, artistName?: string) => Promise<ImageFetchResult>,
+  ): () => void;
+}
+
 export interface ViboplrPluginAPI {
   library: PluginLibraryAPI;
   playback: PluginPlaybackAPI;
@@ -300,6 +313,7 @@ export interface ViboplrPluginAPI {
   tidal: PluginTidalAPI;
   collections: PluginCollectionsAPI;
   informationTypes: PluginInformationTypesAPI;
+  imageProviders: PluginImageProvidersAPI;
 }
 
 // -- Gallery types --

@@ -22,6 +22,7 @@ import type {
   PluginGalleryIndex,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
+import type { ImageFetchResult } from "../types/plugin";
 
 const PLUGIN_GALLERY_BASE_URL =
   "https://raw.githubusercontent.com/outcast1000/viboplr-plugins/main/plugins/";
@@ -52,6 +53,7 @@ interface LoadedPlugin {
   deepLinkHandlers: Array<(url: string) => void>;
   oauthCallbackHandlers: Array<(queryString: string) => void>;
   infoFetchHandlers: Map<string, (entity: InfoEntity) => Promise<InfoFetchResult>>;
+  imageFetchHandlers: Map<string, (name: string, artistName?: string) => Promise<ImageFetchResult>>;
 }
 
 type EventHandlers = {
@@ -400,6 +402,20 @@ export function usePlugins(
             return invoke<T>(command, args ?? {});
           },
         },
+
+        imageProviders: {
+          onFetch(
+            entity: "artist" | "album",
+            handler: (name: string, artistName?: string) => Promise<ImageFetchResult>,
+          ): () => void {
+            loaded.imageFetchHandlers.set(entity, handler);
+            const unsub = () => {
+              loaded.imageFetchHandlers.delete(entity);
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+        },
       };
     },
     [currentTrackRef, playingRef, positionRef],
@@ -443,6 +459,8 @@ export function usePlugins(
     // Clear handlers
     loaded.contextMenuHandlers.clear();
     loaded.uiActionHandlers.clear();
+    loaded.infoFetchHandlers.clear();
+    loaded.imageFetchHandlers.clear();
 
     // Clear view data for this plugin
     for (const key of viewDataRef.current.keys()) {
@@ -469,6 +487,7 @@ export function usePlugins(
         deepLinkHandlers: [],
         oauthCallbackHandlers: [],
         infoFetchHandlers: new Map(),
+        imageFetchHandlers: new Map(),
       };
 
       try {
@@ -858,6 +877,17 @@ export function usePlugins(
     [],
   );
 
+  const invokeImageFetch = useCallback(
+    async (pluginId: string, entity: string, name: string, artistName?: string): Promise<ImageFetchResult> => {
+      const loaded = loadedPluginsRef.current.get(pluginId);
+      if (!loaded) return { status: "error", message: "plugin not loaded" };
+      const handler = loaded.imageFetchHandlers.get(entity);
+      if (!handler) return { status: "error", message: "no handler for entity" };
+      return handler(name, artistName);
+    },
+    [],
+  );
+
   return {
     pluginStates,
     sidebarItems,
@@ -879,5 +909,6 @@ export function usePlugins(
     installFromGallery,
     deletePlugin,
     invokeInfoFetch,
+    invokeImageFetch,
   };
 }
