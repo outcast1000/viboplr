@@ -19,9 +19,7 @@ mod downloader;
 use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry};
 use db::Database;
 use downloader::DownloadManager;
-use image_provider::{
-    AlbumImageFallbackChain, AlbumImageProvider, ArtistImageFallbackChain, ArtistImageProvider,
-};
+use image_provider::AlbumImageProvider;
 use std::sync::{Arc, Condvar, Mutex};
 use tauri::{Emitter, Manager};
 
@@ -278,6 +276,37 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
     ]
 }
 
+fn download_image_from_url(
+    url: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+    dest: &std::path::Path,
+) -> Result<(), String> {
+    let client = image_provider::http_client()?;
+    let mut req = client.get(url);
+    if let Some(hdrs) = headers {
+        for (k, v) in hdrs {
+            req = req.header(k.as_str(), v.as_str());
+        }
+    }
+    let start = std::time::Instant::now();
+    let resp = req.send().map_err(|e| e.to_string())?;
+    let status = resp.status();
+    log::info!("HTTP GET {} -> {} ({:.0}ms)", url, status, start.elapsed().as_secs_f64() * 1000.0);
+    if !status.is_success() {
+        return Err(format!("HTTP {} from {}", status, url));
+    }
+    let bytes = resp.bytes().map_err(|e| e.to_string())?;
+    image_provider::write_image(dest, &bytes)
+}
+
+fn base64_decode_and_save(data: &str, dest: &std::path::Path) -> Result<(), String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| format!("Base64 decode error: {}", e))?;
+    image_provider::write_image(dest, &bytes)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let timer = timing::init_timer();
@@ -494,36 +523,18 @@ pub fn run() {
                 condvar: Condvar::new(),
             }));
 
-            // Build image provider fallback chains
-            let (artist_provider, album_provider) = timer.time("build_image_providers", || {
-                let artist_provider: Arc<dyn ArtistImageProvider> = Arc::new(
-                    ArtistImageFallbackChain::new(vec![
-                        Box::new(image_provider::tidal::TidalArtistProvider),
-                        Box::new(image_provider::deezer::DeezerArtistProvider),
-                        Box::new(image_provider::itunes::ITunesArtistProvider),
-                        Box::new(image_provider::audiodb::AudioDbArtistProvider),
-                        Box::new(image_provider::musicbrainz::MusicBrainzArtistProvider),
-                    ]),
-                );
-                let album_provider: Arc<dyn AlbumImageProvider> = Arc::new(
-                    AlbumImageFallbackChain::new(vec![
-                        Box::new(image_provider::embedded::EmbeddedArtworkProvider::new(db.clone())),
-                        Box::new(image_provider::tidal::TidalAlbumProvider),
-                        Box::new(image_provider::itunes::ITunesAlbumProvider),
-                        Box::new(image_provider::deezer::DeezerAlbumProvider),
-                        Box::new(image_provider::musicbrainz::MusicBrainzAlbumProvider),
-                    ]),
-                );
-                (artist_provider, album_provider)
-            });
+            // Create embedded artwork provider for album images (Rust-native, no bridge needed)
+            let embedded_provider = image_provider::embedded::EmbeddedArtworkProvider::new(db.clone());
 
             // Spawn the image download worker thread
             let worker_queue = download_queue.clone();
             let worker_app_dir = app_dir.clone();
             let worker_db = db.clone();
             let app_handle = app.handle().clone();
-            let worker_artist_provider = artist_provider.clone();
-            let worker_album_provider = album_provider.clone();
+            let worker_registry = Arc::new(ImageResolveRegistry {
+                pending: Mutex::new(std::collections::HashMap::new()),
+            });
+            let worker_registry_for_state = worker_registry.clone();
             timer.time("spawn_image_worker", || { std::thread::spawn(move || {
                 loop {
                     let request = {
@@ -546,23 +557,78 @@ pub fn run() {
                                 log::info!("Artist image already exists for {} (id={}), skipping", name, id);
                                 continue;
                             }
-                            log::info!("Downloading image for artist: {} (id={})", name, id);
-                            match worker_artist_provider.fetch_artist_image(name, &dest) {
-                                Ok(source) => {
-                                    let path = dest.to_string_lossy().to_string();
-                                    log::info!("Downloaded image for artist: {} (id={}) from {}", name, id, source);
-                                    let _ = app_handle.emit(
-                                        "artist-image-ready",
-                                        serde_json::json!({ "artistId": id, "path": &path, "name": name, "source": &source }),
-                                    );
+
+                            log::info!("Requesting image resolve for artist: {} (id={})", name, id);
+
+                            // Create a one-shot channel for this request
+                            let request_id = format!("artist-{}-{}", id, std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+                            let (tx, rx) = std::sync::mpsc::channel();
+
+                            // Register the sender
+                            worker_registry.pending.lock().unwrap().insert(request_id.clone(), tx);
+
+                            // Emit event to frontend
+                            let _ = app_handle.emit("image-resolve-request", serde_json::json!({
+                                "request_id": request_id,
+                                "entity": "artist",
+                                "id": id,
+                                "name": name,
+                            }));
+
+                            // Wait for response with 30s timeout
+                            match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+                                Ok(result) => {
+                                    // Clean up registry
+                                    worker_registry.pending.lock().unwrap().remove(&request_id);
+
+                                    if let Some(error) = result.error {
+                                        log::warn!("All providers failed for artist {}: {}", name, error);
+                                        let _ = worker_db.record_image_failure("artist", *id);
+                                        let _ = app_handle.emit("artist-image-error",
+                                            serde_json::json!({ "artistId": id, "name": name, "error": error }));
+                                    } else if let Some(data) = result.data {
+                                        match base64_decode_and_save(&data, &dest) {
+                                            Ok(()) => {
+                                                let path = dest.to_string_lossy().to_string();
+                                                log::info!("Saved artist image from base64 data: {} (id={})", name, id);
+                                                let _ = app_handle.emit("artist-image-ready",
+                                                    serde_json::json!({ "artistId": id, "path": &path, "name": name, "source": "plugin" }));
+                                            }
+                                            Err(e) => {
+                                                log::warn!("Failed to decode/save base64 image for artist {}: {}", name, e);
+                                                let _ = worker_db.record_image_failure("artist", *id);
+                                                let _ = app_handle.emit("artist-image-error",
+                                                    serde_json::json!({ "artistId": id, "name": name, "error": e }));
+                                            }
+                                        }
+                                    } else if let Some(url) = result.url {
+                                        match download_image_from_url(&url, result.headers.as_ref(), &dest) {
+                                            Ok(()) => {
+                                                let path = dest.to_string_lossy().to_string();
+                                                log::info!("Downloaded artist image from {}: {} (id={})", url, name, id);
+                                                let _ = app_handle.emit("artist-image-ready",
+                                                    serde_json::json!({ "artistId": id, "path": &path, "name": name, "source": "plugin" }));
+                                            }
+                                            Err(e) => {
+                                                log::warn!("Failed to download artist image from {}: {}", url, e);
+                                                let _ = worker_db.record_image_failure("artist", *id);
+                                                let _ = app_handle.emit("artist-image-error",
+                                                    serde_json::json!({ "artistId": id, "name": name, "error": e }));
+                                            }
+                                        }
+                                    } else {
+                                        log::warn!("Empty resolve result for artist {}", name);
+                                        let _ = worker_db.record_image_failure("artist", *id);
+                                    }
                                 }
-                                Err(e) => {
-                                    log::warn!("Failed to download image for artist {}: {}", name, e);
+                                Err(_) => {
+                                    // Timeout or channel closed
+                                    worker_registry.pending.lock().unwrap().remove(&request_id);
+                                    log::warn!("Image resolve timeout for artist {} (id={})", name, id);
                                     let _ = worker_db.record_image_failure("artist", *id);
-                                    let _ = app_handle.emit(
-                                        "artist-image-error",
-                                        serde_json::json!({ "artistId": id, "name": name, "error": e.to_string() }),
-                                    );
+                                    let _ = app_handle.emit("artist-image-error",
+                                        serde_json::json!({ "artistId": id, "name": name, "error": "Resolve timeout" }));
                                 }
                             }
                         }
@@ -577,23 +643,95 @@ pub fn run() {
                                 log::info!("Album image already exists for {} (id={}), skipping", title, id);
                                 continue;
                             }
-                            log::info!("Downloading image for album: {} (id={})", title, id);
-                            match worker_album_provider.fetch_album_image(title, artist_name.as_deref(), &dest) {
-                                Ok(source) => {
-                                    let path = dest.to_string_lossy().to_string();
-                                    log::info!("Downloaded image for album: {} (id={}) from {}", title, id, source);
-                                    let _ = app_handle.emit(
-                                        "album-image-ready",
-                                        serde_json::json!({ "albumId": id, "path": &path, "title": title, "source": &source }),
-                                    );
+
+                            // Try embedded artwork first (Rust-native, no bridge needed)
+                            if let Ok(source) = embedded_provider.fetch_album_image(title, artist_name.as_deref(), &dest) {
+                                let path_str = {
+                                    // embedded might write .png instead of .jpg, find the actual file
+                                    let actual = dest.with_extension("png");
+                                    if actual.exists() { actual.to_string_lossy().to_string() }
+                                    else { dest.to_string_lossy().to_string() }
+                                };
+                                log::info!("Album image from embedded artwork: {} (id={}) from {}", title, id, source);
+                                let _ = app_handle.emit("album-image-ready",
+                                    serde_json::json!({ "albumId": id, "path": &path_str, "title": title, "source": &source }));
+                                std::thread::sleep(std::time::Duration::from_millis(1100));
+                                continue;
+                            }
+
+                            // Fall through to bridge for external providers
+                            log::info!("Requesting image resolve for album: {} (id={})", title, id);
+
+                            // Create a one-shot channel for this request
+                            let request_id = format!("album-{}-{}", id, std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+                            let (tx, rx) = std::sync::mpsc::channel();
+
+                            // Register the sender
+                            worker_registry.pending.lock().unwrap().insert(request_id.clone(), tx);
+
+                            // Emit event to frontend
+                            let _ = app_handle.emit("image-resolve-request", serde_json::json!({
+                                "request_id": request_id,
+                                "entity": "album",
+                                "id": id,
+                                "title": title,
+                                "artist_name": artist_name,
+                            }));
+
+                            // Wait for response with 30s timeout
+                            match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+                                Ok(result) => {
+                                    // Clean up registry
+                                    worker_registry.pending.lock().unwrap().remove(&request_id);
+
+                                    if let Some(error) = result.error {
+                                        log::warn!("All providers failed for album {}: {}", title, error);
+                                        let _ = worker_db.record_image_failure("album", *id);
+                                        let _ = app_handle.emit("album-image-error",
+                                            serde_json::json!({ "albumId": id, "title": title, "error": error }));
+                                    } else if let Some(data) = result.data {
+                                        match base64_decode_and_save(&data, &dest) {
+                                            Ok(()) => {
+                                                let path = dest.to_string_lossy().to_string();
+                                                log::info!("Saved album image from base64 data: {} (id={})", title, id);
+                                                let _ = app_handle.emit("album-image-ready",
+                                                    serde_json::json!({ "albumId": id, "path": &path, "title": title, "source": "plugin" }));
+                                            }
+                                            Err(e) => {
+                                                log::warn!("Failed to decode/save base64 image for album {}: {}", title, e);
+                                                let _ = worker_db.record_image_failure("album", *id);
+                                                let _ = app_handle.emit("album-image-error",
+                                                    serde_json::json!({ "albumId": id, "title": title, "error": e }));
+                                            }
+                                        }
+                                    } else if let Some(url) = result.url {
+                                        match download_image_from_url(&url, result.headers.as_ref(), &dest) {
+                                            Ok(()) => {
+                                                let path = dest.to_string_lossy().to_string();
+                                                log::info!("Downloaded album image from {}: {} (id={})", url, title, id);
+                                                let _ = app_handle.emit("album-image-ready",
+                                                    serde_json::json!({ "albumId": id, "path": &path, "title": title, "source": "plugin" }));
+                                            }
+                                            Err(e) => {
+                                                log::warn!("Failed to download album image from {}: {}", url, e);
+                                                let _ = worker_db.record_image_failure("album", *id);
+                                                let _ = app_handle.emit("album-image-error",
+                                                    serde_json::json!({ "albumId": id, "title": title, "error": e }));
+                                            }
+                                        }
+                                    } else {
+                                        log::warn!("Empty resolve result for album {}", title);
+                                        let _ = worker_db.record_image_failure("album", *id);
+                                    }
                                 }
-                                Err(e) => {
-                                    log::warn!("Failed to download image for album {}: {}", title, e);
+                                Err(_) => {
+                                    // Timeout or channel closed
+                                    worker_registry.pending.lock().unwrap().remove(&request_id);
+                                    log::warn!("Image resolve timeout for album {} (id={})", title, id);
                                     let _ = worker_db.record_image_failure("album", *id);
-                                    let _ = app_handle.emit(
-                                        "album-image-error",
-                                        serde_json::json!({ "albumId": id, "title": title, "error": e.to_string() }),
-                                    );
+                                    let _ = app_handle.emit("album-image-error",
+                                        serde_json::json!({ "albumId": id, "title": title, "error": "Resolve timeout" }));
                                 }
                             }
                         }
@@ -875,9 +1013,7 @@ pub fn run() {
                     track_download_manager: dl_manager,
                     tidal_client,
                     native_plugins_dir,
-                    image_resolve_registry: Arc::new(ImageResolveRegistry {
-                        pending: Mutex::new(std::collections::HashMap::new()),
-                    }),
+                    image_resolve_registry: worker_registry_for_state,
                 });
             });
 
