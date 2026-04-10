@@ -60,7 +60,7 @@ interface TrackPlayStats {
 function TrackActions({
   track,
   onPlay, onEnqueue, onPlayNext, onShowInFolder,
-  onYoutubeFound, onSetYoutubeUrl,
+  onYoutubeFound, onSetYoutubeUrl, onRemoveYoutubeUrl,
 }: {
   track: Track;
   onPlay: () => void;
@@ -69,6 +69,7 @@ function TrackActions({
   onShowInFolder: () => void;
   onYoutubeFound: (url: string, videoTitle: string) => void;
   onSetYoutubeUrl: () => void;
+  onRemoveYoutubeUrl: () => void;
 }) {
   const [open_menu, setOpenMenu] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -110,28 +111,40 @@ function TrackActions({
               <IconFolder size={14} /><span>Open Containing Folder</span>
             </button>
           )}
-          <button onClick={async () => {
-            setOpenMenu(false);
-            if (track.youtube_url) {
-              await openUrl(track.youtube_url);
-            } else {
-              try {
-                const result = await invoke<{ url: string; video_title: string | null }>(
-                  "search_youtube", { title: track.title, artistName: track.artist_name }
-                );
-                await openUrl(result.url);
-                onYoutubeFound(result.url, result.video_title ?? track.title);
-              } catch {
-                const q = encodeURIComponent(`${track.title} ${track.artist_name ?? ""}`);
-                await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-              }
-            }
-          }}>
-            <IconYoutube size={14} /><span>Find in YouTube</span>
-          </button>
-          <button onClick={() => { setOpenMenu(false); onSetYoutubeUrl(); }}>
-            <IconYoutube size={14} /><span>Set YouTube URL</span>
-          </button>
+          {track.youtube_url ? (
+            <>
+              <button onClick={async () => { setOpenMenu(false); await openUrl(track.youtube_url!); }}>
+                <IconYoutube size={14} /><span style={{ color: "var(--accent)" }}>Watch on YouTube</span>
+              </button>
+              <button onClick={() => { setOpenMenu(false); onSetYoutubeUrl(); }}>
+                <IconYoutube size={14} /><span>Edit YouTube URL</span>
+              </button>
+              <button onClick={() => { setOpenMenu(false); onRemoveYoutubeUrl(); }}>
+                <IconYoutube size={14} /><span>Remove YouTube URL</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={async () => {
+                setOpenMenu(false);
+                try {
+                  const result = await invoke<{ url: string; video_title: string | null }>(
+                    "search_youtube", { title: track.title, artistName: track.artist_name }
+                  );
+                  await openUrl(result.url);
+                  onYoutubeFound(result.url, result.video_title ?? track.title);
+                } catch {
+                  const q = encodeURIComponent(`${track.title} ${track.artist_name ?? ""}`);
+                  await openUrl(`https://www.youtube.com/results?search_query=${q}`);
+                }
+              }}>
+                <IconYoutube size={14} /><span>Find in YouTube</span>
+              </button>
+              <button onClick={() => { setOpenMenu(false); onSetYoutubeUrl(); }}>
+                <IconYoutube size={14} /><span>Set YouTube URL</span>
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -343,6 +356,11 @@ export function TrackDetailView({
                 onShowInFolder={onShowInFolder}
                 onYoutubeFound={(url, videoTitle) => setYoutubeFeedback({ url, videoTitle })}
                 onSetYoutubeUrl={() => setYoutubeUrlEdit(track.youtube_url ?? "")}
+                onRemoveYoutubeUrl={async () => {
+                  await invoke("clear_track_youtube_url", { trackId });
+                  onUpdateTrack({ youtube_url: null });
+                  addLog("Cleared YouTube URL");
+                }}
               />
             </h2>
             <div className="track-detail-meta">
@@ -395,6 +413,11 @@ export function TrackDetailView({
                   <IconYoutube size={13} />
                   <a className="track-detail-youtube-link" onClick={() => openUrl(track.youtube_url!)}>{track.youtube_url}</a>
                   <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit(track.youtube_url ?? "")}>Edit</button>
+                  <button className="track-detail-youtube-action" onClick={async () => {
+                    await invoke("clear_track_youtube_url", { trackId });
+                    onUpdateTrack({ youtube_url: null });
+                    addLog("Cleared YouTube URL");
+                  }}>Remove</button>
                 </>
               ) : (
                 <>
