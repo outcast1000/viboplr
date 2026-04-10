@@ -15,7 +15,7 @@
 7. [Lyrics Subsystem](#lyrics-subsystem)
 8. [TIDAL Integration](#tidal-integration)
 9. [Spotify Integration](#spotify-integration)
-10. [Image Provider Chain (Rust)](#image-provider-chain-rust)
+10. [Image Provider Chain (Rust-JS Bridge)](#image-provider-chain-rust-js-bridge)
 11. [Database Schema](#database-schema)
 12. [Built-in Plugins Reference](#built-in-plugins-reference)
 13. [Data Flow Diagrams](#data-flow-diagrams)
@@ -26,33 +26,34 @@
 
 The plugin system is a **two-layer** architecture:
 
-1. **Rust layer** — Image provider trait chain, SQLite-backed caching, plugin file I/O, information type storage. Lives in `src-tauri/src/`.
-2. **TypeScript/React layer** — Plugin discovery, activation, API construction, information type fetch orchestration, and rendering. Lives in `src/hooks/usePlugins.ts`, `src/hooks/useInformationTypes.ts`, and `src/components/`.
+1. **Rust layer** — Image download worker with Rust-JS bridge, embedded artwork extraction, SQLite-backed caching, plugin file I/O, information type and image provider storage. Lives in `src-tauri/src/`.
+2. **TypeScript/React layer** — Plugin discovery, activation, API construction, information type fetch orchestration, image resolve bridging, and rendering. Lives in `src/hooks/usePlugins.ts`, `src/hooks/useInformationTypes.ts`, `src/hooks/useImageResolver.ts`, and `src/components/`.
 
 Plugins are **JavaScript files** (`index.js`) with a `manifest.json`, loaded at runtime via `new Function()`. They run in the renderer process and communicate with the Rust backend through the host-provided `ViboplrPluginAPI` object.
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   React Frontend                     │
-│  ┌──────────┐  ┌────────────────┐  ┌──────────────┐ │
-│  │usePlugins│  │useInformation  │  │Information   │ │
-│  │  .ts     │──│  Types.ts      │──│ Sections.tsx │ │
-│  └────┬─────┘  └───────┬────────┘  └──────┬───────┘ │
-│       │                │                   │         │
-│  ┌────▼────────────────▼───────────────────▼───────┐ │
-│  │            Plugin Runtime (JS)                   │ │
-│  │  lastfm · genius · lrclib · tidal · spotify     │ │
-│  └──────────────────┬──────────────────────────────┘ │
-├─────────────────────┼───────────────────────────────┤
-│  Tauri IPC          │  invoke() / emit()            │
-├─────────────────────┼───────────────────────────────┤
-│  ┌──────────────────▼──────────────────────────────┐ │
-│  │              Rust Backend                        │ │
-│  │  commands.rs · db.rs · image_provider/           │ │
-│  │  tidal.rs · lastfm.rs · downloader.rs           │ │
-│  └─────────────────────────────────────────────────┘ │
-│                   SQLite (db.rs)                      │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                    React Frontend                         │
+│  ┌──────────┐  ┌────────────────┐  ┌──────────────────┐  │
+│  │usePlugins│  │useInformation  │  │useImageResolver  │  │
+│  │  .ts     │──│  Types.ts      │  │  .ts             │  │
+│  └────┬─────┘  └───────┬────────┘  └──────┬───────────┘  │
+│       │                │                   │              │
+│  ┌────▼────────────────▼───────────────────▼───────────┐  │
+│  │              Plugin Runtime (JS)                     │  │
+│  │  lastfm · genius · lrclib · tidal · spotify         │  │
+│  │  deezer · itunes · audiodb · musicbrainz            │  │
+│  └──────────────────┬──────────────────────────────────┘  │
+├─────────────────────┼────────────────────────────────────┤
+│  Tauri IPC          │  invoke() / emit()                 │
+├─────────────────────┼────────────────────────────────────┤
+│  ┌──────────────────▼──────────────────────────────────┐  │
+│  │              Rust Backend                            │  │
+│  │  commands.rs · db.rs · image_provider/               │  │
+│  │  tidal.rs · lastfm.rs · downloader.rs · lib.rs      │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                   SQLite (db.rs)                           │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ### Key Files
@@ -61,14 +62,16 @@ Plugins are **JavaScript files** (`index.js`) with a `manifest.json`, loaded at 
 |-------|------|---------|
 | Frontend | `src/hooks/usePlugins.ts` | Plugin discovery, loading, API construction, event dispatch |
 | Frontend | `src/hooks/useInformationTypes.ts` | Cache logic, TTL, provider fallback chain orchestration |
+| Frontend | `src/hooks/useImageResolver.ts` | Rust-JS bridge: resolves image requests by running the plugin fallback chain |
 | Frontend | `src/components/InformationSections.tsx` | Tab UI, renderer selection, action handling |
 | Frontend | `src/components/TitleLineInfo.tsx` | Title-line placement: filters and renders `title_line` sections in entity headers |
+| Frontend | `src/components/SettingsPanel.tsx` | Provider Priority section: drag-and-drop reorder, toggle on/off, reset defaults |
 | Frontend | `src/components/renderers/index.ts` | Renderer registry (displayKind → React component) |
 | Frontend | `src/types/plugin.ts` | All TypeScript types for manifests, APIs, view data |
 | Frontend | `src/types/informationTypes.ts` | Display kinds, entity keys, cache types, section state |
-| Backend | `src-tauri/src/commands.rs` | Tauri commands for plugin I/O, info type CRUD |
-| Backend | `src-tauri/src/db.rs` | SQLite schema + queries for information_types/values |
-| Backend | `src-tauri/src/image_provider/mod.rs` | Image provider traits and fallback chain |
+| Backend | `src-tauri/src/commands.rs` | Tauri commands for plugin I/O, info type CRUD, image/info provider management |
+| Backend | `src-tauri/src/db.rs` | SQLite schema + queries for information_types/values/image_providers |
+| Backend | `src-tauri/src/image_provider/mod.rs` | Embedded album artwork provider (trait + helper utilities) |
 | Backend | `src-tauri/src/tidal.rs` | TIDAL API client with instance failover |
 | Plugins | `src-tauri/plugins/*/` | Built-in plugin manifests and implementations |
 
@@ -93,6 +96,7 @@ Every plugin has a `manifest.json`:
     "contextMenuItems":  [],   // Right-click menu actions
     "eventHooks":        [],   // Playback events to subscribe to
     "informationTypes":  [],   // Metadata sections to provide
+    "imageProviders":    [],   // Image fetch handlers for artist/album artwork
     "settingsPanel":     {}    // Settings tab contribution
   }
 }
@@ -106,6 +110,7 @@ Every plugin has a `manifest.json`:
 | `contextMenuItems` | `{id, label, targets[]}` | Adds right-click actions. Targets: `track`, `album`, `artist`, `multi-track` |
 | `eventHooks` | `string[]` | Events: `track:started`, `track:played`, `track:scrobbled`, `track:liked` |
 | `informationTypes` | `{id, name, entity, displayKind, ttl, order, priority}` | Metadata sections (see [Information Sections](#information-sections)) |
+| `imageProviders` | `{entity, priority}` | Registers image fetch handlers for `artist` or `album` artwork (see [Image Provider Chain](#image-provider-chain-rust-js-bridge)) |
 | `settingsPanel` | `{id, label, icon?, order?}` | Adds a tab in Settings |
 
 ### Lifecycle
@@ -114,7 +119,7 @@ Every plugin has a `manifest.json`:
 Discovery → Validation → Activation → Running → Deactivation
 ```
 
-1. **Discovery** (`usePlugins.ts:504`): `invoke("plugin_list_installed")` scans both user plugins (`{app_dir}/plugins/`) and built-in plugins (`src-tauri/plugins/`). User plugins override built-in by ID.
+1. **Discovery** (`usePlugins.ts`): `invoke("plugin_list_installed")` scans both user plugins (`{app_dir}/plugins/`) and built-in plugins (`src-tauri/plugins/`). User plugins override built-in by ID. Built-in plugins that contribute `imageProviders` or `informationTypes` are automatically enabled on first load.
 
 2. **Validation** (`usePlugins.ts:522`): Checks `minAppVersion` via semver comparison. Incompatible plugins get status `"incompatible"`.
 
@@ -165,6 +170,7 @@ Plugins receive a `ViboplrPluginAPI` object in their `activate(api)` call. Defin
 | `api.tidal` | `search()`, `getAlbum()`, `getArtist()`, `getStreamUrl()`, `downloadTrack()`, `downloadAlbum()`, `checkStatus()` | TIDAL API access |
 | `api.collections` | `getLocalCollections()`, `getDownloadFormat()` | Collection queries |
 | `api.informationTypes` | `onFetch(typeId, handler)`, `invoke(command, args)` | Register metadata fetch handlers |
+| `api.imageProviders` | `onFetch(entity, handler)` | Register image fetch handlers for artist/album artwork |
 
 ### Handler Storage (Internal)
 
@@ -172,12 +178,13 @@ Each loaded plugin maintains handler maps in `usePlugins.ts`:
 
 ```typescript
 interface LoadedPlugin {
-  contextMenuHandlers: Map<string, handler>;
-  uiActionHandlers:    Map<string, handler>;
-  infoFetchHandlers:   Map<string, handler>;
-  deepLinkHandlers:    Array<handler>;
+  contextMenuHandlers:   Map<string, handler>;
+  uiActionHandlers:      Map<string, handler>;
+  infoFetchHandlers:     Map<string, handler>;
+  imageFetchHandlers:    Map<string, handler>;  // keyed by entity ("artist"|"album")
+  deepLinkHandlers:      Array<handler>;
   oauthCallbackHandlers: Array<handler>;
-  unsubscribers:       Array<() => void>;  // cleanup
+  unsubscribers:         Array<() => void>;  // cleanup
 }
 ```
 
@@ -323,14 +330,15 @@ Concurrent fetches for the same `typeId:entityKey` are deduplicated via `inFligh
 
 ### Type Sync
 
-When plugins load, all declared information types are synced to the SQLite backend:
+When plugins load, all declared information types and image providers are synced to the SQLite backend:
 
 ```typescript
-// usePlugins.ts:627
+// usePlugins.ts
 invoke("info_sync_types", { types: allTypes })
+invoke("sync_image_providers", { providers: allImageProviders })
 ```
 
-The backend deactivates all types, then upserts the incoming set as active. This preserves cached data for temporarily missing plugins.
+Both sync operations deactivate all rows, upsert the incoming set as active, and preserve user-customized priorities. This preserves cached data for temporarily missing plugins.
 
 ### Cache Invalidation
 
@@ -488,17 +496,13 @@ TIDAL integration spans both Rust backend (API client) and a JS plugin (sidebar 
 
 ### TIDAL Browse Plugin (`src-tauri/plugins/tidal-browse/`)
 
-**Contributions**: Sidebar item ("TIDAL") + context menu items (search, upgrade quality, play from TIDAL)
+**Contributions**: Sidebar item ("TIDAL") + context menu items (search, upgrade quality, play from TIDAL) + image providers (artist priority 100, album priority 100)
 
 **Views**: Search → Album detail → Artist detail, with tab navigation (Tracks, Albums, Artists)
 
-**Plugin API access**: Uses `api.tidal.*` for search/fetch, `api.ui.setViewData()` for rendering, `api.contextMenu.onAction()` for right-click actions.
+**Plugin API access**: Uses `api.tidal.*` for search/fetch, `api.ui.setViewData()` for rendering, `api.contextMenu.onAction()` for right-click actions, `api.imageProviders.onFetch()` for artist/album image resolution.
 
-### TIDAL Image Providers (`src-tauri/src/image_provider/tidal.rs`)
-
-- `TidalArtistProvider`: Searches TIDAL for artist, extracts `picture_id`, builds URL
-- `TidalAlbumProvider`: Searches TIDAL for album, extracts `cover_id`, builds URL
-- Cover URL format: `https://resources.tidal.com/images/{id}/{size}x{size}.jpg`
+**Image resolution**: Searches TIDAL for artist/album, extracts `picture_id`/`cover_id`, returns URL in format `https://resources.tidal.com/images/{id}/{size}x{size}.jpg`.
 
 ### Download Integration
 
@@ -559,41 +563,138 @@ state = {
 
 ---
 
-## Image Provider Chain (Rust)
+## Image Provider Chain (Rust-JS Bridge)
 
-A trait-based fallback chain for fetching artist and album artwork.
+Image fetching uses a **Rust-JS bridge** architecture. The Rust image download worker emits requests to the frontend, where JS plugins run the fallback chain. This replaces the previous hardcoded Rust provider chain and allows user-configurable provider priority via the Settings UI.
 
-### Traits (`src-tauri/src/image_provider/mod.rs`)
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Rust Backend                           │
+│  ┌──────────────┐   emit("image-resolve-request")       │
+│  │ Image Worker  │──────────────────────────┐            │
+│  │ (lib.rs)      │◄─────────────────────────┼──────┐     │
+│  └──────┬────────┘  invoke("image_resolve   │      │     │
+│         │            _response")             │      │     │
+│  ┌──────▼────────┐                          │      │     │
+│  │ Embedded      │  (album only, tried      │      │     │
+│  │ Provider      │   first before bridge)   │      │     │
+│  └───────────────┘                          │      │     │
+├─────────────────────────────────────────────┼──────┼─────┤
+│  Tauri IPC / Events                         │      │     │
+├─────────────────────────────────────────────┼──────┼─────┤
+│                   React Frontend             │      │     │
+│  ┌──────────────────────────────────────────▼──────┤     │
+│  │ useImageResolver.ts                             │     │
+│  │  1. Listens for image-resolve-request           │     │
+│  │  2. Calls get_image_providers (priority order)  │     │
+│  │  3. Tries each plugin's image handler           │     │
+│  │  4. Returns first success via image_resolve     │     │
+│  │     _response command                           ┼─────┘
+│  └──────────────────┬──────────────────────────────┘     │
+│                     │                                     │
+│  ┌──────────────────▼──────────────────────────────┐     │
+│  │  Plugin Image Handlers (JS)                      │     │
+│  │  tidal · deezer · itunes · audiodb · musicbrainz │     │
+│  └──────────────────────────────────────────────────┘     │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Rust-JS Bridge (`src-tauri/src/lib.rs`, `src-tauri/src/commands.rs`)
+
+The image download worker runs in a background thread. When it needs an image:
+
+1. **Album**: Tries `EmbeddedArtworkProvider` first (Rust-native, extracts artwork from audio file metadata via the `lofty` crate). If embedded artwork is found, the bridge is skipped entirely.
+2. **Artist or Album fallthrough**: Creates a one-shot `mpsc` channel, registers it in `ImageResolveRegistry`, and emits an `image-resolve-request` event to the frontend.
+3. **Waits** up to 30 seconds for a response via the channel.
+4. **On response**: Downloads the image from the returned URL (with optional custom headers) or decodes base64 data, then saves to disk and emits `artist-image-ready` / `album-image-ready`.
+5. **On failure**: Records the failure in `image_fetch_failures` table and emits an error event.
 
 ```rust
-pub trait ArtistImageProvider: Send + Sync {
-    fn name(&self) -> &str;
-    fn fetch_artist_image(&self, artist_name: &str, dest_path: &Path) -> Result<String, String>;
+// commands.rs
+pub struct ImageResolveResult {
+    pub url: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
+    pub data: Option<String>,    // base64 encoded image bytes
+    pub error: Option<String>,
 }
 
-pub trait AlbumImageProvider: Send + Sync {
-    fn name(&self) -> &str;
-    fn fetch_album_image(&self, title: &str, artist_name: Option<&str>, dest_path: &Path)
-        -> Result<String, String>;
+pub struct ImageResolveRegistry {
+    pub pending: Mutex<HashMap<String, mpsc::Sender<ImageResolveResult>>>,
 }
 ```
 
-### Fallback Chain Order (configured in `src-tauri/src/lib.rs:479-499`)
+### Frontend Image Resolver (`src/hooks/useImageResolver.ts`)
 
-**Artist chain**: TIDAL → Deezer → iTunes → AudioDB → MusicBrainz
+The `useImageResolver` hook bridges the Rust worker to the plugin image handlers:
 
-**Album chain**: Embedded (file metadata) → TIDAL → iTunes → Deezer → MusicBrainz
+1. Listens for `image-resolve-request` events containing `{request_id, entity, id, name/title, artist_name}`.
+2. Queries active providers in priority order via `get_image_providers` command.
+3. Calls `invokeImageFetch(pluginId, entity, name, artistName?)` for each provider sequentially.
+4. On first `{status: "ok"}` result: sends the URL/headers/data back via `image_resolve_response` command.
+5. If all providers fail: sends an error response.
 
-### Provider Implementations
+### Image Provider API
 
-| Provider | File | Artist Source | Album Source |
-|---|---|---|---|
-| TIDAL | `image_provider/tidal.rs` | `picture_id` → cover URL | `cover_id` → cover URL |
-| Deezer | `image_provider/deezer.rs` | `/search/artist` → `picture_xl` | `/search/album` → `cover_xl` |
-| iTunes | `image_provider/itunes.rs` | Search → `artworkUrl100` upscaled to 600px | Search → artwork upscaled to 600px |
-| AudioDB | `image_provider/audiodb.rs` | `/search.php` → `strArtistThumb` | *(not implemented)* |
-| MusicBrainz | `image_provider/musicbrainz.rs` | MBID → Wikimedia Commons thumbnail | Release-group MBID → Cover Art Archive |
-| Embedded | `image_provider/embedded.rs` | *(not applicable)* | `lofty` crate → embedded artwork |
+Plugins register image handlers via `api.imageProviders.onFetch()`:
+
+```typescript
+type ImageFetchResult =
+  | { status: "ok"; url: string; headers?: Record<string, string> }
+  | { status: "ok"; data: string }    // base64 encoded
+  | { status: "not_found" }
+  | { status: "error"; message?: string };
+
+interface PluginImageProvidersAPI {
+  onFetch(
+    entity: "artist" | "album",
+    handler: (name: string, artistName?: string) => Promise<ImageFetchResult>,
+  ): () => void;
+}
+```
+
+### Default Fallback Chain Order
+
+Priority is user-configurable via Settings > Providers. Default order (lower = tried first):
+
+**Artist chain**: TIDAL (100) → Deezer (200) → iTunes (300) → AudioDB (400) → MusicBrainz (500)
+
+**Album chain**: Embedded (Rust-native, always first) → TIDAL (100) → iTunes (200) → Deezer (300) → MusicBrainz (500)
+
+### Plugin Implementations
+
+| Plugin | Artist Source | Album Source |
+|---|---|---|
+| tidal-browse | TIDAL API search → `picture_id` → cover URL | TIDAL API search → `cover_id` → cover URL |
+| deezer | `/search/artist` → `picture_xl` | `/search/album` → `cover_xl` |
+| itunes | Search → `artworkUrl100` upscaled to 600px | Search → artwork upscaled to 600px |
+| audiodb | `/search.php` → `strArtistThumb` | *(not applicable)* |
+| musicbrainz | MBID → Wikimedia Commons thumbnail | Release-group MBID → Cover Art Archive |
+| Embedded | *(not applicable — Rust-native)* | `lofty` crate → embedded artwork from audio files |
+
+### Provider Management Commands (`src-tauri/src/commands.rs`)
+
+| Command | Parameters | Description |
+|---|---|---|
+| `sync_image_providers` | `providers: [(plugin_id, entity, priority)]` | Sync image provider table from plugin manifests |
+| `get_image_providers` | `entity` | Get active providers for entity in priority order |
+| `get_all_provider_config` | — | Get full config for Settings UI (info types + image providers) |
+| `update_image_provider_priority` | `plugin_id, entity, priority` | Update provider priority |
+| `update_image_provider_active` | `plugin_id, entity, active` | Toggle provider on/off |
+| `update_info_type_priority` | `type_id, plugin_id, priority` | Update info type provider priority |
+| `update_info_type_active` | `type_id, plugin_id, active` | Toggle info type provider on/off |
+| `reset_provider_priorities` | `image_defaults, info_defaults` | Reset all priorities to manifest defaults |
+| `image_resolve_response` | `request_id, result` | Return image result from frontend to Rust worker |
+
+### Settings Provider Priority UI (`src/components/SettingsPanel.tsx`)
+
+The Settings > Providers tab includes a **Provider Priority** section that shows all image providers and information type provider chains, grouped by entity (Artist, Album, Track). Users can:
+
+- **Drag-and-drop** to reorder providers within a multi-provider row
+- **Toggle** individual providers on/off
+- **Reset** all priorities to manifest defaults
+- Album images always show "Embedded" locked at the first position (it runs in Rust before the bridge)
 
 ### Failure Caching
 
@@ -601,9 +702,7 @@ Failed image fetches are recorded in `image_fetch_failures` table to avoid retry
 
 ### Shared Utilities (`image_provider/mod.rs`)
 
-- `urlencoded()` — RFC 3986 URL encoding
 - `http_client()` — Creates `reqwest::blocking::Client` with Viboplr user agent
-- `logged_get()` — HTTP GET with timing logs
 - `write_image()` — Writes bytes to disk with parent directory creation
 
 ---
@@ -642,6 +741,18 @@ CREATE TABLE information_values (
 CREATE INDEX idx_info_values_entity ON information_values(entity_key);
 ```
 
+### image_providers
+
+```sql
+CREATE TABLE image_providers (
+    id          INTEGER PRIMARY KEY,
+    plugin_id   TEXT NOT NULL,
+    entity      TEXT NOT NULL CHECK(entity IN ('artist', 'album')),
+    priority    INTEGER NOT NULL,
+    active      INTEGER NOT NULL DEFAULT 1
+);
+```
+
 ### plugin_storage
 
 ```sql
@@ -655,16 +766,31 @@ CREATE TABLE plugin_storage (
 
 ### Key DB Methods (`src-tauri/src/db.rs`)
 
-| Method | Line | Description |
-|---|---|---|
-| `info_sync_types()` | 2438 | Deactivate all → upsert active types (transaction) |
-| `info_get_types_for_entity()` | 2466 | Get active types for entity kind with provider chains |
-| `info_get_value()` | 2508 | Get single cached value |
-| `info_get_values_for_entity()` | 2526 | Get all cached values for an entity key |
-| `info_upsert_value()` | 2541 | Insert or update cached value |
-| `info_delete_value()` | 2554 | Delete single cached value |
-| `info_delete_values_for_type()` | 2564 | Delete all values for a type_id |
-| `info_delete_all_for_entity()` | 2575 | Purge all values for an entity |
+**Information Types:**
+
+| Method | Description |
+|---|---|
+| `info_sync_types()` | Deactivate all → upsert active types, preserving user-customized priorities (transaction) |
+| `info_get_types_for_entity()` | Get active types for entity kind with provider chains |
+| `info_get_value()` | Get single cached value |
+| `info_get_values_for_entity()` | Get all cached values for an entity key |
+| `info_upsert_value()` | Insert or update cached value |
+| `info_delete_value()` | Delete single cached value |
+| `info_delete_values_for_type()` | Delete all values for a type_id |
+| `info_delete_all_for_entity()` | Purge all values for an entity |
+
+**Image Providers:**
+
+| Method | Description |
+|---|---|
+| `sync_image_providers()` | Deactivate all → upsert providers, preserving user-customized priorities → delete orphans (transaction) |
+| `get_image_providers()` | Get active providers for entity ordered by priority ASC |
+| `get_all_provider_config()` | Returns (info_types, image_providers) for Settings UI |
+| `update_image_provider_priority()` | Update provider priority for a plugin+entity |
+| `update_image_provider_active()` | Toggle provider active state |
+| `update_info_type_priority()` | Update information type provider priority |
+| `update_info_type_active()` | Toggle information type active state |
+| `reset_provider_priorities()` | Reset both image and info type priorities to manifest defaults |
 
 ---
 
@@ -695,11 +821,13 @@ CREATE TABLE plugin_storage (
 **Purpose**: Song explanations, artist/album descriptions from Genius
 
 **Information Types**:
-| ID | Entity | displayKind | TTL |
-|---|---|---|---|
-| `genius_song_explanation` | track | `annotations` | 90d |
-| `genius_artist_description` | artist | `rich_text` | 90d |
-| `genius_album_description` | album | `rich_text` | 90d |
+| ID | Entity | displayKind | TTL | Priority |
+|---|---|---|---|---|
+| `genius_song_explanation` | track | `annotations` | 90d | 100 |
+| `artist_bio` | artist | `rich_text` | 90d | 200 |
+| `album_wiki` | album | `rich_text` | 90d | 200 |
+
+**Provider Chain**: Genius shares `artist_bio` and `album_wiki` type IDs with Last.fm. Last.fm has priority 100, Genius has priority 200 — making Genius a fallback provider when Last.fm has no data.
 
 ### lrclib (v1.0.0)
 
@@ -716,6 +844,7 @@ CREATE TABLE plugin_storage (
 
 **Sidebar**: "TIDAL" with icon
 **Context Menu**: search-tidal (track/album/artist), upgrade-quality (track), play-from-tidal (track)
+**Image Providers**: artist (priority 100), album (priority 100)
 
 ### spotify-browse (v1.0.0)
 
@@ -731,6 +860,30 @@ CREATE TABLE plugin_storage (
 **Sidebar**: "Stats" with chart-bar icon
 **Context Menu**: show-artist-stats (track, artist)
 **Event Hooks**: all four events
+
+### deezer (v1.0.0)
+
+**Purpose**: Artist and album images from Deezer
+
+**Image Providers**: artist (priority 200), album (priority 300)
+
+### itunes (v1.0.0)
+
+**Purpose**: Artist and album images from iTunes
+
+**Image Providers**: artist (priority 300), album (priority 200)
+
+### audiodb (v1.0.0)
+
+**Purpose**: Artist images from TheAudioDB
+
+**Image Providers**: artist (priority 400)
+
+### musicbrainz (v1.0.0)
+
+**Purpose**: Artist and album images from MusicBrainz and Cover Art Archive
+
+**Image Providers**: artist (priority 500), album (priority 500)
 
 ### randomizer (v1.0.0)
 
@@ -804,4 +957,49 @@ Plugin handler processes action
   │
   ▼
 Plugin calls api.ui.setViewData() with updated view
+```
+
+### Image Resolution (Rust-JS Bridge)
+
+```
+Image download worker needs artist/album image
+  │
+  ├── (Album only) Try EmbeddedArtworkProvider (Rust-native)
+  │     → If found: save to disk, emit album-image-ready, done
+  │
+  ▼
+Create one-shot mpsc channel
+Register sender in ImageResolveRegistry
+  │
+  ▼
+emit("image-resolve-request", {request_id, entity, id, name/title, artist_name})
+  │
+  ▼  (Tauri event system)
+  │
+useImageResolver hook receives event
+  │
+  ├──▶ invoke("get_image_providers", {entity})
+  │     → active providers in priority order
+  │
+  ▼
+For each provider (plugin):
+  invokeImageFetch(pluginId, entity, name, artistName?)
+    → plugin.imageFetchHandlers.get(entity)(name, artistName?)
+      → HTTP request to external API (TIDAL, Deezer, etc.)
+    → if status === "ok": send result back, stop
+    → if not: try next provider
+  │
+  ▼
+invoke("image_resolve_response", {requestId, result})
+  │
+  ▼  (Back in Rust worker thread)
+  │
+Receive via mpsc channel (30s timeout)
+  │
+  ├── URL result: download via reqwest, save to disk
+  ├── base64 data: decode and save to disk
+  └── Error/timeout: record in image_fetch_failures
+  │
+  ▼
+emit("artist-image-ready" / "album-image-ready")
 ```
