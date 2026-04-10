@@ -46,7 +46,7 @@ export function InformationSections({
   onAction,
   resolveEntity,
 }: InformationSectionsProps) {
-  const { sections, reloadCache } = useInformationTypes({ entity, exclude, invokeInfoFetch });
+  const { sections, refresh, reloadCache } = useInformationTypes({ entity, exclude, invokeInfoFetch });
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
@@ -168,12 +168,23 @@ export function InformationSections({
         {tabs.map(tab => (
           <div
             key={getTabId(tab)}
-            className={`info-sections-tab${getTabId(tab) === resolvedTab ? " active" : ""}`}
+            className={`info-sections-tab${getTabId(tab) === resolvedTab ? " active" : ""}${tab.kind === "plugin" && tab.section.state.kind === "empty" ? " empty" : ""}`}
             onClick={() => { setActiveTab(getTabId(tab)); setCollapsed(false); }}
           >
             {tab.name}
           </div>
         ))}
+        {!collapsed && activeEntry.kind === "plugin" && (
+          <svg
+            className="info-sections-refresh"
+            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            onClick={() => refresh(activeEntry.typeId)}
+          >
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+        )}
       </div>
       {!collapsed && (
         <>
@@ -187,6 +198,8 @@ export function InformationSections({
                 <div className="info-section-skeleton" />
               ) : s.state.kind === "loaded" && s.state.data && Renderer ? (
                 <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={handleAction} resolveEntity={resolveEntity} context={positionSecs != null ? { positionSecs } : undefined} />
+              ) : s.state.kind === "empty" ? (
+                <div className="info-section-empty">No data available</div>
               ) : null;
             })()}
           </div>

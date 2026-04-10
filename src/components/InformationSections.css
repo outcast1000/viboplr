@@ -127,3 +127,34 @@
   flex: 1 1 0;
   overflow-y: auto;
 }
+
+/* ── Empty section state ── */
+
+.info-sections-tab.empty {
+  opacity: 0.25;
+}
+
+.info-sections-tab.empty:hover {
+  opacity: 0.5;
+}
+
+.info-section-empty {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  opacity: 0.4;
+  padding: 8px 0;
+}
+
+/* ── Refresh button ── */
+
+.info-sections-refresh {
+  margin-left: auto;
+  flex-shrink: 0;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: opacity 0.15s ease;
+}
+
+.info-sections-refresh:hover {
+  opacity: 0.8;
+}
