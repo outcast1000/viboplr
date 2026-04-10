@@ -243,7 +243,7 @@ function activate(api) {
       if (!found) return { status: "not_found" };
       return scrapeLyrics(found.url).then(function (text) {
         if (!text) return { status: "not_found" };
-        return { status: "ok", value: { text: text, kind: "plain" } };
+        return { status: "ok", value: { text: text, kind: "plain", _meta: { url: found.url, providerName: "Genius" } } };
       });
     }).catch(function () { return { status: "error" }; });
   });
