@@ -554,6 +554,7 @@ interface SettingsPanelProps {
   loggingEnabled: boolean;
   onLoggingEnabledChange: (enabled: boolean) => void;
   onOpenLogsFolder: () => void;
+  onOpenProfileFolder: () => void;
 }
 
 interface ProviderFormData {
@@ -609,6 +610,7 @@ export function SettingsPanel({
   loggingEnabled,
   onLoggingEnabledChange,
   onOpenLogsFolder,
+  onOpenProfileFolder,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1211,6 +1213,13 @@ export function SettingsPanel({
                       <span className="settings-description">Open the folder containing log files</span>
                     </div>
                     <button className="settings-btn-secondary" onClick={onOpenLogsFolder}>Open Folder</button>
+                  </div>
+                  <div className="settings-row">
+                    <div className="settings-row-info">
+                      <span className="settings-label">Profile folder</span>
+                      <span className="settings-description">Open the profile data directory</span>
+                    </div>
+                    <button className="settings-btn-secondary" onClick={onOpenProfileFolder}>Open Folder</button>
                   </div>
                 </div>
                 <div className="settings-group-title" style={{ marginTop: 20 }}>Maintenance</div>

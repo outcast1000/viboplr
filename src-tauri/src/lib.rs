@@ -145,6 +145,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::install_gallery_plugin,
         commands::delete_user_plugin,
         commands::oauth_listen,
+        commands::open_profile_folder,
         commands::open_logs_folder,
         commands::write_frontend_log,
     ]

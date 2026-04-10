@@ -1255,6 +1255,10 @@ function App() {
     invoke("open_logs_folder").catch(console.error);
   }
 
+  function handleOpenProfileFolder() {
+    invoke("open_profile_folder").catch(console.error);
+  }
+
 
   function handleToggleSidebar() {
     setSidebarCollapsed(prev => {
@@ -1950,6 +1954,7 @@ function App() {
               loggingEnabled={loggingEnabled}
               onLoggingEnabledChange={handleLoggingEnabledChange}
               onOpenLogsFolder={handleOpenLogsFolder}
+              onOpenProfileFolder={handleOpenProfileFolder}
             />
           )}
           </>}

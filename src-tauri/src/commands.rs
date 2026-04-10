@@ -671,6 +671,11 @@ pub fn open_folder(folder_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn open_profile_folder(state: State<'_, AppState>) -> Result<(), String> {
+    open_folder(state.app_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub fn open_logs_folder(state: State<'_, AppState>) -> Result<(), String> {
     let logs_dir = state.app_data_dir.join("logs");
     std::fs::create_dir_all(&logs_dir).map_err(|e| e.to_string())?;
