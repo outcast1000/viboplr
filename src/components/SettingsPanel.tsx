@@ -217,11 +217,6 @@ function ProviderPrioritySection({
     row: ProviderRow,
     index: number,
   ) => {
-    // Don't allow dragging locked items (Embedded for album images)
-    if (row.hasLockedFirst && index === 0) {
-      e.preventDefault();
-      return;
-    }
     setDragState({
       entity,
       rowTypeId: row.typeId,
@@ -247,9 +242,6 @@ function ProviderPrioritySection({
     if (!dragState) return;
     if (dragState.entity !== entity || dragState.rowTypeId !== row.typeId) return;
 
-    // Don't allow dropping onto locked position
-    if (row.hasLockedFirst && targetIndex === 0) return;
-
     const sourceIndex = dragState.sourceIndex;
     if (sourceIndex === targetIndex) {
       setDragState(null);
@@ -261,11 +253,10 @@ function ProviderPrioritySection({
     const [moved] = providers.splice(sourceIndex, 1);
     providers.splice(targetIndex, 0, moved);
 
-    // Recalculate priorities (100, 200, 300...) skipping locked items
-    const startIdx = row.hasLockedFirst ? 1 : 0;
+    // Recalculate priorities (100, 200, 300...)
     const updates: Promise<void>[] = [];
-    for (let i = startIdx; i < providers.length; i++) {
-      const newPriority = (i - startIdx + 1) * 100;
+    for (let i = 0; i < providers.length; i++) {
+      const newPriority = (i + 1) * 100;
       if (providers[i].priority !== newPriority) {
         if (row.kind === "images") {
           updates.push(
@@ -373,7 +364,7 @@ function ProviderPrioritySection({
             {!collapsedEntities.has(entity) && (
               <div className="provider-entity-rows">
                 {rows.map(row => {
-                  const isMulti = row.providers.length > 1 || (row.hasLockedFirst && row.providers.length > 0);
+                  const isMulti = row.providers.length > 1;
                   return (
                     <div key={`${row.kind}-${row.typeId}`} className="provider-priority-row">
                       <span className="provider-priority-label">{row.label}</span>
@@ -396,7 +387,7 @@ function ProviderPrioritySection({
                             )}
                             <span
                               className={`provider-pill${!provider.active ? " provider-pill-disabled" : ""}${isMulti ? " provider-pill-draggable" : ""}`}
-                              draggable={isMulti && !(row.hasLockedFirst && i === 0)}
+                              draggable={isMulti}
                               onDragStart={(e) => handleDragStart(e, entity, row, i)}
                               onDragOver={isMulti ? handleDragOver : undefined}
                               onDrop={isMulti ? (e) => handleDrop(e, entity, row, i) : undefined}
