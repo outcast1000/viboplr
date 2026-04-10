@@ -1,0 +1,21 @@
+{
+  "id": "allmusic",
+  "name": "AllMusic",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Artist biographies from AllMusic",
+  "minAppVersion": "0.9.4",
+  "contributes": {
+    "informationTypes": [
+      {
+        "id": "artist_bio",
+        "name": "About",
+        "entity": "artist",
+        "displayKind": "rich_text",
+        "ttl": 7776000,
+        "order": 200,
+        "priority": 300
+      }
+    ]
+  }
+}
