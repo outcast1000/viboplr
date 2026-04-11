@@ -11,7 +11,43 @@ window.__TAURI_INTERNALS__.metadata = {
 };
 
 const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
-window.__TAURI_INTERNALS__.convertFileSrc = function (_filePath, _protocol) {
+
+// Generate a deterministic color from a string (for placeholder art)
+function hashColor(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  const hue = Math.abs(h) % 360;
+  return `hsl(${hue}, 45%, 35%)`;
+}
+
+function hashColor2(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = ((h << 7) - h + str.charCodeAt(i)) | 0;
+  const hue = Math.abs(h) % 360;
+  return `hsl(${hue}, 50%, 25%)`;
+}
+
+// Create a gradient SVG placeholder as a data URI
+function placeholderImage(name) {
+  const c1 = hashColor(name);
+  const c2 = hashColor2(name);
+  const initials = name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${c1}"/><stop offset="100%" stop-color="${c2}"/></linearGradient></defs>
+    <rect width="300" height="300" fill="url(#g)"/>
+    <text x="150" y="165" text-anchor="middle" font-family="sans-serif" font-size="80" font-weight="600" fill="rgba(255,255,255,0.6)">${initials}</text>
+  </svg>`;
+  return 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
+
+// Map of mock image paths to placeholder data URIs
+const mockImageMap = {};
+
+window.__TAURI_INTERNALS__.convertFileSrc = function (filePath, _protocol) {
+  // If this is a mock image path, return the placeholder
+  if (filePath && filePath.startsWith('/mock/images/')) {
+    return mockImageMap[filePath] || SILENT_WAV;
+  }
   return SILENT_WAV;
 };
 
@@ -75,6 +111,16 @@ const ALBUMS = [
   { id: 20, title: 'Vespertine', artist_id: 5, artist_name: 'Björk', year: 2001, track_count: 2, liked: 1 },
   { id: 21, title: 'I Put a Spell on You', artist_id: 16, artist_name: 'Nina Simone', year: 1965, track_count: 3, liked: 1 },
 ];
+
+// Pre-populate mock image paths and data URIs
+for (const a of ARTISTS) {
+  const p = `/mock/images/artist/${a.id}`;
+  mockImageMap[p] = placeholderImage(a.name);
+}
+for (const a of ALBUMS) {
+  const p = `/mock/images/album/${a.id}`;
+  mockImageMap[p] = placeholderImage(a.title);
+}
 
 const TRACK_DATA = [
   // [collectionId, title, artistId, artistName, albumId, albumTitle, year, trackNum, durationSecs, format]
@@ -307,7 +353,12 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     case 'get_track_play_history': return HISTORY_RECENT.slice(0, 5);
     case 'get_track_audio_properties': return { sample_rate: 44100, bit_depth: 16, channels: 2, bitrate: 1411 };
     case 'get_auto_continue_track': return null;
-    case 'get_entity_image': return null;
+    case 'get_entity_image': {
+      const kind = args.kind;
+      const id = args.id;
+      const p = `/mock/images/${kind}/${id}`;
+      return mockImageMap[p] ? p : null;
+    }
     case 'get_entity_image_by_name': return null;
     case 'get_image_providers': return [];
     case 'get_track_by_id': return TRACKS.find(t => t.id === (args.id || args.trackId)) || null;
@@ -318,6 +369,36 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     case 'tidal_search': return { artists: [], albums: [], tracks: [] };
     case 'get_track_rank': return null;
     case 'get_artist_rank': return null;
+    case 'fetch_artist_image': {
+      // Emit artist-image-ready event after a short delay
+      const aid = args.artistId;
+      const p = `/mock/images/artist/${aid}`;
+      if (mockImageMap[p]) {
+        setTimeout(() => {
+          const handlers = eventListeners.get('artist-image-ready') || [];
+          for (const hid of handlers) {
+            const cb = callbacks.get(hid);
+            if (cb) cb({ event: 'artist-image-ready', payload: { artistId: aid, path: p, name: args.artistName, source: 'mock' } });
+          }
+        }, 50);
+      }
+      return null;
+    }
+    case 'fetch_album_image': {
+      const aid = args.albumId;
+      const p = `/mock/images/album/${aid}`;
+      if (mockImageMap[p]) {
+        setTimeout(() => {
+          const handlers = eventListeners.get('album-image-ready') || [];
+          for (const hid of handlers) {
+            const cb = callbacks.get(hid);
+            if (cb) cb({ event: 'album-image-ready', payload: { albumId: aid, path: p, title: args.albumTitle, source: 'mock' } });
+          }
+        }, 50);
+      }
+      return null;
+    }
+    case 'fetch_tag_image': return null;
     case 'record_play': return null;
     case 'toggle_liked': return null;
     default:
