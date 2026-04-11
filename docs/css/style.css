@@ -409,6 +409,13 @@ p {
   opacity: 0.3;
 }
 
+.hero-screenshot-inner img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
 /* --- Feature Cards (Home) --- */
 .cards-grid {
   display: grid;
@@ -581,6 +588,13 @@ p {
 
 .feature-section:nth-child(even) .feature-image {
   background: var(--color-bg);
+}
+
+.feature-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
 }
 
 .feature-image::before {
