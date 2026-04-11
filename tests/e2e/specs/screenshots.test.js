@@ -28,7 +28,7 @@ test.describe('Screenshots', () => {
     await setup(page);
     // Double-click the first track to start playback
     const firstTrack = page.locator('.track-row').first();
-    await firstTrack.dblClick();
+    await firstTrack.dblclick();
     await page.waitForTimeout(600);
     await page.screenshot({ path: path.join(outDir, 'playback.png'), type: 'png' });
   });
@@ -69,7 +69,7 @@ test.describe('Screenshots', () => {
     await setup(page);
     // Start playback first
     const firstTrack = page.locator('.track-row').first();
-    await firstTrack.dblClick();
+    await firstTrack.dblclick();
     await page.waitForTimeout(500);
     // Resize to mini player dimensions
     await page.setViewportSize({ width: 500, height: 52 });
@@ -89,9 +89,9 @@ test.describe('Screenshots', () => {
 
   test('08 - skins', async ({ page }) => {
     await setup(page);
-    // Open settings panel
+    // Open settings view
     await page.locator('.settings-btn').click();
-    await page.waitForSelector('.settings-overlay');
+    await page.waitForSelector('.settings-tab-bar');
     // Click the Skins tab
     const skinsTab = page.locator('.settings-tab', { hasText: 'Skins' });
     await skinsTab.click();
@@ -103,7 +103,7 @@ test.describe('Screenshots', () => {
     await setup(page);
     // Double-click a track to play it
     const firstTrack = page.locator('.track-row').first();
-    await firstTrack.dblClick();
+    await firstTrack.dblclick();
     await page.waitForTimeout(500);
     // Click the track title in the now-playing bar to open track detail view
     const npTitle = page.locator('.now-title').first();
@@ -114,9 +114,9 @@ test.describe('Screenshots', () => {
 
   test('10 - plugins', async ({ page }) => {
     await setup(page);
-    // Open settings panel
+    // Open settings view
     await page.locator('.settings-btn').click();
-    await page.waitForSelector('.settings-overlay');
+    await page.waitForSelector('.settings-tab-bar');
     // Click the Plugins tab
     const pluginsTab = page.locator('.settings-tab', { hasText: 'Plugins' });
     await pluginsTab.click();

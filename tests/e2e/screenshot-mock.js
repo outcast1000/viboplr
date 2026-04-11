@@ -243,7 +243,8 @@ const SEARCH_RESULTS = {
 
 window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
   if (cmd.startsWith('plugin:')) {
-    if (cmd === 'plugin:store|get') return null;
+    if (cmd === 'plugin:store|get') return [null, false];
+    if (cmd === 'plugin:store|get_store') return 1;
     if (cmd === 'plugin:store|set') return null;
     if (cmd === 'plugin:store|load') return null;
     if (cmd === 'plugin:store|save') return null;
