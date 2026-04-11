@@ -8,7 +8,9 @@
       "Adjustable crossfade (0&ndash;10s)",
       "Audio &amp; video playback with native codecs",
       "Sub-200ms playback latency"
-    ]
+    ],
+    "screenshot": "playback.webp",
+    "screenshotAlt": "Viboplr playback controls and now playing bar"
   },
   {
     "label": "Library",
@@ -19,7 +21,9 @@
       "Smart metadata extraction with fallback parsing",
       "Real-time file watching for instant updates",
       "Genre tags from file metadata"
-    ]
+    ],
+    "screenshot": "library.webp",
+    "screenshotAlt": "Viboplr library view with artist detail"
   },
   {
     "label": "Search",
@@ -30,7 +34,9 @@
       "Accent &amp; case insensitive",
       "Sub-100ms results across entire library",
       "Search by artist, album, track, or tag"
-    ]
+    ],
+    "screenshot": "search.webp",
+    "screenshotAlt": "Viboplr full-text search with results"
   },
   {
     "label": "Servers",
@@ -41,7 +47,9 @@
       "TIDAL Hi-Fi integration",
       "Unified library across all sources",
       "Seamless switching between local &amp; remote"
-    ]
+    ],
+    "screenshot": "servers.webp",
+    "screenshotAlt": "Viboplr collections view with local and server sources"
   },
   {
     "label": "Mini Player",
@@ -52,7 +60,11 @@
       "Draggable &amp; compact",
       "Auto-resizing to fit content",
       "Full playback controls"
-    ]
+    ],
+    "screenshot": "mini-player.webp",
+    "screenshotAlt": "Viboplr compact mini player mode",
+    "screenshotWidth": 1000,
+    "screenshotHeight": 104
   },
   {
     "label": "Keyboard",
@@ -63,7 +75,9 @@
       "Playback, volume, navigation, search",
       "Discoverable via shortcut overlay",
       "Vim-inspired navigation keys"
-    ]
+    ],
+    "screenshot": "keyboard.webp",
+    "screenshotAlt": "Viboplr keyboard shortcuts overlay"
   },
   {
     "label": "Skins",
@@ -74,7 +88,9 @@
       "Community skin gallery",
       "13 color tokens for full UI theming",
       "Import custom JSON skins"
-    ]
+    ],
+    "screenshot": "skins.webp",
+    "screenshotAlt": "Viboplr skin settings with theme options"
   },
   {
     "label": "Discovery",
@@ -85,7 +101,9 @@
       "Similar tracks &amp; artists via Last.fm",
       "Artist bios &amp; album descriptions",
       "Community tag suggestions &amp; scrobble history"
-    ]
+    ],
+    "screenshot": "discovery.webp",
+    "screenshotAlt": "Viboplr track detail view with metadata"
   },
   {
     "label": "Plugins",
@@ -96,6 +114,8 @@
       "Event hooks for playback lifecycle",
       "Per-plugin key-value storage",
       "Structured view rendering (no raw HTML)"
-    ]
+    ],
+    "screenshot": "plugins.webp",
+    "screenshotAlt": "Viboplr plugins settings panel"
   }
 ]

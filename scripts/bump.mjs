@@ -6,8 +6,9 @@
 //   1. Bumps version in package.json, Cargo.toml, tauri.conf.json
 //   2. Updates static version badge + download URLs across docs/ pages
 //   3. Generates changelog and prepends a new entry to docs/history.html
-//   4. Regenerates docs/features.html from docs/features.json
-//   5. Commits, tags, and pushes (with --autocommit)
+//   4. Regenerates screenshots (requires Vite dev server)
+//   5. Regenerates docs/features.html from docs/features.json
+//   6. Commits, tags, and pushes (with --autocommit)
 
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
 import { execSync } from "child_process";
@@ -254,7 +255,20 @@ const timelineEntry = `<div class="timeline-entry reveal">
 }
 
 // ---------------------------------------------------------------------------
-// Step 4 — Regenerate docs/features.html from docs/features.json
+// Step 4 — Regenerate screenshots (if dev server available)
+// ---------------------------------------------------------------------------
+
+console.log("\nRegenerating screenshots...\n");
+
+try {
+  execSync("npm run screenshots", { cwd: root, encoding: "utf-8", stdio: "inherit", timeout: 120_000 });
+  console.log("✓ Screenshots regenerated");
+} catch {
+  console.log("⚠ Screenshot generation skipped (requires dev server on localhost:1420)");
+}
+
+// ---------------------------------------------------------------------------
+// Step 5 — Regenerate docs/features.html from docs/features.json
 // ---------------------------------------------------------------------------
 
 console.log("\nRegenerating features page...\n");
@@ -265,7 +279,13 @@ if (existsSync(featuresJsonPath)) {
 
   const featureSections = features
     .map(
-      (f) => `  <!-- Feature: ${f.label} -->
+      (f) => {
+        const w = f.screenshotWidth || 2560;
+        const h = f.screenshotHeight || 1600;
+        const imgTag = f.screenshot
+          ? `<img src="assets/screenshots/${f.screenshot}" alt="${f.screenshotAlt || ""}" loading="lazy" width="${w}" height="${h}">`
+          : `<span>${f.label} screenshot &mdash; coming soon</span>`;
+        return `  <!-- Feature: ${f.label} -->
   <section class="feature-section">
     <div class="container">
       <div class="feature-row reveal">
@@ -278,13 +298,43 @@ ${f.items.map((item) => `            <div class="feature-list-item">${item}</div
           </div>
         </div>
         <div class="feature-image">
-          <span>${f.label} screenshot &mdash; coming soon</span>
+          ${imgTag}
         </div>
       </div>
     </div>
-  </section>`
+  </section>`;
+      }
     )
     .join("\n\n");
+
+  // Skin gallery section (inserted after the Skins feature)
+  const skinGallery = `
+  <!-- Skin Gallery -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="skin-gallery reveal">
+        <div class="skin-gallery-item">
+          <img src="assets/screenshots/detail-artist-light.webp" alt="Artist detail view in Arctic Light skin" loading="lazy" width="2560" height="1600">
+          <div class="skin-gallery-caption"><strong>Arctic Light</strong> &mdash; Artist detail</div>
+        </div>
+        <div class="skin-gallery-item">
+          <img src="assets/screenshots/detail-album-viboplr.webp" alt="Album detail view in Viboplr skin" loading="lazy" width="2560" height="1600">
+          <div class="skin-gallery-caption"><strong>Viboplr</strong> &mdash; Album detail</div>
+        </div>
+        <div class="skin-gallery-item">
+          <img src="assets/screenshots/detail-track-sunset.webp" alt="Track detail view in Sunset skin" loading="lazy" width="2560" height="1600">
+          <div class="skin-gallery-caption"><strong>Sunset</strong> &mdash; Track detail</div>
+        </div>
+      </div>
+    </div>
+  </section>`;
+
+  // Insert skin gallery after the Skins feature section
+  const skinsIdx = featureSections.indexOf("<!-- Feature: Skins -->");
+  const afterSkins = featureSections.indexOf("<!-- Feature:", skinsIdx + 1);
+  const featureSectionsWithGallery = afterSkins !== -1
+    ? featureSections.slice(0, afterSkins) + skinGallery + "\n\n  " + featureSections.slice(afterSkins)
+    : featureSections + "\n" + skinGallery;
 
   const featuresHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -348,7 +398,7 @@ ${f.items.map((item) => `            <div class="feature-list-item">${item}</div
     </div>
   </section>
 
-${featureSections}
+${featureSectionsWithGallery}
 
   <!-- Bottom CTA -->
   <section class="bottom-cta">
@@ -388,7 +438,7 @@ ${featureSections}
 }
 
 // ---------------------------------------------------------------------------
-// Step 5 — Git operations
+// Step 6 — Git operations
 // ---------------------------------------------------------------------------
 
 if (autocommit) {

@@ -63,14 +63,23 @@ async function applySkin(page, skinId) {
   await page.waitForTimeout(100);
 }
 
+/** Expand sidebar, click a nav button, then collapse sidebar */
+async function sidebarNavigate(page, navText) {
+  await page.locator('button[title="Expand sidebar"]').click();
+  await page.waitForTimeout(400);
+  await page.locator('.nav-btn', { hasText: navText }).click();
+  await page.waitForTimeout(500);
+  // Collapse — the button may already be gone if sidebar auto-collapsed
+  const collapseBtn = page.locator('button[title="Collapse sidebar"]');
+  if (await collapseBtn.isVisible().catch(() => false)) {
+    await collapseBtn.click();
+    await page.waitForTimeout(300);
+  }
+}
+
 /** Navigate to Artists view and open a specific artist by index */
 async function goToArtistDetail(page, artistIndex = 0) {
-  await page.locator('button[title="Expand sidebar"]').click();
-  await page.waitForTimeout(300);
-  await page.locator('.nav-btn', { hasText: 'Artists' }).click();
-  await page.waitForTimeout(400);
-  await page.locator('button[title="Collapse sidebar"]').click();
-  await page.waitForTimeout(300);
+  await sidebarNavigate(page, 'Artists');
   await page.locator('.artist-card').nth(artistIndex).click();
   await page.waitForTimeout(500);
   await waitForImages(page);
@@ -94,21 +103,7 @@ test.describe('Screenshots', () => {
 
   test('03 - library', async ({ page }) => {
     await setup(page);
-    // Expand sidebar to access nav buttons
-    await page.locator('button[title="Expand sidebar"]').click();
-    await page.waitForTimeout(300);
-    // Navigate to Artists view
-    const artistsBtn = page.locator('.nav-btn', { hasText: 'Artists' });
-    await artistsBtn.click();
-    await page.waitForTimeout(400);
-    // Collapse sidebar back
-    await page.locator('button[title="Collapse sidebar"]').click();
-    await page.waitForTimeout(300);
-    // Click the first artist card to see artist detail
-    const firstArtist = page.locator('.artist-card').first();
-    await firstArtist.click();
-    await page.waitForTimeout(500);
-    await waitForImages(page);
+    await goToArtistDetail(page, 0);
     await page.screenshot({ path: path.join(outDir, 'library.png'), type: 'png' });
   });
 
@@ -124,16 +119,7 @@ test.describe('Screenshots', () => {
 
   test('05 - servers', async ({ page }) => {
     await setup(page);
-    // Expand sidebar to access nav buttons
-    await page.locator('button[title="Expand sidebar"]').click();
-    await page.waitForTimeout(300);
-    // Navigate to Collections view
-    const collectionsBtn = page.locator('.nav-btn', { hasText: 'Collections' });
-    await collectionsBtn.click();
-    await page.waitForTimeout(500);
-    // Collapse sidebar back
-    await page.locator('button[title="Collapse sidebar"]').click();
-    await page.waitForTimeout(300);
+    await sidebarNavigate(page, 'Collections');
     await page.screenshot({ path: path.join(outDir, 'servers.png'), type: 'png' });
   });
 
