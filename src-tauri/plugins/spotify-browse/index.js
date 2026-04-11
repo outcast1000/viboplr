@@ -1,5 +1,5 @@
 // Spotify Browse Plugin for Viboplr
-// Provides Spotify library browsing — liked songs and playlists
+// Provides Spotify library browsing — personalized feed, liked songs, and playlists
 
 function activate(api) {
   var SPOTIFY_CLIENT_ID = "44d2ad940a874b629112797a45b36a13";
@@ -16,6 +16,7 @@ function activate(api) {
     likedOffset: 0,
     likedTotal: 0,
     playlists: [],
+    homeSections: [],
     playlistTracks: [],
     playlistTracksOffset: 0,
     playlistTracksTotal: 0,
@@ -243,18 +244,103 @@ function activate(api) {
 
   // -- Data loading --
 
+  function fetchAllPlaylists() {
+    var allPlaylists = [];
+    var maxPages = 200;
+
+    function fetchPage(offset, page) {
+      return spotifyFetch("/me/playlists?limit=50&offset=" + offset).then(function (resp) {
+        var items = resp.items || [];
+        for (var i = 0; i < items.length; i++) {
+          allPlaylists.push(items[i]);
+        }
+        var total = resp.total || 0;
+        if (offset + 50 < total && page < maxPages) {
+          return fetchPage(offset + 50, page + 1);
+        }
+        return allPlaylists;
+      });
+    }
+
+    return fetchPage(0, 1);
+  }
+
+  function parseHomeFeedSection(section) {
+    if (!section || !section.content || !section.content.items) return null;
+    var title = section.name || section.tag_line || "";
+    if (!title) return null;
+    var items = [];
+    var sectionItems = section.content.items;
+    for (var i = 0; i < sectionItems.length; i++) {
+      var item = sectionItems[i];
+      if (!item) continue;
+      var type = null;
+      var uri = item.uri || "";
+      if (uri.indexOf("spotify:playlist:") === 0) type = "playlist";
+      else if (uri.indexOf("spotify:album:") === 0) type = "album";
+      else if (uri.indexOf("spotify:artist:") === 0) type = "artist";
+      else if (item.content_type === "PLAYLIST") type = "playlist";
+      else if (item.content_type === "ALBUM") type = "album";
+      else if (item.content_type === "ARTIST") type = "artist";
+      if (!type) continue;
+      var id = uri.split(":").pop() || item.id || "";
+      if (!id) continue;
+      var img = null;
+      if (item.images) {
+        if (item.images.length > 0 && item.images[0].url) {
+          img = item.images[0].url;
+        }
+      }
+      items.push({
+        id: id,
+        name: item.name || "",
+        description: item.description || "",
+        imageUrl: img,
+        type: type,
+        uri: uri,
+      });
+    }
+    if (items.length === 0) return null;
+    return { title: title, items: items };
+  }
+
+  function fetchHomeFeed() {
+    return spotifyFetch("/views/desktop-home?content_limit=10&locale=en&platform=web&types=album,playlist,artist&limit=20&offset=0")
+      .then(function (resp) {
+        var sections = [];
+        var content = resp.content || resp;
+        var rawSections = content.items || content.sections || [];
+        for (var i = 0; i < rawSections.length; i++) {
+          var parsed = parseHomeFeedSection(rawSections[i]);
+          if (parsed) sections.push(parsed);
+        }
+        return sections;
+      })
+      .catch(function (err) {
+        console.warn("[spotify] Home feed unavailable (this is expected if Spotify changes their internal API):", err.message || err);
+        return [];
+      });
+  }
+
   function loadHome() {
     renderLoading("Loading your library...");
-    return spotifyFetch("/me/playlists?limit=50").then(function (playlistResp) {
-      state.playlists = playlistResp.items || [];
-      return spotifyFetch("/me/tracks?limit=1");
-    }).then(function (likedResp) {
-      state.likedTotal = likedResp.total || 0;
-      state.currentView = "home";
-      renderHome();
-    }).catch(function (err) {
-      renderError("Failed to load library: " + (err.message || err));
-    });
+    state.homeSections = [];
+
+    var homeFeedPromise = fetchHomeFeed();
+    var playlistsPromise = fetchAllPlaylists();
+    var likedPromise = spotifyFetch("/me/tracks?limit=1");
+
+    return Promise.all([homeFeedPromise, playlistsPromise, likedPromise])
+      .then(function (results) {
+        state.homeSections = results[0] || [];
+        state.playlists = results[1] || [];
+        state.likedTotal = (results[2] && results[2].total) || 0;
+        state.currentView = "home";
+        renderHome();
+      })
+      .catch(function (err) {
+        renderError("Failed to load library: " + (err.message || err));
+      });
   }
 
   function loadLikedTracks(offset) {
@@ -391,6 +477,37 @@ function activate(api) {
     // Search bar
     children.push({ type: "search-input", placeholder: "Search Spotify...", action: "search", value: "" });
     children.push({ type: "spacer" });
+
+    // Personalized sections from home feed
+    for (var s = 0; s < state.homeSections.length; s++) {
+      var section = state.homeSections[s];
+      children.push({ type: "text", content: "<h3>" + escapeHtml(section.title) + "</h3>" });
+      var sectionItems = [];
+      for (var si = 0; si < section.items.length; si++) {
+        var item = section.items[si];
+        var action = null;
+        var itemId = null;
+        if (item.type === "playlist") {
+          action = "view-playlist";
+          itemId = "playlist:" + item.id;
+        } else if (item.type === "album") {
+          action = "open-spotify-uri";
+          itemId = "uri:" + item.uri;
+        } else if (item.type === "artist") {
+          action = "open-spotify-uri";
+          itemId = "uri:" + item.uri;
+        }
+        sectionItems.push({
+          id: itemId || item.id,
+          title: item.name,
+          subtitle: item.description || "",
+          imageUrl: item.imageUrl,
+          action: action,
+        });
+      }
+      children.push({ type: "card-grid", items: sectionItems });
+      children.push({ type: "spacer" });
+    }
 
     // Liked songs card
     children.push({
@@ -697,19 +814,52 @@ function activate(api) {
     loadLikedTracks(state.likedOffset + 50);
   });
 
+  function findPlaylistById(playlistId) {
+    // Check user's playlists first
+    for (var i = 0; i < state.playlists.length; i++) {
+      if (state.playlists[i].id === playlistId) {
+        return state.playlists[i];
+      }
+    }
+    // Check personalized home feed sections
+    for (var s = 0; s < state.homeSections.length; s++) {
+      var section = state.homeSections[s];
+      for (var j = 0; j < section.items.length; j++) {
+        var item = section.items[j];
+        if (item.type === "playlist" && item.id === playlistId) {
+          // Construct a playlist-like object from the home feed item
+          return {
+            id: item.id,
+            name: item.name,
+            images: item.imageUrl ? [{ url: item.imageUrl }] : [],
+            tracks: { total: 0 },
+          };
+        }
+      }
+    }
+    return null;
+  }
+
   api.ui.onAction("view-playlist", function (data) {
     if (!data || !data.itemId) return;
     var parts = data.itemId.split(":");
     if (parts[0] !== "playlist" || !parts[1]) return;
     var playlistId = parts.slice(1).join(":");
-    var playlist = null;
-    for (var i = 0; i < state.playlists.length; i++) {
-      if (state.playlists[i].id === playlistId) {
-        playlist = state.playlists[i];
-        break;
-      }
-    }
+    var playlist = findPlaylistById(playlistId);
     if (playlist) loadPlaylistTracks(playlist, 0);
+  });
+
+  api.ui.onAction("open-spotify-uri", function (data) {
+    if (!data || !data.itemId) return;
+    var parts = data.itemId.split(":");
+    if (parts[0] !== "uri" || !parts[1]) return;
+    var uri = parts.slice(1).join(":");
+    // Convert spotify:album:xyz to https://open.spotify.com/album/xyz
+    var uriParts = uri.split(":");
+    if (uriParts.length >= 3 && uriParts[0] === "spotify") {
+      var webUrl = "https://open.spotify.com/" + uriParts[1] + "/" + uriParts[2];
+      api.network.openUrl(webUrl);
+    }
   });
 
   api.ui.onAction("playlist-prev", function () {
@@ -778,6 +928,7 @@ function activate(api) {
     state.tokenExpiry = 0;
     state.userName = null;
     state.playlists = [];
+    state.homeSections = [];
     state.likedTracks = [];
     api.storage.delete("spotify_tokens");
     api.storage.delete("spotify_user");
