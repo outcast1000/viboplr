@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "test:rust": "cd src-tauri && cargo test",
     "test:e2e": "playwright test --config tests/e2e/playwright.config.js",
-    "test:all": "npm run test:rust && npm test && npm run test:e2e"
+    "test:all": "npm run test:rust && npm test && npm run test:e2e",
+    "screenshots": "playwright test --config tests/e2e/playwright.config.js tests/e2e/specs/screenshots.test.js && node scripts/convert-screenshots.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
