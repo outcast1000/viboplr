@@ -1,3 +1,4 @@
+mod browse_window;
 mod commands;
 mod composite_image;
 mod db;
@@ -148,6 +149,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::open_profile_folder,
         commands::open_logs_folder,
         commands::write_frontend_log,
+        browse_window::open_browse_window,
+        browse_window::browse_window_eval,
+        browse_window::close_browse_window,
+        browse_window::browse_window_send,
     ]
 }
 
@@ -274,6 +279,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::oauth_listen,
         commands::open_logs_folder,
         commands::write_frontend_log,
+        browse_window::open_browse_window,
+        browse_window::browse_window_eval,
+        browse_window::close_browse_window,
+        browse_window::browse_window_send,
     ]
 }
 

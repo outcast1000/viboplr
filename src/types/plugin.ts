@@ -261,6 +261,13 @@ export interface PluginStorageAPI {
   delete(key: string): Promise<void>;
 }
 
+export interface BrowseWindowHandle {
+  eval(js: string): Promise<void>;
+  close(): Promise<void>;
+  onMessage(handler: (msg: { type: string; data: unknown }) => void): () => void;
+  onNavigation(handler: (url: string) => void): () => void;
+}
+
 export interface PluginNetworkAPI {
   fetch(
     url: string,
@@ -278,6 +285,10 @@ export interface PluginNetworkAPI {
   onDeepLink(handler: (url: string) => void): () => void;
   onOAuthCallback(handler: (queryString: string) => void): () => void;
   startOAuthListener(): Promise<number>;
+  openBrowseWindow(
+    url: string,
+    opts?: { title?: string; width?: number; height?: number },
+  ): Promise<BrowseWindowHandle>;
 }
 
 export interface PluginInformationTypesAPI {

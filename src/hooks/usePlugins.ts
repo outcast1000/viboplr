@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -312,6 +312,72 @@ export function usePlugins(
           },
           async startOAuthListener(): Promise<number> {
             return invoke<number>("oauth_listen");
+          },
+          async openBrowseWindow(url, opts) {
+            const label = `browse-${pluginId}-${Date.now()}`;
+            await invoke("open_browse_window", {
+              url,
+              label,
+              title: opts?.title ?? null,
+              width: opts?.width ?? null,
+              height: opts?.height ?? null,
+            });
+
+            const messageHandlers: Array<(msg: { type: string; data: unknown }) => void> = [];
+            const navHandlers: Array<(url: string) => void> = [];
+            const unlisteners: UnlistenFn[] = [];
+
+            const msgUnlisten = await listen<{ label: string; msg_type: string; data: string }>(
+              "browse-window-message",
+              (event) => {
+                if (event.payload.label !== label) return;
+                let parsed: unknown;
+                try { parsed = JSON.parse(event.payload.data); } catch { parsed = event.payload.data; }
+                const msg = { type: event.payload.msg_type, data: parsed };
+                for (const h of messageHandlers) {
+                  try { h(msg); } catch (e) { console.error(`[plugin:${pluginId}] browse message error:`, e); }
+                }
+              },
+            );
+            unlisteners.push(msgUnlisten);
+
+            const navUnlisten = await listen<{ label: string; url: string }>(
+              "browse-window-navigation",
+              (event) => {
+                if (event.payload.label !== label) return;
+                for (const h of navHandlers) {
+                  try { h(event.payload.url); } catch (e) { console.error(`[plugin:${pluginId}] browse nav error:`, e); }
+                }
+              },
+            );
+            unlisteners.push(navUnlisten);
+
+            // Clean up listeners when plugin deactivates
+            for (const ul of unlisteners) trackUnsubscribe(ul);
+
+            return {
+              async eval(js: string) {
+                await invoke("browse_window_eval", { label, js });
+              },
+              async close() {
+                for (const ul of unlisteners) ul();
+                await invoke("close_browse_window", { label });
+              },
+              onMessage(handler) {
+                messageHandlers.push(handler);
+                return () => {
+                  const idx = messageHandlers.indexOf(handler);
+                  if (idx >= 0) messageHandlers.splice(idx, 1);
+                };
+              },
+              onNavigation(handler) {
+                navHandlers.push(handler);
+                return () => {
+                  const idx = navHandlers.indexOf(handler);
+                  if (idx >= 0) navHandlers.splice(idx, 1);
+                };
+              },
+            };
           },
         },
 
