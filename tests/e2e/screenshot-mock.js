@@ -12,39 +12,42 @@ window.__TAURI_INTERNALS__.metadata = {
 
 const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
 
-// Generate a deterministic color from a string (for placeholder art)
-function hashColor(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = ((h << 5) - h + str.charCodeAt(i)) | 0;
-  const hue = Math.abs(h) % 360;
-  return `hsl(${hue}, 45%, 35%)`;
-}
+// Real album cover art URLs from Apple Music / iTunes CDN
+const ALBUM_COVER_URLS = {
+  1:  'https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/07/60/ba/0760ba0f-148c-b18f-d0ff-169ee96f3af5/634904078164.png/500x500bb.jpg', // OK Computer
+  2:  'https://is1-ssl.mzstatic.com/image/thumb/Features125/v4/b5/4c/c2/b54cc20d-03f5-f2c4-4a0d-9b51ad65af89/dj.txuslqgv.jpg/500x500bb.jpg', // MHTRTC
+  3:  'https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/c1/71/93/c1719342-df7d-e9c5-c87c-53dae5afb289/00042282855329.rgb.jpg/500x500bb.jpg', // Dummy
+  4:  'https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/0a/98/55/0a98555b-8d9d-3b46-660a-b91261557d17/00724384559953.rgb.jpg/500x500bb.jpg', // Mezzanine
+  5:  'https://is1-ssl.mzstatic.com/image/thumb/Music/80/01/7e/mzi.jmcslmlj.jpg/500x500bb.jpg', // Homogenic
+  6:  'https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/5f/b3/e0/5fb3e08d-c2cd-3da4-6ad7-c5dc61803683/cover.jpg/500x500bb.jpg', // SAW 85-92
+  7:  'https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/f7/34/fd/f734fd6c-aeca-8052-825c-706d1c665a8b/190296941856.jpg/500x500bb.jpg', // Ágætis byrjun
+  8:  'https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/76/cd/61/76cd61e7-0714-dce5-c48e-0f05f8fcb84b/652637001280.png/500x500bb.jpg', // Heaven or Las Vegas
+  9:  'https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/36/84/e8/3684e84e-5b87-f5d3-3e93-500c9807aefd/724385712951.jpg/500x500bb.jpg', // Spirit of Eden
+  10: 'https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/37/6e/f8/376ef839-8faf-242d-5a7c-8449d4fcf14c/652637270846.png/500x500bb.jpg', // Within the Realm
+  11: 'https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/1b/50/ad/1b50adc8-139b-1ad9-8500-cc2eb93faf17/888880730831.jpg/500x500bb.jpg', // Souvlaki
+  12: 'https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/f9/7e/6b/f97e6b94-f307-ae7f-e94c-d74860a44350/887830016094.png/500x500bb.jpg', // Loveless
+  13: 'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/ee/71/42/ee71425d-6bc9-3df8-c90b-8539f59144ab/00724386649553.rgb.jpg/500x500bb.jpg', // Music for Airports
+  14: 'https://is1-ssl.mzstatic.com/image/thumb/Music/7f/9f/d6/mzi.vtnaewef.jpg/500x500bb.jpg', // Kind of Blue
+  15: 'https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/e5/24/aa/e524aacd-467b-66f3-8931-0fcd6750a4b9/08UMGIM07914.rgb.jpg/500x500bb.jpg', // A Love Supreme
+  16: 'https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/bd/8e/13/bd8e1358-b367-a689-cb84-cebd0b067dc4/634904078263.png/500x500bb.jpg', // Kid A
+  17: 'https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/dd/50/c7/dd50c790-99ac-d3d0-5ab8-e3891fb8fd52/634904032463.png/500x500bb.jpg', // In Rainbows
+  18: 'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/2e/77/7c/2e777c13-60e3-c231-8be0-b0d43dc91598/mzi.yseuvnlj.jpg/500x500bb.jpg', // Geogaddi
+  19: 'https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/e5/f7/c0/e5f7c07d-2182-e732-8ad6-be03814fe93c/13UABIM04453.rgb.jpg/500x500bb.jpg', // Blue Lines
+  20: 'https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/32/d6/28/32d62861-0e24-2111-d3ed-3b54f23083d5/081227607265.jpg/500x500bb.jpg', // Vespertine
+  21: 'https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/18/db/05/18db0507-f276-d93d-a4a7-e856a3f1590a/13UAAIM08283.rgb.jpg/500x500bb.jpg', // I Put a Spell on You
+};
 
-function hashColor2(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = ((h << 7) - h + str.charCodeAt(i)) | 0;
-  const hue = Math.abs(h) % 360;
-  return `hsl(${hue}, 50%, 25%)`;
-}
+// Map artist ID → first album ID (use album art as artist image)
+const ARTIST_ALBUM_MAP = {
+  1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8,
+  9: 9, 10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 21,
+};
 
-// Create a gradient SVG placeholder as a data URI
-function placeholderImage(name) {
-  const c1 = hashColor(name);
-  const c2 = hashColor2(name);
-  const initials = name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="0 0 300 300">
-    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${c1}"/><stop offset="100%" stop-color="${c2}"/></linearGradient></defs>
-    <rect width="300" height="300" fill="url(#g)"/>
-    <text x="150" y="165" text-anchor="middle" font-family="sans-serif" font-size="80" font-weight="600" fill="rgba(255,255,255,0.6)">${initials}</text>
-  </svg>`;
-  return 'data:image/svg+xml,' + encodeURIComponent(svg);
-}
-
-// Map of mock image paths to placeholder data URIs
+// Map of mock image paths to real cover art URLs
 const mockImageMap = {};
 
 window.__TAURI_INTERNALS__.convertFileSrc = function (filePath, _protocol) {
-  // If this is a mock image path, return the placeholder
+  // If this is a mock image path, return the real cover art URL
   if (filePath && filePath.startsWith('/mock/images/')) {
     return mockImageMap[filePath] || SILENT_WAV;
   }
@@ -112,14 +115,17 @@ const ALBUMS = [
   { id: 21, title: 'I Put a Spell on You', artist_id: 16, artist_name: 'Nina Simone', year: 1965, track_count: 3, liked: 1 },
 ];
 
-// Pre-populate mock image paths and data URIs
+// Pre-populate mock image paths with real Cover Art Archive URLs
 for (const a of ARTISTS) {
-  const p = `/mock/images/artist/${a.id}`;
-  mockImageMap[p] = placeholderImage(a.name);
+  const albumId = ARTIST_ALBUM_MAP[a.id];
+  if (albumId && ALBUM_COVER_URLS[albumId]) {
+    mockImageMap[`/mock/images/artist/${a.id}`] = ALBUM_COVER_URLS[albumId];
+  }
 }
 for (const a of ALBUMS) {
-  const p = `/mock/images/album/${a.id}`;
-  mockImageMap[p] = placeholderImage(a.title);
+  if (ALBUM_COVER_URLS[a.id]) {
+    mockImageMap[`/mock/images/album/${a.id}`] = ALBUM_COVER_URLS[a.id];
+  }
 }
 
 const TRACK_DATA = [
@@ -289,7 +295,11 @@ const SEARCH_RESULTS = {
 
 window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
   if (cmd.startsWith('plugin:')) {
-    if (cmd === 'plugin:store|get') return [null, false];
+    if (cmd === 'plugin:store|get') {
+      const key = args && args.key;
+      if (key === 'sidebarCollapsed' || key === 'queueCollapsed') return [true, true];
+      return [null, false];
+    }
     if (cmd === 'plugin:store|get_store') return 1;
     if (cmd === 'plugin:store|set') return null;
     if (cmd === 'plugin:store|load') return null;
@@ -366,6 +376,7 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     case 'fetch_plugin_gallery': return [];
     case 'info_get_types_for_entity': return [];
     case 'info_get_cached_values': return [];
+    case 'info_get_values_for_entity': return [];
     case 'tidal_search': return { artists: [], albums: [], tracks: [] };
     case 'get_track_rank': return null;
     case 'get_artist_rank': return null;

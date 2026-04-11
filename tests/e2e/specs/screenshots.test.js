@@ -18,6 +18,15 @@ async function setup(page) {
   await page.waitForTimeout(800);
 }
 
+/** Wait for all external images (https://) to finish loading */
+async function waitForImages(page, timeout = 10000) {
+  await page.waitForFunction(() => {
+    const imgs = Array.from(document.querySelectorAll('img'));
+    const external = imgs.filter(i => i.src.startsWith('https://'));
+    return external.length === 0 || external.every(i => i.complete && i.naturalWidth > 0);
+  }, { timeout }).catch(() => {});
+}
+
 test.describe('Screenshots', () => {
   test('01 - hero', async ({ page }) => {
     await setup(page);
@@ -26,23 +35,31 @@ test.describe('Screenshots', () => {
 
   test('02 - playback', async ({ page }) => {
     await setup(page);
-    // Double-click the first track to start playback
-    const firstTrack = page.locator('.track-row').first();
-    await firstTrack.dblclick();
+    // Double-click the title cell of the first track to start playback
+    const firstTitle = page.locator('.track-row .col-title').first();
+    await firstTitle.dblclick();
     await page.waitForTimeout(600);
+    await waitForImages(page);
     await page.screenshot({ path: path.join(outDir, 'playback.png'), type: 'png' });
   });
 
   test('03 - library', async ({ page }) => {
     await setup(page);
+    // Expand sidebar to access nav buttons
+    await page.locator('button[title="Expand sidebar"]').click();
+    await page.waitForTimeout(300);
     // Navigate to Artists view
     const artistsBtn = page.locator('.nav-btn', { hasText: 'Artists' });
     await artistsBtn.click();
     await page.waitForTimeout(400);
+    // Collapse sidebar back
+    await page.locator('button[title="Collapse sidebar"]').click();
+    await page.waitForTimeout(300);
     // Click the first artist card to see artist detail
     const firstArtist = page.locator('.artist-card').first();
     await firstArtist.click();
     await page.waitForTimeout(500);
+    await waitForImages(page);
     await page.screenshot({ path: path.join(outDir, 'library.png'), type: 'png' });
   });
 
@@ -58,18 +75,24 @@ test.describe('Screenshots', () => {
 
   test('05 - servers', async ({ page }) => {
     await setup(page);
+    // Expand sidebar to access nav buttons
+    await page.locator('button[title="Expand sidebar"]').click();
+    await page.waitForTimeout(300);
     // Navigate to Collections view
     const collectionsBtn = page.locator('.nav-btn', { hasText: 'Collections' });
     await collectionsBtn.click();
     await page.waitForTimeout(500);
+    // Collapse sidebar back
+    await page.locator('button[title="Collapse sidebar"]').click();
+    await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(outDir, 'servers.png'), type: 'png' });
   });
 
   test('06 - mini-player', async ({ page }) => {
     await setup(page);
     // Start playback first
-    const firstTrack = page.locator('.track-row').first();
-    await firstTrack.dblclick();
+    const firstTitle = page.locator('.track-row .col-title').first();
+    await firstTitle.dblclick();
     await page.waitForTimeout(500);
     // Resize to mini player dimensions
     await page.setViewportSize({ width: 500, height: 52 });
@@ -101,14 +124,15 @@ test.describe('Screenshots', () => {
 
   test('09 - discovery', async ({ page }) => {
     await setup(page);
-    // Double-click a track to play it
-    const firstTrack = page.locator('.track-row').first();
-    await firstTrack.dblclick();
+    // Double-click a track title to play it
+    const firstTitle = page.locator('.track-row .col-title').first();
+    await firstTitle.dblclick();
     await page.waitForTimeout(500);
     // Click the track title in the now-playing bar to open track detail view
     const npTitle = page.locator('.now-title').first();
     await npTitle.click();
     await page.waitForTimeout(600);
+    await waitForImages(page);
     await page.screenshot({ path: path.join(outDir, 'discovery.png'), type: 'png' });
   });
 
