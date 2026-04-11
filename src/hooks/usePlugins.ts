@@ -540,15 +540,15 @@ export function usePlugins(
           ? new Set(enabled)
           : new Set<string>();
 
-      // Auto-enable all built-in plugins except tidal-browse.
-      let enabledSetDirty = false;
-      for (const plugin of installed) {
-        if (plugin.builtin && plugin.id !== "tidal-browse" && !enabledSet.has(plugin.id)) {
-          enabledSet.add(plugin.id);
-          enabledSetDirty = true;
+      // Auto-enable all built-in plugins except tidal-browse on first launch only
+      // (when no enabledPlugins key exists in the store yet).
+      // Once the user has a saved list, respect their choices.
+      if (enabled === null) {
+        for (const plugin of installed) {
+          if (plugin.builtin && plugin.id !== "tidal-browse") {
+            enabledSet.add(plugin.id);
+          }
         }
-      }
-      if (enabledSetDirty) {
         await store.set("enabledPlugins", Array.from(enabledSet));
       }
 
