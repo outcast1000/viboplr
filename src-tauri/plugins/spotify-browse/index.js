@@ -26,6 +26,9 @@ function activate(api) {
     searchResults: { tracks: [], artists: [], albums: [] },
     searchTab: "tracks",
     detailTrack: null,
+    spDcCookie: null,
+    webPlayerToken: null,
+    webPlayerTokenExpiry: 0,
   };
 
   // -- PKCE helpers --
@@ -304,21 +307,137 @@ function activate(api) {
     return { title: title, items: items };
   }
 
-  function fetchHomeFeed() {
-    return spotifyFetch("/views/desktop-home?content_limit=10&locale=en&platform=web&types=album,playlist,artist&limit=20&offset=0")
+  // -- Web player token via sp_dc cookie --
+
+  function ensureWebPlayerToken() {
+    if (state.webPlayerToken && Date.now() < state.webPlayerTokenExpiry) {
+      return Promise.resolve(state.webPlayerToken);
+    }
+    if (!state.spDcCookie) return Promise.resolve(null);
+    return api.network.fetch("https://open.spotify.com/get_access_token?reason=transport&productType=web_player", {
+      method: "GET",
+      headers: {
+        "Cookie": "sp_dc=" + state.spDcCookie,
+      },
+    }).then(function (resp) {
+      if (resp.status !== 200) {
+        return resp.text().then(function (text) {
+          console.warn("[spotify] Web player token fetch failed (" + resp.status + "):", text);
+          return null;
+        });
+      }
+      return resp.json();
+    }).then(function (data) {
+      if (!data || !data.accessToken || data.isAnonymous) {
+        console.warn("[spotify] Web player token invalid or anonymous — sp_dc cookie may be expired");
+        return null;
+      }
+      state.webPlayerToken = data.accessToken;
+      state.webPlayerTokenExpiry = (data.accessTokenExpirationTimestampMs || 0) - 60000;
+      console.log("[spotify] Web player token acquired, expires in " + Math.round((state.webPlayerTokenExpiry - Date.now()) / 60000) + " min");
+      return state.webPlayerToken;
+    }).catch(function (err) {
+      console.warn("[spotify] Web player token error:", err.message || err);
+      return null;
+    });
+  }
+
+  // -- Home feed fetching (3-tier: sp_dc token → OAuth + headers → official API) --
+
+  function fetchHomeFeedWithToken(token) {
+    return api.network.fetch("https://api.spotify.com/v1/views/desktop-home?content_limit=10&locale=en&platform=web&types=album,playlist,artist&limit=20&offset=0", {
+      method: "GET",
+      headers: {
+        "Authorization": "Bearer " + token,
+        "app-platform": "WebPlayer",
+      },
+    }).then(function (resp) {
+      if (resp.status >= 400) {
+        return resp.text().then(function (text) {
+          throw new Error("Internal API error " + resp.status + ": " + text);
+        });
+      }
+      return resp.json();
+    }).then(function (resp) {
+      var sections = [];
+      var content = resp.content || resp;
+      var rawSections = content.items || content.sections || [];
+      for (var i = 0; i < rawSections.length; i++) {
+        var parsed = parseHomeFeedSection(rawSections[i]);
+        if (parsed) sections.push(parsed);
+      }
+      return sections;
+    });
+  }
+
+  // Tier 1: Try with web player token from sp_dc cookie
+  function fetchHomeFeedViaCookie() {
+    return ensureWebPlayerToken().then(function (wpToken) {
+      if (!wpToken) throw new Error("No web player token");
+      return fetchHomeFeedWithToken(wpToken);
+    }).then(function (sections) {
+      if (sections.length > 0) {
+        console.log("[spotify] Home feed loaded: " + sections.length + " sections via sp_dc web player token");
+      }
+      return sections;
+    });
+  }
+
+  // Tier 2: Try with standard OAuth token + web player headers
+  function fetchHomeFeedViaOAuth() {
+    return ensureToken().then(function () {
+      if (!state.accessToken) throw new Error("Not authenticated");
+      return fetchHomeFeedWithToken(state.accessToken);
+    }).then(function (sections) {
+      if (sections.length > 0) {
+        console.log("[spotify] Home feed loaded: " + sections.length + " sections via OAuth token");
+      }
+      return sections;
+    });
+  }
+
+  // Tier 3: Official Browse Categories API for "Made For You"
+  function fetchMadeForYouFallback() {
+    return spotifyFetch("/browse/categories/0JQ5DAt0tbjZptfcdMSKl3/playlists?limit=20")
       .then(function (resp) {
-        var sections = [];
-        var content = resp.content || resp;
-        var rawSections = content.items || content.sections || [];
-        for (var i = 0; i < rawSections.length; i++) {
-          var parsed = parseHomeFeedSection(rawSections[i]);
-          if (parsed) sections.push(parsed);
+        var playlists = (resp.playlists && resp.playlists.items) || [];
+        if (playlists.length === 0) return [];
+        var items = [];
+        for (var i = 0; i < playlists.length; i++) {
+          var p = playlists[i];
+          if (!p) continue;
+          var img = null;
+          if (p.images && p.images.length > 0) img = p.images[0].url;
+          items.push({
+            id: p.id,
+            name: p.name || "",
+            description: p.description || "",
+            imageUrl: img,
+            type: "playlist",
+            uri: p.uri || ("spotify:playlist:" + p.id),
+          });
         }
-        return sections;
+        console.log("[spotify] Made For You loaded: " + items.length + " playlists via official API");
+        return items.length > 0 ? [{ title: "Made For You", items: items }] : [];
       })
       .catch(function (err) {
-        console.warn("[spotify] Home feed unavailable (this is expected if Spotify changes their internal API):", err.message || err);
+        console.warn("[spotify] Made For You category also unavailable:", err.message || err);
         return [];
+      });
+  }
+
+  function fetchHomeFeed() {
+    // Tier 1: sp_dc cookie → web player token
+    return fetchHomeFeedViaCookie()
+      .catch(function (err) {
+        console.log("[spotify] Tier 1 (sp_dc cookie): " + (err.message || err));
+        // Tier 2: standard OAuth token + web player headers
+        return fetchHomeFeedViaOAuth();
+      })
+      .catch(function (err) {
+        console.log("[spotify] Tier 2 (OAuth + headers): " + (err.message || err));
+        // Tier 3: official API fallback
+        return fetchMadeForYouFallback();
       });
   }
 
@@ -548,6 +667,7 @@ function activate(api) {
       direction: "horizontal",
       children: [
         { type: "button", label: "Refresh", action: "refresh-home" },
+        { type: "button", label: "Settings", action: "show-settings" },
         { type: "button", label: "Disconnect", action: "disconnect" },
       ],
     });
@@ -784,6 +904,39 @@ function activate(api) {
     });
   }
 
+  function renderSettings() {
+    var children = [
+      { type: "button", label: "\u2190 Back", action: "go-home" },
+      { type: "spacer" },
+      { type: "text", content: "<h2>Spotify Settings</h2>" },
+      { type: "spacer" },
+      { type: "text", content: "<h3>Personalized Feed</h3>" },
+      { type: "text", content: "<p style='opacity:0.7'>To see Discover Weekly, Daily Mixes, and other personalized sections, paste your <b>sp_dc</b> cookie from the Spotify web player.</p>" },
+      { type: "text", content: "<p style='opacity:0.5'>How to get it: Open <b>open.spotify.com</b> in your browser &rarr; log in &rarr; open Developer Tools (F12) &rarr; Application tab &rarr; Cookies &rarr; copy the <b>sp_dc</b> value.</p>" },
+      { type: "spacer" },
+    ];
+
+    if (state.spDcCookie) {
+      children.push({ type: "text", content: "<p>Cookie: <b>" + escapeHtml(state.spDcCookie.substring(0, 12) + "...") + "</b></p>" });
+      children.push({
+        type: "layout",
+        direction: "horizontal",
+        children: [
+          { type: "button", label: "Remove Cookie", action: "remove-sp-dc" },
+          { type: "button", label: "Test Connection", action: "test-sp-dc" },
+        ],
+      });
+    } else {
+      children.push({ type: "search-input", placeholder: "Paste sp_dc cookie value here...", action: "save-sp-dc", value: "" });
+    }
+
+    api.ui.setViewData("spotify", {
+      type: "layout",
+      direction: "vertical",
+      children: children,
+    });
+  }
+
   // -- Action handlers --
 
   api.ui.onAction("start-auth", function () {
@@ -935,6 +1088,46 @@ function activate(api) {
     renderSetup("Disconnected from Spotify.");
   });
 
+  api.ui.onAction("show-settings", function () {
+    state.currentView = "settings";
+    renderSettings();
+  });
+
+  api.ui.onAction("save-sp-dc", function (data) {
+    var cookie = data && data.query;
+    if (!cookie || !cookie.trim()) return;
+    state.spDcCookie = cookie.trim();
+    state.webPlayerToken = null;
+    state.webPlayerTokenExpiry = 0;
+    api.storage.set("spotify_sp_dc", state.spDcCookie).then(function () {
+      api.ui.showNotification("Cookie saved. Refreshing home feed...");
+      renderSettings();
+      return loadHome();
+    });
+  });
+
+  api.ui.onAction("remove-sp-dc", function () {
+    state.spDcCookie = null;
+    state.webPlayerToken = null;
+    state.webPlayerTokenExpiry = 0;
+    api.storage.delete("spotify_sp_dc");
+    api.ui.showNotification("Cookie removed.");
+    renderSettings();
+  });
+
+  api.ui.onAction("test-sp-dc", function () {
+    if (!state.spDcCookie) return;
+    renderLoading("Testing sp_dc cookie...");
+    ensureWebPlayerToken().then(function (token) {
+      if (token) {
+        api.ui.showNotification("Cookie is valid! Web player token acquired.");
+      } else {
+        api.ui.showNotification("Cookie is invalid or expired. Please paste a fresh one.");
+      }
+      renderSettings();
+    });
+  });
+
   // -- Initialize --
   console.log("[spotify] plugin activate: initializing...");
 
@@ -948,6 +1141,12 @@ function activate(api) {
     return api.storage.get("spotify_user");
   }).then(function (user) {
     state.userName = user || null;
+    return api.storage.get("spotify_sp_dc");
+  }).then(function (spDc) {
+    if (spDc) {
+      state.spDcCookie = spDc;
+      console.log("[spotify] init: sp_dc cookie loaded from storage");
+    }
     if (state.accessToken || state.refreshToken) {
       return loadHome();
     } else {
