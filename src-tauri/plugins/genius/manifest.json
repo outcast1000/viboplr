@@ -8,9 +8,19 @@
   "contributes": {
     "informationTypes": [
       {
-        "id": "genius_song_explanation",
-        "name": "Song Explanation",
-        "description": "Lyric annotations and song meaning",
+        "id": "song_bio",
+        "name": "Song Bio",
+        "description": "Song background and description",
+        "entity": "track",
+        "displayKind": "rich_text",
+        "ttl": 7776000,
+        "order": 350,
+        "priority": 100
+      },
+      {
+        "id": "song_meaning",
+        "name": "Song Meaning",
+        "description": "Lyrics with annotated explanations",
         "entity": "track",
         "displayKind": "annotations",
         "ttl": 7776000,

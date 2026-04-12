@@ -495,7 +495,7 @@ export function TrackDetailView({
           exclude={["track_tags"]}
           invokeInfoFetch={invokeInfoFetch}
           pluginNames={pluginNames}
-          tabOrder={["genius_song_explanation", "lyrics"]}
+          tabOrder={["song_bio", "song_meaning", "lyrics"]}
           positionSecs={isCurrentTrack ? positionSecs : 0}
           customTabs={[
             {

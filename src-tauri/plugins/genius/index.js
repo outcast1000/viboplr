@@ -203,14 +203,33 @@ function activate(api) {
 
   // --- onFetch handlers ---
 
-  api.informationTypes.onFetch("genius_song_explanation", function (entity) {
+  api.informationTypes.onFetch("song_bio", function (entity) {
+    if (entity.kind !== "track") return Promise.resolve({ status: "not_found" });
+    var artistName = entity.artistName || "";
+    if (!artistName) return Promise.resolve({ status: "not_found" });
+    return searchSong(artistName, entity.name).then(function (found) {
+      if (!found) return { status: "not_found" };
+      return geniusFetch("https://genius.com/api/songs/" + found.id).then(function (songData) {
+        var song = (songData && songData.response && songData.response.song) || {};
+        var about = song.description_preview || undefined;
+        if (about === "?" || about === "") about = undefined;
+        if (!about) return { status: "not_found" };
+        var url = song.url || found.url;
+        return { status: "ok", value: { summary: about, _meta: { url: url, providerName: "Genius" } } };
+      });
+    }).catch(function () { return { status: "error" }; });
+  });
+
+  api.informationTypes.onFetch("song_meaning", function (entity) {
     if (entity.kind !== "track") return Promise.resolve({ status: "not_found" });
     var artistName = entity.artistName || "";
     if (!artistName) return Promise.resolve({ status: "not_found" });
     return searchSong(artistName, entity.name).then(function (found) {
       if (!found) return { status: "not_found" };
       return getSongExplanation(found.id, found.url).then(function (result) {
-        if (!result.overview && result.annotations.length === 0) return { status: "not_found" };
+        if (result.annotations.length === 0 && !result.lyrics) return { status: "not_found" };
+        // Strip overview — that belongs to song_bio
+        delete result.overview;
         return { status: "ok", value: result };
       });
     }).catch(function () { return { status: "error" }; });
