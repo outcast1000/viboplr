@@ -438,39 +438,6 @@ export function TrackDetailView({
                 </>
               )}
             </div>
-            {editingTags ? (
-              <div className="track-tags-edit">
-                <span className="track-detail-label">Tags</span>
-                <input
-                  className="track-tags-edit-input"
-                  value={tagInput}
-                  onChange={e => setTagInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") handleSaveTags(); if (e.key === "Escape") setEditingTags(false); }}
-                  placeholder="tag1, tag2, tag3..."
-                  autoFocus
-                />
-                <button className="track-tags-edit-btn save" onClick={handleSaveTags}>Save</button>
-                <button className="track-tags-edit-btn" onClick={() => setEditingTags(false)}>Cancel</button>
-              </div>
-            ) : (
-              <div className="track-detail-tags-inline">
-                <span className="track-detail-label">Tags</span>
-                {trackTags.map(tag => (
-                  <span key={tag.id} className="track-tag-chip track-tag-assigned">
-                    <span className="track-tag-name" onClick={() => onTagClick(tag.id)}>{tag.name}</span>
-                    <span className="track-tag-remove" onClick={() => handleRemoveTag(tag)} title="Remove tag">&times;</span>
-                  </span>
-                ))}
-                {allCommunityTags.filter(t => !assignedTagNames.has(t.name.toLowerCase())).slice(0, 15).map(tag => (
-                  <span key={tag.name} className="track-tag-chip track-tag-suggestion" onClick={() => handleApplyTag(tag.name)}>
-                    + {tag.name}
-                  </span>
-                ))}
-                <button className="track-tags-edit-btn" onClick={handleStartEditTags} title="Edit tags">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-                </button>
-              </div>
-            )}
           </div>
         </div>
         <InformationSections
@@ -559,6 +526,39 @@ export function TrackDetailView({
                     <div className="track-details-row">
                       <span className="track-details-label">Added</span>
                       <span className="track-details-value">{formatTimestamp(track.added_at)}</span>
+                    </div>
+                  )}
+                  {editingTags ? (
+                    <div className="track-tags-edit">
+                      <span className="track-detail-label">Tags</span>
+                      <input
+                        className="track-tags-edit-input"
+                        value={tagInput}
+                        onChange={e => setTagInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleSaveTags(); if (e.key === "Escape") setEditingTags(false); }}
+                        placeholder="tag1, tag2, tag3..."
+                        autoFocus
+                      />
+                      <button className="track-tags-edit-btn save" onClick={handleSaveTags}>Save</button>
+                      <button className="track-tags-edit-btn" onClick={() => setEditingTags(false)}>Cancel</button>
+                    </div>
+                  ) : (
+                    <div className="track-detail-tags-inline">
+                      <span className="track-detail-label">Tags</span>
+                      {trackTags.map(tag => (
+                        <span key={tag.id} className="track-tag-chip track-tag-assigned">
+                          <span className="track-tag-name" onClick={() => onTagClick(tag.id)}>{tag.name}</span>
+                          <span className="track-tag-remove" onClick={() => handleRemoveTag(tag)} title="Remove tag">&times;</span>
+                        </span>
+                      ))}
+                      {allCommunityTags.filter(t => !assignedTagNames.has(t.name.toLowerCase())).slice(0, 15).map(tag => (
+                        <span key={tag.name} className="track-tag-chip track-tag-suggestion" onClick={() => handleApplyTag(tag.name)}>
+                          + {tag.name}
+                        </span>
+                      ))}
+                      <button className="track-tags-edit-btn" onClick={handleStartEditTags} title="Edit tags">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                      </button>
                     </div>
                   )}
                 </div>

@@ -186,16 +186,21 @@ export function InformationSections({
         >
           <polyline points="6 9 12 15 18 9"/>
         </svg>
-        {tabs.map(tab => (
-          <div
-            key={getTabId(tab)}
-            className={`info-sections-tab${getTabId(tab) === resolvedTab ? " active" : ""}${tab.kind === "plugin" && tab.section.state.kind === "empty" ? " empty" : ""}`}
-            onClick={() => { setActiveTab(getTabId(tab)); setCollapsed(false); }}
-            {...(tab.description ? { "data-tooltip": tab.description } : {})}
-          >
-            {tab.name}
-          </div>
-        ))}
+        {tabs.map(tab => {
+          const tabState = tab.kind === "plugin" ? tab.section.state.kind : null;
+          return (
+            <div
+              key={getTabId(tab)}
+              className={`info-sections-tab${getTabId(tab) === resolvedTab ? " active" : ""}${tabState === "empty" ? " empty" : ""}${tabState === "loading" ? " loading" : ""}${tabState === "loaded" ? " has-data" : ""}`}
+              onClick={() => { setActiveTab(getTabId(tab)); setCollapsed(false); }}
+              {...(tab.description ? { "data-tooltip": tab.description } : {})}
+            >
+              {tab.name}
+              {tabState === "loading" && <span className="info-tab-dot loading" />}
+              {tabState === "loaded" && <span className="info-tab-dot loaded" />}
+            </div>
+          );
+        })}
         {!collapsed && activeEntry.kind === "plugin" && (
           <svg
             className="info-sections-refresh"

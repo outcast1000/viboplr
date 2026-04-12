@@ -118,6 +118,9 @@
   margin-bottom: -1px;
   user-select: none;
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .info-sections-tab:hover {
@@ -154,9 +157,35 @@
   transition-delay: 400ms;
 }
 
+.info-sections-tab.has-data {
+  opacity: 0.7;
+}
+
 .info-sections-tab.active {
   opacity: 1;
   border-bottom-color: var(--accent);
+}
+
+/* Status dot indicators */
+.info-tab-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.info-tab-dot.loaded {
+  background: var(--accent);
+}
+
+.info-tab-dot.loading {
+  background: var(--text-tertiary);
+  animation: tab-dot-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes tab-dot-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
 }
 
 /* Remove the 120px height cap for below-placement */

@@ -514,7 +514,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 4px;
+  margin-top: 6px;
   align-items: center;
   font-size: var(--fs-xs);
   color: var(--text-tertiary);
@@ -528,7 +528,7 @@
   align-items: center;
   font-size: var(--fs-xs);
   color: var(--text-tertiary);
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .track-tags-edit-input {
