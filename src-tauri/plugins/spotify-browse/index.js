@@ -162,7 +162,33 @@ function activate(api) {
     'window.__viboplr.send("made-for-you-not-found",{});' +
     '}catch(e){window.__viboplr.send("error",{message:"find link: "+e})}})()';
 
+  // Helper inlined into scrape scripts: extracts the best image URL from an
+  // element, handling lazy-loaded images, srcset, and CSS background-image.
+  var IMG_HELPER =
+    'function bestImg(el){' +
+      'var imgs=el.querySelectorAll("img");' +
+      'for(var k=0;k<imgs.length;k++){' +
+        'var s=imgs[k].currentSrc||imgs[k].src||"";' +
+        'if(s&&s.indexOf("data:")!==0&&s.indexOf("blob:")!==0)return s;' +
+        'var ss=imgs[k].getAttribute("srcset");' +
+        'if(ss){var parts=ss.split(",");for(var p=parts.length-1;p>=0;p--){' +
+          'var u=parts[p].trim().split(/\\s+/)[0];if(u)return u;' +
+        '}}' +
+        'var ds=imgs[k].getAttribute("data-src");' +
+        'if(ds)return ds;' +
+      '}' +
+      // Fallback: look for background-image on a div
+      'var bgs=el.querySelectorAll("[style]");' +
+      'for(var b=0;b<bgs.length;b++){' +
+        'var bg=bgs[b].style.backgroundImage||"";' +
+        'var bm=bg.match(/url\\([\\"\\\']*([^\\"\\\'\\)]+)/);' +
+        'if(bm&&bm[1])return bm[1];' +
+      '}' +
+      'return null;' +
+    '}';
+
   var SCRIPT_SCRAPE_PLAYLISTS = '(function(){try{' +
+    IMG_HELPER +
     'var out=[];var seen={};' +
     'var cards=document.querySelectorAll("div[data-testid=\\"card\\"]");' +
     'if(!cards.length) cards=document.querySelectorAll("a[href*=\\"/playlist/\\"]");' +
@@ -176,8 +202,8 @@ function activate(api) {
       'var nm=ne?ne.textContent.trim():"";' +
       'var de=c.querySelector("[data-testid=\\"card-subtitle\\"]");' +
       'var ds=de?de.textContent.trim():"";' +
-      'var im=c.querySelector("img");' +
-      'if(nm)out.push({id:m[1],name:nm,description:ds,imageUrl:im?im.src:null,uri:"spotify:playlist:"+m[1]});' +
+      'var imgUrl=bestImg(c);' +
+      'if(nm)out.push({id:m[1],name:nm,description:ds,imageUrl:imgUrl,uri:"spotify:playlist:"+m[1]});' +
     '}' +
     'window.__viboplr.send("playlists",out);' +
     '}catch(e){window.__viboplr.send("error",{message:""+e})}})()';
@@ -190,6 +216,20 @@ function activate(api) {
     // Step 1: scroll the main container to bottom to force lazy-load all tracks.
     // Step 2: when scrolling stabilises, scrape every tracklist row.
     return '(function(){' +
+      IMG_HELPER +
+      // Grab the playlist cover image from the page header before scrolling
+      'var coverUrl=null;' +
+      'var hdr=document.querySelector("[data-testid=\\"playlist-image\\"]")' +
+        '||document.querySelector("[data-testid=\\"entity-image\\"]")' +
+        '||document.querySelector("header img")' +
+        '||document.querySelector("[data-testid=\\"action-bar-row\\"]");' +
+      'if(hdr){coverUrl=bestImg(hdr.closest("header")||hdr.parentElement||hdr)}' +
+      // If nothing in header, try any large image near the top of main
+      'if(!coverUrl){var mainImgs=document.querySelectorAll("main img");' +
+        'for(var mi=0;mi<mainImgs.length&&mi<5;mi++){' +
+          'var ms=mainImgs[mi].currentSrc||mainImgs[mi].src||"";' +
+          'if(ms&&ms.indexOf("data:")!==0&&ms.indexOf("blob:")!==0){coverUrl=ms;break}' +
+        '}}' +
       'var sc=document.querySelector("[data-testid=\\"playlist-tracklist\\"]")' +
         '||document.querySelector("main")||document.scrollingElement;' +
       'var ph=0,stable=0,n=0;' +
@@ -212,10 +252,10 @@ function activate(api) {
           'var al=alEl?alEl.textContent.trim():"";' +
           'var du=r.querySelector("[data-testid=\\"tracklist-duration\\"]");' +
           'var dur=du?du.textContent.trim():"";' +
-          'var im=r.querySelector("img");' +
-          'out.push({name:nm,artist:arts.join(", "),album:al,duration:dur,imageUrl:im?im.src:null})' +
+          'var imgUrl=bestImg(r);' +
+          'out.push({name:nm,artist:arts.join(", "),album:al,duration:dur,imageUrl:imgUrl})' +
         '}' +
-        'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:out});' +
+        'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:out,coverUrl:coverUrl});' +
       '}catch(e){window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:[],error:""+e})}}' +
       'tick()' +
     '})()';
@@ -286,6 +326,16 @@ function activate(api) {
 
     if (t === "tracks" && d) {
       state.playlistTracks[d.playlistId] = d.tracks || [];
+      // Apply the cover image grabbed from the playlist detail page
+      if (d.coverUrl) {
+        for (var pi = 0; pi < state.playlists.length; pi++) {
+          if (state.playlists[pi].id === d.playlistId) {
+            state.playlists[pi].imageUrl = d.coverUrl;
+            break;
+          }
+        }
+      }
+      renderHome();
       trackBusy = false;
       scrapeNextTrackPage();
     }
