@@ -157,6 +157,7 @@ interface TrackDetailViewProps {
   trackId: number;
   track: Track;
   albumImagePath: string | null;
+  artistImagePath: string | null;
   positionSecs: number;
   isCurrentTrack: boolean;
   onArtistClick: (artistId: number) => void;
@@ -178,7 +179,7 @@ interface TrackDetailViewProps {
 }
 
 export function TrackDetailView({
-  trackId, track, albumImagePath,
+  trackId, track, albumImagePath, artistImagePath,
   positionSecs, isCurrentTrack,
   onArtistClick, onAlbumClick, onTagClick,
   onPlay, onEnqueue, onPlayNext, onShowInFolder, onPlayTrack,
@@ -319,8 +320,8 @@ export function TrackDetailView({
       <div className="track-detail-top">
         <div className="track-detail-header">
           <div className="track-detail-art">
-            {albumImagePath ? (
-              <img className="track-detail-art-img" src={convertFileSrc(albumImagePath)} alt={track.album_title ?? ""} />
+            {(albumImagePath || artistImagePath) ? (
+              <img className="track-detail-art-img" src={convertFileSrc((albumImagePath ?? artistImagePath)!)} alt={track.album_title ?? track.artist_name ?? ""} />
             ) : (
               <svg className="track-detail-art-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" />

@@ -4,7 +4,7 @@ import type { Album, Track } from "../types";
 import type { SearchProviderConfig } from "../searchProviders";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { getProvidersForContext } from "../searchProviders";
-import { AlbumOptionsMenu } from "./AlbumOptionsMenu";
+import { ImageActions } from "./ImageActions";
 import { InformationSections } from "./InformationSections";
 
 interface AlbumDetailHeaderProps {
@@ -69,15 +69,15 @@ export function AlbumDetailHeader({
                 <circle cx="12" cy="12" r="3" />
               </svg>
             )}
-            <AlbumOptionsMenu
-              albumId={selectedAlbum}
-              albumImagePath={albumImagePath}
-              albumTitle={album?.title ?? ""}
-              artistName={album?.artist_name ?? ""}
+            <ImageActions
+              entityId={selectedAlbum}
+              entityType="album"
+              entityName={album?.title}
+              imagePath={albumImagePath}
               providers={albumProviders}
               onImageSet={onImageSet}
               onImageRemoved={onImageRemoved}
-              onRetrieveImage={onRetrieveImage}
+              onRefresh={onRetrieveImage}
             />
           </div>
           <div className="album-detail-info">

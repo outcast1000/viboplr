@@ -516,7 +516,7 @@ function activate(api) {
       if (!results) return { status: "not_found" };
       var items = [];
       for (var i = 0; i < results.length; i++) {
-        items.push({ name: results[i].name, value: results[i].listeners });
+        items.push({ name: results[i].name, subtitle: artistName, value: results[i].listeners, libraryKind: "track" });
       }
       var albumUrl = "https://www.last.fm/music/" + encodeURIComponent(entity.artistName) + "/" + encodeURIComponent(entity.name);
       return { status: "ok", value: { items: items, _meta: { url: albumUrl, providerName: "Last.fm" } } };

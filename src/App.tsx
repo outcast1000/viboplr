@@ -1551,6 +1551,7 @@ function App() {
                 trackId={library.selectedTrack}
                 track={track}
                 albumImagePath={track.album_id ? albumImageCache.images[track.album_id] ?? null : null}
+                artistImagePath={track.artist_id ? artistImageCache.images[track.artist_id] ?? null : null}
                 positionSecs={isCurrentTrack ? playback.positionSecs : 0}
                 isCurrentTrack={isCurrentTrack}
                 onArtistClick={library.handleArtistClick}

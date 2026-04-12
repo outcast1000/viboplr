@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { SearchProviderConfig } from "../searchProviders";
 import { buildSearchUrl, getDomainFromUrl } from "../searchProviders";
-import { IconImage, IconRemoveImage, IconRefresh, IconGoogle, IconGlobe, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
+import { IconImage, IconRemoveImage, IconPaste, IconRefresh, IconGoogle, IconGlobe, IconLastfm, IconX, IconYoutube, IconGenius } from "./Icons";
 import type { ReactNode } from "react";
 
 const BUILTIN_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {
@@ -71,6 +71,31 @@ export function ImageActions({ entityId, entityType, entityName, imagePath, prov
           <button
             onClick={async () => {
               setOpenMenu(false);
+              try {
+                const items = await navigator.clipboard.read();
+                for (const item of items) {
+                  const imageType = item.types.find(t => t.startsWith("image/"));
+                  if (imageType) {
+                    const blob = await item.getType(imageType);
+                    const buffer = await blob.arrayBuffer();
+                    const imageData = Array.from(new Uint8Array(buffer));
+                    const path = await invoke<string>("paste_entity_image", {
+                      kind: entityType,
+                      id: entityId,
+                      imageData,
+                    });
+                    onImageSet(entityId, path);
+                    return;
+                  }
+                }
+              } catch { /* clipboard empty or no image */ }
+            }}
+          >
+            <IconPaste size={14} /><span>Paste Image</span>
+          </button>
+          <button
+            onClick={async () => {
+              setOpenMenu(false);
               const selected = await open({
                 multiple: false,
                 filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
@@ -106,6 +131,17 @@ export function ImageActions({ entityId, entityType, entityName, imagePath, prov
               }}
             >
               <IconRefresh size={14} /><span>Retrieve Image</span>
+            </button>
+          )}
+          {entityName && (
+            <button
+              onClick={() => {
+                setOpenMenu(false);
+                const q = encodeURIComponent(entityName);
+                openUrl(`https://www.google.com/search?tbm=isch&q=${q}`);
+              }}
+            >
+              <IconGoogle size={14} /><span>Search Image</span>
             </button>
           )}
           {activeProviders.length > 0 && entityName && (
