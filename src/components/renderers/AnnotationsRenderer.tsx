@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import type { RendererProps } from "./index";
 import type { AnnotationsData } from "../../types/informationTypes";
 
@@ -47,6 +47,13 @@ export function AnnotationsRenderer({ data }: RendererProps) {
     () => (lyrics && d?.annotations?.length ? buildAnnotationMap(lyrics, d.annotations) : new Map()),
     [lyrics, d?.annotations],
   );
+
+  // Expand all annotated lines by default
+  useEffect(() => {
+    if (annotationMap.size > 0) {
+      setExpandedLines(new Set(annotationMap.keys()));
+    }
+  }, [annotationMap]);
 
   if (!d?.annotations?.length && !d?.overview && !lyrics) return null;
 

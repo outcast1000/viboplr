@@ -91,6 +91,11 @@ function activate(api) {
       var song = (songData && songData.response && songData.response.song) || {};
       var about = song.description_preview || undefined;
       if (about === "?" || about === "") about = undefined;
+      // Keep only the first paragraph (subsequent ones contain page chrome like Contributors/Translations)
+      if (about) {
+        var firstPara = about.split("\n")[0].trim();
+        about = firstPara || undefined;
+      }
       var url = song.url || songUrl;
 
       var referents = (refsData && refsData.response && refsData.response.referents) || [];
@@ -109,6 +114,14 @@ function activate(api) {
             annotations.push({ fragment: fragment, explanation: plain });
           }
         }
+      }
+
+      // Only keep annotations whose fragment actually appears in the lyrics
+      if (lyricsText) {
+        var lyricsLower = lyricsText.toLowerCase();
+        annotations = annotations.filter(function (ann) {
+          return lyricsLower.indexOf(ann.fragment.toLowerCase()) !== -1;
+        });
       }
 
       var result = {
@@ -180,20 +193,23 @@ function activate(api) {
       if (resp.status !== 200) return null;
       return resp.text().then(function (html) {
         // Genius SSR renders lyrics in data-lyrics-container divs (one per verse)
-        // Use lookahead to handle nested divs within containers
-        var pattern = /data-lyrics-container="true"[^>]*>([\s\S]*?)(?=<div data-lyrics-container|<div class="LyricsFooter|$)/g;
+        // Use lookahead to stop at next container, footer, or any non-lyrics section
+        var pattern = /data-lyrics-container="true"[^>]*>([\s\S]*?)(?=<div[^>]*data-lyrics-container|<div[^>]*class="[^"]*(?:LyricsFooter|Lyrics__Footer|SongPageGrid|LyricsEditDesktop|RightSidebar)|<section|<footer|$)/g;
         var parts = [];
         var match;
         while ((match = pattern.exec(html)) !== null) {
           var block = match[1];
+          // Remove elements excluded from selection (contributors, translations, etc.)
+          block = block.replace(/<div[^>]*data-exclude-from-selection="true"[^>]*>[\s\S]*?<\/div>/gi, "");
           // Convert <br> to newlines
           block = block.replace(/<br\s*\/?>/gi, "\n");
-          // Strip HTML tags
+          // Strip remaining HTML tags
           block = block.replace(/<[^>]+>/g, "");
           // Decode HTML entities
           block = decodeHtmlEntities(block);
           block = block.trim();
-          if (block) parts.push(block);
+          if (!block) continue;
+          parts.push(block);
         }
         if (parts.length === 0) return null;
         return parts.join("\n\n");
