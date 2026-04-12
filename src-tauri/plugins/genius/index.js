@@ -74,6 +74,16 @@ function activate(api) {
     });
   }
 
+  // --- Text normalisation (API fragments use "\n " and smart quotes;
+  //     scraped lyrics use "\n" and straight quotes) ---
+
+  function normalizeForMatch(s) {
+    return s
+      .replace(/\n\s+/g, "\n")
+      .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+      .replace(/[\u201C\u201D\u201E\u201F]/g, '"');
+  }
+
   // --- Data fetchers ---
 
   function getSongExplanation(songId, songUrl) {
@@ -106,6 +116,7 @@ function activate(api) {
         if (!fragment || (fragment.charAt(0) === "[" && fragment.charAt(fragment.length - 1) === "]")) {
           continue;
         }
+        fragment = normalizeForMatch(fragment);
         var anns = ref.annotations || [];
         for (var a = 0; a < anns.length; a++) {
           var body = anns[a].body;
@@ -118,9 +129,9 @@ function activate(api) {
 
       // Only keep annotations whose fragment actually appears in the lyrics
       if (lyricsText) {
-        var lyricsLower = lyricsText.toLowerCase();
+        var lyricsNorm = normalizeForMatch(lyricsText).toLowerCase();
         annotations = annotations.filter(function (ann) {
-          return lyricsLower.indexOf(ann.fragment.toLowerCase()) !== -1;
+          return lyricsNorm.indexOf(ann.fragment.toLowerCase()) !== -1;
         });
       }
 
