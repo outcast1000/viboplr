@@ -3,7 +3,7 @@ import type { InfoEntity, InfoPlacement } from "../types/informationTypes";
 import { getInfoPlacement } from "../types/informationTypes";
 import { useInformationTypes } from "../hooks/useInformationTypes";
 import type { ReactNode } from "react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { buildEntityKey } from "../types/informationTypes";
@@ -55,6 +55,10 @@ export function InformationSections({
   const { sections, refresh, reloadCache } = useInformationTypes({ entity, exclude, invokeInfoFetch, pluginNames });
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+
+  // Reset to first tab when entity changes
+  const entityKey = entity ? buildEntityKey(entity) : null;
+  useEffect(() => { setActiveTab(null); }, [entityKey]);
 
   const handleAction = useCallback(async (actionId: string, payload?: unknown) => {
     if (actionId === "save-lyrics" && entity) {
