@@ -33,6 +33,8 @@ interface InformationSectionsProps {
   onEntityClick?: (kind: string, id?: number, name?: string) => void;
   onAction?: (actionId: string, payload?: unknown) => void;
   resolveEntity?: (kind: string, name: string) => { id?: number; imageSrc?: string } | undefined;
+  /** Called when title_line sections have loaded data (typeId → parsed data) */
+  onTitleData?: (typeId: string, data: unknown) => void;
 }
 
 type TabEntry =
@@ -51,6 +53,7 @@ export function InformationSections({
   onEntityClick,
   onAction,
   resolveEntity,
+  onTitleData,
 }: InformationSectionsProps) {
   const { sections, refresh, reloadCache } = useInformationTypes({ entity, exclude, invokeInfoFetch, pluginNames });
   const [activeTab, setActiveTab] = useState<string | null>(null);
@@ -59,6 +62,16 @@ export function InformationSections({
   // Reset to first tab when entity changes
   const entityKey = entity ? buildEntityKey(entity) : null;
   useEffect(() => { setActiveTab(null); }, [entityKey]);
+
+  // Notify parent about title_line data (filtered from tabs but still fetched)
+  useEffect(() => {
+    if (!onTitleData) return;
+    for (const s of sections) {
+      if (s.displayKind === "title_line" && s.state.kind === "loaded" && s.state.data) {
+        onTitleData(s.typeId, s.state.data);
+      }
+    }
+  }, [sections, onTitleData]);
 
   const handleAction = useCallback(async (actionId: string, payload?: unknown) => {
     if (actionId === "save-lyrics" && entity) {

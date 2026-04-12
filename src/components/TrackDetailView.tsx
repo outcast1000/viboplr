@@ -226,25 +226,26 @@ export function TrackDetailView({
         if (val?.tags?.length) setCommunityTags(val.tags);
         if (val?.artistTags?.length) setArtistTags(val.artistTags);
       }).catch(() => {});
-      // Fetch track info (listeners, playcount, tags, url)
-      invokeInfoFetch("lastfm", "track_info", trackEntity).then(result => {
-        if (result.status !== "ok") return;
-        const val = result.value as any;
-        if (!val) return;
-        const items = val.items as Array<{ label: string; value: number }> | undefined;
-        const info: { listeners?: string; playcount?: string; toptags?: Array<{ name: string }>; url?: string } = {};
-        if (items) {
-          for (const item of items) {
-            if (item.label === "listeners") info.listeners = String(item.value);
-            if (item.label === "scrobbles") info.playcount = String(item.value);
-          }
-        }
-        if (val.toptags) info.toptags = val.toptags;
-        if (val.url) info.url = val.url;
-        setTrackInfo(info);
-      }).catch(() => {});
     }
   }, [trackId, track.artist_name, track.title, invokeInfoFetch]);
+
+  // Receive track_info data from InformationSections (via onTitleData callback)
+  const handleTitleData = useCallback((typeId: string, data: unknown) => {
+    if (typeId !== "track_info") return;
+    const val = data as Record<string, unknown>;
+    if (!val) return;
+    const items = val.items as Array<{ label: string; value: number }> | undefined;
+    const info: { listeners?: string; playcount?: string; toptags?: Array<{ name: string }>; url?: string } = {};
+    if (items) {
+      for (const item of items) {
+        if (item.label === "listeners") info.listeners = String(item.value);
+        if (item.label === "scrobbles") info.playcount = String(item.value);
+      }
+    }
+    if (val.toptags) info.toptags = val.toptags as Array<{ name: string }>;
+    if (val.url) info.url = val.url as string;
+    if (info.listeners || info.playcount) setTrackInfo(info);
+  }, []);
 
   const handleApplyTag = useCallback(async (tagName: string) => {
     try {
@@ -432,6 +433,7 @@ export function TrackDetailView({
             if (kind === "tag" && id) onTagClick(id);
           }}
           onAction={handleInfoAction}
+          onTitleData={handleTitleData}
         />
       </div>
       <div className="section-wide">
