@@ -142,17 +142,23 @@ export function InformationSections({
     ...filtered.map(s => ({ kind: "plugin" as const, typeId: s.typeId, name: s.name, description: s.description, section: s })),
   ];
 
-  // Apply preferred tab ordering if specified
-  if (tabOrder && tabOrder.length > 0) {
+  // Apply preferred tab ordering if specified, then sort empty tabs last
+  {
+    const isEmpty = (t: TabEntry) => t.kind === "plugin" && t.section.state.kind === "empty" ? 1 : 0;
     tabs.sort((a, b) => {
-      const aId = a.kind === "custom" ? a.id : a.typeId;
-      const bId = b.kind === "custom" ? b.id : b.typeId;
-      const aIdx = tabOrder.indexOf(aId);
-      const bIdx = tabOrder.indexOf(bId);
-      // Tabs in tabOrder come first; among them, preserve tabOrder order; rest keep original order
-      if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
-      if (aIdx >= 0) return -1;
-      if (bIdx >= 0) return 1;
+      // Primary: tabs with data before empty tabs
+      const emptyDiff = isEmpty(a) - isEmpty(b);
+      if (emptyDiff !== 0) return emptyDiff;
+      // Secondary: preferred tab order
+      if (tabOrder && tabOrder.length > 0) {
+        const aId = a.kind === "custom" ? a.id : a.typeId;
+        const bId = b.kind === "custom" ? b.id : b.typeId;
+        const aIdx = tabOrder.indexOf(aId);
+        const bIdx = tabOrder.indexOf(bId);
+        if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
+        if (aIdx >= 0) return -1;
+        if (bIdx >= 0) return 1;
+      }
       return 0;
     });
   }
