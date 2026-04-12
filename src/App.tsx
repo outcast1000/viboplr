@@ -1565,7 +1565,6 @@ function App() {
                 onToggleHate={() => likeActions.handleToggleDislike(track)}
                 onShowInFolder={() => invoke("show_in_folder", { trackId: library.selectedTrack })}
                 collections={library.collections}
-                providers={searchProviders}
                 addLog={addLog}
                 onUpdateTrack={(update) => library.setTracks(prev => prev.map(t => t.id === library.selectedTrack ? { ...t, ...update } : t))}
                 invokeInfoFetch={plugins.invokeInfoFetch}

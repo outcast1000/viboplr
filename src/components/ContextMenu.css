@@ -78,9 +78,16 @@
   color: var(--accent);
 }
 
-/* Download submenu */
+/* Submenus */
 .context-menu-submenu {
   position: relative;
+}
+
+.context-menu-submenu > .context-menu-item::after {
+  content: "\203A";
+  margin-left: auto;
+  font-size: var(--fs-base);
+  opacity: 0.5;
 }
 
 .context-menu-submenu-list {

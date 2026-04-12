@@ -267,16 +267,23 @@ export function ContextMenu({
       {contextProviders.length > 0 && (
         <>
           <div className="context-menu-separator" />
-          {contextProviders.map((provider) => {
-            const template = provider[urlKey]!;
-            const url = buildSearchUrl(template, params);
-            return (
-              <div key={provider.id} className="context-menu-item" onClick={() => { openUrl(url); onClose(); }}>
-                <ProviderIcon provider={provider} />
-                <span>Search on {provider.name}</span>
-              </div>
-            );
-          })}
+          <div className="context-menu-submenu">
+            <div className="context-menu-item">
+              <span>Search</span>
+            </div>
+            <div className="context-menu-submenu-list">
+              {contextProviders.map((provider) => {
+                const template = provider[urlKey]!;
+                const url = buildSearchUrl(template, params);
+                return (
+                  <div key={provider.id} className="context-menu-item" onClick={() => { openUrl(url); onClose(); }}>
+                    <ProviderIcon provider={provider} />
+                    <span>{provider.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </>
       )}
       {pluginMenuItems && pluginMenuItems.length > 0 && (() => {

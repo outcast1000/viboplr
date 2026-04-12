@@ -4,9 +4,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Collection } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
-import type { SearchProviderConfig } from "../searchProviders";
-import { getProvidersForContext, buildSearchUrl, getDomainFromUrl } from "../searchProviders";
-import { IconPlay, IconEnqueue, IconFolder, IconGlobe, IconLastfm, IconYoutube, IconGoogle, IconX, IconGenius } from "./Icons";
+import { IconPlay, IconEnqueue, IconFolder, IconLastfm, IconYoutube } from "./Icons";
 
 import { InformationSections } from "./InformationSections";
 import "./TrackDetailView.css";
@@ -171,7 +169,6 @@ interface TrackDetailViewProps {
   onToggleLike: () => void;
   onToggleHate: () => void;
   collections: Collection[];
-  providers: SearchProviderConfig[];
   addLog: (msg: string) => void;
   onUpdateTrack: (update: Partial<Track>) => void;
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
@@ -184,7 +181,7 @@ export function TrackDetailView({
   onArtistClick, onAlbumClick, onTagClick,
   onPlay, onEnqueue, onPlayNext, onShowInFolder, onPlayTrack,
   onToggleLike, onToggleHate,
-  collections: _collections, providers, addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
+  collections: _collections, addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
 }: TrackDetailViewProps) {
   const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
   const [communityTags, setCommunityTags] = useState<Array<{ name: string; count?: number }>>([]);
@@ -379,25 +376,6 @@ export function TrackDetailView({
                 </>
               )}
               {track.year && <span className="track-detail-sep"> ({track.year})</span>}
-              {(() => {
-                const trackProviders = getProvidersForContext(providers, "track");
-                if (!trackProviders.length) return null;
-                const builtinIcons: Record<string, (p: { size?: number }) => React.ReactNode> = { google: IconGoogle, lastfm: IconLastfm, x: IconX, youtube: IconYoutube, genius: IconGenius };
-                return (
-                  <span className="track-detail-web-links">
-                    {trackProviders.map((provider) => {
-                      const url = buildSearchUrl(provider.trackUrl!, { title: track.title, artist: track.artist_name ?? undefined });
-                      const Icon = provider.builtinIcon && builtinIcons[provider.builtinIcon] ? builtinIcons[provider.builtinIcon] : null;
-                      const domain = getDomainFromUrl(provider.trackUrl || "");
-                      return (
-                        <button key={provider.id} className="track-detail-web-link" onClick={() => openUrl(url)} title={provider.name}>
-                          {Icon ? <Icon size={12} /> : domain ? <img src={`https://www.google.com/s2/favicons?domain=${domain}&sz=32`} width={12} height={12} alt="" /> : <IconGlobe size={12} />}
-                        </button>
-                      );
-                    })}
-                  </span>
-                );
-              })()}
             </div>
             {trackInfo && (trackInfo.listeners || trackInfo.playcount) && (
               <div className="track-detail-stats">
