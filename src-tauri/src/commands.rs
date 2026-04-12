@@ -2079,7 +2079,7 @@ pub fn sync_image_providers(
 #[tauri::command]
 pub fn info_sync_types(
     state: State<'_, AppState>,
-    types: Vec<(String, String, String, String, String, i64, i64, i64)>,
+    types: Vec<(String, String, String, String, String, i64, i64, i64, String)>,
 ) -> Result<(), String> {
     state.db.info_sync_types(&types).map_err(|e| e.to_string())?;
     Ok(())
@@ -2089,7 +2089,7 @@ pub fn info_sync_types(
 pub fn info_get_types_for_entity(
     state: State<'_, AppState>,
     entity: String,
-) -> Result<Vec<(String, String, String, i64, i64, Vec<(String, i64)>)>, String> {
+) -> Result<Vec<(String, String, String, i64, i64, Vec<(String, i64)>, String)>, String> {
     state.db.info_get_types_for_entity(&entity).map_err(|e| e.to_string())
 }
 

@@ -631,7 +631,7 @@ export function usePlugins(
       const sidebar: PluginSidebarItem[] = [];
       const menus: PluginMenuItem[] = [];
       const settings: PluginSettingsPanel[] = [];
-      const allInfoTypes: Array<[string, string, string, string, string, number, number, number]> = [];
+      const allInfoTypes: Array<[string, string, string, string, string, number, number, number, string]> = [];
       const allImageProviders: [string, string, number][] = []; // [plugin_id, entity, priority]
 
       for (const plugin of installed) {
@@ -701,7 +701,7 @@ export function usePlugins(
           }
           if (contrib.informationTypes) {
             for (const it of contrib.informationTypes) {
-              allInfoTypes.push([it.id, it.name, it.entity, it.displayKind, plugin.id, it.ttl, it.order, it.priority]);
+              allInfoTypes.push([it.id, it.name, it.entity, it.displayKind, plugin.id, it.ttl, it.order, it.priority, it.description ?? ""]);
             }
           }
           if (contrib.imageProviders) {

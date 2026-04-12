@@ -10,6 +10,7 @@
       {
         "id": "artist_bio",
         "name": "About",
+        "description": "Biography and background information",
         "entity": "artist",
         "displayKind": "rich_text",
         "ttl": 7776000,

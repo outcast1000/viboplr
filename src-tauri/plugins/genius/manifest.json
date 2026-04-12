@@ -10,6 +10,7 @@
       {
         "id": "genius_song_explanation",
         "name": "Song Explanation",
+        "description": "Lyric annotations and song meaning",
         "entity": "track",
         "displayKind": "annotations",
         "ttl": 7776000,
@@ -19,6 +20,7 @@
       {
         "id": "artist_bio",
         "name": "About",
+        "description": "Biography and background information",
         "entity": "artist",
         "displayKind": "rich_text",
         "ttl": 7776000,
@@ -28,6 +30,7 @@
       {
         "id": "album_wiki",
         "name": "Review",
+        "description": "Album description and review",
         "entity": "album",
         "displayKind": "rich_text",
         "ttl": 7776000,
@@ -37,6 +40,7 @@
       {
         "id": "lyrics",
         "name": "Lyrics",
+        "description": "Song lyrics, synced or plain text",
         "entity": "track",
         "displayKind": "lyrics",
         "ttl": 7776000,

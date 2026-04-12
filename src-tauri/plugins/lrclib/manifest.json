@@ -10,6 +10,7 @@
       {
         "id": "lyrics",
         "name": "Lyrics",
+        "description": "Song lyrics, synced or plain text",
         "entity": "track",
         "displayKind": "lyrics",
         "ttl": 7776000,

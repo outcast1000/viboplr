@@ -36,8 +36,8 @@ interface InformationSectionsProps {
 }
 
 type TabEntry =
-  | { kind: "plugin"; typeId: string; name: string; section: import("../types/informationTypes").InfoSection }
-  | { kind: "custom"; id: string; name: string; content: ReactNode };
+  | { kind: "plugin"; typeId: string; name: string; description?: string; section: import("../types/informationTypes").InfoSection }
+  | { kind: "custom"; id: string; name: string; description?: string; content: ReactNode };
 
 export function InformationSections({
   entity,
@@ -139,7 +139,7 @@ export function InformationSections({
   // Build unified tab list: custom tabs first, then plugin sections
   const tabs: TabEntry[] = [
     ...(customTabs ?? []).map(ct => ({ kind: "custom" as const, id: ct.id, name: ct.name, content: ct.content })),
-    ...filtered.map(s => ({ kind: "plugin" as const, typeId: s.typeId, name: s.name, section: s })),
+    ...filtered.map(s => ({ kind: "plugin" as const, typeId: s.typeId, name: s.name, description: s.description, section: s })),
   ];
 
   // Apply preferred tab ordering if specified
@@ -191,6 +191,7 @@ export function InformationSections({
             key={getTabId(tab)}
             className={`info-sections-tab${getTabId(tab) === resolvedTab ? " active" : ""}${tab.kind === "plugin" && tab.section.state.kind === "empty" ? " empty" : ""}`}
             onClick={() => { setActiveTab(getTabId(tab)); setCollapsed(false); }}
+            {...(tab.description ? { "data-tooltip": tab.description } : {})}
           >
             {tab.name}
           </div>

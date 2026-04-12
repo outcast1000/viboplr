@@ -706,6 +706,14 @@ impl Database {
             migrated = true;
         }
 
+        if version < 23 {
+            conn.execute_batch(
+                "ALTER TABLE information_types ADD COLUMN description TEXT NOT NULL DEFAULT '';"
+            )?;
+            conn.execute("UPDATE db_version SET version = 23 WHERE rowid = 1", [])?;
+            migrated = true;
+        }
+
         drop(conn);
         if version < 12 || version < 16 || version < 21 {
             crate::timing::timer().time("db: rebuild_fts", || self.rebuild_fts())?;
@@ -2459,23 +2467,24 @@ impl Database {
     /// Sync the information_types table from plugin manifests.
     /// Deactivates all types, then upserts incoming types as active.
     /// Types from missing plugins remain with active = 0.
-    pub fn info_sync_types(&self, types: &[(String, String, String, String, String, i64, i64, i64)]) -> SqlResult<()> {
+    pub fn info_sync_types(&self, types: &[(String, String, String, String, String, i64, i64, i64, String)]) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch("BEGIN")?;
         conn.execute("UPDATE information_types SET active = 0", [])?;
         let mut stmt = conn.prepare(
-            "INSERT INTO information_types (type_id, name, entity, display_kind, plugin_id, ttl, sort_order, priority, active)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)
+            "INSERT INTO information_types (type_id, name, entity, display_kind, plugin_id, ttl, sort_order, priority, active, description)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9)
              ON CONFLICT(type_id, plugin_id)
              DO UPDATE SET name = excluded.name,
                            entity = excluded.entity,
                            display_kind = excluded.display_kind,
                            ttl = excluded.ttl,
                            sort_order = excluded.sort_order,
+                           description = excluded.description,
                            active = 1"
         )?;
         for t in types {
-            stmt.execute(rusqlite::params![t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7])?;
+            stmt.execute(rusqlite::params![t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8])?;
         }
         drop(stmt);
         conn.execute_batch("COMMIT")?;
@@ -2486,10 +2495,10 @@ impl Database {
     /// Returns vec of (type_id, name, display_kind, ttl, sort_order, providers)
     /// where providers is a vec of (plugin_id, integer_id) ordered by priority.
     /// Metadata comes from the highest-priority (lowest priority value) provider.
-    pub fn info_get_types_for_entity(&self, entity: &str) -> SqlResult<Vec<(String, String, String, i64, i64, Vec<(String, i64)>)>> {
+    pub fn info_get_types_for_entity(&self, entity: &str) -> SqlResult<Vec<(String, String, String, i64, i64, Vec<(String, i64)>, String)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, type_id, name, display_kind, plugin_id, ttl, sort_order, priority
+            "SELECT id, type_id, name, display_kind, plugin_id, ttl, sort_order, priority, description
              FROM information_types
              WHERE entity = ?1 AND active = 1
              ORDER BY sort_order, type_id, priority ASC"
@@ -2504,14 +2513,15 @@ impl Database {
                 row.get::<_, i64>(5)?,     // ttl
                 row.get::<_, i64>(6)?,     // sort_order
                 row.get::<_, i64>(7)?,     // priority
+                row.get::<_, String>(8)?,  // description
             ))
         })?.collect::<SqlResult<Vec<_>>>()?;
 
         // Group by type_id: first row per type_id provides metadata, all rows contribute to provider chain
         let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        let mut result: Vec<(String, String, String, i64, i64, Vec<(String, i64)>)> = Vec::new();
+        let mut result: Vec<(String, String, String, i64, i64, Vec<(String, i64)>, String)> = Vec::new();
 
-        for (id, type_id, name, display_kind, plugin_id, ttl, sort_order, _priority) in rows {
+        for (id, type_id, name, display_kind, plugin_id, ttl, sort_order, _priority, description) in rows {
             if let Some(&idx) = seen.get(&type_id) {
                 // Add provider to existing entry
                 result[idx].5.push((plugin_id, id));
@@ -2519,7 +2529,7 @@ impl Database {
                 // New type_id — first (highest priority) provider sets metadata
                 let idx = result.len();
                 seen.insert(type_id.clone(), idx);
-                result.push((type_id, name, display_kind, ttl, sort_order, vec![(plugin_id, id)]));
+                result.push((type_id, name, display_kind, ttl, sort_order, vec![(plugin_id, id)], description));
             }
         }
 
@@ -3401,7 +3411,7 @@ mod tests {
         let db = test_db();
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 7776000, 200, 100),
+             "lastfm".into(), 7776000, 200, 100, String::new()),
         ]).unwrap();
         let types = db.info_get_types_for_entity("artist").unwrap();
         let int_id = types[0].5[0].1;
@@ -3427,9 +3437,9 @@ mod tests {
         let db = test_db();
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 7776000, 200, 100),
+             "lastfm".into(), 7776000, 200, 100, String::new()),
             ("similar_artists".into(), "Similar".into(), "artist".into(), "entity_list".into(),
-             "lastfm".into(), 7776000, 300, 100),
+             "lastfm".into(), 7776000, 300, 100, String::new()),
         ]).unwrap();
         let types = db.info_get_types_for_entity("artist").unwrap();
         let bio_id = types.iter().find(|t| t.0 == "artist_bio").unwrap().5[0].1;
@@ -3448,7 +3458,7 @@ mod tests {
         let db = test_db();
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 7776000, 200, 100),
+             "lastfm".into(), 7776000, 200, 100, String::new()),
         ]).unwrap();
         let types = db.info_get_types_for_entity("artist").unwrap();
         let int_id = types[0].5[0].1;
@@ -3464,9 +3474,9 @@ mod tests {
 
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 7776000, 200, 100),
+             "lastfm".into(), 7776000, 200, 100, String::new()),
             ("artist_tags".into(), "Tags".into(), "artist".into(), "tag_list".into(),
-             "lastfm".into(), 7776000, 300, 100),
+             "lastfm".into(), 7776000, 300, 100, String::new()),
         ]).unwrap();
 
         let types = db.info_get_types_for_entity("artist").unwrap();
@@ -3475,7 +3485,7 @@ mod tests {
         // Sync with only one type — the other should be deactivated
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 7776000, 200, 100),
+             "lastfm".into(), 7776000, 200, 100, String::new()),
         ]).unwrap();
 
         let types = db.info_get_types_for_entity("artist").unwrap();
@@ -3489,7 +3499,7 @@ mod tests {
 
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 7776000, 200, 100),
+             "lastfm".into(), 7776000, 200, 100, String::new()),
         ]).unwrap();
 
         let types = db.info_get_types_for_entity("artist").unwrap();
@@ -3498,7 +3508,7 @@ mod tests {
         // Re-sync with updated name and ttl
         db.info_sync_types(&[
             ("artist_bio".into(), "Biography".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 86400, 200, 100),
+             "lastfm".into(), 86400, 200, 100, String::new()),
         ]).unwrap();
 
         let types = db.info_get_types_for_entity("artist").unwrap();
@@ -3513,7 +3523,7 @@ mod tests {
 
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 7776000, 200, 100),
+             "lastfm".into(), 7776000, 200, 100, String::new()),
         ]).unwrap();
         let types = db.info_get_types_for_entity("artist").unwrap();
         let int_id = types[0].5[0].1;
@@ -3529,7 +3539,7 @@ mod tests {
         // Re-sync — type reactivated, cached value still there
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 7776000, 200, 100),
+             "lastfm".into(), 7776000, 200, 100, String::new()),
         ]).unwrap();
         let types = db.info_get_types_for_entity("artist").unwrap();
         assert_eq!(types.len(), 1);
@@ -3545,9 +3555,9 @@ mod tests {
         // Two plugins provide the same type_id with different priorities
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 7776000, 200, 100),
+             "lastfm".into(), 7776000, 200, 100, String::new()),
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "genius".into(), 7776000, 200, 200),
+             "genius".into(), 7776000, 200, 200, String::new()),
         ]).unwrap();
 
         let types = db.info_get_types_for_entity("artist").unwrap();
@@ -3563,7 +3573,7 @@ mod tests {
 
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 7776000, 200, 100),
+             "lastfm".into(), 7776000, 200, 100, String::new()),
         ]).unwrap();
         let types = db.info_get_types_for_entity("artist").unwrap();
         let int_id = types[0].5[0].1;
@@ -3583,7 +3593,7 @@ mod tests {
 
         db.info_sync_types(&[
             ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 7776000, 200, 100),
+             "lastfm".into(), 7776000, 200, 100, String::new()),
         ]).unwrap();
         let types = db.info_get_types_for_entity("artist").unwrap();
         let int_id = types[0].5[0].1;

@@ -23,6 +23,7 @@ export type DisplayKind =
 export interface InfoTypeDeclaration {
   id: string;
   name: string;
+  description?: string;
   entity: InfoEntityKind;
   displayKind: DisplayKind;
   ttl: number;
@@ -55,6 +56,7 @@ export interface InfoProvider {
 export interface RegisteredInfoType {
   typeId: string;
   name: string;
+  description?: string;
   displayKind: DisplayKind;
   ttl: number;
   sortOrder: number;
@@ -81,6 +83,7 @@ export interface FetchProgressEntry {
 export interface InfoSection {
   typeId: string;
   name: string;
+  description?: string;
   displayKind: DisplayKind;
   state:
     | { kind: "loaded"; data: unknown; stale: boolean }

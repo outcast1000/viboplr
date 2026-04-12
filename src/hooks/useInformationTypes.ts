@@ -43,8 +43,8 @@ interface UseInformationTypesOpts {
   pluginNames?: Map<string, string>;
 }
 
-// Backend returns: [type_id, name, display_kind, ttl, sort_order, providers: [plugin_id, integer_id][]]
-type BackendTypeRow = [string, string, string, number, number, Array<[string, number]>];
+// Backend returns: [type_id, name, display_kind, ttl, sort_order, providers: [plugin_id, integer_id][], description]
+type BackendTypeRow = [string, string, string, number, number, Array<[string, number]>, string];
 // Backend returns: [integer_id, type_id, value, status, fetched_at]
 type BackendValueRow = [number, string, string, string, number];
 
@@ -104,7 +104,7 @@ export function useInformationTypes({
       index: number;
     }> = [];
 
-    for (const [typeId, name, displayKind, ttl, _sortOrder, providers] of types) {
+    for (const [typeId, name, displayKind, ttl, _sortOrder, providers, description] of types) {
       if (excludeSet?.has(typeId)) continue;
 
       const entry = cacheMap.get(typeId);
@@ -115,10 +115,13 @@ export function useInformationTypes({
         now,
       );
 
+      const desc = description || undefined;
+
       if (action === "empty") {
         newSections.push({
           typeId,
           name,
+          description: desc,
           displayKind: displayKind as DisplayKind,
           state: { kind: "empty" },
         });
@@ -133,6 +136,7 @@ export function useInformationTypes({
         newSections.push({
           typeId,
           name,
+          description: desc,
           displayKind: displayKind as DisplayKind,
           state: { kind: "loaded", data: parsed, stale: action === "render_and_refetch" },
         });
@@ -144,6 +148,7 @@ export function useInformationTypes({
         newSections.push({
           typeId,
           name,
+          description: desc,
           displayKind: displayKind as DisplayKind,
           state: { kind: "loading" },
         });

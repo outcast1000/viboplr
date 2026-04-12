@@ -33,6 +33,7 @@ export type PluginEventName =
 export interface PluginManifestInfoType {
   id: string;
   name: string;
+  description?: string;
   entity: "artist" | "album" | "track" | "tag";
   displayKind: string;
   ttl: number;

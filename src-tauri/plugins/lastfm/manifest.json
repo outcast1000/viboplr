@@ -10,6 +10,7 @@
       {
         "id": "artist_stats",
         "name": "Stats",
+        "description": "Listener count and play statistics",
         "entity": "artist",
         "displayKind": "title_line",
         "ttl": 7776000,
@@ -19,6 +20,7 @@
       {
         "id": "artist_bio",
         "name": "About",
+        "description": "Biography and background information",
         "entity": "artist",
         "displayKind": "rich_text",
         "ttl": 7776000,
@@ -28,6 +30,7 @@
       {
         "id": "artist_top_tracks",
         "name": "Top Songs",
+        "description": "Most popular songs by play count",
         "entity": "artist",
         "displayKind": "ranked_list",
         "ttl": 604800,
@@ -37,6 +40,7 @@
       {
         "id": "similar_artists",
         "name": "Similar Artists",
+        "description": "Artists with a similar sound or style",
         "entity": "artist",
         "displayKind": "entity_cards",
         "ttl": 7776000,
@@ -46,6 +50,7 @@
       {
         "id": "album_wiki",
         "name": "Review",
+        "description": "Album description and review",
         "entity": "album",
         "displayKind": "rich_text",
         "ttl": 7776000,
@@ -55,6 +60,7 @@
       {
         "id": "album_track_popularity",
         "name": "Track Popularity",
+        "description": "Track popularity within this album",
         "entity": "album",
         "displayKind": "ranked_list",
         "ttl": 604800,
@@ -64,6 +70,7 @@
       {
         "id": "track_info",
         "name": "Track Stats",
+        "description": "Play count and listener statistics",
         "entity": "track",
         "displayKind": "title_line",
         "ttl": 604800,
@@ -73,6 +80,7 @@
       {
         "id": "track_tags",
         "name": "Community Tags",
+        "description": "Community-submitted genre and mood tags",
         "entity": "track",
         "displayKind": "tag_list",
         "ttl": 604800,
@@ -82,6 +90,7 @@
       {
         "id": "similar_tracks",
         "name": "Similar Tracks",
+        "description": "Tracks with a similar sound",
         "entity": "track",
         "displayKind": "ranked_list",
         "ttl": 7776000,
