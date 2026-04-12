@@ -321,6 +321,7 @@ export function usePlugins(
               title: opts?.title ?? null,
               width: opts?.width ?? null,
               height: opts?.height ?? null,
+              visible: opts?.visible ?? null,
             });
 
             const messageHandlers: Array<(msg: { type: string; data: unknown }) => void> = [];
@@ -362,6 +363,12 @@ export function usePlugins(
               async close() {
                 for (const ul of unlisteners) ul();
                 await invoke("close_browse_window", { label });
+              },
+              async show() {
+                await invoke("browse_window_set_visible", { label, visible: true });
+              },
+              async hide() {
+                await invoke("browse_window_set_visible", { label, visible: false });
               },
               onMessage(handler) {
                 messageHandlers.push(handler);

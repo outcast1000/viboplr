@@ -152,6 +152,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         browse_window::open_browse_window,
         browse_window::browse_window_eval,
         browse_window::close_browse_window,
+        browse_window::browse_window_set_visible,
         browse_window::browse_window_send,
     ]
 }
@@ -282,6 +283,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         browse_window::open_browse_window,
         browse_window::browse_window_eval,
         browse_window::close_browse_window,
+        browse_window::browse_window_set_visible,
         browse_window::browse_window_send,
     ]
 }

@@ -25,6 +25,7 @@ pub async fn open_browse_window(
     title: Option<String>,
     width: Option<f64>,
     height: Option<f64>,
+    visible: Option<bool>,
 ) -> Result<(), String> {
     // Close existing window with same label if any
     if let Some(existing) = app.get_webview_window(&label) {
@@ -68,6 +69,7 @@ pub async fn open_browse_window(
     WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed_url))
         .title(title.unwrap_or_else(|| "Viboplr Browse".to_string()))
         .inner_size(width.unwrap_or(1200.0), height.unwrap_or(800.0))
+        .visible(visible.unwrap_or(true))
         .user_agent(safari_ua)
         .initialization_script(&init_script)
         .on_navigation(move |nav_url| {
@@ -108,6 +110,24 @@ pub async fn close_browse_window(
 ) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(&label) {
         window.close().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Show or hide a browse window by label.
+#[tauri::command]
+pub async fn browse_window_set_visible(
+    app: tauri::AppHandle,
+    label: String,
+    visible: bool,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window(&label)
+        .ok_or("Browse window not found")?;
+    if visible {
+        window.show().map_err(|e| e.to_string())?;
+    } else {
+        window.hide().map_err(|e| e.to_string())?;
     }
     Ok(())
 }

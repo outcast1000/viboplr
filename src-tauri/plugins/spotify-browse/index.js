@@ -15,6 +15,7 @@ function activate(api) {
     currentPlaylist: null,
     scrapeProgress: { current: 0, total: 0, name: "" },
     errorMessage: "",
+    browserVisible: false,
   };
 
   // ---- Helpers ----
@@ -40,18 +41,26 @@ function activate(api) {
       ch.push({ type: "button", label: "Open Spotify", action: "open-spotify" });
     } else if (state.status === "waiting-login") {
       ch.push({ type: "text", content: "<h3>Waiting for login\u2026</h3>" });
-      ch.push({ type: "text", content: "<p>Log in to Spotify in the browser window.</p>" });
+      ch.push({ type: "text", content: "<p>Log in to Spotify in the browser window. Click <b>Show Browser</b> to open it.</p>" });
       ch.push({ type: "spacer" });
-      ch.push({ type: "button", label: "Cancel", action: "cancel" });
+      ch.push({
+        type: "layout", direction: "horizontal", children: [
+          { type: "button", label: state.browserVisible ? "Hide Browser" : "Show Browser", action: "toggle-browser" },
+          { type: "button", label: "Cancel", action: "cancel", variant: "secondary" },
+        ]
+      });
     } else if (state.status === "finding-made-for-you") {
       ch.push({ type: "loading", message: "Navigating to Made for You\u2026" });
+      ch.push({ type: "button", label: state.browserVisible ? "Hide Browser" : "Show Browser", action: "toggle-browser" });
     } else if (state.status === "scraping-playlists") {
       ch.push({ type: "loading", message: "Grabbing playlists\u2026" });
+      ch.push({ type: "button", label: state.browserVisible ? "Hide Browser" : "Show Browser", action: "toggle-browser" });
     } else if (state.status === "scraping-tracks") {
       var lbl = "Grabbing tracks";
       if (state.scrapeProgress.name) lbl += ": " + state.scrapeProgress.name;
       if (state.scrapeProgress.total > 0) lbl += " (" + state.scrapeProgress.current + "/" + state.scrapeProgress.total + ")";
       ch.push({ type: "loading", message: lbl + "\u2026" });
+      ch.push({ type: "button", label: state.browserVisible ? "Hide Browser" : "Show Browser", action: "toggle-browser" });
     } else if (state.status === "error") {
       ch.push({ type: "text", content: "<p style='color:var(--error)'>" + escapeHtml(state.errorMessage) + "</p>" });
       ch.push({ type: "spacer" });
@@ -453,10 +462,13 @@ function activate(api) {
     state.errorMessage = "";
     renderHome();
 
+    state.browserVisible = false;
+
     api.network.openBrowseWindow("https://open.spotify.com", {
       title: "Spotify \u2014 Log in",
       width: 1200,
       height: 800,
+      visible: false,
     }).then(function(handle) {
       browseHandle = handle;
       handle.onMessage(onMessage);
@@ -479,6 +491,17 @@ function activate(api) {
       state.errorMessage = "Failed to open browser: " + (err.message || err);
       renderHome();
     });
+  });
+
+  api.ui.onAction("toggle-browser", function() {
+    if (!browseHandle) return;
+    state.browserVisible = !state.browserVisible;
+    if (state.browserVisible) {
+      browseHandle.show();
+    } else {
+      browseHandle.hide();
+    }
+    renderHome();
   });
 
   api.ui.onAction("cancel", function() {

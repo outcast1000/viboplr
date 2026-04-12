@@ -264,6 +264,8 @@ export interface PluginStorageAPI {
 export interface BrowseWindowHandle {
   eval(js: string): Promise<void>;
   close(): Promise<void>;
+  show(): Promise<void>;
+  hide(): Promise<void>;
   onMessage(handler: (msg: { type: string; data: unknown }) => void): () => void;
   onNavigation(handler: (url: string) => void): () => void;
 }
@@ -287,7 +289,7 @@ export interface PluginNetworkAPI {
   startOAuthListener(): Promise<number>;
   openBrowseWindow(
     url: string,
-    opts?: { title?: string; width?: number; height?: number },
+    opts?: { title?: string; width?: number; height?: number; visible?: boolean },
   ): Promise<BrowseWindowHandle>;
 }
 
