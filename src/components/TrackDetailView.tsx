@@ -389,8 +389,9 @@ export function TrackDetailView({
             <div className="track-detail-youtube-row">
               {track.youtube_url ? (
                 <>
-                  <IconYoutube size={13} />
-                  <a className="track-detail-youtube-link" onClick={() => openUrl(track.youtube_url!)}>{track.youtube_url}</a>
+                  <button className="track-detail-youtube-btn" onClick={() => openUrl(track.youtube_url!)} title="Watch on YouTube">
+                    <IconYoutube size={32} />
+                  </button>
                   <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit(track.youtube_url ?? "")}>Edit</button>
                   <button className="track-detail-youtube-action" onClick={async () => {
                     await invoke("clear_track_youtube_url", { trackId });
@@ -400,7 +401,6 @@ export function TrackDetailView({
                 </>
               ) : (
                 <>
-                  <IconYoutube size={13} />
                   <button className="track-detail-youtube-action" onClick={async () => {
                     try {
                       const result = await invoke<{ url: string; video_title: string | null }>(
