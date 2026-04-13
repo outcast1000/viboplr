@@ -99,6 +99,14 @@ Cross-cutting rules that apply to all code everywhere.
 - Use the same spacing, typography scale (`--fs-*` custom properties), and section patterns
 - New detail views or sections should visually match existing ones — check the current detail views before designing new layouts
 
+### Information Sections for Detail Page Content
+
+- When you need to display entity information or provide user actions in detail pages, use the information sections system (the plugin-based `InformationSections` component)
+- Two placement options:
+  - **Header placement:** For concise, always-visible data and quick actions (e.g., title, scrobble count, YouTube button)
+  - **Below placement:** For richer, expandable content (e.g., lyrics, reviews, artist bio)
+- New information should be added as an information type via a plugin, not hardcoded into the detail view — this is how the app surfaces entity data consistently across Artist, Album, Track, and Tag detail pages
+
 ### Fix As You Go
 
 - When modifying a file, fix nearby convention violations as part of the same change
