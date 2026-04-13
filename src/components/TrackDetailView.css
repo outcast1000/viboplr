@@ -363,8 +363,31 @@
   flex-shrink: 0;
   padding: 24px 16px;
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
   gap: 24px;
+  min-height: 300px;
+  position: relative;
+}
+
+.track-detail-top::before {
+  content: '';
+  position: absolute;
+  inset: -20px;
+  background-image: var(--artist-bg);
+  background-size: cover;
+  background-position: center 20%;
+  filter: blur(20px);
+  opacity: 0.5;
+  clip-path: inset(20px);
+}
+
+.track-detail-top::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 30% 50%, rgba(26, 26, 46, 0.1) 0%, rgba(26, 26, 46, 0.85) 70%),
+    linear-gradient(to bottom, transparent 0%, rgba(26, 26, 46, 0.3) 70%, rgba(26, 26, 46, 0.95) 100%);
 }
 
 .track-detail-header {
@@ -372,6 +395,8 @@
   align-items: flex-start;
   gap: 16px;
   width: 100%;
+  position: relative;
+  z-index: 1;
 }
 
 .track-detail-art {
@@ -411,11 +436,13 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
 }
 
 .track-detail-meta {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
 }
 
 .track-detail-link {

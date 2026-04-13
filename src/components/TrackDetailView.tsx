@@ -234,7 +234,10 @@ export function TrackDetailView({
   return (
     <div className="track-detail">
       {/* Header — art + info + play button + options menu */}
-      <div className="track-detail-top">
+      <div
+        className="track-detail-top"
+        style={(albumImagePath || artistImagePath) ? { '--artist-bg': `url(${convertFileSrc((albumImagePath ?? artistImagePath)!)})` } as React.CSSProperties : undefined}
+      >
         <div className="track-detail-header">
           <div className="track-detail-art">
             {(albumImagePath || artistImagePath) ? (

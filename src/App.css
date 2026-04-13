@@ -763,10 +763,32 @@
 
 .album-detail-top {
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
   padding: 24px 16px;
   gap: 16px 24px;
-  border-bottom: 1px solid var(--border);
+  min-height: 300px;
+  position: relative;
+}
+
+.album-detail-top::before {
+  content: '';
+  position: absolute;
+  inset: -20px;
+  background-image: var(--artist-bg);
+  background-size: cover;
+  background-position: center 20%;
+  filter: blur(20px);
+  opacity: 0.5;
+  clip-path: inset(20px);
+}
+
+.album-detail-top::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 30% 50%, rgba(26, 26, 46, 0.1) 0%, rgba(26, 26, 46, 0.85) 70%),
+    linear-gradient(to bottom, transparent 0%, rgba(26, 26, 46, 0.3) 70%, rgba(26, 26, 46, 0.95) 100%);
 }
 
 .album-detail-header {
@@ -774,6 +796,8 @@
   align-items: flex-start;
   gap: 16px;
   width: 100%;
+  position: relative;
+  z-index: 1;
 }
 
 .album-detail-art {
@@ -790,6 +814,7 @@
   flex-shrink: 0;
   overflow: hidden;
   position: relative;
+  z-index: 2;
 }
 
 .album-detail-art > .artist-image-menu-wrapper {
@@ -828,6 +853,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
 }
 
 .album-detail-artist-name {

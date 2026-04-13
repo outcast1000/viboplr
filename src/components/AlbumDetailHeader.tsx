@@ -60,7 +60,10 @@ export function AlbumDetailHeader({
 
   return (
     <>
-      <div className="album-detail-top">
+      <div
+        className="album-detail-top"
+        style={albumImagePath ? { '--artist-bg': `url(${convertFileSrc(albumImagePath)})` } as React.CSSProperties : undefined}
+      >
         <div className="album-detail-header">
           <div className="album-detail-art">
             {albumImagePath ? (
