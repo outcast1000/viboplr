@@ -37,6 +37,10 @@ npm run test:rust
 
 Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript frontend rendered in a native webview.
 
+### Conventions
+
+This project has a `CONVENTIONS.md` file at the root that documents canonical implementations of repeated user actions and behavioral rules. Invoke the `/consistency` skill before writing any code to ensure all changes follow these conventions.
+
 ### Backend (src-tauri/src/)
 
 - **lib.rs** — Tauri app setup, plugin registration, command handler registration. Debug-only commands are conditionally included via `#[cfg(debug_assertions)]` using separate `get_invoke_handler()` functions. Initializes `AppState` with all shared resources.
