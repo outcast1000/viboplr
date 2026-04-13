@@ -100,4 +100,16 @@ export function useEventListeners(opts: EventListenerOptions) {
     };
   }, [loadLibrary, loadTracks]);
 
+  // Download complete — refresh library so the new track appears
+  useEffect(() => {
+    const unlisten = listen("download-complete", () => {
+      loadLibrary();
+      loadTracks();
+    });
+
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, [loadLibrary, loadTracks]);
+
 }
