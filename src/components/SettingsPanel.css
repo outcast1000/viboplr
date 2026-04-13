@@ -442,6 +442,11 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+.settings-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
 .settings-btn-accent {
   background: var(--accent);
   border: 1px solid var(--accent);

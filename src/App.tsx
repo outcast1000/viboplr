@@ -1253,15 +1253,6 @@ function App() {
     store.set("loggingEnabled", enabled);
   }
 
-  function handleOpenLogsFolder() {
-    invoke("open_logs_folder").catch(console.error);
-  }
-
-  function handleOpenProfileFolder() {
-    invoke("open_profile_folder").catch(console.error);
-  }
-
-
   function handleToggleSidebar() {
     setSidebarCollapsed(prev => {
       const next = !prev;
@@ -1985,8 +1976,6 @@ function App() {
               onPluginAction={plugins.dispatchUIAction}
               loggingEnabled={loggingEnabled}
               onLoggingEnabledChange={handleLoggingEnabledChange}
-              onOpenLogsFolder={handleOpenLogsFolder}
-              onOpenProfileFolder={handleOpenProfileFolder}
             />
           )}
           </>}

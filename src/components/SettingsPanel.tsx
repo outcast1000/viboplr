@@ -553,8 +553,6 @@ interface SettingsPanelProps {
   // Logging
   loggingEnabled: boolean;
   onLoggingEnabledChange: (enabled: boolean) => void;
-  onOpenLogsFolder: () => void;
-  onOpenProfileFolder: () => void;
 }
 
 interface ProviderFormData {
@@ -609,14 +607,21 @@ export function SettingsPanel({
   onPluginAction,
   loggingEnabled,
   onLoggingEnabledChange,
-  onOpenLogsFolder,
-  onOpenProfileFolder,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<ProviderFormData>({ name: "", artistUrl: "", albumUrl: "", trackUrl: "" });
   const [searchProvidersCollapsed, setSearchProvidersCollapsed] = useState(false);
+  const [appPaths, setAppPaths] = useState<{ profile: string; logs: string } | null>(null);
+
+  useEffect(() => {
+    if (settingsTab === "debug" && !appPaths) {
+      invoke<[string, string]>("get_app_paths")
+        .then(([profile, logs]) => setAppPaths({ profile, logs }))
+        .catch(console.error);
+    }
+  }, [settingsTab, appPaths]);
 
   function startEdit(provider: SearchProviderConfig) {
     setEditingId(provider.id);
@@ -1210,16 +1215,22 @@ export function SettingsPanel({
                   <div className="settings-row">
                     <div className="settings-row-info">
                       <span className="settings-label">Log files</span>
-                      <span className="settings-description">Open the folder containing log files</span>
+                      <span className="settings-description">{appPaths?.logs ?? ""}</span>
                     </div>
-                    <button className="settings-btn-secondary" onClick={onOpenLogsFolder}>Open Folder</button>
+                    <div className="settings-row-actions">
+                      <button className="settings-btn-secondary" onClick={() => appPaths && navigator.clipboard.writeText(appPaths.logs).catch(console.error)} title="Copy path">Copy</button>
+                      <button className="settings-btn-secondary" onClick={() => invoke("open_logs_folder").catch(console.error)}>Open</button>
+                    </div>
                   </div>
                   <div className="settings-row">
                     <div className="settings-row-info">
                       <span className="settings-label">Profile folder</span>
-                      <span className="settings-description">Open the profile data directory</span>
+                      <span className="settings-description">{appPaths?.profile ?? ""}</span>
                     </div>
-                    <button className="settings-btn-secondary" onClick={onOpenProfileFolder}>Open Folder</button>
+                    <div className="settings-row-actions">
+                      <button className="settings-btn-secondary" onClick={() => appPaths && navigator.clipboard.writeText(appPaths.profile).catch(console.error)} title="Copy path">Copy</button>
+                      <button className="settings-btn-secondary" onClick={() => invoke("open_profile_folder").catch(console.error)}>Open</button>
+                    </div>
                   </div>
                 </div>
                 <div className="settings-group-title" style={{ marginTop: 20 }}>Maintenance</div>

@@ -631,6 +631,15 @@ pub fn open_logs_folder(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn get_app_paths(state: State<'_, AppState>) -> Result<(String, String), String> {
+    let logs_dir = state.app_data_dir.join("logs");
+    Ok((
+        state.app_dir.to_string_lossy().to_string(),
+        logs_dir.to_string_lossy().to_string(),
+    ))
+}
+
+#[tauri::command]
 pub fn write_frontend_log(level: String, message: String) -> Result<(), String> {
     match level.as_str() {
         "error" => log::error!("[frontend] {}", message),
