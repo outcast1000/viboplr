@@ -223,9 +223,9 @@ export function ContextMenu({
     );
   }
 
-  const hasId = target.kind === "artist" ? !!(target as { artistId?: number }).artistId
-              : target.kind === "album" ? !!(target as { albumId?: number }).albumId
-              : target.kind === "track" ? !!(target as { trackId?: number }).trackId
+  const hasId = target.kind === "artist" ? !!target.artistId
+              : target.kind === "album" ? !!target.albumId
+              : target.kind === "track" ? !!target.trackId
               : true;
 
   return (

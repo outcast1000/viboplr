@@ -69,7 +69,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   async function handleContextPlay() {
     if (!contextMenu) return;
     const { target } = contextMenu;
-    if (target.kind === "track") {
+    if (target.kind === "track" && target.trackId) {
       const track = library.tracks.find(t => t.id === target.trackId);
       if (track) queueHook.playTracks([track], 0);
     } else if (target.kind === "album" && target.albumId) {
@@ -102,7 +102,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   async function handleContextEnqueue() {
     if (!contextMenu) return;
     const { target } = contextMenu;
-    if (target.kind === "track") {
+    if (target.kind === "track" && target.trackId) {
       const track = library.tracks.find(t => t.id === target.trackId);
       if (track) handleEnqueue([track]);
     } else if (target.kind === "album" && target.albumId) {
