@@ -63,6 +63,55 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.13</span>
+          <span class="timeline-date">April 14, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>thread onEntityContextMenu through detail views to App.tsx</li>
+          <li>add onEntityContextMenu to RendererProps and EntityListRenderer</li>
+          <li>make IDs optional in ContextMenuTarget and gate library-only actions</li>
+          <li>add itemKind to EntityListData for entity list context menus</li>
+          <li>add blurred vignette hero background to album, tag, and track detail pages</li>
+          <li>add blurred vignette hero background to artist detail page</li>
+          <li>Ctrl+A / Cmd+A selects all tracks in track list</li>
+          <li>use custom CSS tooltip on sync toggle button</li>
+          <li>add CSS-only tooltip styles via data-tooltip attribute</li>
+          <li>only auto-navigate to track details on automatic track changes</li>
+          <li>track source of track changes in usePlayback</li>
+          <li>drag-and-drop tab reordering in Track Detail View</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>add consistent trackId guards and remove unnecessary type assertions</li>
+          <li>track popularity matching for non-Latin titles (Greek, Cyrillic, etc.)</li>
+          <li>refresh track list after download completes</li>
+          <li>eliminate double track fetch when navigating to All Tracks</li>
+          <li>reduce top search bar width by 20%</li>
+          <li>register open_profile_folder in release build, show paths in debug settings</li>
+          <li>reassign albums to new artist when bulk editing artist name</li>
+          <li>clean up orphaned artists/albums/tags in recompute_counts</li>
+          <li>let information section content fill available space and scroll</li>
+          <li>widen duration column to fit header + sort icon, default numeric sorts to descending</li>
+          </ul>
+          <h4>Performance</h4>
+          <ul>
+          <li>make get_tracks async and memoize sortedTracks</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li>extract shared context menu handlers to useContextMenuActions</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.13/Viboplr_0.9.13_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.13_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.13/Viboplr_0.9.13_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.13_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.12</span>
           <span class="timeline-date">April 13, 2026</span>
         </div>
