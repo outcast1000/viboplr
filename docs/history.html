@@ -63,6 +63,66 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.11</span>
+          <span class="timeline-date">April 13, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>show YouTube play button only when URL exists</li>
+          <li>move search providers into context menu submenu</li>
+          <li>unify image menus, add paste/search, fix album track play buttons</li>
+          <li>sort empty section tabs to the end</li>
+          <li>move tags to Details tab and add section data availability dots</li>
+          <li>split Genius song explanation into Song Bio and Song Meaning tabs</li>
+          <li>add tooltip descriptions to information section tabs</li>
+          <li>add show/hide toggle for Spotify browse window, hidden by default</li>
+          <li>rewrite Spotify plugin to use internal browse window</li>
+          <li>integrate screenshot generation into bump release script</li>
+          <li>add skinned detail view screenshots to features page</li>
+          <li>use real album art from iTunes CDN, collapse sidebar/queue</li>
+          <li>add artist and album art to screenshot mock</li>
+          <li>add generated screenshots to docs site</li>
+          <li>replace screenshot placeholders with actual images in docs</li>
+          <li>add screenshots npm script with WebP conversion</li>
+          <li>add Playwright screenshot test cases for 10 app views</li>
+          <li>add rich screenshot mock data for Playwright screenshots</li>
+          <li><strong>spotify</strong>: add sp_dc cookie auth and 3-tier personalized feed fallback</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>normalize Genius annotation fragments before lyrics matching</li>
+          <li>route track_info data through InformationSections to fix race condition</li>
+          <li>allow disabling built-in plugins</li>
+          <li>reset active tab to first when entity changes</li>
+          <li>clean up Genius song explanation to show only lyrics &amp; annotations</li>
+          <li>add ISSUES.md to .gitignore to prevent tracking</li>
+          <li>grab playlist cover images from detail pages during scrape</li>
+          <li>only auto-enable built-in plugins on first launch</li>
+          <li>fix screenshot mock store format and test selectors</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li>unify detail view layout and fix Last.fm race condition</li>
+          </ul>
+          <h4>Documentation</h4>
+          <ul>
+          <li>add screenshot automation implementation plan</li>
+          <li>add screenshot automation design spec</li>
+          </ul>
+          <h4>Chores</h4>
+          <ul>
+          <li>regenerate screenshots with artwork</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.11/Viboplr_0.9.11_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.11_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.11/Viboplr_0.9.11_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.11_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.10</span>
           <span class="timeline-date">April 11, 2026</span>
         </div>
