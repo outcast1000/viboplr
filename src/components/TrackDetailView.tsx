@@ -277,7 +277,7 @@ export function TrackDetailView({
             <div className="track-detail-youtube-row">
               {track.youtube_url ? (
                 <>
-                  <button className="track-detail-youtube-btn" onClick={onWatchOnYoutube} title="Watch on YouTube">
+                  <button className="track-detail-youtube-btn" onClick={onWatchOnYoutube} title="Find in YouTube">
                     <IconYoutube size={32} />
                   </button>
                   <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit(track.youtube_url ?? "")}>Edit</button>

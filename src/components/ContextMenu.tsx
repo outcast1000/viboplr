@@ -225,7 +225,7 @@ export function ContextMenu({
       )}
       {target.kind === "track" && onWatchOnYoutube && (
         <div className="context-menu-item" onClick={() => { onWatchOnYoutube(); onClose(); }}>
-          <IconYoutube size={14} /><span>Watch on YouTube</span>
+          <IconYoutube size={14} /><span>Find in YouTube</span>
         </div>
       )}
       {target.kind === "track" && onViewDetails && (
