@@ -2,7 +2,7 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Artist, Album } from "../types";
-import type { ContextMenuState } from "../components/ContextMenu";
+import type { ContextMenuState, ContextMenuTarget } from "../components/ContextMenu";
 import { store } from "../store";
 
 interface UseContextMenuActionsDeps {
@@ -314,6 +314,22 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     setYoutubeFeedback(null);
   }
 
+  function handleInfoTrackContextMenu(e: React.MouseEvent, info: { trackId?: number; title: string; artistName: string | null }) {
+    setContextMenu({ x: e.clientX, y: e.clientY, target: {
+      kind: "track", trackId: info.trackId, subsonic: false, title: info.title, artistName: info.artistName, external: !info.trackId,
+    } });
+  }
+
+  function handleEntityContextMenu(e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) {
+    e.preventDefault();
+    const target: ContextMenuTarget = info.kind === "artist"
+      ? { kind: "artist", artistId: info.id, name: info.name }
+      : info.kind === "album"
+      ? { kind: "album", albumId: info.id, title: info.name, artistName: info.artistName ?? null }
+      : { kind: "track", trackId: info.id, subsonic: false, title: info.name, artistName: info.artistName ?? null, external: !info.id };
+    setContextMenu({ x: e.clientX, y: e.clientY, target });
+  }
+
   return {
     contextMenu,
     setContextMenu,
@@ -346,5 +362,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleQueueMoveToTop,
     handleQueueMoveToBottom,
     handleTrackDragStart,
+    handleInfoTrackContextMenu,
+    handleEntityContextMenu,
   };
 }

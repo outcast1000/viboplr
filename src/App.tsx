@@ -1555,20 +1555,8 @@ function App() {
                 onUpdateTrack={(update) => library.setTracks(prev => prev.map(t => t.id === library.selectedTrack ? { ...t, ...update } : t))}
                 invokeInfoFetch={plugins.invokeInfoFetch}
                 pluginNames={plugins.pluginNames}
-                onInfoTrackContextMenu={(e, info) => {
-                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: {
-                    kind: "track", trackId: info.trackId ?? 0, subsonic: false, title: info.title, artistName: info.artistName, external: !info.trackId,
-                  } });
-                }}
-                onEntityContextMenu={(e, info) => {
-                  e.preventDefault();
-                  const target = info.kind === "artist"
-                    ? { kind: "artist" as const, artistId: info.id, name: info.name }
-                    : info.kind === "album"
-                    ? { kind: "album" as const, albumId: info.id, title: info.name, artistName: info.artistName ?? null }
-                    : { kind: "track" as const, trackId: info.id, subsonic: false, title: info.name, artistName: info.artistName ?? null, external: !info.id };
-                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target });
-                }}
+                onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
+                onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
               />
             );
           })()}
@@ -1638,20 +1626,8 @@ function App() {
                 artists={artists}
                 invokeInfoFetch={plugins.invokeInfoFetch}
                 pluginNames={plugins.pluginNames}
-                onInfoTrackContextMenu={(e, info) => {
-                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: {
-                    kind: "track", trackId: info.trackId ?? 0, subsonic: false, title: info.title, artistName: info.artistName, external: !info.trackId,
-                  } });
-                }}
-                onEntityContextMenu={(e, info) => {
-                  e.preventDefault();
-                  const target = info.kind === "artist"
-                    ? { kind: "artist" as const, artistId: info.id, name: info.name }
-                    : info.kind === "album"
-                    ? { kind: "album" as const, albumId: info.id, title: info.name, artistName: info.artistName ?? null }
-                    : { kind: "track" as const, trackId: info.id, subsonic: false, title: info.name, artistName: info.artistName ?? null, external: !info.id };
-                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target });
-                }}
+                onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
+                onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
               />
             );
           })()}
@@ -1777,20 +1753,8 @@ function App() {
                 }}
                 invokeInfoFetch={plugins.invokeInfoFetch}
                 pluginNames={plugins.pluginNames}
-                onTrackContextMenu={(e, info) => {
-                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: {
-                    kind: "track", trackId: info.trackId ?? 0, subsonic: false, title: info.title, artistName: info.artistName, external: !info.trackId,
-                  } });
-                }}
-                onEntityContextMenu={(e, info) => {
-                  e.preventDefault();
-                  const target = info.kind === "artist"
-                    ? { kind: "artist" as const, artistId: info.id, name: info.name }
-                    : info.kind === "album"
-                    ? { kind: "album" as const, albumId: info.id, title: info.name, artistName: info.artistName ?? null }
-                    : { kind: "track" as const, trackId: info.id, subsonic: false, title: info.name, artistName: info.artistName ?? null, external: !info.id };
-                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target });
-                }}
+                onTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
+                onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
               />
             );
           })()}
