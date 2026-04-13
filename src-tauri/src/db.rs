@@ -1020,6 +1020,13 @@ impl Database {
 
     pub fn recompute_counts(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
+        // Clean up orphaned entities before recomputing counts
+        conn.execute_batch(
+            "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL);
+             DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM tracks WHERE artist_id IS NOT NULL)
+                                   AND id NOT IN (SELECT DISTINCT artist_id FROM albums WHERE artist_id IS NOT NULL);
+             DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM track_tags);"
+        )?;
         conn.execute_batch(
             &format!(
                 "UPDATE artists SET track_count = (
@@ -1300,13 +1307,6 @@ impl Database {
         conn.execute(
             "DELETE FROM collections WHERE id = ?1",
             params![collection_id],
-        )?;
-        // Clean up orphaned artists, albums, tags
-        conn.execute_batch(
-            "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL);
-             DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM tracks WHERE artist_id IS NOT NULL)
-                                   AND id NOT IN (SELECT DISTINCT artist_id FROM albums WHERE artist_id IS NOT NULL);
-             DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM track_tags);",
         )?;
         Ok(())
     }
