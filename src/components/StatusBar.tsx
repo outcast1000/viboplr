@@ -4,11 +4,6 @@ import "./StatusBar.css";
 interface StatusBarProps {
   sessionLog: { time: Date; message: string }[];
   activity?: string | null;
-  feedback?: {
-    message: string;
-    onYes: () => void;
-    onNo: () => void;
-  } | null;
   downloadStatus?: {
     active: { id: number; track_title: string; artist_name: string; progress_pct: number } | null;
     queued: { id: number; track_title: string; artist_name: string }[];
@@ -17,7 +12,7 @@ interface StatusBarProps {
   onCancelDownload?: (id: number) => void;
 }
 
-export function StatusBar({ sessionLog, activity, feedback, downloadStatus, onCancelDownload }: StatusBarProps) {
+export function StatusBar({ sessionLog, activity, downloadStatus, onCancelDownload }: StatusBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [activeMessage, setActiveMessage] = useState<{ message: string; time: Date; isError: boolean } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -47,7 +42,7 @@ export function StatusBar({ sessionLog, activity, feedback, downloadStatus, onCa
   const [showDownloads, setShowDownloads] = useState(false);
   const hasDownloads = downloadStatus && (downloadStatus.active || downloadStatus.queued.length > 0 || downloadStatus.completed.length > 0);
 
-  const visible = activeMessage !== null || expanded || !!activity || !!feedback || !!hasDownloads;
+  const visible = activeMessage !== null || expanded || !!activity || !!hasDownloads;
 
   return (
     <div className={`status-bar ${visible ? "status-bar-visible" : ""}`} ref={panelRef}>
@@ -95,14 +90,8 @@ export function StatusBar({ sessionLog, activity, feedback, downloadStatus, onCa
           )}
         </div>
       )}
-      <div className="status-bar-content" onClick={() => !feedback && setExpanded(!expanded)}>
-        {feedback ? (
-          <div className="status-bar-feedback">
-            <span className="status-bar-text">{feedback.message}</span>
-            <button className="status-bar-btn" onClick={(e) => { e.stopPropagation(); feedback.onYes(); }}>Yes</button>
-            <button className="status-bar-btn" onClick={(e) => { e.stopPropagation(); feedback.onNo(); }}>No</button>
-          </div>
-        ) : activity ? (
+      <div className="status-bar-content" onClick={() => setExpanded(!expanded)}>
+        {activity ? (
           <>
             <span className="status-bar-icon status-bar-icon-spin">{"\u27F3"}</span>
             <span className="status-bar-text">{activity}</span>

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrent as getDeepLinkCurrent } from "@tauri-apps/plugin-deep-link";
 import { listen } from "@tauri-apps/api/event";
@@ -74,6 +75,7 @@ import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 
 import { StatusBar } from "./components/StatusBar";
+import { IconYoutube } from "./components/Icons";
 
 
 function App() {
@@ -2295,14 +2297,26 @@ function App() {
         onToggleHelp={() => setShowHelp(h => !h)}
       />
 
+      {contextMenuActions.youtubeFeedback && (
+        <div className="youtube-modal-overlay" onClick={() => contextMenuActions.handleYoutubeFeedback(false)}>
+          <div className="youtube-modal" onClick={e => e.stopPropagation()}>
+            <div className="youtube-modal-icon"><IconYoutube size={24} /></div>
+            <div className="youtube-modal-text">
+              Is this the right video for "<strong>{contextMenuActions.youtubeFeedback.videoTitle}</strong>"?<br />
+              Save this link for future use?
+            </div>
+            <a className="youtube-modal-link" onClick={() => openUrl(contextMenuActions.youtubeFeedback!.url)}>{contextMenuActions.youtubeFeedback.url}</a>
+            <div className="youtube-modal-actions">
+              <button className="youtube-modal-btn" onClick={() => contextMenuActions.handleYoutubeFeedback(false)}>No</button>
+              <button className="youtube-modal-btn yes" onClick={() => contextMenuActions.handleYoutubeFeedback(true)}>Yes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <StatusBar
         sessionLog={sessionLog}
         activity={statusActivity}
-        feedback={contextMenuActions.youtubeFeedback ? {
-          message: `Was "${contextMenuActions.youtubeFeedback.videoTitle}" the right video?`,
-          onYes: () => contextMenuActions.handleYoutubeFeedback(true),
-          onNo: () => contextMenuActions.handleYoutubeFeedback(false),
-        } : null}
         downloadStatus={downloads.downloadStatus}
         onCancelDownload={downloads.cancelDownload}
       />
