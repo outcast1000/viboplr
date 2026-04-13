@@ -350,14 +350,17 @@
   line-height: 6px;
 }
 
-/* Track detail view */
+/* Track detail view — fixed header, flex-grow sections below */
 .track-detail {
   flex: 1;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   min-height: 0;
 }
 
 .track-detail-top {
+  flex-shrink: 0;
   padding: 24px 16px;
   display: flex;
   align-items: stretch;
@@ -368,8 +371,7 @@
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  min-width: 220px;
-  flex: 1 1 0;
+  width: 100%;
 }
 
 .track-detail-art {
@@ -572,19 +574,25 @@
   color: var(--bg-primary);
 }
 
-/* Right-placement InformationSections beside track header */
-.track-detail-top > .information-sections--right {
-  flex: 0 0 auto;
-  min-width: 180px;
-  max-width: 280px;
-  margin-left: auto;
-  overflow-y: auto;
-}
-
-/* Below-placement section-wide after track-detail-top */
+/* Section-wide fills remaining space in track detail */
 .track-detail-top + .section-wide {
+  flex: 1;
+  min-height: 200px;
   padding: 0 16px;
   max-width: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.track-detail-top + .section-wide > .information-sections {
+  flex: 1;
+  min-height: 0;
+}
+
+.track-detail-top + .section-wide .info-section-content {
+  flex: 1;
+  min-height: 150px;
 }
 
 .track-detail-section-title {

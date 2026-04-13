@@ -1,6 +1,5 @@
 import { renderers } from "./renderers";
-import type { InfoEntity, InfoPlacement } from "../types/informationTypes";
-import { getInfoPlacement } from "../types/informationTypes";
+import type { InfoEntity } from "../types/informationTypes";
 import { useInformationTypes } from "../hooks/useInformationTypes";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
@@ -18,7 +17,6 @@ export interface CustomTab {
 interface InformationSectionsProps {
   entity: InfoEntity | null;
   exclude?: string[];
-  placement?: InfoPlacement;
   customTabs?: CustomTab[];
   positionSecs?: number;
   invokeInfoFetch: (
@@ -44,7 +42,6 @@ type TabEntry =
 export function InformationSections({
   entity,
   exclude,
-  placement,
   customTabs,
   positionSecs,
   invokeInfoFetch,
@@ -149,9 +146,7 @@ export function InformationSections({
     if (onAction) onAction(actionId, payload);
   }, [entity, onAction, reloadCache]);
 
-  const filtered = placement
-    ? sections.filter(s => s.displayKind !== "title_line" && getInfoPlacement(s.displayKind) === placement)
-    : sections.filter(s => s.displayKind !== "title_line");
+  const filtered = sections.filter(s => s.displayKind !== "title_line");
 
   // Build unified tab list: custom tabs first, then plugin sections
   const tabs: TabEntry[] = [
@@ -199,7 +194,7 @@ export function InformationSections({
   }
 
   return (
-    <div className={`information-sections${placement ? ` information-sections--${placement}` : ""}`}>
+    <div className="information-sections">
       <div className="info-sections-tabs">
         <svg
           className={`section-chevron info-sections-collapse${collapsed ? " collapsed" : ""}`}

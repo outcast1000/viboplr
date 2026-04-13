@@ -20,6 +20,11 @@ function activate(api) {
     importResult: null,
   };
 
+  // Deferred promise that resolves once the API key is loaded.
+  // Info-type handlers wait on this so they never fire with a missing key.
+  var _resolveApiKeyReady;
+  var apiKeyReady = new Promise(function (resolve) { _resolveApiKeyReady = resolve; });
+
   // ===== MD5 Implementation (RFC 1321) =====
   // Based on public-domain code by Joseph Myers
 
@@ -163,21 +168,24 @@ function activate(api) {
   // ===== HTTP Helpers =====
 
   function lastfmGet(method, params) {
-    var query = "method=" + encodeURIComponent(method)
-      + "&api_key=" + encodeURIComponent(state.apiKey)
-      + "&format=json";
-    if (params) {
-      for (var i = 0; i < params.length; i++) {
-        query += "&" + encodeURIComponent(params[i][0]) + "=" + encodeURIComponent(params[i][1]);
+    return apiKeyReady.then(function () {
+      if (!state.apiKey) throw new Error("Last.fm API key not available");
+      var query = "method=" + encodeURIComponent(method)
+        + "&api_key=" + encodeURIComponent(state.apiKey)
+        + "&format=json";
+      if (params) {
+        for (var i = 0; i < params.length; i++) {
+          query += "&" + encodeURIComponent(params[i][0]) + "=" + encodeURIComponent(params[i][1]);
+        }
       }
-    }
-    return api.network.fetch(BASE_URL + "?" + query).then(function (resp) {
-      return resp.json();
-    }).then(function (data) {
-      if (data.error) {
-        throw new Error("Last.fm error " + data.error + ": " + (data.message || "Unknown"));
-      }
-      return data;
+      return api.network.fetch(BASE_URL + "?" + query).then(function (resp) {
+        return resp.json();
+      }).then(function (data) {
+        if (data.error) {
+          throw new Error("Last.fm error " + data.error + ": " + (data.message || "Unknown"));
+        }
+        return data;
+      });
     });
   }
 
@@ -940,7 +948,26 @@ function activate(api) {
   api.informationTypes.invoke("plugin_get_lastfm_credentials").then(function (creds) {
     state.apiKey = creds[0];
     state.apiSecret = creds[1];
+    _resolveApiKeyReady();
 
+    // Migrate: clear stale cached errors/old-format data for all lastfm info types
+    return api.storage.get("cache_migrated_v3").then(function (done) {
+      if (!done) {
+        console.log("[lastfm] Running cache_migrated_v3 migration");
+        var types = [
+          "album_track_popularity", "album_wiki",
+          "artist_bio", "artist_stats", "artist_top_tracks", "similar_artists",
+          "track_info", "track_tags", "similar_tracks",
+        ];
+        var deletes = types.map(function (t) {
+          return api.informationTypes.invoke("info_delete_values_for_type", { typeId: t }).catch(function () {});
+        });
+        return Promise.all(deletes).then(function () {
+          return api.storage.set("cache_migrated_v3", true);
+        });
+      }
+    });
+  }).then(function () {
     // Restore session
     return api.storage.get("lastfm_session");
   }).then(function (session) {
@@ -962,6 +989,7 @@ function activate(api) {
     renderSettings();
   }).catch(function (err) {
     console.error("[lastfm] init error:", err);
+    _resolveApiKeyReady(); // Unblock handlers — they'll fail gracefully via lastfmGet guard
     renderSettings();
   });
 }

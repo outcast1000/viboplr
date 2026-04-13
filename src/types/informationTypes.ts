@@ -184,20 +184,6 @@ export interface TitleLineData {
   items: TitleLineItem[];
 }
 
-// ── Placement ────────────────────────────────────────────────
-
-export type InfoPlacement = "below" | "right";
-
-const RIGHT_DISPLAY_KINDS: ReadonlySet<DisplayKind> = new Set([
-  "ranked_list",
-  "tag_list",
-  "image_gallery",
-]);
-
-export function getInfoPlacement(displayKind: DisplayKind): InfoPlacement {
-  return RIGHT_DISPLAY_KINDS.has(displayKind) ? "right" : "below";
-}
-
 /** Build a name-based entity key (decoupled from library IDs) */
 export function buildEntityKey(entity: InfoEntity): string {
   switch (entity.kind) {

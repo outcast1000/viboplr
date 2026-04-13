@@ -176,23 +176,9 @@ export function ArtistDetailContent({
             </span>
           </div>
         </div>
-        <InformationSections
-            placement="right"
-            entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
-            exclude={["artist_stats"]}
-            invokeInfoFetch={invokeInfoFetch}
-            pluginNames={pluginNames}
-            onEntityClick={(kind, id) => {
-              if (kind === "artist" && id) onArtistClick(id);
-              if (kind === "album" && id) onAlbumClick(id);
-            }}
-            onAction={handleInfoAction}
-            resolveEntity={resolveEntity}
-          />
       </div>
       <div className="section-wide">
         <InformationSections
-          placement="below"
           entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
           exclude={["artist_stats"]}
           customTabs={artistAlbums.length > 0 ? [{

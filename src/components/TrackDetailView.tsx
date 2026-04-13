@@ -420,30 +420,15 @@ export function TrackDetailView({
             </div>
           </div>
         </div>
-        <InformationSections
-          placement="right"
-          entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
-          exclude={["track_tags"]}
-          invokeInfoFetch={invokeInfoFetch}
-          pluginNames={pluginNames}
-          positionSecs={isCurrentTrack ? positionSecs : 0}
-          onEntityClick={(kind, id) => {
-            if (kind === "artist" && id) onArtistClick(id);
-            if (kind === "album" && id) onAlbumClick(id);
-            if (kind === "tag" && id) onTagClick(id);
-          }}
-          onAction={handleInfoAction}
-          onTitleData={handleTitleData}
-        />
       </div>
       <div className="section-wide">
         <InformationSections
-          placement="below"
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
           exclude={["track_tags"]}
           invokeInfoFetch={invokeInfoFetch}
           pluginNames={pluginNames}
           tabOrder={["song_bio", "song_meaning", "lyrics"]}
+          onTitleData={handleTitleData}
           positionSecs={isCurrentTrack ? positionSecs : 0}
           customTabs={[
             {

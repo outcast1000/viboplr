@@ -119,18 +119,9 @@ export function AlbumDetailHeader({
             </span>
           </div>
         </div>
-        <InformationSections
-          placement="right"
-          entity={albumEntity}
-          exclude={[]}
-          invokeInfoFetch={invokeInfoFetch}
-          pluginNames={pluginNames}
-          onAction={handleInfoAction}
-        />
       </div>
       <div className="section-wide">
         <InformationSections
-          placement="below"
           entity={albumEntity}
           exclude={[]}
           invokeInfoFetch={invokeInfoFetch}

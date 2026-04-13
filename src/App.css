@@ -201,8 +201,7 @@
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  min-width: 220px;
-  flex: 1 1 0;
+  width: 100%;
 }
 
 .artist-avatar {
@@ -626,41 +625,25 @@
   margin-bottom: 12px;
 }
 
-/* Generic constrained sections — auto-size to content, capped by max-width.
-   In flex-wrap row parents (artist-detail-top, album-detail-top) they grow
-   to share the row; elsewhere they just cap their width. */
-.section-narrow,
-.section-wide {
+/* Generic constrained sections — cap their width. */
+.section-narrow {
   max-width: 480px;
 }
 
 .section-wide {
-  max-width: 680px;
+  max-width: none;
 }
 
-.artist-detail-top > .section-narrow,
-.artist-detail-top > .section-wide,
-.album-detail-top > .section-narrow,
-.album-detail-top > .section-wide {
-  flex: 1 1 auto;
-  min-width: 250px;
-}
-
-/* Right-placement InformationSections beside entity headers */
-.artist-detail-top > .information-sections--right,
-.album-detail-top > .information-sections--right {
-  flex: 0 0 auto;
-  min-width: 180px;
-  max-width: 280px;
-  margin-left: auto;
-  overflow-y: auto;
-}
-
-/* Standalone .section-wide outside *-detail-top containers */
+/* Section-wide after *-detail-top containers — capped height */
 .artist-detail-top + .section-wide,
 .album-detail-top + .section-wide {
   padding: 0 16px;
   max-width: none;
+}
+
+.artist-detail-top + .section-wide .info-section-content,
+.album-detail-top + .section-wide .info-section-content {
+  max-height: 350px;
 }
 
 .tiles-scroll {
@@ -763,8 +746,7 @@
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  min-width: 260px;
-  flex: 1 1 0;
+  width: 100%;
 }
 
 .album-detail-art {

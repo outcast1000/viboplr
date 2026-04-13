@@ -3,10 +3,6 @@
   flex-direction: column;
 }
 
-.information-sections--below {
-  column-span: all;
-}
-
 .info-section {
   margin-bottom: 4px;
 }
@@ -54,7 +50,6 @@
   font-size: var(--fs-sm);
   color: var(--text-secondary);
   line-height: 1.5;
-  max-height: 120px;
   overflow-y: auto;
 }
 
@@ -188,20 +183,6 @@
   50% { opacity: 1; }
 }
 
-/* Remove the 120px height cap for below-placement */
-.information-sections--below .info-section-content {
-  max-height: none;
-}
-
-/* Right-placement: height controlled by parent flex stretch */
-.information-sections--right {
-  break-inside: avoid;
-}
-.information-sections--right .info-section-content {
-  max-height: none;
-  flex: 1 1 0;
-  overflow-y: auto;
-}
 
 /* ── Empty section state ── */
 
