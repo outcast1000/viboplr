@@ -21,6 +21,7 @@ export interface RendererProps {
   resolveEntity?: (kind: string, name: string) => { id?: number; imageSrc?: string } | undefined;
   context?: { positionSecs?: number };
   onTrackContextMenu?: (e: MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
+  onEntityContextMenu?: (e: MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;
 }
 
 export const renderers: Record<string, ComponentType<RendererProps>> = {
