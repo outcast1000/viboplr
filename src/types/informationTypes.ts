@@ -113,6 +113,7 @@ export interface EntityListItem {
 }
 
 export interface EntityListData {
+  itemKind?: "track" | "artist" | "album";
   items: EntityListItem[];
 }
 
