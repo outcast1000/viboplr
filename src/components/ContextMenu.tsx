@@ -8,9 +8,9 @@ import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import "./ContextMenu.css";
 
 export type ContextMenuTarget =
-  | { kind: "track"; trackId: number; subsonic: boolean; title: string; artistName: string | null; external?: boolean }
-  | { kind: "album"; albumId: number; title: string; artistName: string | null }
-  | { kind: "artist"; artistId: number; name: string }
+  | { kind: "track"; trackId?: number; subsonic?: boolean; title: string; artistName: string | null; external?: boolean }
+  | { kind: "album"; albumId?: number; title: string; artistName: string | null }
+  | { kind: "artist"; artistId?: number; name: string }
   | { kind: "multi-track"; trackIds: number[] }
   | { kind: "queue-multi"; indices: number[]; trackIds: number[]; firstTrack: { title: string; artistName: string | null; subsonic: boolean } }
   | { kind: "video"; dockSide: DockSide; fitMode: FitMode };
@@ -223,19 +223,28 @@ export function ContextMenu({
     );
   }
 
+  const hasId = target.kind === "artist" ? !!(target as { artistId?: number }).artistId
+              : target.kind === "album" ? !!(target as { albumId?: number }).albumId
+              : target.kind === "track" ? !!(target as { trackId?: number }).trackId
+              : true;
+
   return (
     <div
       ref={ref}
       className="context-menu"
       style={{ top: pos.y, left: pos.x }}
     >
-      <div className="context-menu-item" onClick={() => { onPlay(); onClose(); }}>
-        <IconPlay size={14} /><span>{isMulti ? `Play ${target.trackIds.length} tracks` : "Play"}</span>
-      </div>
-      <div className="context-menu-item" onClick={() => { onEnqueue(); onClose(); }}>
-        <IconEnqueue size={14} /><span>{isMulti ? `Enqueue ${target.trackIds.length} tracks` : "Enqueue"}</span>
-      </div>
-      {(target.kind === "artist" || target.kind === "album") && onRefreshImage && (
+      {hasId && (
+        <div className="context-menu-item" onClick={() => { onPlay(); onClose(); }}>
+          <IconPlay size={14} /><span>{isMulti ? `Play ${target.trackIds.length} tracks` : "Play"}</span>
+        </div>
+      )}
+      {hasId && (
+        <div className="context-menu-item" onClick={() => { onEnqueue(); onClose(); }}>
+          <IconEnqueue size={14} /><span>{isMulti ? `Enqueue ${target.trackIds.length} tracks` : "Enqueue"}</span>
+        </div>
+      )}
+      {hasId && (target.kind === "artist" || target.kind === "album") && onRefreshImage && (
         <div className="context-menu-item" onClick={() => { onRefreshImage(); onClose(); }}>
           <IconRefresh size={14} /><span>Refresh Image</span>
         </div>
@@ -245,22 +254,22 @@ export function ContextMenu({
           <IconInfo size={14} /><span>Edit Properties</span>
         </div>
       )}
-      {target.kind === "track" && !target.subsonic && !target.external && (
+      {target.kind === "track" && target.trackId && !target.subsonic && !target.external && (
         <div className="context-menu-item" onClick={onShowInFolder}>
           <IconFolder size={14} /><span>Open Containing Folder</span>
         </div>
       )}
-      {target.kind === "track" && !target.external && onWatchOnYoutube && (
+      {target.kind === "track" && target.trackId && !target.external && onWatchOnYoutube && (
         <div className="context-menu-item" onClick={() => { onWatchOnYoutube(); onClose(); }}>
           <IconYoutube size={14} /><span>Find in YouTube</span>
         </div>
       )}
-      {target.kind === "track" && !target.external && onViewDetails && (
+      {target.kind === "track" && target.trackId && !target.external && onViewDetails && (
         <div className="context-menu-item" onClick={() => { onViewDetails(); onClose(); }}>
           <IconInfo size={14} /><span>View Details</span>
         </div>
       )}
-      {onDelete && (target.kind === "track" && !target.subsonic && !target.external || target.kind === "multi-track") && (
+      {onDelete && (target.kind === "track" && target.trackId && !target.subsonic && !target.external || target.kind === "multi-track") && (
         <>
           <div className="context-menu-separator" />
           <div className="context-menu-item context-menu-item-danger" onClick={() => { onDelete(); onClose(); }}>
@@ -268,7 +277,7 @@ export function ContextMenu({
           </div>
         </>
       )}
-      {target.kind === "track" && target.subsonic && onDownload && localCollections && localCollections.length > 0 && (
+      {target.kind === "track" && target.trackId && target.subsonic && onDownload && localCollections && localCollections.length > 0 && (
         <>
           <div className="context-menu-separator" />
           {localCollections.length === 1 ? (

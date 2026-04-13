@@ -2136,13 +2136,13 @@ function App() {
           onEnqueue={contextMenuActions.handleContextEnqueue}
           onShowInFolder={contextMenuActions.handleShowInFolder}
           onWatchOnYoutube={contextMenuActions.handleWatchOnYoutube}
-          onViewDetails={contextMenuActions.contextMenu.target.kind === "track" ? () => library.handleTrackClick(contextMenuActions.contextMenu!.target.kind === "track" ? contextMenuActions.contextMenu!.target.trackId : 0) : undefined}
+          onViewDetails={contextMenuActions.contextMenu.target.kind === "track" && contextMenuActions.contextMenu.target.trackId ? () => library.handleTrackClick(contextMenuActions.contextMenu!.target.kind === "track" && contextMenuActions.contextMenu!.target.trackId ? contextMenuActions.contextMenu!.target.trackId : 0) : undefined}
           onBulkEdit={contextMenuActions.handleBulkEdit}
           onDelete={contextMenuActions.handleDeleteRequest}
-          onRefreshImage={contextMenuActions.contextMenu.target.kind === "artist"
-            ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "artist") artistImageCache.forceFetchImage({ id: t.artistId, name: t.name }); }
-            : contextMenuActions.contextMenu.target.kind === "album"
-            ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "album") albumImageCache.forceFetchImage({ id: t.albumId, title: t.title, artist_name: t.artistName }); }
+          onRefreshImage={contextMenuActions.contextMenu.target.kind === "artist" && contextMenuActions.contextMenu.target.artistId
+            ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "artist" && t.artistId) artistImageCache.forceFetchImage({ id: t.artistId, name: t.name }); }
+            : contextMenuActions.contextMenu.target.kind === "album" && contextMenuActions.contextMenu.target.albumId
+            ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "album" && t.albumId) albumImageCache.forceFetchImage({ id: t.albumId, title: t.title, artist_name: t.artistName }); }
             : undefined}
           onRemoveFromQueue={contextMenuActions.handleQueueRemove}
           onMoveToTop={contextMenuActions.handleQueueMoveToTop}
@@ -2159,7 +2159,7 @@ function App() {
               });
             }
           } : undefined}
-          onDownload={contextMenuActions.contextMenu.target.kind === "track" ? (destId: number) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track") downloads.downloadTrack(t.trackId, destId, library.tracks); } : undefined}
+          onDownload={contextMenuActions.contextMenu.target.kind === "track" && contextMenuActions.contextMenu.target.trackId ? (destId: number) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track" && t.trackId) downloads.downloadTrack(t.trackId, destId, library.tracks); } : undefined}
           localCollections={localCollections}
           onClose={() => contextMenuActions.setContextMenu(null)}
           pluginMenuItems={plugins.menuItems}

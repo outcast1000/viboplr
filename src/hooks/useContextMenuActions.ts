@@ -72,10 +72,10 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     if (target.kind === "track") {
       const track = library.tracks.find(t => t.id === target.trackId);
       if (track) queueHook.playTracks([track], 0);
-    } else if (target.kind === "album") {
+    } else if (target.kind === "album" && target.albumId) {
       const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
       if (albumTracks.length > 0) queueHook.playTracks(albumTracks, 0);
-    } else if (target.kind === "artist") {
+    } else if (target.kind === "artist" && target.artistId) {
       const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
       if (artistTracks.length > 0) queueHook.playTracks(artistTracks, 0);
     } else if (target.kind === "multi-track") {
@@ -105,10 +105,10 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     if (target.kind === "track") {
       const track = library.tracks.find(t => t.id === target.trackId);
       if (track) handleEnqueue([track]);
-    } else if (target.kind === "album") {
+    } else if (target.kind === "album" && target.albumId) {
       const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
       handleEnqueue(albumTracks);
-    } else if (target.kind === "artist") {
+    } else if (target.kind === "artist" && target.artistId) {
       const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
       handleEnqueue(artistTracks);
     } else if (target.kind === "multi-track") {
@@ -205,7 +205,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   function handleShowInFolder() {
-    if (contextMenu && contextMenu.target.kind === "track") {
+    if (contextMenu && contextMenu.target.kind === "track" && contextMenu.target.trackId) {
       invoke("show_in_folder", { trackId: contextMenu.target.trackId });
       setContextMenu(null);
     } else if (contextMenu && contextMenu.target.kind === "queue-multi" && contextMenu.target.indices.length === 1) {
@@ -230,7 +230,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   function handleDeleteRequest() {
     if (!contextMenu) return;
     const { target } = contextMenu;
-    if (target.kind === "track" && !target.subsonic) {
+    if (target.kind === "track" && target.trackId && !target.subsonic) {
       setDeleteConfirm({ trackIds: [target.trackId], title: target.title });
     } else if (target.kind === "multi-track") {
       setDeleteConfirm({ trackIds: target.trackIds, title: `${target.trackIds.length} tracks` });
@@ -295,7 +295,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   async function handleWatchOnYoutube() {
-    if (!contextMenu || contextMenu.target.kind !== "track") return;
+    if (!contextMenu || contextMenu.target.kind !== "track" || !contextMenu.target.trackId) return;
     const { trackId, title, artistName } = contextMenu.target;
     const track = library.tracks.find(t => t.id === trackId);
     await watchOnYoutube(trackId, title, artistName, track?.youtube_url ?? null);
