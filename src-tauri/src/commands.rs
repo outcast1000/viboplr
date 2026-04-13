@@ -1,5 +1,6 @@
 use serde::{Serialize, Deserialize};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -58,6 +59,7 @@ pub struct AppState {
     pub tidal_client: Arc<TidalClient>,
     pub native_plugins_dir: Option<std::path::PathBuf>,
     pub image_resolve_registry: Arc<ImageResolveRegistry>,
+    pub tidal_download_cancel: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1577,6 +1579,235 @@ pub struct UpgradePreviewInfo {
     pub new_path: String,
     pub new_format: Option<String>,
     pub new_file_size: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct TidalConflictCheck {
+    pub has_conflict: bool,
+    pub dest_path: String,
+    pub existing_size: Option<u64>,
+    pub existing_format: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct TidalDownloadPathResult {
+    pub path: String,
+    pub format: String,
+    pub file_size: u64,
+}
+
+#[tauri::command]
+pub async fn tidal_check_dest_conflict(
+    artist_name: String,
+    track_title: String,
+    dest_dir: String,
+    format: String,
+) -> Result<TidalConflictCheck, String> {
+    let fmt = DownloadFormat::from_str(&format)?;
+    let filename = format!(
+        "{} - {}.{}",
+        crate::downloader::sanitize_filename(&artist_name),
+        crate::downloader::sanitize_filename(&track_title),
+        fmt.extension()
+    );
+    let dest_path = std::path::Path::new(&dest_dir).join(&filename);
+    let dest_str = dest_path.to_string_lossy().to_string();
+
+    if dest_path.exists() {
+        let meta = std::fs::metadata(&dest_path).ok();
+        Ok(TidalConflictCheck {
+            has_conflict: true,
+            dest_path: dest_str,
+            existing_size: meta.as_ref().map(|m| m.len()),
+            existing_format: dest_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_uppercase()),
+        })
+    } else {
+        Ok(TidalConflictCheck {
+            has_conflict: false,
+            dest_path: dest_str,
+            existing_size: None,
+            existing_format: None,
+        })
+    }
+}
+
+#[tauri::command]
+pub async fn tidal_cancel_download(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.tidal_download_cancel.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn tidal_download_to_path(
+    tidal_track_id: String,
+    dest_path: String,
+    format: String,
+    overwrite: bool,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<TidalDownloadPathResult, String> {
+    let fmt = DownloadFormat::from_str(&format)?;
+    let dest = std::path::PathBuf::from(&dest_path);
+
+    // Pre-check: if not overwriting and file exists, error
+    if !overwrite && dest.exists() {
+        return Err("File already exists and overwrite is false".to_string());
+    }
+
+    // Reset cancel flag
+    state.tidal_download_cancel.store(false, Ordering::SeqCst);
+    let cancel_flag = state.tidal_download_cancel.clone();
+    let tidal = state.tidal_client.clone();
+
+    tauri::async_runtime::spawn_blocking(move || -> Result<TidalDownloadPathResult, String> {
+        // Get stream URL from TIDAL
+        let stream_info = tidal
+            .get_stream_url(&tidal_track_id, fmt.tidal_quality())
+            .map_err(|e| e.to_string())?;
+
+        // Determine actual extension from TIDAL response
+        let actual_ext = stream_info.extension();
+        let final_dest = if actual_ext != fmt.extension() {
+            dest.with_extension(actual_ext)
+        } else {
+            dest.clone()
+        };
+
+        // Ensure parent directory exists
+        if let Some(parent) = final_dest.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
+
+        // Download to temp file first
+        let temp_path = final_dest.with_extension(format!("viboplr-tidal-dl.{}", actual_ext));
+
+        let http_client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .map_err(|e| format!("HTTP client error: {}", e))?;
+
+        let resp = http_client
+            .get(&stream_info.url)
+            .send()
+            .map_err(|e| format!("Download failed: {}", e))?;
+
+        let total_bytes = resp.content_length().unwrap_or(0);
+        let mut downloaded: u64 = 0;
+        let mut last_emit = std::time::Instant::now();
+
+        let mut file = std::fs::File::create(&temp_path)
+            .map_err(|e| format!("Failed to create file: {}", e))?;
+
+        let mut reader = std::io::BufReader::new(resp);
+        let mut buf = [0u8; 8192];
+        loop {
+            if cancel_flag.load(Ordering::SeqCst) {
+                drop(file);
+                let _ = std::fs::remove_file(&temp_path);
+                return Err("Download cancelled".to_string());
+            }
+            use std::io::Read;
+            let n = reader.read(&mut buf).map_err(|e| {
+                let _ = std::fs::remove_file(&temp_path);
+                format!("Read error: {}", e)
+            })?;
+            if n == 0 {
+                break;
+            }
+            std::io::Write::write_all(&mut file, &buf[..n]).map_err(|e| {
+                let _ = std::fs::remove_file(&temp_path);
+                format!("Write error: {}", e)
+            })?;
+            downloaded += n as u64;
+
+            if last_emit.elapsed() >= std::time::Duration::from_millis(500) {
+                let pct = if total_bytes > 0 {
+                    ((downloaded as f64 / total_bytes as f64) * 100.0) as u8
+                } else {
+                    0
+                };
+                let _ = app.emit("tidal-download-progress", pct);
+                last_emit = std::time::Instant::now();
+            }
+        }
+        let _ = app.emit("tidal-download-progress", 100u8);
+
+        // Write tags — fetch TIDAL track info for metadata
+        if let Ok(info) = tidal.get_track_info(&tidal_track_id) {
+            let cover_url: Option<String> = info.cover_id.as_deref().map(|id|
+                format!("https://resources.tidal.com/images/{}/640x640.jpg", id.replace('-', "/"))
+            );
+            let tag_request = DownloadRequest {
+                id: 0,
+                track_title: info.title.clone(),
+                artist_name: info.artist_name.clone().unwrap_or_default(),
+                album_title: info.album_title.clone().unwrap_or_default(),
+                track_number: info.track_number.map(|n| n as u32),
+                genre: None,
+                year: None,
+                cover_url,
+                source_kind: "tidal".to_string(),
+                source_collection_id: None,
+                source_override_url: None,
+                remote_track_id: tidal_track_id.clone(),
+                dest_collection_id: 0,
+                dest_collection_path: String::new(),
+                format: fmt,
+                is_batch_last: false,
+            };
+            let _ = crate::downloader::write_tags(&temp_path, &tag_request, &http_client);
+        }
+
+        // Move temp to final destination
+        if overwrite && final_dest.exists() {
+            std::fs::remove_file(&final_dest)
+                .map_err(|e| format!("Failed to remove existing file: {}", e))?;
+        }
+        std::fs::rename(&temp_path, &final_dest)
+            .map_err(|e| format!("Failed to move downloaded file: {}", e))?;
+
+        let file_size = std::fs::metadata(&final_dest)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        Ok(TidalDownloadPathResult {
+            path: final_dest.to_string_lossy().to_string(),
+            format: actual_ext.to_uppercase(),
+            file_size,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn tidal_add_downloaded_track(
+    path: String,
+    collection_id: i64,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let file_path = std::path::PathBuf::from(&path);
+    if !file_path.exists() {
+        return Err("File does not exist".to_string());
+    }
+    let db = state.db.clone();
+    let collection_root = db.get_collection_by_id(collection_id)
+        .map_err(|e| e.to_string())?
+        .path;
+    tauri::async_runtime::spawn_blocking(move || {
+        scanner::process_media_file(&db, &file_path, Some(collection_id), collection_root.as_deref());
+        let _ = db.rebuild_fts();
+        let _ = db.recompute_counts();
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

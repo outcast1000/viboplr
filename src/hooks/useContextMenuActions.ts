@@ -38,7 +38,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     trackId: number; url: string; videoTitle: string;
   } | null>(null);
   const [bulkEditTracks, setBulkEditTracks] = useState<Track[] | null>(null);
-  const [upgradeTrack, setUpgradeTrack] = useState<Track | null>(null);
+  const [tidalDownload, setTidalDownload] = useState<{ trackId: number | null; title: string; artistName: string | null } | null>(null);
 
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
   const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
@@ -320,8 +320,8 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     youtubeFeedback,
     bulkEditTracks,
     setBulkEditTracks,
-    upgradeTrack,
-    setUpgradeTrack,
+    tidalDownload,
+    setTidalDownload,
     deleteConfirm,
     setDeleteConfirm,
     deleteError,

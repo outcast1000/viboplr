@@ -497,14 +497,17 @@ function activate(api) {
     });
   });
 
-  api.contextMenu.onAction("upgrade-quality", function (target) {
+  api.contextMenu.onAction("download-from-tidal", function (target) {
     if (target.kind !== "track") return;
-    if (target.subsonic) {
-      api.ui.showNotification("Upgrade is only available for local tracks");
+    if (target.trackId && target.subsonic) {
+      api.ui.showNotification("TIDAL download is only available for local tracks");
       return;
     }
-    if (!target.trackId) return;
-    api.ui.requestAction("upgrade-track", { trackId: target.trackId });
+    api.ui.requestAction("tidal-download", {
+      trackId: target.trackId || null,
+      title: target.title,
+      artistName: target.artistName || null,
+    });
   });
 
   api.contextMenu.onAction("play-from-tidal", function (target) {

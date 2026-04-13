@@ -70,7 +70,7 @@ import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
-import { UpgradeTrackModal } from "./components/UpgradeTrackModal";
+import { TidalDownloadModal } from "./components/TidalDownloadModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 
@@ -103,6 +103,7 @@ function App() {
   const trackVideoHistoryRef = useRef(false);
   const [trackVideoHistory, setTrackVideoHistory] = useState(false);
   const [loggingEnabled, setLoggingEnabled] = useState(false);
+  const [lastTidalDownloadDest, setLastTidalDownloadDest] = useState<string | null>(null);
   trackVideoHistoryRef.current = trackVideoHistory;
   const advanceIndexRef = useRef<() => void>(() => {});
   const resolveTrackSrcRef = useRef<(track: Track) => Promise<string>>(async (track) => {
@@ -421,12 +422,8 @@ function App() {
       library.setSelectedTag(null);
     },
     requestAction: (_pluginId, action, payload) => {
-      if (action === "upgrade-track") {
-        const trackId = payload.trackId as number;
-        if (trackId) {
-          const track = library.tracks.find(t => t.id === trackId);
-          if (track) contextMenuActions.setUpgradeTrack(track);
-        }
+      if (action === "tidal-download") {
+        contextMenuActions.setTidalDownload(payload as { trackId: number | null; title: string; artistName: string | null });
       }
     },
     showNotification: (message) => {
@@ -598,7 +595,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, savedSortBarCollapsed, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst] = await timeAsync("store.restore (45 keys)", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, savedSortBarCollapsed, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastTidalDownloadDest] = await timeAsync("store.restore (46 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -644,6 +641,7 @@ function App() {
           store.get<boolean>("filterYoutubeOnly"),
           store.get<string>("mediaTypeFilter"),
           store.get<boolean>("trackLikedFirst"),
+          store.get<string | null>("lastTidalDownloadDest"),
         ]));
         if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sa !== undefined && sa !== null) {
@@ -803,6 +801,7 @@ function App() {
         if (savedQueueCollapsed) setQueueCollapsed(true);
         if (savedQueueWidth && savedQueueWidth >= 200 && savedQueueWidth <= 600) setQueueWidth(savedQueueWidth);
         if (savedDownloadFormat && ["flac", "aac"].includes(savedDownloadFormat)) { downloads.setFormat(savedDownloadFormat, store); }
+        if (savedLastTidalDownloadDest !== undefined) setLastTidalDownloadDest(savedLastTidalDownloadDest ?? null);
         if (savedSortBarCollapsed) library.setSortBarCollapsed(true);
         const savedLoggingEnabled = await store.get<boolean>("loggingEnabled");
         if (savedLoggingEnabled) setLoggingEnabled(true);
@@ -2181,12 +2180,16 @@ function App() {
         />
       )}
 
-      {contextMenuActions.upgradeTrack && (
-        <UpgradeTrackModal
-          track={contextMenuActions.upgradeTrack}
+      {contextMenuActions.tidalDownload && (
+        <TidalDownloadModal
+          input={contextMenuActions.tidalDownload}
+          libraryTrack={contextMenuActions.tidalDownload.trackId != null ? library.tracks.find(t => t.id === contextMenuActions.tidalDownload!.trackId) ?? null : null}
           downloadFormat={downloads.downloadFormat}
-          onClose={() => contextMenuActions.setUpgradeTrack(null)}
-          onUpgraded={(msg) => { contextMenuActions.setUpgradeTrack(null); library.loadTracks(); addLog(msg); }}
+          collections={localCollections}
+          store={store}
+          lastDest={lastTidalDownloadDest}
+          onClose={() => contextMenuActions.setTidalDownload(null)}
+          onComplete={(msg) => { contextMenuActions.setTidalDownload(null); library.loadTracks(); addLog(msg); }}
         />
       )}
 

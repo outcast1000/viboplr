@@ -52,6 +52,7 @@ const STORE_DEFAULTS = {
   sidebarCollapsed: true,
   queueCollapsed: true,
   downloadFormat: "flac",
+  lastTidalDownloadDest: null,
   skin: "default",
   loggingEnabled: false,
   artistSections: { topSongs: true, about: true, albums: true, similarArtists: true },

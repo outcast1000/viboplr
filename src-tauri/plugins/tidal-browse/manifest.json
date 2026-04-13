@@ -14,9 +14,9 @@
       { "id": "tidal", "label": "TIDAL", "icon": "tidal" }
     ],
     "contextMenuItems": [
-      { "id": "search-tidal", "label": "Search on TIDAL", "targets": ["track", "album", "artist"] },
-      { "id": "upgrade-quality", "label": "Upgrade Quality via TIDAL", "targets": ["track"] },
-      { "id": "play-from-tidal", "label": "Play from TIDAL", "targets": ["track"] }
+      { "id": "search-tidal", "label": "TIDAL: Search", "targets": ["track", "album", "artist"] },
+      { "id": "play-from-tidal", "label": "TIDAL: Play", "targets": ["track"] },
+      { "id": "download-from-tidal", "label": "TIDAL: Download", "targets": ["track"] }
     ]
   }
 }

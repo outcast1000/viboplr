@@ -105,6 +105,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::confirm_track_upgrade,
         commands::cancel_track_upgrade,
         commands::save_track_as_copy,
+        commands::tidal_check_dest_conflict,
+        commands::tidal_cancel_download,
+        commands::tidal_download_to_path,
+        commands::tidal_add_downloaded_track,
         commands::get_cached_waveform,
         commands::cache_waveform,
         commands::list_user_skins,
@@ -237,6 +241,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::confirm_track_upgrade,
         commands::cancel_track_upgrade,
         commands::save_track_as_copy,
+        commands::tidal_check_dest_conflict,
+        commands::tidal_cancel_download,
+        commands::tidal_download_to_path,
+        commands::tidal_add_downloaded_track,
         commands::get_cached_waveform,
         commands::cache_waveform,
         commands::list_user_skins,
@@ -1026,6 +1034,7 @@ pub fn run() {
                     tidal_client,
                     native_plugins_dir,
                     image_resolve_registry: worker_registry_for_state,
+                    tidal_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 });
             });
 
