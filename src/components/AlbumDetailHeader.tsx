@@ -22,6 +22,7 @@ interface AlbumDetailHeaderProps {
   onRetrieveImage: () => void;
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
   pluginNames?: Map<string, string>;
+  onTrackContextMenu?: (e: React.MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
 }
 
 export function AlbumDetailHeader({
@@ -39,6 +40,7 @@ export function AlbumDetailHeader({
   onRetrieveImage,
   invokeInfoFetch,
   pluginNames,
+  onTrackContextMenu,
 }: AlbumDetailHeaderProps) {
   const albumProviders = getProvidersForContext(searchProviders, "album");
 
@@ -127,6 +129,7 @@ export function AlbumDetailHeader({
           invokeInfoFetch={invokeInfoFetch}
           pluginNames={pluginNames}
           onAction={handleInfoAction}
+          onTrackContextMenu={onTrackContextMenu}
         />
       </div>
     </>

@@ -76,6 +76,7 @@ interface TrackDetailViewProps {
   onUpdateTrack: (update: Partial<Track>) => void;
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
   pluginNames?: Map<string, string>;
+  onInfoTrackContextMenu?: (e: React.MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
 }
 
 export function TrackDetailView({
@@ -85,6 +86,7 @@ export function TrackDetailView({
   onPlay, onShowInFolder, onPlayTrack, onWatchOnYoutube,
   onToggleLike, onToggleHate,
   collections: _collections, addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
+  onInfoTrackContextMenu,
 }: TrackDetailViewProps) {
   const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
   const [communityTags, setCommunityTags] = useState<Array<{ name: string; count?: number }>>([]);
@@ -445,6 +447,7 @@ export function TrackDetailView({
             if (kind === "tag" && id) onTagClick(id);
           }}
           onAction={handleInfoAction}
+          onTrackContextMenu={onInfoTrackContextMenu}
         />
       </div>
 

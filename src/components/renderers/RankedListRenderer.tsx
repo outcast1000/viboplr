@@ -17,7 +17,7 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-export function RankedListRenderer({ data, onEntityClick, onAction, resolveEntity }: RendererProps) {
+export function RankedListRenderer({ data, onEntityClick, onAction, resolveEntity, onTrackContextMenu }: RendererProps) {
   const d = data as RankedListData;
   if (!d?.items?.length) return null;
 
@@ -40,6 +40,10 @@ export function RankedListRenderer({ data, onEntityClick, onAction, resolveEntit
               const id = item.libraryId ?? resolved?.id;
               if (id) onEntityClick?.(item.libraryKind ?? "track", id, item.name);
             }}
+            onContextMenu={isTrack && onTrackContextMenu ? (e) => {
+              e.preventDefault();
+              onTrackContextMenu(e, { trackId: trackId ?? undefined, title: item.name, artistName: item.subtitle ?? null });
+            } : undefined}
           >
             <span className="ranked-list-rank">{i + 1}</span>
             {isTrack && (

@@ -9,6 +9,8 @@ interface PluginViewRendererProps {
   currentTrack: Track | null;
   onPlayTrack?: (track: Track) => void;
   onAction?: (actionId: string, data?: unknown) => void;
+  onTrackContextMenu?: (e: React.MouseEvent, track: Track) => void;
+  onTrackRowContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
 }
 
 export function PluginViewRenderer({
@@ -17,6 +19,8 @@ export function PluginViewRenderer({
   currentTrack,
   onPlayTrack,
   onAction,
+  onTrackContextMenu,
+  onTrackRowContextMenu,
 }: PluginViewRendererProps) {
   if (!data) {
     return (
@@ -44,6 +48,8 @@ export function PluginViewRenderer({
           currentTrack={currentTrack}
           onPlayTrack={onPlayTrack}
           onAction={onAction}
+          onTrackContextMenu={onTrackContextMenu}
+          onTrackRowContextMenu={onTrackRowContextMenu}
         />
       </div>
     </div>
@@ -55,6 +61,8 @@ interface PluginViewNodeProps {
   currentTrack: Track | null;
   onPlayTrack?: (track: Track) => void;
   onAction?: (actionId: string, data?: unknown) => void;
+  onTrackContextMenu?: (e: React.MouseEvent, track: Track) => void;
+  onTrackRowContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
 }
 
 function PluginViewNode({
@@ -62,6 +70,8 @@ function PluginViewNode({
   currentTrack,
   onPlayTrack,
   onAction,
+  onTrackContextMenu,
+  onTrackRowContextMenu,
 }: PluginViewNodeProps) {
   switch (node.type) {
     case "track-list":
@@ -71,6 +81,7 @@ function PluginViewNode({
           title={node.title}
           currentTrack={currentTrack}
           onDoubleClick={onPlayTrack}
+          onContextMenu={onTrackContextMenu}
         />
       );
     case "card-grid":
@@ -88,6 +99,7 @@ function PluginViewNode({
           selectable={node.selectable}
           actions={node.actions}
           onAction={onAction}
+          onContextMenu={onTrackRowContextMenu}
         />
       );
     case "text":
@@ -117,6 +129,8 @@ function PluginViewNode({
               currentTrack={currentTrack}
               onPlayTrack={onPlayTrack}
               onAction={onAction}
+              onTrackContextMenu={onTrackContextMenu}
+              onTrackRowContextMenu={onTrackRowContextMenu}
             />
           ))}
         </div>
@@ -175,6 +189,8 @@ function PluginViewNode({
             currentTrack={currentTrack}
             onPlayTrack={onPlayTrack}
             onAction={onAction}
+            onTrackContextMenu={onTrackContextMenu}
+            onTrackRowContextMenu={onTrackRowContextMenu}
           />
         </PluginSettingsRow>
       );
@@ -190,6 +206,8 @@ function PluginViewNode({
                 currentTrack={currentTrack}
                 onPlayTrack={onPlayTrack}
                 onAction={onAction}
+                onTrackContextMenu={onTrackContextMenu}
+                onTrackRowContextMenu={onTrackRowContextMenu}
               />
             ))}
           </div>
@@ -207,11 +225,13 @@ function PluginTrackList({
   title,
   currentTrack,
   onDoubleClick,
+  onContextMenu,
 }: {
   tracks: Track[];
   title?: string;
   currentTrack: Track | null;
   onDoubleClick?: (track: Track) => void;
+  onContextMenu?: (e: React.MouseEvent, track: Track) => void;
 }) {
   if (tracks.length === 0) {
     return <div className="plugin-track-list-empty">No tracks</div>;
@@ -237,6 +257,7 @@ function PluginTrackList({
                 key={track.id}
                 className={isCurrent ? "track-row active" : "track-row"}
                 onDoubleClick={() => onDoubleClick?.(track)}
+                onContextMenu={onContextMenu ? (e) => { e.preventDefault(); onContextMenu(e, track); } : undefined}
               >
                 <td className="col-num">{i + 1}</td>
                 <td className="col-title">{track.title}</td>
@@ -432,11 +453,13 @@ function PluginTrackRowList({
   selectable,
   actions,
   onAction,
+  onContextMenu,
 }: {
   items: TrackRowItem[];
   selectable?: boolean;
   actions?: { id: string; label: string; icon?: string }[];
   onAction?: (actionId: string, data?: unknown) => void;
+  onContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -491,6 +514,7 @@ function PluginTrackRowList({
             key={item.id}
             className={`ptr-row${selected.has(item.id) ? " ptr-row-selected" : ""}`}
             onClick={() => item.action && onAction?.(item.action, { itemId: item.id })}
+            onContextMenu={onContextMenu ? (e) => { e.preventDefault(); onContextMenu(e, item); } : undefined}
           >
             {selectable && (
               <input

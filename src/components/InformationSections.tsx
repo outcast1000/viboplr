@@ -33,6 +33,7 @@ interface InformationSectionsProps {
   resolveEntity?: (kind: string, name: string) => { id?: number; imageSrc?: string } | undefined;
   /** Called when title_line sections have loaded data (typeId → parsed data) */
   onTitleData?: (typeId: string, data: unknown) => void;
+  onTrackContextMenu?: (e: React.MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
 }
 
 type TabEntry =
@@ -51,6 +52,7 @@ export function InformationSections({
   onAction,
   resolveEntity,
   onTitleData,
+  onTrackContextMenu,
 }: InformationSectionsProps) {
   const { sections, refresh, reloadCache } = useInformationTypes({ entity, exclude, invokeInfoFetch, pluginNames });
   const [activeTab, setActiveTab] = useState<string | null>(null);
@@ -258,7 +260,7 @@ export function InformationSections({
                   )}
                 </div>
               ) : s.state.kind === "loaded" && s.state.data && Renderer ? (
-                <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={handleAction} resolveEntity={resolveEntity} context={positionSecs != null ? { positionSecs } : undefined} />
+                <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={handleAction} resolveEntity={resolveEntity} context={positionSecs != null ? { positionSecs } : undefined} onTrackContextMenu={onTrackContextMenu} />
               ) : s.state.kind === "empty" ? (
                 <div className="info-section-empty">No data available</div>
               ) : null;

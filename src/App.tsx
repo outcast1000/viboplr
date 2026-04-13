@@ -1570,6 +1570,11 @@ function App() {
                 onUpdateTrack={(update) => library.setTracks(prev => prev.map(t => t.id === library.selectedTrack ? { ...t, ...update } : t))}
                 invokeInfoFetch={plugins.invokeInfoFetch}
                 pluginNames={plugins.pluginNames}
+                onInfoTrackContextMenu={(e, info) => {
+                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: {
+                    kind: "track", trackId: info.trackId ?? 0, subsonic: false, title: info.title, artistName: info.artistName, external: !info.trackId,
+                  } });
+                }}
               />
             );
           })()}
@@ -1639,6 +1644,11 @@ function App() {
                 artists={artists}
                 invokeInfoFetch={plugins.invokeInfoFetch}
                 pluginNames={plugins.pluginNames}
+                onInfoTrackContextMenu={(e, info) => {
+                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: {
+                    kind: "track", trackId: info.trackId ?? 0, subsonic: false, title: info.title, artistName: info.artistName, external: !info.trackId,
+                  } });
+                }}
               />
             );
           })()}
@@ -1759,6 +1769,11 @@ function App() {
                 }}
                 invokeInfoFetch={plugins.invokeInfoFetch}
                 pluginNames={plugins.pluginNames}
+                onTrackContextMenu={(e, info) => {
+                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: {
+                    kind: "track", trackId: info.trackId ?? 0, subsonic: false, title: info.title, artistName: info.artistName, external: !info.trackId,
+                  } });
+                }}
               />
             );
           })()}
@@ -1909,6 +1924,12 @@ function App() {
                 }}
                 onAction={(actionId, actionData) => {
                   plugins.dispatchUIAction(pluginId, actionId, actionData);
+                }}
+                onTrackContextMenu={(e, track) => {
+                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: track.path.startsWith("subsonic://"), title: track.title, artistName: track.artist_name } });
+                }}
+                onTrackRowContextMenu={(e, item) => {
+                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: 0, subsonic: false, title: item.title, artistName: item.subtitle ?? null, external: true } });
                 }}
               />
             );
@@ -2094,7 +2115,13 @@ function App() {
           onSavePlaylist={queueHook.savePlaylist}
           onLoadPlaylist={queueHook.loadPlaylist}
           onContextMenu={(e, indices) => {
-            contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "queue-multi", indices } });
+            const tracks = indices.map(i => queueHook.queue[i]).filter(Boolean);
+            const first = tracks[0];
+            contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: {
+              kind: "queue-multi", indices,
+              trackIds: tracks.map(t => t.id),
+              firstTrack: first ? { title: first.title, artistName: first.artist_name, subsonic: first.path.startsWith("subsonic://") } : { title: "", artistName: null, subsonic: false },
+            } });
           }}
           externalDropTarget={contextMenuActions.externalDropTarget}
           collapsed={queueCollapsed}

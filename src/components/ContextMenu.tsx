@@ -8,11 +8,11 @@ import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import "./ContextMenu.css";
 
 export type ContextMenuTarget =
-  | { kind: "track"; trackId: number; subsonic: boolean; title: string; artistName: string | null }
+  | { kind: "track"; trackId: number; subsonic: boolean; title: string; artistName: string | null; external?: boolean }
   | { kind: "album"; albumId: number; title: string; artistName: string | null }
   | { kind: "artist"; artistId: number; name: string }
   | { kind: "multi-track"; trackIds: number[] }
-  | { kind: "queue-multi"; indices: number[] }
+  | { kind: "queue-multi"; indices: number[]; trackIds: number[]; firstTrack: { title: string; artistName: string | null; subsonic: boolean } }
   | { kind: "video"; dockSide: DockSide; fitMode: FitMode };
 
 export interface ContextMenuState {
@@ -106,6 +106,11 @@ function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarget {
     case "album": return { kind: "album", albumId: target.albumId, albumTitle: target.title, artistName: target.artistName ?? undefined };
     case "artist": return { kind: "artist", artistId: target.artistId, artistName: target.name };
     case "multi-track": return { kind: "multi-track", trackIds: target.trackIds };
+    case "queue-multi":
+      if (target.trackIds.length === 1) {
+        return { kind: "track", trackId: target.trackIds[0], title: target.firstTrack.title, artistName: target.firstTrack.artistName ?? undefined, subsonic: target.firstTrack.subsonic };
+      }
+      return { kind: "multi-track", trackIds: target.trackIds };
     default: return { kind: "track" };
   }
 }
@@ -192,6 +197,28 @@ export function ContextMenu({
             </div>
           </>
         )}
+        {pluginMenuItems && pluginMenuItems.length > 0 && (() => {
+          const pluginTargetKind = count === 1 ? "track" : "multi-track";
+          const matching = pluginMenuItems.filter(item => item.targets.includes(pluginTargetKind as "track" | "album" | "artist" | "multi-track"));
+          if (matching.length === 0) return null;
+          return (
+            <>
+              <div className="context-menu-separator" />
+              {matching.map((item) => (
+                <div
+                  key={`${item.pluginId}:${item.id}`}
+                  className="context-menu-item"
+                  onClick={() => {
+                    onPluginAction?.(item.pluginId, item.id, toPluginTarget(target));
+                    onClose();
+                  }}
+                >
+                  <span>{item.label}</span>
+                </div>
+              ))}
+            </>
+          );
+        })()}
       </div>
     );
   }
@@ -218,22 +245,22 @@ export function ContextMenu({
           <IconInfo size={14} /><span>Edit Properties</span>
         </div>
       )}
-      {target.kind === "track" && !target.subsonic && (
+      {target.kind === "track" && !target.subsonic && !target.external && (
         <div className="context-menu-item" onClick={onShowInFolder}>
           <IconFolder size={14} /><span>Open Containing Folder</span>
         </div>
       )}
-      {target.kind === "track" && onWatchOnYoutube && (
+      {target.kind === "track" && !target.external && onWatchOnYoutube && (
         <div className="context-menu-item" onClick={() => { onWatchOnYoutube(); onClose(); }}>
           <IconYoutube size={14} /><span>Find in YouTube</span>
         </div>
       )}
-      {target.kind === "track" && onViewDetails && (
+      {target.kind === "track" && !target.external && onViewDetails && (
         <div className="context-menu-item" onClick={() => { onViewDetails(); onClose(); }}>
           <IconInfo size={14} /><span>View Details</span>
         </div>
       )}
-      {onDelete && (target.kind === "track" && !target.subsonic || target.kind === "multi-track") && (
+      {onDelete && (target.kind === "track" && !target.subsonic && !target.external || target.kind === "multi-track") && (
         <>
           <div className="context-menu-separator" />
           <div className="context-menu-item context-menu-item-danger" onClick={() => { onDelete(); onClose(); }}>

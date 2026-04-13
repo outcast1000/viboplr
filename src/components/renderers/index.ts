@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { ComponentType, MouseEvent } from "react";
 import "./renderers.css";
 import { RichTextRenderer } from "./RichTextRenderer";
 import { HtmlRenderer } from "./HtmlRenderer";
@@ -20,6 +20,7 @@ export interface RendererProps {
   onAction?: (actionId: string, payload?: unknown) => void;
   resolveEntity?: (kind: string, name: string) => { id?: number; imageSrc?: string } | undefined;
   context?: { positionSecs?: number };
+  onTrackContextMenu?: (e: MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
 }
 
 export const renderers: Record<string, ComponentType<RendererProps>> = {

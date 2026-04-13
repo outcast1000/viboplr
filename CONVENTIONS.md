@@ -107,6 +107,16 @@ Cross-cutting rules that apply to all code everywhere.
   - **Below placement:** For richer, expandable content (e.g., lyrics, reviews, artist bio)
 - New information should be added as an information type via a plugin, not hardcoded into the detail view — this is how the app surfaces entity data consistently across Artist, Album, Track, and Tag detail pages
 
+### Universal Track Actions
+
+- A "track" is a universal concept — it can appear in the library list, queue/playlist, plugin views (e.g., TIDAL search, Spotify playlists), information sections (e.g., similar tracks, top tracks), or search results
+- Every surface that displays track items must support right-click context menus with plugin-registered actions
+- Each surface defines its own base actions (e.g., queue has remove/reorder, library has delete/folder), but plugin actions appear everywhere
+- Plugins register context menu items via `contributes.contextMenuItems` in their manifest with target kinds (`track`, `album`, `artist`, `multi-track`)
+- The context menu system resolves the appropriate `PluginContextMenuTarget` from whatever track data is available (library ID, title, artist name)
+- For tracks without a library ID (e.g., external search results), the target still carries title/artist so plugins can act on metadata alone
+- **Implementation:** Use the shared `ContextMenu` component from `ContextMenu.tsx`. Pass `pluginMenuItems` and `onPluginAction` to every context menu instance. New track surfaces must wire up `onContextMenu` handlers.
+
 ### Fix As You Go
 
 - When modifying a file, fix nearby convention violations as part of the same change
