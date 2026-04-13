@@ -18,6 +18,7 @@ export function usePlayback(
   const [durationSecs, setDurationSecs] = useState(0);
   const [volume, setVolume] = useState(1.0);
   const [activeSlot, setActiveSlot] = useState<"A" | "B">("A");
+  const trackChangeSourceRef = useRef<"user" | "auto">("user");
 
   const audioRefA = useRef<HTMLAudioElement>(null);
   const audioRefB = useRef<HTMLAudioElement>(null);
@@ -234,6 +235,7 @@ export function usePlayback(
     setActiveSlot(newSlot);
 
     // Update track state for incoming
+    trackChangeSourceRef.current = "auto";
     setCurrentTrack(nextTrack);
     setPositionSecs(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
@@ -299,6 +301,7 @@ export function usePlayback(
     setActiveSlot(newSlot);
     activeSlotRef.current = newSlot;
 
+    trackChangeSourceRef.current = "auto";
     setCurrentTrack(nextTrack);
     setPositionSecs(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
@@ -349,6 +352,7 @@ export function usePlayback(
       videoRef.current.load();
     }
 
+    trackChangeSourceRef.current = "user";
     setCurrentTrack(track);
     setCurrentAssetUrl(src);
     setPositionSecs(0);
@@ -541,6 +545,7 @@ export function usePlayback(
 
   return {
     currentTrack, setCurrentTrack,
+    trackChangeSourceRef,
     currentAssetUrl,
     playing, setPlaying, scrobbled,
     positionSecs, setPositionSecs,
