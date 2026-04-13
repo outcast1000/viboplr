@@ -158,13 +158,10 @@ function App() {
 
   const beforeNavRef = useRef<() => void>(() => {});
   const viewSearch = useViewSearchState();
-  const [currentView, setCurrentView] = useState<View>("all");
-  // Only pass debouncedTrackQuery for views that need server-side track search
-  const needsServerSearch = currentView === "all" || currentView === "liked";
 
   // Need to initialize library first to get selection state, then artistInfo will compute popularity
   const [trackPopularityState, setTrackPopularityState] = useState<Record<number, number>>({});
-  const library = useLibrary(restoredRef, () => beforeNavRef.current(), needsServerSearch ? viewSearch.getDebouncedQuery(currentView) : "", trackPopularityState, setNavError);
+  const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, trackPopularityState, setNavError);
 
   const queueHook = useQueue(restoredRef, playback.handlePlay, library.collections);
   const autoContinue = useAutoContinue(restoredRef);
@@ -254,9 +251,6 @@ function App() {
     plugins.dispatchEvent("track:played", track);
     plugins.dispatchEvent("track:scrobbled", track);
   }, [playback.scrobbled, playback.currentTrack, plugins.dispatchEvent]);
-
-  // Sync currentView with library.view so debouncedTrackQuery stays up to date
-  useEffect(() => { setCurrentView(library.view); }, [library.view]);
 
   // Reset scroll position when view or selections change
   const currentSearchQuery = viewSearch.getQuery(library.view);

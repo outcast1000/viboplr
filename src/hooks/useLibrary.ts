@@ -31,8 +31,10 @@ export const TAG_DETAIL_COLUMNS: ColumnConfig[] = ALL_COLUMN_IDS.map(id => ({
   visible: TAG_DETAIL_VISIBLE.has(id),
 }));
 
-export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNavigate?: () => void, debouncedTrackQuery?: string, trackPopularity?: Record<number, number>, onNavigationError?: (message: string) => void) {
+export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNavigate?: () => void, getDebouncedTrackQuery?: (view: View) => string, trackPopularity?: Record<number, number>, onNavigationError?: (message: string) => void) {
   const [view, setView] = useState<View>("all");
+  const needsServerSearch = view === "all" || view === "liked";
+  const debouncedTrackQuery = needsServerSearch ? getDebouncedTrackQuery?.(view) ?? "" : "";
   const [artists, setArtists] = useState<Artist[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
