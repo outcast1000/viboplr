@@ -2,7 +2,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  max-width: 624px;
+  max-width: 500px;
   width: 100%;
 }
 
@@ -51,8 +51,8 @@
 }
 
 .central-search-container {
-  flex: 1 1 624px;
-  max-width: 624px;
+  flex: 1 1 500px;
+  max-width: 500px;
   min-width: 0;
   position: relative;
 }
