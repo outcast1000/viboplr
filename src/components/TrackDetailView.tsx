@@ -211,11 +211,11 @@ export function TrackDetailView({
     setYoutubeFeedback(null);
     setYoutubeUrlEdit(null);
 
-    invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId }).then(setTrackTags).catch(() => {});
-    invoke<TrackPlayStats | null>("get_track_play_stats", { trackId }).then(s => { if (s) setPlayStats(s); }).catch(() => {});
-    invoke<Array<{ played_at: number }>>("get_track_play_history", { trackId, limit: 50 }).then(setPlayHistory).catch(() => {});
+    invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId }).then(setTrackTags).catch(e => console.error("Failed to load track tags:", e));
+    invoke<TrackPlayStats | null>("get_track_play_stats", { trackId }).then(s => { if (s) setPlayStats(s); }).catch(e => console.error("Failed to load play stats:", e));
+    invoke<Array<{ played_at: number }>>("get_track_play_history", { trackId, limit: 50 }).then(setPlayHistory).catch(e => console.error("Failed to load play history:", e));
     invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>("get_track_audio_properties", { trackId })
-      .then(setAudioProps).catch(() => {});
+      .then(setAudioProps).catch(e => console.error("Failed to load audio properties:", e));
 
     if (track.artist_name) {
       const trackEntity: InfoEntity = { kind: "track", name: track.title, id: trackId, artistName: track.artist_name };
@@ -225,7 +225,7 @@ export function TrackDetailView({
         const val = result.value as any;
         if (val?.tags?.length) setCommunityTags(val.tags);
         if (val?.artistTags?.length) setArtistTags(val.artistTags);
-      }).catch(() => {});
+      }).catch(e => console.error("Failed to load community/artist tags:", e));
     }
   }, [trackId, track.artist_name, track.title, invokeInfoFetch]);
 

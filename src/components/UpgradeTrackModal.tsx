@@ -116,6 +116,7 @@ export function UpgradeTrackModal({ track, downloadFormat, onClose, onUpgraded }
 
   async function handleCancel() {
     if (preview) {
+      // Fire-and-forget: best-effort cleanup of downloaded preview file on cancel
       await invoke("cancel_track_upgrade", { newPath: preview.new_path }).catch(() => {});
     }
     onClose();
@@ -123,6 +124,7 @@ export function UpgradeTrackModal({ track, downloadFormat, onClose, onUpgraded }
 
   async function handleBackToSearch() {
     if (preview) {
+      // Fire-and-forget: best-effort cleanup of downloaded preview file on back navigation
       await invoke("cancel_track_upgrade", { newPath: preview.new_path }).catch(() => {});
       setPreview(null);
     }

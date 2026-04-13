@@ -585,7 +585,7 @@ function App() {
     // Check for URLs that arrived before listeners were registered
     getDeepLinkCurrent().then((urls) => {
       if (urls && urls.length > 0) handleDeepLink(urls);
-    }).catch(() => {});
+    }).catch(() => {}); // Fire-and-forget: deep link check on startup — no URLs is the common case
     return () => {
       unlistenEvent.then(f => f());
     };
@@ -860,10 +860,10 @@ function App() {
   // Forward frontend errors to backend log file
   useEffect(() => {
     const onError = (e: ErrorEvent) => {
-      invoke("write_frontend_log", { level: "error", message: `${e.message} at ${e.filename}:${e.lineno}` }).catch(() => {});
+      invoke("write_frontend_log", { level: "error", message: `${e.message} at ${e.filename}:${e.lineno}` }).catch(() => {}); // Fire-and-forget: avoid infinite loop if the error logger itself fails
     };
     const onRejection = (e: PromiseRejectionEvent) => {
-      invoke("write_frontend_log", { level: "error", message: `Unhandled rejection: ${e.reason}` }).catch(() => {});
+      invoke("write_frontend_log", { level: "error", message: `Unhandled rejection: ${e.reason}` }).catch(() => {}); // Fire-and-forget: avoid infinite loop if the error logger itself fails
     };
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onRejection);

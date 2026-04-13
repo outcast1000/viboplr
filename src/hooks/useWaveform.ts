@@ -85,7 +85,7 @@ export function useWaveform(
         if (cancelled) return;
         setPeaks(result);
 
-        // Cache for next time (fire-and-forget)
+        // Fire-and-forget: caching waveform for next time — failure has no user impact
         invoke("cache_waveform", { path: trackPath, peaks: result }).catch(() => {});
       } catch (e) {
         if (!cancelled) {

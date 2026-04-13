@@ -211,6 +211,7 @@ export function useInformationTypes({
           // Clean up stale cached values from other providers for this type_id
           for (const [, integerId] of providers) {
             if (integerId !== usedIntegerId) {
+              // Fire-and-forget: cleaning up stale cache entries — failure doesn't affect current fetch
               await invoke("info_delete_value", {
                 informationTypeId: integerId,
                 entityKey,
@@ -242,6 +243,7 @@ export function useInformationTypes({
             }, EMPTY_DELAY_MS);
           }
         } catch {
+          // Fire-and-forget: persisting error status to cache — failure doesn't affect UI state
           await invoke("info_upsert_value", {
             informationTypeId: usedIntegerId,
             entityKey,

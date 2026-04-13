@@ -62,7 +62,7 @@ export function useImageResolver(invokeImageFetch: InvokeImageFetch) {
         await invoke("image_resolve_response", {
           requestId: request_id,
           result: { error: String(e) },
-        }).catch(() => {});
+        }).catch(() => {}); // Fire-and-forget: error already reported in the response payload
       }
     });
 
