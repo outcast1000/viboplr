@@ -118,7 +118,10 @@ export function ArtistDetailContent({
 
   return (
     <div className="artist-detail">
-      <div className="artist-detail-top">
+      <div
+        className="artist-detail-top"
+        style={artistImagePath ? { '--artist-bg': `url(${convertFileSrc(artistImagePath)})` } as React.CSSProperties : undefined}
+      >
         <div className="artist-header">
           <div className="artist-avatar">
             {artistImagePath ? (
