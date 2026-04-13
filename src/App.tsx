@@ -911,11 +911,12 @@ function App() {
     return () => { cancelled = true; };
   }, [library.selectedTrack, detailTrackLocal]);
 
-  // Sync detail view with currently playing track — always navigate to track detail
+  // Sync detail view with currently playing track — only on automatic track changes
   const syncRef = useRef(syncWithPlaying);
   syncRef.current = syncWithPlaying;
   useEffect(() => {
     if (!syncRef.current || !playback.currentTrack) return;
+    if (playback.trackChangeSourceRef.current !== "auto") return;
     const ct = playback.currentTrack;
     if (ct.id && ct.id !== library.selectedTrack) {
       library.handleTrackClick(ct.id);
