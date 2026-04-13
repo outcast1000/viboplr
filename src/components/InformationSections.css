@@ -184,6 +184,32 @@
 }
 
 
+/* ── Tab drag-and-drop ── */
+
+.info-sections-tab.dragging {
+  opacity: 0.3;
+}
+
+.info-sections-tab.drag-over {
+  border-left: 2px solid var(--accent);
+}
+
+.info-tab-drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  background: var(--bg-surface);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
 /* ── Empty section state ── */
 
 .info-sections-tab.empty {

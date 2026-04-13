@@ -5,9 +5,12 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Collection } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { IconFolder, IconLastfm, IconYoutube } from "./Icons";
+import { store } from "../store";
 
 import { InformationSections } from "./InformationSections";
 import "./TrackDetailView.css";
+
+const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "details", "play-history"];
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) {
@@ -98,9 +101,22 @@ export function TrackDetailView({
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
   const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; toptags?: Array<{ name: string }>; url?: string } | null>(null);
   const [youtubeUrlEdit, setYoutubeUrlEdit] = useState<string | null>(null);
+  const [tabOrder, setTabOrder] = useState<string[]>(DEFAULT_TAB_ORDER);
   const trackIdRef = useRef(trackId);
 
   useEffect(() => { trackIdRef.current = trackId; }, [trackId]);
+
+  // Load persisted tab order on mount
+  useEffect(() => {
+    store.get<string[]>("trackDetailTabOrder").then(saved => {
+      if (saved && saved.length > 0) setTabOrder(saved);
+    });
+  }, []);
+
+  const handleTabOrderChange = useCallback((order: string[]) => {
+    setTabOrder(order);
+    store.set("trackDetailTabOrder", order);
+  }, []);
 
   // Fetch all data when trackId changes
   useEffect(() => {
@@ -305,7 +321,8 @@ export function TrackDetailView({
           exclude={["track_tags"]}
           invokeInfoFetch={invokeInfoFetch}
           pluginNames={pluginNames}
-          tabOrder={["song_bio", "song_meaning", "lyrics"]}
+          tabOrder={tabOrder}
+          onTabOrderChange={handleTabOrderChange}
           onTitleData={handleTitleData}
           positionSecs={isCurrentTrack ? positionSecs : 0}
           customTabs={[

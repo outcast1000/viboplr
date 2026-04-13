@@ -2,7 +2,7 @@ import { renderers } from "./renderers";
 import type { InfoEntity } from "../types/informationTypes";
 import { useInformationTypes } from "../hooks/useInformationTypes";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { buildEntityKey } from "../types/informationTypes";
@@ -28,6 +28,8 @@ interface InformationSectionsProps {
   pluginNames?: Map<string, string>;
   /** Preferred tab order — tab IDs listed here appear first in this order, rest follow */
   tabOrder?: string[];
+  /** Called when user reorders tabs via drag-and-drop; receives the full ordered list of tab IDs */
+  onTabOrderChange?: (order: string[]) => void;
   onEntityClick?: (kind: string, id?: number, name?: string) => void;
   onAction?: (actionId: string, payload?: unknown) => void;
   resolveEntity?: (kind: string, name: string) => { id?: number; imageSrc?: string } | undefined;
@@ -48,6 +50,7 @@ export function InformationSections({
   invokeInfoFetch,
   pluginNames,
   tabOrder,
+  onTabOrderChange,
   onEntityClick,
   onAction,
   resolveEntity,
@@ -57,6 +60,14 @@ export function InformationSections({
   const { sections, refresh, reloadCache } = useInformationTypes({ entity, exclude, invokeInfoFetch, pluginNames });
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+
+  // Tab drag-and-drop state
+  const [draggedTab, setDraggedTab] = useState<string | null>(null);
+  const [dragOverTab, setDragOverTab] = useState<string | null>(null);
+  const draggedTabRef = useRef<string | null>(null);
+  const dragOverTabRef = useRef<string | null>(null);
+  const didDragTabRef = useRef(false);
+  const tabGhostRef = useRef<HTMLDivElement | null>(null);
 
   // Reset to first tab when entity changes
   const entityKey = entity ? buildEntityKey(entity) : null;
@@ -148,6 +159,87 @@ export function InformationSections({
     if (onAction) onAction(actionId, payload);
   }, [entity, onAction, reloadCache]);
 
+  function handleTabMouseDown(e: React.MouseEvent, tabId: string) {
+    if (e.button !== 0 || !onTabOrderChange) return;
+    draggedTabRef.current = tabId;
+    dragOverTabRef.current = null;
+    didDragTabRef.current = false;
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    function findTabId(el: Element | null): string | null {
+      while (el) {
+        const id = el.getAttribute("data-tab-id");
+        if (id) return id;
+        el = el.parentElement;
+      }
+      return null;
+    }
+
+    function showGhost(x: number, y: number) {
+      if (!tabGhostRef.current) {
+        const ghost = document.createElement("div");
+        ghost.className = "info-tab-drag-ghost";
+        const entry = tabs.find(t => getTabId(t) === tabId);
+        ghost.textContent = entry?.name ?? tabId;
+        document.body.appendChild(ghost);
+        tabGhostRef.current = ghost;
+      }
+      tabGhostRef.current.style.left = `${x + 12}px`;
+      tabGhostRef.current.style.top = `${y - 10}px`;
+    }
+
+    function removeGhost() {
+      if (tabGhostRef.current) { tabGhostRef.current.remove(); tabGhostRef.current = null; }
+    }
+
+    function onMouseMove(ev: MouseEvent) {
+      if (!draggedTabRef.current) return;
+      if (!didDragTabRef.current) {
+        if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 5) return;
+        didDragTabRef.current = true;
+        setDraggedTab(draggedTabRef.current);
+      }
+      showGhost(ev.clientX, ev.clientY);
+      const target = document.elementFromPoint(ev.clientX, ev.clientY);
+      const overId = target ? findTabId(target) : null;
+      if (overId && overId !== draggedTabRef.current) {
+        dragOverTabRef.current = overId;
+        setDragOverTab(overId);
+      } else {
+        dragOverTabRef.current = null;
+        setDragOverTab(null);
+      }
+    }
+
+    function onMouseUp() {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      removeGhost();
+      const from = draggedTabRef.current;
+      const to = dragOverTabRef.current;
+      if (didDragTabRef.current && from && to && from !== to) {
+        // Compute new order from the current visible (non-empty-sorted) tab list
+        const ids = tabs.map(t => getTabId(t));
+        const fromIdx = ids.indexOf(from);
+        const toIdx = ids.indexOf(to);
+        if (fromIdx !== -1 && toIdx !== -1) {
+          ids.splice(fromIdx, 1);
+          ids.splice(toIdx, 0, from);
+          onTabOrderChange!(ids);
+        }
+      }
+      draggedTabRef.current = null;
+      dragOverTabRef.current = null;
+      setDraggedTab(null);
+      setDragOverTab(null);
+      setTimeout(() => { didDragTabRef.current = false; }, 0);
+    }
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
   const filtered = sections.filter(s => s.displayKind !== "title_line");
 
   // Build unified tab list: custom tabs first, then plugin sections
@@ -156,17 +248,22 @@ export function InformationSections({
     ...filtered.map(s => ({ kind: "plugin" as const, typeId: s.typeId, name: s.name, description: s.description, section: s })),
   ];
 
+  const getTabId = (t: TabEntry) => t.kind === "custom" ? t.id : t.typeId;
+
   // Apply preferred tab ordering if specified, then sort empty tabs last
   {
-    const isEmpty = (t: TabEntry) => t.kind === "plugin" && t.section.state.kind === "empty" ? 1 : 0;
+    const isEmpty = (t: TabEntry) => {
+      if (t.kind === "custom") return 0;
+      return t.section.state.kind === "empty" ? 1 : 0;
+    };
     tabs.sort((a, b) => {
       // Primary: tabs with data before empty tabs
       const emptyDiff = isEmpty(a) - isEmpty(b);
       if (emptyDiff !== 0) return emptyDiff;
       // Secondary: preferred tab order
       if (tabOrder && tabOrder.length > 0) {
-        const aId = a.kind === "custom" ? a.id : a.typeId;
-        const bId = b.kind === "custom" ? b.id : b.typeId;
+        const aId = getTabId(a);
+        const bId = getTabId(b);
         const aIdx = tabOrder.indexOf(aId);
         const bIdx = tabOrder.indexOf(bId);
         if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
@@ -178,8 +275,6 @@ export function InformationSections({
   }
 
   if (!tabs.length) return null;
-
-  const getTabId = (t: TabEntry) => t.kind === "custom" ? t.id : t.typeId;
 
   const resolvedTab = (activeTab && tabs.some(t => getTabId(t) === activeTab))
     ? activeTab
@@ -207,12 +302,15 @@ export function InformationSections({
           <polyline points="6 9 12 15 18 9"/>
         </svg>
         {tabs.map(tab => {
+          const tabId = getTabId(tab);
           const tabState = tab.kind === "plugin" ? tab.section.state.kind : null;
           return (
             <div
-              key={getTabId(tab)}
-              className={`info-sections-tab${getTabId(tab) === resolvedTab ? " active" : ""}${tabState === "empty" ? " empty" : ""}${tabState === "loading" ? " loading" : ""}${tabState === "loaded" ? " has-data" : ""}`}
-              onClick={() => { setActiveTab(getTabId(tab)); setCollapsed(false); }}
+              key={tabId}
+              data-tab-id={tabId}
+              className={`info-sections-tab${tabId === resolvedTab ? " active" : ""}${tabState === "empty" ? " empty" : ""}${tabState === "loading" ? " loading" : ""}${tabState === "loaded" ? " has-data" : ""}${draggedTab === tabId ? " dragging" : ""}${dragOverTab === tabId ? " drag-over" : ""}`}
+              onClick={() => { if (!didDragTabRef.current) { setActiveTab(tabId); setCollapsed(false); } }}
+              onMouseDown={(e) => handleTabMouseDown(e, tabId)}
               {...(tab.description ? { "data-tooltip": tab.description } : {})}
             >
               {tab.name}
