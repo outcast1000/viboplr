@@ -588,6 +588,7 @@
 .track-detail-top + .section-wide > .information-sections {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .track-detail-top + .section-wide .info-section-content {
