@@ -197,7 +197,7 @@
 }
 
 .col-duration {
-  width: 70px;
+  width: 95px;
   flex-shrink: 0;
   text-align: right;
   color: var(--text-secondary);

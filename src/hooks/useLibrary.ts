@@ -271,16 +271,19 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       setTrackShuffleKey(k => k + 1);
       return;
     }
+    const descFirst: SortField[] = ["duration", "year", "added", "modified", "size", "popularity"];
+    const initial = descFirst.includes(field) ? "desc" : "asc";
+    const flipped = initial === "asc" ? "desc" : "asc";
     if (sortField === field) {
-      if (sortDir === "asc") {
-        setSortDir("desc");
+      if (sortDir === initial) {
+        setSortDir(flipped);
       } else {
         setSortField(null);
         setSortDir("asc");
       }
     } else {
       setSortField(field);
-      setSortDir("asc");
+      setSortDir(initial);
     }
   }
 
