@@ -272,14 +272,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }
 
-  async function handleWatchOnYoutube() {
-    if (!contextMenu || contextMenu.target.kind !== "track") return;
-    const { trackId, title, artistName } = contextMenu.target;
-
-    // Use saved URL if available
-    const track = library.tracks.find(t => t.id === trackId);
-    if (track?.youtube_url) {
-      await openUrl(track.youtube_url);
+  async function watchOnYoutube(trackId: number, title: string, artistName: string | null, youtubeUrl: string | null) {
+    if (youtubeUrl) {
+      await openUrl(youtubeUrl);
       addLog(`Opened YouTube: ${title}`);
       return;
     }
@@ -297,6 +292,13 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       await openUrl(`https://www.youtube.com/results?search_query=${q}`);
       addLog("YouTube search failed, opened search results");
     }
+  }
+
+  async function handleWatchOnYoutube() {
+    if (!contextMenu || contextMenu.target.kind !== "track") return;
+    const { trackId, title, artistName } = contextMenu.target;
+    const track = library.tracks.find(t => t.id === trackId);
+    await watchOnYoutube(trackId, title, artistName, track?.youtube_url ?? null);
   }
 
   async function handleYoutubeFeedback(correct: boolean) {
@@ -337,6 +339,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleBulkEdit,
     handleDeleteRequest,
     handleDeleteConfirm,
+    watchOnYoutube,
     handleWatchOnYoutube,
     handleYoutubeFeedback,
     handleQueueRemove,

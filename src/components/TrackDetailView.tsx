@@ -68,6 +68,7 @@ interface TrackDetailViewProps {
   onPlay: () => void;
   onShowInFolder: () => void;
   onPlayTrack: (track: Track) => void;
+  onWatchOnYoutube: () => void;
   onToggleLike: () => void;
   onToggleHate: () => void;
   collections: Collection[];
@@ -81,7 +82,7 @@ export function TrackDetailView({
   trackId, track, albumImagePath, artistImagePath,
   positionSecs, isCurrentTrack,
   onArtistClick, onAlbumClick, onTagClick,
-  onPlay, onShowInFolder, onPlayTrack,
+  onPlay, onShowInFolder, onPlayTrack, onWatchOnYoutube,
   onToggleLike, onToggleHate,
   collections: _collections, addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
 }: TrackDetailViewProps) {
@@ -94,7 +95,6 @@ export function TrackDetailView({
   const [playHistory, setPlayHistory] = useState<Array<{ played_at: number }>>([]);
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
   const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; toptags?: Array<{ name: string }>; url?: string } | null>(null);
-  const [youtubeFeedback, setYoutubeFeedback] = useState<{ url: string; videoTitle: string } | null>(null);
   const [youtubeUrlEdit, setYoutubeUrlEdit] = useState<string | null>(null);
   const trackIdRef = useRef(trackId);
 
@@ -110,7 +110,6 @@ export function TrackDetailView({
     setPlayHistory([]);
     setAudioProps(null);
     setTrackInfo(null);
-    setYoutubeFeedback(null);
     setYoutubeUrlEdit(null);
 
     invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId }).then(setTrackTags).catch(e => console.error("Failed to load track tags:", e));
@@ -278,7 +277,7 @@ export function TrackDetailView({
             <div className="track-detail-youtube-row">
               {track.youtube_url ? (
                 <>
-                  <button className="track-detail-youtube-btn" onClick={() => openUrl(track.youtube_url!)} title="Watch on YouTube">
+                  <button className="track-detail-youtube-btn" onClick={onWatchOnYoutube} title="Watch on YouTube">
                     <IconYoutube size={32} />
                   </button>
                   <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit(track.youtube_url ?? "")}>Edit</button>
@@ -290,18 +289,7 @@ export function TrackDetailView({
                 </>
               ) : (
                 <>
-                  <button className="track-detail-youtube-action" onClick={async () => {
-                    try {
-                      const result = await invoke<{ url: string; video_title: string | null }>(
-                        "search_youtube", { title: track.title, artistName: track.artist_name }
-                      );
-                      await openUrl(result.url);
-                      setYoutubeFeedback({ url: result.url, videoTitle: result.video_title ?? track.title });
-                    } catch {
-                      const q = encodeURIComponent(`${track.title} ${track.artist_name ?? ""}`);
-                      await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-                    }
-                  }}>Find in YouTube</button>
+                  <button className="track-detail-youtube-action" onClick={onWatchOnYoutube}>Find in YouTube</button>
                   <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit("")}>Set YouTube URL</button>
                 </>
               )}
@@ -459,28 +447,6 @@ export function TrackDetailView({
           onAction={handleInfoAction}
         />
       </div>
-
-      {youtubeFeedback && (
-        <div className="youtube-modal-overlay" onClick={() => setYoutubeFeedback(null)}>
-          <div className="youtube-modal" onClick={e => e.stopPropagation()}>
-            <div className="youtube-modal-icon"><IconYoutube size={24} /></div>
-            <div className="youtube-modal-text">
-              Is this the right video for "<strong>{track.title}</strong>"?<br />
-              Save this link for future use?
-            </div>
-            <a className="youtube-modal-link" onClick={() => openUrl(youtubeFeedback.url)}>{youtubeFeedback.url}</a>
-            <div className="youtube-modal-actions">
-              <button className="youtube-modal-btn" onClick={() => setYoutubeFeedback(null)}>No</button>
-              <button className="youtube-modal-btn yes" onClick={async () => {
-                await invoke("set_track_youtube_url", { trackId, url: youtubeFeedback.url });
-                onUpdateTrack({ youtube_url: youtubeFeedback.url });
-                addLog("Saved YouTube link");
-                setYoutubeFeedback(null);
-              }}>Yes</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {youtubeUrlEdit !== null && (
         <div className="youtube-modal-overlay">
