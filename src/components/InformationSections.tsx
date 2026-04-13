@@ -36,6 +36,7 @@ interface InformationSectionsProps {
   /** Called when title_line sections have loaded data (typeId → parsed data) */
   onTitleData?: (typeId: string, data: unknown) => void;
   onTrackContextMenu?: (e: React.MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
+  onEntityContextMenu?: (e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;
 }
 
 type TabEntry =
@@ -56,6 +57,7 @@ export function InformationSections({
   resolveEntity,
   onTitleData,
   onTrackContextMenu,
+  onEntityContextMenu,
 }: InformationSectionsProps) {
   const { sections, refresh, reloadCache } = useInformationTypes({ entity, exclude, invokeInfoFetch, pluginNames });
   const [activeTab, setActiveTab] = useState<string | null>(null);
@@ -357,7 +359,7 @@ export function InformationSections({
                 )}
               </div>
             ) : s.state.kind === "loaded" && s.state.data && Renderer ? (
-              <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={handleAction} resolveEntity={resolveEntity} context={positionSecs != null ? { positionSecs } : undefined} onTrackContextMenu={onTrackContextMenu} />
+              <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={handleAction} resolveEntity={resolveEntity} context={positionSecs != null ? { positionSecs } : undefined} onTrackContextMenu={onTrackContextMenu} onEntityContextMenu={onEntityContextMenu} />
             ) : s.state.kind === "empty" ? (
               <div className="info-section-empty">No data available</div>
             ) : null;

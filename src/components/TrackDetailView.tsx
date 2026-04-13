@@ -80,6 +80,7 @@ interface TrackDetailViewProps {
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
   pluginNames?: Map<string, string>;
   onInfoTrackContextMenu?: (e: React.MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
+  onEntityContextMenu?: (e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;
 }
 
 export function TrackDetailView({
@@ -90,6 +91,7 @@ export function TrackDetailView({
   onToggleLike, onToggleHate,
   collections: _collections, addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
   onInfoTrackContextMenu,
+  onEntityContextMenu,
 }: TrackDetailViewProps) {
   const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
   const [communityTags, setCommunityTags] = useState<Array<{ name: string; count?: number }>>([]);
@@ -468,6 +470,7 @@ export function TrackDetailView({
           }}
           onAction={handleInfoAction}
           onTrackContextMenu={onInfoTrackContextMenu}
+          onEntityContextMenu={onEntityContextMenu}
         />
       </div>
 

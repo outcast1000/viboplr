@@ -48,6 +48,7 @@ interface ArtistDetailContentProps {
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
   pluginNames?: Map<string, string>;
   onInfoTrackContextMenu?: (e: React.MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
+  onEntityContextMenu?: (e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;
 }
 
 export function ArtistDetailContent({
@@ -87,6 +88,7 @@ export function ArtistDetailContent({
   invokeInfoFetch,
   pluginNames,
   onInfoTrackContextMenu,
+  onEntityContextMenu,
 }: ArtistDetailContentProps) {
   const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(ARTIST_DETAIL_COLUMNS);
 
@@ -221,6 +223,7 @@ export function ArtistDetailContent({
           onAction={handleInfoAction}
           resolveEntity={resolveEntity}
           onTrackContextMenu={onInfoTrackContextMenu}
+          onEntityContextMenu={onEntityContextMenu}
         />
       </div>
 
