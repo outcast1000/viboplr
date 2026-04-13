@@ -4,7 +4,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Collection } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
-import { IconPlay, IconEnqueue, IconFolder, IconLastfm, IconYoutube } from "./Icons";
+import { IconFolder, IconLastfm, IconYoutube } from "./Icons";
 
 import { InformationSections } from "./InformationSections";
 import "./TrackDetailView.css";
@@ -53,102 +53,6 @@ interface TrackPlayStats {
   last_played_at: number | null;
 }
 
-// --- TrackActions dropdown (modeled after ImageActions) ---
-
-function TrackActions({
-  track,
-  onPlay, onEnqueue, onPlayNext, onShowInFolder,
-  onYoutubeFound, onSetYoutubeUrl, onRemoveYoutubeUrl,
-}: {
-  track: Track;
-  onPlay: () => void;
-  onEnqueue: () => void;
-  onPlayNext: () => void;
-  onShowInFolder: () => void;
-  onYoutubeFound: (url: string, videoTitle: string) => void;
-  onSetYoutubeUrl: () => void;
-  onRemoveYoutubeUrl: () => void;
-}) {
-  const [open_menu, setOpenMenu] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open_menu) return;
-    const handleClick = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setOpenMenu(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open_menu]);
-
-  return (
-    <div className="artist-image-menu-wrapper" ref={wrapperRef}>
-      <button
-        className="artist-image-menu-trigger"
-        onClick={(e) => { e.stopPropagation(); setOpenMenu(v => !v); }}
-        title="Options"
-      >
-        &#x22EF;
-      </button>
-      {open_menu && (
-        <div className="artist-image-menu-dropdown">
-          <button onClick={() => { setOpenMenu(false); onPlay(); }}>
-            <IconPlay size={14} /><span>Play</span>
-          </button>
-          <button onClick={() => { setOpenMenu(false); onEnqueue(); }}>
-            <IconEnqueue size={14} /><span>Add to Queue</span>
-          </button>
-          <button onClick={() => { setOpenMenu(false); onPlayNext(); }}>
-            <IconEnqueue size={14} /><span>Play Next</span>
-          </button>
-          <div className="artist-image-menu-separator" />
-          {!track.path.startsWith("subsonic://") && !track.path.startsWith("tidal://") && (
-            <button onClick={() => { setOpenMenu(false); onShowInFolder(); }}>
-              <IconFolder size={14} /><span>Open Containing Folder</span>
-            </button>
-          )}
-          {track.youtube_url ? (
-            <>
-              <button onClick={async () => { setOpenMenu(false); await openUrl(track.youtube_url!); }}>
-                <IconYoutube size={14} /><span style={{ color: "var(--accent)" }}>Watch on YouTube</span>
-              </button>
-              <button onClick={() => { setOpenMenu(false); onSetYoutubeUrl(); }}>
-                <IconYoutube size={14} /><span>Edit YouTube URL</span>
-              </button>
-              <button onClick={() => { setOpenMenu(false); onRemoveYoutubeUrl(); }}>
-                <IconYoutube size={14} /><span>Remove YouTube URL</span>
-              </button>
-            </>
-          ) : (
-            <>
-              <button onClick={async () => {
-                setOpenMenu(false);
-                try {
-                  const result = await invoke<{ url: string; video_title: string | null }>(
-                    "search_youtube", { title: track.title, artistName: track.artist_name }
-                  );
-                  await openUrl(result.url);
-                  onYoutubeFound(result.url, result.video_title ?? track.title);
-                } catch {
-                  const q = encodeURIComponent(`${track.title} ${track.artist_name ?? ""}`);
-                  await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-                }
-              }}>
-                <IconYoutube size={14} /><span>Find in YouTube</span>
-              </button>
-              <button onClick={() => { setOpenMenu(false); onSetYoutubeUrl(); }}>
-                <IconYoutube size={14} /><span>Set YouTube URL</span>
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // --- TrackDetailView ---
 
 interface TrackDetailViewProps {
@@ -162,8 +66,6 @@ interface TrackDetailViewProps {
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
   onTagClick: (tagId: number) => void;
   onPlay: () => void;
-  onEnqueue: () => void;
-  onPlayNext: () => void;
   onShowInFolder: () => void;
   onPlayTrack: (track: Track) => void;
   onToggleLike: () => void;
@@ -179,7 +81,7 @@ export function TrackDetailView({
   trackId, track, albumImagePath, artistImagePath,
   positionSecs, isCurrentTrack,
   onArtistClick, onAlbumClick, onTagClick,
-  onPlay, onEnqueue, onPlayNext, onShowInFolder, onPlayTrack,
+  onPlay, onShowInFolder, onPlayTrack,
   onToggleLike, onToggleHate,
   collections: _collections, addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
 }: TrackDetailViewProps) {
@@ -347,20 +249,6 @@ export function TrackDetailView({
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
               </button>
-              <TrackActions
-                track={track}
-                onPlay={onPlay}
-                onEnqueue={onEnqueue}
-                onPlayNext={onPlayNext}
-                onShowInFolder={onShowInFolder}
-                onYoutubeFound={(url, videoTitle) => setYoutubeFeedback({ url, videoTitle })}
-                onSetYoutubeUrl={() => setYoutubeUrlEdit(track.youtube_url ?? "")}
-                onRemoveYoutubeUrl={async () => {
-                  await invoke("clear_track_youtube_url", { trackId });
-                  onUpdateTrack({ youtube_url: null });
-                  addLog("Cleared YouTube URL");
-                }}
-              />
             </h2>
             <div className="track-detail-meta">
               {track.artist_name && (

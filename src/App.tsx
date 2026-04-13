@@ -1559,8 +1559,6 @@ function App() {
                 onTagClick={(tagId) => { library.setSelectedTrack(null); library.setSelectedTag(tagId); library.setView("tags"); }}
                 onPlay={() => queueHook.playTracks([track], 0)}
                 onPlayTrack={(t: Track) => queueHook.playTracks([t], 0)}
-                onEnqueue={() => queueHook.enqueueTracks([track])}
-                onPlayNext={() => queueHook.playNextInQueue(track)}
                 onToggleLike={() => likeActions.handleToggleLike(track)}
                 onToggleHate={() => likeActions.handleToggleDislike(track)}
                 onShowInFolder={() => invoke("show_in_folder", { trackId: library.selectedTrack })}
