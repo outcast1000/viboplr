@@ -197,6 +197,10 @@ export function TrackList({
         } else if (selectedIds.size > 0) {
           setSelectedIds(new Set());
         }
+      } else if (e.key === "a" && (e.metaKey || e.ctrlKey) && tracks.length > 0) {
+        if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
+        e.preventDefault();
+        setSelectedIds(new Set(tracks.map(t => t.id)));
       } else if ((e.key === "Delete" || e.key === "Backspace") && selectedIds.size > 0 && onDeleteTracks) {
         if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
         e.preventDefault();
@@ -205,7 +209,7 @@ export function TrackList({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [columnMenuPos, selectedIds, onDeleteTracks]);
+  }, [columnMenuPos, selectedIds, onDeleteTracks, tracks]);
 
   function handleRowClick(e: React.MouseEvent, index: number) {
     if (didDragRowRef.current) return;
