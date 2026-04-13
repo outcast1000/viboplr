@@ -1501,6 +1501,60 @@ impl Database {
                         let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
                         conn.execute(&sql, param_refs.as_slice())?;
                     }
+
+                    // When artist changed but album title NOT changed, reassign each
+                    // track's album to one under the new artist (find or create).
+                    if album_title.is_none() {
+                        // Collect (track_id, album_title, album_year) for tracks that have albums
+                        let mut track_albums: Vec<(i64, String, Option<i32>)> = Vec::new();
+                        for chunk in track_ids.chunks(500) {
+                            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                            let sql = format!(
+                                "SELECT t.id, al.title, al.year FROM tracks t \
+                                 JOIN albums al ON t.album_id = al.id \
+                                 WHERE t.id IN ({})", placeholders
+                            );
+                            let mut stmt = conn.prepare(&sql)?;
+                            let params: Vec<&dyn rusqlite::types::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+                            let rows = stmt.query_map(params.as_slice(), |row| {
+                                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<i32>>(2)?))
+                            })?;
+                            for row in rows {
+                                track_albums.push(row?);
+                            }
+                        }
+                        // Group by album title to avoid redundant lookups
+                        let mut album_cache: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+                        for (tid, title, album_year) in &track_albums {
+                            let album_id = if let Some(&cached_id) = album_cache.get(title) {
+                                cached_id
+                            } else {
+                                let existing: Option<i64> = conn.query_row(
+                                    "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
+                                     AND artist_id = ?2",
+                                    params![title, aid],
+                                    |row| row.get(0),
+                                ).optional()?;
+                                let id = match existing {
+                                    Some(id) => id,
+                                    None => {
+                                        conn.execute(
+                                            "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
+                                            params![title, aid, album_year],
+                                        )?;
+                                        conn.last_insert_rowid()
+                                    }
+                                };
+                                album_cache.insert(title.clone(), id);
+                                id
+                            };
+                            conn.execute(
+                                "UPDATE tracks SET album_id = ?1 WHERE id = ?2",
+                                params![album_id, tid],
+                            )?;
+                        }
+                    }
+
                     Some(aid)
                 } else {
                     None
