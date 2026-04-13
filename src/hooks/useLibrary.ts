@@ -292,7 +292,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     return sortDir === "asc" ? " \u25B2" : " \u25BC";
   }
 
-  const sortedTracks = (() => {
+  const sortedTracks = useMemo(() => {
     let result = tracks;
     if (!isServerSorted && sortField) {
       const sorted = [...tracks];
@@ -325,7 +325,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       result = [...result].sort((a, b) => (b.liked - a.liked));
     }
     return result;
-  })();
+  }, [tracks, isServerSorted, sortField, sortDir, trackLikedFirst, trackPopularity]);
 
   // Resolve pending locate-track after sortedTracks updates
   useEffect(() => {

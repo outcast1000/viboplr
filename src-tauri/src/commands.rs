@@ -387,11 +387,14 @@ pub fn get_track_count(state: State<'_, AppState>) -> Result<i64, String> {
 }
 
 #[tauri::command]
-pub fn get_tracks(
+pub async fn get_tracks(
     state: State<'_, AppState>,
     opts: TrackQuery,
 ) -> Result<Vec<Track>, String> {
-    state.db.get_tracks(&opts).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.get_tracks(&opts).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
