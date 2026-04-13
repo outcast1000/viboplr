@@ -11,7 +11,7 @@ export interface UseArtistInfoReturn {
   refreshInfo: () => void;
 }
 
-const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().replace(/\([^)]*\)/g, "").trim()).replace(/[^a-z0-9]/g, "");
+const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().replace(/\([^)]*\)/g, "").trim()).replace(/[^\p{L}\p{N}]/gu, "");
 
 // Backend returns: [type_id, name, display_kind, ttl, sort_order, providers: [plugin_id, integer_id][]]
 type BackendTypeRow = [string, string, string, number, number, Array<[string, number]>];
