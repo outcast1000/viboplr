@@ -14,10 +14,10 @@ Each entry below documents the gold standard implementation for a repeated user 
 
 ### Find in YouTube
 
-- **Canonical:** `useContextMenuActions.ts` → context menu flow
-- **Flow:** If `track.youtube_url` exists, open it directly → otherwise `invoke("search_youtube", ...)` → on success, open URL + show feedback modal asking to save → if user confirms, `invoke("set_track_youtube_url")` + update track in `library.tracks` + `addLog()` → on search failure, fall back to manual YouTube search URL + `addLog()`
-- **Rule:** Every entry point (TrackDetailView buttons, InformationSections, etc.) must use this same full flow with save/feedback.
-- **Known violations:** TrackDetailView and InformationSections currently have incomplete implementations (no save/feedback modal, empty catch blocks, no `addLog()`). Fix when those files are touched.
+- **Canonical:** `useContextMenuActions.ts` → `watchOnYoutube(trackId, title, artistName, youtubeUrl)`
+- **Flow:** If `youtubeUrl` exists, open it directly + `addLog()` → otherwise `addLog("Searching YouTube...")` → `invoke("search_youtube", ...)` → on success, open URL + `addLog()` + show feedback modal asking to save → if user confirms, `invoke("set_track_youtube_url")` + update track in `library.tracks` + `addLog()` → on search failure, fall back to manual YouTube search URL + `addLog()`
+- **Rule:** All entry points must call `watchOnYoutube` — do not reimplement the search/open/save logic. The save feedback modal lives in App.tsx and is shared across all callers.
+- **Label:** Always "Find in YouTube" (not "Watch on YouTube").
 
 ### Like/Unlike Track
 
