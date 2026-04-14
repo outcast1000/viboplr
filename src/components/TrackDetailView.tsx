@@ -4,7 +4,10 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Collection } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
+import type { SearchProviderConfig } from "../searchProviders";
+import { getProvidersForContext } from "../searchProviders";
 import { IconFolder, IconLastfm, IconYoutube } from "./Icons";
+import { ImageActions } from "./ImageActions";
 import { store } from "../store";
 
 import { InformationSections } from "./InformationSections";
@@ -75,6 +78,10 @@ interface TrackDetailViewProps {
   onToggleLike: () => void;
   onToggleHate: () => void;
   collections: Collection[];
+  searchProviders: SearchProviderConfig[];
+  onImageSet: (entityType: "artist" | "album", id: number, path: string) => void;
+  onImageRemoved: (entityType: "artist" | "album", id: number) => void;
+  onImageRefresh: (entityType: "artist" | "album", id: number, name: string) => void;
   addLog: (msg: string) => void;
   onUpdateTrack: (update: Partial<Track>) => void;
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
@@ -89,7 +96,8 @@ export function TrackDetailView({
   onArtistClick, onAlbumClick, onTagClick,
   onPlay, onShowInFolder, onPlayTrack, onWatchOnYoutube,
   onToggleLike, onToggleHate,
-  collections: _collections, addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
+  collections: _collections, searchProviders, onImageSet, onImageRemoved, onImageRefresh,
+  addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
   onInfoTrackContextMenu,
   onEntityContextMenu,
 }: TrackDetailViewProps) {
@@ -250,6 +258,29 @@ export function TrackDetailView({
                 <circle cx="12" cy="12" r="3" />
               </svg>
             )}
+            {albumImagePath && track.album_id ? (
+              <ImageActions
+                entityId={track.album_id}
+                entityType="album"
+                entityName={track.album_title ?? undefined}
+                imagePath={albumImagePath}
+                providers={getProvidersForContext(searchProviders, "album")}
+                onImageSet={(id, path) => onImageSet("album", id, path)}
+                onImageRemoved={(id) => onImageRemoved("album", id)}
+                onRefresh={() => onImageRefresh("album", track.album_id!, track.album_title ?? "")}
+              />
+            ) : track.artist_id ? (
+              <ImageActions
+                entityId={track.artist_id}
+                entityType="artist"
+                entityName={track.artist_name ?? undefined}
+                imagePath={artistImagePath}
+                providers={getProvidersForContext(searchProviders, "artist")}
+                onImageSet={(id, path) => onImageSet("artist", id, path)}
+                onImageRemoved={(id) => onImageRemoved("artist", id)}
+                onRefresh={() => onImageRefresh("artist", track.artist_id!, track.artist_name ?? "")}
+              />
+            ) : null}
           </div>
           <div className="track-detail-info">
             <h2>

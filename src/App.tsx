@@ -1562,6 +1562,19 @@ function App() {
                 onToggleHate={() => likeActions.handleToggleDislike(track)}
                 onShowInFolder={() => invoke("show_in_folder", { trackId: library.selectedTrack })}
                 collections={library.collections}
+                searchProviders={searchProviders}
+                onImageSet={(entityType, id, path) => {
+                  if (entityType === "album") albumImageCache.setImages(prev => ({ ...prev, [id]: path }));
+                  else artistImageCache.setImages(prev => ({ ...prev, [id]: path }));
+                }}
+                onImageRemoved={(entityType, id) => {
+                  if (entityType === "album") albumImageCache.setImages(prev => ({ ...prev, [id]: null }));
+                  else artistImageCache.setImages(prev => ({ ...prev, [id]: null }));
+                }}
+                onImageRefresh={(entityType, id, name) => {
+                  if (entityType === "album") albumImageCache.forceFetchImage({ id, title: name, artist_name: track.artist_name });
+                  else artistImageCache.forceFetchImage({ id, name });
+                }}
                 addLog={addLog}
                 onUpdateTrack={(update) => library.setTracks(prev => prev.map(t => t.id === library.selectedTrack ? { ...t, ...update } : t))}
                 invokeInfoFetch={plugins.invokeInfoFetch}
