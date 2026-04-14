@@ -14,9 +14,16 @@ export interface CustomTab {
   content: ReactNode;
 }
 
+/** Display kinds that render in the header area (above tracks).
+ *  Currently empty — only title_line (handled by TitleLineInfo) goes in headers.
+ *  All other display kinds render below the track list. */
+const HEADER_DISPLAY_KINDS = new Set<string>();
+
 interface InformationSectionsProps {
   entity: InfoEntity | null;
   exclude?: string[];
+  /** Filter sections by placement. "header" shows ranked_list/tag_list/image_gallery; "below" shows everything else. Omit to show all. */
+  placement?: "header" | "below";
   customTabs?: CustomTab[];
   positionSecs?: number;
   invokeInfoFetch: (
@@ -46,6 +53,7 @@ type TabEntry =
 export function InformationSections({
   entity,
   exclude,
+  placement,
   customTabs,
   positionSecs,
   invokeInfoFetch,
@@ -242,7 +250,12 @@ export function InformationSections({
     window.addEventListener("mouseup", onMouseUp);
   }
 
-  const filtered = sections.filter(s => s.displayKind !== "title_line");
+  const filtered = sections.filter(s => {
+    if (s.displayKind === "title_line") return false;
+    if (placement === "header") return HEADER_DISPLAY_KINDS.has(s.displayKind);
+    if (placement === "below") return !HEADER_DISPLAY_KINDS.has(s.displayKind);
+    return true;
+  });
 
   // Build unified tab list: custom tabs first, then plugin sections
   const tabs: TabEntry[] = [

@@ -64,6 +64,7 @@ import { ArtistDetailContent } from "./components/ArtistDetailContent";
 import { ViewModeToggle } from "./components/ViewModeToggle";
 import { ImageActions } from "./components/ImageActions";
 import { AlbumDetailHeader } from "./components/AlbumDetailHeader";
+import { InformationSections } from "./components/InformationSections";
 import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
 import { CollectionsView } from "./components/CollectionsView";
@@ -1751,10 +1752,6 @@ function App() {
                   if (!album) return;
                   albumImageCache.forceFetchImage({ id: selectedAlbum, title: album.title, artist_name: album.artist_name });
                 }}
-                invokeInfoFetch={plugins.invokeInfoFetch}
-                pluginNames={plugins.pluginNames}
-                onTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
-                onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
               />
             );
           })()}
@@ -1826,6 +1823,36 @@ function App() {
               />
             </>
           )}
+
+          {/* Album detail "below" information sections (after tracks) */}
+          {(view === "all" || view === "artists") && selectedAlbum !== null && !viewSearch.getQuery(view).trim() && (() => {
+            const album = albums.find(a => a.id === selectedAlbum);
+            const albumEntity = album ? {
+              kind: "album" as const,
+              name: album.title,
+              id: album.id,
+              artistName: album.artist_name ?? undefined,
+            } : null;
+            return (
+              <div className="section-wide">
+                <InformationSections
+                  entity={albumEntity}
+                  exclude={[]}
+                  placement="below"
+                  invokeInfoFetch={plugins.invokeInfoFetch}
+                  pluginNames={plugins.pluginNames}
+                  onAction={(actionId, payload) => {
+                    if (actionId === "play-track") {
+                      const t = payload as Track | undefined;
+                      if (t) queueHook.playTracks([t], 0);
+                    }
+                  }}
+                  onTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
+                  onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
+                />
+              </div>
+            );
+          })()}
 
           {/* Liked tracks view */}
           {view === "liked" && (

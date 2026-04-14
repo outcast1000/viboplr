@@ -1,11 +1,8 @@
-import { useCallback } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Album, Track } from "../types";
 import type { SearchProviderConfig } from "../searchProviders";
-import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { getProvidersForContext } from "../searchProviders";
 import { ImageActions } from "./ImageActions";
-import { InformationSections } from "./InformationSections";
 
 interface AlbumDetailHeaderProps {
   selectedAlbum: number;
@@ -20,10 +17,6 @@ interface AlbumDetailHeaderProps {
   onImageSet: (id: number, path: string) => void;
   onImageRemoved: (id: number) => void;
   onRetrieveImage: () => void;
-  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
-  pluginNames?: Map<string, string>;
-  onTrackContextMenu?: (e: React.MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
-  onEntityContextMenu?: (e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;
 }
 
 export function AlbumDetailHeader({
@@ -39,30 +32,11 @@ export function AlbumDetailHeader({
   onImageSet,
   onImageRemoved,
   onRetrieveImage,
-  invokeInfoFetch,
-  pluginNames,
-  onTrackContextMenu,
-  onEntityContextMenu,
 }: AlbumDetailHeaderProps) {
   const albumProviders = getProvidersForContext(searchProviders, "album");
 
-  const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
-    if (actionId === "play-track") {
-      const t = payload as Track | undefined;
-      if (t) onPlayTracks([t], 0);
-    }
-  }, [onPlayTracks]);
-
-  const albumEntity: InfoEntity | null = album ? {
-    kind: "album",
-    name: album.title,
-    id: album.id,
-    artistName: album.artist_name ?? undefined,
-  } : null;
-
   return (
-    <>
-      <div
+    <div
         className="album-detail-top"
         style={albumImagePath ? { '--artist-bg': `url(${convertFileSrc(albumImagePath)})` } as React.CSSProperties : undefined}
       >
@@ -127,17 +101,5 @@ export function AlbumDetailHeader({
           </div>
         </div>
       </div>
-      <div className="section-wide">
-        <InformationSections
-          entity={albumEntity}
-          exclude={[]}
-          invokeInfoFetch={invokeInfoFetch}
-          pluginNames={pluginNames}
-          onAction={handleInfoAction}
-          onTrackContextMenu={onTrackContextMenu}
-          onEntityContextMenu={onEntityContextMenu}
-        />
-      </div>
-    </>
   );
 }

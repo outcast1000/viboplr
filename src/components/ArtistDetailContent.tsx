@@ -188,6 +188,7 @@ export function ArtistDetailContent({
         <InformationSections
           entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
           exclude={["artist_stats"]}
+          placement="header"
           customTabs={artistAlbums.length > 0 ? [{
             id: "albums",
             name: "Albums",
@@ -250,6 +251,24 @@ export function ArtistDetailContent({
           onDeleteTracks={onDeleteTracks}
           trackPopularity={artistTrackPopularity}
           emptyMessage="No tracks found for this artist."
+        />
+      </div>
+
+      <div className="section-wide">
+        <InformationSections
+          entity={artist ? { kind: "artist", name: artist.name, id: artist.id } : null}
+          exclude={["artist_stats"]}
+          placement="below"
+          invokeInfoFetch={invokeInfoFetch}
+          pluginNames={pluginNames}
+          onEntityClick={(kind, id) => {
+            if (kind === "artist" && id) onArtistClick(id);
+            if (kind === "album" && id) onAlbumClick(id);
+          }}
+          onAction={handleInfoAction}
+          resolveEntity={resolveEntity}
+          onTrackContextMenu={onInfoTrackContextMenu}
+          onEntityContextMenu={onEntityContextMenu}
         />
       </div>
     </div>
