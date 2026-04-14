@@ -95,7 +95,10 @@ Cross-cutting rules that apply to all code everywhere.
 ### Detail Page Consistency
 
 - All detail pages (Artist, Album, Track, Tag) must follow a consistent layout and look/feel
-- Shared structure: header area with image + title + actions, then content sections below
+- Shared structure: header area with image + title + actions in the top
+- Artist Details. Show the Albums under the header then the track list and finally then other content sections
+- Album/Tag Details. Show the track list under the header and then the information sections
+- Track Details. Show the informations sections under the header
 - Use the same spacing, typography scale (`--fs-*` custom properties), and section patterns
 - New detail views or sections should visually match existing ones — check the current detail views before designing new layouts
 
