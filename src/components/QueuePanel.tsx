@@ -120,7 +120,7 @@ export function QueuePanel({
     if (pendingEnqueue && countdown === 0) onAllowAll();
   }, [countdown, pendingEnqueue]);
 
-  function handleClick(e: React.MouseEvent, track: Track, index: number) {
+  function handleClick(e: React.MouseEvent, _track: Track, index: number) {
     // Ignore click if we just finished a drag
     if (didDragRef.current) return;
 
@@ -133,11 +133,10 @@ export function QueuePanel({
     );
     setSelectedIndices(newSelection);
     lastClickedIndexRef.current = index;
+  }
 
-    // Only play on plain click (no modifiers)
-    if (!meta && !shift) {
-      onPlay(track, index);
-    }
+  function handleDoubleClick(track: Track, index: number) {
+    onPlay(track, index);
   }
 
   function findQueueIndex(el: Element | null): number | null {
@@ -319,6 +318,7 @@ export function QueuePanel({
             }
             onMouseDown={(e) => handleMouseDown(e, i)}
             onClick={(e) => handleClick(e, t, i)}
+            onDoubleClick={() => handleDoubleClick(t, i)}
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
             <div className="queue-item-info" title={t.url || t.path || ""}>

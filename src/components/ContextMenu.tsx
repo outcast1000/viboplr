@@ -32,6 +32,7 @@ interface ContextMenuProps {
   onDelete?: () => void;
   onRefreshImage?: () => void;
   onRemoveFromQueue?: () => void;
+  onKeepOnly?: () => void;
   onMoveToTop?: () => void;
   onMoveToBottom?: () => void;
   onLocateTrack?: () => void;
@@ -117,7 +118,7 @@ function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarget {
 
 export function ContextMenu({
   menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onViewDetails,
-  onDelete, onRefreshImage, onRemoveFromQueue, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, localCollections,
+  onDelete, onRefreshImage, onRemoveFromQueue, onKeepOnly, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, localCollections,
   onBulkEdit, onClose,
   pluginMenuItems, onPluginAction,
   onSetDockSide, onSetFitMode,
@@ -169,6 +170,11 @@ export function ContextMenu({
         {onRemoveFromQueue && (
           <div className="context-menu-item" onClick={() => { onRemoveFromQueue(); onClose(); }}>
             <IconFolder size={14} /><span>{count > 1 ? `Remove ${count} tracks` : "Remove"}</span>
+          </div>
+        )}
+        {onKeepOnly && (
+          <div className="context-menu-item" onClick={() => { onKeepOnly(); onClose(); }}>
+            <IconFolder size={14} /><span>{count > 1 ? `Keep only ${count} tracks` : "Keep only"}</span>
           </div>
         )}
         {onMoveToTop && (

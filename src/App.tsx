@@ -2188,6 +2188,7 @@ function App() {
             ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "album" && t.albumId) albumImageCache.forceFetchImage({ id: t.albumId, title: t.title, artist_name: t.artistName }); }
             : undefined}
           onRemoveFromQueue={contextMenuActions.handleQueueRemove}
+          onKeepOnly={contextMenuActions.handleQueueKeepOnly}
           onMoveToTop={contextMenuActions.handleQueueMoveToTop}
           onMoveToBottom={contextMenuActions.handleQueueMoveToBottom}
           onLocateTrack={contextMenuActions.contextMenu.target.kind === "queue-multi" && contextMenuActions.contextMenu.target.indices.length === 1 ? () => {

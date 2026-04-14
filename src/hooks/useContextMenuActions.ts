@@ -123,6 +123,13 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     queueHook.removeMultiple(contextMenu.target.indices);
   }
 
+  function handleQueueKeepOnly() {
+    if (!contextMenu || contextMenu.target.kind !== "queue-multi") return;
+    const keepSet = new Set(contextMenu.target.indices);
+    const toRemove = queueHook.queue.map((_, i) => i).filter(i => !keepSet.has(i));
+    queueHook.removeMultiple(toRemove);
+  }
+
   function handleQueueMoveToTop() {
     if (!contextMenu || contextMenu.target.kind !== "queue-multi") return;
     queueHook.moveToTop(contextMenu.target.indices);
@@ -359,6 +366,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleWatchOnYoutube,
     handleYoutubeFeedback,
     handleQueueRemove,
+    handleQueueKeepOnly,
     handleQueueMoveToTop,
     handleQueueMoveToBottom,
     handleTrackDragStart,
