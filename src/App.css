@@ -812,7 +812,6 @@
   font-weight: 700;
   color: var(--text-secondary);
   flex-shrink: 0;
-  overflow: hidden;
   position: relative;
   z-index: 2;
 }
