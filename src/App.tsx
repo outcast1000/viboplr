@@ -305,6 +305,16 @@ function App() {
   };
   const [albumDetailColumns, setAlbumDetailColumns] = useState(ALBUM_DETAIL_COLUMNS);
   const [tagDetailColumns, setTagDetailColumns] = useState(TAG_DETAIL_COLUMNS);
+  const [albumBelowTabOrder, setAlbumBelowTabOrder] = useState<string[]>([]);
+  useEffect(() => {
+    store.get<string[]>("albumDetailBelowTabOrder").then(saved => {
+      if (saved && saved.length > 0) setAlbumBelowTabOrder(saved);
+    });
+  }, []);
+  const handleAlbumBelowTabOrderChange = useCallback((order: string[]) => {
+    setAlbumBelowTabOrder(order);
+    store.set("albumDetailBelowTabOrder", order);
+  }, []);
   const [detailTrack, setDetailTrack] = useState<Track | null>(null);
   const [syncWithPlaying, setSyncWithPlaying] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
@@ -1841,6 +1851,8 @@ function App() {
                   placement="below"
                   invokeInfoFetch={plugins.invokeInfoFetch}
                   pluginNames={plugins.pluginNames}
+                  tabOrder={albumBelowTabOrder}
+                  onTabOrderChange={handleAlbumBelowTabOrderChange}
                   onAction={(actionId, payload) => {
                     if (actionId === "play-track") {
                       const t = payload as Track | undefined;

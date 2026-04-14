@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getInitials } from "../utils";
 import type { Artist, Album, Track, ColumnConfig, SortField } from "../types";
@@ -10,6 +10,7 @@ import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
+import { store } from "../store";
 
 interface ArtistDetailContentProps {
   selectedArtist: number;
@@ -91,6 +92,27 @@ export function ArtistDetailContent({
   onEntityContextMenu,
 }: ArtistDetailContentProps) {
   const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(ARTIST_DETAIL_COLUMNS);
+  const [headerTabOrder, setHeaderTabOrder] = useState<string[]>([]);
+  const [belowTabOrder, setBelowTabOrder] = useState<string[]>([]);
+
+  useEffect(() => {
+    store.get<string[]>("artistDetailHeaderTabOrder").then(saved => {
+      if (saved && saved.length > 0) setHeaderTabOrder(saved);
+    });
+    store.get<string[]>("artistDetailBelowTabOrder").then(saved => {
+      if (saved && saved.length > 0) setBelowTabOrder(saved);
+    });
+  }, []);
+
+  const handleHeaderTabOrderChange = useCallback((order: string[]) => {
+    setHeaderTabOrder(order);
+    store.set("artistDetailHeaderTabOrder", order);
+  }, []);
+
+  const handleBelowTabOrderChange = useCallback((order: string[]) => {
+    setBelowTabOrder(order);
+    store.set("artistDetailBelowTabOrder", order);
+  }, []);
 
   const resolveEntity = (kind: string, name: string) => {
     if (kind === "artist") {
@@ -217,6 +239,8 @@ export function ArtistDetailContent({
           }] : undefined}
           invokeInfoFetch={invokeInfoFetch}
           pluginNames={pluginNames}
+          tabOrder={headerTabOrder}
+          onTabOrderChange={handleHeaderTabOrderChange}
           onEntityClick={(kind, id) => {
             if (kind === "artist" && id) onArtistClick(id);
             if (kind === "album" && id) onAlbumClick(id);
@@ -261,6 +285,8 @@ export function ArtistDetailContent({
           placement="below"
           invokeInfoFetch={invokeInfoFetch}
           pluginNames={pluginNames}
+          tabOrder={belowTabOrder}
+          onTabOrderChange={handleBelowTabOrderChange}
           onEntityClick={(kind, id) => {
             if (kind === "artist" && id) onArtistClick(id);
             if (kind === "album" && id) onAlbumClick(id);
