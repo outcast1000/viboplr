@@ -840,9 +840,19 @@ function activate(api) {
       historyRows.push({
         type: "settings-row",
         label: "Import scrobble history",
-        description: "Import your complete listening history from Last.fm",
+        description: state.lastImportAt
+          ? "Import new scrobbles since last sync"
+          : "Import your complete listening history from Last.fm",
         control: { type: "button", label: "Import", action: "lastfm-import", disabled: !state.sessionKey },
       });
+      if (state.lastImportAt) {
+        historyRows.push({
+          type: "settings-row",
+          label: "Full re-sync",
+          description: "Re-import your entire history from the beginning (duplicates are skipped)",
+          control: { type: "button", label: "Re-sync", action: "lastfm-import-full", disabled: !state.sessionKey },
+        });
+      }
     }
 
     historyRows.push({
@@ -904,6 +914,10 @@ function activate(api) {
 
   api.ui.onAction("lastfm-import", function () {
     importHistory(state.lastImportAt);
+  });
+
+  api.ui.onAction("lastfm-import-full", function () {
+    importHistory(null);
   });
 
   api.ui.onAction("lastfm-cancel-import", function () {
