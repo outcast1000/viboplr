@@ -90,7 +90,7 @@ function App() {
   const getScrollEl = useCallback(() => {
     const el = contentRef.current;
     if (!el) return null;
-    return el.querySelector<HTMLElement>('.track-list, .entity-list, .entity-table, .album-grid, .artist-detail, .history-view, .collections-view, .plugin-view, .settings-content-body');
+    return el.querySelector<HTMLElement>('.track-list, .entity-list, .entity-table, .album-grid, .artist-detail, .album-detail, .history-view, .collections-view, .plugin-view, .settings-content-body');
   }, []);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HistoryViewHandle>(null);
@@ -1754,8 +1754,8 @@ function App() {
             );
           })()}
 
-          {/* Album detail header */}
-          {(view === "all" || view === "artists") && selectedAlbum !== null && !viewSearch.getQuery(view).trim() && (() => {
+          {/* Album detail header (all view only; artists view renders inside .album-detail below) */}
+          {view === "all" && selectedAlbum !== null && !viewSearch.getQuery(view).trim() && (() => {
             const album = albums.find(a => a.id === selectedAlbum);
             const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
             return (
@@ -1819,36 +1819,87 @@ function App() {
             />
           )}
 
-          {/* Artist album detail - always basic TrackList */}
-          {(view === "artists" && selectedAlbum !== null) && (
-            <>
-              <TrackList
-                tracks={sortedTracks}
-                currentTrack={playback.currentTrack}
-                playing={playback.playing}
-                highlightedIndex={highlightedIndex}
-                sortField={sortField}
-                trackListRef={trackListRef}
-                columns={albumDetailColumns}
-                onColumnsChange={setAlbumDetailColumns}
-                onDoubleClick={queueHook.playTracks}
-                onContextMenu={contextMenuActions.handleTrackContextMenu}
-                onArtistClick={library.handleArtistClick}
-                onAlbumClick={library.handleAlbumClick}
-                onSort={library.handleSort}
-                sortIndicator={library.sortIndicator}
-                onToggleLike={likeActions.handleToggleLike}
-                onToggleDislike={likeActions.handleToggleDislike}
-                onTrackDragStart={contextMenuActions.handleTrackDragStart}
-                onDeleteTracks={handleDeleteTracks}
-                trackPopularity={artistInfo.albumTrackPopularity}
-                emptyMessage="No tracks found."
-              />
-            </>
-          )}
+          {/* Artist album detail — unified scrollable container like artist-detail */}
+          {(view === "artists" && selectedAlbum !== null) && (() => {
+            const album = albums.find(a => a.id === selectedAlbum);
+            const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
+            const showHeader = !viewSearch.getQuery(view).trim();
+            const albumEntity = album ? {
+              kind: "album" as const,
+              name: album.title,
+              id: album.id,
+              artistName: album.artist_name ?? undefined,
+            } : null;
+            return (
+              <div className="album-detail">
+                {showHeader && (
+                  <AlbumDetailHeader
+                    selectedAlbum={selectedAlbum}
+                    album={album}
+                    albumImagePath={albumImagePath}
+                    sortedTracks={sortedTracks}
+                    searchProviders={searchProviders}
+                    onArtistClick={library.handleArtistClick}
+                    onToggleAlbumLike={likeActions.handleToggleAlbumLike}
+                    onToggleAlbumHate={likeActions.handleToggleAlbumHate}
+                    onPlayTracks={queueHook.playTracks}
+                    onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
+                    onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}
+                    onRetrieveImage={() => {
+                      if (!album) return;
+                      albumImageCache.forceFetchImage({ id: selectedAlbum, title: album.title, artist_name: album.artist_name });
+                    }}
+                  />
+                )}
+                <TrackList
+                  tracks={sortedTracks}
+                  currentTrack={playback.currentTrack}
+                  playing={playback.playing}
+                  highlightedIndex={highlightedIndex}
+                  sortField={sortField}
+                  trackListRef={trackListRef}
+                  columns={albumDetailColumns}
+                  onColumnsChange={setAlbumDetailColumns}
+                  onDoubleClick={queueHook.playTracks}
+                  onContextMenu={contextMenuActions.handleTrackContextMenu}
+                  onArtistClick={library.handleArtistClick}
+                  onAlbumClick={library.handleAlbumClick}
+                  onSort={library.handleSort}
+                  sortIndicator={library.sortIndicator}
+                  onToggleLike={likeActions.handleToggleLike}
+                  onToggleDislike={likeActions.handleToggleDislike}
+                  onTrackDragStart={contextMenuActions.handleTrackDragStart}
+                  onDeleteTracks={handleDeleteTracks}
+                  trackPopularity={artistInfo.albumTrackPopularity}
+                  emptyMessage="No tracks found."
+                />
+                {showHeader && albumEntity && (
+                  <div className="section-wide">
+                    <InformationSections
+                      entity={albumEntity}
+                      exclude={[]}
+                      placement="below"
+                      invokeInfoFetch={plugins.invokeInfoFetch}
+                      pluginNames={plugins.pluginNames}
+                      tabOrder={albumBelowTabOrder}
+                      onTabOrderChange={handleAlbumBelowTabOrderChange}
+                      onAction={(actionId, payload) => {
+                        if (actionId === "play-track") {
+                          const t = payload as Track | undefined;
+                          if (t) queueHook.playTracks([t], 0);
+                        }
+                      }}
+                      onTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
+                      onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
-          {/* Album detail "below" information sections (after tracks) */}
-          {(view === "all" || view === "artists") && selectedAlbum !== null && !viewSearch.getQuery(view).trim() && (() => {
+          {/* Album detail "below" information sections (all view only) */}
+          {view === "all" && selectedAlbum !== null && !viewSearch.getQuery(view).trim() && (() => {
             const album = albums.find(a => a.id === selectedAlbum);
             const albumEntity = album ? {
               kind: "album" as const,

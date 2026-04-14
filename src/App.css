@@ -183,7 +183,8 @@
 
 
 /* Artist detail view */
-.artist-detail {
+.artist-detail,
+.album-detail {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
