@@ -2222,7 +2222,7 @@ function App() {
           store={store}
           lastDest={lastTidalDownloadDest}
           onClose={() => contextMenuActions.setTidalDownload(null)}
-          onComplete={(msg) => { contextMenuActions.setTidalDownload(null); library.loadTracks(); addLog(msg); }}
+          onComplete={(msg) => { contextMenuActions.setTidalDownload(null); library.loadLibrary(); library.loadTracks(); addLog(msg); }}
         />
       )}
 
