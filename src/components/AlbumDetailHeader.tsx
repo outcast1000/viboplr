@@ -53,7 +53,7 @@ export function AlbumDetailHeader({
             <ImageActions
               entityId={selectedAlbum}
               entityType="album"
-              entityName={album?.title}
+              entityName={[album?.artist_name, album?.title].filter(Boolean).join(" ")}
               imagePath={albumImagePath}
               providers={albumProviders}
               onImageSet={onImageSet}
