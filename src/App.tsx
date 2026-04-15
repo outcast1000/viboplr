@@ -1280,6 +1280,45 @@ function App() {
     store.set("queueWidth", width);
   }
 
+  async function handleSaveAsPlaylist() {
+    if (queueHook.queue.length === 0) return;
+
+    // Generate default name
+    const date = new Date();
+    const dateStr = date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    const defaultName = queueHook.playlistName
+      ? `${queueHook.playlistName} ${dateStr}`
+      : `Queue ${dateStr}`;
+
+    // Prompt for name
+    const name = prompt("Playlist name:", defaultName);
+    if (!name) return;
+
+    // Map tracks to save format
+    const tracks = queueHook.queue.map((t) => ({
+      title: t.title,
+      artist_name: t.artist_name ?? null,
+      album_name: t.album_title ?? null,
+      duration_secs: t.duration_secs ?? null,
+      source: t.url ?? t.path,
+      image_url: null,
+    }));
+
+    // Save to database
+    try {
+      await invoke("save_playlist_record", {
+        name,
+        source: null,
+        imageUrl: null,
+        tracks,
+      });
+      // Optionally, show success feedback or navigate to playlists view
+    } catch (err) {
+      console.error("Failed to save playlist:", err);
+      alert(`Failed to save playlist: ${err}`);
+    }
+  }
+
   // Bridge for keyboard shortcuts
   handleToggleLikeRef.current = likeActions.handleToggleLike;
 
@@ -2218,6 +2257,7 @@ function App() {
           onMoveMultiple={queueHook.moveMultiple}
           onClear={queueHook.clearQueue}
           onSavePlaylist={queueHook.savePlaylist}
+          onSaveAsPlaylist={handleSaveAsPlaylist}
           onLoadPlaylist={queueHook.loadPlaylist}
           onContextMenu={(e, indices) => {
             const tracks = indices.map(i => queueHook.queue[i]).filter(Boolean);
