@@ -317,6 +317,33 @@ export interface PluginImageProvidersAPI {
   ): () => void;
 }
 
+export interface PluginPlaylistsAPI {
+  save(data: {
+    name: string;
+    source?: string;
+    imageUrl?: string;
+    tracks: Array<{
+      title: string;
+      artistName?: string;
+      albumName?: string;
+      durationSecs?: number;
+      source?: string;
+      imageUrl?: string;
+    }>;
+  }): Promise<number>;
+
+  list(): Promise<Array<{
+    id: number;
+    name: string;
+    source: string | null;
+    savedAt: number;
+    imagePath: string | null;
+    trackCount: number;
+  }>>;
+
+  delete(id: number): Promise<void>;
+}
+
 export interface ViboplrPluginAPI {
   library: PluginLibraryAPI;
   playback: PluginPlaybackAPI;
@@ -326,6 +353,7 @@ export interface ViboplrPluginAPI {
   network: PluginNetworkAPI;
   tidal: PluginTidalAPI;
   collections: PluginCollectionsAPI;
+  playlists: PluginPlaylistsAPI;
   informationTypes: PluginInformationTypesAPI;
   imageProviders: PluginImageProvidersAPI;
 }

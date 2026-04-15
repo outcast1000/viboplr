@@ -461,6 +461,57 @@ export function usePlugins(
           },
         },
 
+        playlists: {
+          async save(data: {
+            name: string;
+            source?: string;
+            imageUrl?: string;
+            tracks: Array<{
+              title: string;
+              artistName?: string;
+              albumName?: string;
+              durationSecs?: number;
+              source?: string;
+              imageUrl?: string;
+            }>;
+          }): Promise<number> {
+            return invoke<number>("save_playlist_record", {
+              name: data.name,
+              source: data.source ?? null,
+              imageUrl: data.imageUrl ?? null,
+              tracks: data.tracks.map((t) => ({
+                title: t.title,
+                artist_name: t.artistName ?? null,
+                album_name: t.albumName ?? null,
+                duration_secs: t.durationSecs ?? null,
+                source: t.source ?? null,
+                image_url: t.imageUrl ?? null,
+              })),
+            });
+          },
+          async list() {
+            const rows = await invoke<Array<{
+              id: number;
+              name: string;
+              source: string | null;
+              saved_at: number;
+              image_path: string | null;
+              track_count: number;
+            }>>("get_playlists");
+            return rows.map((r) => ({
+              id: r.id,
+              name: r.name,
+              source: r.source,
+              savedAt: r.saved_at,
+              imagePath: r.image_path,
+              trackCount: r.track_count,
+            }));
+          },
+          async delete(id: number) {
+            await invoke("delete_playlist_record", { playlistId: id });
+          },
+        },
+
         informationTypes: {
           onFetch(
             infoTypeId: string,
