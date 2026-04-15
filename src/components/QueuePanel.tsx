@@ -247,6 +247,10 @@ export function QueuePanel({
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Escape") {
       setSelectedIndices(new Set());
+    } else if (e.key === "a" && (e.metaKey || e.ctrlKey) && queue.length > 0) {
+      if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
+      e.preventDefault();
+      setSelectedIndices(new Set(Array.from({ length: queue.length }, (_, i) => i)));
     }
   }
 
