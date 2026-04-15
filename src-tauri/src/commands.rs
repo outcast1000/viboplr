@@ -1102,6 +1102,134 @@ pub fn load_playlist(
 }
 
 #[tauri::command]
+pub fn save_playlist_record(
+    state: State<'_, AppState>,
+    name: String,
+    source: Option<String>,
+    image_url: Option<String>,
+    tracks: Vec<PlaylistTrackPayload>,
+) -> Result<i64, String> {
+    let db = &state.db;
+    let playlist_id = db
+        .save_playlist(&name, source.as_deref(), None)
+        .map_err(|e| e.to_string())?;
+
+    let track_tuples: Vec<(&str, Option<&str>, Option<&str>, Option<f64>, Option<&str>, Option<&str>)> =
+        tracks.iter().map(|t| {
+            (
+                t.title.as_str(),
+                t.artist_name.as_deref(),
+                t.album_name.as_deref(),
+                t.duration_secs,
+                t.source.as_deref(),
+                None,
+            )
+        }).collect();
+
+    db.save_playlist_tracks(playlist_id, &track_tuples)
+        .map_err(|e| e.to_string())?;
+
+    // Background image download
+    let app_dir = state.app_dir.clone();
+    let db_arc = state.db.clone();
+    let image_url_clone = image_url.clone();
+    let track_image_urls: Vec<(i64, Option<String>)> = {
+        let saved_tracks = db.get_playlist_tracks(playlist_id).map_err(|e| e.to_string())?;
+        saved_tracks.iter().zip(tracks.iter()).map(|(saved, payload)| {
+            (saved.id, payload.image_url.clone())
+        }).collect()
+    };
+
+    std::thread::spawn(move || {
+        let img_dir = app_dir.join("playlist_images");
+        let _ = std::fs::create_dir_all(&img_dir);
+        let client = reqwest::blocking::Client::new();
+
+        // Download playlist cover
+        if let Some(url) = image_url_clone {
+            if let Ok(resp) = client.get(&url).send() {
+                if resp.status().is_success() {
+                    if let Ok(bytes) = resp.bytes() {
+                        let path = img_dir.join(format!("{}.jpg", playlist_id));
+                        if std::fs::write(&path, &bytes).is_ok() {
+                            let abs = path.to_string_lossy().to_string();
+                            let _ = db_arc.update_playlist_image(playlist_id, &abs);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Download track images
+        for (track_id, maybe_url) in track_image_urls {
+            if let Some(url) = maybe_url {
+                if let Ok(resp) = client.get(&url).send() {
+                    if resp.status().is_success() {
+                        if let Ok(bytes) = resp.bytes() {
+                            let path = img_dir.join(format!("{}_{}.jpg", playlist_id, track_id));
+                            if std::fs::write(&path, &bytes).is_ok() {
+                                let abs = path.to_string_lossy().to_string();
+                                let _ = db_arc.update_playlist_track_image(track_id, &abs);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    Ok(playlist_id)
+}
+
+#[tauri::command]
+pub fn get_playlists(state: State<'_, AppState>) -> Result<Vec<Playlist>, String> {
+    state.db.get_playlists().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_playlist_tracks(state: State<'_, AppState>, playlist_id: i64) -> Result<Vec<PlaylistTrack>, String> {
+    state.db.get_playlist_tracks(playlist_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_playlist_record(state: State<'_, AppState>, playlist_id: i64) -> Result<(), String> {
+    // Collect image paths before deleting DB rows (cascade deletes tracks)
+    let playlist_image = state.db.get_playlists().ok()
+        .and_then(|ps| ps.into_iter().find(|p| p.id == playlist_id))
+        .and_then(|p| p.image_path);
+    let track_images: Vec<String> = state.db.get_playlist_tracks(playlist_id).ok()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|t| t.image_path)
+        .collect();
+
+    state.db.delete_playlist(playlist_id).map_err(|e| e.to_string())?;
+
+    // Clean up image files (absolute paths stored in DB)
+    if let Some(path) = playlist_image {
+        let _ = std::fs::remove_file(&path);
+    }
+    for path in track_images {
+        let _ = std::fs::remove_file(&path);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn export_playlist_m3u(state: State<'_, AppState>, playlist_id: i64, path: String) -> Result<(), String> {
+    let tracks = state.db.get_playlist_tracks(playlist_id).map_err(|e| e.to_string())?;
+    let mut content = String::from("#EXTM3U\n");
+    for track in &tracks {
+        let duration = track.duration_secs.unwrap_or(0.0) as i64;
+        let artist = track.artist_name.as_deref().unwrap_or("Unknown");
+        content.push_str(&format!("#EXTINF:{},{} - {}\n", duration, artist, track.title));
+        content.push_str(track.source.as_deref().unwrap_or(""));
+        content.push('\n');
+    }
+    std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_startup_timings() -> Vec<crate::timing::TimingEntry> {
     crate::timing::timer().get_entries()
 }
