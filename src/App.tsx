@@ -1702,7 +1702,7 @@ function App() {
           )}
 
           {/* Tag detail header */}
-          {view === "all" && selectedTag !== null && !viewSearch.getQuery("all").trim() && (() => {
+          {view === "all" && selectedTag !== null && (() => {
             const tag = tags.find(t => t.id === selectedTag);
             const tagImagePath = tagImageCache.images[selectedTag] ?? null;
             return (
@@ -1755,7 +1755,7 @@ function App() {
           })()}
 
           {/* Album detail header (all view only; artists view renders inside .album-detail below) */}
-          {view === "all" && selectedAlbum !== null && !viewSearch.getQuery(view).trim() && (() => {
+          {view === "all" && selectedAlbum !== null && (() => {
             const album = albums.find(a => a.id === selectedAlbum);
             const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
             return (
@@ -1823,7 +1823,6 @@ function App() {
           {(view === "artists" && selectedAlbum !== null) && (() => {
             const album = albums.find(a => a.id === selectedAlbum);
             const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
-            const showHeader = !viewSearch.getQuery(view).trim();
             const albumEntity = album ? {
               kind: "album" as const,
               name: album.title,
@@ -1832,25 +1831,23 @@ function App() {
             } : null;
             return (
               <div className="album-detail">
-                {showHeader && (
-                  <AlbumDetailHeader
-                    selectedAlbum={selectedAlbum}
-                    album={album}
-                    albumImagePath={albumImagePath}
-                    sortedTracks={sortedTracks}
-                    searchProviders={searchProviders}
-                    onArtistClick={library.handleArtistClick}
-                    onToggleAlbumLike={likeActions.handleToggleAlbumLike}
-                    onToggleAlbumHate={likeActions.handleToggleAlbumHate}
-                    onPlayTracks={queueHook.playTracks}
-                    onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
-                    onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}
-                    onRetrieveImage={() => {
-                      if (!album) return;
-                      albumImageCache.forceFetchImage({ id: selectedAlbum, title: album.title, artist_name: album.artist_name });
-                    }}
-                  />
-                )}
+                <AlbumDetailHeader
+                  selectedAlbum={selectedAlbum}
+                  album={album}
+                  albumImagePath={albumImagePath}
+                  sortedTracks={sortedTracks}
+                  searchProviders={searchProviders}
+                  onArtistClick={library.handleArtistClick}
+                  onToggleAlbumLike={likeActions.handleToggleAlbumLike}
+                  onToggleAlbumHate={likeActions.handleToggleAlbumHate}
+                  onPlayTracks={queueHook.playTracks}
+                  onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
+                  onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}
+                  onRetrieveImage={() => {
+                    if (!album) return;
+                    albumImageCache.forceFetchImage({ id: selectedAlbum, title: album.title, artist_name: album.artist_name });
+                  }}
+                />
                 <TrackList
                   tracks={sortedTracks}
                   currentTrack={playback.currentTrack}
@@ -1873,7 +1870,7 @@ function App() {
                   trackPopularity={artistInfo.albumTrackPopularity}
                   emptyMessage="No tracks found."
                 />
-                {showHeader && albumEntity && (
+                {albumEntity && (
                   <div className="section-wide">
                     <InformationSections
                       entity={albumEntity}
@@ -1899,7 +1896,7 @@ function App() {
           })()}
 
           {/* Album detail "below" information sections (all view only) */}
-          {view === "all" && selectedAlbum !== null && !viewSearch.getQuery(view).trim() && (() => {
+          {view === "all" && selectedAlbum !== null && (() => {
             const album = albums.find(a => a.id === selectedAlbum);
             const albumEntity = album ? {
               kind: "album" as const,
