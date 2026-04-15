@@ -359,6 +359,27 @@ impl Database {
                 UNIQUE (plugin_id, entity)
             );
 
+            CREATE TABLE IF NOT EXISTS playlists (
+                id         INTEGER PRIMARY KEY,
+                name       TEXT NOT NULL,
+                source     TEXT,
+                saved_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                image_path TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS playlist_tracks (
+                id            INTEGER PRIMARY KEY,
+                playlist_id   INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+                position      INTEGER NOT NULL,
+                title         TEXT NOT NULL,
+                artist_name   TEXT,
+                album_name    TEXT,
+                duration_secs REAL,
+                source        TEXT,
+                image_path    TEXT,
+                UNIQUE(playlist_id, position)
+            );
+
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
@@ -711,6 +732,32 @@ impl Database {
                 "ALTER TABLE information_types ADD COLUMN description TEXT NOT NULL DEFAULT '';"
             )?;
             conn.execute("UPDATE db_version SET version = 23 WHERE rowid = 1", [])?;
+            migrated = true;
+        }
+
+        if version < 24 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS playlists (
+                    id         INTEGER PRIMARY KEY,
+                    name       TEXT NOT NULL,
+                    source     TEXT,
+                    saved_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                    image_path TEXT
+                );
+                CREATE TABLE IF NOT EXISTS playlist_tracks (
+                    id            INTEGER PRIMARY KEY,
+                    playlist_id   INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+                    position      INTEGER NOT NULL,
+                    title         TEXT NOT NULL,
+                    artist_name   TEXT,
+                    album_name    TEXT,
+                    duration_secs REAL,
+                    source        TEXT,
+                    image_path    TEXT,
+                    UNIQUE(playlist_id, position)
+                );"
+            )?;
+            conn.execute("UPDATE db_version SET version = 24 WHERE rowid = 1", [])?;
             migrated = true;
         }
 
@@ -1821,6 +1868,99 @@ impl Database {
     pub fn remove_track_by_id(&self, track_id: i64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM tracks WHERE id = ?1", params![track_id])?;
+        Ok(())
+    }
+
+    // --- Playlists ---
+
+    pub fn save_playlist(&self, name: &str, source: Option<&str>, image_path: Option<&str>) -> SqlResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO playlists (name, source, image_path) VALUES (?1, ?2, ?3)",
+            params![name, source, image_path],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn save_playlist_tracks(
+        &self,
+        playlist_id: i64,
+        tracks: &[(&str, Option<&str>, Option<&str>, Option<f64>, Option<&str>, Option<&str>)],
+    ) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "INSERT INTO playlist_tracks (playlist_id, position, title, artist_name, album_name, duration_secs, source, image_path)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+        )?;
+        for (i, (title, artist, album, duration, source, image)) in tracks.iter().enumerate() {
+            stmt.execute(params![playlist_id, i as i64, title, artist, album, duration, source, image])?;
+        }
+        Ok(())
+    }
+
+    pub fn get_playlists(&self) -> SqlResult<Vec<Playlist>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, p.name, p.source, p.saved_at, p.image_path,
+                    (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = p.id) as track_count
+             FROM playlists p ORDER BY p.saved_at DESC"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(Playlist {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                source: row.get(2)?,
+                saved_at: row.get(3)?,
+                image_path: row.get(4)?,
+                track_count: row.get(5)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_playlist_tracks(&self, playlist_id: i64) -> SqlResult<Vec<PlaylistTrack>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, playlist_id, position, title, artist_name, album_name, duration_secs, source, image_path
+             FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position"
+        )?;
+        let rows = stmt.query_map(params![playlist_id], |row| {
+            Ok(PlaylistTrack {
+                id: row.get(0)?,
+                playlist_id: row.get(1)?,
+                position: row.get(2)?,
+                title: row.get(3)?,
+                artist_name: row.get(4)?,
+                album_name: row.get(5)?,
+                duration_secs: row.get(6)?,
+                source: row.get(7)?,
+                image_path: row.get(8)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn delete_playlist(&self, playlist_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id])?;
+        Ok(())
+    }
+
+    pub fn update_playlist_image(&self, playlist_id: i64, image_path: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE playlists SET image_path = ?1 WHERE id = ?2",
+            params![image_path, playlist_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_playlist_track_image(&self, track_id: i64, image_path: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE playlist_tracks SET image_path = ?1 WHERE id = ?2",
+            params![image_path, track_id],
+        )?;
         Ok(())
     }
 
@@ -3666,5 +3806,51 @@ mod tests {
         // Inserting a value with a non-existent information_type_id should fail
         let result = db.info_upsert_value(99999, "artist:Daft Punk", "{}", "ok");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_save_and_get_playlist() {
+        let db = test_db();
+        let id = db.save_playlist("Discover Weekly 15 Apr 2026", Some("spotify-playlist://abc123"), None).unwrap();
+        assert!(id > 0);
+
+        let playlists = db.get_playlists().unwrap();
+        assert_eq!(playlists.len(), 1);
+        assert_eq!(playlists[0].name, "Discover Weekly 15 Apr 2026");
+        assert_eq!(playlists[0].source.as_deref(), Some("spotify-playlist://abc123"));
+        assert_eq!(playlists[0].track_count, 0);
+    }
+
+    #[test]
+    fn test_save_playlist_tracks() {
+        let db = test_db();
+        let playlist_id = db.save_playlist("Test Playlist", None, None).unwrap();
+
+        db.save_playlist_tracks(playlist_id, &[
+            ("Song A", Some("Artist A"), Some("Album A"), Some(210.0), Some("spotify-track://1"), None),
+            ("Song B", Some("Artist B"), None, Some(180.0), Some("file:///music/b.flac"), None),
+        ]).unwrap();
+
+        let tracks = db.get_playlist_tracks(playlist_id).unwrap();
+        assert_eq!(tracks.len(), 2);
+        assert_eq!(tracks[0].position, 0);
+        assert_eq!(tracks[0].title, "Song A");
+        assert_eq!(tracks[0].artist_name.as_deref(), Some("Artist A"));
+        assert_eq!(tracks[1].position, 1);
+        assert_eq!(tracks[1].title, "Song B");
+    }
+
+    #[test]
+    fn test_delete_playlist_cascades() {
+        let db = test_db();
+        let playlist_id = db.save_playlist("To Delete", None, None).unwrap();
+        db.save_playlist_tracks(playlist_id, &[
+            ("Song", None, None, None, None, None),
+        ]).unwrap();
+        assert_eq!(db.get_playlist_tracks(playlist_id).unwrap().len(), 1);
+
+        db.delete_playlist(playlist_id).unwrap();
+        assert_eq!(db.get_playlists().unwrap().len(), 0);
+        assert_eq!(db.get_playlist_tracks(playlist_id).unwrap().len(), 0);
     }
 }
