@@ -75,8 +75,7 @@
 .lyrics-action-btn:hover { color: var(--text-primary); }
 .lyrics-action-btn.active { color: var(--accent); border-color: var(--accent); }
 .lyrics-body { scroll-behavior: smooth; }
-.lyrics-line { padding: 2px 0; font-size: var(--fs-sm); line-height: 1.6; opacity: 0.5; transition: opacity 0.2s, font-weight 0.2s; }
-.lyrics-line-active { opacity: 1; font-weight: 600; }
+.lyrics-line { padding: 2px 0; font-size: var(--fs-sm); line-height: 1.6; }
 .lyrics-plain { white-space: pre-wrap; font-size: var(--fs-sm); line-height: 1.6; }
 .lyrics-editor { width: 100%; min-height: 200px; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; padding: 8px; font-family: monospace; font-size: var(--fs-sm); resize: vertical; }
 

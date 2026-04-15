@@ -10,12 +10,13 @@ interface LrcLine {
 function parseLrc(lrc: string): LrcLine[] {
   const lines: LrcLine[] = [];
   for (const line of lrc.split("\n")) {
-    const match = line.match(/^\[(\d{2}):(\d{2})[.:]\d{2,3}\](.*)$/);
+    const match = line.match(/^\[(\d{2}):(\d{2})(?:[.:](\d{2,3}))?\](.*)$/);
     if (match) {
       const mins = parseInt(match[1], 10);
       const secs = parseInt(match[2], 10);
-      const text = match[3].trim();
-      if (text) lines.push({ time: mins * 60 + secs, text });
+      const cs = match[3] ? parseInt(match[3], 10) / (match[3].length === 3 ? 1000 : 100) : 0;
+      const text = match[4].trim();
+      if (text) lines.push({ time: mins * 60 + secs + cs, text });
     }
   }
   return lines;
@@ -111,15 +112,19 @@ export function LyricsRenderer({ data, onAction, context }: RendererProps) {
       </div>
       <div className="lyrics-body" ref={scrollRef} onScroll={handleScroll}>
         {lrcLines ? (
-          lrcLines.map((line, i) => (
-            <div
-              key={i}
-              ref={i === currentLineIdx ? activeLineRef : undefined}
-              className={`lyrics-line${i === currentLineIdx ? " lyrics-line-active" : ""}`}
-            >
-              {line.text}
-            </div>
-          ))
+          lrcLines.map((line, i) => {
+            const active = i === currentLineIdx;
+            return (
+              <div
+                key={i}
+                ref={active ? activeLineRef : undefined}
+                className="lyrics-line"
+                style={{ opacity: active ? 1 : 0.5, fontWeight: active ? 600 : 400 }}
+              >
+                {line.text}
+              </div>
+            );
+          })
         ) : (
           <div className="lyrics-plain">{d.text}</div>
         )}
