@@ -269,3 +269,26 @@ pub struct DeleteTracksResult {
     pub failures: Vec<DeleteFailure>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Playlist {
+    pub id: i64,
+    pub name: String,
+    pub source: Option<String>,
+    pub saved_at: i64,
+    pub image_path: Option<String>,
+    pub track_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaylistTrack {
+    pub id: i64,
+    pub playlist_id: i64,
+    pub position: i64,
+    pub title: String,
+    pub artist_name: Option<String>,
+    pub album_name: Option<String>,
+    pub duration_secs: Option<f64>,
+    pub source: Option<String>,
+    pub image_path: Option<String>,
+}
+

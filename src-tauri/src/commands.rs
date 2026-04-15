@@ -1004,6 +1004,16 @@ pub struct QueueEntryPayload {
     pub duration_secs: Option<f64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PlaylistTrackPayload {
+    pub title: String,
+    pub artist_name: Option<String>,
+    pub album_name: Option<String>,
+    pub duration_secs: Option<f64>,
+    pub source: Option<String>,
+    pub image_url: Option<String>,
+}
+
 #[tauri::command]
 pub fn save_playlist_entries(
     path: String,
@@ -2628,6 +2638,7 @@ mod tests {
             image_resolve_registry: Arc::new(ImageResolveRegistry {
                 pending: Mutex::new(std::collections::HashMap::new()),
             }),
+            tidal_download_cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 
