@@ -43,6 +43,8 @@ export function Breadcrumb({
         <span>History</span>
       ) : view === "collections" ? (
         <span>Collections</span>
+      ) : view === "playlists" ? (
+        <span>Playlists</span>
       ) : (
         <span>All Tracks</span>
       )}
