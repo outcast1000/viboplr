@@ -99,6 +99,7 @@ function activate(api) {
     var tracks = state.playlistTracks[pl.id] || [];
     var ch = [
       { type: "button", label: "\u2190 Back", action: "go-home" },
+      { type: "button", label: "Save Playlist", action: "save-playlist", variant: "accent" },
       { type: "spacer" },
       { type: "text", content: "<h2>" + escapeHtml(pl.name) + "</h2>" },
       { type: "text", content: "<p style='opacity:0.6'>" + tracks.length + " tracks</p>" },
@@ -530,6 +531,46 @@ function activate(api) {
         return;
       }
     }
+  });
+
+  api.ui.onAction("save-playlist", function() {
+    var pl = state.currentPlaylist;
+    if (!pl) return;
+    var tracks = state.playlistTracks[pl.id] || [];
+    var now = new Date();
+    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    var dateStr = now.getDate() + " " + months[now.getMonth()] + " " + now.getFullYear();
+    var name = pl.name + " " + dateStr;
+
+    var trackPayloads = [];
+    for (var i = 0; i < tracks.length; i++) {
+      var t = tracks[i];
+      // Parse duration string "M:SS" to seconds
+      var durationSecs = null;
+      if (t.duration) {
+        var parts = t.duration.split(":");
+        if (parts.length === 2) {
+          durationSecs = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+        }
+      }
+      trackPayloads.push({
+        title: t.name || "Unknown",
+        artistName: t.artist || null,
+        albumName: t.album || null,
+        durationSecs: durationSecs,
+        source: null,
+        imageUrl: t.imageUrl || null,
+      });
+    }
+
+    api.playlists.save({
+      name: name,
+      source: "spotify-playlist://" + pl.id,
+      imageUrl: pl.imageUrl || null,
+      tracks: trackPayloads,
+    }).then(function() {
+      api.ui.showNotification("Playlist saved: " + name);
+    });
   });
 
   // ---- Init: restore previous data ----
