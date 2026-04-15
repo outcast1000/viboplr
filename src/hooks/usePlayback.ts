@@ -316,14 +316,14 @@ export function usePlayback(
     return true;
   }
 
-  async function handlePlay(track: Track) {
+  async function handlePlay(track: Track, source: "user" | "auto" = "user") {
     cancelCrossfade();
     invalidatePreload();
     setPlaybackError(null);
 
     try {
       const src = await resolveTrackSrcRef.current(track);
-      await playWithSrc(track, src);
+      await playWithSrc(track, src, source);
     } catch (e) {
       console.error("Playback error:", e);
     }
@@ -341,7 +341,7 @@ export function usePlayback(
     }
   }
 
-  async function playWithSrc(track: Track, src: string) {
+  async function playWithSrc(track: Track, src: string, source: "user" | "auto" = "user") {
     // Stop all elements
     [audioRefA.current, audioRefB.current].forEach(el => {
       if (el) { el.pause(); el.removeAttribute("src"); el.load(); }
@@ -352,7 +352,7 @@ export function usePlayback(
       videoRef.current.load();
     }
 
-    trackChangeSourceRef.current = "user";
+    trackChangeSourceRef.current = source;
     setCurrentTrack(track);
     setCurrentAssetUrl(src);
     setPositionSecs(0);

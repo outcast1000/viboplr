@@ -7,7 +7,7 @@ import { store } from "../store";
 
 export function useQueue(
   restoredRef: React.RefObject<boolean>,
-  handlePlay: (track: Track) => void,
+  handlePlay: (track: Track, source?: "user" | "auto") => void,
   collections: Collection[],
 ) {
   const [queue, setQueue] = useState<Track[]>([]);
@@ -84,7 +84,7 @@ export function useQueue(
     setQueue(prev => [...prev, ...stamp(newTracks)]);
   }
 
-  function playNext(): boolean {
+  function playNext(source: "user" | "auto" = "user"): boolean {
     const q = queueRef.current;
     const idx = queueIndexRef.current;
     const mode = queueModeRef.current;
@@ -102,12 +102,12 @@ export function useQueue(
         setShufflePosition(0);
         const nextIdx = newOrder[0];
         setQueueIndex(nextIdx);
-        handlePlay(q[nextIdx]);
+        handlePlay(q[nextIdx], source);
       } else {
         setShufflePosition(nextPos);
         const nextIdx = order[nextPos];
         setQueueIndex(nextIdx);
-        handlePlay(q[nextIdx]);
+        handlePlay(q[nextIdx], source);
       }
       return true;
     }
@@ -115,7 +115,7 @@ export function useQueue(
     if (mode === "loop") {
       const nextIdx = (idx + 1) % q.length;
       setQueueIndex(nextIdx);
-      handlePlay(q[nextIdx]);
+      handlePlay(q[nextIdx], source);
       return true;
     }
 
@@ -123,7 +123,7 @@ export function useQueue(
     if (idx + 1 < q.length) {
       const nextIdx = idx + 1;
       setQueueIndex(nextIdx);
-      handlePlay(q[nextIdx]);
+      handlePlay(q[nextIdx], source);
       return true;
     }
     return false;
@@ -376,12 +376,12 @@ export function useQueue(
     setQueue(prev => [...prev, stampUrl(track, collections)]);
   }
 
-  function addToQueueAndPlay(track: Track) {
+  function addToQueueAndPlay(track: Track, source: "user" | "auto" = "user") {
     const stamped = stampUrl(track, collections);
     const newIndex = queueRef.current.length;
     setQueue(prev => [...prev, stamped]);
     setQueueIndex(newIndex);
-    handlePlay(stamped);
+    handlePlay(stamped, source);
   }
 
   async function savePlaylist() {

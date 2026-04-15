@@ -1150,15 +1150,15 @@ function App() {
   const queueRef = useRef(queueHook.queue);
   queueRef.current = queueHook.queue;
 
-  const handleNext = useCallback(async () => {
-    if (!playNextRef.current()) {
+  const handleNext = useCallback(async (source: "user" | "auto" = "user") => {
+    if (!playNextRef.current(source)) {
       const ac = autoContinueRef.current;
       const track = currentTrackRef.current;
       if (ac.enabled && track) {
         const excludeIds = queueRef.current.map(t => t.id);
         const next = await ac.fetchTrack(track, excludeIds);
         if (next) {
-          addToQueueAndPlayRef.current(next);
+          addToQueueAndPlayRef.current(next, source);
           return;
         }
       }
@@ -1178,7 +1178,7 @@ function App() {
       queueHook.advanceIndex();
       return;
     }
-    handleNext();
+    handleNext("auto");
   }, []);
 
   useEffect(() => {
