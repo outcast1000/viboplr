@@ -72,22 +72,11 @@ export function ImageActions({ entityId, entityType, entityName, imagePath, prov
             onClick={async () => {
               setOpenMenu(false);
               try {
-                const items = await navigator.clipboard.read();
-                for (const item of items) {
-                  const imageType = item.types.find(t => t.startsWith("image/"));
-                  if (imageType) {
-                    const blob = await item.getType(imageType);
-                    const buffer = await blob.arrayBuffer();
-                    const imageData = Array.from(new Uint8Array(buffer));
-                    const path = await invoke<string>("paste_entity_image", {
-                      kind: entityType,
-                      id: entityId,
-                      imageData,
-                    });
-                    onImageSet(entityId, path);
-                    return;
-                  }
-                }
+                const path = await invoke<string>("paste_entity_image_from_clipboard", {
+                  kind: entityType,
+                  id: entityId,
+                });
+                onImageSet(entityId, path);
               } catch { /* clipboard empty or no image */ }
             }}
           >

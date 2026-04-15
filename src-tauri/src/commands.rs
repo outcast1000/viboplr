@@ -817,6 +817,36 @@ pub fn paste_entity_image(
 }
 
 #[tauri::command]
+pub fn paste_entity_image_from_clipboard(
+    state: State<'_, AppState>,
+    kind: String,
+    id: i64,
+) -> Result<String, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("Clipboard error: {}", e))?;
+    let img = clipboard.get_image().map_err(|_| "No image in clipboard".to_string())?;
+    // Encode RGBA data as PNG
+    let mut buf = Vec::new();
+    {
+        let encoder = image::codecs::png::PngEncoder::new(&mut buf);
+        image::ImageEncoder::write_image(
+            encoder,
+            &img.bytes,
+            img.width as u32,
+            img.height as u32,
+            image::ExtendedColorType::Rgba8,
+        )
+        .map_err(|e| format!("Failed to encode image: {}", e))?;
+    }
+    let slug = resolve_entity_slug(&state, &kind, id)?;
+    crate::entity_image::remove_image(&state.app_dir, &kind, &slug);
+    let dest_dir = crate::entity_image::image_dir(&state.app_dir, &kind);
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(format!("{}.png", slug));
+    std::fs::write(&dest, &buf).map_err(|e| format!("Failed to write image: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub fn remove_entity_image(state: State<'_, AppState>, kind: String, id: i64) {
     if let Ok(slug) = resolve_entity_slug(&state, &kind, id) {
         crate::entity_image::remove_image(&state.app_dir, &kind, &slug);
