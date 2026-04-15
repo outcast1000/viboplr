@@ -570,6 +570,9 @@ function activate(api) {
       tracks: trackPayloads,
     }).then(function() {
       api.ui.showNotification("Playlist saved: " + name);
+    }).catch(function(err) {
+      console.error("Failed to save playlist:", err);
+      api.ui.showNotification("Failed to save playlist");
     });
   });
 

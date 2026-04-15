@@ -1312,7 +1312,7 @@ function App() {
         imageUrl: null,
         tracks,
       });
-      // Optionally, show success feedback or navigate to playlists view
+      addLog("Playlist saved: " + name);
     } catch (err) {
       console.error("Failed to save playlist:", err);
       alert(`Failed to save playlist: ${err}`);
