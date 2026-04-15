@@ -12,6 +12,7 @@ const icons = {
   tags: <svg {...iconProps}><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>,
   liked: <svg {...iconProps}><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
   history: <svg {...iconProps}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+  playlists: <svg {...iconProps}><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>,
   tidal: <svg {...iconProps}><path d="M3 12l4.5-4.5L12 12l-4.5 4.5z"/><path d="M12 7.5L16.5 3 21 7.5 16.5 12z"/><path d="M12 16.5L16.5 12 21 16.5 16.5 21z"/></svg>,
   collections: <svg {...iconProps}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>,
   settings: <svg {...iconProps}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1.08z"/></svg>,
@@ -60,6 +61,7 @@ interface SidebarProps {
   onShowTags: () => void;
   onShowLiked: () => void;
   onShowHistory: () => void;
+  onShowPlaylists: () => void;
   onShowCollections: () => void;
   onShowSettings: () => void;
   updateAvailable: boolean;
@@ -71,7 +73,7 @@ export function Sidebar({
   view,
   selectedAlbum, selectedArtist, selectedTag, selectedTrack,
   collapsed,
-  onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowCollections, onShowSettings,
+  onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowPlaylists, onShowCollections, onShowSettings,
   updateAvailable,
   pluginNavItems,
   onPluginView,
@@ -99,6 +101,7 @@ export function Sidebar({
     { key: "tags", label: "Tags", icon: icons.tags, active: noDetail && view === "tags" && selectedTag === null, onClick: onShowTags, hint: `Tags \u2014 ${mod}4` },
     { key: "liked", label: "Liked", icon: icons.liked, active: noDetail && view === "liked", onClick: onShowLiked, hint: `Liked Tracks \u2014 ${mod}5` },
     { key: "history", label: "History", icon: icons.history, active: noDetail && view === "history", onClick: onShowHistory, hint: `Play History \u2014 ${mod}6` },
+    { key: "playlists", label: "Playlists", icon: icons.playlists, active: noDetail && view === "playlists", onClick: onShowPlaylists, hint: "Playlists" },
     { key: "collections", label: "Collections", icon: icons.collections, active: noDetail && view === "collections", onClick: onShowCollections, hint: "Collections" },
   ];
 

@@ -67,6 +67,7 @@ import { AlbumDetailHeader } from "./components/AlbumDetailHeader";
 import { InformationSections } from "./components/InformationSections";
 import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
+import { PlaylistsView } from "./components/PlaylistsView";
 import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
@@ -1380,6 +1381,12 @@ function App() {
     onEnter: () => { if (highlightedListIndex >= 0) historyRef.current?.playItem(highlightedListIndex); },
   };
 
+  const playlistsSearchNav = {
+    onArrowDown: () => {},
+    onArrowUp: () => {},
+    onEnter: () => {},
+  };
+
   return (
     <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties} onClick={() => contextMenuActions.setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
@@ -1437,6 +1444,14 @@ function App() {
         onShowHistory={() => {
           pushAndScroll();
           library.setView("history");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSelectedTrack(null);
+        }}
+        onShowPlaylists={() => {
+          pushAndScroll();
+          library.setView("playlists");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
@@ -1971,7 +1986,18 @@ function App() {
             </>
           )}
 
-
+          {/* Playlists view */}
+          {view === "playlists" && (
+            <>
+              <ViewSearchBar
+                query={viewSearch.getQuery("playlists")}
+                onQueryChange={(q) => viewSearch.setQuery("playlists", q)}
+                placeholder="Search playlists..."
+                {...playlistsSearchNav}
+              />
+              <PlaylistsView searchQuery={viewSearch.getQuery("playlists")} />
+            </>
+          )}
 
           {/* Collections view */}
           {view === "collections" && (
