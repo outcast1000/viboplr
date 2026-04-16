@@ -4,6 +4,7 @@
 
 function activate(api) {
   var browseHandle = null;
+  var DEV = true;
 
   var state = {
     currentView: "home",
@@ -16,6 +17,8 @@ function activate(api) {
     scrapeProgress: { current: 0, total: 0, name: "" },
     errorMessage: "",
     browserVisible: false,
+    debugLog: [],
+    lastLoginCheck: null,
   };
 
   // ---- Helpers ----
@@ -23,6 +26,18 @@ function activate(api) {
   function escapeHtml(s) {
     if (!s) return "";
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function dbg(tag, msg, data) {
+    if (!DEV) return;
+    var ts = new Date().toLocaleTimeString();
+    var entry = "[" + ts + "] [" + tag + "] " + msg;
+    if (data !== undefined) {
+      try { entry += " " + JSON.stringify(data).substring(0, 500); } catch(e) {}
+    }
+    state.debugLog.push(entry);
+    if (state.debugLog.length > 200) state.debugLog.shift();
+    console.log("[spotify-dbg]", tag, msg, data !== undefined ? data : "");
   }
 
   function cleanup() {
@@ -42,6 +57,26 @@ function activate(api) {
     } else if (state.status === "waiting-login") {
       ch.push({ type: "text", content: "<h3>Waiting for login\u2026</h3>" });
       ch.push({ type: "text", content: "<p>Log in to Spotify in the browser window. Click <b>Show Browser</b> to open it.</p>" });
+      if (DEV && state.lastLoginCheck) {
+        var lc = state.lastLoginCheck;
+        var sig = lc.signals || {};
+        var posItems = [];
+        var negItems = [];
+        if (sig.userWidget) posItems.push("userWidget"); if (sig.userBox) posItems.push("userBox");
+        if (sig.avatar) posItems.push("avatar"); if (sig.accountLink) posItems.push("accountLink");
+        if (sig.libraryBtn) posItems.push("libraryBtn"); if (sig.createPlaylist) posItems.push("createPlaylist");
+        if (sig.loginBtn) negItems.push("loginBtn"); if (sig.signupBtn) negItems.push("signupBtn");
+        if (sig.loginLink) negItems.push("loginLink");
+        var lcHtml = "<div style='font-size:11px;background:rgba(0,0,0,0.2);padding:8px;border-radius:4px;margin:8px 0'>" +
+          "<b>Login detection debug</b> (polls every 3s)<br>" +
+          "<span style='color:#4f4'>Positive signals:</span> " + (posItems.length ? posItems.join(", ") : "<i>none</i>") + "<br>" +
+          "<span style='color:#f44'>Negative signals:</span> " + (negItems.length ? negItems.join(", ") : "<i>none</i>") + "<br>" +
+          "Result: <b>" + (lc.loggedIn ? "LOGGED IN" : "NOT LOGGED IN") + "</b><br>" +
+          "URL: " + escapeHtml(lc.url || "") +
+          (lc.pageDump ? "<br><details><summary style='cursor:pointer'>Page dump (no clear signal)</summary><pre style='font-size:10px;white-space:pre-wrap;word-break:break-all'>" + escapeHtml(JSON.stringify(lc.pageDump, null, 2)) + "</pre></details>" : "") +
+          "</div>";
+        ch.push({ type: "text", content: lcHtml });
+      }
       ch.push({ type: "spacer" });
       ch.push({
         type: "layout", direction: "horizontal", children: [
@@ -90,6 +125,11 @@ function activate(api) {
       ch.push({ type: "button", label: "Refresh", action: "open-spotify" });
     }
 
+    if (DEV && state.debugLog.length > 0) {
+      ch.push({ type: "spacer" });
+      ch.push({ type: "text", content: "<details><summary style='cursor:pointer;opacity:0.6;font-size:12px'>Debug Log (" + state.debugLog.length + " entries)</summary><pre style='font-size:11px;max-height:400px;overflow:auto;background:rgba(0,0,0,0.2);padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-all'>" + escapeHtml(state.debugLog.join("\n")) + "</pre></details>" });
+    }
+
     api.ui.setViewData("spotify", { type: "layout", direction: "vertical", children: ch });
   }
 
@@ -129,51 +169,12 @@ function activate(api) {
 
   // ---- Injected scripts (plain strings for eval) ----
 
-  var SCRIPT_CHECK_LOGIN = '(function(){try{' +
-    'var u=document.querySelector("[data-testid=\\"user-widget-link\\"]");' +
-    'var a=document.querySelector(".main-userWidget-box");' +
-    'var l=document.querySelector("[data-testid=\\"login-button\\"]");' +
-    'var ok=!!(u||a)&&!l;' +
-    'window.__viboplr.send("login-check",{loggedIn:ok});' +
-    '}catch(e){window.__viboplr.send("login-check",{loggedIn:false})}})()';
+  var DBG_HELPER =
+    'function _dbg(tag,msg,data){' +
+      'try{window.__viboplr.send("debug",{tag:tag,msg:msg,data:data})}catch(e){}' +
+      'console.log("[spotify-dbg]",tag,msg,data)' +
+    '}';
 
-  // Searches the page for a link whose visible text contains "Made for You"
-  // (case-insensitive). If found, clicks it and reports the href. If not found,
-  // reports back so the plugin can retry.
-  var SCRIPT_FIND_MADE_FOR_YOU = '(function(){try{' +
-    'var links=document.querySelectorAll("a");' +
-    'for(var i=0;i<links.length;i++){' +
-      'var txt=(links[i].textContent||"").trim().toLowerCase();' +
-      'if(txt==="made for you"||txt.indexOf("made for you")!==-1){' +
-        'var href=links[i].getAttribute("href")||"";' +
-        'links[i].click();' +
-        'window.__viboplr.send("made-for-you-found",{href:href});' +
-        'return;' +
-      '}' +
-    '}' +
-    // Also check section headings that might be clickable
-    'var headings=document.querySelectorAll("h2, h3, span, p");' +
-    'for(var j=0;j<headings.length;j++){' +
-      'var h=headings[j];' +
-      'var ht=(h.textContent||"").trim().toLowerCase();' +
-      'if(ht==="made for you"||ht.indexOf("made for you")!==-1){' +
-        'var parent=h.closest("a");' +
-        'if(parent){' +
-          'parent.click();' +
-          'window.__viboplr.send("made-for-you-found",{href:parent.getAttribute("href")||""});' +
-          'return;' +
-        '}' +
-        // Try clicking the heading itself (some sections use click handlers)
-        'h.click();' +
-        'window.__viboplr.send("made-for-you-found",{href:"clicked-heading"});' +
-        'return;' +
-      '}' +
-    '}' +
-    'window.__viboplr.send("made-for-you-not-found",{});' +
-    '}catch(e){window.__viboplr.send("error",{message:"find link: "+e})}})()';
-
-  // Helper inlined into scrape scripts: extracts the best image URL from an
-  // element, handling lazy-loaded images, srcset, and CSS background-image.
   var IMG_HELPER =
     'function bestImg(el){' +
       'var imgs=el.querySelectorAll("img");' +
@@ -187,7 +188,6 @@ function activate(api) {
         'var ds=imgs[k].getAttribute("data-src");' +
         'if(ds)return ds;' +
       '}' +
-      // Fallback: look for background-image on a div
       'var bgs=el.querySelectorAll("[style]");' +
       'for(var b=0;b<bgs.length;b++){' +
         'var bg=bgs[b].style.backgroundImage||"";' +
@@ -197,15 +197,96 @@ function activate(api) {
       'return null;' +
     '}';
 
+  var SCRIPT_CHECK_LOGIN = '(function(){' +
+    'console.log("[viboplr-login] script start");' +
+    'try{' +
+    'function qs(sel){try{return document.querySelector(sel)}catch(e){console.log("[viboplr-login] bad selector: "+sel+" err: "+e);return null}}' +
+    'function qsa(sel){try{return document.querySelectorAll(sel)}catch(e){console.log("[viboplr-login] bad selector: "+sel+" err: "+e);return[]}}' +
+    'var signals={};' +
+    'signals.userWidget=!!qs("[data-testid=\\"user-widget-link\\"]");' +
+    'signals.userBox=!!qs(".main-userWidget-box");' +
+    'signals.avatar=!!qs("img[alt*=\\"avatar\\"], img[alt*=\\"profile\\"]");' +
+    'signals.accountLink=!!qs("a[href*=\\"/account\\"], button[data-testid=\\"user-widget-link\\"]");' +
+    'signals.libraryBtn=!!qs("[aria-label=\\"Your Library\\"], [aria-label*=\\"library\\"]");' +
+    'signals.createPlaylist=!!qs("[aria-label*=\\"Create\\"]");' +
+    'signals.loginBtn=!!qs("[data-testid=\\"login-button\\"]");' +
+    'signals.signupBtn=!!qs("[data-testid=\\"signup-button\\"], a[href*=\\"signup\\"]");' +
+    'signals.loginLink=!!qs("a[href*=\\"/login\\"]");' +
+    'console.log("[viboplr-login] signals:",JSON.stringify(signals));' +
+    'var pos=signals.userWidget||signals.userBox||signals.avatar||signals.accountLink||signals.libraryBtn||signals.createPlaylist;' +
+    'var neg=signals.loginBtn||signals.signupBtn||signals.loginLink;' +
+    'var ok=pos&&!neg;' +
+    'var pageDump=null;' +
+    'if(!pos&&!neg){' +
+      'var btns=qsa("button");' +
+      'var btnTexts=[];for(var b=0;b<Math.min(btns.length,20);b++){btnTexts.push((btns[b].textContent||"").trim().substring(0,40)+"["+(btns[b].getAttribute("data-testid")||btns[b].getAttribute("aria-label")||"")+"]")}' +
+      'var navs=qsa("nav a, nav button");' +
+      'var navTexts=[];for(var n=0;n<Math.min(navs.length,20);n++){navTexts.push((navs[n].textContent||"").trim().substring(0,40))}' +
+      'var testids=qsa("[data-testid]");' +
+      'var tidList=[];for(var t=0;t<Math.min(testids.length,40);t++){tidList.push(testids[t].getAttribute("data-testid"))}' +
+      'pageDump={buttons:btnTexts,navItems:navTexts,testids:tidList,bodyClasses:document.body.className,title:document.title};' +
+      'console.log("[viboplr-login] NO CLEAR SIGNAL page dump:",JSON.stringify(pageDump));' +
+    '}' +
+    'console.log("[viboplr-login] result: loggedIn="+ok+" pos="+pos+" neg="+neg);' +
+    'window.__viboplr.send("login-check",{loggedIn:ok,signals:signals,url:location.href,pageDump:pageDump});' +
+    '}catch(e){' +
+      'console.error("[viboplr-login] CAUGHT ERROR:",e,""+e,e.stack);' +
+      'try{window.__viboplr.send("login-check",{loggedIn:false,error:""+e})}catch(e2){console.error("[viboplr-login] send also failed:",e2)}' +
+    '}})()';
+
+  // Searches the page for a link whose visible text contains "Made for You"
+  // (case-insensitive). If found, clicks it and reports the href. If not found,
+  // reports back so the plugin can retry.
+  var SCRIPT_FIND_MADE_FOR_YOU = '(function(){try{' +
+    DBG_HELPER +
+    'var links=document.querySelectorAll("a");' +
+    'var linkTexts=[];for(var x=0;x<Math.min(links.length,30);x++){linkTexts.push(links[x].textContent.trim().substring(0,60))}' +
+    '_dbg("m4y","searching "+links.length+" links, first 30 texts:",linkTexts);' +
+    'for(var i=0;i<links.length;i++){' +
+      'var txt=(links[i].textContent||"").trim().toLowerCase();' +
+      'if(txt==="made for you"||txt.indexOf("made for you")!==-1){' +
+        'var href=links[i].getAttribute("href")||"";' +
+        '_dbg("m4y","FOUND via link",{index:i,text:txt,href:href});' +
+        'links[i].click();' +
+        'window.__viboplr.send("made-for-you-found",{href:href});' +
+        'return;' +
+      '}' +
+    '}' +
+    'var headings=document.querySelectorAll("h2, h3, span, p");' +
+    '_dbg("m4y","checking "+headings.length+" headings/spans");' +
+    'for(var j=0;j<headings.length;j++){' +
+      'var h=headings[j];' +
+      'var ht=(h.textContent||"").trim().toLowerCase();' +
+      'if(ht==="made for you"||ht.indexOf("made for you")!==-1){' +
+        'var parent=h.closest("a");' +
+        'if(parent){' +
+          '_dbg("m4y","FOUND via heading>a",{tag:h.tagName,text:ht,href:parent.getAttribute("href")});' +
+          'parent.click();' +
+          'window.__viboplr.send("made-for-you-found",{href:parent.getAttribute("href")||""});' +
+          'return;' +
+        '}' +
+        '_dbg("m4y","FOUND via heading click",{tag:h.tagName,text:ht});' +
+        'h.click();' +
+        'window.__viboplr.send("made-for-you-found",{href:"clicked-heading"});' +
+        'return;' +
+      '}' +
+    '}' +
+    '_dbg("m4y","NOT FOUND on page",{url:location.href});' +
+    'window.__viboplr.send("made-for-you-not-found",{});' +
+    '}catch(e){window.__viboplr.send("error",{message:"find link: "+e})}})()';
+
   var SCRIPT_SCRAPE_PLAYLISTS = '(function(){try{' +
+    DBG_HELPER +
     IMG_HELPER +
     'var out=[];var seen={};' +
+    '_dbg("playlists","starting scrape",{url:location.href});' +
+    // Strategy 1: card-based layout (data-testid="card")
     'var cards=document.querySelectorAll("div[data-testid=\\"card\\"]");' +
-    'if(!cards.length) cards=document.querySelectorAll("a[href*=\\"/playlist/\\"]");' +
+    '_dbg("playlists","strategy1: cards",{count:cards.length});' +
     'for(var i=0;i<cards.length;i++){' +
       'var c=cards[i];' +
-      'var a=c.tagName==="A"?c:c.querySelector("a[href*=\\"/playlist/\\"]");' +
-      'if(!a)continue;' +
+      'var a=c.querySelector("a[href*=\\"/playlist/\\"]");' +
+      'if(!a){_dbg("playlists","card["+i+"] no playlist link, skipping");continue}' +
       'var m=(a.getAttribute("href")||"").match(/\\/playlist\\/([a-zA-Z0-9]+)/);' +
       'if(!m||seen[m[1]])continue;seen[m[1]]=1;' +
       'var ne=c.querySelector("[data-testid=\\"card-title\\"]")||c.querySelector("p")||c.querySelector("span");' +
@@ -213,8 +294,49 @@ function activate(api) {
       'var de=c.querySelector("[data-testid=\\"card-subtitle\\"]");' +
       'var ds=de?de.textContent.trim():"";' +
       'var imgUrl=bestImg(c);' +
+      '_dbg("playlists","card["+i+"] found",{id:m[1],name:nm,desc:ds,hasImg:!!imgUrl});' +
       'if(nm)out.push({id:m[1],name:nm,description:ds,imageUrl:imgUrl,uri:"spotify:playlist:"+m[1]});' +
     '}' +
+    // Strategy 2: row-based layout (role="row" containing playlist links)
+    'var rows=document.querySelectorAll("[role=\\"row\\"]");' +
+    '_dbg("playlists","strategy2: rows",{count:rows.length});' +
+    'for(var ri=0;ri<rows.length;ri++){' +
+      'var rw=rows[ri];' +
+      'var ra=rw.querySelector("a[href*=\\"/playlist/\\"]");' +
+      'if(!ra)continue;' +
+      'var rm=(ra.getAttribute("href")||"").match(/\\/playlist\\/([a-zA-Z0-9]+)/);' +
+      'if(!rm||seen[rm[1]])continue;seen[rm[1]]=1;' +
+      'var rne=ra.querySelector("div")||ra.querySelector("span")||ra;' +
+      'var rnm=rne?rne.textContent.trim():"";' +
+      'var rds="";var rsub=rw.querySelector("span:not(:first-child)");' +
+      'if(rsub)rds=rsub.textContent.trim();' +
+      'var rimg=bestImg(rw);' +
+      '_dbg("playlists","row["+ri+"] found",{id:rm[1],name:rnm,desc:rds,hasImg:!!rimg,rowHTML:rw.innerHTML.substring(0,200)});' +
+      'if(rnm)out.push({id:rm[1],name:rnm,description:rds,imageUrl:rimg,uri:"spotify:playlist:"+rm[1]});' +
+    '}' +
+    // Strategy 3: any remaining playlist links not caught above
+    // Walk up from each link to find the nearest container with an image
+    'function findImgContainer(el){' +
+      'var node=el;' +
+      'for(var up=0;up<6&&node;up++){' +
+        'var img=bestImg(node);' +
+        'if(img)return img;' +
+        'node=node.parentElement;' +
+      '}' +
+      'return null;' +
+    '}' +
+    'var allLinks=document.querySelectorAll("a[href*=\\"/playlist/\\"]");' +
+    '_dbg("playlists","strategy3: remaining links",{count:allLinks.length,alreadySeen:Object.keys(seen).length});' +
+    'for(var li=0;li<allLinks.length;li++){' +
+      'var la=allLinks[li];' +
+      'var lm=(la.getAttribute("href")||"").match(/\\/playlist\\/([a-zA-Z0-9]+)/);' +
+      'if(!lm||seen[lm[1]])continue;seen[lm[1]]=1;' +
+      'var lnm=la.textContent.trim();' +
+      'var limg=findImgContainer(la);' +
+      '_dbg("playlists","link["+li+"] found",{id:lm[1],name:lnm,href:la.getAttribute("href"),hasImg:!!limg});' +
+      'if(lnm)out.push({id:lm[1],name:lnm,description:"",imageUrl:limg,uri:"spotify:playlist:"+lm[1]});' +
+    '}' +
+    '_dbg("playlists","DONE",{total:out.length,names:out.map(function(p){return p.name})});' +
     'window.__viboplr.send("playlists",out);' +
     '}catch(e){window.__viboplr.send("error",{message:""+e})}})()';
 
@@ -222,51 +344,84 @@ function activate(api) {
     return '(function(){window.location.href="/playlist/' + id + '"})()';
   }
 
-  function scriptScrollThenScrape(playlistId) {
-    // Step 1: scroll the main container to bottom to force lazy-load all tracks.
-    // Step 2: when scrolling stabilises, scrape every tracklist row.
+  function scriptScrollThenScrape(playlistId, gen) {
     return '(function(){' +
+      DBG_HELPER +
       IMG_HELPER +
-      // Grab the playlist cover image from the page header before scrolling
-      'var coverUrl=null;' +
-      'var hdr=document.querySelector("[data-testid=\\"playlist-image\\"]")' +
-        '||document.querySelector("[data-testid=\\"entity-image\\"]")' +
-        '||document.querySelector("header img")' +
-        '||document.querySelector("[data-testid=\\"action-bar-row\\"]");' +
-      'if(hdr){coverUrl=bestImg(hdr.closest("header")||hdr.parentElement||hdr)}' +
-      // If nothing in header, try any large image near the top of main
-      'if(!coverUrl){var mainImgs=document.querySelectorAll("main img");' +
-        'for(var mi=0;mi<mainImgs.length&&mi<5;mi++){' +
-          'var ms=mainImgs[mi].currentSrc||mainImgs[mi].src||"";' +
-          'if(ms&&ms.indexOf("data:")!==0&&ms.indexOf("blob:")!==0){coverUrl=ms;break}' +
-        '}}' +
-      'var sc=document.querySelector("[data-testid=\\"playlist-tracklist\\"]")' +
-        '||document.querySelector("main")||document.scrollingElement;' +
+      'var _gen=' + gen + ';' +
+      '_dbg("tracks","=== START scrape for ' + playlistId + '",{url:location.href,gen:_gen});' +
+      // Scope to main content area to avoid sidebar rows
+      'var mainEl=document.querySelector("[data-testid=\\"playlist-tracklist\\"]")' +
+        '||document.querySelector("main")||document;' +
+      'var sc=mainEl.closest?mainEl:document.scrollingElement;' +
+      'if(mainEl.scrollHeight>mainEl.clientHeight){sc=mainEl}' +
+      'else{sc=document.querySelector("main")||document.scrollingElement}' +
+      '_dbg("tracks","scroll container",{tag:sc.tagName,testid:sc.getAttribute&&sc.getAttribute("data-testid"),scrollH:sc.scrollHeight});' +
       'var ph=0,stable=0,n=0;' +
       'function tick(){' +
         'sc.scrollTop=sc.scrollHeight;n++;' +
         'if(sc.scrollHeight===ph){stable++}else{stable=0}' +
         'ph=sc.scrollHeight;' +
-        'if(stable>=3||n>=50){scrape()}else{setTimeout(tick,800)}' +
+        'if(n%10===0)_dbg("tracks","scrolling",{tick:n,stable:stable,scrollH:sc.scrollHeight});' +
+        'if(stable>=3||n>=50){_dbg("tracks","scroll done",{ticks:n,finalH:sc.scrollHeight});scrape()}else{setTimeout(tick,800)}' +
       '}' +
       'function scrape(){try{' +
-        'var out=[];' +
-        'var rows=document.querySelectorAll("[data-testid=\\"tracklist-row\\"]");' +
-        'if(!rows.length)rows=document.querySelectorAll("[role=\\"row\\"]");' +
+        'var out=[];var skipped=0;' +
+        // Query rows only inside main content, not sidebar
+        'var scope=document.querySelector("[data-testid=\\"playlist-tracklist\\"]")||document.querySelector("main")||document;' +
+        'var rows=scope.querySelectorAll("[role=\\"row\\"]");' +
+        '_dbg("tracks","rows found (scoped to main)",{count:rows.length,scopeTag:scope.tagName,scopeTestid:scope.getAttribute&&scope.getAttribute("data-testid")});' +
+        'for(var d=0;d<Math.min(rows.length,3);d++){' +
+          'var dr=rows[d];' +
+          'var gcells=dr.querySelectorAll("[role=\\"gridcell\\"]");' +
+          'var cellInfo=[];for(var dc=0;dc<gcells.length;dc++){cellInfo.push({idx:dc,text:gcells[dc].textContent.trim().substring(0,80),childCount:gcells[dc].children.length})}' +
+          '_dbg("tracks","row["+d+"] structure",{' +
+            'gridcells:gcells.length,' +
+            'cells:cellInfo,' +
+            'hasTrackLink:!!dr.querySelector("a[href*=\\"/track/\\"]"),' +
+            'hasArtistLink:!!dr.querySelector("a[href*=\\"/artist/\\"]"),' +
+            'hasAlbumLink:!!dr.querySelector("a[href*=\\"/album/\\"]"),' +
+            'hasInternalTrackLink:!!dr.querySelector("[data-testid=\\"internal-track-link\\"]"),' +
+            'hasDuration:!!dr.querySelector("[data-testid=\\"tracklist-duration\\"]"),' +
+            'outerHTML:dr.outerHTML.substring(0,300)' +
+          '});' +
+        '}' +
         'for(var i=0;i<rows.length;i++){var r=rows[i];' +
-          'var ne=r.querySelector("[data-testid=\\"internal-track-link\\"] div")||r.querySelector("a[href*=\\"/track/\\"]");' +
-          'var nm=ne?ne.textContent.trim():"";if(!nm)continue;' +
+          'var ne=r.querySelector("[data-testid=\\"internal-track-link\\"] div")' +
+            '||r.querySelector("a[href*=\\"/track/\\"]")' +
+            '||r.querySelector("[data-testid=\\"tracklist-row\\"] a");' +
+          'var nameSource="testid|track-link|tracklist-a";' +
+          'if(!ne){var cells=r.querySelectorAll("[role=\\"gridcell\\"]");' +
+            'if(cells.length>=2){ne=cells[1].querySelector("a")||cells[1].querySelector("div>div>span")||cells[1].querySelector("span");nameSource="gridcell[1]"}}' +
+          'var nm=ne?ne.textContent.trim():"";' +
+          'if(!nm){' +
+            'if(i<5)_dbg("tracks","row["+i+"] SKIPPED no name",{' +
+              'gridcells:r.querySelectorAll("[role=\\"gridcell\\"]").length,' +
+              'allText:r.textContent.trim().substring(0,120),' +
+              'innerHTML:r.innerHTML.substring(0,300)' +
+            '});' +
+            'skipped++;continue}' +
           'var aLinks=r.querySelectorAll("a[href*=\\"/artist/\\"]");' +
           'var arts=[];for(var j=0;j<aLinks.length;j++){var at=aLinks[j].textContent.trim();if(at&&arts.indexOf(at)===-1)arts.push(at)}' +
+          'var artistSource="artist-links("+aLinks.length+")";' +
+          'if(!arts.length){var cells2=r.querySelectorAll("[role=\\"gridcell\\"]");' +
+            'if(cells2.length>=2){var spans=cells2[1].querySelectorAll("span");' +
+              'for(var s=0;s<spans.length;s++){var st=spans[s].textContent.trim();' +
+                'if(st&&st!==nm&&st.indexOf(nm)===-1&&nm.indexOf(st)===-1){arts.push(st);artistSource="gridcell-span";break}}}}' +
           'var alEl=r.querySelector("a[href*=\\"/album/\\"]");' +
           'var al=alEl?alEl.textContent.trim():"";' +
           'var du=r.querySelector("[data-testid=\\"tracklist-duration\\"]");' +
-          'var dur=du?du.textContent.trim():"";' +
+          'var durSource="testid";' +
+          'if(!du){var cells3=r.querySelectorAll("[role=\\"gridcell\\"]");' +
+            'if(cells3.length>0){du=cells3[cells3.length-1];durSource="last-gridcell"}}' +
+          'var dur="";if(du){var dt=du.textContent.trim();if(/^\\d+:\\d{2}$/.test(dt))dur=dt}' +
           'var imgUrl=bestImg(r);' +
+          'if(i<5)_dbg("tracks","row["+i+"] parsed",{name:nm,nameSource:nameSource,artist:arts.join(", "),artistSource:artistSource,album:al,dur:dur,durSource:durSource,hasImg:!!imgUrl});' +
           'out.push({name:nm,artist:arts.join(", "),album:al,duration:dur,imageUrl:imgUrl})' +
         '}' +
-        'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:out,coverUrl:coverUrl});' +
-      '}catch(e){window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:[],error:""+e})}}' +
+        '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:out.length,skipped:skipped,total:rows.length,gen:_gen});' +
+        'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:out,gen:_gen});' +
+      '}catch(e){_dbg("tracks","ERROR",{error:""+e});window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:[],error:""+e,gen:_gen})}}' +
       'tick()' +
     '})()';
   }
@@ -280,6 +435,7 @@ function activate(api) {
   var playlistRetryTimer = null;
   var trackQueue = [];
   var trackBusy = false;
+  var scrapeGeneration = 0;
 
   function resetTimers() {
     if (loginPoll) { clearInterval(loginPoll); loginPoll = null; }
@@ -294,22 +450,31 @@ function activate(api) {
   function onMessage(msg) {
     var t = msg.type;
     var d = msg.data;
-    console.log("[spotify] msg:", t);
 
-    if (t === "login-check" && d && d.loggedIn) {
-      // User logged in — stop polling, start looking for the Made for You link
-      if (loginPoll) { clearInterval(loginPoll); loginPoll = null; }
-      state.status = "finding-made-for-you";
+    if (t === "debug" && d) {
+      dbg(d.tag || "browse", d.msg || "", d.data);
       renderHome();
-      // Give the home page a moment to render its sections
-      madeForYouRetries = 0;
-      setTimeout(findMadeForYouLink, 2000);
+      return;
+    }
+
+    dbg("msg", t, d);
+
+    if (t === "login-check" && d) {
+      state.lastLoginCheck = d;
+      if (d.loggedIn) {
+        if (loginPoll) { clearInterval(loginPoll); loginPoll = null; }
+        dbg("flow", "login detected, finding Made for You in 2s");
+        state.status = "finding-made-for-you";
+        renderHome();
+        madeForYouRetries = 0;
+        setTimeout(findMadeForYouLink, 2000);
+      } else {
+        renderHome();
+      }
     }
 
     if (t === "made-for-you-found") {
-      // Link was found and clicked — wait for the target page to render,
-      // then start scraping playlists
-      console.log("[spotify] Made for You link clicked, href:", d && d.href);
+      dbg("flow", "Made for You clicked, waiting 4s for page render", d);
       if (madeForYouTimer) { clearTimeout(madeForYouTimer); madeForYouTimer = null; }
       setTimeout(function() {
         state.status = "scraping-playlists";
@@ -319,39 +484,41 @@ function activate(api) {
     }
 
     if (t === "made-for-you-not-found") {
-      // Link not on the page yet — retry (the SPA may still be loading)
       retryFindMadeForYou();
     }
 
     if (t === "playlists") {
       if (Array.isArray(d) && d.length > 0) {
+        dbg("flow", "playlists received", { count: d.length, names: d.map(function(p) { return p.name; }) });
         state.playlists = d;
         if (playlistRetryTimer) { clearTimeout(playlistRetryTimer); playlistRetryTimer = null; }
         renderHome();
         beginTrackScrape();
       } else {
+        dbg("flow", "no playlists found, retrying", { retry: playlistRetries + 1 });
         retryPlaylistScrape();
       }
     }
 
     if (t === "tracks" && d) {
-      state.playlistTracks[d.playlistId] = d.tracks || [];
-      // Apply the cover image grabbed from the playlist detail page
-      if (d.coverUrl) {
-        for (var pi = 0; pi < state.playlists.length; pi++) {
-          if (state.playlists[pi].id === d.playlistId) {
-            state.playlists[pi].imageUrl = d.coverUrl;
-            break;
-          }
-        }
+      var tCount = (d.tracks || []).length;
+      var msgGen = d.gen !== undefined ? d.gen : -1;
+      dbg("flow", "tracks received for " + d.playlistId, { count: tCount, error: d.error || null, gen: msgGen, currentGen: scrapeGeneration });
+      if (msgGen !== -1 && msgGen !== scrapeGeneration) {
+        dbg("flow", "IGNORING stale tracks result (gen " + msgGen + " != current " + scrapeGeneration + ")");
+        return;
       }
+      if (tCount === 0) {
+        dbg("flow", "WARNING: 0 tracks scraped for " + d.playlistId);
+      }
+      state.playlistTracks[d.playlistId] = d.tracks || [];
       renderHome();
       trackBusy = false;
       scrapeNextTrackPage();
     }
 
     if (t === "error") {
-      console.warn("[spotify] error from browse window:", d && d.message);
+      dbg("error", "from browse window", d);
     }
   }
 
@@ -363,14 +530,14 @@ function activate(api) {
 
   function retryFindMadeForYou() {
     madeForYouRetries++;
+    dbg("flow", "Made for You retry " + madeForYouRetries + "/15");
     if (madeForYouRetries > 15) {
-      // Give up — the link may not exist on this page
+      dbg("flow", "GAVE UP finding Made for You");
       state.status = "error";
       state.errorMessage = "Could not find a \u201cMade for You\u201d link on the Spotify home page. Try scrolling the browse window and clicking Refresh.";
       renderHome();
       return;
     }
-    console.log("[spotify] Made for You link not found, retry " + madeForYouRetries + "/15");
     madeForYouTimer = setTimeout(findMadeForYouLink, 2000);
   }
 
@@ -387,7 +554,9 @@ function activate(api) {
 
   function retryPlaylistScrape() {
     playlistRetries++;
+    dbg("flow", "playlist scrape retry " + playlistRetries + "/10");
     if (playlistRetries > 10) {
+      dbg("flow", "GAVE UP scraping playlists", { hadPlaylists: state.playlists.length });
       state.status = state.playlists.length > 0 ? "done" : "error";
       state.errorMessage = "Could not find any playlists on the Made for You page.";
       renderHome();
@@ -408,6 +577,7 @@ function activate(api) {
 
   function scrapeNextTrackPage() {
     if (trackQueue.length === 0) {
+      dbg("flow", "=== ALL PLAYLISTS DONE ===", { playlistCount: state.playlists.length, trackCounts: Object.keys(state.playlistTracks).map(function(k) { return k + ": " + (state.playlistTracks[k] || []).length; }) });
       state.status = "done";
       renderHome();
       saveToStorage();
@@ -417,25 +587,27 @@ function activate(api) {
     if (trackBusy) return;
     trackBusy = true;
 
+    scrapeGeneration++;
+    var gen = scrapeGeneration;
     var pl = trackQueue.shift();
     state.scrapeProgress.current++;
     state.scrapeProgress.name = pl.name;
+    dbg("flow", "navigating to playlist " + state.scrapeProgress.current + "/" + state.scrapeProgress.total, { id: pl.id, name: pl.name, remaining: trackQueue.length, gen: gen });
     renderHome();
 
-    // Navigate to the playlist
     if (browseHandle) {
       browseHandle.eval(scriptNavigatePlaylist(pl.id));
     }
 
-    // Wait for page to render, then scroll + scrape
     setTimeout(function() {
+      if (gen !== scrapeGeneration) return;
+      dbg("flow", "injecting scroll+scrape for " + pl.name);
       if (browseHandle) {
-        browseHandle.eval(scriptScrollThenScrape(pl.id));
+        browseHandle.eval(scriptScrollThenScrape(pl.id, gen));
       }
-      // Safety timeout — don't hang forever
       setTimeout(function() {
-        if (trackBusy) {
-          console.warn("[spotify] timeout scraping tracks for " + pl.name);
+        if (trackBusy && gen === scrapeGeneration) {
+          dbg("flow", "TIMEOUT scraping " + pl.name + " after 45s");
           state.playlistTracks[pl.id] = [];
           trackBusy = false;
           scrapeNextTrackPage();
@@ -459,11 +631,14 @@ function activate(api) {
     resetTimers();
     state.playlists = [];
     state.playlistTracks = {};
+    state.lastLoginCheck = null;
     state.status = "waiting-login";
     state.errorMessage = "";
+    dbg("flow", "opening Spotify browse window");
     renderHome();
 
     state.browserVisible = false;
+    var loginPollCount = 0;
 
     api.network.openBrowseWindow("https://open.spotify.com", {
       title: "Spotify \u2014 Log in",
@@ -471,23 +646,61 @@ function activate(api) {
       height: 800,
       visible: false,
     }).then(function(handle) {
+      dbg("flow", "browse window opened, handle received", { hasHandle: !!handle, hasEval: !!(handle && handle.eval), hasOnMessage: !!(handle && handle.onMessage) });
       browseHandle = handle;
       handle.onMessage(onMessage);
 
-      // Poll for login every 3 s
+      // Diagnostic: check if the bridge is working at all
+      setTimeout(function() {
+        if (browseHandle) {
+          dbg("flow", "sending bridge diagnostic eval (2s after open)");
+          browseHandle.eval(
+            '(function(){' +
+              'var diag={' +
+                'hasViboplr:typeof window.__viboplr!=="undefined",' +
+                'hasViboplrSend:typeof window.__viboplr!=="undefined"&&typeof window.__viboplr.send==="function",' +
+                'hasTauriInternals:typeof window.__TAURI_INTERNALS__!=="undefined",' +
+                'hasTauriInvoke:typeof window.__TAURI_INTERNALS__!=="undefined"&&typeof window.__TAURI_INTERNALS__.invoke==="function",' +
+                'url:location.href,' +
+                'title:document.title,' +
+                'readyState:document.readyState' +
+              '};' +
+              'console.log("[viboplr-diag]",JSON.stringify(diag));' +
+              'if(window.__viboplr&&window.__viboplr.send){' +
+                'window.__viboplr.send("diag",diag);' +
+              '}' +
+            '})()'
+          );
+          renderHome();
+        }
+      }, 2000);
+
       loginPoll = setInterval(function() {
         if (browseHandle && state.status === "waiting-login") {
-          browseHandle.eval(SCRIPT_CHECK_LOGIN);
+          loginPollCount++;
+          dbg("flow", "login poll #" + loginPollCount + " — eval'ing SCRIPT_CHECK_LOGIN", { hasHandle: !!browseHandle, status: state.status });
+          try {
+            browseHandle.eval(SCRIPT_CHECK_LOGIN);
+          } catch(e) {
+            dbg("error", "eval SCRIPT_CHECK_LOGIN threw", { error: "" + e });
+          }
+          renderHome();
         }
       }, 3000);
 
-      // First check after 3 s
       setTimeout(function() {
         if (browseHandle && state.status === "waiting-login") {
-          browseHandle.eval(SCRIPT_CHECK_LOGIN);
+          dbg("flow", "first login check (3s after open)");
+          try {
+            browseHandle.eval(SCRIPT_CHECK_LOGIN);
+          } catch(e) {
+            dbg("error", "first eval threw", { error: "" + e });
+          }
+          renderHome();
         }
       }, 3000);
     }).catch(function(err) {
+      dbg("error", "openBrowseWindow failed", { error: "" + (err.message || err) });
       state.status = "error";
       state.errorMessage = "Failed to open browser: " + (err.message || err);
       renderHome();
