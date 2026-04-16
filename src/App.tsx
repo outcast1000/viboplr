@@ -111,9 +111,12 @@ function App() {
   trackVideoHistoryRef.current = trackVideoHistory;
   const advanceIndexRef = useRef<() => void>(() => {});
   const resolveTrackSrcRef = useRef<(track: Track) => Promise<string>>(async (track) => {
-    const parsed = parseUrlScheme(track.url ?? track.path);
+    const url = track.url ?? track.path;
+    if (!url) throw new Error("Track has no URL");
+    const parsed = parseUrlScheme(url);
     if (parsed.scheme === "file") return convertFileSrc(parsed.path);
     if (parsed.scheme === "tidal") return invoke<string>("tidal_get_stream_url", { tidalTrackId: parsed.id, quality: null });
+    if (parsed.scheme === "unknown") throw new Error(`Cannot play unknown URL scheme: ${parsed.url}`);
     return invoke<string>("resolve_subsonic_location", { location: parsed.url });
   });
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef);
@@ -483,6 +486,8 @@ function App() {
         return invoke<string>("resolve_subsonic_location", {
           location: url,
         });
+      } else if (parsed.scheme === "unknown") {
+        throw new Error(`Cannot play unknown URL scheme: ${parsed.url}`);
       } else {
         const _exhaustive: never = parsed;
         throw new Error(`Unhandled scheme: ${(_exhaustive as any).scheme}`);

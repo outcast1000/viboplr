@@ -14,7 +14,8 @@ export interface QueueEntry {
 export type ParsedUrl =
   | { scheme: "file"; path: string }
   | { scheme: "tidal"; id: string }
-  | { scheme: "subsonic"; url: string; id: string };
+  | { scheme: "subsonic"; url: string; id: string }
+  | { scheme: "unknown"; url: string };
 
 let tidalIdCounter = -100000;
 
@@ -129,6 +130,11 @@ export function parseUrlScheme(url: string): ParsedUrl {
     return { scheme: "subsonic", url, id };
   }
 
-  // Default to file scheme for unknown or plain paths
+  // Unknown scheme — enters fallback chain
+  if (url.includes("://")) {
+    return { scheme: "unknown", url };
+  }
+
+  // Plain path (no scheme) — treat as local file
   return { scheme: "file", path: url };
 }

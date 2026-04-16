@@ -342,9 +342,19 @@ describe("parseUrlScheme", () => {
     expect(result).toEqual({ scheme: "file", path: "C:/Users/Music/song.mp3" });
   });
 
-  it("handles unknown scheme as file", () => {
-    const result = parseUrlScheme("unknown://something");
-    expect(result).toEqual({ scheme: "file", path: "unknown://something" });
+  it("returns unknown for unrecognized scheme", () => {
+    const result = parseUrlScheme("spotify://track/abc123");
+    expect(result).toEqual({ scheme: "unknown", url: "spotify://track/abc123" });
+  });
+
+  it("returns unknown for http:// URLs", () => {
+    const result = parseUrlScheme("http://example.com/track.mp3");
+    expect(result).toEqual({ scheme: "unknown", url: "http://example.com/track.mp3" });
+  });
+
+  it("returns unknown for https:// URLs", () => {
+    const result = parseUrlScheme("https://example.com/track.mp3");
+    expect(result).toEqual({ scheme: "unknown", url: "https://example.com/track.mp3" });
   });
 
   it("handles plain path as file", () => {
