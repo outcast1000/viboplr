@@ -1,6 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { Track } from "../types";
-import type { PluginViewData, CardGridItem, StatItem, TrackRowItem } from "../types/plugin";
+import type { PluginViewData, CardGridItem, StatItem, TrackRowItem, PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import "./PluginViewRenderer.css";
 
 interface PluginViewRendererProps {
@@ -11,25 +11,23 @@ interface PluginViewRendererProps {
   onAction?: (actionId: string, data?: unknown) => void;
   onTrackContextMenu?: (e: React.MouseEvent, track: Track) => void;
   onTrackRowContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
+  pluginMenuItems?: PluginMenuItem[];
+  onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
 }
 
 export function PluginViewRenderer({
-  pluginName,
   data,
   currentTrack,
   onPlayTrack,
   onAction,
   onTrackContextMenu,
   onTrackRowContextMenu,
+  pluginMenuItems,
+  onPluginAction,
 }: PluginViewRendererProps) {
   if (!data) {
     return (
       <div className="plugin-view">
-        {pluginName && (
-          <div className="plugin-view-header">
-            <h2>{pluginName}</h2>
-          </div>
-        )}
         <div className="plugin-view-empty">No content</div>
       </div>
     );
@@ -37,11 +35,6 @@ export function PluginViewRenderer({
 
   return (
     <div className="plugin-view">
-      {pluginName && (
-        <div className="plugin-view-header">
-          <h2>{pluginName}</h2>
-        </div>
-      )}
       <div className="plugin-view-content">
         <PluginViewNode
           node={data}
@@ -50,6 +43,8 @@ export function PluginViewRenderer({
           onAction={onAction}
           onTrackContextMenu={onTrackContextMenu}
           onTrackRowContextMenu={onTrackRowContextMenu}
+          pluginMenuItems={pluginMenuItems}
+          onPluginAction={onPluginAction}
         />
       </div>
     </div>
@@ -63,6 +58,8 @@ interface PluginViewNodeProps {
   onAction?: (actionId: string, data?: unknown) => void;
   onTrackContextMenu?: (e: React.MouseEvent, track: Track) => void;
   onTrackRowContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
+  pluginMenuItems?: PluginMenuItem[];
+  onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
 }
 
 function PluginViewNode({
@@ -72,6 +69,8 @@ function PluginViewNode({
   onAction,
   onTrackContextMenu,
   onTrackRowContextMenu,
+  pluginMenuItems,
+  onPluginAction,
 }: PluginViewNodeProps) {
   switch (node.type) {
     case "track-list":
@@ -90,6 +89,8 @@ function PluginViewNode({
           items={node.items}
           columns={node.columns}
           onAction={onAction}
+          pluginMenuItems={pluginMenuItems}
+          onPluginAction={onPluginAction}
         />
       );
     case "track-row-list":
@@ -131,6 +132,8 @@ function PluginViewNode({
               onAction={onAction}
               onTrackContextMenu={onTrackContextMenu}
               onTrackRowContextMenu={onTrackRowContextMenu}
+              pluginMenuItems={pluginMenuItems}
+              onPluginAction={onPluginAction}
             />
           ))}
         </div>
@@ -289,11 +292,45 @@ function PluginCardGrid({
   items,
   columns,
   onAction,
+  pluginMenuItems,
+  onPluginAction,
 }: {
   items: CardGridItem[];
   columns?: number;
   onAction?: (actionId: string, data?: unknown) => void;
+  pluginMenuItems?: PluginMenuItem[];
+  onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
 }) {
+  const [contextMenu, setContextMenu] = useState<{ item: CardGridItem; x: number; y: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handle = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [contextMenu]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, item: CardGridItem) => {
+    if (!item.contextMenuActions?.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ item, x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handleMoreClick = useCallback((e: React.MouseEvent, item: CardGridItem) => {
+    e.stopPropagation();
+    if (!item.contextMenuActions?.length) return;
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setContextMenu({ item, x: rect.left, y: rect.bottom + 4 });
+  }, []);
+
+  const matchingPluginItems = pluginMenuItems?.filter(item => item.targets.includes("playlist")) ?? [];
+
   return (
     <div
       className="plugin-card-grid"
@@ -308,26 +345,94 @@ function PluginCardGrid({
       {items.map((item) => (
         <div
           key={item.id}
-          className={`plugin-card${item.action ? " plugin-card-clickable" : ""}`}
+          className="plugin-card"
           onClick={
             item.action
               ? () => onAction?.(item.action!, { itemId: item.id })
               : undefined
           }
+          onContextMenu={item.contextMenuActions?.length ? (e) => handleContextMenu(e, item) : undefined}
         >
-          {item.imageUrl && (
-            <div className="plugin-card-image">
+          <div className="plugin-card-art">
+            {item.imageUrl ? (
               <img src={item.imageUrl} alt={item.title} />
-            </div>
-          )}
-          <div className="plugin-card-info">
-            <div className="plugin-card-title">{item.title}</div>
-            {item.subtitle && (
-              <div className="plugin-card-subtitle">{item.subtitle}</div>
+            ) : (
+              <div style={{ width: "100%", height: "100%", background: "var(--bg-surface)" }} />
+            )}
+            {item.contextMenuActions?.some(a => a.id === "play-playlist") && (
+              <button
+                className="plugin-card-play"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAction?.("play-playlist", { itemId: item.id });
+                }}
+                title="Play"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              </button>
             )}
           </div>
+          <div className="plugin-card-info">
+            <div className="plugin-card-title">{item.title}</div>
+            {item.contextMenuActions?.length ? (
+              <button
+                className="plugin-card-more"
+                onClick={(e) => handleMoreClick(e, item)}
+                title="More options"
+              >
+                &#x22EF;
+              </button>
+            ) : null}
+          </div>
+          {item.subtitle && (
+            <div className="plugin-card-subtitle">{item.subtitle}</div>
+          )}
         </div>
       ))}
+      {contextMenu && (
+        <div
+          ref={menuRef}
+          className="context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          {contextMenu.item.contextMenuActions!.map((action) =>
+            action.separator ? (
+              <div key={action.id} className="context-menu-separator" />
+            ) : (
+              <div
+                key={action.id}
+                className="context-menu-item"
+                onClick={() => {
+                  onAction?.(action.id, { itemId: contextMenu.item.id });
+                  setContextMenu(null);
+                }}
+              >
+                <span>{action.label}</span>
+              </div>
+            )
+          )}
+          {matchingPluginItems.length > 0 && (
+            <>
+              <div className="context-menu-separator" />
+              {matchingPluginItems.map((mi) => (
+                <div
+                  key={`${mi.pluginId}:${mi.id}`}
+                  className="context-menu-item"
+                  onClick={() => {
+                    onPluginAction?.(mi.pluginId, mi.id, {
+                      kind: "playlist",
+                      playlistName: contextMenu.item.title,
+                    });
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>{mi.label}</span>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

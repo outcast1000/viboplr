@@ -12,6 +12,7 @@ interface BreadcrumbProps {
   sortedTracks: Track[];
   onPlayAll: (tracks: Track[], startIndex: number) => void;
   onEnqueueAll: (tracks: Track[]) => void;
+  pluginName?: string;
   children?: ReactNode;
 }
 
@@ -19,6 +20,7 @@ export function Breadcrumb({
   view, selectedArtist, selectedAlbum, selectedTag, selectedTrack,
   tracks, sortedTracks,
   onPlayAll, onEnqueueAll,
+  pluginName,
   children,
 }: BreadcrumbProps) {
   return (
@@ -45,6 +47,8 @@ export function Breadcrumb({
         <span>Collections</span>
       ) : view === "playlists" ? (
         <span>Playlists</span>
+      ) : typeof view === "string" && view.startsWith("plugin:") ? (
+        <span>{pluginName || view}</span>
       ) : (
         <span>All Tracks</span>
       )}

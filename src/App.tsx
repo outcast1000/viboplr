@@ -498,6 +498,31 @@ function App() {
     requestAction: (_pluginId, action, payload) => {
       if (action === "tidal-download") {
         contextMenuActions.setTidalDownload(payload as { trackId: number | null; title: string; artistName: string | null });
+      } else if (action === "play-tracks") {
+        const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string }>);
+        const startIndex = (payload.startIndex as number) ?? 0;
+        if (tracks?.length) {
+          queueHook.playTracks(tracks.map(t => ({
+            title: t.title,
+            artist_name: t.artist_name ?? null,
+            album_title: t.album_title ?? null,
+            duration_secs: t.duration_secs ?? null,
+            url: t.url ?? null,
+            path: t.path ?? "external://",
+          })) as Track[], startIndex);
+        }
+      } else if (action === "enqueue-tracks") {
+        const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string }>);
+        if (tracks?.length) {
+          queueHook.enqueueTracks(tracks.map(t => ({
+            title: t.title,
+            artist_name: t.artist_name ?? null,
+            album_title: t.album_title ?? null,
+            duration_secs: t.duration_secs ?? null,
+            url: t.url ?? null,
+            path: t.path ?? "external://",
+          })) as Track[]);
+        }
       }
     },
     showNotification: (message) => {
@@ -1656,6 +1681,7 @@ function App() {
               sortedTracks={sortedTracks}
               onPlayAll={queueHook.playTracks}
               onEnqueueAll={contextMenuActions.handleEnqueue}
+              pluginName={typeof view === "string" && view.startsWith("plugin:") ? (plugins.pluginStates.find(p => p.id === view.slice("plugin:".length).split(":")[0])?.manifest.name) : undefined}
             >
               {view === "all" && <ViewModeToggle mode={library.trackViewMode} onChange={library.setTrackViewMode} />}
               {view === "artists" && selectedArtist === null && <ViewModeToggle mode={library.artistViewMode} onChange={library.setArtistViewMode} />}
@@ -2158,6 +2184,8 @@ function App() {
                 onTrackRowContextMenu={(e, item) => {
                   contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: 0, subsonic: false, title: item.title, artistName: item.subtitle ?? null, external: true } });
                 }}
+                pluginMenuItems={plugins.menuItems}
+                onPluginAction={plugins.dispatchContextMenuAction}
               />
             );
           })()}

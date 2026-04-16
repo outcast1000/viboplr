@@ -92,53 +92,103 @@
 /* Plugin card grid */
 .plugin-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  padding: 16px;
 }
 
 .plugin-card {
-  background: var(--bg-surface);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.plugin-card-clickable {
   cursor: pointer;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: background 0.15s;
 }
 
-.plugin-card-clickable:hover {
+.plugin-card:hover {
   background: var(--bg-hover);
 }
 
-.plugin-card-image {
+.plugin-card-art {
+  position: relative;
   aspect-ratio: 1;
+  background: var(--bg-surface);
   overflow: hidden;
 }
 
-.plugin-card-image img {
+.plugin-card-art img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
+.plugin-card-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.plugin-card-art:hover .plugin-card-play {
+  opacity: 1;
+}
+
+.plugin-card-play svg {
+  width: 40px;
+  height: 40px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
+}
+
 .plugin-card-info {
-  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 8px 4px 12px;
 }
 
 .plugin-card-title {
   font-size: var(--fs-sm);
   font-weight: 500;
-  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-card-more {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-base);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.plugin-card:hover .plugin-card-more {
+  opacity: 1;
+}
+
+.plugin-card-more:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .plugin-card-subtitle {
-  font-size: var(--fs-2xs);
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: 0 12px 12px;
 }
 
 /* Plugin text */
@@ -233,6 +283,7 @@
 .plugin-layout-horizontal {
   display: flex;
   flex-direction: row;
+  align-items: center;
   gap: 12px;
 }
 

@@ -110,8 +110,13 @@ function activate(api) {
     // Show playlists once we have them
     if (state.playlists.length > 0) {
       ch.push({ type: "spacer" });
-      ch.push({ type: "text", content: "<h3>Made for You</h3>" });
-      ch.push({ type: "text", content: "<p style='opacity:0.6'>" + state.playlists.length + " playlists</p>" });
+      ch.push({
+        type: "layout", direction: "horizontal", children: [
+          { type: "text", content: "<h3 style='margin:0'>Made for You</h3>" },
+          { type: "text", content: "<span style='opacity:0.5;font-size:var(--fs-xs)'>" + state.playlists.length + " playlists</span>" },
+          { type: "button", label: "Refresh", action: "open-spotify", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
+        ]
+      });
       var cards = [];
       for (var i = 0; i < state.playlists.length; i++) {
         var p = state.playlists[i];
@@ -123,11 +128,16 @@ function activate(api) {
           subtitle: sub,
           imageUrl: p.imageUrl,
           action: "view-playlist",
+          contextMenuActions: [
+            { id: "play-playlist", label: "Play" },
+            { id: "enqueue-playlist", label: "Enqueue" },
+            { id: "view-playlist", label: "View / Edit" },
+            { id: "sep", label: "", separator: true },
+            { id: "save-playlist-ctx", label: "Save Playlist" },
+          ],
         });
       }
       ch.push({ type: "card-grid", items: cards });
-      ch.push({ type: "spacer" });
-      ch.push({ type: "button", label: "Refresh", action: "open-spotify" });
     }
 
     if (DEV && state.debugLog.length > 0) {
@@ -799,6 +809,98 @@ function activate(api) {
     for (var i = 0; i < tracks.length; i++) {
       var t = tracks[i];
       // Parse duration string "M:SS" to seconds
+      var durationSecs = null;
+      if (t.duration) {
+        var parts = t.duration.split(":");
+        if (parts.length === 2) {
+          durationSecs = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+        }
+      }
+      trackPayloads.push({
+        title: t.name || "Unknown",
+        artistName: t.artist || null,
+        albumName: t.album || null,
+        durationSecs: durationSecs,
+        source: null,
+        imageUrl: t.imageUrl || null,
+      });
+    }
+
+    api.playlists.save({
+      name: name,
+      source: "spotify-playlist://" + pl.id,
+      imageUrl: pl.imageUrl || null,
+      tracks: trackPayloads,
+    }).then(function() {
+      api.ui.showNotification("Playlist saved: " + name);
+    }).catch(function(err) {
+      console.error("Failed to save playlist:", err);
+      api.ui.showNotification("Failed to save playlist");
+    });
+  });
+
+  // ---- Context menu actions for playlist cards ----
+
+  function findPlaylistFromData(data) {
+    if (!data || !data.itemId) return null;
+    var parts = data.itemId.split(":");
+    if (parts[0] !== "playlist") return null;
+    var pid = parts.slice(1).join(":");
+    for (var i = 0; i < state.playlists.length; i++) {
+      if (state.playlists[i].id === pid) return state.playlists[i];
+    }
+    return null;
+  }
+
+  function playlistTracksToPayload(tracks) {
+    var out = [];
+    for (var i = 0; i < tracks.length; i++) {
+      var t = tracks[i];
+      var durationSecs = null;
+      if (t.duration) {
+        var parts = t.duration.split(":");
+        if (parts.length === 2) {
+          durationSecs = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+        }
+      }
+      out.push({
+        title: t.name || "Unknown",
+        artist_name: t.artist || null,
+        album_title: t.album || null,
+        duration_secs: durationSecs,
+      });
+    }
+    return out;
+  }
+
+  api.ui.onAction("play-playlist", function(data) {
+    var pl = findPlaylistFromData(data);
+    if (!pl) return;
+    var tracks = state.playlistTracks[pl.id] || [];
+    if (tracks.length === 0) return;
+    api.ui.requestAction("play-tracks", { tracks: playlistTracksToPayload(tracks), startIndex: 0 });
+  });
+
+  api.ui.onAction("enqueue-playlist", function(data) {
+    var pl = findPlaylistFromData(data);
+    if (!pl) return;
+    var tracks = state.playlistTracks[pl.id] || [];
+    if (tracks.length === 0) return;
+    api.ui.requestAction("enqueue-tracks", { tracks: playlistTracksToPayload(tracks) });
+  });
+
+  api.ui.onAction("save-playlist-ctx", function(data) {
+    var pl = findPlaylistFromData(data);
+    if (!pl) return;
+    var tracks = state.playlistTracks[pl.id] || [];
+    var now = new Date();
+    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    var dateStr = now.getDate() + " " + months[now.getMonth()] + " " + now.getFullYear();
+    var name = pl.name + " " + dateStr;
+
+    var trackPayloads = [];
+    for (var i = 0; i < tracks.length; i++) {
+      var t = tracks[i];
       var durationSecs = null;
       if (t.duration) {
         var parts = t.duration.split(":");

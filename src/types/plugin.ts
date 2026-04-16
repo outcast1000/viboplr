@@ -118,12 +118,19 @@ export interface PluginContextMenuTarget {
 
 // -- View data types --
 
+export interface CardGridContextAction {
+  id: string;
+  label: string;
+  separator?: boolean;
+}
+
 export interface CardGridItem {
   id: string;
   title: string;
   subtitle?: string;
   imageUrl?: string;
   action?: string;
+  contextMenuActions?: CardGridContextAction[];
 }
 
 export interface StatItem {
