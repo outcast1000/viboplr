@@ -122,7 +122,6 @@ function App() {
   });
   const fallbackProvidersRef = useRef<FallbackProvider[]>([]);
   const [fallbackOrderVersion, setFallbackOrderVersion] = useState(0);
-  void setFallbackOrderVersion; // Used by Settings UI (Task 8)
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef);
   const waveformPeaks = useWaveform(
     playback.currentTrack?.path ?? null,
@@ -2213,6 +2212,7 @@ function App() {
               onPluginAction={plugins.dispatchUIAction}
               loggingEnabled={loggingEnabled}
               onLoggingEnabledChange={handleLoggingEnabledChange}
+              onFallbackOrderChanged={() => setFallbackOrderVersion(v => v + 1)}
             />
           )}
           </>}
