@@ -17,6 +17,9 @@
       { "id": "search-tidal", "label": "TIDAL: Search", "targets": ["track", "album", "artist"] },
       { "id": "play-from-tidal", "label": "TIDAL: Play", "targets": ["track"] },
       { "id": "download-from-tidal", "label": "TIDAL: Download", "targets": ["track"] }
+    ],
+    "fallbackProviders": [
+      { "id": "tidal-fallback", "name": "TIDAL", "priority": 200 }
     ]
   }
 }

@@ -527,6 +527,23 @@ function activate(api) {
     });
   });
 
+  // -- Fallback provider --
+
+  api.playback.onFallbackResolve("tidal-fallback", async function (title, artistName, albumName) {
+    var query = [title, artistName].filter(Boolean).join(" ");
+    if (!query) return null;
+    try {
+      var results = await api.tidal.search(query, 1);
+      var tracks = results && results.tracks;
+      if (tracks && tracks.length > 0) {
+        return { url: "tidal://" + tracks[0].tidal_id, label: "TIDAL" };
+      }
+    } catch (e) {
+      // TIDAL unavailable — skip
+    }
+    return null;
+  });
+
   // Initial render
   render();
 }
