@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
+import { DeletePlaylistModal } from "./DeletePlaylistModal";
+import playlistDefault from "../assets/playlist-default.png";
 import "./PlaylistsView.css";
 
 interface Playlist {
@@ -40,14 +42,27 @@ function formatDuration(secs: number | null): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-interface PlaylistsViewProps {
-  searchQuery: string;
+function playlistTrackToMinimalTrack(t: PlaylistTrack): { title: string; artist_name: string | null; album_title: string | null; duration_secs: number | null; url: string | null; path: string } {
+  return {
+    title: t.title,
+    artist_name: t.artist_name,
+    album_title: t.album_name,
+    duration_secs: t.duration_secs ?? null,
+    url: t.source,
+    path: t.source ?? "",
+  };
 }
 
-export function PlaylistsView({ searchQuery }: PlaylistsViewProps) {
+interface PlaylistsViewProps {
+  searchQuery: string;
+  onPlayTracks: (tracks: any[], startIndex: number) => void;
+}
+
+export function PlaylistsView({ searchQuery, onPlayTracks }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
+  const [deleteConfirm, setDeleteConfirm] = useState<Playlist | null>(null);
 
   const loadPlaylists = useCallback(async () => {
     const rows = await invoke<Playlist[]>("get_playlists");
@@ -69,13 +84,14 @@ export function PlaylistsView({ searchQuery }: PlaylistsViewProps) {
     setTracks([]);
   }, []);
 
-  const handleDelete = useCallback(async (pl: Playlist) => {
-    if (!confirm(`Delete playlist "${pl.name}"?`)) return;
-    await invoke("delete_playlist_record", { playlistId: pl.id });
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteConfirm) return;
+    await invoke("delete_playlist_record", { playlistId: deleteConfirm.id });
+    setDeleteConfirm(null);
     setSelectedPlaylist(null);
     setTracks([]);
     loadPlaylists();
-  }, [loadPlaylists]);
+  }, [deleteConfirm, loadPlaylists]);
 
   const handleExport = useCallback(async (pl: Playlist) => {
     const path = await save({
@@ -86,6 +102,14 @@ export function PlaylistsView({ searchQuery }: PlaylistsViewProps) {
       await invoke("export_playlist_m3u", { playlistId: pl.id, path });
     }
   }, []);
+
+  const handlePlayPlaylist = useCallback(async (e: React.MouseEvent, pl: Playlist) => {
+    e.stopPropagation();
+    const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
+    if (rows.length > 0) {
+      onPlayTracks(rows.map(playlistTrackToMinimalTrack), 0);
+    }
+  }, [onPlayTracks]);
 
   const imageUrl = useCallback(
     (imagePath: string | null) => {
@@ -100,18 +124,24 @@ export function PlaylistsView({ searchQuery }: PlaylistsViewProps) {
     ? playlists.filter((p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : playlists;
 
+  const deleteModal = deleteConfirm && (
+    <DeletePlaylistModal
+      playlistName={deleteConfirm.name}
+      onConfirm={handleDeleteConfirm}
+      onClose={() => setDeleteConfirm(null)}
+    />
+  );
+
   // Detail view
   if (selectedPlaylist) {
     return (
       <div className="playlists-view">
         <div className="playlists-detail-header">
-          {selectedPlaylist.image_path && (
-            <img
-              className="playlists-detail-cover"
-              src={imageUrl(selectedPlaylist.image_path)}
-              alt=""
-            />
-          )}
+          <img
+            className="playlists-detail-cover"
+            src={selectedPlaylist.image_path ? imageUrl(selectedPlaylist.image_path) : playlistDefault}
+            alt=""
+          />
           <div className="playlists-detail-info">
             <button className="playlists-back-btn" onClick={goBack}>&larr; Back</button>
             <h2>{selectedPlaylist.name}</h2>
@@ -119,8 +149,9 @@ export function PlaylistsView({ searchQuery }: PlaylistsViewProps) {
               {selectedPlaylist.track_count} tracks &middot; Saved {formatDate(selectedPlaylist.saved_at)}
             </div>
             <div className="playlists-detail-actions">
+              <button className="playlists-action-btn playlists-action-btn-play" onClick={() => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0)} disabled={tracks.length === 0}>Play</button>
               <button className="playlists-action-btn" onClick={() => handleExport(selectedPlaylist)}>Export M3U</button>
-              <button className="playlists-action-btn playlists-action-btn-danger" onClick={() => handleDelete(selectedPlaylist)}>Delete</button>
+              <button className="playlists-action-btn playlists-action-btn-danger" onClick={() => setDeleteConfirm(selectedPlaylist)}>Delete</button>
             </div>
           </div>
         </div>
@@ -147,6 +178,7 @@ export function PlaylistsView({ searchQuery }: PlaylistsViewProps) {
             </div>
           ))}
         </div>
+        {deleteModal}
       </div>
     );
   }
@@ -161,11 +193,10 @@ export function PlaylistsView({ searchQuery }: PlaylistsViewProps) {
           {filtered.map((pl) => (
             <div key={pl.id} className="playlist-card" onClick={() => openPlaylist(pl)}>
               <div className="playlist-card-art">
-                {pl.image_path ? (
-                  <img src={imageUrl(pl.image_path)} alt="" />
-                ) : (
-                  <div className="playlist-card-placeholder" />
-                )}
+                <img src={pl.image_path ? imageUrl(pl.image_path) : playlistDefault} alt="" />
+                <button className="playlist-card-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                </button>
               </div>
               <div className="playlist-card-name">{pl.name}</div>
               <div className="playlist-card-meta">
@@ -175,6 +206,7 @@ export function PlaylistsView({ searchQuery }: PlaylistsViewProps) {
           ))}
         </div>
       )}
+      {deleteModal}
     </div>
   );
 }

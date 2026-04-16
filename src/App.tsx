@@ -68,6 +68,7 @@ import { InformationSections } from "./components/InformationSections";
 import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
 import { PlaylistsView } from "./components/PlaylistsView";
+import { SavePlaylistModal } from "./components/SavePlaylistModal";
 import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
@@ -84,6 +85,7 @@ function App() {
   const restoredRef = useRef(false);
   const [appRestoring, setAppRestoring] = useState(true);
   const [navError, setNavError] = useState<string | null>(null);
+  const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
   const pendingRestoreTrackRef = useRef<Track | null>(null);
   const pendingRestoreQueueRef = useRef<{ tracks: Track[]; index: number } | null>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -1280,21 +1282,13 @@ function App() {
     store.set("queueWidth", width);
   }
 
-  async function handleSaveAsPlaylist() {
+  function handleSaveAsPlaylist() {
     if (queueHook.queue.length === 0) return;
+    setShowSavePlaylistModal(true);
+  }
 
-    // Generate default name
-    const date = new Date();
-    const dateStr = date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-    const defaultName = queueHook.playlistName
-      ? `${queueHook.playlistName} ${dateStr}`
-      : `Queue ${dateStr}`;
-
-    // Prompt for name
-    const name = prompt("Playlist name:", defaultName);
-    if (!name) return;
-
-    // Map tracks to save format
+  async function handleSavePlaylistConfirm(name: string, imagePath: string | null) {
+    setShowSavePlaylistModal(false);
     const tracks = queueHook.queue.map((t) => ({
       title: t.title,
       artist_name: t.artist_name ?? null,
@@ -1303,19 +1297,20 @@ function App() {
       source: t.url ?? t.path,
       image_url: null,
     }));
-
-    // Save to database
     try {
-      await invoke("save_playlist_record", {
+      const playlistId = await invoke<number>("save_playlist_record", {
         name,
         source: null,
         imageUrl: null,
         tracks,
       });
+      if (imagePath) {
+        await invoke("update_playlist_image", { playlistId, imagePath });
+      }
       addLog("Playlist saved: " + name);
     } catch (err) {
       console.error("Failed to save playlist:", err);
-      alert(`Failed to save playlist: ${err}`);
+      addLog(`Failed to save playlist: ${err}`);
     }
   }
 
@@ -2034,7 +2029,7 @@ function App() {
                 placeholder="Search playlists..."
                 {...playlistsSearchNav}
               />
-              <PlaylistsView searchQuery={viewSearch.getQuery("playlists")} />
+              <PlaylistsView searchQuery={viewSearch.getQuery("playlists")} onPlayTracks={queueHook.playTracks} />
             </>
           )}
 
@@ -2420,6 +2415,20 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {showSavePlaylistModal && (
+        <SavePlaylistModal
+          defaultName={(() => {
+            const date = new Date();
+            const dateStr = date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+            return queueHook.playlistName
+              ? `${queueHook.playlistName} ${dateStr}`
+              : `Queue ${dateStr}`;
+          })()}
+          onSave={handleSavePlaylistConfirm}
+          onClose={() => setShowSavePlaylistModal(false)}
+        />
       )}
 
       <NowPlayingBar

@@ -1514,6 +1514,54 @@
   color: var(--error);
 }
 
+.save-playlist-image-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.save-playlist-image-preview {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  border-radius: 8px;
+  overflow: visible;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+}
+
+.save-playlist-image-preview img {
+  width: 120px;
+  height: 120px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.save-playlist-image-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.save-playlist-image-preview > .artist-image-menu-wrapper {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+}
+
+.save-playlist-image-preview > .artist-image-menu-wrapper .artist-image-menu-trigger {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.save-playlist-image-preview:hover > .artist-image-menu-wrapper .artist-image-menu-trigger {
+  opacity: 1;
+}
+
 .collection-kind-tidal {
   background: rgba(var(--accent-rgb), 0.2);
   color: var(--accent);
@@ -1574,6 +1622,7 @@
 }
 
 .playlist-card-art {
+  position: relative;
   aspect-ratio: 1;
   background: var(--bg-surface);
   overflow: hidden;
@@ -1583,6 +1632,30 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.playlist-card-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.playlist-card-art:hover .playlist-card-play {
+  opacity: 1;
+}
+
+.playlist-card-play svg {
+  width: 40px;
+  height: 40px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
 }
 
 .playlist-card-placeholder {
@@ -1677,6 +1750,17 @@
 .playlists-action-btn:hover {
   border-color: var(--accent);
   background: var(--bg-hover);
+}
+
+.playlists-action-btn-play {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.playlists-action-btn-play:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
 }
 
 .playlists-action-btn-danger {
