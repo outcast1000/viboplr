@@ -31,13 +31,18 @@ function activate(api) {
   function dbg(tag, msg, data) {
     if (!DEV) return;
     var ts = new Date().toLocaleTimeString();
-    var entry = "[" + ts + "] [" + tag + "] " + msg;
-    if (data !== undefined) {
-      try { entry += " " + JSON.stringify(data).substring(0, 500); } catch(e) {}
-    }
-    state.debugLog.push(entry);
+    state.debugLog.push({ ts: ts, tag: tag, msg: msg, data: data });
     if (state.debugLog.length > 200) state.debugLog.shift();
     console.log("[spotify-dbg]", tag, msg, data !== undefined ? data : "");
+  }
+
+  function formatDebugData(data) {
+    if (data === undefined || data === null) return "";
+    try {
+      return JSON.stringify(data, null, 2);
+    } catch(e) {
+      return "" + data;
+    }
   }
 
   function cleanup() {
@@ -126,8 +131,43 @@ function activate(api) {
     }
 
     if (DEV && state.debugLog.length > 0) {
+      var tagBg = {
+        flow: "#2a4a6a", login: "#2a5a2a", m4y: "#5a4a1a", playlists: "#4a2a5a",
+        tracks: "#1a4a4a", error: "#5a1a1a", msg: "#3a3a3a"
+      };
+      var logHtml = "";
+      for (var li = 0; li < state.debugLog.length; li++) {
+        var e = state.debugLog[li];
+        var bg = tagBg[e.tag] || "#333";
+        logHtml += "<div style='padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.06);" +
+          (e.tag === "error" ? "background:rgba(255,50,50,0.1);" : "") + "'>";
+        logHtml += "<span style='opacity:0.4;font-size:10px'>" + escapeHtml(e.ts) + "</span> ";
+        logHtml += "<span style='background:" + bg + ";padding:1px 6px;border-radius:3px;font-size:10px;font-weight:bold'>" +
+          escapeHtml(e.tag.toUpperCase()) + "</span> ";
+        logHtml += escapeHtml(e.msg);
+        if (e.data !== undefined) {
+          var raw = formatDebugData(e.data);
+          if (raw.length > 80) {
+            logHtml += "<pre style='margin:4px 0 2px 0;padding:6px 8px;background:rgba(0,0,0,0.3);" +
+              "border-radius:4px;font-size:10px;white-space:pre-wrap;word-break:break-all;" +
+              "user-select:text;-webkit-user-select:text;cursor:text;max-height:200px;overflow:auto'>" +
+              escapeHtml(raw) + "</pre>";
+          } else {
+            logHtml += " <span style='opacity:0.6'>" + escapeHtml(raw) + "</span>";
+          }
+        }
+        logHtml += "</div>";
+      }
       ch.push({ type: "spacer" });
-      ch.push({ type: "text", content: "<details><summary style='cursor:pointer;opacity:0.6;font-size:12px'>Debug Log (" + state.debugLog.length + " entries)</summary><pre style='font-size:11px;max-height:400px;overflow:auto;background:rgba(0,0,0,0.2);padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-all'>" + escapeHtml(state.debugLog.join("\n")) + "</pre></details>" });
+      ch.push({ type: "text", content:
+        "<details open><summary style='cursor:pointer;font-size:12px;font-weight:bold;margin-bottom:4px'>" +
+        "Debug Log (" + state.debugLog.length + ")</summary>" +
+        "<div style='font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.4;" +
+        "max-height:500px;overflow:auto;background:rgba(0,0,0,0.25);border-radius:6px;" +
+        "user-select:text;-webkit-user-select:text;cursor:text;border:1px solid rgba(255,255,255,0.08)'>" +
+        logHtml +
+        "</div></details>"
+      });
     }
 
     api.ui.setViewData("spotify", { type: "layout", direction: "vertical", children: ch });
