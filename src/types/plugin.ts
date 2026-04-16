@@ -22,7 +22,7 @@ export interface PluginManifestContextMenuItem {
   targets: PluginTargetKind[];
 }
 
-export type PluginTargetKind = "track" | "album" | "artist" | "multi-track";
+export type PluginTargetKind = "track" | "album" | "artist" | "multi-track" | "playlist";
 
 export type PluginEventName =
   | "track:started"
@@ -105,6 +105,8 @@ export interface PluginContextMenuTarget {
   artistId?: number;
   trackIds?: number[];
   subsonic?: boolean;
+  playlistId?: number;
+  playlistName?: string;
 }
 
 // -- View data types --

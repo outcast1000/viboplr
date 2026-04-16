@@ -2029,7 +2029,13 @@ function App() {
                 placeholder="Search playlists..."
                 {...playlistsSearchNav}
               />
-              <PlaylistsView searchQuery={viewSearch.getQuery("playlists")} onPlayTracks={queueHook.playTracks} />
+              <PlaylistsView
+                searchQuery={viewSearch.getQuery("playlists")}
+                onPlayTracks={queueHook.playTracks}
+                onEnqueueTracks={queueHook.enqueueTracks}
+                pluginMenuItems={plugins.menuItems}
+                onPluginAction={plugins.dispatchContextMenuAction}
+              />
             </>
           )}
 

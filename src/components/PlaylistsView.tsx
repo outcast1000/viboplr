@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
+import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import playlistDefault from "../assets/playlist-default.png";
 import "./PlaylistsView.css";
 
@@ -56,13 +57,18 @@ function playlistTrackToMinimalTrack(t: PlaylistTrack): { title: string; artist_
 interface PlaylistsViewProps {
   searchQuery: string;
   onPlayTracks: (tracks: any[], startIndex: number) => void;
+  onEnqueueTracks: (tracks: any[]) => void;
+  pluginMenuItems?: PluginMenuItem[];
+  onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
 }
 
-export function PlaylistsView({ searchQuery, onPlayTracks }: PlaylistsViewProps) {
+export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, pluginMenuItems, onPluginAction }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<Playlist | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ pl: Playlist; x: number; y: number } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const loadPlaylists = useCallback(async () => {
     const rows = await invoke<Playlist[]>("get_playlists");
@@ -110,6 +116,36 @@ export function PlaylistsView({ searchQuery, onPlayTracks }: PlaylistsViewProps)
       onPlayTracks(rows.map(playlistTrackToMinimalTrack), 0);
     }
   }, [onPlayTracks]);
+
+  const handleEnqueuePlaylist = useCallback(async (pl: Playlist) => {
+    const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
+    if (rows.length > 0) {
+      onEnqueueTracks(rows.map(playlistTrackToMinimalTrack));
+    }
+  }, [onEnqueueTracks]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, pl: Playlist) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ pl, x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handleMoreClick = useCallback((e: React.MouseEvent, pl: Playlist) => {
+    e.stopPropagation();
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setContextMenu({ pl, x: rect.left, y: rect.bottom + 4 });
+  }, []);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handle = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [contextMenu]);
 
   const imageUrl = useCallback(
     (imagePath: string | null) => {
@@ -191,19 +227,64 @@ export function PlaylistsView({ searchQuery, onPlayTracks }: PlaylistsViewProps)
       ) : (
         <div className="playlists-grid">
           {filtered.map((pl) => (
-            <div key={pl.id} className="playlist-card" onClick={() => openPlaylist(pl)}>
+            <div key={pl.id} className="playlist-card" onClick={() => openPlaylist(pl)} onContextMenu={(e) => handleContextMenu(e, pl)}>
               <div className="playlist-card-art">
                 <img src={pl.image_path ? imageUrl(pl.image_path) : playlistDefault} alt="" />
                 <button className="playlist-card-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                 </button>
               </div>
-              <div className="playlist-card-name">{pl.name}</div>
+              <div className="playlist-card-info">
+                <div className="playlist-card-name">{pl.name}</div>
+                <button className="playlist-card-more" onClick={(e) => handleMoreClick(e, pl)} title="More options">&#x22EF;</button>
+              </div>
               <div className="playlist-card-meta">
                 {pl.track_count} tracks &middot; {formatDate(pl.saved_at)}
               </div>
             </div>
           ))}
+        </div>
+      )}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <div className="context-menu-item" onClick={() => { handlePlayPlaylist({ stopPropagation: () => {} } as React.MouseEvent, contextMenu.pl); setContextMenu(null); }}>
+            <span>Play</span>
+          </div>
+          <div className="context-menu-item" onClick={() => { handleEnqueuePlaylist(contextMenu.pl); setContextMenu(null); }}>
+            <span>Enqueue</span>
+          </div>
+          <div className="context-menu-item" onClick={() => { openPlaylist(contextMenu.pl); setContextMenu(null); }}>
+            <span>View / Edit</span>
+          </div>
+          {pluginMenuItems && pluginMenuItems.length > 0 && (() => {
+            const matching = pluginMenuItems.filter(item => item.targets.includes("playlist"));
+            if (matching.length === 0) return null;
+            return (
+              <>
+                <div className="context-menu-separator" />
+                {matching.map((item) => (
+                  <div
+                    key={`${item.pluginId}:${item.id}`}
+                    className="context-menu-item"
+                    onClick={() => {
+                      onPluginAction?.(item.pluginId, item.id, {
+                        kind: "playlist",
+                        playlistId: contextMenu.pl.id,
+                        playlistName: contextMenu.pl.name,
+                      });
+                      setContextMenu(null);
+                    }}
+                  >
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </>
+            );
+          })()}
         </div>
       )}
       {deleteModal}

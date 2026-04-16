@@ -1664,10 +1664,44 @@
   background: var(--bg-surface);
 }
 
+.playlist-card-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 8px 4px 12px;
+}
+
 .playlist-card-name {
   font-size: var(--fs-sm);
   font-weight: 500;
-  padding: 8px 12px 4px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-card-more {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-base);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.playlist-card:hover .playlist-card-more {
+  opacity: 1;
+}
+
+.playlist-card-more:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 .playlist-card-meta {
