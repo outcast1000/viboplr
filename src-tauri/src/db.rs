@@ -1151,6 +1151,69 @@ impl Database {
         conn.query_row(&sql, params![track_id], |row| track_from_row(row))
     }
 
+    /// Find a track by metadata (title, artist, album) with diacritic-insensitive matching.
+    /// Matching cascade: title+artist+album → title+artist → title only.
+    /// When multiple matches exist, prefers local > subsonic > tidal.
+    pub fn find_track_by_metadata(
+        &self,
+        title: &str,
+        artist_name: Option<&str>,
+        album_name: Option<&str>,
+    ) -> SqlResult<Option<Track>> {
+        let conn = self.conn.lock().unwrap();
+
+        // Source preference: local files first, then subsonic, then tidal (by path prefix)
+        let order_clause = "ORDER BY CASE \
+            WHEN co.kind = 'local' THEN 0 \
+            WHEN co.kind = 'subsonic' THEN 1 \
+            ELSE 2 \
+        END LIMIT 1";
+
+        let enabled_filter = ENABLED_COLLECTION_FILTER;
+
+        if let Some(artist) = artist_name {
+            // Try title + artist + album first
+            if let Some(album) = album_name {
+                let sql = format!(
+                    "{} WHERE strip_diacritics(unicode_lower(t.title)) = strip_diacritics(unicode_lower(?1)) \
+                     AND ar.name IS NOT NULL AND strip_diacritics(unicode_lower(ar.name)) = strip_diacritics(unicode_lower(?2)) \
+                     AND al.title IS NOT NULL AND strip_diacritics(unicode_lower(al.title)) = strip_diacritics(unicode_lower(?3)) \
+                     {} {}",
+                    TRACK_SELECT, enabled_filter, order_clause
+                );
+                let result: Option<Track> = conn
+                    .query_row(&sql, params![title, artist, album], |row| track_from_row(row))
+                    .optional()?;
+                if result.is_some() {
+                    return Ok(result);
+                }
+            }
+
+            // Fall back to title + artist
+            let sql = format!(
+                "{} WHERE strip_diacritics(unicode_lower(t.title)) = strip_diacritics(unicode_lower(?1)) \
+                 AND ar.name IS NOT NULL AND strip_diacritics(unicode_lower(ar.name)) = strip_diacritics(unicode_lower(?2)) \
+                 {} {}",
+                TRACK_SELECT, enabled_filter, order_clause
+            );
+            let result: Option<Track> = conn
+                .query_row(&sql, params![title, artist], |row| track_from_row(row))
+                .optional()?;
+            if result.is_some() {
+                return Ok(result);
+            }
+        }
+
+        // Last resort: title only
+        let sql = format!(
+            "{} WHERE strip_diacritics(unicode_lower(t.title)) = strip_diacritics(unicode_lower(?1)) \
+             {} {}",
+            TRACK_SELECT, enabled_filter, order_clause
+        );
+        conn.query_row(&sql, params![title], |row| track_from_row(row))
+            .optional()
+    }
+
     fn search_tracks_inner(&self, conn: &rusqlite::Connection, opts: &TrackQuery, query: &str) -> SqlResult<Vec<Track>> {
         let normalized = strip_diacritics(query);
         let words = normalized
@@ -3852,5 +3915,84 @@ mod tests {
         db.delete_playlist(playlist_id).unwrap();
         assert_eq!(db.get_playlists().unwrap().len(), 0);
         assert_eq!(db.get_playlist_tracks(playlist_id).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_find_track_by_metadata_exact() {
+        let db = test_db();
+        let artist = db.get_or_create_artist("Radiohead").unwrap();
+        let album = db.get_or_create_album("OK Computer", Some(artist), Some(1997)).unwrap();
+        let track_id = insert_track(&db, "music/paranoid.mp3", "Paranoid Android", Some(artist), Some(album));
+
+        // Full match: title + artist + album
+        let result = db.find_track_by_metadata("Paranoid Android", Some("Radiohead"), Some("OK Computer")).unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().id, track_id);
+    }
+
+    #[test]
+    fn test_find_track_by_metadata_artist_only() {
+        let db = test_db();
+        let artist = db.get_or_create_artist("Björk").unwrap();
+        let _album = db.get_or_create_album("Homogenic", Some(artist), Some(1997)).unwrap();
+        let track_id = insert_track(&db, "music/joga.mp3", "Jóga", Some(artist), None);
+
+        // title + artist (no album match needed)
+        let result = db.find_track_by_metadata("Jóga", Some("Björk"), Some("Wrong Album")).unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().id, track_id);
+    }
+
+    #[test]
+    fn test_find_track_by_metadata_diacritics() {
+        let db = test_db();
+        let artist = db.get_or_create_artist("Björk").unwrap();
+        insert_track(&db, "music/joga.mp3", "Jóga", Some(artist), None);
+
+        // Diacritic-insensitive matching
+        let result = db.find_track_by_metadata("Joga", Some("Bjork"), None).unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().title, "Jóga");
+    }
+
+    #[test]
+    fn test_find_track_by_metadata_title_only() {
+        let db = test_db();
+        insert_track(&db, "music/creep.mp3", "Creep", None, None);
+
+        // No artist — match on title only
+        let result = db.find_track_by_metadata("Creep", None, None).unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().title, "Creep");
+    }
+
+    #[test]
+    fn test_find_track_by_metadata_no_match() {
+        let db = test_db();
+        insert_track(&db, "music/song.mp3", "Existing Song", None, None);
+
+        let result = db.find_track_by_metadata("Nonexistent", Some("Nobody"), None).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_find_track_by_metadata_prefers_local() {
+        let db = test_db();
+        let artist = db.get_or_create_artist("Test Artist").unwrap();
+
+        // Create a subsonic collection
+        let sub_coll = db.add_collection("subsonic", "Server", None, Some("https://server.com"), None, None, None, None).unwrap();
+        // Create a local collection
+        let local_coll = db.add_collection("local", "Local", Some("/music"), None, None, None, None, None).unwrap();
+
+        // Insert same track in both collections
+        let cid_sub = sub_coll.id;
+        let cid_local = local_coll.id;
+        db.upsert_track("sub/song.mp3", "Same Song", Some(artist), None, None, Some(180.0), Some("mp3"), None, None, Some(cid_sub), None).unwrap();
+        let local_id = db.upsert_track("local/song.mp3", "Same Song", Some(artist), None, None, Some(180.0), Some("mp3"), None, None, Some(cid_local), None).unwrap();
+
+        let result = db.find_track_by_metadata("Same Song", Some("Test Artist"), None).unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().id, local_id, "should prefer local track");
     }
 }
