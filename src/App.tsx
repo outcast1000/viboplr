@@ -14,6 +14,7 @@ import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
+import { resolveFallback, type FallbackProvider } from "./fallbackProviders";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
@@ -119,6 +120,9 @@ function App() {
     if (parsed.scheme === "unknown") throw new Error(`Cannot play unknown URL scheme: ${parsed.url}`);
     return invoke<string>("resolve_subsonic_location", { location: parsed.url });
   });
+  const fallbackProvidersRef = useRef<FallbackProvider[]>([]);
+  const [fallbackOrderVersion, setFallbackOrderVersion] = useState(0);
+  void setFallbackOrderVersion; // Used by Settings UI (Task 8)
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef);
   const waveformPeaks = useWaveform(
     playback.currentTrack?.path ?? null,
@@ -225,6 +229,66 @@ function App() {
 
   // Wire up image resolver to handle image-resolve-request events
   useImageResolver(plugins.invokeImageFetch);
+
+  // Build ordered fallback provider list from built-in + plugins + user ordering
+  useEffect(() => {
+    const buildProviders = async () => {
+      const builtinLibrary: FallbackProvider = {
+        id: "built-in:library",
+        name: "Library",
+        source: "built-in",
+        resolve: async (title, artistName, albumName) => {
+          const track = await invoke<Track | null>("find_track_by_metadata", {
+            title,
+            artistName,
+            albumName,
+          });
+          if (!track) return null;
+          return { url: track.url ?? track.path, label: "Library" };
+        },
+      };
+
+      // Collect plugin fallback providers from manifests
+      const pluginProviders: FallbackProvider[] = [];
+      for (const ps of plugins.pluginStates) {
+        if (ps.status !== "active") continue;
+        const fps = ps.manifest.contributes?.fallbackProviders;
+        if (!fps) continue;
+        for (const fp of fps) {
+          pluginProviders.push({
+            id: `${ps.id}:${fp.id}`,
+            name: fp.name,
+            source: ps.id,
+            resolve: (title, artistName, albumName) =>
+              plugins.invokeFallbackResolve(ps.id, fp.id, title, artistName, albumName),
+          });
+        }
+      }
+
+      // Apply user ordering from store
+      const storedOrder = await store.get<Array<{ id: string; enabled: boolean }>>("fallbackProviderOrder");
+      const allProviders = [builtinLibrary, ...pluginProviders];
+
+      if (storedOrder) {
+        const ordered: FallbackProvider[] = [];
+        for (const entry of storedOrder) {
+          if (!entry.enabled) continue;
+          const provider = allProviders.find((p) => p.id === entry.id);
+          if (provider) ordered.push(provider);
+        }
+        // Append any new providers not in stored order
+        for (const provider of allProviders) {
+          if (!ordered.some((p) => p.id === provider.id)) {
+            ordered.push(provider);
+          }
+        }
+        fallbackProvidersRef.current = ordered;
+      } else {
+        fallbackProvidersRef.current = allProviders;
+      }
+    };
+    buildProviders();
+  }, [plugins.pluginStates, plugins.invokeFallbackResolve, fallbackOrderVersion]);
 
   const artistInfo = useArtistInfo({
     selectedArtist: library.selectedArtist,
@@ -471,29 +535,41 @@ function App() {
 
   // Resolve a queue track's url to a playable source
   useEffect(() => {
+    const resolveViaFallback = async (track: Track): Promise<string> => {
+      const result = await resolveFallback(
+        fallbackProvidersRef.current,
+        track.title,
+        track.artist_name,
+        track.album_title,
+      );
+      if (!result) throw new Error(`No playback source found for: ${track.title}`);
+      addLog(`Playing from ${result.label} (original unavailable)`);
+      const fallbackParsed = parseUrlScheme(result.url);
+      if (fallbackParsed.scheme === "file") return convertFileSrc(fallbackParsed.path);
+      if (fallbackParsed.scheme === "tidal") return invoke<string>("tidal_get_stream_url", { tidalTrackId: fallbackParsed.id, quality: null });
+      if (fallbackParsed.scheme === "subsonic") return invoke<string>("resolve_subsonic_location", { location: result.url });
+      throw new Error(`Fallback returned unplayable URL: ${result.url}`);
+    };
+
     resolveTrackSrcRef.current = async (track: Track) => {
-      const url = track.url!;
+      const url = track.url ?? track.path;
+      if (!url) return resolveViaFallback(track);
       const parsed = parseUrlScheme(url);
 
       if (parsed.scheme === "file") {
         return convertFileSrc(parsed.path);
       } else if (parsed.scheme === "tidal") {
-        return invoke<string>("tidal_get_stream_url", {
-          tidalTrackId: parsed.id,
-          quality: null,
-        });
+        return invoke<string>("tidal_get_stream_url", { tidalTrackId: parsed.id, quality: null });
       } else if (parsed.scheme === "subsonic") {
-        return invoke<string>("resolve_subsonic_location", {
-          location: url,
-        });
+        return invoke<string>("resolve_subsonic_location", { location: url });
       } else if (parsed.scheme === "unknown") {
-        throw new Error(`Cannot play unknown URL scheme: ${parsed.url}`);
+        return resolveViaFallback(track);
       } else {
         const _exhaustive: never = parsed;
         throw new Error(`Unhandled scheme: ${(_exhaustive as any).scheme}`);
       }
     };
-  }, []);
+  }, [addLog]);
 
   const statusActivity = scanning
     ? (scanProgress.total > 0 ? `Scanning... ${scanProgress.scanned}/${scanProgress.total}` : "Scanning... preparing")
