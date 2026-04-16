@@ -54,6 +54,7 @@ interface LoadedPlugin {
   oauthCallbackHandlers: Array<(queryString: string) => void>;
   infoFetchHandlers: Map<string, (entity: InfoEntity) => Promise<InfoFetchResult>>;
   imageFetchHandlers: Map<string, (name: string, artistName?: string) => Promise<ImageFetchResult>>;
+  fallbackResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>>;
 }
 
 type EventHandlers = {
@@ -224,6 +225,17 @@ export function usePlugins(
               "track:liked",
               handler as (...args: unknown[]) => void,
             ),
+          onFallbackResolve(
+            providerId: string,
+            handler: (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>,
+          ): () => void {
+            loaded.fallbackResolveHandlers.set(providerId, handler);
+            const unsub = () => {
+              loaded.fallbackResolveHandlers.delete(providerId);
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
         },
 
         contextMenu: {
@@ -587,6 +599,7 @@ export function usePlugins(
     loaded.uiActionHandlers.clear();
     loaded.infoFetchHandlers.clear();
     loaded.imageFetchHandlers.clear();
+    loaded.fallbackResolveHandlers.clear();
 
     // Clear view data for this plugin
     for (const key of viewDataRef.current.keys()) {
@@ -614,6 +627,7 @@ export function usePlugins(
         oauthCallbackHandlers: [],
         infoFetchHandlers: new Map(),
         imageFetchHandlers: new Map(),
+        fallbackResolveHandlers: new Map(),
       };
 
       try {
@@ -1025,6 +1039,28 @@ export function usePlugins(
     [],
   );
 
+  const invokeFallbackResolve = useCallback(
+    async (
+      pluginId: string,
+      providerId: string,
+      title: string,
+      artistName: string | null,
+      albumName: string | null,
+    ): Promise<{ url: string; label: string } | null> => {
+      const loaded = loadedPluginsRef.current.get(pluginId);
+      if (!loaded) return null;
+      const handler = loaded.fallbackResolveHandlers.get(providerId);
+      if (!handler) return null;
+      try {
+        return await handler(title, artistName, albumName);
+      } catch (e) {
+        console.error(`[plugin:${pluginId}] fallback resolve error for ${providerId}:`, e);
+        return null;
+      }
+    },
+    [],
+  );
+
   const pluginNames = useMemo(
     () => new Map(pluginStates.map((s) => [s.id, s.manifest.name])),
     [pluginStates],
@@ -1053,5 +1089,6 @@ export function usePlugins(
     deletePlugin,
     invokeInfoFetch,
     invokeImageFetch,
+    invokeFallbackResolve,
   };
 }

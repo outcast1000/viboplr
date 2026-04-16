@@ -46,6 +46,12 @@ export interface PluginManifestImageProvider {
   priority: number;
 }
 
+export interface PluginManifestFallbackProvider {
+  id: string;
+  name: string;
+  priority: number;
+}
+
 export interface PluginManifestSettingsPanel {
   id: string;
   label: string;
@@ -59,6 +65,7 @@ export interface PluginManifestContributes {
   eventHooks?: PluginEventName[];
   informationTypes?: PluginManifestInfoType[];
   imageProviders?: PluginManifestImageProvider[];
+  fallbackProviders?: PluginManifestFallbackProvider[];
   settingsPanel?: PluginManifestSettingsPanel;
 }
 
@@ -212,6 +219,10 @@ export interface PluginPlaybackAPI {
   onTrackPlayed(handler: (track: Track) => void): () => void;
   onTrackScrobbled(handler: (track: Track) => void): () => void;
   onTrackLiked(handler: (track: Track, liked: boolean) => void): () => void;
+  onFallbackResolve(
+    providerId: string,
+    handler: (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>,
+  ): () => void;
 }
 
 // Loose shape plugins pass for TIDAL tracks (matches TidalSearchTrack)
