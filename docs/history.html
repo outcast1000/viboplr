@@ -63,6 +63,53 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.17</span>
+          <span class="timeline-date">April 17, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>add context menus to Spotify playlist cards and fix plugin view styling</li>
+          <li>register TIDAL as a fallback playback provider</li>
+          <li>add playback fallback provider ordering to settings</li>
+          <li>integrate fallback chain into resolveTrackSrc for unknown URL schemes</li>
+          <li>add fallbackProviderOrder to app store defaults</li>
+          <li>add fallback provider types and wire into plugin system</li>
+          <li>add fallback provider interface and resolution logic</li>
+          <li>add find_track_by_metadata backend command with two-pass matching</li>
+          <li>add 'unknown' URL scheme variant to parseUrlScheme</li>
+          <li>add context menu to playlist tiles with plugin extensibility</li>
+          <li>add playlist save/delete modals, default image, and play button</li>
+          <li><strong>playlists</strong>: add Save Playlist action to Spotify plugin</li>
+          <li><strong>playlists</strong>: add 'Save as Playlist' button in queue panel</li>
+          <li><strong>playlists</strong>: add PlaylistsView styles</li>
+          <li><strong>playlists</strong>: add Playlists sidebar entry and wire up view</li>
+          <li><strong>playlists</strong>: add PlaylistsView component with list and detail modes</li>
+          <li><strong>playlists</strong>: add PluginPlaylistsAPI and playlists View type</li>
+          <li><strong>playlists</strong>: add Tauri commands for playlist CRUD and export</li>
+          <li><strong>playlists</strong>: add playlists/playlist_tracks tables and CRUD functions</li>
+          <li><strong>playlists</strong>: add Playlist and PlaylistTrack model structs</li>
+          <li>add Ctrl+A / Cmd+A select-all to queue panel</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>improve Spotify plugin debug log formatting and copy-paste support</li>
+          <li>improve Spotify scraper reliability for personalized playlists</li>
+          <li><strong>playlists</strong>: add error handling and save feedback</li>
+          <li>album/tag detail header hidden by stale view search query</li>
+          <li>paste image bypasses WebKit clipboard permission prompt</li>
+          <li>synced lyrics not clearing previous active line highlight</li>
+          <li>sync-with-playing now follows normal track transitions</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.17/Viboplr_0.9.17_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.17_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.17/Viboplr_0.9.17_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.17_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.16</span>
           <span class="timeline-date">April 15, 2026</span>
         </div>
