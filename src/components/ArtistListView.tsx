@@ -151,7 +151,6 @@ export function ArtistListView({
                 >{a.liked === 1 ? "\u2665" : "\u2661"}</div>
                 <div className="artist-card-body">
                   <div className="artist-card-name" title={a.name}>{a.name}</div>
-                  <div className="artist-card-info">{a.track_count} tracks</div>
                 </div>
               </div>
             ))}
