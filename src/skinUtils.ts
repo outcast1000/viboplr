@@ -48,7 +48,7 @@ function hexToRgb(hex: string): string {
   return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
 }
 
-const RGB_DERIVED_KEYS = ["accent", "now-playing-bg"];
+const RGB_DERIVED_KEYS = ["accent", "now-playing-bg", "bg-primary"];
 
 export function generateSkinCSS(colors: SkinColors, customCSS?: string): string {
   const vars = Object.entries(colors)
