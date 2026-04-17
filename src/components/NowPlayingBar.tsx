@@ -6,6 +6,7 @@ import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
 import { AutoContinuePopover } from "./AutoContinuePopover";
 import { WaveformSeekBar } from "./WaveformSeekBar";
+import { SegmentedSeekBar } from "./SegmentedSeekBar";
 import "./NowPlayingBar.css";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
@@ -215,9 +216,12 @@ export function NowPlayingBar({
             accentColor="rgba(83, 168, 255, 0.7)"
             dimColor="rgba(255, 255, 255, 0.15)"
           />
-        ) : (
-          <div className="now-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
-        )}
+        ) : durationSecs > 0 ? (
+          <SegmentedSeekBar
+            progress={positionSecs / durationSecs}
+            durationSecs={durationSecs}
+          />
+        ) : null}
         <span className="now-seek-time now-seek-elapsed">{formatDuration(positionSecs)}</span>
         <span className="now-seek-time now-seek-total">
           {formatDuration(durationSecs)}

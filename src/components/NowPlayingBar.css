@@ -28,17 +28,6 @@
   filter: brightness(1.15);
 }
 
-.now-seek-fill {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 6px;
-  opacity: 0.35;
-  pointer-events: none;
-}
-
 .now-seek-time {
   position: relative;
   z-index: 1;
