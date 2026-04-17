@@ -43,7 +43,7 @@ function formatDuration(secs: number | null): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function playlistTrackToMinimalTrack(t: PlaylistTrack): { title: string; artist_name: string | null; album_title: string | null; duration_secs: number | null; url: string | null; path: string } {
+function playlistTrackToMinimalTrack(t: PlaylistTrack): { title: string; artist_name: string | null; album_title: string | null; duration_secs: number | null; url: string | null; path: string; image_url?: string } {
   return {
     title: t.title,
     artist_name: t.artist_name,
@@ -51,6 +51,7 @@ function playlistTrackToMinimalTrack(t: PlaylistTrack): { title: string; artist_
     duration_secs: t.duration_secs ?? null,
     url: t.source,
     path: t.source ?? "",
+    image_url: t.image_path ?? undefined,
   };
 }
 

@@ -67,7 +67,6 @@ interface QueuePanelProps {
   onSaveAsPlaylist: () => void;
   onLoadPlaylist: () => void;
   onContextMenu: (e: React.MouseEvent, indices: number[]) => void;
-  albumImages: Record<number, string | null>;
   externalDropTarget: number | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
@@ -80,7 +79,7 @@ export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
   onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSavePlaylist, onSaveAsPlaylist, onLoadPlaylist, onContextMenu,
-  albumImages, externalDropTarget,
+  externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
@@ -353,8 +352,8 @@ export function QueuePanel({
             onDoubleClick={() => handleDoubleClick(t, i)}
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
-            {t.album_id != null && albumImages[t.album_id] && (
-              <img className="queue-item-thumb" src={convertFileSrc(albumImages[t.album_id]!)} alt="" />
+            {t.image_url && (
+              <img className="queue-item-thumb" src={t.image_url.startsWith("http") ? t.image_url : convertFileSrc(t.image_url)} alt="" />
             )}
             <div className="queue-item-info" title={t.url || t.path || ""}>
               <div className="queue-item-line1">

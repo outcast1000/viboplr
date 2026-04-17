@@ -44,6 +44,8 @@ export interface Track {
   relative_path: string | null;
   /** Playback URL computed when the track enters the queue (e.g. file://, tidal://, subsonic://) */
   url?: string;
+  /** Image URL for display in the queue (file path or HTTP URL, set by caller) */
+  image_url?: string;
 }
 
 export interface SearchAllResults {

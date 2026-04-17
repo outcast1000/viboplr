@@ -15,6 +15,7 @@ export function useQueue(
   restoredRef: React.RefObject<boolean>,
   handlePlay: (track: Track, source?: "user" | "auto") => void,
   collections: Collection[],
+  albumImages: Record<number, string | null>,
 ) {
   const [queue, setQueue] = useState<Track[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -63,7 +64,13 @@ export function useQueue(
   }
 
   function stamp(tracks: Track[]): Track[] {
-    return tracks.map(t => stampUrl(t, collections));
+    return tracks.map(t => {
+      const s = stampUrl(t, collections);
+      if (!s.image_url && s.album_id != null && albumImages[s.album_id]) {
+        return { ...s, image_url: albumImages[s.album_id]! };
+      }
+      return s;
+    });
   }
 
   function playTracks(tracks: Track[], startIndex: number, context?: PlaylistContext | null) {

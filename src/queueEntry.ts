@@ -9,6 +9,7 @@ export interface QueueEntry {
   track_number: number | null;
   year: number | null;
   format: string | null;
+  image_url?: string;
 }
 
 export type ParsedUrl =
@@ -69,6 +70,7 @@ export function trackToQueueEntry(track: Track, _collections: Collection[]): Que
     track_number: track.track_number,
     year: track.year,
     format: track.format,
+    image_url: track.image_url,
   };
 }
 
@@ -103,6 +105,7 @@ export function queueEntryToTrack(entry: QueueEntry): Track {
     modified_at: null,
     relative_path: null,
     url: entry.url,
+    image_url: entry.image_url,
   };
 }
 

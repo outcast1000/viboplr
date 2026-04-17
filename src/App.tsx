@@ -169,11 +169,14 @@ function App() {
   const beforeNavRef = useRef<() => void>(() => {});
   const viewSearch = useViewSearchState();
 
+  const { sessionLog, addLog } = useSessionLog();
+  const albumImageCache = useImageCache("album", addLog);
+
   // Need to initialize library first to get selection state, then artistInfo will compute popularity
   const [trackPopularityState, setTrackPopularityState] = useState<Record<number, number>>({});
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, trackPopularityState, setNavError);
 
-  const queueHook = useQueue(restoredRef, playback.handlePlay, library.collections);
+  const queueHook = useQueue(restoredRef, playback.handlePlay, library.collections, albumImageCache.images);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
   const videoLayout = useVideoLayout(restoredRef);
@@ -389,7 +392,6 @@ function App() {
   const [showAddServer, setShowAddServer] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
 
-  const { sessionLog, addLog } = useSessionLog();
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
 
@@ -447,9 +449,8 @@ function App() {
     },
   });
 
-  // Image caches (moved above contextMenuActions so images are available for context)
+  // Image caches (albumImageCache moved above useQueue for image_url stamping)
   const artistImageCache = useImageCache("artist", addLog);
-  const albumImageCache = useImageCache("album", addLog);
   const tagImageCache = useImageCache("tag", addLog);
 
   // Context menu actions
@@ -506,7 +507,7 @@ function App() {
       if (action === "tidal-download") {
         contextMenuActions.setTidalDownload(payload as { trackId: number | null; title: string; artistName: string | null });
       } else if (action === "play-tracks") {
-        const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string }>);
+        const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string; image_url?: string }>);
         const startIndex = (payload.startIndex as number) ?? 0;
         if (tracks?.length) {
           const playlistName = payload.playlistName as string | undefined;
@@ -518,10 +519,11 @@ function App() {
             duration_secs: t.duration_secs ?? null,
             url: t.url ?? null,
             path: t.path ?? "external://",
+            image_url: t.image_url,
           })) as Track[], startIndex, playlistName ? { name: playlistName, coverUrl: coverUrl ?? null } : null);
         }
       } else if (action === "enqueue-tracks") {
-        const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string }>);
+        const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string; image_url?: string }>);
         if (tracks?.length) {
           queueHook.enqueueTracks(tracks.map(t => ({
             title: t.title,
@@ -530,6 +532,7 @@ function App() {
             duration_secs: t.duration_secs ?? null,
             url: t.url ?? null,
             path: t.path ?? "external://",
+            image_url: t.image_url,
           })) as Track[]);
         }
       }
@@ -2404,7 +2407,6 @@ function App() {
               firstTrack: first ? { title: first.title, artistName: first.artist_name, subsonic: first.path.startsWith("subsonic://") } : { title: "", artistName: null, subsonic: false },
             } });
           }}
-          albumImages={albumImageCache.images}
           externalDropTarget={contextMenuActions.externalDropTarget}
           collapsed={queueCollapsed}
           onToggleCollapsed={handleToggleQueueCollapsed}
