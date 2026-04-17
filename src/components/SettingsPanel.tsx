@@ -952,6 +952,22 @@ export function SettingsPanel({
                   </div>
                 </div>
 
+                <div className="settings-group">
+                  <div className="settings-group-title">Profile</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Profile folder</span>
+                        <span className="settings-description">{appPaths?.profile ?? ""}</span>
+                      </div>
+                      <div className="settings-row-actions">
+                        <button className="settings-btn-secondary" onClick={() => appPaths && navigator.clipboard.writeText(appPaths.profile).catch(console.error)} title="Copy path">Copy</button>
+                        <button className="settings-btn-secondary" onClick={() => invoke("open_profile_folder").catch(console.error)}>Open</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="settings-about-content">
                   <div className="settings-about-logo" style={{ cursor: "pointer" }} onClick={() => openUrl("https://viboplr.com")}>
                     <svg width="48" height="48" viewBox="0 0 512 512" fill="none">
@@ -1384,16 +1400,6 @@ export function SettingsPanel({
                     <div className="settings-row-actions">
                       <button className="settings-btn-secondary" onClick={() => appPaths && navigator.clipboard.writeText(appPaths.logs).catch(console.error)} title="Copy path">Copy</button>
                       <button className="settings-btn-secondary" onClick={() => invoke("open_logs_folder").catch(console.error)}>Open</button>
-                    </div>
-                  </div>
-                  <div className="settings-row">
-                    <div className="settings-row-info">
-                      <span className="settings-label">Profile folder</span>
-                      <span className="settings-description">{appPaths?.profile ?? ""}</span>
-                    </div>
-                    <div className="settings-row-actions">
-                      <button className="settings-btn-secondary" onClick={() => appPaths && navigator.clipboard.writeText(appPaths.profile).catch(console.error)} title="Copy path">Copy</button>
-                      <button className="settings-btn-secondary" onClick={() => invoke("open_profile_folder").catch(console.error)}>Open</button>
                     </div>
                   </div>
                 </div>
