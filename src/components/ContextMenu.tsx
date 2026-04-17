@@ -12,7 +12,7 @@ export type ContextMenuTarget =
   | { kind: "album"; albumId?: number; title: string; artistName: string | null }
   | { kind: "artist"; artistId?: number; name: string }
   | { kind: "multi-track"; trackIds: number[] }
-  | { kind: "queue-multi"; indices: number[]; trackIds: number[]; firstTrack: { title: string; artistName: string | null; subsonic: boolean } }
+  | { kind: "queue-multi"; indices: number[]; trackIds: number[]; firstTrack: { title: string; artistName: string | null; subsonic: boolean; hasLocalPath?: boolean } }
   | { kind: "video"; dockSide: DockSide; fitMode: FitMode };
 
 export interface ContextMenuState {
@@ -188,12 +188,19 @@ export function ContextMenu({
             <IconEnqueue size={14} /><span>Move to bottom</span>
           </div>
         )}
-        {onLocateTrack && count === 1 && (
+        {count === 1 && (onLocateTrack || target.firstTrack.hasLocalPath) && (
           <>
             <div className="context-menu-separator" />
-            <div className="context-menu-item" onClick={() => { onLocateTrack(); onClose(); }}>
-              <IconFolder size={14} /><span>Locate Track</span>
-            </div>
+            {target.firstTrack.hasLocalPath && (
+              <div className="context-menu-item" onClick={() => { onShowInFolder(); onClose(); }}>
+                <IconFolder size={14} /><span>Open Containing Folder</span>
+              </div>
+            )}
+            {onLocateTrack && (
+              <div className="context-menu-item" onClick={() => { onLocateTrack(); onClose(); }}>
+                <IconFolder size={14} /><span>Locate Track</span>
+              </div>
+            )}
           </>
         )}
         {onDelete && (

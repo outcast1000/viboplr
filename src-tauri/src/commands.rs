@@ -616,9 +616,10 @@ pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), S
 
 #[tauri::command]
 pub fn show_in_folder_path(file_path: String) -> Result<(), String> {
-    let path = std::path::Path::new(&file_path);
+    let bare = file_path.strip_prefix("file://").unwrap_or(&file_path);
+    let path = std::path::Path::new(bare);
     if !path.exists() {
-        return Err(format!("File not found: {}", file_path));
+        return Err(format!("File not found: {}", bare));
     }
     tauri_plugin_opener::reveal_item_in_dir(path).map_err(|e| e.to_string())
 }

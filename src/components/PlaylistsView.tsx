@@ -65,13 +65,20 @@ interface PlaylistsViewProps {
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
 }
 
+function isLocalPath(source: string | null): boolean {
+  return !!source && !source.startsWith("subsonic://") && !source.startsWith("tidal://") && !source.startsWith("spotify-track://");
+}
+
 export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onExportAsTape, onOpenTape, pluginMenuItems, onPluginAction }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<Playlist | null>(null);
   const [contextMenu, setContextMenu] = useState<{ pl: Playlist; x: number; y: number } | null>(null);
+  const [trackContextMenu, setTrackContextMenu] = useState<{ track: PlaylistTrack; x: number; y: number } | null>(null);
+  const [folderError, setFolderError] = useState<string | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const trackContextMenuRef = useRef<HTMLDivElement>(null);
 
   const loadPlaylists = useCallback(async () => {
     const rows = await invoke<Playlist[]>("get_playlists");
@@ -148,15 +155,18 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
   }, []);
 
   useEffect(() => {
-    if (!contextMenu) return;
+    if (!contextMenu && !trackContextMenu) return;
     const handle = (e: MouseEvent) => {
-      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+      if (contextMenu && contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
         setContextMenu(null);
+      }
+      if (trackContextMenu && trackContextMenuRef.current && !trackContextMenuRef.current.contains(e.target as Node)) {
+        setTrackContextMenu(null);
       }
     };
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
-  }, [contextMenu]);
+  }, [contextMenu, trackContextMenu]);
 
   const imageUrl = useCallback(
     (imagePath: string | null) => {
@@ -177,6 +187,18 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
       onConfirm={handleDeleteConfirm}
       onClose={() => setDeleteConfirm(null)}
     />
+  );
+
+  const folderErrorModal = folderError && (
+    <div className="modal-overlay" onClick={() => setFolderError(null)}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Open Containing Folder</h2>
+        <p className="delete-confirm-warning">{folderError}</p>
+        <div className="modal-actions">
+          <button className="modal-btn modal-btn-cancel" onClick={() => setFolderError(null)}>OK</button>
+        </div>
+      </div>
+    </div>
   );
 
   // Detail view
@@ -224,7 +246,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
             <div className="playlists-col-duration">Duration</div>
           </div>
           {tracks.map((t) => (
-            <div key={t.id} className="playlists-track-row">
+            <div key={t.id} className="playlists-track-row" onContextMenu={(e) => { e.preventDefault(); setTrackContextMenu({ track: t, x: e.clientX, y: e.clientY }); }}>
               <div className="playlists-col-num">{t.position + 1}</div>
               <div className="playlists-col-title">
                 {t.image_path && (
@@ -238,6 +260,70 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
             </div>
           ))}
         </div>
+        {trackContextMenu && (
+          <div
+            ref={trackContextMenuRef}
+            className="context-menu"
+            style={{ left: trackContextMenu.x, top: trackContextMenu.y }}
+          >
+            <div className="context-menu-item" onClick={() => {
+              const t = trackContextMenu.track;
+              onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? { name: selectedPlaylist.name, coverPath: selectedPlaylist.image_path } : null);
+              setTrackContextMenu(null);
+            }}>
+              <span>Play</span>
+            </div>
+            <div className="context-menu-item" onClick={() => {
+              onEnqueueTracks([playlistTrackToMinimalTrack(trackContextMenu.track)]);
+              setTrackContextMenu(null);
+            }}>
+              <span>Enqueue</span>
+            </div>
+            {isLocalPath(trackContextMenu.track.source) && (
+              <>
+                <div className="context-menu-separator" />
+                <div className="context-menu-item" onClick={async () => {
+                  try {
+                    await invoke("show_in_folder_path", { filePath: trackContextMenu.track.source! });
+                  } catch (e) {
+                    console.error("Failed to open containing folder:", e);
+                    setFolderError(String(e));
+                  }
+                  setTrackContextMenu(null);
+                }}>
+                  <span>Open Containing Folder</span>
+                </div>
+              </>
+            )}
+            {pluginMenuItems && pluginMenuItems.length > 0 && (() => {
+              const matching = pluginMenuItems.filter(item => item.targets.includes("track"));
+              if (matching.length === 0) return null;
+              const t = trackContextMenu.track;
+              return (
+                <>
+                  <div className="context-menu-separator" />
+                  {matching.map((item) => (
+                    <div
+                      key={`${item.pluginId}:${item.id}`}
+                      className="context-menu-item"
+                      onClick={() => {
+                        onPluginAction?.(item.pluginId, item.id, {
+                          kind: "track",
+                          title: t.title,
+                          artistName: t.artist_name ?? undefined,
+                        });
+                        setTrackContextMenu(null);
+                      }}
+                    >
+                      <span>{item.label}</span>
+                    </div>
+                  ))}
+                </>
+              );
+            })()}
+          </div>
+        )}
+        {folderErrorModal}
         {deleteModal}
       </div>
     );

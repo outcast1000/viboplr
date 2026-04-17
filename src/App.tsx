@@ -1804,7 +1804,7 @@ function App() {
                 onWatchOnYoutube={() => contextMenuActions.watchOnYoutube(track.id, track.title, track.artist_name, track.youtube_url)}
                 onToggleLike={() => likeActions.handleToggleLike(track)}
                 onToggleHate={() => likeActions.handleToggleDislike(track)}
-                onShowInFolder={() => invoke("show_in_folder", { trackId: library.selectedTrack })}
+                onShowInFolder={async () => { try { await invoke("show_in_folder", { trackId: library.selectedTrack }); } catch (e) { console.error("Failed to open containing folder:", e); contextMenuActions.setFolderError(String(e)); } }}
                 collections={library.collections}
                 searchProviders={searchProviders}
                 onImageSet={(entityType, id, path) => {
@@ -2466,7 +2466,7 @@ function App() {
             contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: {
               kind: "queue-multi", indices,
               trackIds: tracks.map(t => t.id),
-              firstTrack: first ? { title: first.title, artistName: first.artist_name, subsonic: first.path.startsWith("subsonic://") } : { title: "", artistName: null, subsonic: false },
+              firstTrack: first ? { title: first.title, artistName: first.artist_name, subsonic: first.path.startsWith("subsonic://"), hasLocalPath: !first.path.startsWith("subsonic://") && !first.path.startsWith("tidal://") } : { title: "", artistName: null, subsonic: false },
             } });
           }}
           externalDropTarget={contextMenuActions.externalDropTarget}
@@ -2577,6 +2577,18 @@ function App() {
             </ul>
             <div className="modal-actions">
               <button className="modal-btn modal-btn-cancel" onClick={() => contextMenuActions.setDeleteError(null)}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {contextMenuActions.folderError && (
+        <div className="modal-overlay" onClick={() => contextMenuActions.setFolderError(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Open Containing Folder</h2>
+            <p className="delete-confirm-warning">{contextMenuActions.folderError}</p>
+            <div className="modal-actions">
+              <button className="modal-btn modal-btn-cancel" onClick={() => contextMenuActions.setFolderError(null)}>OK</button>
             </div>
           </div>
         </div>

@@ -44,6 +44,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
 
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
   const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
+  const [folderError, setFolderError] = useState<string | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
 
@@ -219,16 +220,26 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     window.addEventListener("mouseup", onMouseUp);
   }
 
-  function handleShowInFolder() {
+  async function handleShowInFolder() {
     if (contextMenu && contextMenu.target.kind === "track" && contextMenu.target.trackId) {
-      invoke("show_in_folder", { trackId: contextMenu.target.trackId });
+      try {
+        await invoke("show_in_folder", { trackId: contextMenu.target.trackId });
+      } catch (e) {
+        console.error("Failed to open containing folder:", e);
+        setFolderError(String(e));
+      }
       setContextMenu(null);
     } else if (contextMenu && contextMenu.target.kind === "queue-multi" && contextMenu.target.indices.length === 1) {
       const track = queueHook.queue[contextMenu.target.indices[0]];
-      if (track && track.path) {
-        invoke("show_in_folder_path", { filePath: track.path });
-      } else if (track && track.id > 0) {
-        invoke("show_in_folder", { trackId: track.id });
+      try {
+        if (track && track.id > 0) {
+          await invoke("show_in_folder", { trackId: track.id });
+        } else if (track && track.path) {
+          await invoke("show_in_folder_path", { filePath: track.path });
+        }
+      } catch (e) {
+        console.error("Failed to open containing folder:", e);
+        setFolderError(String(e));
       }
       setContextMenu(null);
     }
@@ -357,6 +368,8 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     setDeleteConfirm,
     deleteError,
     setDeleteError,
+    folderError,
+    setFolderError,
     pendingEnqueue,
     setPendingEnqueue,
     externalDropTarget,
