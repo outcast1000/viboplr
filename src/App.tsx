@@ -2404,6 +2404,7 @@ function App() {
               firstTrack: first ? { title: first.title, artistName: first.artist_name, subsonic: first.path.startsWith("subsonic://") } : { title: "", artistName: null, subsonic: false },
             } });
           }}
+          albumImages={albumImageCache.images}
           externalDropTarget={contextMenuActions.externalDropTarget}
           collapsed={queueCollapsed}
           onToggleCollapsed={handleToggleQueueCollapsed}

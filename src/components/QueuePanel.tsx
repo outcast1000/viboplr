@@ -67,6 +67,7 @@ interface QueuePanelProps {
   onSaveAsPlaylist: () => void;
   onLoadPlaylist: () => void;
   onContextMenu: (e: React.MouseEvent, indices: number[]) => void;
+  albumImages: Record<number, string | null>;
   externalDropTarget: number | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
@@ -78,7 +79,8 @@ const AUTO_APPROVE_SECS = 10;
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
-  onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSavePlaylist, onSaveAsPlaylist, onLoadPlaylist, onContextMenu, externalDropTarget,
+  onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSavePlaylist, onSaveAsPlaylist, onLoadPlaylist, onContextMenu,
+  albumImages, externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
@@ -351,14 +353,22 @@ export function QueuePanel({
             onDoubleClick={() => handleDoubleClick(t, i)}
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
+            {t.album_id != null && albumImages[t.album_id] && (
+              <img className="queue-item-thumb" src={convertFileSrc(albumImages[t.album_id]!)} alt="" />
+            )}
             <div className="queue-item-info" title={t.url || t.path || ""}>
-              <span className="queue-item-title">{t.title}</span>
-              <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
+              <div className="queue-item-line1">
+                <span className="queue-item-title">{t.title}</span>
+                <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
+              </div>
+              <div className="queue-item-line2">
+                <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
+                {t.album_title && <span className="queue-item-album">{t.album_title}</span>}
+              </div>
             </div>
-            <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
             {onLocateTrack && (
               <button
-                className="queue-item-remove"
+                className="queue-item-locate"
                 onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
                 title="Locate Track"
               >
