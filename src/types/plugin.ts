@@ -114,6 +114,7 @@ export interface PluginContextMenuTarget {
   subsonic?: boolean;
   playlistId?: number;
   playlistName?: string;
+  tracks?: Array<{ title: string; artistName?: string | null; albumName?: string | null }>;
 }
 
 // -- View data types --
@@ -131,6 +132,13 @@ export interface CardGridItem {
   imageUrl?: string;
   action?: string;
   contextMenuActions?: CardGridContextAction[];
+  // Target kind for plugin context menu items registered for this card.
+  // Defaults to "playlist" in PluginViewRenderer if unspecified.
+  targetKind?: "playlist" | "album" | "artist";
+  // Optional track data plumbed through plugin context menu targets,
+  // e.g. a Spotify playlist card carrying its tracks so that a TIDAL
+  // plugin action can download them without round-tripping to the DB.
+  tracks?: Array<{ title: string; artistName?: string | null; albumName?: string | null }>;
 }
 
 export interface StatItem {

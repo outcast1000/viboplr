@@ -329,7 +329,8 @@ function PluginCardGrid({
     setContextMenu({ item, x: rect.left, y: rect.bottom + 4 });
   }, []);
 
-  const matchingPluginItems = pluginMenuItems?.filter(item => item.targets.includes("playlist")) ?? [];
+  const contextTargetKind = contextMenu?.item.targetKind ?? "playlist";
+  const matchingPluginItems = pluginMenuItems?.filter(item => item.targets.includes(contextTargetKind)) ?? [];
 
   return (
     <div
@@ -420,8 +421,9 @@ function PluginCardGrid({
                   className="context-menu-item"
                   onClick={() => {
                     onPluginAction?.(mi.pluginId, mi.id, {
-                      kind: "playlist",
+                      kind: contextTargetKind,
                       playlistName: contextMenu.item.title,
+                      tracks: contextMenu.item.tracks,
                     });
                     setContextMenu(null);
                   }}

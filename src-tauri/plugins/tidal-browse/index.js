@@ -571,34 +571,42 @@ function activate(api) {
     }
   });
 
-  api.contextMenu.onAction("download-playlist-from-tidal", function (target) {
-    if (target.kind !== "playlist" || !target.playlistId) return;
-    api.ui.showNotification("Loading playlist tracks...");
-    api.playlists.getTracks(target.playlistId).then(function (tracks) {
-      if (!tracks || tracks.length === 0) {
-        api.ui.showNotification("Playlist is empty");
-        return;
-      }
-      api.ui.showNotification("Queueing TIDAL downloads for " + tracks.length + " track" + (tracks.length > 1 ? "s" : ""));
-      var completed = 0;
-      var failed = 0;
-      tracks.forEach(function (t) {
-        var query = ((t.title || "") + " " + (t.artistName || "")).trim();
-        if (!query) { failed += 1; return; }
-        api.tidal.search(query, 1).then(function (results) {
-          var matches = (results && results.tracks) || [];
-          if (matches.length === 0) { failed += 1; return; }
-          return api.tidal.downloadTrack(matches[0].tidal_id).then(function () {
-            completed += 1;
-          });
-        }).catch(function (err) {
-          failed += 1;
-          console.error("TIDAL playlist download failed for track:", t.title, err);
-        });
+  function downloadTracksViaTidal(tracks, label) {
+    if (!tracks || tracks.length === 0) {
+      api.ui.showNotification((label || "Playlist") + " is empty");
+      return;
+    }
+    api.ui.showNotification("Queueing TIDAL downloads for " + tracks.length + " track" + (tracks.length > 1 ? "s" : ""));
+    tracks.forEach(function (t) {
+      var query = ((t.title || "") + " " + (t.artistName || "")).trim();
+      if (!query) return;
+      api.tidal.search(query, 1).then(function (results) {
+        var matches = (results && results.tracks) || [];
+        if (matches.length === 0) return;
+        return api.tidal.downloadTrack(matches[0].tidal_id);
+      }).catch(function (err) {
+        console.error("TIDAL playlist download failed for track:", t.title, err);
       });
-    }).catch(function (err) {
-      api.ui.showNotification("Failed to load playlist: " + (err.message || err));
     });
+  }
+
+  api.contextMenu.onAction("download-playlist-from-tidal", function (target) {
+    if (target.kind !== "playlist") return;
+    var label = target.playlistName || "Playlist";
+    if (target.playlistId) {
+      api.ui.showNotification("Loading playlist tracks...");
+      api.playlists.getTracks(target.playlistId).then(function (tracks) {
+        downloadTracksViaTidal(tracks, label);
+      }).catch(function (err) {
+        api.ui.showNotification("Failed to load playlist: " + (err.message || err));
+      });
+      return;
+    }
+    if (target.tracks && target.tracks.length > 0) {
+      downloadTracksViaTidal(target.tracks, label);
+      return;
+    }
+    api.ui.showNotification("No tracks available for this playlist");
   });
 
   // -- Fallback provider --

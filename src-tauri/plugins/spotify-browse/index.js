@@ -122,12 +122,24 @@ function activate(api) {
         var p = state.playlists[i];
         var ts = state.playlistTracks[p.id];
         var sub = ts ? ts.length + " tracks" : (p.description || "");
+        var cardTracks = [];
+        if (ts) {
+          for (var ti = 0; ti < ts.length; ti++) {
+            cardTracks.push({
+              title: ts[ti].name || "",
+              artistName: ts[ti].artist || null,
+              albumName: ts[ti].album || null,
+            });
+          }
+        }
         cards.push({
           id: "playlist:" + p.id,
           title: p.name,
           subtitle: sub,
           imageUrl: p.imageUrl,
           action: "view-playlist",
+          targetKind: "playlist",
+          tracks: cardTracks,
           contextMenuActions: [
             { id: "play-playlist", label: "Play" },
             { id: "enqueue-playlist", label: "Enqueue" },
