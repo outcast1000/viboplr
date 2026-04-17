@@ -522,6 +522,24 @@ export function usePlugins(
           async delete(id: number) {
             await invoke("delete_playlist_record", { playlistId: id });
           },
+          async getTracks(id: number) {
+            const rows = await invoke<Array<{
+              title: string;
+              artist_name: string | null;
+              album_name: string | null;
+              duration_secs: number | null;
+              source: string | null;
+              image_path: string | null;
+            }>>("get_playlist_tracks", { playlistId: id });
+            return rows.map((r) => ({
+              title: r.title,
+              artistName: r.artist_name,
+              albumName: r.album_name,
+              durationSecs: r.duration_secs,
+              source: r.source,
+              imagePath: r.image_path,
+            }));
+          },
         },
 
         informationTypes: {

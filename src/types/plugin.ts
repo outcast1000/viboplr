@@ -362,6 +362,15 @@ export interface PluginPlaylistsAPI {
   }>>;
 
   delete(id: number): Promise<void>;
+
+  getTracks(id: number): Promise<Array<{
+    title: string;
+    artistName: string | null;
+    albumName: string | null;
+    durationSecs: number | null;
+    source: string | null;
+    imagePath: string | null;
+  }>>;
 }
 
 export interface ViboplrPluginAPI {
