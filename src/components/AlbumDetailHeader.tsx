@@ -13,7 +13,7 @@ interface AlbumDetailHeaderProps {
   onArtistClick: (artistId: number) => void;
   onToggleAlbumLike: (albumId: number) => void;
   onToggleAlbumHate: (albumId: number) => void;
-  onPlayTracks: (tracks: Track[], index: number) => void;
+  onPlayTracks: (tracks: Track[], index: number, context?: { name: string; coverPath?: string | null; coverUrl?: string | null } | null) => void;
   onImageSet: (id: number, path: string) => void;
   onImageRemoved: (id: number) => void;
   onRetrieveImage: () => void;
@@ -84,7 +84,7 @@ export function AlbumDetailHeader({
                 <button
                   className="artist-play-btn"
                   title="Play All"
-                  onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
+                  onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0, { name: album?.title ?? "Unknown", coverPath: albumImagePath })}
                 >&#9654;</button>
               )}
             </h2>

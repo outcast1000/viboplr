@@ -56,7 +56,7 @@ function playlistTrackToMinimalTrack(t: PlaylistTrack): { title: string; artist_
 
 interface PlaylistsViewProps {
   searchQuery: string;
-  onPlayTracks: (tracks: any[], startIndex: number) => void;
+  onPlayTracks: (tracks: any[], startIndex: number, context?: { name: string; coverPath?: string | null; coverUrl?: string | null } | null) => void;
   onEnqueueTracks: (tracks: any[]) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
@@ -113,7 +113,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, plug
     e.stopPropagation();
     const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
     if (rows.length > 0) {
-      onPlayTracks(rows.map(playlistTrackToMinimalTrack), 0);
+      onPlayTracks(rows.map(playlistTrackToMinimalTrack), 0, { name: pl.name, coverPath: pl.image_path });
     }
   }, [onPlayTracks]);
 
@@ -185,7 +185,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, plug
               {selectedPlaylist.track_count} tracks &middot; Saved {formatDate(selectedPlaylist.saved_at)}
             </div>
             <div className="playlists-detail-actions">
-              <button className="playlists-action-btn playlists-action-btn-play" onClick={() => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0)} disabled={tracks.length === 0}>Play</button>
+              <button className="playlists-action-btn playlists-action-btn-play" onClick={() => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0, { name: selectedPlaylist.name, coverPath: selectedPlaylist.image_path })} disabled={tracks.length === 0}>Play</button>
               <button className="playlists-action-btn" onClick={() => handleExport(selectedPlaylist)}>Export M3U</button>
               <button className="playlists-action-btn playlists-action-btn-danger" onClick={() => setDeleteConfirm(selectedPlaylist)}>Delete</button>
             </div>

@@ -14,7 +14,7 @@ interface UseContextMenuActionsDeps {
     setTracks: React.Dispatch<React.SetStateAction<Track[]>>;
   };
   queueHook: {
-    playTracks: (tracks: Track[], index: number) => void;
+    playTracks: (tracks: Track[], index: number, context?: { name: string; coverPath?: string | null; coverUrl?: string | null } | null) => void;
     enqueueTracks: (tracks: Track[]) => void;
     findDuplicates: (tracks: Track[]) => { duplicates: Track[]; unique: Track[] };
     insertAtPosition: (tracks: Track[], pos: number) => void;
@@ -26,12 +26,14 @@ interface UseContextMenuActionsDeps {
   };
   playback: { currentTrack: Track | null; handleStop: () => void };
   addLog: (msg: string) => void;
+  albumImages: Record<number, string | null>;
+  artistImages: Record<number, string | null>;
   queueCollapsed: boolean;
   setQueueCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
-  const { library, queueHook, playback, addLog, queueCollapsed, setQueueCollapsed } = deps;
+  const { library, queueHook, playback, addLog, albumImages, artistImages, queueCollapsed, setQueueCollapsed } = deps;
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [youtubeFeedback, setYoutubeFeedback] = useState<{
@@ -74,10 +76,16 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       if (track) queueHook.playTracks([track], 0);
     } else if (target.kind === "album" && target.albumId) {
       const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
-      if (albumTracks.length > 0) queueHook.playTracks(albumTracks, 0);
+      if (albumTracks.length > 0) {
+        const album = library.albums.find(a => a.id === target.albumId);
+        queueHook.playTracks(albumTracks, 0, album ? { name: album.title, coverPath: albumImages[target.albumId] ?? null } : null);
+      }
     } else if (target.kind === "artist" && target.artistId) {
       const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
-      if (artistTracks.length > 0) queueHook.playTracks(artistTracks, 0);
+      if (artistTracks.length > 0) {
+        const artist = library.artists.find(a => a.id === target.artistId);
+        queueHook.playTracks(artistTracks, 0, artist ? { name: artist.name, coverPath: artistImages[target.artistId] ?? null } : null);
+      }
     } else if (target.kind === "multi-track") {
       const idSet = new Set(target.trackIds);
       const selected = library.sortedTracks.filter(t => idSet.has(t.id));

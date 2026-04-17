@@ -5,6 +5,12 @@ import type { Track, PlaylistLoadResult, PlaylistEntry, Collection } from "../ty
 import { trackToQueueEntry, queueEntryToTrack, stampUrl } from "../queueEntry";
 import { store } from "../store";
 
+export interface PlaylistContext {
+  name: string;
+  coverPath?: string | null;
+  coverUrl?: string | null;
+}
+
 export function useQueue(
   restoredRef: React.RefObject<boolean>,
   handlePlay: (track: Track, source?: "user" | "auto") => void,
@@ -15,7 +21,7 @@ export function useQueue(
   const [queueMode, setQueueMode] = useState<"normal" | "loop" | "shuffle">("normal");
   const [shuffleOrder, setShuffleOrder] = useState<number[]>([]);
   const [shufflePosition, setShufflePosition] = useState(0);
-  const [playlistName, setPlaylistName] = useState<string | null>(null);
+  const [playlistContext, setPlaylistContext] = useState<PlaylistContext | null>(null);
 
   const queueRef = useRef(queue);
   queueRef.current = queue;
@@ -34,14 +40,14 @@ export function useQueue(
   useEffect(() => { if (restoredRef.current) store.set("queueEntries", queue.map(t => trackToQueueEntry(t, collections))); }, [queue, collections]);
   useEffect(() => { if (restoredRef.current) store.set("queueIndex", queueIndex); }, [queueIndex]);
   useEffect(() => { if (restoredRef.current) store.set("queueMode", queueMode); }, [queueMode]);
-  useEffect(() => { if (restoredRef.current) store.set("playlistName", playlistName); }, [playlistName]);
+  useEffect(() => { if (restoredRef.current) store.set("playlistContext", playlistContext); }, [playlistContext]);
 
   // Auto-scroll queue panel to current track
   useEffect(() => {
     if (queueIndex >= 0) {
       requestAnimationFrame(() => {
         const list = queuePanelRef.current?.querySelector(".queue-list");
-        const item = list?.children[queueIndex] as HTMLElement | undefined;
+        const item = list?.querySelector(`[data-queue-index="${queueIndex}"]`) as HTMLElement | undefined;
         item?.scrollIntoView({ block: "nearest", behavior: "smooth" });
       });
     }
@@ -60,7 +66,7 @@ export function useQueue(
     return tracks.map(t => stampUrl(t, collections));
   }
 
-  function playTracks(tracks: Track[], startIndex: number) {
+  function playTracks(tracks: Track[], startIndex: number, context?: PlaylistContext | null) {
     const stamped = stamp(tracks);
     setQueue(stamped);
     setQueueIndex(startIndex);
@@ -70,6 +76,7 @@ export function useQueue(
       setShuffleOrder(order);
       setShufflePosition(0);
     }
+    setPlaylistContext(context ?? null);
   }
 
   function findDuplicates(newTracks: Track[]): { duplicates: Track[]; unique: Track[] } {
@@ -276,7 +283,7 @@ export function useQueue(
     setQueueIndex(-1);
     setShuffleOrder([]);
     setShufflePosition(0);
-    setPlaylistName(null);
+    setPlaylistContext(null);
   }
 
   function toggleQueueMode() {
@@ -393,7 +400,7 @@ export function useQueue(
     const entries = queueRef.current.map(t => trackToQueueEntry(t, collections));
     await invoke("save_playlist_entries", { path: filePath, entries });
     const name = filePath.split(/[/\\]/).pop()?.replace(/\.m3u8?$/i, "") ?? "Playlist";
-    setPlaylistName(name);
+    setPlaylistContext(prev => prev ? { ...prev, name } : { name });
   }
 
   async function loadPlaylist() {
@@ -419,7 +426,7 @@ export function useQueue(
       setQueue(tracks);
       setQueueIndex(0);
       handlePlay(tracks[0]);
-      setPlaylistName(result.playlist_name);
+      setPlaylistContext({ name: result.playlist_name });
     }
   }
 
@@ -435,6 +442,6 @@ export function useQueue(
     removeFromQueue, removeMultiple, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
-    playlistName, setPlaylistName, savePlaylist, loadPlaylist,
+    playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,
   };
 }

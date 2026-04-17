@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import { formatDuration } from "../utils";
 import "./QueuePanel.css";
@@ -52,7 +53,7 @@ interface QueuePanelProps {
   queue: Track[];
   queueIndex: number;
   queuePanelRef: React.RefObject<HTMLDivElement | null>;
-  playlistName: string | null;
+  playlistContext: { name: string; coverPath?: string | null; coverUrl?: string | null } | null;
   pendingEnqueue: PendingEnqueue | null;
   onAllowAll: () => void;
   onSkipDuplicates: () => void;
@@ -75,7 +76,7 @@ interface QueuePanelProps {
 const AUTO_APPROVE_SECS = 10;
 
 export function QueuePanel({
-  queue, queueIndex, queuePanelRef, playlistName,
+  queue, queueIndex, queuePanelRef, playlistContext,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
   onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSavePlaylist, onSaveAsPlaylist, onLoadPlaylist, onContextMenu, externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth,
@@ -98,7 +99,7 @@ export function QueuePanel({
     if (!collapsed && queueIndex >= 0 && queuePanelRef.current) {
       requestAnimationFrame(() => {
         const list = queuePanelRef.current?.querySelector(".queue-list");
-        const item = list?.children[queueIndex] as HTMLElement | undefined;
+        const item = list?.querySelector(`[data-queue-index="${queueIndex}"]`) as HTMLElement | undefined;
         item?.scrollIntoView({ block: "nearest", behavior: "smooth" });
       });
     }
@@ -312,6 +313,29 @@ export function QueuePanel({
         </div>
       )}
       <div className="queue-list">
+        {playlistContext && queue.length > 0 && (
+          <div className="queue-context-banner">
+            <div className="queue-context-cover">
+              {playlistContext.coverPath ? (
+                <img src={convertFileSrc(playlistContext.coverPath)} alt="" />
+              ) : playlistContext.coverUrl ? (
+                <img src={playlistContext.coverUrl} alt="" />
+              ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 18V5l12-2v13"/>
+                  <circle cx="6" cy="18" r="3"/>
+                  <circle cx="18" cy="16" r="3"/>
+                </svg>
+              )}
+            </div>
+            <div className="queue-context-info">
+              <span className="queue-context-name">{playlistContext.name}</span>
+              <span className="queue-context-meta">
+                {queue.length} track{queue.length !== 1 ? "s" : ""} &middot; {formatTotalDuration(queue)}
+              </span>
+            </div>
+          </div>
+        )}
         {queue.map((t, i) => (
           <div
             key={`${t.id}-${i}`}
@@ -349,9 +373,8 @@ export function QueuePanel({
           </div>
         )}
       </div>
-      {queue.length > 0 && (
+      {queue.length > 0 && !playlistContext && (
         <div className="queue-info-bar">
-          {playlistName && <span className="queue-playlist-name">{playlistName} &middot; </span>}
           <span className="queue-info-stats">
             {queue.length} track{queue.length !== 1 ? "s" : ""} &middot; {formatTotalDuration(queue)}
           </span>

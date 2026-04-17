@@ -10,7 +10,7 @@ interface BreadcrumbProps {
   selectedTrack: number | null;
   tracks: Track[];
   sortedTracks: Track[];
-  onPlayAll: (tracks: Track[], startIndex: number) => void;
+  onPlayAll: (tracks: Track[], startIndex: number, context?: { name: string; coverPath?: string | null; coverUrl?: string | null } | null) => void;
   onEnqueueAll: (tracks: Track[]) => void;
   pluginName?: string;
   children?: ReactNode;

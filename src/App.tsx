@@ -447,6 +447,11 @@ function App() {
     },
   });
 
+  // Image caches (moved above contextMenuActions so images are available for context)
+  const artistImageCache = useImageCache("artist", addLog);
+  const albumImageCache = useImageCache("album", addLog);
+  const tagImageCache = useImageCache("tag", addLog);
+
   // Context menu actions
   const contextMenuActions = useContextMenuActions({
     library: {
@@ -472,6 +477,8 @@ function App() {
       handleStop: playback.handleStop,
     },
     addLog,
+    albumImages: albumImageCache.images,
+    artistImages: artistImageCache.images,
     queueCollapsed,
     setQueueCollapsed,
   });
@@ -502,6 +509,8 @@ function App() {
         const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string }>);
         const startIndex = (payload.startIndex as number) ?? 0;
         if (tracks?.length) {
+          const playlistName = payload.playlistName as string | undefined;
+          const coverUrl = payload.coverUrl as string | undefined;
           queueHook.playTracks(tracks.map(t => ({
             title: t.title,
             artist_name: t.artist_name ?? null,
@@ -509,7 +518,7 @@ function App() {
             duration_secs: t.duration_secs ?? null,
             url: t.url ?? null,
             path: t.path ?? "external://",
-          })) as Track[], startIndex);
+          })) as Track[], startIndex, playlistName ? { name: playlistName, coverUrl: coverUrl ?? null } : null);
         }
       } else if (action === "enqueue-tracks") {
         const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string }>);
@@ -542,11 +551,6 @@ function App() {
       }
     }
   }
-
-  // Image caches
-  const artistImageCache = useImageCache("artist", addLog);
-  const albumImageCache = useImageCache("album", addLog);
-  const tagImageCache = useImageCache("tag", addLog);
 
   // Event listeners
   useEventListeners({
@@ -729,7 +733,7 @@ function App() {
           store.get<string | null>("trackSortField"),
           store.get<string>("trackSortDir"),
           store.get<ColumnConfig[] | null>("trackColumns"),
-          store.get<string | null>("playlistName"),
+          store.get<{ name: string; coverPath?: string | null; coverUrl?: string | null } | null>("playlistContext"),
           store.get<string | null>("artistViewMode"),
           store.get<string | null>("albumViewMode"),
           store.get<string | null>("tagViewMode"),
@@ -885,7 +889,13 @@ function App() {
         if (qMode && ["normal", "loop", "shuffle"].includes(qMode)) {
           queueHook.setQueueMode(qMode as "normal" | "loop" | "shuffle");
         }
-        if (savedPlaylistName) queueHook.setPlaylistName(savedPlaylistName);
+        if (savedPlaylistName) {
+          if (typeof savedPlaylistName === "string") {
+            queueHook.setPlaylistContext({ name: savedPlaylistName });
+          } else {
+            queueHook.setPlaylistContext(savedPlaylistName as { name: string; coverPath?: string | null; coverUrl?: string | null });
+          }
+        }
         if (savedArtistViewMode && ["basic", "list", "tiles"].includes(savedArtistViewMode)) library.setArtistViewMode(savedArtistViewMode as ViewMode);
         if (savedAlbumViewMode && ["basic", "list", "tiles"].includes(savedAlbumViewMode)) library.setAlbumViewMode(savedAlbumViewMode as ViewMode);
         if (savedTagViewMode && ["basic", "list", "tiles"].includes(savedTagViewMode)) library.setTagViewMode(savedTagViewMode as ViewMode);
@@ -1679,7 +1689,23 @@ function App() {
               selectedTrack={library.selectedTrack}
               tracks={tracks}
               sortedTracks={sortedTracks}
-              onPlayAll={queueHook.playTracks}
+              onPlayAll={(tracks, startIndex) => {
+                if (selectedTag !== null) {
+                  const tag = tags.find(t => t.id === selectedTag);
+                  const tagImagePath = tagImageCache.images[selectedTag] ?? null;
+                  queueHook.playTracks(tracks, startIndex, tag ? { name: tag.name, coverPath: tagImagePath } : null);
+                } else if (selectedAlbum !== null) {
+                  const album = albums.find(a => a.id === selectedAlbum);
+                  const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
+                  queueHook.playTracks(tracks, startIndex, album ? { name: album.title, coverPath: albumImagePath } : null);
+                } else if (selectedArtist !== null) {
+                  const artist = artists.find(a => a.id === selectedArtist);
+                  const artistImagePath = artistImageCache.images[selectedArtist] ?? null;
+                  queueHook.playTracks(tracks, startIndex, artist ? { name: artist.name, coverPath: artistImagePath } : null);
+                } else {
+                  queueHook.playTracks(tracks, startIndex);
+                }
+              }}
               onEnqueueAll={contextMenuActions.handleEnqueue}
               pluginName={typeof view === "string" && view.startsWith("plugin:") ? (plugins.pluginStates.find(p => p.id === view.slice("plugin:".length).split(":")[0])?.manifest.name) : undefined}
             >
@@ -2340,7 +2366,7 @@ function App() {
           queue={queueHook.queue}
           queueIndex={queueHook.queueIndex}
           queuePanelRef={queueHook.queuePanelRef}
-          playlistName={queueHook.playlistName}
+          playlistContext={queueHook.playlistContext}
           pendingEnqueue={contextMenuActions.pendingEnqueue}
           onAllowAll={() => {
             if (contextMenuActions.pendingEnqueue) {
@@ -2537,8 +2563,8 @@ function App() {
           defaultName={(() => {
             const date = new Date();
             const dateStr = date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-            return queueHook.playlistName
-              ? `${queueHook.playlistName} ${dateStr}`
+            return queueHook.playlistContext?.name
+              ? `${queueHook.playlistContext.name} ${dateStr}`
               : `Queue ${dateStr}`;
           })()}
           onSave={handleSavePlaylistConfirm}

@@ -31,7 +31,7 @@ interface ArtistDetailContentProps {
   highlightedIndex: number;
   sortField: SortField | null;
   trackListRef: React.RefObject<HTMLDivElement | null>;
-  onPlayTracks: (tracks: Track[], index: number) => void;
+  onPlayTracks: (tracks: Track[], index: number, context?: { name: string; coverPath?: string | null; coverUrl?: string | null } | null) => void;
   onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<number>) => void;
   onArtistClick: (id: number) => void;
   onAlbumClick: (id: number) => void;
@@ -192,7 +192,7 @@ export function ArtistDetailContent({
                 <button
                   className="artist-play-btn"
                   title="Play All"
-                  onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
+                  onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0, { name: artist?.name ?? "Unknown", coverPath: artistImagePath })}
                 >&#9654;</button>
               )}
             </h2>
@@ -223,7 +223,7 @@ export function ArtistDetailContent({
                       <button className="album-card-play-btn" title="Play album" onClick={async (e) => {
                         e.stopPropagation();
                         const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: a.id } });
-                        if (albumTracks.length > 0) onPlayTracks(albumTracks, 0);
+                        if (albumTracks.length > 0) onPlayTracks(albumTracks, 0, { name: a.title, coverPath: albumImages[a.id] ?? null });
                       }}>&#9654;</button>
                     </div>
                     <div className="album-card-body">
