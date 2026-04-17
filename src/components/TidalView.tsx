@@ -307,7 +307,7 @@ function AlbumResults({
             )}
           </div>
           <div className="tidal-card-title">{a.title}</div>
-          <div className="tidal-card-sub">{a.artist_name}{a.year ? ` \u2022 ${a.year}` : ""}</div>
+          <div className="tidal-card-sub">{a.artist_name && a.year ? `${a.artist_name} - ${a.year}` : a.artist_name || (a.year ? String(a.year) : "")}</div>
         </div>
       ))}
     </div>

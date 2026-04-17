@@ -164,8 +164,7 @@ export function AlbumListView({
                 <div className="album-card-body">
                   <div className="album-card-title" title={a.title}>{a.title}</div>
                   <div className="album-card-info">
-                    {a.artist_name && <>{a.artist_name} {"\u00B7"} </>}
-                    {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
+                    {a.artist_name && a.year ? `${a.artist_name} - ${a.year}` : a.artist_name || (a.year ? String(a.year) : "")}
                   </div>
                 </div>
               </div>
