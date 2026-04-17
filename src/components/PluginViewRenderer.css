@@ -355,8 +355,16 @@
 
 /* Plugin search input */
 .plugin-search-input {
+  position: relative;
   display: flex;
   align-items: center;
+}
+
+.plugin-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-secondary);
+  pointer-events: none;
 }
 
 .plugin-search-input input {
@@ -364,7 +372,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 5px;
-  padding: 8px 12px;
+  padding: 8px 12px 8px 32px;
   color: var(--text-primary);
   font-size: var(--fs-sm);
 }
@@ -372,6 +380,24 @@
 .plugin-search-input input:focus {
   border-color: var(--accent);
   outline: none;
+}
+
+.plugin-search-clear {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  border-radius: 3px;
+}
+
+.plugin-search-clear:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 
 /* Plugin tabs */
