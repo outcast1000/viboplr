@@ -10,6 +10,8 @@ import type {
   TidalArtistDetail,
 } from "../types";
 import { formatDuration, tidalCoverUrl } from "../utils";
+import { ViewSearchBar } from "./ViewSearchBar";
+import "./TidalView.css";
 
 type TidalSubView =
   | { kind: "search" }
@@ -28,7 +30,6 @@ export function TidalView({ collectionId, onPlayTracks, onEnqueueTracks }: Tidal
   const [loading, setLoading] = useState(false);
   const [subView, setSubView] = useState<TidalSubView>({ kind: "search" });
   const [savingId, setSavingId] = useState<string | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   async function doSearch(q: string) {
@@ -141,25 +142,20 @@ export function TidalView({ collectionId, onPlayTracks, onEnqueueTracks }: Tidal
 
   return (
     <div className="tidal-view">
-      <div className="tidal-search-bar">
-        <input
-          ref={searchRef}
-          type="text"
-          placeholder="Search TIDAL..."
-          value={query}
-          onChange={(e) => handleQueryChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") doSearch(query);
-          }}
-          autoFocus
-        />
+      <ViewSearchBar
+        query={query}
+        onQueryChange={handleQueryChange}
+        placeholder="Search TIDAL..."
+        autoFocus
+        onEnter={() => doSearch(query)}
+      >
         {loading && <span className="tidal-loading">Loading...</span>}
-      </div>
+      </ViewSearchBar>
 
       {subView.kind === "search" && results && (
-        <div className="tidal-results">
+        <div className="tiles-scroll">
           {results.tracks.length > 0 && (
-            <div className="tidal-section">
+            <div style={{ marginBottom: 24 }}>
               <h3>Tracks</h3>
               <TrackResults
                 tracks={results.tracks}
@@ -172,25 +168,25 @@ export function TidalView({ collectionId, onPlayTracks, onEnqueueTracks }: Tidal
             </div>
           )}
           {results.albums.length > 0 && (
-            <div className="tidal-section">
+            <div style={{ marginBottom: 24 }}>
               <h3>Albums</h3>
               <AlbumResults albums={results.albums} onAlbumClick={handleAlbumClick} />
             </div>
           )}
           {results.artists.length > 0 && (
-            <div className="tidal-section">
+            <div style={{ marginBottom: 24 }}>
               <h3>Artists</h3>
               <ArtistResults artists={results.artists} onArtistClick={handleArtistClick} />
             </div>
           )}
           {results.tracks.length === 0 && results.albums.length === 0 && results.artists.length === 0 && (
-            <div className="tidal-empty">No results found</div>
+            <div className="empty">No results found</div>
           )}
         </div>
       )}
 
       {subView.kind === "search" && !results && !loading && (
-        <div className="tidal-empty">Search TIDAL's catalog above</div>
+        <div className="empty">Search TIDAL's catalog above</div>
       )}
 
       {subView.kind === "album" && (
@@ -232,43 +228,40 @@ function TrackResults({
   onArtistClick: (id: string) => void;
 }) {
   return (
-    <div className="tidal-track-list">
+    <div className="track-list">
       {tracks.map((t) => (
-        <div key={t.tidal_id} className="tidal-track-row">
-          <div className="tidal-track-art">
+        <div key={t.tidal_id} className="track-row">
+          <span className="col-art">
             {tidalCoverUrl(t.cover_id, 80) ? (
               <img src={tidalCoverUrl(t.cover_id, 80)!} alt="" />
             ) : (
-              <div className="tidal-art-placeholder" />
+              <span style={{ width: "100%", height: "100%", background: "var(--bg-surface)" }} />
             )}
-          </div>
-          <div className="tidal-track-info">
-            <span className="tidal-track-title">{t.title}</span>
-            <span className="tidal-track-meta">
-              {t.artist_name && (
-                <span
-                  className="tidal-link"
-                  onClick={(e) => { e.stopPropagation(); if (t.artist_id) onArtistClick(t.artist_id); }}
-                >
-                  {t.artist_name}
-                </span>
-              )}
-              {t.album_title && (
-                <>
-                  {" \u2014 "}
-                  <span
-                    className="tidal-link"
-                    onClick={(e) => { e.stopPropagation(); if (t.album_id) onAlbumClick(t.album_id); }}
-                  >
-                    {t.album_title}
-                  </span>
-                </>
-              )}
-            </span>
-          </div>
-          <span className="tidal-track-duration">{formatDuration(t.duration_secs)}</span>
+          </span>
+          <span className="col-title">{t.title}</span>
+          <span className="col-artist">
+            {t.artist_name && t.artist_id ? (
+              <span
+                className="track-link"
+                onClick={(e) => { e.stopPropagation(); onArtistClick(t.artist_id!); }}
+              >
+                {t.artist_name}
+              </span>
+            ) : (t.artist_name || "")}
+          </span>
+          <span className="col-album">
+            {t.album_title && t.album_id ? (
+              <span
+                className="track-link"
+                onClick={(e) => { e.stopPropagation(); onAlbumClick(t.album_id!); }}
+              >
+                {t.album_title}
+              </span>
+            ) : (t.album_title || "")}
+          </span>
+          <span className="col-duration">{formatDuration(t.duration_secs)}</span>
           <button
-            className="tidal-btn tidal-btn-play"
+            className="tidal-action-btn"
             onClick={() => onPlay(t)}
             disabled={savingId === t.tidal_id}
             title="Play"
@@ -276,7 +269,7 @@ function TrackResults({
             {savingId === t.tidal_id ? "\u23F3" : "\u25B6"}
           </button>
           <button
-            className="tidal-btn tidal-btn-enqueue"
+            className="tidal-action-btn"
             onClick={() => onEnqueue(t)}
             title="Add to queue"
           >
@@ -296,18 +289,22 @@ function AlbumResults({
   onAlbumClick: (id: string) => void;
 }) {
   return (
-    <div className="tidal-card-grid">
+    <div className="album-grid">
       {albums.map((a) => (
-        <div key={a.tidal_id} className="tidal-card" onClick={() => onAlbumClick(a.tidal_id)}>
-          <div className="tidal-card-art">
+        <div key={a.tidal_id} className="album-card" onClick={() => onAlbumClick(a.tidal_id)}>
+          <div className="album-card-art">
             {tidalCoverUrl(a.cover_id, 320) ? (
-              <img src={tidalCoverUrl(a.cover_id, 320)!} alt="" />
+              <img className="album-card-art-img" src={tidalCoverUrl(a.cover_id, 320)!} alt="" />
             ) : (
-              <div className="tidal-art-placeholder" />
+              a.title[0]?.toUpperCase() ?? "?"
             )}
           </div>
-          <div className="tidal-card-title">{a.title}</div>
-          <div className="tidal-card-sub">{a.artist_name && a.year ? `${a.artist_name} - ${a.year}` : a.artist_name || (a.year ? String(a.year) : "")}</div>
+          <div className="album-card-body">
+            <div className="album-card-title">{a.title}</div>
+            <div className="album-card-info">
+              {a.artist_name && a.year ? `${a.artist_name} - ${a.year}` : a.artist_name || (a.year ? String(a.year) : "")}
+            </div>
+          </div>
         </div>
       ))}
     </div>
@@ -322,17 +319,19 @@ function ArtistResults({
   onArtistClick: (id: string) => void;
 }) {
   return (
-    <div className="tidal-card-grid">
+    <div className="album-grid">
       {artists.map((a) => (
-        <div key={a.tidal_id} className="tidal-card tidal-card-artist" onClick={() => onArtistClick(a.tidal_id)}>
-          <div className="tidal-card-art tidal-card-art-round">
+        <div key={a.tidal_id} className="artist-card" onClick={() => onArtistClick(a.tidal_id)}>
+          <div className="artist-card-art">
             {tidalCoverUrl(a.picture_id, 320) ? (
-              <img src={tidalCoverUrl(a.picture_id, 320)!} alt="" />
+              <img className="artist-card-art-img" src={tidalCoverUrl(a.picture_id, 320)!} alt="" />
             ) : (
-              <div className="tidal-art-placeholder" />
+              a.name[0]?.toUpperCase() ?? "?"
             )}
           </div>
-          <div className="tidal-card-title">{a.name}</div>
+          <div className="artist-card-body">
+            <div className="artist-card-name">{a.name}</div>
+          </div>
         </div>
       ))}
     </div>
