@@ -171,11 +171,8 @@ viboplr/
 │   │   ├── image_provider/     # Image provider fallback chain (6 providers)
 │   │   ├── timing.rs           # Startup profiling
 │   │   └── seed.rs             # Debug-only test data seeding
-│   ├── plugins/            # Native/built-in plugins
-│   │   ├── example-stats/      # Example stats plugin
-│   │   └── randomizer/         # Randomizer plugin
+│   ├── plugins/            # Built-in plugins
 │   └── Cargo.toml
-├── examples/plugins/       # Example plugin templates
 ├── SPEC.md                 # Detailed specification
 └── CLAUDE.md               # AI assistant guidance
 ```

@@ -853,14 +853,6 @@ CREATE TABLE plugin_storage (
 **Sidebar**: "Spotify" with icon
 **Auth**: OAuth PKCE flow
 
-### example-stats (v1.0.0)
-
-**Purpose**: Example plugin showing playback statistics and plugin API usage
-
-**Sidebar**: "Stats" with chart-bar icon
-**Context Menu**: show-artist-stats (track, artist)
-**Event Hooks**: all four events
-
 ### deezer (v1.0.0)
 
 **Purpose**: Artist and album images from Deezer
@@ -884,12 +876,6 @@ CREATE TABLE plugin_storage (
 **Purpose**: Artist and album images from MusicBrainz and Cover Art Archive
 
 **Image Providers**: artist (priority 500), album (priority 500)
-
-### randomizer (v1.0.0)
-
-**Purpose**: Shows 10 random tracks from library
-
-**Sidebar**: "Randomizer" with star icon
 
 ---
 

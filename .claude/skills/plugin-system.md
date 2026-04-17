@@ -39,9 +39,6 @@ This skill provides comprehensive context for working on the Viboplr plugin syst
 | iTunes | `itunes/` | Image providers: artist (priority 300), album (priority 200) |
 | TheAudioDB | `audiodb/` | Image providers: artist (priority 400) |
 | MusicBrainz | `musicbrainz/` | Image providers: artist (priority 500), album (priority 500) |
-| Example Stats | `example-stats/` | Sidebar + context menu + events |
-| Randomizer | `randomizer/` | Sidebar only |
-
 ### Individual Renderers (all under `src/components/renderers/`)
 
 `RichTextRenderer`, `HtmlRenderer`, `EntityListRenderer`, `EntityCardsRenderer`, `StatGridRenderer`, `LyricsRenderer`, `TagListRenderer`, `RankedListRenderer`, `AnnotatedTextRenderer`, `AnnotationsRenderer`, `KeyValueRenderer`, `ImageGalleryRenderer`, `TitleLineRenderer`
