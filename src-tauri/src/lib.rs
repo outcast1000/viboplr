@@ -1045,6 +1045,48 @@ pub fn run() {
                 None
             });
 
+            // Spawn the auto-update worker thread
+            let auto_update_db = db.clone();
+            let auto_update_app = app.handle().clone();
+            timer.time("spawn_auto_update_worker", || { std::thread::spawn(move || {
+                loop {
+                    if let Ok(collections) = auto_update_db.get_collections() {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64;
+
+                        for collection in collections {
+                            if !collection.enabled || !collection.auto_update {
+                                continue;
+                            }
+                            let interval_secs = collection.auto_update_interval_mins * 60;
+                            let due = match collection.last_synced_at {
+                                Some(ts) => (now - ts) >= interval_secs,
+                                None => true,
+                            };
+                            if due {
+                                log::info!(
+                                    "Auto-update: syncing collection '{}' (id={})",
+                                    collection.name, collection.id
+                                );
+                                if let Err(e) = commands::run_collection_sync(
+                                    &auto_update_db,
+                                    &auto_update_app,
+                                    &collection,
+                                ) {
+                                    log::error!(
+                                        "Auto-update failed for collection '{}' (id={}): {}",
+                                        collection.name, collection.id, e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                }
+            }); });
+
             timer.time("manage_app_state", || {
                 let tidal_client = Arc::new(tidal::TidalClient::new(None));
                 tidal::set_global_client(tidal_client.clone());

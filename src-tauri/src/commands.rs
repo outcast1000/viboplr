@@ -283,6 +283,79 @@ pub fn update_collection(
     state.db.recompute_counts().map_err(|e| e.to_string())
 }
 
+pub fn run_collection_sync(
+    db: &Arc<Database>,
+    app: &AppHandle,
+    collection: &Collection,
+) -> Result<(), String> {
+    let collection_id = collection.id;
+    match collection.kind.as_str() {
+        "local" => {
+            let scan_path = collection.path.clone().ok_or("Collection has no path")?;
+            let start = std::time::Instant::now();
+            let scan_path_for_progress = scan_path.clone();
+            let app_for_progress = app.clone();
+            scanner::scan_folder(db, &scan_path, Some(collection_id), move |scanned, total| {
+                let _ = app_for_progress.emit(
+                    "scan-progress",
+                    ScanProgress {
+                        folder: scan_path_for_progress.clone(),
+                        scanned,
+                        total,
+                    },
+                );
+            });
+            let _ = db.rebuild_fts();
+            let _ = db.recompute_counts();
+            let _ = db.update_collection_synced(collection_id, start.elapsed().as_secs_f64());
+            let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
+            Ok(())
+        }
+        "subsonic" => {
+            let creds = db
+                .get_collection_credentials(collection_id)
+                .map_err(|e| e.to_string())?;
+            let collection_name = collection.name.clone();
+            let app_for_progress = app.clone();
+            let client = SubsonicClient::from_stored(
+                &creds.url,
+                &creds.username,
+                &creds.password_token,
+                creds.salt.as_deref(),
+                &creds.auth_method,
+            );
+            match crate::sync::sync_collection(db, &client, collection_id, move |synced, total| {
+                let _ = app_for_progress.emit(
+                    "sync-progress",
+                    SyncProgress {
+                        collection: collection_name.clone(),
+                        synced,
+                        total,
+                    },
+                );
+            }) {
+                Ok(()) => {
+                    let _ = app.emit(
+                        "sync-complete",
+                        serde_json::json!({ "collectionId": collection_id }),
+                    );
+                    Ok(())
+                }
+                Err(e) => {
+                    log::error!("Sync failed for collection {}: {}", collection_id, e);
+                    let _ = db.update_collection_sync_error(collection_id, &e);
+                    let _ = app.emit(
+                        "sync-error",
+                        serde_json::json!({ "collectionId": collection_id, "error": e }),
+                    );
+                    Err(e)
+                }
+            }
+        }
+        _ => Ok(()),
+    }
+}
+
 #[tauri::command]
 pub fn resync_collection(
     app: AppHandle,
@@ -293,77 +366,14 @@ pub fn resync_collection(
         .db
         .get_collection_by_id(collection_id)
         .map_err(|e| e.to_string())?;
+    let db = state.db.clone();
 
-    match collection.kind.as_str() {
-        "local" => {
-            let folder_path = collection.path.ok_or("Collection has no path")?;
-            let db = state.db.clone();
-            let scan_path = folder_path.clone();
-            thread::spawn(move || {
-                let start = std::time::Instant::now();
-                scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
-                    let _ = app.emit(
-                        "scan-progress",
-                        ScanProgress {
-                            folder: scan_path.clone(),
-                            scanned,
-                            total,
-                        },
-                    );
-                });
-                let _ = db.rebuild_fts();
-                let _ = db.recompute_counts();
-                let _ = db.update_collection_synced(collection_id, start.elapsed().as_secs_f64());
-                let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
-            });
-            Ok(())
+    thread::spawn(move || {
+        if let Err(e) = run_collection_sync(&db, &app, &collection) {
+            log::error!("Resync failed for collection {}: {}", collection_id, e);
         }
-        "subsonic" => {
-            let creds = state
-                .db
-                .get_collection_credentials(collection_id)
-                .map_err(|e| e.to_string())?;
-            let collection_name = collection.name.clone();
-            let db = state.db.clone();
-
-            thread::spawn(move || {
-                let client = SubsonicClient::from_stored(
-                    &creds.url,
-                    &creds.username,
-                    &creds.password_token,
-                    creds.salt.as_deref(),
-                    &creds.auth_method,
-                );
-                match crate::sync::sync_collection(&db, &client, collection_id, |synced, total| {
-                    let _ = app.emit(
-                        "sync-progress",
-                        SyncProgress {
-                            collection: collection_name.clone(),
-                            synced,
-                            total,
-                        },
-                    );
-                }) {
-                    Ok(()) => {
-                        let _ = app.emit(
-                            "sync-complete",
-                            serde_json::json!({ "collectionId": collection_id }),
-                        );
-                    }
-                    Err(e) => {
-                        log::error!("Resync failed for collection {}: {}", collection_id, e);
-                        let _ = db.update_collection_sync_error(collection_id, &e);
-                        let _ = app.emit(
-                            "sync-error",
-                            serde_json::json!({ "collectionId": collection_id, "error": e }),
-                        );
-                    }
-                }
-            });
-            Ok(())
-        }
-        _ => Ok(()),
-    }
+    });
+    Ok(())
 }
 
 // --- Library commands ---
