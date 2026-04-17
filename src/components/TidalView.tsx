@@ -362,16 +362,14 @@ function AlbumDetailView({
         <div className="tidal-detail-art">
           {tidalCoverUrl(album.cover_id, 640) ? (
             <img src={tidalCoverUrl(album.cover_id, 640)!} alt="" />
-          ) : (
-            <div className="tidal-art-placeholder tidal-art-placeholder-lg" />
-          )}
+          ) : null}
         </div>
         <div className="tidal-detail-info">
           <h2>{album.title}</h2>
           {album.artist_name && <p className="tidal-detail-sub">{album.artist_name}</p>}
           {album.year && <p className="tidal-detail-sub">{album.year}</p>}
           <button
-            className="tidal-btn tidal-btn-play-all"
+            className="tidal-btn-play-all"
             onClick={() => onPlayAlbum(album.tracks)}
             disabled={savingId === "album"}
           >
@@ -379,23 +377,21 @@ function AlbumDetailView({
           </button>
         </div>
       </div>
-      <div className="tidal-track-list">
+      <div className="track-list">
         {album.tracks.map((t, i) => (
-          <div key={t.tidal_id} className="tidal-track-row tidal-track-row-album">
-            <span className="tidal-track-num">{t.track_number ?? i + 1}</span>
-            <div className="tidal-track-info">
-              <span className="tidal-track-title">{t.title}</span>
-              {t.artist_name && t.artist_name !== album.artist_name && (
-                <span className="tidal-track-meta">
-                  <span className="tidal-link" onClick={() => { if (t.artist_id) onArtistClick(t.artist_id); }}>
-                    {t.artist_name}
-                  </span>
+          <div key={t.tidal_id} className="track-row">
+            <span className="col-num">{t.track_number ?? i + 1}</span>
+            <span className="col-title">{t.title}</span>
+            <span className="col-artist">
+              {t.artist_name && t.artist_name !== album.artist_name && t.artist_id ? (
+                <span className="track-link" onClick={() => onArtistClick(t.artist_id!)}>
+                  {t.artist_name}
                 </span>
-              )}
-            </div>
-            <span className="tidal-track-duration">{formatDuration(t.duration_secs)}</span>
+              ) : (t.artist_name !== album.artist_name ? (t.artist_name || "") : "")}
+            </span>
+            <span className="col-duration">{formatDuration(t.duration_secs)}</span>
             <button
-              className="tidal-btn tidal-btn-play"
+              className="tidal-action-btn"
               onClick={() => onPlayTrack(t)}
               disabled={savingId === t.tidal_id}
               title="Play"
@@ -403,7 +399,7 @@ function AlbumDetailView({
               {savingId === t.tidal_id ? "\u23F3" : "\u25B6"}
             </button>
             <button
-              className="tidal-btn tidal-btn-enqueue"
+              className="tidal-action-btn"
               onClick={() => onEnqueueTrack(t)}
               title="Add to queue"
             >
@@ -432,9 +428,7 @@ function ArtistDetailView({
         <div className="tidal-detail-art tidal-detail-art-round">
           {tidalCoverUrl(artist.picture_id, 640) ? (
             <img src={tidalCoverUrl(artist.picture_id, 640)!} alt="" />
-          ) : (
-            <div className="tidal-art-placeholder tidal-art-placeholder-lg" />
-          )}
+          ) : null}
         </div>
         <div className="tidal-detail-info">
           <h2>{artist.name}</h2>
@@ -442,18 +436,20 @@ function ArtistDetailView({
         </div>
       </div>
       <h3>Discography</h3>
-      <div className="tidal-card-grid">
+      <div className="album-grid">
         {artist.albums.map((a) => (
-          <div key={a.tidal_id} className="tidal-card" onClick={() => onAlbumClick(a.tidal_id)}>
-            <div className="tidal-card-art">
+          <div key={a.tidal_id} className="album-card" onClick={() => onAlbumClick(a.tidal_id)}>
+            <div className="album-card-art">
               {tidalCoverUrl(a.cover_id, 320) ? (
-                <img src={tidalCoverUrl(a.cover_id, 320)!} alt="" />
+                <img className="album-card-art-img" src={tidalCoverUrl(a.cover_id, 320)!} alt="" />
               ) : (
-                <div className="tidal-art-placeholder" />
+                a.title[0]?.toUpperCase() ?? "?"
               )}
             </div>
-            <div className="tidal-card-title">{a.title}</div>
-            <div className="tidal-card-sub">{a.year ?? ""}</div>
+            <div className="album-card-body">
+              <div className="album-card-title">{a.title}</div>
+              <div className="album-card-info">{a.year ?? ""}</div>
+            </div>
           </div>
         ))}
       </div>
