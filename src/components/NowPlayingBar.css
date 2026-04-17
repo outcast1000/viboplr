@@ -42,14 +42,10 @@
 }
 .now-seek-elapsed {
   flex-shrink: 0;
-  background: linear-gradient(to right, rgba(var(--overlay-inverse), 0.55) 70%, transparent);
-  border-radius: 4px;
 }
 .now-seek-total {
   margin-left: auto;
   flex-shrink: 0;
-  background: linear-gradient(to left, rgba(var(--overlay-inverse), 0.55) 70%, transparent);
-  border-radius: 4px;
 }
 
 .now-main {
