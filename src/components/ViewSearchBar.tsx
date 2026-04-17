@@ -7,12 +7,13 @@ interface ViewSearchBarProps {
   onQueryChange: (q: string) => void;
   placeholder: string;
   children?: ReactNode;
+  autoFocus?: boolean;
   onArrowDown?: () => void;
   onArrowUp?: () => void;
   onEnter?: () => void;
 }
 
-export function ViewSearchBar({ query, onQueryChange, placeholder, children, onArrowDown, onArrowUp, onEnter }: ViewSearchBarProps) {
+export function ViewSearchBar({ query, onQueryChange, placeholder, children, autoFocus, onArrowDown, onArrowUp, onEnter }: ViewSearchBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
@@ -40,6 +41,7 @@ export function ViewSearchBar({ query, onQueryChange, placeholder, children, onA
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
+          autoFocus={autoFocus}
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={(e) => {
