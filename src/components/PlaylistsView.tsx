@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
+import { save, open } from "@tauri-apps/plugin-dialog";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import playlistDefault from "../assets/playlist-default.png";
@@ -59,11 +59,13 @@ interface PlaylistsViewProps {
   searchQuery: string;
   onPlayTracks: (tracks: any[], startIndex: number, context?: { name: string; coverPath?: string | null; coverUrl?: string | null } | null) => void;
   onEnqueueTracks: (tracks: any[]) => void;
+  onExportAsTape?: (trackIds: number[], defaultTitle?: string) => void;
+  onOpenTape?: (path: string) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
 }
 
-export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, pluginMenuItems, onPluginAction }: PlaylistsViewProps) {
+export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onExportAsTape, onOpenTape, pluginMenuItems, onPluginAction }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
@@ -99,6 +101,14 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, plug
     setTracks([]);
     loadPlaylists();
   }, [deleteConfirm, loadPlaylists]);
+
+  const handleOpenTape = useCallback(async () => {
+    const path = await open({
+      filters: [{ name: "Tape", extensions: ["tape"] }],
+      multiple: false,
+    });
+    if (path && onOpenTape) onOpenTape(path as string);
+  }, [onOpenTape]);
 
   const handleExport = useCallback(async (pl: Playlist) => {
     const path = await save({
@@ -188,6 +198,19 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, plug
             <div className="playlists-detail-actions">
               <button className="playlists-action-btn playlists-action-btn-play" onClick={() => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0, { name: selectedPlaylist.name, coverPath: selectedPlaylist.image_path })} disabled={tracks.length === 0}>Play</button>
               <button className="playlists-action-btn" onClick={() => handleExport(selectedPlaylist)}>Export M3U</button>
+              {onOpenTape && <button className="playlists-action-btn" onClick={handleOpenTape}>Open Tape</button>}
+              {onExportAsTape && (
+                <button className="playlists-action-btn" onClick={async () => {
+                  const paths = tracks.map(t => t.source).filter((s): s is string => s != null);
+                  if (paths.length === 0) return;
+                  try {
+                    const libraryTracks = await invoke<{ id: number }[]>("get_tracks_by_paths", { paths });
+                    if (libraryTracks.length > 0) {
+                      onExportAsTape(libraryTracks.map(t => t.id), selectedPlaylist.name);
+                    }
+                  } catch {}
+                }} disabled={tracks.length === 0}>Make a Tape</button>
+              )}
               <button className="playlists-action-btn playlists-action-btn-danger" onClick={() => setDeleteConfirm(selectedPlaylist)}>Delete</button>
             </div>
           </div>
@@ -223,6 +246,11 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, plug
   // List view
   return (
     <div className="playlists-view">
+      {onOpenTape && (
+        <div className="playlists-actions-bar">
+          <button className="playlists-action-btn" onClick={handleOpenTape}>Open Tape</button>
+        </div>
+      )}
       {filtered.length === 0 ? (
         <div className="playlists-empty">No saved playlists</div>
       ) : (

@@ -39,6 +39,7 @@ interface ContextMenuProps {
   onDownload?: (destCollectionId: number) => void;
   localCollections?: { id: number; name: string }[];
   onBulkEdit?: () => void;
+  onExportAsTape?: (trackIds: number[]) => void;
   onClose: () => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
@@ -119,7 +120,7 @@ function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarget {
 export function ContextMenu({
   menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onViewDetails,
   onDelete, onRefreshImage, onRemoveFromQueue, onKeepOnly, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, localCollections,
-  onBulkEdit, onClose,
+  onBulkEdit, onExportAsTape, onClose,
   pluginMenuItems, onPluginAction,
   onSetDockSide, onSetFitMode,
 }: ContextMenuProps) {
@@ -350,6 +351,19 @@ export function ContextMenu({
           </>
         );
       })()}
+      {isMulti && onExportAsTape && (
+        <>
+          <div className="context-menu-separator" />
+          <div className="context-menu-item" onClick={() => {
+            if (target.kind === "multi-track") {
+              onExportAsTape(target.trackIds);
+            }
+            onClose();
+          }}>
+            <span>Export as Tape</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }

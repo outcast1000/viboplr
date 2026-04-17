@@ -187,3 +187,40 @@ export interface TidalArtistDetail {
   picture_id: string | null;
   albums: TidalSearchAlbum[];
 }
+
+// Tape file format types
+export type TapeType = "custom" | "album" | "best_of_artist";
+
+export interface TapeTrack {
+  title: string;
+  artist: string;
+  album: string | null;
+  duration_secs: number | null;
+  file: string;
+  thumb: string | null;
+}
+
+export interface TapeManifest {
+  version: number;
+  title: string;
+  type: TapeType;
+  quality: string;
+  comment: string | null;
+  created_at: string;
+  created_by: string | null;
+  cover: string | null;
+  tracks: TapeTrack[];
+}
+
+export interface TapePreview {
+  manifest: TapeManifest;
+  cover_temp_path: string | null;
+  file_size: number;
+  total_duration_secs: number;
+}
+
+export interface TapeImportProgress {
+  current_track: number;
+  total_tracks: number;
+  track_title: string;
+}

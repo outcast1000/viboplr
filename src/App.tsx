@@ -77,6 +77,9 @@ import { TrackDetailView } from "./components/TrackDetailView";
 import { TidalDownloadModal } from "./components/TidalDownloadModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
+import { TapePreviewModal } from "./components/TapePreviewModal";
+import { TapeExportModal } from "./components/TapeExportModal";
+import type { ExportTrack } from "./components/TapeExportModal";
 
 import { StatusBar } from "./components/StatusBar";
 import { IconYoutube } from "./components/Icons";
@@ -391,6 +394,9 @@ function App() {
   const [syncWithPlaying, setSyncWithPlaying] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
+  const [tapePreviewPath, setTapePreviewPath] = useState<string | null>(null);
+  const [tapeExportTracks, setTapeExportTracks] = useState<ExportTrack[] | null>(null);
+  const [tapeExportDefaultTitle, setTapeExportDefaultTitle] = useState<string>("");
 
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
@@ -709,6 +715,37 @@ function App() {
       unlistenEvent.then(f => f());
     };
   }, [plugins.forwardDeepLink]);
+
+  // Listen for tape file opened events (from file association / CLI)
+  useEffect(() => {
+    const unlistenTapeOpen = listen<string>("tape-file-opened", (event) => {
+      setTapePreviewPath(event.payload);
+    });
+    return () => {
+      unlistenTapeOpen.then(f => f());
+    };
+  }, []);
+
+  // Handle drag-and-drop of .tape files onto the window
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onDragDropEvent((event) => {
+      if (event.payload.type === "drop") {
+        const paths: string[] = event.payload.paths;
+        const tapePath = paths.find(p => p.endsWith(".tape"));
+        if (tapePath) {
+          setTapePreviewPath(tapePath);
+        }
+      }
+    });
+    return () => {
+      unlisten.then(f => f());
+    };
+  }, []);
+
+  // Clean up temporary tape files on app startup
+  useEffect(() => {
+    invoke("cleanup_temp_tapes").catch(() => {});
+  }, []);
 
   // Restore persisted state on mount
   useEffect(() => {
@@ -1431,6 +1468,29 @@ function App() {
       addLog(`Failed to save playlist: ${err}`);
     }
   }
+
+  // Tape export trigger — fetches full track data and opens the export modal
+  const handleExportAsTape = useCallback(async (trackIds: number[], defaultTitle?: string) => {
+    try {
+      const tracks = await invoke<Track[]>("get_tracks_by_ids", { ids: trackIds });
+      setTapeExportTracks(tracks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        artistName: t.artist_name || undefined,
+        albumTitle: t.album_title || undefined,
+        durationSecs: t.duration_secs || undefined,
+        fileSize: t.file_size || undefined,
+      })));
+      setTapeExportDefaultTitle(defaultTitle || "");
+    } catch (e) {
+      console.error("Failed to prepare tape export:", e);
+    }
+  }, []);
+
+  // Queue handler for tape "Just Play" mode — replaces the queue with tape tracks
+  const handleTapeQueueTracks = useCallback((tracks: Track[], context: { name: string; coverPath?: string | null }) => {
+    queueHook.playTracks(tracks, 0, context);
+  }, [queueHook.playTracks]);
 
   // Bridge for keyboard shortcuts
   handleToggleLikeRef.current = likeActions.handleToggleLike;
@@ -2168,6 +2228,8 @@ function App() {
                 searchQuery={viewSearch.getQuery("playlists")}
                 onPlayTracks={queueHook.playTracks}
                 onEnqueueTracks={queueHook.enqueueTracks}
+                onExportAsTape={handleExportAsTape}
+                onOpenTape={setTapePreviewPath}
                 pluginMenuItems={plugins.menuItems}
                 onPluginAction={plugins.dispatchContextMenuAction}
               />
@@ -2397,7 +2459,7 @@ function App() {
           onClear={queueHook.clearQueue}
           onSavePlaylist={queueHook.savePlaylist}
           onSaveAsPlaylist={handleSaveAsPlaylist}
-          onLoadPlaylist={queueHook.loadPlaylist}
+          onLoadPlaylist={() => queueHook.loadPlaylist(setTapePreviewPath)}
           onContextMenu={(e, indices) => {
             const tracks = indices.map(i => queueHook.queue[i]).filter(Boolean);
             const first = tracks[0];
@@ -2458,6 +2520,7 @@ function App() {
           } : undefined}
           onDownload={contextMenuActions.contextMenu.target.kind === "track" && contextMenuActions.contextMenu.target.trackId ? (destId: number) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track" && t.trackId) downloads.downloadTrack(t.trackId, destId, library.tracks); } : undefined}
           localCollections={localCollections}
+          onExportAsTape={handleExportAsTape}
           onClose={() => contextMenuActions.setContextMenu(null)}
           pluginMenuItems={plugins.menuItems}
           onPluginAction={plugins.dispatchContextMenuAction}
@@ -2546,6 +2609,21 @@ function App() {
           trackTitle={playback.failedTrack?.title ?? null}
           onDismiss={playback.clearPlaybackError}
           onSkip={() => { playback.clearPlaybackError(); handleNext(); }}
+        />
+      )}
+
+      {tapePreviewPath && (
+        <TapePreviewModal
+          tapePath={tapePreviewPath}
+          onClose={() => setTapePreviewPath(null)}
+          onQueueTracks={handleTapeQueueTracks}
+        />
+      )}
+      {tapeExportTracks && (
+        <TapeExportModal
+          tracks={tapeExportTracks}
+          defaultTitle={tapeExportDefaultTitle}
+          onClose={() => setTapeExportTracks(null)}
         />
       )}
 

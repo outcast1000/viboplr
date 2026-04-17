@@ -44,6 +44,13 @@
     "createUpdaterArtifacts": true,
     "resources": [
       "plugins/"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["tape"],
+        "mimeType": "application/x-viboplr-tape",
+        "description": "Viboplr Tape"
+      }
     ]
   },
   "plugins": {

@@ -292,3 +292,91 @@ pub struct PlaylistTrack {
     pub image_path: Option<String>,
 }
 
+// --- Tape file format types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TapeType {
+    Custom,
+    Album,
+    BestOfArtist,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TapeImportMode {
+    PlaylistAndFiles,
+    PlaylistOnly,
+    FilesOnly,
+    JustPlay,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TapeManifest {
+    pub version: u32,
+    pub title: String,
+    #[serde(rename = "type")]
+    pub tape_type: TapeType,
+    pub quality: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover: Option<String>,
+    pub tracks: Vec<TapeTrack>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TapeTrack {
+    pub title: String,
+    pub artist: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<f64>,
+    pub file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumb: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TapePreview {
+    pub manifest: TapeManifest,
+    pub cover_temp_path: Option<String>,
+    pub file_size: u64,
+    pub total_duration_secs: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TapeExportOptions {
+    pub title: String,
+    pub tape_type: TapeType,
+    pub quality: String,
+    pub comment: Option<String>,
+    pub created_by: Option<String>,
+    pub cover_image_path: Option<String>,
+    pub include_thumbs: bool,
+    pub track_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TapeExportProgress {
+    pub current_track: u32,
+    pub total_tracks: u32,
+    pub phase: String,
+    pub track_title: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TapeImportProgress {
+    pub current_track: u32,
+    pub total_tracks: u32,
+    pub track_title: String,
+}
+

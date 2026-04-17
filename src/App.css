@@ -1864,3 +1864,340 @@
   flex-shrink: 0;
 }
 
+/* --- Tape modals --- */
+.tape-preview-modal,
+.tape-export-modal {
+  max-width: 640px;
+  width: 640px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tape-preview-header {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tape-preview-cover {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.tape-preview-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tape-preview-info h2 {
+  font-size: var(--fs-lg);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tape-preview-badges {
+  display: flex;
+  gap: 6px;
+}
+
+.tape-badge {
+  font-size: var(--fs-2xs);
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-text, #fff);
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.tape-preview-comment {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  font-style: italic;
+  margin: 4px 0 0;
+}
+
+.tape-preview-meta {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+.tape-preview-tracklist,
+.tape-export-tracklist {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.tape-export-tracklist-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 16px 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+.tape-preview-track,
+.tape-export-track {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  font-size: var(--fs-sm);
+}
+
+.tape-preview-track:hover,
+.tape-export-track:hover {
+  background: var(--hover);
+}
+
+.tape-track-grip {
+  cursor: grab;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  user-select: none;
+}
+
+.tape-track-num {
+  width: 24px;
+  text-align: right;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  flex-shrink: 0;
+}
+
+.tape-track-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tape-track-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tape-track-artist {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tape-track-duration {
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.tape-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.tape-action-btn {
+  flex: 1;
+  min-width: 120px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.tape-action-btn:hover {
+  background: var(--hover);
+}
+
+.tape-action-btn.primary {
+  background: var(--accent);
+  color: var(--accent-text, #fff);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.tape-action-btn.primary:hover {
+  filter: brightness(1.1);
+}
+
+.tape-action-btn.cancel {
+  flex: 0;
+  min-width: auto;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+
+.tape-progress {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.tape-progress-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tape-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+
+.tape-progress-text {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin: 6px 0 0;
+}
+
+.tape-cancel-btn {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin-top: 4px;
+}
+
+.tape-cancel-btn:hover {
+  color: var(--text);
+}
+
+.tape-preview-error {
+  color: var(--error, #e74c3c);
+  font-size: var(--fs-sm);
+  padding: 8px 16px;
+  margin: 0;
+}
+
+/* Export-specific */
+.tape-export-form {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tape-export-cover-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.tape-export-cover-preview {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.tape-export-cover-placeholder {
+  width: 120px;
+  height: 120px;
+  border: 2px dashed var(--border);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  text-align: center;
+  padding: 8px;
+}
+
+.tape-export-cover-placeholder:hover {
+  border-color: var(--accent);
+  color: var(--text-secondary);
+}
+
+.tape-export-cover-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.tape-export-cover-actions button {
+  font-size: var(--fs-2xs);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.tape-export-fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tape-export-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.tape-export-fields input,
+.tape-export-fields textarea,
+.tape-export-fields select {
+  background: var(--input-bg, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+
+.tape-export-row {
+  display: flex;
+  gap: 10px;
+}
+
+.tape-export-row label {
+  flex: 1;
+}
+
+.tape-export-checkbox {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+}
+
+.tape-export-modal h2 {
+  padding: 16px 16px 0;
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+

@@ -60,6 +60,7 @@ pub struct AppState {
     pub native_plugins_dir: Option<std::path::PathBuf>,
     pub image_resolve_registry: Arc<ImageResolveRegistry>,
     pub tidal_download_cancel: Arc<AtomicBool>,
+    pub tape_cancel: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -283,79 +284,6 @@ pub fn update_collection(
     state.db.recompute_counts().map_err(|e| e.to_string())
 }
 
-pub fn run_collection_sync(
-    db: &Arc<Database>,
-    app: &AppHandle,
-    collection: &Collection,
-) -> Result<(), String> {
-    let collection_id = collection.id;
-    match collection.kind.as_str() {
-        "local" => {
-            let scan_path = collection.path.clone().ok_or("Collection has no path")?;
-            let start = std::time::Instant::now();
-            let scan_path_for_progress = scan_path.clone();
-            let app_for_progress = app.clone();
-            scanner::scan_folder(db, &scan_path, Some(collection_id), move |scanned, total| {
-                let _ = app_for_progress.emit(
-                    "scan-progress",
-                    ScanProgress {
-                        folder: scan_path_for_progress.clone(),
-                        scanned,
-                        total,
-                    },
-                );
-            });
-            let _ = db.rebuild_fts();
-            let _ = db.recompute_counts();
-            let _ = db.update_collection_synced(collection_id, start.elapsed().as_secs_f64());
-            let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
-            Ok(())
-        }
-        "subsonic" => {
-            let creds = db
-                .get_collection_credentials(collection_id)
-                .map_err(|e| e.to_string())?;
-            let collection_name = collection.name.clone();
-            let app_for_progress = app.clone();
-            let client = SubsonicClient::from_stored(
-                &creds.url,
-                &creds.username,
-                &creds.password_token,
-                creds.salt.as_deref(),
-                &creds.auth_method,
-            );
-            match crate::sync::sync_collection(db, &client, collection_id, move |synced, total| {
-                let _ = app_for_progress.emit(
-                    "sync-progress",
-                    SyncProgress {
-                        collection: collection_name.clone(),
-                        synced,
-                        total,
-                    },
-                );
-            }) {
-                Ok(()) => {
-                    let _ = app.emit(
-                        "sync-complete",
-                        serde_json::json!({ "collectionId": collection_id }),
-                    );
-                    Ok(())
-                }
-                Err(e) => {
-                    log::error!("Sync failed for collection {}: {}", collection_id, e);
-                    let _ = db.update_collection_sync_error(collection_id, &e);
-                    let _ = app.emit(
-                        "sync-error",
-                        serde_json::json!({ "collectionId": collection_id, "error": e }),
-                    );
-                    Err(e)
-                }
-            }
-        }
-        _ => Ok(()),
-    }
-}
-
 #[tauri::command]
 pub fn resync_collection(
     app: AppHandle,
@@ -366,14 +294,77 @@ pub fn resync_collection(
         .db
         .get_collection_by_id(collection_id)
         .map_err(|e| e.to_string())?;
-    let db = state.db.clone();
 
-    thread::spawn(move || {
-        if let Err(e) = run_collection_sync(&db, &app, &collection) {
-            log::error!("Resync failed for collection {}: {}", collection_id, e);
+    match collection.kind.as_str() {
+        "local" => {
+            let folder_path = collection.path.ok_or("Collection has no path")?;
+            let db = state.db.clone();
+            let scan_path = folder_path.clone();
+            thread::spawn(move || {
+                let start = std::time::Instant::now();
+                scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
+                    let _ = app.emit(
+                        "scan-progress",
+                        ScanProgress {
+                            folder: scan_path.clone(),
+                            scanned,
+                            total,
+                        },
+                    );
+                });
+                let _ = db.rebuild_fts();
+                let _ = db.recompute_counts();
+                let _ = db.update_collection_synced(collection_id, start.elapsed().as_secs_f64());
+                let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
+            });
+            Ok(())
         }
-    });
-    Ok(())
+        "subsonic" => {
+            let creds = state
+                .db
+                .get_collection_credentials(collection_id)
+                .map_err(|e| e.to_string())?;
+            let collection_name = collection.name.clone();
+            let db = state.db.clone();
+
+            thread::spawn(move || {
+                let client = SubsonicClient::from_stored(
+                    &creds.url,
+                    &creds.username,
+                    &creds.password_token,
+                    creds.salt.as_deref(),
+                    &creds.auth_method,
+                );
+                match crate::sync::sync_collection(&db, &client, collection_id, |synced, total| {
+                    let _ = app.emit(
+                        "sync-progress",
+                        SyncProgress {
+                            collection: collection_name.clone(),
+                            synced,
+                            total,
+                        },
+                    );
+                }) {
+                    Ok(()) => {
+                        let _ = app.emit(
+                            "sync-complete",
+                            serde_json::json!({ "collectionId": collection_id }),
+                        );
+                    }
+                    Err(e) => {
+                        log::error!("Resync failed for collection {}: {}", collection_id, e);
+                        let _ = db.update_collection_sync_error(collection_id, &e);
+                        let _ = app.emit(
+                            "sync-error",
+                            serde_json::json!({ "collectionId": collection_id, "error": e }),
+                        );
+                    }
+                }
+            });
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 // --- Library commands ---
@@ -2856,6 +2847,391 @@ pub async fn oauth_listen(app: tauri::AppHandle) -> Result<u16, String> {
     Ok(port)
 }
 
+// ── Tape operations ───────────────────────────────────────────
+
+#[tauri::command]
+pub fn preview_tape(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<crate::models::TapePreview, String> {
+    let temp_dir = state.app_dir.join("temp");
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+    crate::tape::read_tape(std::path::Path::new(&path), &temp_dir)
+}
+
+#[tauri::command]
+pub fn export_tape(
+    dest_path: String,
+    options: crate::models::TapeExportOptions,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let db = state.db.clone();
+    let cancel = state.tape_cancel.clone();
+    let app_dir = state.app_dir.clone();
+    cancel.store(false, Ordering::Relaxed);
+
+    let tracks = db.get_tracks_by_ids(&options.track_ids)
+        .map_err(|e| format!("Failed to get tracks: {}", e))?;
+
+    let mut sources = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+    for track in &tracks {
+        let audio_path = if let Some(fs_path) = track.filesystem_path() {
+            if std::path::Path::new(fs_path).exists() {
+                fs_path.to_string()
+            } else {
+                skipped.push(format!("{} (file missing)", track.title));
+                continue;
+            }
+        } else {
+            skipped.push(format!("{} (remote track — download first)", track.title));
+            continue;
+        };
+
+        let thumb_path = if let (Some(album_title), Some(artist_name)) = (&track.album_title, &track.artist_name) {
+            let slug = crate::entity_image::entity_image_slug("album", album_title, Some(artist_name));
+            crate::entity_image::get_image_path(&app_dir, "album", &slug)
+                .map(|p| p.to_string_lossy().to_string())
+        } else {
+            None
+        };
+
+        sources.push(crate::tape::TapeTrackSource {
+            title: track.title.clone(),
+            artist: track.artist_name.clone().unwrap_or_default(),
+            album: track.album_title.clone(),
+            duration_secs: track.duration_secs,
+            audio_path,
+            thumb_path,
+        });
+    }
+    if sources.is_empty() {
+        return Err(format!("No exportable tracks. Skipped: {}", skipped.join(", ")));
+    }
+
+    let manifest = crate::tape::build_manifest(
+        options.title, options.tape_type, options.quality,
+        options.comment, options.created_by, vec![],
+    );
+
+    let cover_image_path = options.cover_image_path.clone();
+    let include_thumbs = options.include_thumbs;
+
+    thread::spawn(move || {
+        let dest = std::path::Path::new(&dest_path);
+        let cover = cover_image_path.as_ref().map(|p| std::path::Path::new(p.as_str()));
+
+        match crate::tape::build_tape(
+            dest, cover, &sources, manifest, include_thumbs, &cancel,
+            |current, total, title, _sub_progress| {
+                let _ = app.emit("tape-export-progress", crate::models::TapeExportProgress {
+                    current_track: current, total_tracks: total,
+                    phase: "packing".to_string(), track_title: title.to_string(),
+                });
+            },
+        ) {
+            Ok(file_size) => {
+                let _ = app.emit("tape-export-complete", serde_json::json!({
+                    "path": dest_path, "fileSize": file_size,
+                }));
+            }
+            Err(e) => {
+                let _ = app.emit("tape-export-error", serde_json::json!({ "message": e }));
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn import_tape(
+    path: String,
+    mode: crate::models::TapeImportMode,
+    dest_dir: Option<String>,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let db = state.db.clone();
+    let cancel = state.tape_cancel.clone();
+    let app_dir = state.app_dir.clone();
+    cancel.store(false, Ordering::Relaxed);
+
+    thread::spawn(move || {
+        let tape_path = std::path::Path::new(&path);
+
+        match mode {
+            crate::models::TapeImportMode::PlaylistAndFiles => {
+                // Read the manifest first to get metadata
+                let temp_dir = app_dir.join("temp");
+                let _ = std::fs::create_dir_all(&temp_dir);
+                let preview = match crate::tape::read_tape(tape_path, &temp_dir) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e }));
+                        return;
+                    }
+                };
+
+                let track_count = preview.manifest.tracks.len() as u32;
+                let tape_title = preview.manifest.title.clone();
+
+                // Extract to app_dir/tapes/{slug}/
+                let slug = crate::entity_image::canonical_slug(&tape_title);
+                let extract_dir = app_dir.join("tapes").join(&slug);
+                let extract_opts = crate::tape::ExtractOptions { audio: true, images: true };
+
+                let manifest = match crate::tape::extract_tape(
+                    tape_path, &extract_dir, &extract_opts, &cancel,
+                    |current, total, title| {
+                        let _ = app.emit("tape-import-progress", crate::models::TapeImportProgress {
+                            current_track: current, total_tracks: total,
+                            track_title: title.to_string(),
+                        });
+                    },
+                ) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e }));
+                        return;
+                    }
+                };
+
+                // Create playlist
+                let source = Some("tape");
+                let playlist_id = match db.save_playlist(&tape_title, source, None) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e.to_string() }));
+                        return;
+                    }
+                };
+
+                // Save playlist tracks with file:// paths to extracted audio
+                let track_tuples: Vec<(String, Option<String>, Option<String>, Option<f64>, Option<String>, Option<String>)> =
+                    manifest.tracks.iter().map(|t| {
+                        let audio_path = format!("file://{}", extract_dir.join(&t.file).to_string_lossy());
+                        (
+                            t.title.clone(),
+                            Some(t.artist.clone()),
+                            t.album.clone(),
+                            t.duration_secs,
+                            Some(audio_path),
+                            None,
+                        )
+                    }).collect();
+
+                let track_refs: Vec<(&str, Option<&str>, Option<&str>, Option<f64>, Option<&str>, Option<&str>)> =
+                    track_tuples.iter().map(|(title, artist, album, dur, source, img)| {
+                        (
+                            title.as_str(),
+                            artist.as_deref(),
+                            album.as_deref(),
+                            *dur,
+                            source.as_deref(),
+                            img.as_deref(),
+                        )
+                    }).collect();
+
+                if let Err(e) = db.save_playlist_tracks(playlist_id, &track_refs) {
+                    let _ = app.emit("tape-import-error", serde_json::json!({ "message": e.to_string() }));
+                    return;
+                }
+
+                // Save cover as playlist image
+                let cover_path = extract_dir.join("cover.jpg");
+                if cover_path.exists() {
+                    let img_dir = app_dir.join("playlist_images");
+                    let _ = std::fs::create_dir_all(&img_dir);
+                    let dest_img = img_dir.join(format!("{}.jpg", playlist_id));
+                    if std::fs::copy(&cover_path, &dest_img).is_ok() {
+                        let abs = dest_img.to_string_lossy().to_string();
+                        let _ = db.update_playlist_image(playlist_id, &abs);
+                    }
+                }
+
+                let _ = app.emit("tape-import-complete", serde_json::json!({
+                    "mode": "PlaylistAndFiles", "trackCount": track_count, "playlistId": playlist_id,
+                }));
+            }
+
+            crate::models::TapeImportMode::PlaylistOnly => {
+                // Read manifest without extracting audio
+                let temp_dir = app_dir.join("temp");
+                let _ = std::fs::create_dir_all(&temp_dir);
+                let preview = match crate::tape::read_tape(tape_path, &temp_dir) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e }));
+                        return;
+                    }
+                };
+
+                let track_count = preview.manifest.tracks.len() as u32;
+                let tape_title = preview.manifest.title.clone();
+
+                // Create playlist with metadata only (no file paths)
+                let source = Some("tape");
+                let playlist_id = match db.save_playlist(&tape_title, source, None) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e.to_string() }));
+                        return;
+                    }
+                };
+
+                let track_tuples: Vec<(String, Option<String>, Option<String>, Option<f64>, Option<String>, Option<String>)> =
+                    preview.manifest.tracks.iter().map(|t| {
+                        (
+                            t.title.clone(),
+                            Some(t.artist.clone()),
+                            t.album.clone(),
+                            t.duration_secs,
+                            None,
+                            None,
+                        )
+                    }).collect();
+
+                let track_refs: Vec<(&str, Option<&str>, Option<&str>, Option<f64>, Option<&str>, Option<&str>)> =
+                    track_tuples.iter().map(|(title, artist, album, dur, source, img)| {
+                        (
+                            title.as_str(),
+                            artist.as_deref(),
+                            album.as_deref(),
+                            *dur,
+                            source.as_deref(),
+                            img.as_deref(),
+                        )
+                    }).collect();
+
+                if let Err(e) = db.save_playlist_tracks(playlist_id, &track_refs) {
+                    let _ = app.emit("tape-import-error", serde_json::json!({ "message": e.to_string() }));
+                    return;
+                }
+
+                // Save cover as playlist image from the temp preview
+                if let Some(ref cover_temp_str) = preview.cover_temp_path {
+                    let cover_temp = std::path::Path::new(cover_temp_str);
+                    if cover_temp.exists() {
+                        let img_dir = app_dir.join("playlist_images");
+                        let _ = std::fs::create_dir_all(&img_dir);
+                        let dest_img = img_dir.join(format!("{}.jpg", playlist_id));
+                        if std::fs::copy(cover_temp, &dest_img).is_ok() {
+                            let abs = dest_img.to_string_lossy().to_string();
+                            let _ = db.update_playlist_image(playlist_id, &abs);
+                        }
+                    }
+                }
+
+                let _ = app.emit("tape-import-complete", serde_json::json!({
+                    "mode": "PlaylistOnly", "trackCount": track_count, "playlistId": playlist_id,
+                }));
+            }
+
+            crate::models::TapeImportMode::FilesOnly => {
+                let extract_dest = match dest_dir {
+                    Some(ref d) => std::path::PathBuf::from(d),
+                    None => {
+                        let _ = app.emit("tape-import-error", serde_json::json!({
+                            "message": "dest_dir is required for FilesOnly mode"
+                        }));
+                        return;
+                    }
+                };
+
+                let extract_opts = crate::tape::ExtractOptions { audio: true, images: false };
+
+                let manifest = match crate::tape::extract_tape(
+                    tape_path, &extract_dest, &extract_opts, &cancel,
+                    |current, total, title| {
+                        let _ = app.emit("tape-import-progress", crate::models::TapeImportProgress {
+                            current_track: current, total_tracks: total,
+                            track_title: title.to_string(),
+                        });
+                    },
+                ) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e }));
+                        return;
+                    }
+                };
+
+                let track_count = manifest.tracks.len() as u32;
+                let _ = app.emit("tape-import-complete", serde_json::json!({
+                    "mode": "FilesOnly", "trackCount": track_count,
+                }));
+            }
+
+            crate::models::TapeImportMode::JustPlay => {
+                // Extract to temp directory for immediate playback
+                let playback_dir = app_dir.join("temp").join("tape_playback");
+                let _ = std::fs::remove_dir_all(&playback_dir);
+                let _ = std::fs::create_dir_all(&playback_dir);
+
+                let extract_opts = crate::tape::ExtractOptions { audio: true, images: true };
+
+                let manifest = match crate::tape::extract_tape(
+                    tape_path, &playback_dir, &extract_opts, &cancel,
+                    |current, total, title| {
+                        let _ = app.emit("tape-import-progress", crate::models::TapeImportProgress {
+                            current_track: current, total_tracks: total,
+                            track_title: title.to_string(),
+                        });
+                    },
+                ) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e }));
+                        return;
+                    }
+                };
+
+                let track_paths: Vec<serde_json::Value> = manifest.tracks.iter().map(|t| {
+                    serde_json::json!({
+                        "title": t.title,
+                        "artist": t.artist,
+                        "album": t.album,
+                        "durationSecs": t.duration_secs,
+                        "path": format!("file://{}", playback_dir.join(&t.file).to_string_lossy()),
+                    })
+                }).collect();
+
+                let track_count = manifest.tracks.len() as u32;
+
+                let _ = app.emit("tape-just-play", serde_json::json!({
+                    "tracks": track_paths,
+                    "coverPath": playback_dir.join("cover.jpg").to_string_lossy(),
+                }));
+
+                let _ = app.emit("tape-import-complete", serde_json::json!({
+                    "mode": "JustPlay", "trackCount": track_count,
+                }));
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cancel_tape_operation(state: State<'_, AppState>) -> Result<(), String> {
+    state.tape_cancel.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cleanup_temp_tapes(state: State<'_, AppState>) -> Result<(), String> {
+    let temp_tape_dir = state.app_dir.join("temp").join("tape_playback");
+    if temp_tape_dir.exists() {
+        std::fs::remove_dir_all(&temp_tape_dir)
+            .map_err(|e| format!("Cleanup failed: {}", e))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2879,6 +3255,7 @@ mod tests {
                 pending: Mutex::new(std::collections::HashMap::new()),
             }),
             tidal_download_cancel: Arc::new(AtomicBool::new(false)),
+            tape_cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 

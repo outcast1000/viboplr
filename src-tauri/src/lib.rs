@@ -15,6 +15,7 @@ mod skins;
 mod subsonic;
 mod sync;
 mod tag_writer;
+mod tape;
 mod timing;
 mod downloader;
 use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry};
@@ -165,6 +166,11 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::open_logs_folder,
         commands::get_app_paths,
         commands::write_frontend_log,
+        commands::preview_tape,
+        commands::export_tape,
+        commands::import_tape,
+        commands::cancel_tape_operation,
+        commands::cleanup_temp_tapes,
         browse_window::open_browse_window,
         browse_window::browse_window_eval,
         browse_window::close_browse_window,
@@ -313,6 +319,11 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::open_logs_folder,
         commands::get_app_paths,
         commands::write_frontend_log,
+        commands::preview_tape,
+        commands::export_tape,
+        commands::import_tape,
+        commands::cancel_tape_operation,
+        commands::cleanup_temp_tapes,
         browse_window::open_browse_window,
         browse_window::browse_window_eval,
         browse_window::close_browse_window,
@@ -1045,48 +1056,6 @@ pub fn run() {
                 None
             });
 
-            // Spawn the auto-update worker thread
-            let auto_update_db = db.clone();
-            let auto_update_app = app.handle().clone();
-            timer.time("spawn_auto_update_worker", || { std::thread::spawn(move || {
-                loop {
-                    if let Ok(collections) = auto_update_db.get_collections() {
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs() as i64;
-
-                        for collection in collections {
-                            if !collection.enabled || !collection.auto_update {
-                                continue;
-                            }
-                            let interval_secs = collection.auto_update_interval_mins * 60;
-                            let due = match collection.last_synced_at {
-                                Some(ts) => (now - ts) >= interval_secs,
-                                None => true,
-                            };
-                            if due {
-                                log::info!(
-                                    "Auto-update: syncing collection '{}' (id={})",
-                                    collection.name, collection.id
-                                );
-                                if let Err(e) = commands::run_collection_sync(
-                                    &auto_update_db,
-                                    &auto_update_app,
-                                    &collection,
-                                ) {
-                                    log::error!(
-                                        "Auto-update failed for collection '{}' (id={}): {}",
-                                        collection.name, collection.id, e
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    std::thread::sleep(std::time::Duration::from_secs(60));
-                }
-            }); });
-
             timer.time("manage_app_state", || {
                 let tidal_client = Arc::new(tidal::TidalClient::new(None));
                 tidal::set_global_client(tidal_client.clone());
@@ -1102,6 +1071,7 @@ pub fn run() {
                     native_plugins_dir,
                     image_resolve_registry: worker_registry_for_state,
                     tidal_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    tape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 });
             });
 
@@ -1127,8 +1097,15 @@ pub fn run() {
                 tauri::RunEvent::Opened { urls } => {
                     eprintln!("[RunEvent::Opened] urls: {:?}", urls);
                     for url in urls {
-                        eprintln!("[RunEvent::Opened] emitting deep-link-received: {}", url);
-                        let _ = app.emit("deep-link-received", url.to_string());
+                        let url_str = url.to_string();
+                        if url_str.ends_with(".tape") {
+                            let path = url_str.strip_prefix("file://").unwrap_or(&url_str);
+                            eprintln!("[RunEvent::Opened] tape file: {}", path);
+                            let _ = app.emit("tape-file-opened", path.to_string());
+                        } else {
+                            eprintln!("[RunEvent::Opened] emitting deep-link-received: {}", url);
+                            let _ = app.emit("deep-link-received", url.to_string());
+                        }
                     }
                 }
                 #[cfg(target_os = "macos")]
