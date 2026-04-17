@@ -778,14 +778,20 @@ export function SettingsPanel({
   const [form, setForm] = useState<ProviderFormData>({ name: "", artistUrl: "", albumUrl: "", trackUrl: "" });
   const [searchProvidersCollapsed, setSearchProvidersCollapsed] = useState(false);
   const [appPaths, setAppPaths] = useState<{ profile: string; logs: string } | null>(null);
+  const [profileName, setProfileName] = useState<string | null>(null);
 
   useEffect(() => {
-    if (settingsTab === "debug" && !appPaths) {
+    if ((settingsTab === "general" || settingsTab === "debug") && !appPaths) {
       invoke<[string, string]>("get_app_paths")
         .then(([profile, logs]) => setAppPaths({ profile, logs }))
         .catch(console.error);
     }
-  }, [settingsTab, appPaths]);
+    if (settingsTab === "general" && profileName === null) {
+      invoke<{ profileName: string }>("get_profile_info")
+        .then(({ profileName }) => setProfileName(profileName))
+        .catch(console.error);
+    }
+  }, [settingsTab, appPaths, profileName]);
 
   function startEdit(provider: SearchProviderConfig) {
     setEditingId(provider.id);
@@ -955,6 +961,12 @@ export function SettingsPanel({
                 <div className="settings-group">
                   <div className="settings-group-title">Profile</div>
                   <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Current profile</span>
+                      </div>
+                      <span className="settings-value">{profileName ?? ""}</span>
+                    </div>
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">Profile folder</span>
