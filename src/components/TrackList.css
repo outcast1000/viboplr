@@ -166,6 +166,21 @@
   color: var(--text-secondary);
 }
 
+.col-art {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.col-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .col-title {
   flex: 3;
   display: flex;
