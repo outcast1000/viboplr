@@ -12,10 +12,51 @@ const MIN_SEG_WIDTH = 3;
 const PADDING = 3;
 const RADIUS = 2;
 
-const PLAYED_SEC = "rgba(83, 168, 255, 0.45)";
-const UNPLAYED_SEC = "rgba(255, 255, 255, 0.08)";
-const PLAYED_MIN = "rgba(100, 160, 255, 0.45)";
-const UNPLAYED_MIN = "rgba(255, 255, 255, 0.08)";
+function getSkinColors(canvas: HTMLCanvasElement) {
+  const style = getComputedStyle(canvas);
+  const accent = style.getPropertyValue("--accent-rgb").trim() || "83, 168, 255";
+  const overlay = style.getPropertyValue("--overlay-base").trim() || "255, 255, 255";
+  return {
+    playedSec: `rgba(${accent}, 0.45)`,
+    unplayedSec: `rgba(${overlay}, 0.08)`,
+    playedMin: `rgba(${accent}, 0.45)`,
+    unplayedMin: `rgba(${overlay}, 0.08)`,
+    strokeMin: `rgba(${overlay}, 0.12)`,
+  };
+}
+
+function strokeRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.stroke();
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, stroke?: string) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.fill();
+  if (stroke) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
 
 export function SegmentedSeekBar({ progress, durationSecs }: SegmentedSeekBarProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -58,8 +99,9 @@ export function SegmentedSeekBar({ progress, durationSecs }: SegmentedSeekBarPro
       minuteMode = true;
     }
 
-    const playedColor = minuteMode ? PLAYED_MIN : PLAYED_SEC;
-    const unplayedColor = minuteMode ? UNPLAYED_MIN : UNPLAYED_SEC;
+    const colors = getSkinColors(canvas);
+    const playedColor = minuteMode ? colors.playedMin : colors.playedSec;
+    const unplayedColor = minuteMode ? colors.unplayedMin : colors.unplayedSec;
     const playedX = progress * w;
     const barH = h - PADDING * 2;
 
@@ -77,22 +119,41 @@ export function SegmentedSeekBar({ progress, durationSecs }: SegmentedSeekBarPro
 
       const currentH = Math.max(1, barH * eased);
       const y = PADDING + (barH - currentH) / 2;
-      const isPlayed = (x + segWidth / 2) < playedX;
-
-      ctx.fillStyle = isPlayed ? playedColor : unplayedColor;
+      const segEnd = x + segWidth;
 
       const r = Math.min(RADIUS, segWidth / 2, currentH / 2);
-      ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.lineTo(x + segWidth - r, y);
-      ctx.quadraticCurveTo(x + segWidth, y, x + segWidth, y + r);
-      ctx.lineTo(x + segWidth, y + currentH - r);
-      ctx.quadraticCurveTo(x + segWidth, y + currentH, x + segWidth - r, y + currentH);
-      ctx.lineTo(x + r, y + currentH);
-      ctx.quadraticCurveTo(x, y + currentH, x, y + currentH - r);
-      ctx.lineTo(x, y + r);
-      ctx.quadraticCurveTo(x, y, x + r, y);
-      ctx.fill();
+      const stroke = minuteMode ? colors.strokeMin : undefined;
+
+      if (playedX <= x) {
+        ctx.fillStyle = unplayedColor;
+        roundRect(ctx, x, y, segWidth, currentH, r, stroke);
+      } else if (playedX >= segEnd) {
+        ctx.fillStyle = playedColor;
+        roundRect(ctx, x, y, segWidth, currentH, r, stroke);
+      } else {
+        const splitX = playedX;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, y, splitX - x, currentH);
+        ctx.clip();
+        ctx.fillStyle = playedColor;
+        roundRect(ctx, x, y, segWidth, currentH, r);
+        ctx.restore();
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(splitX, y, segEnd - splitX, currentH);
+        ctx.clip();
+        ctx.fillStyle = unplayedColor;
+        roundRect(ctx, x, y, segWidth, currentH, r);
+        ctx.restore();
+
+        if (stroke) {
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth = 1;
+          strokeRoundRect(ctx, x, y, segWidth, currentH, r);
+        }
+      }
     }
 
     const totalDuration = GROW_DURATION + segCount * STAGGER_PER_BAR;
