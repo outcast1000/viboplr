@@ -102,7 +102,6 @@ export function Sidebar({
     { key: "liked", label: "Liked", icon: icons.liked, active: noDetail && view === "liked", onClick: onShowLiked, hint: `Liked Tracks \u2014 ${mod}5` },
     { key: "history", label: "History", icon: icons.history, active: noDetail && view === "history", onClick: onShowHistory, hint: `Play History \u2014 ${mod}6` },
     { key: "playlists", label: "Playlists", icon: icons.playlists, active: noDetail && view === "playlists", onClick: onShowPlaylists, hint: "Playlists" },
-    { key: "collections", label: "Collections", icon: icons.collections, active: noDetail && view === "collections", onClick: onShowCollections, hint: "Collections" },
   ];
 
   return (
@@ -141,10 +140,15 @@ export function Sidebar({
         )}
       </nav>
 
-      <button className={`settings-btn${view === "settings" ? " active" : ""}`} onClick={onShowSettings} title={collapsed ? "Settings" : undefined}>
-        {icons.settings} {!collapsed && "Settings"}
-        {updateAvailable && <span className="update-badge" />}
-      </button>
+      <div className="sidebar-bottom">
+        <button className={`nav-btn sidebar-bottom-btn${noDetail && view === "collections" ? " active" : ""}`} onClick={onShowCollections} title={collapsed ? "Collections" : undefined}>
+          <span className="nav-btn-label">{icons.collections} {!collapsed && "Collections"}</span>
+        </button>
+        <button className={`nav-btn sidebar-bottom-btn${view === "settings" ? " active" : ""}`} onClick={onShowSettings} title={collapsed ? "Settings" : undefined}>
+          <span className="nav-btn-label">{icons.settings} {!collapsed && "Settings"}</span>
+          {updateAvailable && <span className="update-badge" />}
+        </button>
+      </div>
     </aside>
   );
 }
