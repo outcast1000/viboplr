@@ -9,7 +9,7 @@
   flex-direction: column;
   overflow: hidden;
   position: relative;
-  container-type: inline-size;
+  container-type: size;
   container-name: queue;
 }
 
@@ -116,7 +116,7 @@
   overflow: hidden;
   flex-shrink: 0;
   background: var(--bg-hover);
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   color: var(--text-secondary);
@@ -321,6 +321,10 @@
   .queue-item-thumb { display: block; }
 }
 
+@container queue (min-width: 300px) {
+  .queue-context-cover { display: flex; }
+}
+
 @container queue (min-width: 330px) {
   .queue-item-duration { display: block; }
   .queue-item-album { display: block; }
@@ -328,4 +332,26 @@
 
 @container queue (min-width: 400px) {
   .queue-item-locate { display: block; }
+}
+
+@container queue (min-width: 300px) and (min-height: 500px) {
+  .queue-context-banner {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+    gap: 8px;
+  }
+  .queue-context-cover {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    border-radius: 6px;
+  }
+  .queue-context-cover svg {
+    width: 48px;
+    height: 48px;
+  }
+  .queue-context-info {
+    align-items: center;
+  }
 }
