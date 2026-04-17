@@ -1,20 +1,31 @@
 import type { RendererProps } from "./index";
 import type { EntityListData } from "../../types/informationTypes";
 
-export function EntityCardsRenderer({ data, onEntityClick, resolveEntity }: RendererProps) {
+export function EntityCardsRenderer({ data, onEntityClick, onEntityContextMenu, resolveEntity }: RendererProps) {
   const d = data as EntityListData;
   if (!d?.items?.length) return null;
 
   return (
     <div className="similar-artists-row">
       {d.items.map((item, i) => {
-        const resolved = resolveEntity?.(item.libraryKind ?? "artist", item.name);
+        const kind = item.libraryKind ?? d.itemKind ?? "artist";
+        const resolved = resolveEntity?.(kind, item.name);
         const clickable = !!resolved?.id;
         return (
           <div
             key={i}
             className={`similar-artist-card${clickable ? " clickable" : ""}`}
-            onClick={() => clickable && onEntityClick?.(item.libraryKind ?? "artist", resolved!.id, item.name)}
+            onClick={() => clickable && onEntityClick?.(kind, resolved!.id, item.name)}
+            onContextMenu={(e) => {
+              if (!onEntityContextMenu) return;
+              e.preventDefault();
+              onEntityContextMenu(e, {
+                kind,
+                id: item.libraryId ?? resolved?.id,
+                name: item.name,
+                artistName: item.subtitle ?? null,
+              });
+            }}
           >
             <div className="similar-artist-avatar">
               {resolved?.imageSrc ? (
