@@ -880,6 +880,7 @@ function activate(api) {
         artist_name: t.artist || null,
         album_title: t.album || null,
         duration_secs: durationSecs,
+        image_url: t.imageUrl || undefined,
       });
     }
     return out;
@@ -890,7 +891,12 @@ function activate(api) {
     if (!pl) return;
     var tracks = state.playlistTracks[pl.id] || [];
     if (tracks.length === 0) return;
-    api.ui.requestAction("play-tracks", { tracks: playlistTracksToPayload(tracks), startIndex: 0 });
+    api.ui.requestAction("play-tracks", {
+      tracks: playlistTracksToPayload(tracks),
+      startIndex: 0,
+      playlistName: pl.name,
+      coverUrl: pl.imageUrl || undefined,
+    });
   });
 
   api.ui.onAction("enqueue-playlist", function(data) {
