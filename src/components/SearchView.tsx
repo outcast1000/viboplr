@@ -94,6 +94,9 @@ export function SearchView({
   const [artistSortField, setArtistSortField] = useState<string | null>(null);
   const [artistSortDir, setArtistSortDir] = useState<SortDir>("asc");
   const [artistLikedFirst, setArtistLikedFirst] = useState(false);
+  const [albumSortField, setAlbumSortField] = useState<string | null>(null);
+  const [albumSortDir, setAlbumSortDir] = useState<SortDir>("asc");
+  const [albumLikedFirst, setAlbumLikedFirst] = useState(false);
   const [sortBarCollapsed, setSortBarCollapsed] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -103,6 +106,8 @@ export function SearchView({
   sortRef.current = { sortField, sortDir, mediaTypeFilter, filterYoutubeOnly, trackLikedFirst };
   const artistSortRef = useRef({ artistSortField, artistSortDir, artistLikedFirst });
   artistSortRef.current = { artistSortField, artistSortDir, artistLikedFirst };
+  const albumSortRef = useRef({ albumSortField, albumSortDir, albumLikedFirst });
+  albumSortRef.current = { albumSortField, albumSortDir, albumLikedFirst };
 
   function getTrackFilterParams() {
     const s = sortRef.current;
@@ -121,6 +126,15 @@ export function SearchView({
       sortField: s.artistSortField ?? undefined,
       sortDir: s.artistSortField ? s.artistSortDir : undefined,
       likedOnly: s.artistLikedFirst || undefined,
+    };
+  }
+
+  function getAlbumFilterParams() {
+    const s = albumSortRef.current;
+    return {
+      sortField: s.albumSortField ?? undefined,
+      sortDir: s.albumSortField ? s.albumSortDir : undefined,
+      likedOnly: s.albumLikedFirst || undefined,
     };
   }
 
@@ -144,6 +158,10 @@ export function SearchView({
   useEffect(() => {
     refetchArtists();
   }, [artistSortField, artistSortDir, artistLikedFirst]);
+
+  useEffect(() => {
+    refetchAlbums();
+  }, [albumSortField, albumSortDir, albumLikedFirst]);
 
   const refetchTracks = useCallback(async () => {
     if (!searched) return;
@@ -171,14 +189,28 @@ export function SearchView({
     setHasMore(prev => ({ ...prev, artists: artists.length < artistRes.total }));
   }, [searched]);
 
+  const refetchAlbums = useCallback(async () => {
+    if (!searched) return;
+    const q = queryRef.current;
+    const filters = getAlbumFilterParams();
+    const albumRes = await invoke<SearchEntityResult>("search_entity", {
+      query: q, entity: "albums", limit: ENTITY_PAGE_SIZE, offset: 0, ...filters,
+    });
+    const albums = albumRes.albums ?? [];
+    setResults(prev => ({ ...prev, albums }));
+    setCounts(prev => ({ ...prev, albums: albumRes.total }));
+    setHasMore(prev => ({ ...prev, albums: albums.length < albumRes.total }));
+  }, [searched]);
+
   const doSearch = useCallback(async (q: string) => {
     setSearched(true);
     const trackFilters = getTrackFilterParams();
     const artistFilters = getArtistFilterParams();
+    const albumFilters = getAlbumFilterParams();
 
     const [trackRes, albumRes, artistRes] = await Promise.all([
       invoke<SearchEntityResult>("search_entity", { query: q, entity: "tracks", limit: TRACK_PAGE_SIZE, offset: 0, ...trackFilters }),
-      invoke<SearchEntityResult>("search_entity", { query: q, entity: "albums", limit: ENTITY_PAGE_SIZE, offset: 0 }),
+      invoke<SearchEntityResult>("search_entity", { query: q, entity: "albums", limit: ENTITY_PAGE_SIZE, offset: 0, ...albumFilters }),
       invoke<SearchEntityResult>("search_entity", { query: q, entity: "artists", limit: ENTITY_PAGE_SIZE, offset: 0, ...artistFilters }),
     ]);
 
@@ -219,7 +251,7 @@ export function SearchView({
 
     setLoadingMore(prev => ({ ...prev, [tab]: true }));
     try {
-      const filters = tab === "tracks" ? getTrackFilterParams() : tab === "artists" ? getArtistFilterParams() : {};
+      const filters = tab === "tracks" ? getTrackFilterParams() : tab === "artists" ? getArtistFilterParams() : tab === "albums" ? getAlbumFilterParams() : {};
       const res = await invoke<SearchEntityResult>("search_entity", {
         query: queryRef.current,
         entity: tab,
@@ -269,6 +301,20 @@ export function SearchView({
     if (artistSortField !== field) return "";
     return artistSortDir === "asc" ? " \u25B2" : " \u25BC";
   }, [artistSortField, artistSortDir]);
+
+  const handleAlbumSort = useCallback((field: string) => {
+    if (albumSortField === field) {
+      setAlbumSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setAlbumSortField(field);
+      setAlbumSortDir("asc");
+    }
+  }, [albumSortField]);
+
+  const albumSortIndicator = useCallback((field: string) => {
+    if (albumSortField !== field) return "";
+    return albumSortDir === "asc" ? " \u25B2" : " \u25BC";
+  }, [albumSortField, albumSortDir]);
 
   const handleTrackLike = useCallback((track: Track) => {
     const newLiked = track.liked === 1 ? 0 : 1;
@@ -322,9 +368,7 @@ export function SearchView({
               </button>
             ))}
           </div>
-          {(activeTab === "tracks" || activeTab === "artists") && (
-            <button className="sort-btn sort-bar-toggle" onClick={() => setSortBarCollapsed(v => !v)} title={sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
-          )}
+          <button className="sort-btn sort-bar-toggle" onClick={() => setSortBarCollapsed(v => !v)} title={sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
           <ViewModeToggle mode={viewModes[activeTab]} onChange={handleViewModeChange} />
         </div>
       )}
@@ -501,6 +545,24 @@ export function SearchView({
         )}
 
         {searched && activeTab === "albums" && (
+          <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
+            <div className="sort-bar">
+              <div className="sort-bar-row">
+                <span className="sort-bar-label">Sort:</span>
+                <div className="sort-bar-group">
+                  <button className={`sort-btn${albumSortField === "name" ? " active" : ""}`} onClick={() => handleAlbumSort("name")}>Name{albumSortIndicator("name")}</button>
+                  <button className={`sort-btn${albumSortField === "artist" ? " active" : ""}`} onClick={() => handleAlbumSort("artist")}>Artist{albumSortIndicator("artist")}</button>
+                  <button className={`sort-btn${albumSortField === "year" ? " active" : ""}`} onClick={() => handleAlbumSort("year")}>Year{albumSortIndicator("year")}</button>
+                  <button className={`sort-btn${albumSortField === "tracks" ? " active" : ""}`} onClick={() => handleAlbumSort("tracks")}>Tracks{albumSortIndicator("tracks")}</button>
+                  <button className={`sort-btn${albumSortField === "random" ? " active" : ""}`} onClick={() => handleAlbumSort("random")}>Shuffle</button>
+                  <button className={`sort-btn liked-first-btn${albumLikedFirst ? " active" : ""}`} onClick={() => setAlbumLikedFirst(v => !v)} title="Liked first">{"\u2665"} Liked first</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {searched && activeTab === "albums" && (
           <SearchAlbumResults
             albums={results.albums}
             viewMode={viewModes.albums}
@@ -512,6 +574,9 @@ export function SearchView({
             hasMore={hasMore.albums}
             loadingMore={loadingMore.albums}
             onLoadMore={handleLoadMore}
+            onSort={handleAlbumSort}
+            sortField={albumSortField}
+            sortIndicator={albumSortIndicator}
           />
         )}
 
@@ -556,6 +621,7 @@ export function SearchView({
 function SearchAlbumResults({
   albums, viewMode, albumImages, onAlbumClick, onToggleLike,
   onContextMenu, onFetchImage, hasMore, loadingMore, onLoadMore,
+  onSort, sortField, sortIndicator,
 }: {
   albums: Album[];
   viewMode: ViewMode;
@@ -567,6 +633,9 @@ function SearchAlbumResults({
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
+  onSort: (field: string) => void;
+  sortField: string | null;
+  sortIndicator: (field: string) => string;
 }) {
   return (
     <>
@@ -574,10 +643,10 @@ function SearchAlbumResults({
         <div className="entity-table">
           <div className="entity-table-header">
             <span className="entity-table-like"></span>
-            <span className="entity-table-name">Name</span>
-            <span className="entity-table-secondary">Artist</span>
-            <span className="entity-table-year">Year</span>
-            <span className="entity-table-count">Tracks</span>
+            <span className={`entity-table-name sortable${sortField === "name" ? " sorted" : ""}`} onClick={() => onSort("name")}>Name{sortIndicator("name")}</span>
+            <span className={`entity-table-secondary sortable${sortField === "artist" ? " sorted" : ""}`} onClick={() => onSort("artist")}>Artist{sortIndicator("artist")}</span>
+            <span className={`entity-table-year sortable${sortField === "year" ? " sorted" : ""}`} onClick={() => onSort("year")}>Year{sortIndicator("year")}</span>
+            <span className={`entity-table-count sortable${sortField === "tracks" ? " sorted" : ""}`} onClick={() => onSort("tracks")}>Tracks{sortIndicator("tracks")}</span>
           </div>
           {albums.map(a => (
             <div key={a.id} className="entity-table-row" onClick={() => onAlbumClick(a.id, a.artist_id)} onContextMenu={e => onContextMenu(e, a.id)}>
