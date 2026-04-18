@@ -44,6 +44,9 @@ const TRACK_SELECT: &str =
      LEFT JOIN collections co ON t.collection_id = co.id";
 
 const ENABLED_COLLECTION_FILTER: &str =
+    "AND (t.collection_id IS NULL OR co.enabled = 1)";
+
+const ENABLED_COLLECTION_FILTER_STANDALONE: &str =
     "AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1))";
 
 fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
@@ -243,7 +246,8 @@ impl Database {
                 auto_update               INTEGER NOT NULL DEFAULT 0,
                 auto_update_interval_mins INTEGER NOT NULL DEFAULT 60,
                 enabled                   INTEGER NOT NULL DEFAULT 1,
-                last_sync_duration_secs   REAL
+                last_sync_duration_secs   REAL,
+                last_sync_error           TEXT
             );
 
             CREATE TABLE IF NOT EXISTS tracks (
@@ -262,7 +266,6 @@ impl Database {
                 liked         INTEGER NOT NULL DEFAULT 0,
                 year          INTEGER,
                 youtube_url   TEXT,
-                path_normalized TEXT,
                 UNIQUE(collection_id, path)
             );
 
@@ -277,6 +280,7 @@ impl Database {
                 artist_name,
                 album_title,
                 tag_names,
+                path,
                 content='',
                 tokenize='unicode61 remove_diacritics 2'
             );
@@ -336,6 +340,7 @@ impl Database {
                 sort_order   INTEGER NOT NULL DEFAULT 500,
                 priority     INTEGER NOT NULL DEFAULT 500,
                 active       INTEGER NOT NULL DEFAULT 1,
+                description  TEXT NOT NULL DEFAULT '',
                 UNIQUE (type_id, plugin_id)
             );
 
@@ -383,7 +388,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
-            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 1);
+            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 26);
 
             CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id);
             CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);
@@ -400,374 +405,27 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let version: i64 = conn.query_row(
             "SELECT version FROM db_version WHERE rowid = 1", [], |row| row.get(0),
-        ).unwrap_or(1);
+        ).unwrap_or(25);
 
-        let mut migrated = false;
-
-        if version < 2 {
-            // Add track_count columns (ignored if already present via fresh CREATE TABLE)
-            let _ = conn.execute_batch("ALTER TABLE artists ADD COLUMN track_count INTEGER NOT NULL DEFAULT 0");
-            let _ = conn.execute_batch("ALTER TABLE albums ADD COLUMN track_count INTEGER NOT NULL DEFAULT 0");
-            let _ = conn.execute_batch("ALTER TABLE tags ADD COLUMN track_count INTEGER NOT NULL DEFAULT 0");
-            conn.execute("UPDATE db_version SET version = 2 WHERE rowid = 1", [])?;
-            migrated = true;
-        }
-
-        if version < 3 {
-            let _ = conn.execute_batch("ALTER TABLE tracks ADD COLUMN youtube_url TEXT");
-            conn.execute("UPDATE db_version SET version = 3 WHERE rowid = 1", [])?;
-        }
-
-        if version < 4 {
-            let _ = conn.execute_batch("ALTER TABLE collections ADD COLUMN last_sync_error TEXT");
-            conn.execute("UPDATE db_version SET version = 4 WHERE rowid = 1", [])?;
-        }
-
-        if version < 5 {
-            let _ = conn.execute_batch("ALTER TABLE tags ADD COLUMN liked INTEGER NOT NULL DEFAULT 0");
-            conn.execute("UPDATE db_version SET version = 5 WHERE rowid = 1", [])?;
-        }
-
-        if version < 6 {
-            // Migrate existing play_history into decoupled history tables.
-            // play_history may not exist on fresh databases (table removed in later version).
-            let has_play_history: bool = conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='play_history')",
-                [], |row| row.get(0),
-            ).unwrap_or(false);
-            if has_play_history {
-                // Step 1: Extract unique artists
-                conn.execute_batch(
-                    "INSERT OR IGNORE INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count)
-                     SELECT
-                       strip_diacritics(unicode_lower(COALESCE(ar.name, ''))),
-                       ar.name,
-                       MIN(ph.played_at),
-                       MAX(ph.played_at),
-                       COUNT(*)
-                     FROM play_history ph
-                     JOIN tracks t ON t.id = ph.track_id
-                     LEFT JOIN artists ar ON t.artist_id = ar.id
-                     GROUP BY strip_diacritics(unicode_lower(COALESCE(ar.name, '')))"
-                )?;
-                // Step 2: Extract unique tracks grouped by (artist, title)
-                conn.execute_batch(
-                    "INSERT OR IGNORE INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count)
-                     SELECT
-                       ha.id,
-                       strip_diacritics(unicode_lower(t.title)),
-                       t.title,
-                       MIN(ph.played_at),
-                       MAX(ph.played_at),
-                       COUNT(*)
-                     FROM play_history ph
-                     JOIN tracks t ON t.id = ph.track_id
-                     LEFT JOIN artists ar ON t.artist_id = ar.id
-                     JOIN history_artists ha ON ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, '')))
-                     GROUP BY ha.id, strip_diacritics(unicode_lower(t.title))"
-                )?;
-                // Step 3: Copy individual play records
-                conn.execute_batch(
-                    "INSERT INTO history_plays (history_track_id, played_at)
-                     SELECT ht.id, ph.played_at
-                     FROM play_history ph
-                     JOIN tracks t ON t.id = ph.track_id
-                     LEFT JOIN artists ar ON t.artist_id = ar.id
-                     JOIN history_artists ha ON ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, '')))
-                     JOIN history_tracks ht ON ht.history_artist_id = ha.id
-                       AND ht.canonical_title = strip_diacritics(unicode_lower(t.title))"
-                )?;
+        if version < 26 {
+            // Drop path_normalized column if it exists (moved into FTS)
+            let has_col: bool = conn
+                .prepare("SELECT 1 FROM pragma_table_info('tracks') WHERE name = 'path_normalized'")?
+                .exists([])?;
+            if has_col {
+                conn.execute_batch("ALTER TABLE tracks DROP COLUMN path_normalized")?;
             }
-            conn.execute("UPDATE db_version SET version = 6 WHERE rowid = 1", [])?;
+            conn.execute("UPDATE db_version SET version = 26 WHERE rowid = 1", [])?;
         }
 
-        if version < 7 {
-            // Switch from soft delete to hard delete: remove soft-deleted tracks, drop column.
-            // Use let _ = to gracefully handle fresh databases where the column doesn't exist.
-            let _ = conn.execute_batch("DELETE FROM tracks WHERE deleted = 1");
-            let _ = conn.execute_batch("ALTER TABLE tracks DROP COLUMN deleted");
-            conn.execute("UPDATE db_version SET version = 7 WHERE rowid = 1", [])?;
-        }
-
-        if version < 8 {
-            // Drop legacy play_history table — fully replaced by decoupled history_plays.
-            let _ = conn.execute_batch("DROP TABLE IF EXISTS play_history");
-            conn.execute("UPDATE db_version SET version = 8 WHERE rowid = 1", [])?;
-        }
-
-        if version < 9 {
-            // Cache library IDs on history tables to avoid correlated subqueries.
-            let _ = conn.execute_batch("ALTER TABLE history_artists ADD COLUMN library_artist_id INTEGER REFERENCES artists(id) ON DELETE SET NULL");
-            let _ = conn.execute_batch("ALTER TABLE history_tracks ADD COLUMN library_track_id INTEGER REFERENCES tracks(id) ON DELETE SET NULL");
-            // Backfill from current library
-            let _ = conn.execute_batch(
-                "UPDATE history_artists SET library_artist_id = (
-                    SELECT a.id FROM artists a
-                    WHERE strip_diacritics(unicode_lower(a.name)) = history_artists.canonical_name
-                    LIMIT 1
-                )"
-            );
-            let _ = conn.execute_batch(
-                "UPDATE history_tracks SET library_track_id = (
-                    SELECT t.id FROM tracks t
-                    LEFT JOIN artists ar ON t.artist_id = ar.id
-                    JOIN history_artists ha ON ha.id = history_tracks.history_artist_id
-                    WHERE strip_diacritics(unicode_lower(t.title)) = history_tracks.canonical_title
-                    AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ha.canonical_name
-                    LIMIT 1
-                )"
-            );
-            conn.execute("UPDATE db_version SET version = 9 WHERE rowid = 1", [])?;
-        }
-
-        if version < 10 {
-            conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS lastfm_cache (
-                    cache_key  TEXT PRIMARY KEY,
-                    value      TEXT NOT NULL,
-                    cached_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-                )"
-            )?;
-            conn.execute("UPDATE db_version SET version = 10 WHERE rowid = 1", [])?;
-        }
-
-        if version < 11 {
-            let _ = conn.execute_batch("ALTER TABLE tracks ADD COLUMN year INTEGER");
-            conn.execute("UPDATE db_version SET version = 11 WHERE rowid = 1", [])?;
-        }
-
-        if version < 12 {
-            conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS lyrics (
-                    track_id    INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
-                    text        TEXT NOT NULL,
-                    kind        TEXT NOT NULL,
-                    provider    TEXT NOT NULL,
-                    fetched_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-                )"
-            )?;
-            conn.execute("UPDATE db_version SET version = 12 WHERE rowid = 1", [])?;
-        }
-
-        if version < 13 {
-            let _ = conn.execute_batch("ALTER TABLE tracks DROP COLUMN subsonic_id");
-            conn.execute("UPDATE db_version SET version = 13 WHERE rowid = 1", [])?;
-        }
-
-        if version < 14 {
-            // Store all local paths as file:// URIs for consistency with subsonic:// paths
-            conn.execute_batch(
-                "UPDATE tracks SET path = 'file://' || path WHERE path NOT LIKE '%://%'"
-            )?;
-            conn.execute("UPDATE db_version SET version = 14 WHERE rowid = 1", [])?;
-        }
-
-        if version < 15 {
-            // Switch to relative paths: strip collection root from track paths.
-            // Local tracks: file:///Users/alex/Music/Artist/track.mp3 → Artist/track.mp3
-            // Subsonic tracks: subsonic://host/trackId → trackId
-
-            // Table-swap FIRST to change UNIQUE(path) → UNIQUE(collection_id, path).
-            // Path stripping can cause collisions under the old single-column constraint
-            // (e.g. two collections with the same relative path), so the new composite
-            // constraint must be in place before we modify paths.
-            conn.execute_batch(
-                "CREATE TABLE tracks_new ( \
-                    id            INTEGER PRIMARY KEY, \
-                    path          TEXT NOT NULL, \
-                    title         TEXT NOT NULL, \
-                    artist_id     INTEGER REFERENCES artists(id), \
-                    album_id      INTEGER REFERENCES albums(id), \
-                    track_number  INTEGER, \
-                    duration_secs REAL, \
-                    format        TEXT, \
-                    file_size     INTEGER, \
-                    modified_at   INTEGER, \
-                    added_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now')), \
-                    collection_id INTEGER REFERENCES collections(id), \
-                    liked         INTEGER NOT NULL DEFAULT 0, \
-                    year          INTEGER, \
-                    youtube_url   TEXT, \
-                    path_normalized TEXT, \
-                    UNIQUE(collection_id, path) \
-                 ); \
-                 INSERT INTO tracks_new SELECT * FROM tracks; \
-                 DROP TABLE tracks; \
-                 ALTER TABLE tracks_new RENAME TO tracks; \
-                 CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id); \
-                 CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id); \
-                 CREATE INDEX IF NOT EXISTS idx_tracks_collection_id ON tracks(collection_id)"
-            )?;
-
-            // Now strip file:// prefix + collection.path + '/' from local tracks
-            conn.execute_batch(
-                "UPDATE tracks SET path = SUBSTR(tracks.path, LENGTH('file://' || co.path || '/') + 1) \
-                 FROM collections co \
-                 WHERE tracks.collection_id = co.id \
-                   AND tracks.path LIKE 'file://%' \
-                   AND co.path IS NOT NULL"
-            )?;
-
-            // Strip subsonic://host/ prefix from subsonic tracks.
-            conn.execute_batch(
-                "UPDATE tracks SET path = SUBSTR(tracks.path, LENGTH('subsonic://' || \
-                 REPLACE(REPLACE(RTRIM(co.url, '/'), 'https://', ''), 'http://', '') || '/') + 1) \
-                 FROM collections co \
-                 WHERE tracks.collection_id = co.id \
-                   AND tracks.path LIKE 'subsonic://%' \
-                   AND co.url IS NOT NULL"
-            )?;
-
-            conn.execute("UPDATE db_version SET version = 15 WHERE rowid = 1", [])?;
-            migrated = true;
-        }
-
-        if version < 16 {
-            // Column may already exist from init_tables on fresh databases
-            let _ = conn.execute("ALTER TABLE tracks ADD COLUMN path_normalized TEXT", []);
-            conn.execute_batch(
-                "UPDATE tracks SET path_normalized = strip_diacritics(unicode_lower(path)) WHERE path_normalized IS NULL"
-            )?;
-            conn.execute("UPDATE db_version SET version = 16 WHERE rowid = 1", [])?;
-            migrated = true;
-        }
-
-        if version < 17 {
-            conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS information_types (
-                    id              TEXT NOT NULL,
-                    name            TEXT NOT NULL,
-                    entity          TEXT NOT NULL,
-                    display_kind    TEXT NOT NULL,
-                    plugin_id       TEXT NOT NULL,
-                    ttl             INTEGER NOT NULL,
-                    sort_order      INTEGER NOT NULL DEFAULT 500,
-                    priority        INTEGER NOT NULL DEFAULT 500,
-                    PRIMARY KEY (id, plugin_id)
-                );
-                CREATE TABLE IF NOT EXISTS information_values (
-                    information_type_id  TEXT NOT NULL,
-                    entity_key           TEXT NOT NULL,
-                    value                TEXT NOT NULL,
-                    status               TEXT NOT NULL DEFAULT 'ok',
-                    fetched_at           INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-                    PRIMARY KEY (information_type_id, entity_key)
-                );
-                CREATE INDEX IF NOT EXISTS idx_info_values_entity ON information_values(entity_key);
-                CREATE TABLE IF NOT EXISTS information_type_providers (
-                    information_type_id  TEXT NOT NULL,
-                    plugin_id            TEXT NOT NULL,
-                    user_priority        INTEGER NOT NULL,
-                    enabled              INTEGER NOT NULL DEFAULT 1,
-                    PRIMARY KEY (information_type_id, plugin_id)
-                );"
-            )?;
-            conn.execute("UPDATE db_version SET version = 17 WHERE rowid = 1", [])?;
-            migrated = true;
-        }
-
-        if version < 19 {
-            conn.execute_batch(
-                "DROP TABLE IF EXISTS information_type_providers;
-                 DROP TABLE IF EXISTS information_values;
-                 DROP TABLE IF EXISTS information_types;
-                 CREATE TABLE information_types (
-                     id           INTEGER PRIMARY KEY,
-                     type_id      TEXT NOT NULL,
-                     name         TEXT NOT NULL,
-                     entity       TEXT NOT NULL,
-                     display_kind TEXT NOT NULL,
-                     plugin_id    TEXT NOT NULL,
-                     ttl          INTEGER NOT NULL,
-                     sort_order   INTEGER NOT NULL DEFAULT 500,
-                     priority     INTEGER NOT NULL DEFAULT 500,
-                     active       INTEGER NOT NULL DEFAULT 1,
-                     UNIQUE (type_id, plugin_id)
-                 );
-                 CREATE TABLE information_values (
-                     information_type_id INTEGER NOT NULL REFERENCES information_types(id),
-                     entity_key          TEXT NOT NULL,
-                     value               TEXT NOT NULL,
-                     status              TEXT NOT NULL DEFAULT 'ok',
-                     fetched_at          INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-                     PRIMARY KEY (information_type_id, entity_key)
-                 );
-                 CREATE INDEX IF NOT EXISTS idx_info_values_entity ON information_values(entity_key);"
-            )?;
-            conn.execute("UPDATE db_version SET version = 19 WHERE rowid = 1", [])?;
-            migrated = true;
-        }
-
-        if version < 20 {
-            conn.execute_batch("DROP TABLE IF EXISTS lastfm_cache;")?;
-            conn.execute("UPDATE db_version SET version = 20 WHERE rowid = 1", [])?;
-            migrated = true;
-        }
-
-        if version < 21 {
-            conn.execute_batch(
-                "DROP TABLE IF EXISTS lyrics;"
-            )?;
-            conn.execute("UPDATE db_version SET version = 21 WHERE rowid = 1", [])?;
-            migrated = true;
-        }
-
-        if version < 22 {
-            conn.execute_batch("
-                CREATE TABLE IF NOT EXISTS image_providers (
-                    id          INTEGER PRIMARY KEY,
-                    plugin_id   TEXT NOT NULL,
-                    entity      TEXT NOT NULL CHECK(entity IN ('artist', 'album')),
-                    priority    INTEGER NOT NULL DEFAULT 500,
-                    active      INTEGER NOT NULL DEFAULT 1,
-                    UNIQUE (plugin_id, entity)
-                );
-            ")?;
-            conn.execute("UPDATE db_version SET version = 22 WHERE rowid = 1", [])?;
-            migrated = true;
-        }
-
-        if version < 23 {
-            conn.execute_batch(
-                "ALTER TABLE information_types ADD COLUMN description TEXT NOT NULL DEFAULT '';"
-            )?;
-            conn.execute("UPDATE db_version SET version = 23 WHERE rowid = 1", [])?;
-            migrated = true;
-        }
-
-        if version < 24 {
-            conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS playlists (
-                    id         INTEGER PRIMARY KEY,
-                    name       TEXT NOT NULL,
-                    source     TEXT,
-                    saved_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-                    image_path TEXT
-                );
-                CREATE TABLE IF NOT EXISTS playlist_tracks (
-                    id            INTEGER PRIMARY KEY,
-                    playlist_id   INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
-                    position      INTEGER NOT NULL,
-                    title         TEXT NOT NULL,
-                    artist_name   TEXT,
-                    album_name    TEXT,
-                    duration_secs REAL,
-                    source        TEXT,
-                    image_path    TEXT,
-                    UNIQUE(playlist_id, position)
-                );"
-            )?;
-            conn.execute("UPDATE db_version SET version = 24 WHERE rowid = 1", [])?;
-            migrated = true;
-        }
-
+        let needs_fts_rebuild = version < 26;
         drop(conn);
-        if version < 12 || version < 16 || version < 21 {
-            crate::timing::timer().time("db: rebuild_fts", || self.rebuild_fts())?;
+
+        if needs_fts_rebuild {
+            self.rebuild_fts()?;
+            self.recompute_counts()?;
         }
-        if migrated {
-            crate::timing::timer().time("db: recompute_counts", || self.recompute_counts())?;
-        }
+
         Ok(())
     }
 
@@ -971,7 +629,7 @@ impl Database {
     pub fn get_track_count(&self) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            &format!("SELECT COUNT(*) FROM tracks t WHERE 1=1 {}", ENABLED_COLLECTION_FILTER),
+            &format!("SELECT COUNT(*) FROM tracks t WHERE 1=1 {}", ENABLED_COLLECTION_FILTER_STANDALONE),
             [],
             |row| row.get(0),
         )
@@ -993,14 +651,14 @@ impl Database {
     ) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tracks (path, path_normalized, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year)
-             VALUES (?1, strip_diacritics(unicode_lower(?1)), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(collection_id, path) DO UPDATE SET
                 title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id,
                 track_number=excluded.track_number,
                 duration_secs=excluded.duration_secs, format=excluded.format,
                 file_size=excluded.file_size, modified_at=excluded.modified_at,
-                year=excluded.year, path_normalized=excluded.path_normalized",
+                year=excluded.year",
             params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year],
         )?;
         let id: i64 = conn.query_row(
@@ -1046,20 +704,22 @@ impl Database {
                  artist_name,
                  album_title,
                  tag_names,
+                 path,
                  content='',
                  tokenize='unicode61 remove_diacritics 2'
              );"
         )?;
         conn.execute_batch(
             &format!(
-                "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names)
+                "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, path)
                  SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')), strip_diacritics(COALESCE(al.title, '')),
-                        strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), ''))
+                        strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
+                        strip_diacritics(COALESCE(t.path, ''))
                  FROM tracks t
                  LEFT JOIN artists ar ON t.artist_id = ar.id
                  LEFT JOIN albums al ON t.album_id = al.id
                  WHERE 1=1 {};",
-                ENABLED_COLLECTION_FILTER
+                ENABLED_COLLECTION_FILTER_STANDALONE
             ),
         )?;
         Ok(())
@@ -1089,7 +749,7 @@ impl Database {
                    JOIN tracks t ON t.id = tt.track_id
                    WHERE tt.tag_id = tags.id {cf}
                  );",
-                cf = ENABLED_COLLECTION_FILTER
+                cf = ENABLED_COLLECTION_FILTER_STANDALONE
             )
         )
     }
@@ -1219,41 +879,23 @@ impl Database {
         let words = normalized
             .split_whitespace()
             .map(|w| format!("\"{}\"*", w.replace('"', "")))
-            .collect::<Vec<_>>()
-            .join(" AND ");
-        let has_fts_words = !words.is_empty();
+            .collect::<Vec<_>>();
 
-        let fts_query = if has_fts_words {
-            format!("{{title artist_name album_title tag_names}}:{}", words)
-        } else {
-            String::new()
-        };
+        if words.is_empty() {
+            return Ok(vec![]);
+        }
 
-        // LIKE parameter for exact substring match on pre-computed normalized path
-        let normalized_lower = normalized.to_lowercase();
-        let like_param = format!(
-            "%{}%",
-            normalized_lower.replace('%', "\\%").replace('_', "\\_")
-        );
+        let fts_query = format!("{{title artist_name album_title tag_names path}}:{}", words.join(" AND "));
 
         let mut sql = TRACK_SELECT.to_string();
+        sql.push_str(" JOIN tracks_fts ON tracks_fts.rowid = t.id");
 
         if opts.tag_id.is_some() {
             sql.push_str(" JOIN track_tags tt ON tt.track_id = t.id");
         }
 
-        // Match either FTS (for title/artist/album/tags) OR LIKE (for path substring)
-        let mut param_idx;
-        if has_fts_words {
-            sql.push_str(
-                " WHERE (EXISTS (SELECT 1 FROM tracks_fts WHERE tracks_fts MATCH ?1 AND rowid = t.id) \
-                 OR t.path_normalized LIKE ?2 ESCAPE '\\')"
-            );
-            param_idx = 3;
-        } else {
-            sql.push_str(" WHERE t.path_normalized LIKE ?1 ESCAPE '\\'");
-            param_idx = 2;
-        }
+        sql.push_str(" WHERE tracks_fts MATCH ?1");
+        let mut param_idx = 2;
         sql.push_str(&format!(" {}", ENABLED_COLLECTION_FILTER));
 
         if opts.artist_id.is_some() {
@@ -1295,10 +937,7 @@ impl Database {
         let mut stmt = conn.prepare(&sql)?;
 
         let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-        if has_fts_words {
-            params_vec.push(Box::new(fts_query));
-        }
-        params_vec.push(Box::new(like_param));
+        params_vec.push(Box::new(fts_query));
         if let Some(aid) = opts.artist_id {
             params_vec.push(Box::new(aid));
         }
@@ -1318,24 +957,34 @@ impl Database {
 
     pub fn search_all(&self, query: &str, artist_limit: i64, album_limit: i64, track_limit: i64) -> SqlResult<SearchAllResults> {
         let conn = self.conn.lock().unwrap();
-        let normalized = strip_diacritics(query).to_lowercase();
-        let like_param = format!(
-            "%{}%",
-            normalized.replace('%', "\\%").replace('_', "\\_")
-        );
 
-        // --- Artists ---
+        let normalized = strip_diacritics(query);
+        let words: Vec<String> = normalized
+            .split_whitespace()
+            .map(|w| format!("\"{}\"*", w.replace('"', "")))
+            .collect();
+
+        if words.is_empty() {
+            return Ok(SearchAllResults { artists: vec![], albums: vec![], tracks: vec![] });
+        }
+
+        let fts_terms = words.join(" AND ");
+
+        // --- Artists: use FTS on artist_name to find matching artist IDs ---
         let artists = {
+            let fts_query = format!("{{artist_name}}:{}", fts_terms);
             let mut stmt = conn.prepare(
                 "SELECT DISTINCT a.id, a.name, a.track_count, a.liked \
                  FROM artists a \
-                 JOIN tracks t ON t.artist_id = a.id \
-                 WHERE strip_diacritics(unicode_lower(a.name)) LIKE ?1 ESCAPE '\\' \
-                 AND a.track_count > 0 \
-                 AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1)) \
+                 WHERE a.track_count > 0 \
+                 AND a.id IN ( \
+                   SELECT t.artist_id FROM tracks t \
+                   JOIN tracks_fts ON tracks_fts.rowid = t.id \
+                   WHERE tracks_fts MATCH ?1 AND t.artist_id IS NOT NULL \
+                 ) \
                  ORDER BY a.name LIMIT ?2"
             )?;
-            let rows = stmt.query_map(params![like_param, artist_limit], |row| {
+            let rows = stmt.query_map(params![fts_query, artist_limit], |row| {
                 Ok(Artist {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -1346,19 +995,22 @@ impl Database {
             rows.collect::<SqlResult<Vec<_>>>()?
         };
 
-        // --- Albums ---
+        // --- Albums: use FTS on album_title to find matching album IDs ---
         let albums = {
+            let fts_query = format!("{{album_title}}:{}", fts_terms);
             let mut stmt = conn.prepare(
                 "SELECT DISTINCT al.id, al.title, al.artist_id, ar.name, al.year, al.track_count, al.liked \
                  FROM albums al \
                  LEFT JOIN artists ar ON al.artist_id = ar.id \
-                 JOIN tracks t ON t.album_id = al.id \
-                 WHERE strip_diacritics(unicode_lower(al.title)) LIKE ?1 ESCAPE '\\' \
-                 AND al.track_count > 0 \
-                 AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1)) \
+                 WHERE al.track_count > 0 \
+                 AND al.id IN ( \
+                   SELECT t.album_id FROM tracks t \
+                   JOIN tracks_fts ON tracks_fts.rowid = t.id \
+                   WHERE tracks_fts MATCH ?1 AND t.album_id IS NOT NULL \
+                 ) \
                  ORDER BY al.title LIMIT ?2"
             )?;
-            let rows = stmt.query_map(params![like_param, album_limit], |row| album_from_row(row))?;
+            let rows = stmt.query_map(params![fts_query, album_limit], |row| album_from_row(row))?;
             rows.collect::<SqlResult<Vec<_>>>()?
         };
 
@@ -2423,13 +2075,13 @@ impl Database {
     pub fn get_history_most_played(&self, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, ht.library_track_id,
-                    (SELECT COUNT(*) + 1 FROM history_tracks ht2 WHERE ht2.play_count > ht.play_count) as rank
-             FROM history_tracks ht
-             JOIN history_artists ha ON ha.id = ht.history_artist_id
-             WHERE ht.play_count > 0
-             ORDER BY ht.play_count DESC
-             LIMIT ?1"
+            "SELECT id, play_count, display_title, display_name, library_track_id, rank FROM ( \
+               SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, ht.library_track_id, \
+                      RANK() OVER (ORDER BY ht.play_count DESC) as rank \
+               FROM history_tracks ht \
+               JOIN history_artists ha ON ha.id = ht.history_artist_id \
+               WHERE ht.play_count > 0 \
+             ) ORDER BY play_count DESC LIMIT ?1"
         )?;
         let rows = stmt.query_map(params![limit], |row| {
             Ok(HistoryMostPlayed {
@@ -2447,15 +2099,15 @@ impl Database {
     pub fn get_history_most_played_since(&self, since_ts: i64, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT ht.id, COUNT(*) as cnt, ht.display_title, ha.display_name, ht.library_track_id,
-                    (SELECT COUNT(*) + 1 FROM history_tracks ht2 WHERE ht2.play_count > ht.play_count) as rank
-             FROM history_plays hp
-             JOIN history_tracks ht ON ht.id = hp.history_track_id
-             JOIN history_artists ha ON ha.id = ht.history_artist_id
-             WHERE hp.played_at >= ?1
-             GROUP BY ht.id
-             ORDER BY cnt DESC
-             LIMIT ?2"
+            "SELECT id, cnt, display_title, display_name, library_track_id, rank FROM ( \
+               SELECT ht.id, COUNT(*) as cnt, ht.display_title, ha.display_name, ht.library_track_id, \
+                      RANK() OVER (ORDER BY COUNT(*) DESC) as rank \
+               FROM history_plays hp \
+               JOIN history_tracks ht ON ht.id = hp.history_track_id \
+               JOIN history_artists ha ON ha.id = ht.history_artist_id \
+               WHERE hp.played_at >= ?1 \
+               GROUP BY ht.id \
+             ) ORDER BY cnt DESC LIMIT ?2"
         )?;
         let rows = stmt.query_map(params![since_ts, limit], |row| {
             Ok(HistoryMostPlayed {
@@ -2475,14 +2127,14 @@ impl Database {
         let canonical_query = strip_diacritics(&query.to_lowercase());
         let pattern = format!("%{}%", canonical_query);
         let mut stmt = conn.prepare(
-            "SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, ht.library_track_id,
-                    (SELECT COUNT(*) + 1 FROM history_tracks ht2 WHERE ht2.play_count > ht.play_count) as rank
-             FROM history_tracks ht
-             JOIN history_artists ha ON ha.id = ht.history_artist_id
-             WHERE ht.play_count > 0
-               AND (ht.canonical_title LIKE ?1 OR ha.canonical_name LIKE ?1)
-             ORDER BY ht.play_count DESC
-             LIMIT ?2"
+            "SELECT id, play_count, display_title, display_name, library_track_id, rank FROM ( \
+               SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, ht.library_track_id, \
+                      RANK() OVER (ORDER BY ht.play_count DESC) as rank \
+               FROM history_tracks ht \
+               JOIN history_artists ha ON ha.id = ht.history_artist_id \
+               WHERE ht.play_count > 0 \
+                 AND (ht.canonical_title LIKE ?1 OR ha.canonical_name LIKE ?1) \
+             ) ORDER BY play_count DESC LIMIT ?2"
         )?;
         let rows = stmt.query_map(params![pattern, limit], |row| {
             Ok(HistoryMostPlayed {
@@ -2500,14 +2152,14 @@ impl Database {
     pub fn get_history_most_played_artists(&self, limit: i64) -> SqlResult<Vec<HistoryArtistStats>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT ha.id, ha.play_count,
-                    (SELECT COUNT(*) FROM history_tracks ht WHERE ht.history_artist_id = ha.id) as track_count,
-                    ha.display_name, ha.library_artist_id,
-                    (SELECT COUNT(*) + 1 FROM history_artists ha2 WHERE ha2.play_count > ha.play_count) as rank
-             FROM history_artists ha
-             WHERE ha.play_count > 0 AND ha.canonical_name != ''
-             ORDER BY ha.play_count DESC
-             LIMIT ?1"
+            "SELECT id, play_count, track_count, display_name, library_artist_id, rank FROM ( \
+               SELECT ha.id, ha.play_count, \
+                      (SELECT COUNT(*) FROM history_tracks ht WHERE ht.history_artist_id = ha.id) as track_count, \
+                      ha.display_name, ha.library_artist_id, \
+                      RANK() OVER (ORDER BY ha.play_count DESC) as rank \
+               FROM history_artists ha \
+               WHERE ha.play_count > 0 AND ha.canonical_name != '' \
+             ) ORDER BY play_count DESC LIMIT ?1"
         )?;
         let rows = stmt.query_map(params![limit], |row| {
             Ok(HistoryArtistStats {
@@ -2527,14 +2179,14 @@ impl Database {
         let canonical_query = strip_diacritics(&query.to_lowercase());
         let pattern = format!("%{}%", canonical_query);
         let mut stmt = conn.prepare(
-            "SELECT ha.id, ha.play_count,
-                    (SELECT COUNT(*) FROM history_tracks ht WHERE ht.history_artist_id = ha.id) as track_count,
-                    ha.display_name, ha.library_artist_id,
-                    (SELECT COUNT(*) + 1 FROM history_artists ha2 WHERE ha2.play_count > ha.play_count) as rank
-             FROM history_artists ha
-             WHERE ha.play_count > 0 AND ha.canonical_name LIKE ?1
-             ORDER BY ha.play_count DESC
-             LIMIT ?2"
+            "SELECT id, play_count, track_count, display_name, library_artist_id, rank FROM ( \
+               SELECT ha.id, ha.play_count, \
+                      (SELECT COUNT(*) FROM history_tracks ht WHERE ht.history_artist_id = ha.id) as track_count, \
+                      ha.display_name, ha.library_artist_id, \
+                      RANK() OVER (ORDER BY ha.play_count DESC) as rank \
+               FROM history_artists ha \
+               WHERE ha.play_count > 0 AND ha.canonical_name LIKE ?1 \
+             ) ORDER BY play_count DESC LIMIT ?2"
         )?;
         let rows = stmt.query_map(params![pattern, limit], |row| {
             Ok(HistoryArtistStats {
@@ -2552,9 +2204,10 @@ impl Database {
     pub fn get_track_rank(&self, track_id: i64) -> SqlResult<Option<i64>> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT (SELECT COUNT(*) + 1 FROM history_tracks ht2 WHERE ht2.play_count > ht.play_count) as rank
-             FROM history_tracks ht
-             WHERE ht.library_track_id = ?1 AND ht.play_count > 0",
+            "SELECT rank FROM ( \
+               SELECT library_track_id, RANK() OVER (ORDER BY play_count DESC) as rank \
+               FROM history_tracks WHERE play_count > 0 \
+             ) WHERE library_track_id = ?1",
             params![track_id],
             |row| row.get(0),
         ).optional()
@@ -2563,9 +2216,10 @@ impl Database {
     pub fn get_artist_rank(&self, artist_id: i64) -> SqlResult<Option<i64>> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT (SELECT COUNT(*) + 1 FROM history_artists ha2 WHERE ha2.play_count > ha.play_count) as rank
-             FROM history_artists ha
-             WHERE ha.library_artist_id = ?1 AND ha.play_count > 0",
+            "SELECT rank FROM ( \
+               SELECT library_artist_id, RANK() OVER (ORDER BY play_count DESC) as rank \
+               FROM history_artists WHERE play_count > 0 \
+             ) WHERE library_artist_id = ?1",
             params![artist_id],
             |row| row.get(0),
         ).optional()
@@ -2859,16 +2513,6 @@ impl Database {
             [type_id],
         )?;
         Ok(count)
-    }
-
-    /// Delete all cached values for an entity.
-    pub fn info_delete_all_for_entity(&self, entity_key: &str) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "DELETE FROM information_values WHERE entity_key = ?1",
-            [entity_key],
-        )?;
-        Ok(())
     }
 
     // ── Image Providers ─────────────────────────────────────────
@@ -3973,6 +3617,363 @@ mod tests {
 
         let result = db.find_track_by_metadata("Nonexistent", Some("Nobody"), None).unwrap();
         assert!(result.is_none());
+    }
+
+    // ── search_all tests ────────────────────────────────────────
+
+    #[test]
+    fn test_search_all_finds_artists_via_fts() {
+        let db = test_db();
+        let a1 = db.get_or_create_artist("Daft Punk").unwrap();
+        let a2 = db.get_or_create_artist("Radiohead").unwrap();
+        insert_track(&db, "music/around.mp3", "Around the World", Some(a1), None);
+        insert_track(&db, "music/creep.mp3", "Creep", Some(a2), None);
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let results = db.search_all("Daft", 10, 10, 10).unwrap();
+        assert_eq!(results.artists.len(), 1);
+        assert_eq!(results.artists[0].name, "Daft Punk");
+    }
+
+    #[test]
+    fn test_search_all_finds_albums_via_fts() {
+        let db = test_db();
+        let artist = db.get_or_create_artist("Pink Floyd").unwrap();
+        let album = db.get_or_create_album("Dark Side of the Moon", Some(artist), Some(1973)).unwrap();
+        insert_track(&db, "music/time.mp3", "Time", Some(artist), Some(album));
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let results = db.search_all("Dark Side", 10, 10, 10).unwrap();
+        assert_eq!(results.albums.len(), 1);
+        assert_eq!(results.albums[0].title, "Dark Side of the Moon");
+    }
+
+    #[test]
+    fn test_search_all_finds_tracks_via_fts() {
+        let db = test_db();
+        let artist = db.get_or_create_artist("Radiohead").unwrap();
+        insert_track(&db, "music/creep.mp3", "Creep", Some(artist), None);
+        insert_track(&db, "music/karma.mp3", "Karma Police", Some(artist), None);
+        db.rebuild_fts().unwrap();
+
+        let results = db.search_all("Karma", 10, 10, 10).unwrap();
+        assert_eq!(results.tracks.len(), 1);
+        assert_eq!(results.tracks[0].title, "Karma Police");
+    }
+
+    #[test]
+    fn test_search_all_empty_query() {
+        let db = test_db();
+        insert_track(&db, "music/song.mp3", "Song", None, None);
+        db.rebuild_fts().unwrap();
+
+        let results = db.search_all("", 10, 10, 10).unwrap();
+        assert!(results.artists.is_empty());
+        assert!(results.albums.is_empty());
+        assert!(results.tracks.is_empty());
+    }
+
+    #[test]
+    fn test_search_all_respects_limits() {
+        let db = test_db();
+        let artist = db.get_or_create_artist("Artist").unwrap();
+        for i in 0..5 {
+            insert_track(&db, &format!("music/s{i}.mp3"), &format!("Song {i}"), Some(artist), None);
+        }
+        db.rebuild_fts().unwrap();
+
+        let results = db.search_all("Song", 10, 10, 2).unwrap();
+        assert_eq!(results.tracks.len(), 2);
+    }
+
+    #[test]
+    fn test_search_all_diacritics() {
+        let db = test_db();
+        let artist = db.get_or_create_artist("Björk").unwrap();
+        insert_track(&db, "music/joga.mp3", "Jóga", Some(artist), None);
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let results = db.search_all("Bjork", 10, 10, 10).unwrap();
+        assert_eq!(results.artists.len(), 1);
+        assert_eq!(results.artists[0].name, "Björk");
+
+        let results = db.search_all("Joga", 10, 10, 10).unwrap();
+        assert_eq!(results.tracks.len(), 1);
+        assert_eq!(results.tracks[0].title, "Jóga");
+    }
+
+    #[test]
+    fn test_search_all_multi_word() {
+        let db = test_db();
+        let a = db.get_or_create_artist("The National").unwrap();
+        insert_track(&db, "music/bloodbuzz.mp3", "Bloodbuzz Ohio", Some(a), None);
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let results = db.search_all("The National", 10, 10, 10).unwrap();
+        assert_eq!(results.artists.len(), 1);
+
+        let results = db.search_all("Bloodbuzz Ohio", 10, 10, 10).unwrap();
+        assert_eq!(results.tracks.len(), 1);
+    }
+
+    // ── FTS path search ─────────────────────────────────────────
+
+    #[test]
+    fn test_search_fts_by_path() {
+        let db = test_db();
+        insert_track(&db, "Music/Jazz/miles_davis_so_what.flac", "So What", None, None);
+        insert_track(&db, "Music/Rock/led_zep.flac", "Stairway", None, None);
+        db.rebuild_fts().unwrap();
+
+        let results = db.get_tracks(&TrackQuery {
+            query: Some("miles_davis".to_string()),
+            limit: Some(100),
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "So What");
+    }
+
+    #[test]
+    fn test_search_fts_by_tag() {
+        let db = test_db();
+        let t1 = insert_track(&db, "music/a.mp3", "Alpha", None, None);
+        insert_track(&db, "music/b.mp3", "Beta", None, None);
+        let tag = db.get_or_create_tag("Ambient").unwrap();
+        db.add_track_tag(t1, tag).unwrap();
+        db.rebuild_fts().unwrap();
+
+        let results = db.get_tracks(&TrackQuery {
+            query: Some("Ambient".to_string()),
+            limit: Some(100),
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Alpha");
+    }
+
+    #[test]
+    fn test_search_fts_prefix_matching() {
+        let db = test_db();
+        insert_track(&db, "music/bohemian.mp3", "Bohemian Rhapsody", None, None);
+        db.rebuild_fts().unwrap();
+
+        let results = db.get_tracks(&TrackQuery {
+            query: Some("Bohem".to_string()),
+            limit: Some(100),
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Bohemian Rhapsody");
+    }
+
+    #[test]
+    fn test_search_fts_empty_falls_through() {
+        let db = test_db();
+        insert_track(&db, "music/song.mp3", "Song", None, None);
+        db.rebuild_fts().unwrap();
+
+        // Empty query bypasses FTS and returns all tracks
+        let results = db.get_tracks(&TrackQuery {
+            query: Some("".to_string()),
+            limit: Some(100),
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(results.len(), 1);
+
+        let results = db.get_tracks(&TrackQuery {
+            query: Some("   ".to_string()),
+            limit: Some(100),
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(results.len(), 1);
+
+        // Non-matching query returns nothing
+        let results = db.get_tracks(&TrackQuery {
+            query: Some("zzzzz".to_string()),
+            limit: Some(100),
+            ..Default::default()
+        }).unwrap();
+        assert!(results.is_empty());
+    }
+
+    // ── Enabled collection filter ───────────────────────────────
+
+    #[test]
+    fn test_disabled_collection_excluded_from_search() {
+        let db = test_db();
+        let col = db.add_collection("local", "Disabled", Some("/dis"), None, None, None, None, None).unwrap();
+        let artist = db.get_or_create_artist("Hidden Artist").unwrap();
+        db.upsert_track("hidden.mp3", "Hidden Song", Some(artist), None, None, Some(180.0), Some("mp3"), None, None, Some(col.id), None).unwrap();
+        db.update_collection(col.id, "Disabled", false, 60, false).unwrap();
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let results = db.get_tracks(&TrackQuery {
+            query: Some("Hidden".to_string()),
+            limit: Some(100),
+            ..Default::default()
+        }).unwrap();
+        assert!(results.is_empty());
+
+        let count = db.get_track_count().unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_disabled_collection_excluded_from_search_all() {
+        let db = test_db();
+        let col = db.add_collection("local", "Disabled", Some("/dis"), None, None, None, None, None).unwrap();
+        let artist = db.get_or_create_artist("Ghost Artist").unwrap();
+        let album = db.get_or_create_album("Ghost Album", Some(artist), None).unwrap();
+        db.upsert_track("ghost.mp3", "Ghost Song", Some(artist), Some(album), None, Some(180.0), Some("mp3"), None, None, Some(col.id), None).unwrap();
+        db.update_collection(col.id, "Disabled", false, 60, false).unwrap();
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let results = db.search_all("Ghost", 10, 10, 10).unwrap();
+        assert!(results.tracks.is_empty());
+        // artist/album track_count is 0 after recompute so they shouldn't appear
+        assert!(results.artists.is_empty());
+        assert!(results.albums.is_empty());
+    }
+
+    // ── History rank window function tests ───────────────────────
+
+    #[test]
+    fn test_history_rank_tied_play_counts() {
+        let db = test_db();
+        let a = db.get_or_create_artist("Artist").unwrap();
+        let t1 = insert_track(&db, "music/t1.mp3", "Track A", Some(a), None);
+        let t2 = insert_track(&db, "music/t2.mp3", "Track B", Some(a), None);
+        let t3 = insert_track(&db, "music/t3.mp3", "Track C", Some(a), None);
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO history_artists (canonical_name, display_name, play_count, library_artist_id) VALUES ('artist', 'Artist', 15, ?1)",
+                params![a],
+            ).unwrap();
+            let ha: i64 = conn.query_row("SELECT id FROM history_artists WHERE canonical_name = 'artist'", [], |r| r.get(0)).unwrap();
+            for (title, tid, count) in [("track a", t1, 10), ("track b", t2, 10), ("track c", t3, 5)] {
+                conn.execute(
+                    "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, play_count, library_track_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![ha, title, title, count, tid],
+                ).unwrap();
+            }
+        }
+
+        // Tied tracks should have the same rank
+        assert_eq!(db.get_track_rank(t1).unwrap(), Some(1));
+        assert_eq!(db.get_track_rank(t2).unwrap(), Some(1));
+        assert_eq!(db.get_track_rank(t3).unwrap(), Some(3)); // RANK() skips to 3
+
+        let most = db.get_history_most_played(10).unwrap();
+        assert_eq!(most.len(), 3);
+        assert_eq!(most[0].rank, 1);
+        assert_eq!(most[1].rank, 1);
+        assert_eq!(most[2].rank, 3);
+    }
+
+    #[test]
+    fn test_history_search_tracks() {
+        let db = test_db();
+        let a = db.get_or_create_artist("Massive Attack").unwrap();
+        let t1 = insert_track(&db, "music/teardrop.mp3", "Teardrop", Some(a), None);
+        let t2 = insert_track(&db, "music/angel.mp3", "Angel", Some(a), None);
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO history_artists (canonical_name, display_name, play_count, library_artist_id) VALUES ('massive attack', 'Massive Attack', 7, ?1)",
+                params![a],
+            ).unwrap();
+            let ha: i64 = conn.query_row("SELECT id FROM history_artists WHERE canonical_name = 'massive attack'", [], |r| r.get(0)).unwrap();
+            conn.execute(
+                "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, play_count, library_track_id) VALUES (?1, 'teardrop', 'Teardrop', 5, ?2)",
+                params![ha, t1],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, play_count, library_track_id) VALUES (?1, 'angel', 'Angel', 2, ?2)",
+                params![ha, t2],
+            ).unwrap();
+        }
+
+        // Search by track title
+        let results = db.search_history_tracks("tear", 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].display_title, "Teardrop");
+
+        // Search by artist name
+        let results = db.search_history_tracks("massive", 10).unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_history_search_artists() {
+        let db = test_db();
+        let a1 = db.get_or_create_artist("Portishead").unwrap();
+        let a2 = db.get_or_create_artist("Radiohead").unwrap();
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO history_artists (canonical_name, display_name, play_count, library_artist_id) VALUES ('portishead', 'Portishead', 10, ?1)",
+                params![a1],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO history_artists (canonical_name, display_name, play_count, library_artist_id) VALUES ('radiohead', 'Radiohead', 20, ?1)",
+                params![a2],
+            ).unwrap();
+        }
+
+        let results = db.search_history_artists("head", 10).unwrap();
+        assert_eq!(results.len(), 2);
+        // Radiohead has more plays, should come first
+        assert_eq!(results[0].display_name, "Radiohead");
+        assert_eq!(results[1].display_name, "Portishead");
+    }
+
+    #[test]
+    fn test_history_most_played_since() {
+        let db = test_db();
+        let a = db.get_or_create_artist("Artist").unwrap();
+        let t1 = insert_track(&db, "music/old.mp3", "Old Song", Some(a), None);
+        let t2 = insert_track(&db, "music/new.mp3", "New Song", Some(a), None);
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO history_artists (canonical_name, display_name, play_count, library_artist_id) VALUES ('artist', 'Artist', 5, ?1)",
+                params![a],
+            ).unwrap();
+            let ha: i64 = conn.query_row("SELECT id FROM history_artists WHERE canonical_name = 'artist'", [], |r| r.get(0)).unwrap();
+            conn.execute(
+                "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, play_count, library_track_id) VALUES (?1, 'old song', 'Old Song', 3, ?2)",
+                params![ha, t1],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, play_count, library_track_id) VALUES (?1, 'new song', 'New Song', 2, ?2)",
+                params![ha, t2],
+            ).unwrap();
+            let ht1: i64 = conn.query_row("SELECT id FROM history_tracks WHERE canonical_title = 'old song'", [], |r| r.get(0)).unwrap();
+            let ht2: i64 = conn.query_row("SELECT id FROM history_tracks WHERE canonical_title = 'new song'", [], |r| r.get(0)).unwrap();
+            // Old plays (timestamp 100)
+            conn.execute("INSERT INTO history_plays (history_track_id, played_at) VALUES (?1, 100)", params![ht1]).unwrap();
+            // Recent plays (timestamp 9000)
+            conn.execute("INSERT INTO history_plays (history_track_id, played_at) VALUES (?1, 9000)", params![ht2]).unwrap();
+            conn.execute("INSERT INTO history_plays (history_track_id, played_at) VALUES (?1, 9001)", params![ht2]).unwrap();
+        }
+
+        // Since timestamp 5000 — only "New Song" plays should count
+        let results = db.get_history_most_played_since(5000, 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].display_title, "New Song");
+        assert_eq!(results[0].play_count, 2);
     }
 
     #[test]
