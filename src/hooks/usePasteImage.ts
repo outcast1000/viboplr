@@ -44,8 +44,8 @@ export function usePasteImage({
       if (!imageItem) return;
 
       const isArtistDetail = view === "artists" && selectedArtist !== null;
-      const isAlbumDetail = view === "all" && selectedAlbum !== null && !searchQuery.trim();
-      const isTagDetail = view === "all" && selectedTag !== null && !searchQuery.trim();
+      const isAlbumDetail = view === "albums" && selectedAlbum !== null && !searchQuery.trim();
+      const isTagDetail = view === "tags" && selectedTag !== null && !searchQuery.trim();
 
       if (!isArtistDetail && !isAlbumDetail && !isTagDetail) return;
 

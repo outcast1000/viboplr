@@ -39,8 +39,6 @@ export function Breadcrumb({
         <span>All Albums</span>
       ) : view === "tags" ? (
         <span>All Tags</span>
-      ) : view === "liked" ? (
-        <span>Liked Tracks</span>
       ) : view === "history" ? (
         <span>History</span>
       ) : view === "collections" ? (

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Artist, Album, Tag, Track, Collection, CollectionStats, View, ViewMode, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField, ColumnConfig, TrackColumnId } from "../types";
+import type { Artist, Album, Tag, Track, Collection, CollectionStats, View, ViewMode, SortField, SortDir, ColumnConfig, TrackColumnId } from "../types";
 import { store } from "../store";
 
 const ALL_COLUMN_IDS: TrackColumnId[] = ["like", "num", "title", "artist", "album", "year", "quality", "duration", "popularity", "size", "collection", "added", "modified", "path"];
@@ -32,9 +32,8 @@ export const TAG_DETAIL_COLUMNS: ColumnConfig[] = ALL_COLUMN_IDS.map(id => ({
 }));
 
 export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNavigate?: () => void, getDebouncedTrackQuery?: (view: View) => string, trackPopularity?: Record<number, number>, onNavigationError?: (message: string) => void) {
-  const [view, setView] = useState<View>("all");
-  const needsServerSearch = view === "all" || view === "liked";
-  const debouncedTrackQuery = needsServerSearch ? getDebouncedTrackQuery?.(view) ?? "" : "";
+  const [view, setView] = useState<View>("search");
+  const debouncedTrackQuery = getDebouncedTrackQuery?.(view) ?? "";
   const [artists, setArtists] = useState<Artist[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -63,18 +62,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   // Column config state
   const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(DEFAULT_TRACK_COLUMNS);
 
-  // Artist sort state
-  const [artistSortField, setArtistSortField] = useState<ArtistSortField | null>(null);
-  const [artistSortDir, setArtistSortDir] = useState<SortDir>("asc");
-  const [artistLikedFirst, setArtistLikedFirst] = useState(false);
-  const [artistShuffleKey, setArtistShuffleKey] = useState(0);
-
-  // Album sort state
-  const [albumSortField, setAlbumSortField] = useState<AlbumSortField | null>(null);
-  const [albumSortDir, setAlbumSortDir] = useState<SortDir>("asc");
-  const [albumLikedFirst, setAlbumLikedFirst] = useState(false);
-  const [albumShuffleKey, setAlbumShuffleKey] = useState(0);
-
   // Track shuffle key (forces re-fetch on shuffle click)
   const [trackShuffleKey, setTrackShuffleKey] = useState(0);
 
@@ -82,19 +69,9 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [filterYoutubeOnly, setFilterYoutubeOnly] = useState(false);
   const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "audio" | "video">("all");
   const [trackLikedFirst, setTrackLikedFirst] = useState(false);
-  // Tag sort state
-  const [tagSortField, setTagSortField] = useState<TagSortField | null>(null);
-  const [tagSortDir, setTagSortDir] = useState<SortDir>("asc");
-  const [tagLikedFirst, setTagLikedFirst] = useState(false);
-  const [tagShuffleKey, setTagShuffleKey] = useState(0);
 
   // View mode state
-  const [artistViewMode, setArtistViewMode] = useState<ViewMode>("tiles");
-  const [albumViewMode, setAlbumViewMode] = useState<ViewMode>("tiles");
-  const [tagViewMode, setTagViewMode] = useState<ViewMode>("tiles");
   const [trackViewMode, setTrackViewMode] = useState<ViewMode>("basic");
-  const [likedViewMode, setLikedViewMode] = useState<ViewMode>("basic");
-  const [sortBarCollapsed, setSortBarCollapsed] = useState(true);
 
   // Artist-filtered albums for artist detail view (derived, never mutates albums state)
   const artistAlbums = useMemo(() => {
@@ -112,22 +89,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   useEffect(() => { if (restoredRef.current) store.set("trackSortField", sortField); }, [sortField]);
   useEffect(() => { if (restoredRef.current) store.set("trackSortDir", sortDir); }, [sortDir]);
   useEffect(() => { if (restoredRef.current) store.set("trackColumns", trackColumns); }, [trackColumns]);
-  useEffect(() => { if (restoredRef.current) store.set("artistViewMode", artistViewMode); }, [artistViewMode]);
-  useEffect(() => { if (restoredRef.current) store.set("albumViewMode", albumViewMode); }, [albumViewMode]);
-  useEffect(() => { if (restoredRef.current) store.set("tagViewMode", tagViewMode); }, [tagViewMode]);
   useEffect(() => { if (restoredRef.current) store.set("trackViewMode", trackViewMode); }, [trackViewMode]);
-  useEffect(() => { if (restoredRef.current) store.set("likedViewMode", likedViewMode); }, [likedViewMode]);
-  useEffect(() => { if (restoredRef.current) store.set("sortBarCollapsed", sortBarCollapsed); }, [sortBarCollapsed]);
-  // Persist per-view sort & filter state
-  useEffect(() => { if (restoredRef.current) store.set("artistSortField", artistSortField); }, [artistSortField]);
-  useEffect(() => { if (restoredRef.current) store.set("artistSortDir", artistSortDir); }, [artistSortDir]);
-  useEffect(() => { if (restoredRef.current) store.set("artistLikedFirst", artistLikedFirst); }, [artistLikedFirst]);
-  useEffect(() => { if (restoredRef.current) store.set("albumSortField", albumSortField); }, [albumSortField]);
-  useEffect(() => { if (restoredRef.current) store.set("albumSortDir", albumSortDir); }, [albumSortDir]);
-  useEffect(() => { if (restoredRef.current) store.set("albumLikedFirst", albumLikedFirst); }, [albumLikedFirst]);
-  useEffect(() => { if (restoredRef.current) store.set("tagSortField", tagSortField); }, [tagSortField]);
-  useEffect(() => { if (restoredRef.current) store.set("tagSortDir", tagSortDir); }, [tagSortDir]);
-  useEffect(() => { if (restoredRef.current) store.set("tagLikedFirst", tagLikedFirst); }, [tagLikedFirst]);
   useEffect(() => { if (restoredRef.current) store.set("filterYoutubeOnly", filterYoutubeOnly); }, [filterYoutubeOnly]);
   useEffect(() => { if (restoredRef.current) store.set("mediaTypeFilter", mediaTypeFilter); }, [mediaTypeFilter]);
   useEffect(() => { if (restoredRef.current) store.set("trackLikedFirst", trackLikedFirst); }, [trackLikedFirst]);
@@ -170,7 +132,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
             artistId: selectedArtist,
             albumId: selectedAlbum,
             tagId: selectedTag,
-            likedOnly: view === "liked" ? true : undefined,
+            likedOnly: undefined,
             sortField,
             sortDir,
             limit: PAGE_SIZE,
@@ -203,12 +165,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       } else if (selectedArtist !== null) {
         // Non-paginated: by artist
         const results = await invoke<Track[]>("get_tracks_by_artist", { artistId: selectedArtist });
-        setTracks(results);
-        tracksRef.current = results;
-        setHasMore(false);
-      } else if (view === "liked") {
-        // Non-paginated: liked
-        const results = await invoke<Track[]>("get_liked_tracks");
         setTracks(results);
         tracksRef.current = results;
         setHasMore(false);
@@ -259,7 +215,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   // Server handles sorting for paginated views; skip client-side sort
   const isServerSorted = (debouncedTrackQuery ?? "").trim() !== "" ||
-    (selectedTag === null && selectedAlbum === null && selectedArtist === null && view !== "liked");
+    (selectedTag === null && selectedAlbum === null && selectedArtist === null);
 
   function handleSort(field: SortField) {
     if (field === "random") {
@@ -348,154 +304,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     }
   }, [sortedTracks]);
 
-  // Fisher-Yates shuffle helper
-  function shuffle<T>(arr: T[]): T[] {
-    const a = [...arr];
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  }
-
-  const sortedArtists = useMemo(() => {
-    void artistShuffleKey; // trigger re-compute on shuffle
-    let result: Artist[];
-    if (artistSortField === "random") {
-      result = shuffle(artists);
-    } else if (artistSortField === "name") {
-      const dir = artistSortDir === "asc" ? 1 : -1;
-      result = [...artists].sort((a, b) => a.name.localeCompare(b.name) * dir);
-    } else if (artistSortField === "tracks") {
-      const dir = artistSortDir === "asc" ? 1 : -1;
-      result = [...artists].sort((a, b) => (a.track_count - b.track_count) * dir);
-    } else {
-      result = artists;
-    }
-    if (artistLikedFirst) {
-      result = [...result].sort((a, b) => (b.liked - a.liked));
-    }
-    return result;
-  }, [artists, artistSortField, artistSortDir, artistLikedFirst, artistShuffleKey]);
-
-  const sortedAlbums = useMemo(() => {
-    void albumShuffleKey;
-    let result: Album[];
-    if (albumSortField === "random") {
-      result = shuffle(albums);
-    } else if (albumSortField === "name") {
-      const dir = albumSortDir === "asc" ? 1 : -1;
-      result = [...albums].sort((a, b) => a.title.localeCompare(b.title) * dir);
-    } else if (albumSortField === "artist") {
-      const dir = albumSortDir === "asc" ? 1 : -1;
-      result = [...albums].sort((a, b) => (a.artist_name ?? "").localeCompare(b.artist_name ?? "") * dir);
-    } else if (albumSortField === "year") {
-      const dir = albumSortDir === "asc" ? 1 : -1;
-      result = [...albums].sort((a, b) => ((a.year ?? 0) - (b.year ?? 0)) * dir);
-    } else if (albumSortField === "tracks") {
-      const dir = albumSortDir === "asc" ? 1 : -1;
-      result = [...albums].sort((a, b) => (a.track_count - b.track_count) * dir);
-    } else {
-      result = albums;
-    }
-    if (albumLikedFirst) {
-      result = [...result].sort((a, b) => (b.liked - a.liked));
-    }
-    return result;
-  }, [albums, albumSortField, albumSortDir, albumLikedFirst, albumShuffleKey]);
-
-  const sortedTags = useMemo(() => {
-    void tagShuffleKey;
-    let result: Tag[];
-    if (tagSortField === "random") {
-      result = shuffle(tags);
-    } else if (tagSortField === "name") {
-      const dir = tagSortDir === "asc" ? 1 : -1;
-      result = [...tags].sort((a, b) => a.name.localeCompare(b.name) * dir);
-    } else if (tagSortField === "tracks") {
-      const dir = tagSortDir === "asc" ? 1 : -1;
-      result = [...tags].sort((a, b) => (a.track_count - b.track_count) * dir);
-    } else {
-      result = tags;
-    }
-    if (tagLikedFirst) {
-      result = [...result].sort((a, b) => (b.liked - a.liked));
-    }
-    return result;
-  }, [tags, tagSortField, tagSortDir, tagLikedFirst, tagShuffleKey]);
-
-  function handleTagSort(field: TagSortField) {
-    if (field === "random") {
-      if (tagSortField === "random") {
-        setTagSortField(null);
-        setTagSortDir("asc");
-      } else {
-        setTagSortField("random");
-        setTagShuffleKey(k => k + 1);
-      }
-      return;
-    }
-    if (tagSortField === field) {
-      if (tagSortDir === "asc") {
-        setTagSortDir("desc");
-      } else {
-        setTagSortField(null);
-        setTagSortDir("asc");
-      }
-    } else {
-      setTagSortField(field);
-      setTagSortDir("asc");
-    }
-  }
-
-  function handleArtistSort(field: ArtistSortField) {
-    if (field === "random") {
-      if (artistSortField === "random") {
-        setArtistSortField(null);
-        setArtistSortDir("asc");
-      } else {
-        setArtistSortField("random");
-        setArtistShuffleKey(k => k + 1);
-      }
-      return;
-    }
-    if (artistSortField === field) {
-      if (artistSortDir === "asc") {
-        setArtistSortDir("desc");
-      } else {
-        setArtistSortField(null);
-        setArtistSortDir("asc");
-      }
-    } else {
-      setArtistSortField(field);
-      setArtistSortDir("asc");
-    }
-  }
-
-  function handleAlbumSort(field: AlbumSortField) {
-    if (field === "random") {
-      if (albumSortField === "random") {
-        setAlbumSortField(null);
-        setAlbumSortDir("asc");
-      } else {
-        setAlbumSortField("random");
-        setAlbumShuffleKey(k => k + 1);
-      }
-      return;
-    }
-    if (albumSortField === field) {
-      if (albumSortDir === "asc") {
-        setAlbumSortDir("desc");
-      } else {
-        setAlbumSortField(null);
-        setAlbumSortDir("asc");
-      }
-    } else {
-      setAlbumSortField(field);
-      setAlbumSortDir("asc");
-    }
-  }
-
   function handleTrackClick(trackId: number) {
     onBeforeNavigate?.();
     setSelectedTrack(trackId);
@@ -551,24 +359,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     }
   }
 
-  function handleShowAll() {
-    onBeforeNavigate?.();
-    setView("all");
-    setSelectedArtist(null);
-    setSelectedAlbum(null);
-    setSelectedTag(null);
-    setSelectedTrack(null);
-  }
-
-  function handleShowLiked() {
-    onBeforeNavigate?.();
-    setView("liked");
-    setSelectedArtist(null);
-    setSelectedAlbum(null);
-    setSelectedTag(null);
-    setSelectedTrack(null);
-  }
-
   return {
     view, setView,
     artists, setArtists,
@@ -589,18 +379,10 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     handleSort, sortIndicator,
     trackColumns, setTrackColumns,
     artistAlbums,
-    handleTrackClick, handleArtistClick, handleAlbumClick, handleLocateTrack, handleShowAll, handleShowLiked,
+    handleTrackClick, handleArtistClick, handleAlbumClick, handleLocateTrack,
     loadLibrary, loadTracks,
     hasMore, loadingMore, loadMore,
-    sortedArtists, artistSortField, setArtistSortField, artistSortDir, setArtistSortDir, artistLikedFirst, setArtistLikedFirst, handleArtistSort,
-    sortedAlbums, albumSortField, setAlbumSortField, albumSortDir, setAlbumSortDir, albumLikedFirst, setAlbumLikedFirst, handleAlbumSort,
-    sortedTags, tagSortField, setTagSortField, tagSortDir, setTagSortDir, tagLikedFirst, setTagLikedFirst, handleTagSort,
     filterYoutubeOnly, setFilterYoutubeOnly, mediaTypeFilter, setMediaTypeFilter, trackLikedFirst, setTrackLikedFirst,
-    artistViewMode, setArtistViewMode,
-    albumViewMode, setAlbumViewMode,
-    tagViewMode, setTagViewMode,
     trackViewMode, setTrackViewMode,
-    likedViewMode, setLikedViewMode,
-    sortBarCollapsed, setSortBarCollapsed,
   };
 }

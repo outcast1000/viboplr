@@ -8,8 +8,8 @@ import { listen } from "@tauri-apps/api/event";
 import "./base.css";
 import "./App.css";
 
-import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField } from "./types";
-import { isVideoTrack, parseSubsonicUrl, stripAccents, tidalCoverUrl } from "./utils";
+import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir } from "./types";
+import { isVideoTrack, parseSubsonicUrl, tidalCoverUrl } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
@@ -19,7 +19,7 @@ import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
 import { useQueue } from "./hooks/useQueue";
-import { useLibrary, DEFAULT_TRACK_COLUMNS, ALBUM_DETAIL_COLUMNS, TAG_DETAIL_COLUMNS } from "./hooks/useLibrary";
+import { useLibrary, DEFAULT_TRACK_COLUMNS, ALBUM_DETAIL_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
 import { useImageCache } from "./hooks/useImageCache";
 import { useAutoContinue } from "./hooks/useAutoContinue";
@@ -56,13 +56,7 @@ import { FullscreenControls } from "./components/FullscreenControls";
 import { AddServerModal } from "./components/AddServerModal";
 import { ContextMenu } from "./components/ContextMenu";
 import { Breadcrumb } from "./components/Breadcrumb";
-import { ArtistListView } from "./components/ArtistListView";
-import { AlbumListView } from "./components/AlbumListView";
-import { TagListView } from "./components/TagListView";
-import { AllTracksView } from "./components/AllTracksView";
-import { LikedTracksView } from "./components/LikedTracksView";
 import { ArtistDetailContent } from "./components/ArtistDetailContent";
-import { ViewModeToggle } from "./components/ViewModeToggle";
 import { ImageActions } from "./components/ImageActions";
 import { AlbumDetailHeader } from "./components/AlbumDetailHeader";
 import { InformationSections } from "./components/InformationSections";
@@ -385,7 +379,6 @@ function App() {
     });
   };
   const [albumDetailColumns, setAlbumDetailColumns] = useState(ALBUM_DETAIL_COLUMNS);
-  const [tagDetailColumns, setTagDetailColumns] = useState(TAG_DETAIL_COLUMNS);
   const [albumBelowTabOrder, setAlbumBelowTabOrder] = useState<string[]>([]);
   useEffect(() => {
     store.get<string[]>("albumDetailBelowTabOrder").then(saved => {
@@ -770,7 +763,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, savedSortBarCollapsed, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastTidalDownloadDest, savedSearchViewModes] = await timeAsync("store.restore (47 keys)", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastTidalDownloadDest, savedSearchViewModes] = await timeAsync("store.restore", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -819,7 +812,7 @@ function App() {
           store.get<string | null>("lastTidalDownloadDest"),
           store.get<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
         ]));
-        if (v && ["search", "all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
+        if (v && ["search", "artists", "albums", "tags", "history"].includes(v)) library.setView(v as View);
         if (sa !== undefined && sa !== null) {
           library.setSelectedArtist(sa);
         }
@@ -955,21 +948,7 @@ function App() {
             queueHook.setPlaylistContext(savedPlaylistName as { name: string; coverPath?: string | null; coverUrl?: string | null });
           }
         }
-        if (savedArtistViewMode && ["basic", "list", "tiles"].includes(savedArtistViewMode)) library.setArtistViewMode(savedArtistViewMode as ViewMode);
-        if (savedAlbumViewMode && ["basic", "list", "tiles"].includes(savedAlbumViewMode)) library.setAlbumViewMode(savedAlbumViewMode as ViewMode);
-        if (savedTagViewMode && ["basic", "list", "tiles"].includes(savedTagViewMode)) library.setTagViewMode(savedTagViewMode as ViewMode);
         if (savedTrackViewMode && ["basic", "list", "tiles"].includes(savedTrackViewMode)) library.setTrackViewMode(savedTrackViewMode as ViewMode);
-        if (savedLikedViewMode && ["basic", "list", "tiles"].includes(savedLikedViewMode)) library.setLikedViewMode(savedLikedViewMode as ViewMode);
-        // Restore per-view sort & filter state
-        if (savedArtistSortField && ["name", "tracks", "random"].includes(savedArtistSortField)) library.setArtistSortField(savedArtistSortField as ArtistSortField);
-        if (savedArtistSortDir && ["asc", "desc"].includes(savedArtistSortDir)) library.setArtistSortDir(savedArtistSortDir as SortDir);
-        if (savedArtistLikedFirst) library.setArtistLikedFirst(true);
-        if (savedAlbumSortField && ["name", "artist", "year", "tracks", "random"].includes(savedAlbumSortField)) library.setAlbumSortField(savedAlbumSortField as AlbumSortField);
-        if (savedAlbumSortDir && ["asc", "desc"].includes(savedAlbumSortDir)) library.setAlbumSortDir(savedAlbumSortDir as SortDir);
-        if (savedAlbumLikedFirst) library.setAlbumLikedFirst(true);
-        if (savedTagSortField && ["name", "tracks", "random"].includes(savedTagSortField)) library.setTagSortField(savedTagSortField as TagSortField);
-        if (savedTagSortDir && ["asc", "desc"].includes(savedTagSortDir)) library.setTagSortDir(savedTagSortDir as SortDir);
-        if (savedTagLikedFirst) library.setTagLikedFirst(true);
         if (savedFilterYoutubeOnly) library.setFilterYoutubeOnly(true);
         if (savedMediaTypeFilter && ["all", "audio", "video"].includes(savedMediaTypeFilter)) library.setMediaTypeFilter(savedMediaTypeFilter as "all" | "audio" | "video");
         if (savedTrackLikedFirst) library.setTrackLikedFirst(true);
@@ -991,7 +970,6 @@ function App() {
             setSearchViewModes({ tracks: s.tracks, albums: s.albums, artists: s.artists, tags: s.tags && validModes.includes(s.tags) ? s.tags : "tiles" });
           }
         }
-        if (savedSortBarCollapsed) library.setSortBarCollapsed(true);
         const savedLoggingEnabled = await store.get<boolean>("loggingEnabled");
         if (savedLoggingEnabled) setLoggingEnabled(true);
         const savedArtistSections = await store.get<Record<string, boolean>>("artistSections");
@@ -1227,37 +1205,6 @@ function App() {
           library.setSelectedTrack(null);
           break;
         case "2":
-          e.preventDefault();
-          library.handleShowAll();
-          break;
-        case "3":
-          e.preventDefault();
-          pushStateRef.current();
-          library.setView("artists");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          break;
-        case "4":
-          e.preventDefault();
-          pushStateRef.current();
-          library.setView("albums");
-          library.setSelectedArtist(null);
-          library.setSelectedTag(null);
-          break;
-        case "5":
-          e.preventDefault();
-          pushStateRef.current();
-          library.setView("tags");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          break;
-        case "6":
-          e.preventDefault();
-          library.handleShowLiked();
-          break;
-        case "7":
           e.preventDefault();
           pushStateRef.current();
           library.setView("history");
@@ -1537,31 +1484,6 @@ function App() {
   const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags, tracks,
     sortedTracks, sortField, highlightedIndex, highlightedListIndex } = library;
 
-  // Filtered lists for keyboard navigation
-  const filteredArtists = (() => {
-    if (view !== "artists" || selectedArtist !== null) return [];
-    const q = viewSearch.getQuery("artists").trim().toLowerCase();
-    const tokens = stripAccents(q).split(/[\s.,;:_\-\/\\]+/).filter(Boolean);
-    return tokens.length ? library.sortedArtists.filter(a => { const name = stripAccents(a.name.toLowerCase()); return tokens.every(t => name.includes(t)); }) : library.sortedArtists;
-  })();
-
-  const filteredAlbums = (() => {
-    if (view !== "albums") return [];
-    const q = viewSearch.getQuery("albums").trim().toLowerCase();
-    if (!q) return library.sortedAlbums;
-    const sq = stripAccents(q);
-    return library.sortedAlbums.filter(a =>
-      stripAccents(a.title.toLowerCase()).includes(sq) ||
-      (a.artist_name ? stripAccents(a.artist_name.toLowerCase()).includes(sq) : false)
-    );
-  })();
-
-  const filteredTags = (() => {
-    if (view !== "tags" || selectedTag !== null) return [];
-    const q = viewSearch.getQuery("tags").trim().toLowerCase();
-    return q ? library.sortedTags.filter(t => stripAccents(t.name.toLowerCase()).includes(stripAccents(q))) : library.sortedTags;
-  })();
-
   const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name, path: c.path ?? "" }));
 
   // Arrow key navigation helpers for search bars
@@ -1571,60 +1493,6 @@ function App() {
       el?.scrollIntoView({ block: "nearest" });
     });
   }
-
-  function makeSearchNav(
-    listLength: number,
-    getIndex: () => number,
-    setIndex: (i: number) => void,
-    onEnter: (i: number) => void,
-    scrollSelector: string,
-  ) {
-    return {
-      onArrowDown: () => { const next = Math.min(getIndex() + 1, listLength - 1); setIndex(next); scrollHighlightedIntoView(scrollSelector); },
-      onArrowUp: () => { const next = Math.max(getIndex() - 1, 0); setIndex(next); scrollHighlightedIntoView(scrollSelector); },
-      onEnter: () => { const i = getIndex(); if (i >= 0 && i < listLength) onEnter(i); },
-    };
-  }
-
-  const artistSearchNav = makeSearchNav(
-    filteredArtists.length,
-    () => highlightedListIndex,
-    library.setHighlightedListIndex,
-    (i) => library.handleArtistClick(filteredArtists[i].id),
-    '.entity-table, .entity-list, .album-grid',
-  );
-
-  const albumSearchNav = makeSearchNav(
-    filteredAlbums.length,
-    () => highlightedListIndex,
-    library.setHighlightedListIndex,
-    (i) => library.handleAlbumClick(filteredAlbums[i].id),
-    '.entity-table, .entity-list, .album-grid',
-  );
-
-  const tagSearchNav = makeSearchNav(
-    filteredTags.length,
-    () => highlightedListIndex,
-    library.setHighlightedListIndex,
-    (i) => { pushAndScroll(); library.setSelectedTag(filteredTags[i].id); library.setView("all"); },
-    '.entity-table, .entity-list, .album-grid',
-  );
-
-  const trackSearchNav = makeSearchNav(
-    sortedTracks.length,
-    () => highlightedIndex,
-    library.setHighlightedIndex,
-    (i) => queueHook.playTracks(sortedTracks, i),
-    '.track-list, .entity-list, .album-grid',
-  );
-
-  const likedSearchNav = makeSearchNav(
-    sortedTracks.length,
-    () => highlightedIndex,
-    library.setHighlightedIndex,
-    (i) => queueHook.playTracks(sortedTracks, i),
-    '.track-list, .entity-list, .album-grid',
-  );
 
   const historySearchNav = {
     onArrowDown: () => { const count = historyRef.current?.count ?? 0; if (count > 0) { const next = Math.min(highlightedListIndex + 1, count - 1); library.setHighlightedListIndex(next); scrollHighlightedIntoView('.history-content'); } },
@@ -1662,9 +1530,6 @@ function App() {
 
       <Sidebar
         view={view}
-        selectedAlbum={selectedAlbum}
-        selectedArtist={selectedArtist}
-        selectedTag={selectedTag}
         selectedTrack={library.selectedTrack}
         collapsed={sidebarCollapsed}
         onShowSearch={() => {
@@ -1675,31 +1540,6 @@ function App() {
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
         }}
-        onShowAll={library.handleShowAll}
-        onShowArtists={() => {
-          pushAndScroll();
-          library.setView("artists");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
-        }}
-        onShowAlbums={() => {
-          pushAndScroll();
-          library.setView("albums");
-          library.setSelectedArtist(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
-        }}
-        onShowTags={() => {
-          pushAndScroll();
-          library.setView("tags");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
-        }}
-        onShowLiked={library.handleShowLiked}
         onShowHistory={() => {
           pushAndScroll();
           library.setView("history");
@@ -1819,14 +1659,6 @@ function App() {
               onEnqueueAll={contextMenuActions.handleEnqueue}
               pluginName={typeof view === "string" && view.startsWith("plugin:") ? (plugins.pluginStates.find(p => p.id === view.slice("plugin:".length).split(":")[0])?.manifest.name) : undefined}
             >
-              {view === "all" && <ViewModeToggle mode={library.trackViewMode} onChange={library.setTrackViewMode} />}
-              {view === "artists" && selectedArtist === null && <ViewModeToggle mode={library.artistViewMode} onChange={library.setArtistViewMode} />}
-              {view === "albums" && <ViewModeToggle mode={library.albumViewMode} onChange={library.setAlbumViewMode} />}
-              {view === "tags" && selectedTag === null && <ViewModeToggle mode={library.tagViewMode} onChange={library.setTagViewMode} />}
-              {view === "liked" && <ViewModeToggle mode={library.likedViewMode} onChange={library.setLikedViewMode} />}
-              {(view === "all" || view === "artists" || view === "albums" || view === "tags" || view === "liked") && !(view === "artists" && selectedArtist !== null) && !(view === "tags" && selectedTag !== null) && (
-                <button className="sort-btn sort-bar-toggle" onClick={() => library.setSortBarCollapsed(v => !v)} title={library.sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{library.sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
-              )}
             </Breadcrumb>
           )}
 
@@ -1877,29 +1709,6 @@ function App() {
           })()}
 
           {library.selectedTrack === null && <>
-          {/* Artist list */}
-          {view === "artists" && selectedArtist === null && (
-            <ArtistListView
-              artists={filteredArtists}
-              highlightedIndex={highlightedListIndex}
-              viewMode={library.artistViewMode}
-              sortField={library.artistSortField}
-              sortDir={library.artistSortDir}
-              sortBarCollapsed={library.sortBarCollapsed}
-              likedFirst={library.artistLikedFirst}
-              searchQuery={viewSearch.getQuery("artists")}
-              artistImages={artistImageCache.images}
-              onArtistClick={library.handleArtistClick}
-              onToggleLike={likeActions.handleToggleArtistLike}
-              onContextMenu={contextMenuActions.handleArtistContextMenu}
-              onSort={library.handleArtistSort}
-              onSetLikedFirst={library.setArtistLikedFirst}
-              onSearchChange={(q) => viewSearch.setQuery("artists", q)}
-              searchNav={artistSearchNav}
-              onFetchImage={artistImageCache.fetchOnDemand}
-            />
-          )}
-
           {/* Artist detail view */}
           {view === "artists" && selectedArtist !== null && selectedAlbum === null && (() => {
             const artist = artists.find(a => a.id === selectedArtist);
@@ -1947,53 +1756,8 @@ function App() {
             );
           })()}
 
-          {/* All albums view */}
-          {view === "albums" && (
-            <AlbumListView
-              albums={filteredAlbums}
-              highlightedIndex={highlightedListIndex}
-              viewMode={library.albumViewMode}
-              sortField={library.albumSortField}
-              sortDir={library.albumSortDir}
-              sortBarCollapsed={library.sortBarCollapsed}
-              likedFirst={library.albumLikedFirst}
-              searchQuery={viewSearch.getQuery("albums")}
-              albumImages={albumImageCache.images}
-              onAlbumClick={library.handleAlbumClick}
-              onToggleLike={likeActions.handleToggleAlbumLike}
-              onContextMenu={contextMenuActions.handleAlbumContextMenu}
-              onSort={library.handleAlbumSort}
-              onSetLikedFirst={library.setAlbumLikedFirst}
-              onSearchChange={(q) => viewSearch.setQuery("albums", q)}
-              searchNav={albumSearchNav}
-              onFetchImage={albumImageCache.fetchOnDemand}
-            />
-          )}
-
-          {/* Tags list view */}
-          {view === "tags" && selectedTag === null && (
-            <TagListView
-              tags={filteredTags}
-              highlightedIndex={highlightedListIndex}
-              viewMode={library.tagViewMode}
-              sortField={library.tagSortField}
-              sortDir={library.tagSortDir}
-              sortBarCollapsed={library.sortBarCollapsed}
-              likedFirst={library.tagLikedFirst}
-              searchQuery={viewSearch.getQuery("tags")}
-              tagImages={tagImageCache.images}
-              onTagClick={(id) => { pushAndScroll(); library.setSelectedTag(id); library.setView("all"); }}
-              onToggleLike={likeActions.handleToggleTagLike}
-              onSort={library.handleTagSort}
-              onSetLikedFirst={library.setTagLikedFirst}
-              onSearchChange={(q) => viewSearch.setQuery("tags", q)}
-              searchNav={tagSearchNav}
-              onFetchImage={tagImageCache.fetchOnDemand}
-            />
-          )}
-
           {/* Tag detail header */}
-          {view === "all" && selectedTag !== null && (() => {
+          {view === "tags" && selectedTag !== null && (() => {
             const tag = tags.find(t => t.id === selectedTag);
             const tagImagePath = tagImageCache.images[selectedTag] ?? null;
             return (
@@ -2045,8 +1809,8 @@ function App() {
             );
           })()}
 
-          {/* Album detail header (all view only; artists view renders inside .album-detail below) */}
-          {view === "all" && selectedAlbum !== null && (() => {
+          {/* Album detail header (albums view only; artists view renders inside .album-detail below) */}
+          {view === "albums" && selectedAlbum !== null && (() => {
             const album = albums.find(a => a.id === selectedAlbum);
             const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
             return (
@@ -2107,46 +1871,6 @@ function App() {
               tagImages={tagImageCache.images}
               columns={library.trackColumns}
               onColumnsChange={library.setTrackColumns}
-            />
-          )}
-
-          {/* All tracks view */}
-          {view === "all" && (
-            <AllTracksView
-              sortedTracks={sortedTracks}
-              currentTrack={playback.currentTrack}
-              playing={playback.playing}
-              highlightedIndex={highlightedIndex}
-              sortField={sortField}
-              trackListRef={trackListRef}
-              columns={selectedTag !== null ? tagDetailColumns : library.trackColumns}
-              trackViewMode={library.trackViewMode}
-              sortBarCollapsed={library.sortBarCollapsed}
-              trackLikedFirst={library.trackLikedFirst}
-              mediaTypeFilter={library.mediaTypeFilter}
-              filterYoutubeOnly={library.filterYoutubeOnly}
-              searchQuery={viewSearch.getQuery("all")}
-              albumImages={albumImageCache.images}
-              hasMore={library.hasMore}
-              loadingMore={library.loadingMore}
-              onColumnsChange={selectedTag !== null ? setTagDetailColumns : library.setTrackColumns}
-              onDoubleClick={queueHook.playTracks}
-              onContextMenu={contextMenuActions.handleTrackContextMenu}
-              onArtistClick={library.handleArtistClick}
-              onAlbumClick={library.handleAlbumClick}
-              onSort={library.handleSort}
-              sortIndicator={library.sortIndicator}
-              onToggleLike={likeActions.handleToggleLike}
-              onToggleDislike={likeActions.handleToggleDislike}
-              onTrackDragStart={contextMenuActions.handleTrackDragStart}
-              onDeleteTracks={handleDeleteTracks}
-              onSearchChange={(q) => viewSearch.setQuery("all", q)}
-              searchNav={trackSearchNav}
-              onFetchAlbumImage={albumImageCache.fetchOnDemand}
-              onLoadMore={library.loadMore}
-              onSetTrackLikedFirst={library.setTrackLikedFirst}
-              onSetMediaTypeFilter={library.setMediaTypeFilter}
-              onSetFilterYoutubeOnly={library.setFilterYoutubeOnly}
             />
           )}
 
@@ -2226,8 +1950,8 @@ function App() {
             );
           })()}
 
-          {/* Album detail "below" information sections (all view only) */}
-          {view === "all" && selectedAlbum !== null && (() => {
+          {/* Album detail "below" information sections (albums view only) */}
+          {view === "albums" && selectedAlbum !== null && (() => {
             const album = albums.find(a => a.id === selectedAlbum);
             const albumEntity = album ? {
               kind: "album" as const,
@@ -2257,37 +1981,6 @@ function App() {
               </div>
             );
           })()}
-
-          {/* Liked tracks view */}
-          {view === "liked" && (
-            <LikedTracksView
-              sortedTracks={sortedTracks}
-              currentTrack={playback.currentTrack}
-              playing={playback.playing}
-              highlightedIndex={highlightedIndex}
-              sortField={sortField}
-              trackListRef={trackListRef}
-              columns={library.trackColumns}
-              likedViewMode={library.likedViewMode}
-              sortBarCollapsed={library.sortBarCollapsed}
-              searchQuery={viewSearch.getQuery("liked")}
-              albumImages={albumImageCache.images}
-              onColumnsChange={library.setTrackColumns}
-              onDoubleClick={queueHook.playTracks}
-              onContextMenu={contextMenuActions.handleTrackContextMenu}
-              onArtistClick={library.handleArtistClick}
-              onAlbumClick={library.handleAlbumClick}
-              onSort={library.handleSort}
-              sortIndicator={library.sortIndicator}
-              onToggleLike={likeActions.handleToggleLike}
-              onToggleDislike={likeActions.handleToggleDislike}
-              onTrackDragStart={contextMenuActions.handleTrackDragStart}
-              onDeleteTracks={handleDeleteTracks}
-              onSearchChange={(q) => viewSearch.setQuery("liked", q)}
-              searchNav={likedSearchNav}
-              onFetchAlbumImage={albumImageCache.fetchOnDemand}
-            />
-          )}
 
           {/* History view */}
           {view === "history" && (
@@ -2597,11 +2290,12 @@ function App() {
             const track = queueHook.queue[contextMenuActions.contextMenu!.target.kind === "queue-multi" ? contextMenuActions.contextMenu!.target.indices[0] : 0];
             if (track) {
               library.handleLocateTrack(track.title, track.artist_name, track.album_title, () => {
-                library.setView("all");
+                setSearchInitialQuery(track.title);
+                setSearchQueryKey(k => k + 1);
+                library.setView("search");
                 library.setSelectedArtist(null);
                 library.setSelectedAlbum(null);
                 library.setSelectedTag(null);
-                viewSearch.setQuery("all", track.title);
               });
             }
           } : undefined}
