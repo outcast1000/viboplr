@@ -82,6 +82,7 @@ import { TapePreviewModal } from "./components/TapePreviewModal";
 import { TapeExportModal } from "./components/TapeExportModal";
 import type { ExportTrack } from "./components/TapeExportModal";
 
+import { SearchView } from "./components/SearchView";
 import { StatusBar } from "./components/StatusBar";
 import { IconYoutube } from "./components/Icons";
 
@@ -350,12 +351,13 @@ function App() {
       queueHook.enqueueTracks([track]);
     },
     onCommitSearch: (query) => {
-      library.setView("all");
+      setSearchInitialQuery(query);
+      setSearchQueryKey(k => k + 1);
+      library.setView("search");
       library.setSelectedArtist(null);
       library.setSelectedAlbum(null);
       library.setSelectedTag(null);
       library.setSelectedTrack(null);
-      viewSearch.setQuery("all", query);
     },
     onNavigateToArtist: (artistId) => {
       library.handleArtistClick(artistId);
@@ -410,6 +412,9 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [queueWidth, setQueueWidth] = useState(300);
+  const [searchViewModes, setSearchViewModes] = useState<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode }>({ tracks: "list", albums: "tiles", artists: "tiles" });
+  const [searchInitialQuery, setSearchInitialQuery] = useState<string | null>(null);
+  const [searchQueryKey, setSearchQueryKey] = useState(0);
 
   // Updater
   const updater = useAppUpdater(addLog);
@@ -765,7 +770,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, savedSortBarCollapsed, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastTidalDownloadDest] = await timeAsync("store.restore (46 keys)", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, savedArtistViewMode, savedAlbumViewMode, savedTagViewMode, savedTrackViewMode, savedLikedViewMode, savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, savedSortBarCollapsed, savedArtistSortField, savedArtistSortDir, savedArtistLikedFirst, savedAlbumSortField, savedAlbumSortDir, savedAlbumLikedFirst, savedTagSortField, savedTagSortDir, savedTagLikedFirst, savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastTidalDownloadDest, savedSearchViewModes] = await timeAsync("store.restore (47 keys)", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -812,8 +817,9 @@ function App() {
           store.get<string>("mediaTypeFilter"),
           store.get<boolean>("trackLikedFirst"),
           store.get<string | null>("lastTidalDownloadDest"),
+          store.get<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
         ]));
-        if (v && ["all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
+        if (v && ["search", "all", "artists", "albums", "tags", "liked", "history"].includes(v)) library.setView(v as View);
         if (sa !== undefined && sa !== null) {
           library.setSelectedArtist(sa);
         }
@@ -978,6 +984,13 @@ function App() {
         if (savedQueueWidth && savedQueueWidth >= 200 && savedQueueWidth <= 600) setQueueWidth(savedQueueWidth);
         if (savedDownloadFormat && ["flac", "aac"].includes(savedDownloadFormat)) { downloads.setFormat(savedDownloadFormat, store); }
         if (savedLastTidalDownloadDest !== undefined) setLastTidalDownloadDest(savedLastTidalDownloadDest ?? null);
+        if (savedSearchViewModes) {
+          const validModes = ["basic", "list", "tiles"];
+          const s = savedSearchViewModes;
+          if (validModes.includes(s.tracks) && validModes.includes(s.albums) && validModes.includes(s.artists)) {
+            setSearchViewModes(s);
+          }
+        }
         if (savedSortBarCollapsed) library.setSortBarCollapsed(true);
         const savedLoggingEnabled = await store.get<boolean>("loggingEnabled");
         if (savedLoggingEnabled) setLoggingEnabled(true);
@@ -1206,9 +1219,18 @@ function App() {
       switch (e.key) {
         case "1":
           e.preventDefault();
-          library.handleShowAll();
+          pushStateRef.current();
+          library.setView("search");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSelectedTrack(null);
           break;
         case "2":
+          e.preventDefault();
+          library.handleShowAll();
+          break;
+        case "3":
           e.preventDefault();
           pushStateRef.current();
           library.setView("artists");
@@ -1216,14 +1238,14 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           break;
-        case "3":
+        case "4":
           e.preventDefault();
           pushStateRef.current();
           library.setView("albums");
           library.setSelectedArtist(null);
           library.setSelectedTag(null);
           break;
-        case "4":
+        case "5":
           e.preventDefault();
           pushStateRef.current();
           library.setView("tags");
@@ -1231,11 +1253,11 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           break;
-        case "5":
+        case "6":
           e.preventDefault();
           library.handleShowLiked();
           break;
-        case "6":
+        case "7":
           e.preventDefault();
           pushStateRef.current();
           library.setView("history");
@@ -1450,6 +1472,10 @@ function App() {
     store.set("queueWidth", width);
   }
 
+  function handleSearchViewModesChange(modes: { tracks: ViewMode; albums: ViewMode; artists: ViewMode }) {
+    setSearchViewModes(modes);
+    store.set("searchViewModes", modes);
+  }
   function handleSaveAsPlaylist() {
     if (queueHook.queue.length === 0) return;
     setShowSavePlaylistModal(true);
@@ -1641,6 +1667,14 @@ function App() {
         selectedTag={selectedTag}
         selectedTrack={library.selectedTrack}
         collapsed={sidebarCollapsed}
+        onShowSearch={() => {
+          pushAndScroll();
+          library.setView("search");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSelectedTrack(null);
+        }}
         onShowAll={library.handleShowAll}
         onShowArtists={() => {
           pushAndScroll();
@@ -2035,6 +2069,45 @@ function App() {
               />
             );
           })()}
+
+          {/* Search view */}
+          {view === "search" && (
+            <SearchView
+              initialQuery={searchInitialQuery}
+              initialQueryKey={searchQueryKey}
+              currentTrack={playback.currentTrack}
+              playing={playback.playing}
+              viewModes={searchViewModes}
+              onViewModesChange={handleSearchViewModesChange}
+              artistImages={artistImageCache.images}
+              albumImages={albumImageCache.images}
+              onPlayTracks={(tracks, index) => queueHook.playTracks(tracks, index)}
+              onArtistClick={(id) => {
+                library.setSelectedArtist(id);
+                library.setView("artists");
+              }}
+              onAlbumClick={(id, artistId) => {
+                library.setSelectedAlbum(id);
+                if (artistId) library.setSelectedArtist(artistId);
+                library.setView("albums");
+              }}
+              onTrackContextMenu={contextMenuActions.handleTrackContextMenu}
+              onArtistContextMenu={contextMenuActions.handleArtistContextMenu}
+              onAlbumContextMenu={contextMenuActions.handleAlbumContextMenu}
+              onToggleLike={likeActions.handleToggleLike}
+              onToggleDislike={likeActions.handleToggleDislike}
+              onToggleArtistLike={likeActions.handleToggleArtistLike}
+              onToggleAlbumLike={likeActions.handleToggleAlbumLike}
+              onTrackDragStart={contextMenuActions.handleTrackDragStart}
+              onFetchArtistImage={artistImageCache.fetchOnDemand}
+              onFetchAlbumImage={albumImageCache.fetchOnDemand}
+              columns={library.trackColumns}
+              onColumnsChange={library.setTrackColumns}
+              sortField={sortField}
+              onSort={library.handleSort}
+              sortIndicator={library.sortIndicator}
+            />
+          )}
 
           {/* All tracks view */}
           {view === "all" && (

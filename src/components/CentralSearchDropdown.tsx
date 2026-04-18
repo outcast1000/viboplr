@@ -307,7 +307,7 @@ export function CentralSearchDropdown({
               <span className="footer-separator">·</span>
               <span><kbd>{mod}↵</kbd> add to queue</span>
               <span className="footer-separator">·</span>
-              <span><kbd>↵</kbd> without selection to search all</span>
+              <span><kbd>↵</kbd> without selection to search</span>
             </div>
           )}
         </div>

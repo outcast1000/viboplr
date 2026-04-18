@@ -44,6 +44,14 @@ pub struct SearchAllResults {
     pub tracks: Vec<Track>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchEntityResult {
+    pub tracks: Option<Vec<Track>>,
+    pub albums: Option<Vec<Album>>,
+    pub artists: Option<Vec<Artist>>,
+    pub total: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tag {
     pub id: i64,

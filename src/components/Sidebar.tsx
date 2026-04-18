@@ -6,6 +6,7 @@ import "./Sidebar.css";
 const iconProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
 const icons = {
+  search: <svg {...iconProps}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
   tracks: <svg {...iconProps}><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>,
   artists: <svg {...iconProps}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
   albums: <svg {...iconProps}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>,
@@ -55,6 +56,7 @@ interface SidebarProps {
   selectedTag: number | null;
   selectedTrack: number | null;
   collapsed: boolean;
+  onShowSearch: () => void;
   onShowAll: () => void;
   onShowArtists: () => void;
   onShowAlbums: () => void;
@@ -73,7 +75,7 @@ export function Sidebar({
   view,
   selectedAlbum, selectedArtist, selectedTag, selectedTrack,
   collapsed,
-  onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowPlaylists, onShowCollections, onShowSettings,
+  onShowSearch, onShowAll, onShowArtists, onShowAlbums, onShowTags, onShowLiked, onShowHistory, onShowPlaylists, onShowCollections, onShowSettings,
   updateAvailable,
   pluginNavItems,
   onPluginView,
@@ -95,12 +97,13 @@ export function Sidebar({
 
   const noDetail = selectedTrack === null;
   const navItems: { key: string; label: string; icon: ReactNode; active: boolean; onClick: () => void; hint: string }[] = [
-    { key: "tracks", label: "Tracks", icon: icons.tracks, active: noDetail && view === "all" && !selectedAlbum && selectedTag === null, onClick: onShowAll, hint: `Tracks \u2014 ${mod}1` },
-    { key: "artists", label: "Artists", icon: icons.artists, active: noDetail && view === "artists" && selectedArtist === null, onClick: onShowArtists, hint: `Artists \u2014 ${mod}2` },
-    { key: "albums", label: "Albums", icon: icons.albums, active: noDetail && view === "albums" && !selectedAlbum, onClick: onShowAlbums, hint: `Albums \u2014 ${mod}3` },
-    { key: "tags", label: "Tags", icon: icons.tags, active: noDetail && view === "tags" && selectedTag === null, onClick: onShowTags, hint: `Tags \u2014 ${mod}4` },
-    { key: "liked", label: "Liked", icon: icons.liked, active: noDetail && view === "liked", onClick: onShowLiked, hint: `Liked Tracks \u2014 ${mod}5` },
-    { key: "history", label: "History", icon: icons.history, active: noDetail && view === "history", onClick: onShowHistory, hint: `Play History \u2014 ${mod}6` },
+    { key: "search", label: "Search", icon: icons.search, active: noDetail && view === "search", onClick: onShowSearch, hint: `Search \u2014 ${mod}1` },
+    { key: "tracks", label: "Tracks", icon: icons.tracks, active: noDetail && view === "all" && !selectedAlbum && selectedTag === null, onClick: onShowAll, hint: `Tracks \u2014 ${mod}2` },
+    { key: "artists", label: "Artists", icon: icons.artists, active: noDetail && view === "artists" && selectedArtist === null, onClick: onShowArtists, hint: `Artists \u2014 ${mod}3` },
+    { key: "albums", label: "Albums", icon: icons.albums, active: noDetail && view === "albums" && !selectedAlbum, onClick: onShowAlbums, hint: `Albums \u2014 ${mod}4` },
+    { key: "tags", label: "Tags", icon: icons.tags, active: noDetail && view === "tags" && selectedTag === null, onClick: onShowTags, hint: `Tags \u2014 ${mod}5` },
+    { key: "liked", label: "Liked", icon: icons.liked, active: noDetail && view === "liked", onClick: onShowLiked, hint: `Liked Tracks \u2014 ${mod}6` },
+    { key: "history", label: "History", icon: icons.history, active: noDetail && view === "history", onClick: onShowHistory, hint: `Play History \u2014 ${mod}7` },
     { key: "playlists", label: "Playlists", icon: icons.playlists, active: noDetail && view === "playlists", onClick: onShowPlaylists, hint: "Playlists" },
   ];
 

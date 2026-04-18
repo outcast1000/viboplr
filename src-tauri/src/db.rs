@@ -1024,6 +1024,162 @@ impl Database {
         Ok(SearchAllResults { artists, albums, tracks })
     }
 
+    fn list_entity(&self, conn: &rusqlite::Connection, entity: &str, limit: i64, offset: i64) -> SqlResult<SearchEntityResult> {
+        match entity {
+            "tracks" => {
+                let total: i64 = conn.query_row(
+                    &format!("SELECT COUNT(*) FROM tracks t WHERE 1=1 {}", ENABLED_COLLECTION_FILTER_STANDALONE),
+                    [], |row| row.get(0),
+                )?;
+                let sql = format!(
+                    "{} WHERE 1=1 {} ORDER BY t.title LIMIT ?1 OFFSET ?2",
+                    TRACK_SELECT, ENABLED_COLLECTION_FILTER
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![limit, offset], |row| track_from_row(row))?;
+                let tracks = rows.collect::<SqlResult<Vec<_>>>()?;
+                Ok(SearchEntityResult { tracks: Some(tracks), albums: None, artists: None, total })
+            }
+            "artists" => {
+                let total: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM artists WHERE track_count > 0", [], |row| row.get(0),
+                )?;
+                let mut stmt = conn.prepare(
+                    "SELECT id, name, track_count, liked FROM artists WHERE track_count > 0 ORDER BY name LIMIT ?1 OFFSET ?2"
+                )?;
+                let rows = stmt.query_map(params![limit, offset], |row| {
+                    Ok(Artist { id: row.get(0)?, name: row.get(1)?, track_count: row.get(2)?, liked: row.get::<_, i32>(3).unwrap_or(0) })
+                })?;
+                let artists = rows.collect::<SqlResult<Vec<_>>>()?;
+                Ok(SearchEntityResult { tracks: None, albums: None, artists: Some(artists), total })
+            }
+            "albums" => {
+                let total: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM albums WHERE track_count > 0", [], |row| row.get(0),
+                )?;
+                let mut stmt = conn.prepare(
+                    "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked \
+                     FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
+                     WHERE a.track_count > 0 ORDER BY a.title LIMIT ?1 OFFSET ?2"
+                )?;
+                let rows = stmt.query_map(params![limit, offset], |row| album_from_row(row))?;
+                let albums = rows.collect::<SqlResult<Vec<_>>>()?;
+                Ok(SearchEntityResult { tracks: None, albums: Some(albums), artists: None, total })
+            }
+            _ => Ok(SearchEntityResult { tracks: None, albums: None, artists: None, total: 0 }),
+        }
+    }
+
+    pub fn search_entity(&self, query: &str, entity: &str, limit: i64, offset: i64) -> SqlResult<SearchEntityResult> {
+        let conn = self.conn.lock().unwrap();
+
+        let normalized = strip_diacritics(query);
+        let words: Vec<String> = normalized
+            .split_whitespace()
+            .map(|w| format!("\"{}\"*", w.replace('"', "")))
+            .collect();
+
+        if words.is_empty() {
+            return self.list_entity(&conn, entity, limit, offset);
+        }
+
+        let fts_terms = words.join(" AND ");
+
+        match entity {
+            "tracks" => {
+                let track_opts = TrackQuery {
+                    limit: Some(limit),
+                    offset: Some(offset),
+                    ..Default::default()
+                };
+                let tracks = self.search_tracks_inner(&conn, &track_opts, query)?;
+
+                let fts_query = format!("{{title artist_name album_title tag_names path}}:{}", fts_terms);
+                let total: i64 = conn.query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM tracks t \
+                         JOIN tracks_fts ON tracks_fts.rowid = t.id \
+                         WHERE tracks_fts MATCH ?1 \
+                         AND t.collection_id IN (SELECT id FROM collections WHERE enabled = 1)"
+                    ),
+                    params![fts_query],
+                    |row| row.get(0),
+                )?;
+
+                Ok(SearchEntityResult { tracks: Some(tracks), albums: None, artists: None, total })
+            }
+            "artists" => {
+                let fts_query = format!("{{artist_name}}:{}", fts_terms);
+                let total: i64 = conn.query_row(
+                    "SELECT COUNT(DISTINCT a.id) FROM artists a \
+                     WHERE a.track_count > 0 \
+                     AND a.id IN ( \
+                       SELECT t.artist_id FROM tracks t \
+                       JOIN tracks_fts ON tracks_fts.rowid = t.id \
+                       WHERE tracks_fts MATCH ?1 AND t.artist_id IS NOT NULL \
+                     )",
+                    params![fts_query],
+                    |row| row.get(0),
+                )?;
+
+                let mut stmt = conn.prepare(
+                    "SELECT DISTINCT a.id, a.name, a.track_count, a.liked \
+                     FROM artists a \
+                     WHERE a.track_count > 0 \
+                     AND a.id IN ( \
+                       SELECT t.artist_id FROM tracks t \
+                       JOIN tracks_fts ON tracks_fts.rowid = t.id \
+                       WHERE tracks_fts MATCH ?1 AND t.artist_id IS NOT NULL \
+                     ) \
+                     ORDER BY a.name LIMIT ?2 OFFSET ?3"
+                )?;
+                let rows = stmt.query_map(params![fts_query, limit, offset], |row| {
+                    Ok(Artist {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        track_count: row.get(2)?,
+                        liked: row.get::<_, i32>(3).unwrap_or(0),
+                    })
+                })?;
+                let artists = rows.collect::<SqlResult<Vec<_>>>()?;
+
+                Ok(SearchEntityResult { tracks: None, albums: None, artists: Some(artists), total })
+            }
+            "albums" => {
+                let fts_query = format!("{{album_title artist_name}}:{}", fts_terms);
+                let total: i64 = conn.query_row(
+                    "SELECT COUNT(DISTINCT al.id) FROM albums al \
+                     WHERE al.track_count > 0 \
+                     AND al.id IN ( \
+                       SELECT t.album_id FROM tracks t \
+                       JOIN tracks_fts ON tracks_fts.rowid = t.id \
+                       WHERE tracks_fts MATCH ?1 AND t.album_id IS NOT NULL \
+                     )",
+                    params![fts_query],
+                    |row| row.get(0),
+                )?;
+
+                let mut stmt = conn.prepare(
+                    "SELECT DISTINCT al.id, al.title, al.artist_id, ar.name, al.year, al.track_count, al.liked \
+                     FROM albums al \
+                     LEFT JOIN artists ar ON al.artist_id = ar.id \
+                     WHERE al.track_count > 0 \
+                     AND al.id IN ( \
+                       SELECT t.album_id FROM tracks t \
+                       JOIN tracks_fts ON tracks_fts.rowid = t.id \
+                       WHERE tracks_fts MATCH ?1 AND t.album_id IS NOT NULL \
+                     ) \
+                     ORDER BY al.title LIMIT ?2 OFFSET ?3"
+                )?;
+                let rows = stmt.query_map(params![fts_query, limit, offset], |row| album_from_row(row))?;
+                let albums = rows.collect::<SqlResult<Vec<_>>>()?;
+
+                Ok(SearchEntityResult { tracks: None, albums: Some(albums), artists: None, total })
+            }
+            _ => Ok(SearchEntityResult { tracks: None, albums: None, artists: None, total: 0 }),
+        }
+    }
+
     // --- Collections ---
 
     pub fn add_collection(
@@ -4140,6 +4296,90 @@ mod tests {
                  UPDATE history_artists SET play_count = (SELECT COALESCE(SUM(ht.play_count), 0) FROM history_tracks ht WHERE ht.history_artist_id = history_artists.id);"
             ).unwrap();
         }
+    }
+
+    #[test]
+    fn test_search_entity_tracks() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let queen_id = db.get_or_create_artist("Queen").unwrap();
+        let other_id = db.get_or_create_artist("Other").unwrap();
+        let album1 = db.get_or_create_album("A Night at the Opera", Some(queen_id), None).unwrap();
+        let album2 = db.get_or_create_album("Album", Some(other_id), None).unwrap();
+        db.upsert_track("file://song1.mp3", "Bohemian Rhapsody", Some(queen_id), Some(album1), None, None, None, None, None, Some(cid), None).unwrap();
+        db.upsert_track("file://song2.mp3", "Bohemian Grove", Some(other_id), Some(album2), None, None, None, None, None, Some(cid), None).unwrap();
+        db.upsert_track("file://song3.mp3", "Something Else", Some(queen_id), Some(album1), None, None, None, None, None, Some(cid), None).unwrap();
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let result = db.search_entity("bohemian", "tracks", 10, 0).unwrap();
+        assert_eq!(result.total, 2);
+        assert_eq!(result.tracks.as_ref().unwrap().len(), 2);
+        assert!(result.albums.is_none());
+        assert!(result.artists.is_none());
+    }
+
+    #[test]
+    fn test_search_entity_artists() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let queen_id = db.get_or_create_artist("Queen").unwrap();
+        let qr_id = db.get_or_create_artist("Queensryche").unwrap();
+        let album1 = db.get_or_create_album("Album", Some(queen_id), None).unwrap();
+        let album2 = db.get_or_create_album("Album2", Some(qr_id), None).unwrap();
+        db.upsert_track("file://s1.mp3", "Song", Some(queen_id), Some(album1), None, None, None, None, None, Some(cid), None).unwrap();
+        db.upsert_track("file://s2.mp3", "Song2", Some(qr_id), Some(album2), None, None, None, None, None, Some(cid), None).unwrap();
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let result = db.search_entity("queen", "artists", 10, 0).unwrap();
+        assert_eq!(result.total, 2);
+        assert!(result.artists.is_some());
+        assert!(result.tracks.is_none());
+    }
+
+    #[test]
+    fn test_search_entity_albums() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let a1 = db.get_or_create_artist("Artist").unwrap();
+        let a2 = db.get_or_create_artist("Artist2").unwrap();
+        let alb1 = db.get_or_create_album("Dark Side", Some(a1), None).unwrap();
+        let alb2 = db.get_or_create_album("Dark Night", Some(a2), None).unwrap();
+        db.upsert_track("file://s1.mp3", "Song", Some(a1), Some(alb1), None, None, None, None, None, Some(cid), None).unwrap();
+        db.upsert_track("file://s2.mp3", "Song2", Some(a2), Some(alb2), None, None, None, None, None, Some(cid), None).unwrap();
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let result = db.search_entity("dark", "albums", 10, 0).unwrap();
+        assert_eq!(result.total, 2);
+        assert!(result.albums.is_some());
+        assert!(result.tracks.is_none());
+    }
+
+    #[test]
+    fn test_search_entity_pagination() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let band_id = db.get_or_create_artist("Band").unwrap();
+        let album_id = db.get_or_create_album("Album", Some(band_id), None).unwrap();
+        for i in 0..10 {
+            db.upsert_track(&format!("file://rock{}.mp3", i), &format!("Rock Song {}", i), Some(band_id), Some(album_id), None, None, None, None, None, Some(cid), None).unwrap();
+        }
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let page1 = db.search_entity("rock", "tracks", 3, 0).unwrap();
+        assert_eq!(page1.total, 10);
+        assert_eq!(page1.tracks.as_ref().unwrap().len(), 3);
+
+        let page2 = db.search_entity("rock", "tracks", 3, 3).unwrap();
+        assert_eq!(page2.total, 10);
+        assert_eq!(page2.tracks.as_ref().unwrap().len(), 3);
+
+        let last_page = db.search_entity("rock", "tracks", 3, 9).unwrap();
+        assert_eq!(last_page.total, 10);
+        assert_eq!(last_page.tracks.as_ref().unwrap().len(), 1);
     }
 
     #[test]

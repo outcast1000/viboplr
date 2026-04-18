@@ -2249,3 +2249,142 @@
   font-size: var(--fs-lg);
 }
 
+/* Search View */
+.search-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.search-view-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-view-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: var(--fs-base);
+}
+
+.search-view-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.search-view-clear {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: var(--fs-lg);
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.search-view-clear:hover {
+  color: var(--text-primary);
+}
+
+.search-view-tabs {
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  gap: 4px;
+}
+
+.search-view-tab-list {
+  display: flex;
+  gap: 0;
+  flex: 1;
+}
+
+.search-view-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.search-view-tab:hover {
+  color: var(--text-primary);
+}
+
+.search-view-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.search-view-tab-count {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+.search-view-tab.active .search-view-tab-count {
+  color: var(--accent-dim);
+}
+
+.search-view-results {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.search-view-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+}
+
+.search-view-load-more {
+  display: flex;
+  justify-content: center;
+  padding: 16px;
+}
+
+.search-view-load-more button {
+  background: rgba(var(--accent-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  padding: 8px 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.search-view-load-more button:hover {
+  background: rgba(var(--accent-rgb), 0.15);
+}
+
+.search-view-load-more button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.search-view .artist-card-art {
+  margin: 0;
+}
+
+.search-view .album-card-body {
+  text-align: center;
+}
+

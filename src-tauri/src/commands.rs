@@ -412,6 +412,20 @@ pub fn search_all(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn search_entity(
+    state: State<'_, AppState>,
+    query: String,
+    entity: String,
+    limit: i64,
+    offset: i64,
+) -> Result<SearchEntityResult, String> {
+    state
+        .db
+        .search_entity(&query, &entity, limit, offset)
+        .map_err(|e| e.to_string())
+}
+
 // --- Track lookup command ---
 
 #[tauri::command]
