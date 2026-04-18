@@ -1066,7 +1066,7 @@ impl Database {
                 let mut stmt = conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![limit, offset], |row| track_from_row(row))?;
                 let tracks = rows.collect::<SqlResult<Vec<_>>>()?;
-                Ok(SearchEntityResult { tracks: Some(tracks), albums: None, artists: None, total })
+                Ok(SearchEntityResult { tracks: Some(tracks), albums: None, artists: None, tags: None, total })
             }
             "artists" => {
                 let where_clause = "WHERE a.track_count > 0";
@@ -1086,7 +1086,7 @@ impl Database {
                     Ok(Artist { id: row.get(0)?, name: row.get(1)?, track_count: row.get(2)?, liked: row.get::<_, i32>(3).unwrap_or(0) })
                 })?;
                 let artists = rows.collect::<SqlResult<Vec<_>>>()?;
-                Ok(SearchEntityResult { tracks: None, albums: None, artists: Some(artists), total })
+                Ok(SearchEntityResult { tracks: None, albums: None, artists: Some(artists), tags: None, total })
             }
             "albums" => {
                 let where_clause = "WHERE a.track_count > 0";
@@ -1110,9 +1110,28 @@ impl Database {
                 let mut stmt = conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![limit, offset], |row| album_from_row(row))?;
                 let albums = rows.collect::<SqlResult<Vec<_>>>()?;
-                Ok(SearchEntityResult { tracks: None, albums: Some(albums), artists: None, total })
+                Ok(SearchEntityResult { tracks: None, albums: Some(albums), artists: None, tags: None, total })
             }
-            _ => Ok(SearchEntityResult { tracks: None, albums: None, artists: None, total: 0 }),
+            "tags" => {
+                let total: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM tags WHERE track_count > 0", [], |row| row.get(0),
+                )?;
+                let liked_prefix = if opts.liked_only { "liked DESC, " } else { "" };
+                let order = match opts.sort_field.as_deref() {
+                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}name {}", liked_prefix, d) }
+                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}track_count {}", liked_prefix, d) }
+                    Some("random") => format!("ORDER BY {}RANDOM()", liked_prefix),
+                    _ => format!("ORDER BY {}name", liked_prefix),
+                };
+                let sql = format!("SELECT id, name, track_count, liked FROM tags WHERE track_count > 0 {} LIMIT ?1 OFFSET ?2", order);
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![limit, offset], |row| {
+                    Ok(Tag { id: row.get(0)?, name: row.get(1)?, track_count: row.get(2)?, liked: row.get::<_, i32>(3).unwrap_or(0) })
+                })?;
+                let tags = rows.collect::<SqlResult<Vec<_>>>()?;
+                Ok(SearchEntityResult { tracks: None, albums: None, artists: None, tags: Some(tags), total })
+            }
+            _ => Ok(SearchEntityResult { tracks: None, albums: None, artists: None, tags: None, total: 0 }),
         }
     }
 
@@ -1150,7 +1169,7 @@ impl Database {
                 }
                 let total: i64 = conn.query_row(&count_sql, params![fts_query], |row| row.get(0))?;
 
-                Ok(SearchEntityResult { tracks: Some(tracks), albums: None, artists: None, total })
+                Ok(SearchEntityResult { tracks: Some(tracks), albums: None, artists: None, tags: None, total })
             }
             "artists" => {
                 let fts_query = format!("{{artist_name}}:{}", fts_terms);
@@ -1194,7 +1213,7 @@ impl Database {
                 })?;
                 let artists = rows.collect::<SqlResult<Vec<_>>>()?;
 
-                Ok(SearchEntityResult { tracks: None, albums: None, artists: Some(artists), total })
+                Ok(SearchEntityResult { tracks: None, albums: None, artists: Some(artists), tags: None, total })
             }
             "albums" => {
                 let fts_query = format!("{{album_title artist_name}}:{}", fts_terms);
@@ -1234,9 +1253,50 @@ impl Database {
                 let rows = stmt.query_map(params![fts_query, limit, offset], |row| album_from_row(row))?;
                 let albums = rows.collect::<SqlResult<Vec<_>>>()?;
 
-                Ok(SearchEntityResult { tracks: None, albums: Some(albums), artists: None, total })
+                Ok(SearchEntityResult { tracks: None, albums: Some(albums), artists: None, tags: None, total })
             }
-            _ => Ok(SearchEntityResult { tracks: None, albums: None, artists: None, total: 0 }),
+            "tags" => {
+                let fts_query = format!("{{tag_names}}:{}", fts_terms);
+                let total: i64 = conn.query_row(
+                    "SELECT COUNT(DISTINCT tg.id) FROM tags tg \
+                     WHERE tg.track_count > 0 \
+                     AND tg.id IN ( \
+                       SELECT tt.tag_id FROM track_tags tt \
+                       JOIN tracks t ON tt.track_id = t.id \
+                       JOIN tracks_fts ON tracks_fts.rowid = t.id \
+                       WHERE tracks_fts MATCH ?1 \
+                     )",
+                    params![fts_query],
+                    |row| row.get(0),
+                )?;
+
+                let liked_prefix = if opts.liked_only { "tg.liked DESC, " } else { "" };
+                let order = match opts.sort_field.as_deref() {
+                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}tg.name {}", liked_prefix, d) }
+                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}tg.track_count {}", liked_prefix, d) }
+                    Some("random") => format!("ORDER BY {}RANDOM()", liked_prefix),
+                    _ => format!("ORDER BY {}tg.name", liked_prefix),
+                };
+                let mut stmt = conn.prepare(
+                    &format!("SELECT DISTINCT tg.id, tg.name, tg.track_count, tg.liked \
+                     FROM tags tg \
+                     WHERE tg.track_count > 0 \
+                     AND tg.id IN ( \
+                       SELECT tt.tag_id FROM track_tags tt \
+                       JOIN tracks t ON tt.track_id = t.id \
+                       JOIN tracks_fts ON tracks_fts.rowid = t.id \
+                       WHERE tracks_fts MATCH ?1 \
+                     ) \
+                     {} LIMIT ?2 OFFSET ?3", order)
+                )?;
+                let rows = stmt.query_map(params![fts_query, limit, offset], |row| {
+                    Ok(Tag { id: row.get(0)?, name: row.get(1)?, track_count: row.get(2)?, liked: row.get::<_, i32>(3).unwrap_or(0) })
+                })?;
+                let tags = rows.collect::<SqlResult<Vec<_>>>()?;
+
+                Ok(SearchEntityResult { tracks: None, albums: None, artists: None, tags: Some(tags), total })
+            }
+            _ => Ok(SearchEntityResult { tracks: None, albums: None, artists: None, tags: None, total: 0 }),
         }
     }
 

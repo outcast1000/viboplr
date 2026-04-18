@@ -49,6 +49,7 @@ pub struct SearchEntityResult {
     pub tracks: Option<Vec<Track>>,
     pub albums: Option<Vec<Album>>,
     pub artists: Option<Vec<Artist>>,
+    pub tags: Option<Vec<Tag>>,
     pub total: i64,
 }
 

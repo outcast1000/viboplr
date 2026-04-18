@@ -1,21 +1,23 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Track, Artist, Album, ViewMode, SortField } from "../types";
+import type { Track, Artist, Album, Tag, ViewMode, SortField } from "../types";
 import { formatDuration } from "../utils";
 import { TrackList } from "./TrackList";
 import { ArtistCardArt } from "./ArtistCardArt";
 import { AlbumCardArt } from "./AlbumCardArt";
+import { TagCardArt } from "./TagCardArt";
 import { ViewModeToggle } from "./ViewModeToggle";
 
 type SortDir = "asc" | "desc";
 type MediaTypeFilter = "all" | "audio" | "video";
 
-type SearchTab = "tracks" | "albums" | "artists";
+type SearchTab = "tracks" | "albums" | "artists" | "tags";
 
 interface SearchEntityResult {
   tracks: Track[] | null;
   albums: Album[] | null;
   artists: Artist[] | null;
+  tags: Tag[] | null;
   total: number;
 }
 
@@ -23,6 +25,7 @@ interface SearchViewModes {
   tracks: ViewMode;
   albums: ViewMode;
   artists: ViewMode;
+  tags: ViewMode;
 }
 
 interface SearchViewProps {
@@ -45,8 +48,12 @@ interface SearchViewProps {
   onToggleArtistLike: (id: number) => void;
   onToggleAlbumLike: (id: number) => void;
   onTrackDragStart: (tracks: Track[]) => void;
+  onTagClick: (id: number) => void;
+  onToggleTagLike: (id: number) => void;
   onFetchArtistImage: (artist: Artist) => void;
   onFetchAlbumImage: (album: Album) => void;
+  onFetchTagImage: (tag: { id: number }) => void;
+  tagImages: Record<number, string | null>;
   columns: import("../types").ColumnConfig[];
   onColumnsChange: (columns: import("../types").ColumnConfig[]) => void;
 }
@@ -74,17 +81,21 @@ export function SearchView({
   onToggleArtistLike,
   onToggleAlbumLike,
   onTrackDragStart,
+  onTagClick,
+  onToggleTagLike,
   onFetchArtistImage,
   onFetchAlbumImage,
+  onFetchTagImage,
+  tagImages,
   columns,
   onColumnsChange,
 }: SearchViewProps) {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<SearchTab>("tracks");
-  const [results, setResults] = useState<{ tracks: Track[]; albums: Album[]; artists: Artist[] }>({ tracks: [], albums: [], artists: [] });
-  const [counts, setCounts] = useState({ tracks: 0, albums: 0, artists: 0 });
-  const [hasMore, setHasMore] = useState({ tracks: false, albums: false, artists: false });
-  const [loadingMore, setLoadingMore] = useState({ tracks: false, albums: false, artists: false });
+  const [results, setResults] = useState<{ tracks: Track[]; albums: Album[]; artists: Artist[]; tags: Tag[] }>({ tracks: [], albums: [], artists: [], tags: [] });
+  const [counts, setCounts] = useState({ tracks: 0, albums: 0, artists: 0, tags: 0 });
+  const [hasMore, setHasMore] = useState({ tracks: false, albums: false, artists: false, tags: false });
+  const [loadingMore, setLoadingMore] = useState({ tracks: false, albums: false, artists: false, tags: false });
   const [searched, setSearched] = useState(false);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -97,6 +108,9 @@ export function SearchView({
   const [albumSortField, setAlbumSortField] = useState<string | null>(null);
   const [albumSortDir, setAlbumSortDir] = useState<SortDir>("asc");
   const [albumLikedFirst, setAlbumLikedFirst] = useState(false);
+  const [tagSortField, setTagSortField] = useState<string | null>(null);
+  const [tagSortDir, setTagSortDir] = useState<SortDir>("asc");
+  const [tagLikedFirst, setTagLikedFirst] = useState(false);
   const [sortBarCollapsed, setSortBarCollapsed] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -108,6 +122,8 @@ export function SearchView({
   artistSortRef.current = { artistSortField, artistSortDir, artistLikedFirst };
   const albumSortRef = useRef({ albumSortField, albumSortDir, albumLikedFirst });
   albumSortRef.current = { albumSortField, albumSortDir, albumLikedFirst };
+  const tagSortRef = useRef({ tagSortField, tagSortDir, tagLikedFirst });
+  tagSortRef.current = { tagSortField, tagSortDir, tagLikedFirst };
 
   function getTrackFilterParams() {
     const s = sortRef.current;
@@ -138,6 +154,15 @@ export function SearchView({
     };
   }
 
+  function getTagFilterParams() {
+    const s = tagSortRef.current;
+    return {
+      sortField: s.tagSortField ?? undefined,
+      sortDir: s.tagSortField ? s.tagSortDir : undefined,
+      likedOnly: s.tagLikedFirst || undefined,
+    };
+  }
+
   useEffect(() => {
     inputRef.current?.focus();
     doSearch("");
@@ -162,6 +187,10 @@ export function SearchView({
   useEffect(() => {
     refetchAlbums();
   }, [albumSortField, albumSortDir, albumLikedFirst]);
+
+  useEffect(() => {
+    refetchTags();
+  }, [tagSortField, tagSortDir, tagLikedFirst]);
 
   const refetchTracks = useCallback(async () => {
     if (!searched) return;
@@ -202,16 +231,31 @@ export function SearchView({
     setHasMore(prev => ({ ...prev, albums: albums.length < albumRes.total }));
   }, [searched]);
 
+  const refetchTags = useCallback(async () => {
+    if (!searched) return;
+    const q = queryRef.current;
+    const filters = getTagFilterParams();
+    const tagRes = await invoke<SearchEntityResult>("search_entity", {
+      query: q, entity: "tags", limit: ENTITY_PAGE_SIZE, offset: 0, ...filters,
+    });
+    const tags = tagRes.tags ?? [];
+    setResults(prev => ({ ...prev, tags }));
+    setCounts(prev => ({ ...prev, tags: tagRes.total }));
+    setHasMore(prev => ({ ...prev, tags: tags.length < tagRes.total }));
+  }, [searched]);
+
   const doSearch = useCallback(async (q: string) => {
     setSearched(true);
     const trackFilters = getTrackFilterParams();
     const artistFilters = getArtistFilterParams();
     const albumFilters = getAlbumFilterParams();
+    const tagFilters = getTagFilterParams();
 
-    const [trackRes, albumRes, artistRes] = await Promise.all([
+    const [trackRes, albumRes, artistRes, tagRes] = await Promise.all([
       invoke<SearchEntityResult>("search_entity", { query: q, entity: "tracks", limit: TRACK_PAGE_SIZE, offset: 0, ...trackFilters }),
       invoke<SearchEntityResult>("search_entity", { query: q, entity: "albums", limit: ENTITY_PAGE_SIZE, offset: 0, ...albumFilters }),
       invoke<SearchEntityResult>("search_entity", { query: q, entity: "artists", limit: ENTITY_PAGE_SIZE, offset: 0, ...artistFilters }),
+      invoke<SearchEntityResult>("search_entity", { query: q, entity: "tags", limit: ENTITY_PAGE_SIZE, offset: 0, ...tagFilters }),
     ]);
 
     if (queryRef.current !== q) return;
@@ -219,13 +263,15 @@ export function SearchView({
     const tracks = trackRes.tracks ?? [];
     const albums = albumRes.albums ?? [];
     const artists = artistRes.artists ?? [];
+    const tags = tagRes.tags ?? [];
 
-    setResults({ tracks, albums, artists });
-    setCounts({ tracks: trackRes.total, albums: albumRes.total, artists: artistRes.total });
+    setResults({ tracks, albums, artists, tags });
+    setCounts({ tracks: trackRes.total, albums: albumRes.total, artists: artistRes.total, tags: tagRes.total });
     setHasMore({
       tracks: tracks.length < trackRes.total,
       albums: albums.length < albumRes.total,
       artists: artists.length < artistRes.total,
+      tags: tags.length < tagRes.total,
     });
   }, []);
 
@@ -251,7 +297,7 @@ export function SearchView({
 
     setLoadingMore(prev => ({ ...prev, [tab]: true }));
     try {
-      const filters = tab === "tracks" ? getTrackFilterParams() : tab === "artists" ? getArtistFilterParams() : tab === "albums" ? getAlbumFilterParams() : {};
+      const filters = tab === "tracks" ? getTrackFilterParams() : tab === "artists" ? getArtistFilterParams() : tab === "albums" ? getAlbumFilterParams() : tab === "tags" ? getTagFilterParams() : {};
       const res = await invoke<SearchEntityResult>("search_entity", {
         query: queryRef.current,
         entity: tab,
@@ -260,7 +306,7 @@ export function SearchView({
         ...filters,
       });
 
-      const newItems = tab === "tracks" ? (res.tracks ?? []) : tab === "albums" ? (res.albums ?? []) : (res.artists ?? []);
+      const newItems = tab === "tracks" ? (res.tracks ?? []) : tab === "albums" ? (res.albums ?? []) : tab === "artists" ? (res.artists ?? []) : (res.tags ?? []);
       setResults(prev => ({ ...prev, [tab]: [...prev[tab], ...newItems] }));
       setHasMore(prev => ({ ...prev, [tab]: currentCount + newItems.length < res.total }));
     } catch (e) {
@@ -316,6 +362,20 @@ export function SearchView({
     return albumSortDir === "asc" ? " \u25B2" : " \u25BC";
   }, [albumSortField, albumSortDir]);
 
+  const handleTagSort = useCallback((field: string) => {
+    if (tagSortField === field) {
+      setTagSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setTagSortField(field);
+      setTagSortDir("asc");
+    }
+  }, [tagSortField]);
+
+  const tagSortIndicator = useCallback((field: string) => {
+    if (tagSortField !== field) return "";
+    return tagSortDir === "asc" ? " \u25B2" : " \u25BC";
+  }, [tagSortField, tagSortDir]);
+
   const handleTrackLike = useCallback((track: Track) => {
     const newLiked = track.liked === 1 ? 0 : 1;
     setResults(prev => ({ ...prev, tracks: prev.tracks.map(t => t.id === track.id ? { ...t, liked: newLiked } : t) }));
@@ -332,6 +392,7 @@ export function SearchView({
     { id: "tracks", label: "Tracks", count: counts.tracks },
     { id: "albums", label: "Albums", count: counts.albums },
     { id: "artists", label: "Artists", count: counts.artists },
+    { id: "tags", label: "Tags", count: counts.tags },
   ];
 
   return (
@@ -613,8 +674,124 @@ export function SearchView({
             sortIndicator={artistSortIndicator}
           />
         )}
+
+        {searched && activeTab === "tags" && (
+          <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
+            <div className="sort-bar">
+              <div className="sort-bar-row">
+                <span className="sort-bar-label">Sort:</span>
+                <div className="sort-bar-group">
+                  <button className={`sort-btn${tagSortField === "name" ? " active" : ""}`} onClick={() => handleTagSort("name")}>Name{tagSortIndicator("name")}</button>
+                  <button className={`sort-btn${tagSortField === "tracks" ? " active" : ""}`} onClick={() => handleTagSort("tracks")}>Tracks{tagSortIndicator("tracks")}</button>
+                  <button className={`sort-btn${tagSortField === "random" ? " active" : ""}`} onClick={() => handleTagSort("random")}>Shuffle</button>
+                  <button className={`sort-btn liked-first-btn${tagLikedFirst ? " active" : ""}`} onClick={() => setTagLikedFirst(v => !v)} title="Liked first">{"\u2665"} Liked first</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {searched && activeTab === "tags" && (
+          <SearchTagResults
+            tags={results.tags}
+            viewMode={viewModes.tags}
+            tagImages={tagImages}
+            onTagClick={onTagClick}
+            onToggleLike={onToggleTagLike}
+            onFetchImage={onFetchTagImage}
+            hasMore={hasMore.tags}
+            loadingMore={loadingMore.tags}
+            onLoadMore={handleLoadMore}
+            onSort={handleTagSort}
+            sortField={tagSortField}
+            sortIndicator={tagSortIndicator}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+function SearchTagResults({
+  tags, viewMode, tagImages, onTagClick, onToggleLike,
+  onFetchImage, hasMore, loadingMore, onLoadMore,
+  onSort, sortField, sortIndicator,
+}: {
+  tags: Tag[];
+  viewMode: ViewMode;
+  tagImages: Record<number, string | null>;
+  onTagClick: (id: number) => void;
+  onToggleLike: (id: number) => void;
+  onFetchImage: (tag: { id: number }) => void;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+  onSort: (field: string) => void;
+  sortField: string | null;
+  sortIndicator: (field: string) => string;
+}) {
+  return (
+    <>
+      {viewMode === "basic" && (
+        <div className="entity-table">
+          <div className="entity-table-header">
+            <span className="entity-table-like"></span>
+            <span className={`entity-table-name sortable${sortField === "name" ? " sorted" : ""}`} onClick={() => onSort("name")}>Name{sortIndicator("name")}</span>
+            <span className={`entity-table-count sortable${sortField === "tracks" ? " sorted" : ""}`} onClick={() => onSort("tracks")}>Tracks{sortIndicator("tracks")}</span>
+          </div>
+          {tags.map(t => (
+            <div key={t.id} className="entity-table-row" onClick={() => onTagClick(t.id)}>
+              <span className="entity-table-like" onClick={e => { e.stopPropagation(); onToggleLike(t.id); }}>{t.liked === 1 ? "\u2665" : "\u2661"}</span>
+              <span className="entity-table-name">{t.name}</span>
+              <span className="entity-table-count">{t.track_count}</span>
+            </div>
+          ))}
+          {tags.length === 0 && <div className="empty">No tags found.</div>}
+        </div>
+      )}
+
+      {viewMode === "list" && (
+        <div className="entity-list">
+          {tags.map(t => (
+            <div key={t.id} className="entity-list-item" onClick={() => onTagClick(t.id)}>
+              <span className="entity-list-like" onClick={e => { e.stopPropagation(); onToggleLike(t.id); }}>{t.liked === 1 ? "\u2665" : "\u2661"}</span>
+              <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={onFetchImage} className="entity-list-img" />
+              <div className="entity-list-info">
+                <span className="entity-list-name">{t.name}</span>
+                <span className="entity-list-secondary">{t.track_count} tracks</span>
+              </div>
+            </div>
+          ))}
+          {tags.length === 0 && <div className="empty">No tags found.</div>}
+        </div>
+      )}
+
+      {viewMode === "tiles" && (
+        <div className="tiles-scroll">
+          <div className="album-grid">
+            {tags.map(t => (
+              <div key={t.id} className="tag-card" onClick={() => onTagClick(t.id)}>
+                <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={onFetchImage} />
+                <div className={`artist-card-like${t.liked === 1 ? " liked" : ""}`} onClick={e => { e.stopPropagation(); onToggleLike(t.id); }}>{t.liked === 1 ? "\u2665" : "\u2661"}</div>
+                <div className="tag-card-body">
+                  <div className="tag-card-name" title={t.name}>{t.name}</div>
+                  <div className="tag-card-info">{t.track_count} tracks</div>
+                </div>
+              </div>
+            ))}
+            {tags.length === 0 && <div className="empty">No tags found.</div>}
+          </div>
+        </div>
+      )}
+
+      {hasMore && (
+        <div className="search-view-load-more">
+          <button onClick={onLoadMore} disabled={loadingMore}>
+            {loadingMore ? "Loading..." : "Load More"}
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 

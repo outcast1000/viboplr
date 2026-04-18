@@ -412,7 +412,7 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [queueWidth, setQueueWidth] = useState(300);
-  const [searchViewModes, setSearchViewModes] = useState<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode }>({ tracks: "list", albums: "tiles", artists: "tiles" });
+  const [searchViewModes, setSearchViewModes] = useState<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }>({ tracks: "list", albums: "tiles", artists: "tiles", tags: "tiles" });
   const [searchInitialQuery, setSearchInitialQuery] = useState<string | null>(null);
   const [searchQueryKey, setSearchQueryKey] = useState(0);
 
@@ -986,9 +986,9 @@ function App() {
         if (savedLastTidalDownloadDest !== undefined) setLastTidalDownloadDest(savedLastTidalDownloadDest ?? null);
         if (savedSearchViewModes) {
           const validModes = ["basic", "list", "tiles"];
-          const s = savedSearchViewModes;
+          const s = savedSearchViewModes as { tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags?: ViewMode };
           if (validModes.includes(s.tracks) && validModes.includes(s.albums) && validModes.includes(s.artists)) {
-            setSearchViewModes(s);
+            setSearchViewModes({ tracks: s.tracks, albums: s.albums, artists: s.artists, tags: s.tags && validModes.includes(s.tags) ? s.tags : "tiles" });
           }
         }
         if (savedSortBarCollapsed) library.setSortBarCollapsed(true);
@@ -1472,7 +1472,7 @@ function App() {
     store.set("queueWidth", width);
   }
 
-  function handleSearchViewModesChange(modes: { tracks: ViewMode; albums: ViewMode; artists: ViewMode }) {
+  function handleSearchViewModesChange(modes: { tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }) {
     setSearchViewModes(modes);
     store.set("searchViewModes", modes);
   }
@@ -2099,8 +2099,12 @@ function App() {
               onToggleArtistLike={likeActions.handleToggleArtistLike}
               onToggleAlbumLike={likeActions.handleToggleAlbumLike}
               onTrackDragStart={contextMenuActions.handleTrackDragStart}
+              onTagClick={(id) => { library.setSelectedTag(id); library.setView("tags"); }}
+              onToggleTagLike={likeActions.handleToggleTagLike}
               onFetchArtistImage={artistImageCache.fetchOnDemand}
               onFetchAlbumImage={albumImageCache.fetchOnDemand}
+              onFetchTagImage={tagImageCache.fetchOnDemand}
+              tagImages={tagImageCache.images}
               columns={library.trackColumns}
               onColumnsChange={library.setTrackColumns}
             />
