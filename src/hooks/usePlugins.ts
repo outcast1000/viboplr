@@ -452,8 +452,10 @@ export function usePlugins(
           async downloadAlbum(albumId, opts) {
             await invoke("download_album", {
               albumId,
-              collectionId: opts?.collectionId ?? null,
-              format: opts?.format ?? null,
+              destCollectionId: opts?.collectionId ?? null,
+              customDestPath: null,
+              format: opts?.format ?? playbackCallbacksRef.current?.getDownloadFormat() ?? "flac",
+              pathPattern: null,
             });
           },
           async checkStatus() {

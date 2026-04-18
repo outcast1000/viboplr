@@ -1498,6 +1498,7 @@ pub fn tidal_save_track(
         dest_collection_path: dest_path,
         format: fmt,
         is_batch_last: true,
+        path_pattern: None,
     };
 
     state.track_download_manager.enqueue(request);
@@ -1505,34 +1506,40 @@ pub fn tidal_save_track(
 }
 
 #[tauri::command]
-pub fn tidal_get_stream_url(
+pub async fn tidal_get_stream_url(
     state: State<'_, AppState>,
     tidal_track_id: String,
     quality: Option<String>,
 ) -> Result<String, String> {
     let client = state.tidal_client.clone();
-    let info = client
-        .get_stream_url(&tidal_track_id, quality.as_deref().unwrap_or("LOSSLESS"))
-        .map_err(|e| e.to_string())?;
-    Ok(info.url)
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let info = client
+            .get_stream_url(&tidal_track_id, quality.as_deref().unwrap_or("LOSSLESS"))
+            .map_err(|e| e.to_string())?;
+        Ok(info.url)
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn tidal_get_album(
+pub async fn tidal_get_album(
     state: State<'_, AppState>,
     album_id: String,
 ) -> Result<TidalAlbumDetail, String> {
     let client = state.tidal_client.clone();
-    client.get_album(&album_id).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || -> Result<TidalAlbumDetail, String> {
+        client.get_album(&album_id).map_err(|e| e.to_string())
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn tidal_get_artist(
+pub async fn tidal_get_artist(
     state: State<'_, AppState>,
     artist_id: String,
 ) -> Result<TidalArtistDetail, String> {
     let client = state.tidal_client.clone();
-    client.get_artist(&artist_id).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || -> Result<TidalArtistDetail, String> {
+        client.get_artist(&artist_id).map_err(|e| e.to_string())
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[cfg(debug_assertions)]
@@ -1776,6 +1783,7 @@ pub fn download_track(
         dest_collection_path: dest_path,
         format: fmt,
         is_batch_last: true,
+        path_pattern: None,
     };
 
     state.track_download_manager.enqueue(request);
@@ -1783,12 +1791,13 @@ pub fn download_track(
 }
 
 #[tauri::command]
-pub fn download_album(
+pub async fn download_album(
     state: State<'_, AppState>,
     album_id: String,
     dest_collection_id: Option<i64>,
     custom_dest_path: Option<String>,
     format: String,
+    path_pattern: Option<String>,
 ) -> Result<Vec<u64>, String> {
     let fmt = DownloadFormat::from_str(&format)?;
 
@@ -1807,40 +1816,46 @@ pub fn download_album(
     };
 
     let client = state.tidal_client.clone();
-    let album = client.get_album(&album_id).map_err(|e| e.to_string())?;
-    let cover_url = album
-        .cover_id
-        .as_deref()
-        .map(|id| tidal::cover_url(id, 1280));
+    let dl_manager = state.track_download_manager.clone();
+    let pattern = path_pattern;
 
-    let count = album.tracks.len();
-    let mut ids = Vec::with_capacity(count);
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u64>, String> {
+        let album = client.get_album(&album_id).map_err(|e| e.to_string())?;
+        let cover_url = album
+            .cover_id
+            .as_deref()
+            .map(|id| tidal::cover_url(id, 1280));
 
-    for (i, t) in album.tracks.into_iter().enumerate() {
-        let id = state.track_download_manager.next_id();
-        let request = DownloadRequest {
-            id,
-            track_title: t.title,
-            artist_name: t.artist_name.unwrap_or_default(),
-            album_title: album.title.clone(),
-            track_number: t.track_number.map(|n| n as u32),
-            genre: None,
-            year: album.year,
-            cover_url: cover_url.clone(),
-            source_kind: "tidal".to_string(),
-            source_collection_id: None,
-            source_override_url: None,
-            remote_track_id: t.tidal_id,
-            dest_collection_id: collection_id,
-            dest_collection_path: dest_path.clone(),
-            format: fmt,
-            is_batch_last: i == count - 1,
-        };
-        state.track_download_manager.enqueue(request);
-        ids.push(id);
-    }
+        let count = album.tracks.len();
+        let mut ids = Vec::with_capacity(count);
 
-    Ok(ids)
+        for (i, t) in album.tracks.into_iter().enumerate() {
+            let id = dl_manager.next_id();
+            let request = DownloadRequest {
+                id,
+                track_title: t.title,
+                artist_name: t.artist_name.unwrap_or_default(),
+                album_title: album.title.clone(),
+                track_number: t.track_number.map(|n| n as u32),
+                genre: None,
+                year: album.year,
+                cover_url: cover_url.clone(),
+                source_kind: "tidal".to_string(),
+                source_collection_id: None,
+                source_override_url: None,
+                remote_track_id: t.tidal_id,
+                dest_collection_id: collection_id,
+                dest_collection_path: dest_path.clone(),
+                format: fmt,
+                is_batch_last: i == count - 1,
+                path_pattern: pattern.clone(),
+            };
+            dl_manager.enqueue(request);
+            ids.push(id);
+        }
+
+        Ok(ids)
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -2044,6 +2059,7 @@ pub async fn tidal_download_to_path(
                 dest_collection_path: String::new(),
                 format: fmt,
                 is_batch_last: false,
+                path_pattern: None,
             };
             let _ = crate::downloader::write_tags(&temp_path, &tag_request, &http_client);
         }
@@ -2201,6 +2217,7 @@ pub async fn tidal_download_preview(
             dest_collection_path: String::new(),
             format: fmt,
             is_batch_last: true,
+            path_pattern: None,
         };
         if let Err(e) = crate::downloader::write_tags(&new_path, &request, &http_client) {
             log::warn!("Failed to write tags to upgrade preview: {}", e);

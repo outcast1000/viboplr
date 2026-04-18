@@ -190,7 +190,16 @@ export type PluginViewData =
   | { type: "select"; label: string; description?: string; action: string; value: string; options: { value: string; label: string }[] }
   | { type: "progress-bar"; value: number; max: number; label?: string }
   | { type: "settings-row"; label: string; description?: string; control: PluginViewData }
-  | { type: "section"; title: string; children: PluginViewData[] };
+  | { type: "section"; title: string; children: PluginViewData[] }
+  | {
+      type: "detail-header";
+      title: string;
+      subtitle?: string;
+      meta?: string;
+      imageUrl?: string;
+      actions?: { id: string; label: string; icon?: string }[];
+      backAction?: string;
+    };
 
 // -- Plugin API (what plugins receive) --
 

@@ -75,6 +75,7 @@ import { EditCollectionModal } from "./components/EditCollectionModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { TidalDownloadModal } from "./components/TidalDownloadModal";
+import { TidalAlbumDownloadModal, type TidalAlbumDownloadInput } from "./components/TidalAlbumDownloadModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 import { TapePreviewModal } from "./components/TapePreviewModal";
@@ -90,6 +91,8 @@ function App() {
   const [appRestoring, setAppRestoring] = useState(true);
   const [navError, setNavError] = useState<string | null>(null);
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
+  const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
+  const [tidalAlbumDownload, setTidalAlbumDownload] = useState<TidalAlbumDownloadInput | null>(null);
   const pendingRestoreTrackRef = useRef<Track | null>(null);
   const pendingRestoreQueueRef = useRef<{ tracks: Track[]; index: number } | null>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -511,7 +514,16 @@ function App() {
       library.setSelectedTag(null);
     },
     requestAction: (_pluginId, action, payload) => {
-      if (action === "tidal-download") {
+      if (action === "show-loading") {
+        setPluginLoadingMessage((payload as { message?: string })?.message ?? "Loading...");
+        return;
+      } else if (action === "hide-loading") {
+        setPluginLoadingMessage(null);
+        return;
+      } else if (action === "tidal-download-album") {
+        setTidalAlbumDownload(payload as unknown as TidalAlbumDownloadInput);
+        return;
+      } else if (action === "tidal-download") {
         contextMenuActions.setTidalDownload(payload as { trackId: number | null; title: string; artistName: string | null });
       } else if (action === "play-tracks") {
         const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string; image_url?: string }>);
@@ -2530,6 +2542,18 @@ function App() {
         />
       )}
 
+      {tidalAlbumDownload && (
+        <TidalAlbumDownloadModal
+          input={tidalAlbumDownload}
+          downloadFormat={downloads.downloadFormat}
+          collections={localCollections}
+          store={store}
+          lastDest={lastTidalDownloadDest}
+          onClose={() => setTidalAlbumDownload(null)}
+          onComplete={(msg) => { setTidalAlbumDownload(null); addLog(msg); }}
+        />
+      )}
+
       {contextMenuActions.tidalDownload && (
         <TidalDownloadModal
           input={contextMenuActions.tidalDownload}
@@ -2647,6 +2671,20 @@ function App() {
             <p>{navError}</p>
             <div className="modal-actions">
               <button className="modal-btn modal-btn-confirm" onClick={() => setNavError(null)}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pluginLoadingMessage && (
+        <div className="modal-overlay">
+          <div className="loading-card">
+            <div className="loading-card-icon">
+              <div className="loading-card-spinner" />
+            </div>
+            <div className="loading-card-text">
+              <div className="loading-card-title">Loading...</div>
+              <div className="loading-card-sub">{pluginLoadingMessage}</div>
             </div>
           </div>
         </div>

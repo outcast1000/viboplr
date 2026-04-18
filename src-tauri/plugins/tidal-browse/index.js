@@ -161,28 +161,23 @@ function activate(api) {
     var album = state.albumDetail;
     if (!album) return;
 
+    var trackCount = (album.tracks || []).length;
+    var meta = (album.year ? album.year + " \u00B7 " : "") + trackCount + " tracks";
+
     var children = [
-      { type: "button", label: "\u2190 Back", action: "go-back" },
-      { type: "spacer" },
+      {
+        type: "detail-header",
+        title: album.title,
+        subtitle: album.artist_name || undefined,
+        meta: meta,
+        imageUrl: coverUrl(album.cover_id, 640),
+        backAction: "go-back",
+        actions: [
+          { id: "play-album", label: "Play All", icon: "\u25B6" },
+          { id: "download-album", label: "Download Album", icon: "\u2B07" },
+        ],
+      },
     ];
-
-    // Album header
-    var headerParts = [];
-    headerParts.push("<h2>" + escapeHtml(album.title) + "</h2>");
-    if (album.artist_name) headerParts.push("<p>" + escapeHtml(album.artist_name) + (album.year ? " \u2022 " + album.year : "") + "</p>");
-    children.push({ type: "text", content: headerParts.join("") });
-
-    // Album cover
-    var albumCover = coverUrl(album.cover_id, 640);
-    if (albumCover) {
-      children.push({
-        type: "card-grid",
-        columns: 3,
-        items: [{ id: "cover", title: "", imageUrl: albumCover }],
-      });
-    }
-
-    children.push({ type: "spacer" });
 
     // Track list
     if (album.tracks && album.tracks.length > 0) {
@@ -206,18 +201,6 @@ function activate(api) {
       });
     }
 
-    children.push({ type: "spacer" });
-
-    // Action buttons
-    children.push({
-      type: "layout",
-      direction: "horizontal",
-      children: [
-        { type: "button", label: "Play All", action: "play-album" },
-        { type: "button", label: "Download Album", action: "download-album" },
-      ],
-    });
-
     api.ui.setViewData("tidal", {
       type: "layout",
       direction: "vertical",
@@ -229,28 +212,20 @@ function activate(api) {
     var artist = state.artistDetail;
     if (!artist) return;
 
+    var albumCount = (artist.albums || []).length;
     var children = [
-      { type: "button", label: "\u2190 Back", action: "go-back" },
-      { type: "spacer" },
+      {
+        type: "detail-header",
+        title: artist.name,
+        meta: albumCount + " album" + (albumCount !== 1 ? "s" : ""),
+        imageUrl: coverUrl(artist.picture_id, 640),
+        backAction: "go-back",
+      },
     ];
-
-    // Artist header
-    children.push({ type: "text", content: "<h2>" + escapeHtml(artist.name) + "</h2>" });
-
-    var artistPic = coverUrl(artist.picture_id, 640);
-    if (artistPic) {
-      children.push({
-        type: "card-grid",
-        columns: 3,
-        items: [{ id: "pic", title: "", imageUrl: artistPic }],
-      });
-    }
-
-    children.push({ type: "spacer" });
 
     // Albums
     if (artist.albums && artist.albums.length > 0) {
-      children.push({ type: "text", content: "<h3>Albums</h3>" });
+      children.push({ type: "text", content: "<h3>Discography</h3>" });
       children.push({
         type: "card-grid",
         items: artist.albums.map(function (a) {
@@ -396,7 +371,10 @@ function activate(api) {
     if (!data || !data.itemId) return;
     var parts = data.itemId.split(":");
     if (parts[0] !== "album" || !parts[1]) return;
-    api.tidal.getAlbum(parts[1]).then(function (album) {
+    var albumId = parts[1];
+    api.ui.requestAction("show-loading", { message: "Fetching tracks from TIDAL" });
+    api.tidal.getAlbum(albumId).then(function (album) {
+      api.ui.requestAction("hide-loading", {});
       if (album && album.tracks && album.tracks.length > 0) {
         api.playback.playTidalTracks(album.tracks, 0, {
           name: album.title + (album.artist_name ? " - " + album.artist_name : ""),
@@ -404,6 +382,7 @@ function activate(api) {
         });
       }
     }).catch(function (err) {
+      api.ui.requestAction("hide-loading", {});
       api.ui.showNotification("Failed to play album: " + (err.message || err));
     });
   });
@@ -412,10 +391,22 @@ function activate(api) {
     if (!data || !data.itemId) return;
     var parts = data.itemId.split(":");
     if (parts[0] !== "album" || !parts[1]) return;
-    api.tidal.downloadAlbum(parts[1]).catch(function (err) {
-      api.ui.showNotification("Album download failed: " + (err.message || err));
+    api.ui.requestAction("show-loading", { message: "Fetching album from TIDAL" });
+    api.tidal.getAlbum(parts[1]).then(function (album) {
+      api.ui.requestAction("hide-loading", {});
+      if (album) {
+        api.ui.requestAction("tidal-download-album", {
+          albumId: album.tidal_id,
+          title: album.title,
+          artistName: album.artist_name || null,
+          coverId: album.cover_id || null,
+          trackCount: (album.tracks || []).length,
+        });
+      }
+    }).catch(function (err) {
+      api.ui.requestAction("hide-loading", {});
+      api.ui.showNotification("Failed to load album: " + (err.message || err));
     });
-    api.ui.showNotification("Album download started");
   });
 
   api.ui.onAction("play-album", function () {
@@ -493,11 +484,15 @@ function activate(api) {
   });
 
   api.ui.onAction("download-album", function () {
-    if (state.albumDetail) {
-      api.tidal.downloadAlbum(state.albumDetail.tidal_id).catch(function (err) {
-        api.ui.showNotification("Album download failed: " + (err.message || err));
+    var album = state.albumDetail;
+    if (album) {
+      api.ui.requestAction("tidal-download-album", {
+        albumId: album.tidal_id,
+        title: album.title,
+        artistName: album.artist_name || null,
+        coverId: album.cover_id || null,
+        trackCount: (album.tracks || []).length,
       });
-      api.ui.showNotification("Album download started");
     }
   });
 

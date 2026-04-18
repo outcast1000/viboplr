@@ -216,9 +216,85 @@ function PluginViewNode({
           </div>
         </div>
       );
+    case "detail-header":
+      return (
+        <PluginDetailHeader
+          title={node.title}
+          subtitle={node.subtitle}
+          meta={node.meta}
+          imageUrl={node.imageUrl}
+          actions={node.actions}
+          backAction={node.backAction}
+          onAction={onAction}
+        />
+      );
     default:
       return null;
   }
+}
+
+// -- Detail Header (album/artist style) --
+
+function PluginDetailHeader({
+  title,
+  subtitle,
+  meta,
+  imageUrl,
+  actions,
+  backAction,
+  onAction,
+}: {
+  title: string;
+  subtitle?: string;
+  meta?: string;
+  imageUrl?: string;
+  actions?: { id: string; label: string; icon?: string }[];
+  backAction?: string;
+  onAction?: (actionId: string, data?: unknown) => void;
+}) {
+  return (
+    <>
+      {backAction && (
+        <button className="plugin-detail-back" onClick={() => onAction?.(backAction)}>
+          {"\u2190"} Back
+        </button>
+      )}
+      <div
+        className="album-detail-top"
+        style={imageUrl ? { '--artist-bg': `url(${imageUrl})` } as React.CSSProperties : undefined}
+      >
+        <div className="album-detail-header">
+          <div className="album-detail-art">
+            {imageUrl ? (
+              <img className="album-detail-art-img" src={imageUrl} alt={title} />
+            ) : (
+              <svg className="album-detail-art-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            )}
+          </div>
+          <div className="album-detail-info">
+            <h2>
+              {title}
+              {actions?.map((a) => (
+                <button
+                  key={a.id}
+                  className="artist-play-btn"
+                  title={a.label}
+                  onClick={() => onAction?.(a.id)}
+                >
+                  {a.icon || a.label}
+                </button>
+              ))}
+            </h2>
+            {subtitle && <span className="album-detail-artist-name">{subtitle}</span>}
+            {meta && <span className="artist-meta">{meta}</span>}
+          </div>
+        </div>
+      </div>
+    </>
+  );
 }
 
 // -- Track List (simplified read-only) --

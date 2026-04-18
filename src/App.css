@@ -1260,6 +1260,54 @@
   z-index: 2000;
 }
 
+.loading-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 28px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  min-width: 280px;
+}
+
+.loading-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  background: var(--bg-surface);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-card-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: loading-card-spin 0.8s linear infinite;
+}
+
+@keyframes loading-card-spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-card-title {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.loading-card-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
 .modal {
   background: var(--bg-secondary);
   border: 1px solid var(--border);

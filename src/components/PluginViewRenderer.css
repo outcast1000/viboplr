@@ -10,6 +10,20 @@
   padding: 0 16px 16px;
 }
 
+.plugin-detail-back {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  padding: 8px 16px 0;
+  transition: color 0.15s;
+}
+
+.plugin-detail-back:hover {
+  color: var(--text-primary);
+}
+
 .plugin-view-header h2 {
   font-size: var(--fs-lg);
   font-weight: 600;
@@ -127,6 +141,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  pointer-events: none;
   background: rgba(0, 0, 0, 0.4);
   border: none;
   color: #fff;
@@ -137,6 +152,7 @@
 
 .plugin-card-art:hover .plugin-card-play {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .plugin-card-play svg {

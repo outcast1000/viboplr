@@ -72,6 +72,7 @@ pub struct DownloadRequest {
     pub format: DownloadFormat,
     /// If true, this is the last track in a batch (album download). FTS rebuild happens after this one.
     pub is_batch_last: bool,
+    pub path_pattern: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -193,24 +194,36 @@ pub fn sanitize_filename(name: &str) -> String {
     }
 }
 
-/// Build the destination path: {dest_root}/{Artist}/{Album}/{TrackNum} - {Title}.{ext}
+/// Build the destination path from a pattern or default `{Artist}/{Album}/{TrackNum} - {Title}.{ext}`.
+/// Pattern tokens: `[artist]`, `[album]`, `[track_number]`, `[title]`.
+/// Use `/` or `\` in the pattern to create subdirectories.
 /// If `ext_override` is provided, it is used instead of the request's format extension.
 pub fn build_dest_path(request: &DownloadRequest, ext_override: Option<&str>) -> PathBuf {
     let ext = ext_override.unwrap_or_else(|| request.format.extension());
+    let track_num = request.track_number.map(|n| format!("{:02}", n)).unwrap_or_default();
+
+    if let Some(ref pattern) = request.path_pattern {
+        let expanded = pattern
+            .replace("[artist]", &sanitize_filename(&request.artist_name))
+            .replace("[album]", &sanitize_filename(&request.album_title))
+            .replace("[track_number]", &track_num)
+            .replace("[title]", &sanitize_filename(&request.track_title));
+        let full = format!("{}.{}", expanded, ext);
+        let mut path = PathBuf::from(&request.dest_collection_path);
+        for component in full.split(['/', '\\']) {
+            if !component.is_empty() {
+                path.push(component);
+            }
+        }
+        return path;
+    }
+
     let artist_dir = sanitize_filename(&request.artist_name);
     let album_dir = sanitize_filename(&request.album_title);
-    let filename = match request.track_number {
-        Some(num) => format!(
-            "{:02} - {}.{}",
-            num,
-            sanitize_filename(&request.track_title),
-            ext
-        ),
-        None => format!(
-            "{}.{}",
-            sanitize_filename(&request.track_title),
-            ext
-        ),
+    let filename = if track_num.is_empty() {
+        format!("{}.{}", sanitize_filename(&request.track_title), ext)
+    } else {
+        format!("{} - {}.{}", track_num, sanitize_filename(&request.track_title), ext)
     };
     Path::new(&request.dest_collection_path)
         .join(artist_dir)
