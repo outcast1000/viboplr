@@ -63,6 +63,69 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.19</span>
+          <span class="timeline-date">April 19, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>add sort controls to search view albums tab</li>
+          <li>add sort controls to search view artists tab</li>
+          <li>add sort and filter controls to search view tracks tab</li>
+          <li>add Search view with tabbed results, pagination, and browse-all</li>
+          <li>album download modal with progress tracking, detail-header, and async TIDAL commands</li>
+          <li>add play button, context menu, and album context to TIDAL cards</li>
+          <li>add search icon and clear button to plugin search input, remove dead TidalView</li>
+          <li>add database search benchmark suite with HTML report</li>
+          <li>replace TIDAL detail views with shared card/track-row classes</li>
+          <li>replace TIDAL search screen with shared UI components</li>
+          <li>add autoFocus prop to ViewSearchBar</li>
+          <li>add TidalView.css for detail-specific styles</li>
+          <li><strong>sidebar</strong>: pin Collections and Settings to bottom of sidebar</li>
+          <li><strong>settings</strong>: show current profile name in General tab</li>
+          <li><strong>settings</strong>: move profile folder to General tab</li>
+          <li><strong>tape</strong>: accept .tape files in queue Open Playlist picker</li>
+          <li>add Open Containing Folder to queue and playlist track context menus</li>
+          <li>remove track count from artist tiles</li>
+          <li>standardize album tile info to show Artist - Year</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>liked first is a sort modifier, not a filter</li>
+          <li>hide breadcrumb in search view</li>
+          <li>restore playlist context and track images for Spotify playback</li>
+          <li><strong>tape</strong>: pass tape title and cover to queue context on Just Play</li>
+          <li><strong>tape</strong>: show default playlist icon when tape has no cover image</li>
+          <li><strong>tape</strong>: make cover image optional in tape export</li>
+          <li><strong>tape</strong>: resolve playlist tracks to library tracks by path for tape export</li>
+          <li><strong>tape</strong>: widen tape modals from 560px to 640px</li>
+          <li><strong>tape</strong>: fix TapeExportModal layout structure</li>
+          <li><strong>tape</strong>: fix TypeScript errors in TapePreviewModal</li>
+          <li>hide breadcrumb bar on artist detail page to remove empty space</li>
+          </ul>
+          <h4>Performance</h4>
+          <ul>
+          <li><strong>db</strong>: improve search performance and clean up database layer</li>
+          </ul>
+          <h4>Chores</h4>
+          <ul>
+          <li>document PlaylistContext system in UI rules</li>
+          <li>enrich tile card structure documentation in UI rules</li>
+          <li>clean up DEVELOPMENT.md</li>
+          <li>absorb PLUGIN-SYSTEM.md into rules/plugins.md</li>
+          <li>remove outdated WORKTREE_WORKFLOW.md documentation</li>
+          <li>restructure Claude rules into modular .claude/rules/ files</li>
+          <li>remove Randomizer and Example Stats plugins</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.19/Viboplr_0.9.19_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.19_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.19/Viboplr_0.9.19_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.19_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.18</span>
           <span class="timeline-date">April 17, 2026</span>
         </div>
