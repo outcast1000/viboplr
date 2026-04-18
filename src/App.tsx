@@ -9,7 +9,7 @@ import "./base.css";
 import "./App.css";
 
 import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, ArtistSortField, AlbumSortField, TagSortField } from "./types";
-import { isVideoTrack, parseSubsonicUrl, stripAccents } from "./utils";
+import { isVideoTrack, parseSubsonicUrl, stripAccents, tidalCoverUrl } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
@@ -214,6 +214,7 @@ function App() {
       added_at: null,
       modified_at: null,
       relative_path: null,
+      image_url: tidalCoverUrl(info.cover_id ?? null, 160) ?? undefined,
     };
   }, []);
   const downloadFormatRef = useRef("flac");
@@ -224,8 +225,8 @@ function App() {
     enqueueTidalTrack: (track: TidalSearchTrackLike) => {
       queueHook.enqueueTracks([tidalTrackToTrackFn(track)]);
     },
-    playTidalTracks: (tracks: TidalSearchTrackLike[], startIndex?: number) => {
-      queueHook.playTracks(tracks.map(tidalTrackToTrackFn), startIndex ?? 0);
+    playTidalTracks: (tracks: TidalSearchTrackLike[], startIndex?: number, context?: { name: string; coverUrl?: string | null }) => {
+      queueHook.playTracks(tracks.map(tidalTrackToTrackFn), startIndex ?? 0, context ? { name: context.name, coverUrl: context.coverUrl } : undefined);
     },
     getDownloadFormat: () => downloadFormatRef.current,
   }), [queueHook, tidalTrackToTrackFn]);

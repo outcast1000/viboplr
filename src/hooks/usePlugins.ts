@@ -69,7 +69,7 @@ type EventHandlers = {
 export interface PluginPlaybackCallbacks {
   playTidalTrack: (track: TidalSearchTrackLike) => void;
   enqueueTidalTrack: (track: TidalSearchTrackLike) => void;
-  playTidalTracks: (tracks: TidalSearchTrackLike[], startIndex?: number) => void;
+  playTidalTracks: (tracks: TidalSearchTrackLike[], startIndex?: number, context?: { name: string; coverUrl?: string | null }) => void;
   getDownloadFormat: () => string;
 }
 
@@ -202,8 +202,8 @@ export function usePlugins(
           enqueueTidalTrack: (track) => {
             playbackCallbacksRef.current?.enqueueTidalTrack(track);
           },
-          playTidalTracks: (tracks, startIndex) => {
-            playbackCallbacksRef.current?.playTidalTracks(tracks, startIndex);
+          playTidalTracks: (tracks, startIndex, context) => {
+            playbackCallbacksRef.current?.playTidalTracks(tracks, startIndex, context);
           },
           onTrackStarted: (handler) =>
             subscribeEvent(

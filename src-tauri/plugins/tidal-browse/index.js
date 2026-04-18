@@ -108,9 +108,15 @@ function activate(api) {
               return {
                 id: "album:" + a.tidal_id,
                 title: a.title,
-                subtitle: (a.artist_name || "Unknown") + (a.year ? " \u2022 " + a.year : ""),
+                subtitle: (a.artist_name || "Unknown") + (a.year ? " - " + a.year : ""),
                 imageUrl: coverUrl(a.cover_id, 320),
                 action: "view-album",
+                targetKind: "album",
+                contextMenuActions: [
+                  { id: "play-playlist", label: "Play Album" },
+                  { id: "view-album", label: "View Album" },
+                  { id: "download-album-card", label: "Download Album" },
+                ],
               };
             }),
           });
@@ -128,6 +134,10 @@ function activate(api) {
                 title: a.name,
                 imageUrl: coverUrl(a.picture_id, 320),
                 action: "view-artist",
+                targetKind: "artist",
+                contextMenuActions: [
+                  { id: "view-artist", label: "View Artist" },
+                ],
               };
             }),
           });
@@ -250,6 +260,12 @@ function activate(api) {
             subtitle: a.year ? String(a.year) : "",
             imageUrl: coverUrl(a.cover_id, 320),
             action: "view-album",
+            targetKind: "album",
+            contextMenuActions: [
+              { id: "play-playlist", label: "Play Album" },
+              { id: "view-album", label: "View Album" },
+              { id: "download-album-card", label: "Download Album" },
+            ],
           };
         }),
       });
@@ -376,9 +392,39 @@ function activate(api) {
     }
   });
 
+  api.ui.onAction("play-playlist", function (data) {
+    if (!data || !data.itemId) return;
+    var parts = data.itemId.split(":");
+    if (parts[0] !== "album" || !parts[1]) return;
+    api.tidal.getAlbum(parts[1]).then(function (album) {
+      if (album && album.tracks && album.tracks.length > 0) {
+        api.playback.playTidalTracks(album.tracks, 0, {
+          name: album.title + (album.artist_name ? " - " + album.artist_name : ""),
+          coverUrl: coverUrl(album.cover_id, 320),
+        });
+      }
+    }).catch(function (err) {
+      api.ui.showNotification("Failed to play album: " + (err.message || err));
+    });
+  });
+
+  api.ui.onAction("download-album-card", function (data) {
+    if (!data || !data.itemId) return;
+    var parts = data.itemId.split(":");
+    if (parts[0] !== "album" || !parts[1]) return;
+    api.tidal.downloadAlbum(parts[1]).catch(function (err) {
+      api.ui.showNotification("Album download failed: " + (err.message || err));
+    });
+    api.ui.showNotification("Album download started");
+  });
+
   api.ui.onAction("play-album", function () {
-    if (state.albumDetail && state.albumDetail.tracks && state.albumDetail.tracks.length > 0) {
-      api.playback.playTidalTracks(state.albumDetail.tracks, 0);
+    var album = state.albumDetail;
+    if (album && album.tracks && album.tracks.length > 0) {
+      api.playback.playTidalTracks(album.tracks, 0, {
+        name: album.title + (album.artist_name ? " - " + album.artist_name : ""),
+        coverUrl: coverUrl(album.cover_id, 320),
+      });
     }
   });
 

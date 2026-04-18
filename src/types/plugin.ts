@@ -229,7 +229,7 @@ export interface PluginPlaybackAPI {
   getPosition(): number;
   playTidalTrack(track: TidalSearchTrackLike): void;
   enqueueTidalTrack(track: TidalSearchTrackLike): void;
-  playTidalTracks(tracks: TidalSearchTrackLike[], startIndex?: number): void;
+  playTidalTracks(tracks: TidalSearchTrackLike[], startIndex?: number, context?: { name: string; coverUrl?: string | null }): void;
   onTrackStarted(handler: (track: Track) => void): () => void;
   onTrackPlayed(handler: (track: Track) => void): () => void;
   onTrackScrobbled(handler: (track: Track) => void): () => void;
