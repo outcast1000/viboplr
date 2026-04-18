@@ -14,6 +14,20 @@ npm install
 
 ## Development
 
+Typically you would work on one or more worktrees:
+
+```bash
+claude --dangerously-skip-permissions --worktree 1
+```
+
+I usually use worktrees 1, 2, 3. All worktrees track `origin/main` and can be synced with:
+
+```bash
+git pull --rebase   # pull latest from main
+git push            # push worktree commits to main
+```
+
+
 ```bash
 # Start Vite dev server + Tauri app with hot reload
 npm run tauri dev
@@ -71,57 +85,22 @@ cd src-tauri && cargo check --release
 npx tsc --noEmit
 ```
 
-## Scripts
-
-## Updating a Feature Branch from Main
-
-If you're working on a feature branch and need to pull in the latest changes from `main`:
-
-```bash
-git stash
-git merge main
-git stash pop
-```
-
-If `git stash pop` causes conflicts, resolve them manually
-
 ## Releasing
 
-Releases are automated via GitHub Actions. Pushing a version tag triggers builds for macOS (ARM) and Windows, then creates a draft GitHub Release with the installer artifacts attached.
-
-### Steps to cut (bump and deploy) a release
-
-Auto way
+To do a release you should increase the release number and add the proper tags in the git. Bump script can help with that
 
 ```bash
 npm run bump --autocommit
 npm run bump v0.4.0 --autocommit
 ```
 
-Old Way
+Releases are automated via GitHub Actions. Pushing a version tag triggers builds for macOS (ARM) and Windows, then creates a draft GitHub Release with the installer artifacts attached.
+- The workflow is defined in `.github/workflows/release.yml`.
 
-```bash
-npm run bump X.Y.Z
-git add -A
-git commit -m "release: vX.Y.Z"
-git tag vX.Y.Z
-git push origin main --tags
-```
+### macOS unsigned release
 
-### MacOS unsigned release
-
-After MacOS installations you should run
-
-
-
-### Notes
-
-- Builds are **unsigned** — macOS users will need to right-click → Open on first launch. Add Apple Developer ID secrets to the repository to enable code signing later.
+Builds are **unsigned**. On macOS, run this to clear the quarantine flag before first launch:
 
 ```bash
 xattr -cr /Applications/Viboplr.app
 ```
-
-- Only version tags matching `v*` trigger the workflow.
-- The release is created as a **draft** so you can review before publishing.
-- The workflow is defined in `.github/workflows/release.yml`.
