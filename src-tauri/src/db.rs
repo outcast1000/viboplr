@@ -3996,4 +3996,279 @@ mod tests {
         assert!(result.is_some());
         assert_eq!(result.unwrap().id, local_id, "should prefer local track");
     }
+
+    // ── Benchmarks (run with: cargo test bench_ -- --ignored --nocapture) ───
+
+    const BENCH_ROUNDS: u32 = 3;
+
+    struct BenchResult {
+        name: String,
+        iterations: u32,
+        rounds: u32,
+        avg_ms: f64,
+        min_ms: f64,
+        max_ms: f64,
+    }
+
+    fn bench<F: FnMut()>(name: &str, iterations: u32, mut f: F) -> BenchResult {
+        let mut round_avgs: Vec<f64> = Vec::with_capacity(BENCH_ROUNDS as usize);
+        for _ in 0..BENCH_ROUNDS {
+            let start = std::time::Instant::now();
+            for _ in 0..iterations {
+                f();
+            }
+            let total_ms = start.elapsed().as_secs_f64() * 1000.0;
+            round_avgs.push(total_ms / iterations as f64);
+        }
+        round_avgs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let avg_ms = round_avgs.iter().sum::<f64>() / round_avgs.len() as f64;
+        BenchResult {
+            name: name.to_string(),
+            iterations,
+            rounds: BENCH_ROUNDS,
+            avg_ms,
+            min_ms: round_avgs[0],
+            max_ms: *round_avgs.last().unwrap(),
+        }
+    }
+
+    fn seed_bench_db(db: &Database, num_artists: usize, num_albums: usize, num_tracks: usize, num_history: usize) {
+        let cid = test_collection(db);
+        let mut artist_ids = Vec::with_capacity(num_artists);
+        let mut album_ids = Vec::with_capacity(num_albums);
+        let mut track_ids = Vec::with_capacity(num_tracks);
+
+        let tag_ids: Vec<i64> = ["Rock", "Electronic", "Jazz", "Classical", "Hip-Hop",
+            "Pop", "Metal", "Folk", "Blues", "Ambient"]
+            .iter()
+            .map(|name| db.get_or_create_tag(name).unwrap())
+            .collect();
+
+        for i in 0..num_artists {
+            let id = db.get_or_create_artist(&format!("Artist {i:04}")).unwrap();
+            artist_ids.push(id);
+        }
+
+        for i in 0..num_albums {
+            let artist_id = artist_ids[i % num_artists];
+            let id = db.get_or_create_album(
+                &format!("Album {i:04}"),
+                Some(artist_id),
+                Some(1970 + (i % 55) as i32),
+            ).unwrap();
+            album_ids.push(id);
+        }
+
+        for i in 0..num_tracks {
+            let artist_id = artist_ids[i % num_artists];
+            let album_id = album_ids[i % num_albums];
+            let track_id = db.upsert_track(
+                &format!("music/artist_{:04}/album_{:04}/track_{:05}.mp3", i % num_artists, i % num_albums, i),
+                &format!("Track {i:05} Title"),
+                Some(artist_id),
+                Some(album_id),
+                Some((i % 12 + 1) as i32),
+                Some(180.0 + (i % 300) as f64),
+                Some("mp3"),
+                Some(5_000_000 + (i * 1000) as i64),
+                None,
+                Some(cid),
+                None,
+            ).unwrap();
+            track_ids.push(track_id);
+
+            let tag_id = tag_ids[i % tag_ids.len()];
+            let _ = db.add_track_tag(track_id, tag_id);
+        }
+
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        // Seed history
+        {
+            let conn = db.conn.lock().unwrap();
+            let ha_count = num_artists.min(500);
+            for i in 0..ha_count {
+                conn.execute(
+                    "INSERT OR IGNORE INTO history_artists (canonical_name, display_name, play_count, library_artist_id) \
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        format!("artist {i:04}"),
+                        format!("Artist {i:04}"),
+                        (num_history / ha_count) as i64,
+                        artist_ids[i]
+                    ],
+                ).unwrap();
+            }
+
+            let mut ha_ids: Vec<i64> = Vec::new();
+            let mut stmt = conn.prepare("SELECT id FROM history_artists ORDER BY id").unwrap();
+            let rows = stmt.query_map([], |r| r.get(0)).unwrap();
+            for r in rows { ha_ids.push(r.unwrap()); }
+
+            let ht_count = num_tracks.min(5000);
+            for i in 0..ht_count {
+                let ha_id = ha_ids[i % ha_ids.len()];
+                conn.execute(
+                    "INSERT OR IGNORE INTO history_tracks (history_artist_id, canonical_title, display_title, play_count, library_track_id) \
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        ha_id,
+                        format!("track {i:05} title"),
+                        format!("Track {i:05} Title"),
+                        (num_history / ht_count) as i64,
+                        track_ids[i]
+                    ],
+                ).unwrap();
+            }
+
+            let mut ht_ids: Vec<i64> = Vec::new();
+            let mut stmt = conn.prepare("SELECT id FROM history_tracks ORDER BY id").unwrap();
+            let rows = stmt.query_map([], |r| r.get(0)).unwrap();
+            for r in rows { ht_ids.push(r.unwrap()); }
+
+            for i in 0..num_history {
+                let ht_id = ht_ids[i % ht_ids.len()];
+                conn.execute(
+                    "INSERT INTO history_plays (history_track_id, played_at) VALUES (?1, ?2)",
+                    params![ht_id, 1700000000i64 + i as i64],
+                ).unwrap();
+            }
+
+            conn.execute_batch(
+                "UPDATE history_tracks SET play_count = (SELECT COUNT(*) FROM history_plays WHERE history_track_id = history_tracks.id); \
+                 UPDATE history_artists SET play_count = (SELECT COALESCE(SUM(ht.play_count), 0) FROM history_tracks ht WHERE ht.history_artist_id = history_artists.id);"
+            ).unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_search_performance() {
+        let db = test_db();
+
+        let seed_start = std::time::Instant::now();
+        seed_bench_db(&db, 2000, 4000, 20000, 100000);
+        let seed_ms = seed_start.elapsed().as_secs_f64() * 1000.0;
+
+        let queries = &[
+            "Artist 0042",
+            "Track 00100",
+            "Album 0300",
+            "Rock",
+            "Nonexistent Query XYZ",
+            "Art",
+            "trac title",
+            "music/artist_0001",
+        ];
+
+        let mut results: Vec<BenchResult> = Vec::new();
+
+        results.push(BenchResult {
+            name: "seed_database".into(),
+            iterations: 1,
+            rounds: 1,
+            avg_ms: seed_ms,
+            min_ms: seed_ms,
+            max_ms: seed_ms,
+        });
+
+        // search_all benchmarks
+        for q in queries {
+            let r = bench(&format!("search_all(\"{}\")", q), 50, || {
+                let _ = db.search_all(q, 7, 7, 7).unwrap();
+            });
+            results.push(r);
+        }
+
+        // get_tracks FTS benchmarks
+        for q in queries {
+            let r = bench(&format!("get_tracks(\"{}\")", q), 50, || {
+                let _ = db.get_tracks(&TrackQuery {
+                    query: Some(q.to_string()),
+                    limit: Some(100),
+                    ..Default::default()
+                }).unwrap();
+            });
+            results.push(r);
+        }
+
+        // get_tracks without query (paginated browse)
+        results.push(bench("get_tracks(browse, page 1)", 50, || {
+            let _ = db.get_tracks(&TrackQuery {
+                limit: Some(100),
+                offset: Some(0),
+                ..Default::default()
+            }).unwrap();
+        }));
+
+        results.push(bench("get_tracks(browse, page 100)", 50, || {
+            let _ = db.get_tracks(&TrackQuery {
+                limit: Some(100),
+                offset: Some(10000),
+                ..Default::default()
+            }).unwrap();
+        }));
+
+        // History benchmarks
+        results.push(bench("get_history_most_played(50)", 50, || {
+            let _ = db.get_history_most_played(50).unwrap();
+        }));
+
+        results.push(bench("get_history_most_played_since(50)", 50, || {
+            let _ = db.get_history_most_played_since(1700050000, 50).unwrap();
+        }));
+
+        results.push(bench("search_history_tracks(\"track\")", 50, || {
+            let _ = db.search_history_tracks("track", 50).unwrap();
+        }));
+
+        results.push(bench("search_history_artists(\"artist\")", 50, || {
+            let _ = db.search_history_artists("artist", 50).unwrap();
+        }));
+
+        results.push(bench("get_track_rank", 50, || {
+            let _ = db.get_track_rank(1).unwrap();
+        }));
+
+        results.push(bench("get_artist_rank", 50, || {
+            let _ = db.get_artist_rank(1).unwrap();
+        }));
+
+        // rebuild/recompute
+        results.push(bench("rebuild_fts", 3, || {
+            db.rebuild_fts().unwrap();
+        }));
+
+        results.push(bench("recompute_counts", 3, || {
+            db.recompute_counts().unwrap();
+        }));
+
+        results.push(bench("get_track_count", 50, || {
+            let _ = db.get_track_count().unwrap();
+        }));
+
+        // Output JSON
+        let json_entries: Vec<String> = results.iter().map(|r| {
+            format!(
+                "    {{\"name\": \"{}\", \"iterations\": {}, \"rounds\": {}, \"avg_ms\": {:.3}, \"min_ms\": {:.3}, \"max_ms\": {:.3}}}",
+                r.name, r.iterations, r.rounds, r.avg_ms, r.min_ms, r.max_ms
+            )
+        }).collect();
+
+        println!("\n--- BENCH_JSON_START ---");
+        println!("{{");
+        println!("  \"results\": [");
+        println!("{}", json_entries.join(",\n"));
+        println!("  ]");
+        println!("}}");
+        println!("--- BENCH_JSON_END ---");
+
+        // Human-readable summary
+        println!("\n{:<50} {:>5} {:>4} {:>10} {:>10} {:>10}", "Benchmark", "Iters", "Rnd", "Avg ms", "Min ms", "Max ms");
+        println!("{}", "-".repeat(93));
+        for r in &results {
+            println!("{:<50} {:>5} {:>4} {:>10.3} {:>10.3} {:>10.3}", r.name, r.iterations, r.rounds, r.avg_ms, r.min_ms, r.max_ms);
+        }
+    }
 }

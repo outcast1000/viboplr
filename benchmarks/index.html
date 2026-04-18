@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Viboplr DB Benchmarks</title>
+<style>
+  :root {
+    --bg: #0e0e10;
+    --surface: #18181b;
+    --surface2: #1e1e22;
+    --border: #2a2a2e;
+    --text: #e4e4e7;
+    --text2: #a1a1aa;
+    --accent: #818cf8;
+    --green: #34d399;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --bar-bg: #27272a;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 2rem;
+    line-height: 1.5;
+  }
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+  .subtitle {
+    color: var(--text2);
+    font-size: 0.85rem;
+    margin-bottom: 2rem;
+  }
+  .run-selector {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .run-selector label {
+    color: var(--text2);
+    font-size: 0.8rem;
+    margin-right: 0.25rem;
+  }
+  select {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  select:focus { outline: 1px solid var(--accent); }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 2rem;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+  }
+  .card .label {
+    font-size: 0.7rem;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.25rem;
+  }
+  .card .value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .section-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 1.5rem 0 0.75rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 1rem;
+  }
+  th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    color: var(--text2);
+    font-weight: 500;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  th.num { text-align: right; }
+  td {
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  td.num { text-align: right; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.78rem; }
+  td.name { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.78rem; }
+  tr:hover { background: var(--surface2); }
+  .bar-cell { width: 200px; min-width: 120px; }
+  .bar-wrap {
+    background: var(--bar-bg);
+    border-radius: 3px;
+    height: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
+  .bar-range {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: rgba(255,255,255,0.08);
+    border-radius: 3px;
+  }
+  .delta { font-weight: 500; }
+  .delta.better { color: var(--green); }
+  .delta.worse { color: var(--red); }
+  .delta.neutral { color: var(--text2); }
+  .delta.regression { color: var(--red); font-weight: 700; }
+  .badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    font-weight: 600;
+    margin-left: 0.4rem;
+    vertical-align: middle;
+  }
+  .badge.warn { background: rgba(248,113,113,0.15); color: var(--red); }
+  .note {
+    color: var(--text2);
+    font-size: 0.75rem;
+    font-style: italic;
+    margin-bottom: 1rem;
+  }
+  .empty { color: var(--text2); text-align: center; padding: 3rem; }
+</style>
+</head>
+<body>
+
+<h1>Viboplr DB Benchmarks</h1>
+<p class="subtitle">20,000 tracks &middot; 4,000 albums &middot; 2,000 artists &middot; 100,000 history plays</p>
+
+<div class="run-selector">
+  <label for="currentRun">Run:</label>
+  <select id="currentRun"></select>
+  <label for="compareRun" style="margin-left: 1rem;">Compare with:</label>
+  <select id="compareRun"><option value="">None</option></select>
+</div>
+
+<div class="cards" id="summaryCards"></div>
+
+<div id="sections"></div>
+
+<script>
+const DATA = __BENCH_DATA__;
+
+function init() {
+  if (!DATA.length) {
+    document.getElementById('sections').innerHTML = '<p class="empty">No benchmark data yet</p>';
+    return;
+  }
+  populateSelectors();
+  render();
+}
+
+function populateSelectors() {
+  const cur = document.getElementById('currentRun');
+  const cmp = document.getElementById('compareRun');
+  cmp.innerHTML = '<option value="">None</option>';
+  DATA.forEach((run, i) => {
+    const label = `${run.date.slice(0,16)} \u2014 v${run.version} (${run.commit})`;
+    const opt1 = new Option(label, i);
+    const opt2 = new Option(label, i);
+    cur.appendChild(opt1);
+    cmp.appendChild(opt2);
+  });
+  cur.value = DATA.length - 1;
+  if (DATA.length > 1) cmp.value = DATA.length - 2;
+  cur.addEventListener('change', render);
+  cmp.addEventListener('change', render);
+}
+
+function fmt(ms) {
+  if (ms >= 1000) return (ms / 1000).toFixed(2) + 's';
+  if (ms >= 10) return ms.toFixed(1) + 'ms';
+  return ms.toFixed(3) + 'ms';
+}
+
+function categorize(name) {
+  if (name === 'seed_database') return 'Setup';
+  if (name.startsWith('search_all')) return 'search_all (central search)';
+  if (name.startsWith('get_tracks')) return 'get_tracks (view search / browse)';
+  if (name.includes('history') || name.includes('rank')) return 'History';
+  if (name === 'rebuild_fts' || name === 'recompute_counts' || name === 'get_track_count') return 'Maintenance';
+  return 'Other';
+}
+
+function barColor(avgMs) {
+  if (avgMs < 2) return 'var(--green)';
+  if (avgMs < 10) return 'var(--accent)';
+  if (avgMs < 50) return 'var(--yellow)';
+  return 'var(--red)';
+}
+
+function render() {
+  const curIdx = +document.getElementById('currentRun').value;
+  const cmpVal = document.getElementById('compareRun').value;
+  const run = DATA[curIdx];
+  const cmpRun = cmpVal !== '' ? DATA[+cmpVal] : null;
+  const cmpMap = new Map();
+  if (cmpRun) cmpRun.results.forEach(r => cmpMap.set(r.name, r));
+
+  const benchResults = run.results.filter(r => r.name !== 'seed_database');
+  const maxAvg = Math.max(...benchResults.map(r => r.avg_ms));
+
+  // Summary cards
+  const searchResults = benchResults.filter(r => r.name.startsWith('search_all') || (r.name.startsWith('get_tracks') && r.name.includes('"')));
+  const avgSearch = searchResults.reduce((s, r) => s + r.avg_ms, 0) / searchResults.length;
+  const fastest = benchResults.reduce((a, b) => a.avg_ms < b.avg_ms ? a : b);
+  const slowest = benchResults.reduce((a, b) => a.avg_ms > b.avg_ms ? a : b);
+
+  document.getElementById('summaryCards').innerHTML = `
+    <div class="card"><div class="label">Avg Search</div><div class="value">${fmt(avgSearch)}</div></div>
+    <div class="card"><div class="label">Fastest</div><div class="value">${fmt(fastest.avg_ms)}</div></div>
+    <div class="card"><div class="label">Slowest</div><div class="value">${fmt(slowest.avg_ms)}</div></div>
+    <div class="card"><div class="label">Benchmarks</div><div class="value">${benchResults.length}</div></div>
+    <div class="card"><div class="label">Version</div><div class="value">v${run.version}</div></div>
+    <div class="card"><div class="label">Commit</div><div class="value" style="font-family:monospace;font-size:1rem">${run.commit}</div></div>
+  `;
+
+  // Group by category
+  const groups = new Map();
+  const order = ['search_all (central search)', 'get_tracks (view search / browse)', 'History', 'Maintenance', 'Setup'];
+  run.results.forEach(r => {
+    const cat = categorize(r.name);
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat).push(r);
+  });
+
+  let html = '';
+  if (run.note) html += `<p class="note">${run.note}</p>`;
+
+  for (const cat of order) {
+    const items = groups.get(cat);
+    if (!items) continue;
+    html += `<div class="section-title">${cat}</div>`;
+    html += '<table><thead><tr>';
+    html += '<th>Benchmark</th><th class="num">Avg</th><th class="num">Min</th><th class="num">Max</th>';
+    html += '<th class="bar-cell">Distribution</th>';
+    html += '<th class="num">Iters</th><th class="num">Rounds</th>';
+    if (cmpRun) html += '<th class="num">Prev</th><th class="num">Delta</th>';
+    html += '</tr></thead><tbody>';
+
+    for (const r of items) {
+      const pct = (r.avg_ms / maxAvg) * 100;
+      const minPct = (r.min_ms / maxAvg) * 100;
+      const maxPct = (r.max_ms / maxAvg) * 100;
+      const color = barColor(r.avg_ms);
+
+      let deltaHtml = '';
+      if (cmpRun) {
+        const prev = cmpMap.get(r.name);
+        if (prev) {
+          const diff = r.avg_ms - prev.avg_ms;
+          const pctDiff = (diff / prev.avg_ms) * 100;
+          let cls = 'neutral';
+          let badge = '';
+          if (pctDiff < -5) cls = 'better';
+          else if (pctDiff > 20) { cls = 'regression'; badge = '<span class="badge warn">REGRESSION</span>'; }
+          else if (pctDiff > 5) cls = 'worse';
+          const sign = diff > 0 ? '+' : '';
+          deltaHtml = `<td class="num">${fmt(prev.avg_ms)}</td>`;
+          deltaHtml += `<td class="num"><span class="delta ${cls}">${sign}${pctDiff.toFixed(1)}%</span>${badge}</td>`;
+        } else {
+          deltaHtml = '<td class="num">-</td><td class="num">-</td>';
+        }
+      }
+
+      html += `<tr>
+        <td class="name">${r.name}</td>
+        <td class="num" style="font-weight:600">${fmt(r.avg_ms)}</td>
+        <td class="num" style="color:var(--text2)">${fmt(r.min_ms)}</td>
+        <td class="num" style="color:var(--text2)">${fmt(r.max_ms)}</td>
+        <td class="bar-cell">
+          <div class="bar-wrap">
+            <div class="bar-fill" style="width:${pct}%;background:${color}"></div>
+            <div class="bar-range" style="left:${minPct}%;width:${maxPct - minPct}%"></div>
+          </div>
+        </td>
+        <td class="num" style="color:var(--text2)">${r.iterations}</td>
+        <td class="num" style="color:var(--text2)">${r.rounds}</td>
+        ${deltaHtml}
+      </tr>`;
+    }
+    html += '</tbody></table>';
+  }
+
+  document.getElementById('sections').innerHTML = html;
+}
+
+init();
+</script>
+</body>
+</html>

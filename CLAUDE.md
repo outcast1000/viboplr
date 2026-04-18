@@ -15,6 +15,7 @@ npm run test:all                     # All tests (Rust + TS + E2E)
 npm test                             # TypeScript tests only
 npm run test:rust                    # Rust tests only
 npm run test:e2e                     # Playwright E2E tests
+cd src-tauri && cargo test bench_search_performance -- --ignored --nocapture  # DB benchmarks
 ```
 
 ## Architecture
