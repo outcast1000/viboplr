@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Track, Artist, Album, ViewMode } from "../types";
+import type { Track, Artist, Album, ViewMode, SortField } from "../types";
 import { formatDuration } from "../utils";
 import { TrackList } from "./TrackList";
 import { ArtistCardArt } from "./ArtistCardArt";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { ViewModeToggle } from "./ViewModeToggle";
+
+type SortDir = "asc" | "desc";
+type MediaTypeFilter = "all" | "audio" | "video";
 
 type SearchTab = "tracks" | "albums" | "artists";
 
@@ -46,9 +49,6 @@ interface SearchViewProps {
   onFetchAlbumImage: (album: Album) => void;
   columns: import("../types").ColumnConfig[];
   onColumnsChange: (columns: import("../types").ColumnConfig[]) => void;
-  sortField: import("../types").SortField | null;
-  onSort: (field: import("../types").SortField) => void;
-  sortIndicator: (field: import("../types").SortField) => string;
 }
 
 const TRACK_PAGE_SIZE = 50;
@@ -78,9 +78,6 @@ export function SearchView({
   onFetchAlbumImage,
   columns,
   onColumnsChange,
-  sortField,
-  onSort,
-  sortIndicator,
 }: SearchViewProps) {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<SearchTab>("tracks");
@@ -89,10 +86,29 @@ export function SearchView({
   const [hasMore, setHasMore] = useState({ tracks: false, albums: false, artists: false });
   const [loadingMore, setLoadingMore] = useState({ tracks: false, albums: false, artists: false });
   const [searched, setSearched] = useState(false);
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaTypeFilter>("all");
+  const [filterYoutubeOnly, setFilterYoutubeOnly] = useState(false);
+  const [trackLikedFirst, setTrackLikedFirst] = useState(false);
+  const [sortBarCollapsed, setSortBarCollapsed] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const queryRef = useRef("");
+  const sortRef = useRef({ sortField, sortDir, mediaTypeFilter, filterYoutubeOnly, trackLikedFirst });
+  sortRef.current = { sortField, sortDir, mediaTypeFilter, filterYoutubeOnly, trackLikedFirst };
+
+  function getTrackFilterParams() {
+    const s = sortRef.current;
+    return {
+      sortField: s.sortField ?? undefined,
+      sortDir: s.sortField ? s.sortDir : undefined,
+      mediaType: s.mediaTypeFilter !== "all" ? s.mediaTypeFilter : undefined,
+      likedOnly: s.trackLikedFirst || undefined,
+      hasYoutubeUrl: s.filterYoutubeOnly || undefined,
+    };
+  }
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -107,11 +123,29 @@ export function SearchView({
     }
   }, [initialQueryKey]);
 
+  useEffect(() => {
+    refetchTracks();
+  }, [sortField, sortDir, mediaTypeFilter, filterYoutubeOnly, trackLikedFirst]);
+
+  const refetchTracks = useCallback(async () => {
+    if (!searched) return;
+    const q = queryRef.current;
+    const filters = getTrackFilterParams();
+    const trackRes = await invoke<SearchEntityResult>("search_entity", {
+      query: q, entity: "tracks", limit: TRACK_PAGE_SIZE, offset: 0, ...filters,
+    });
+    const tracks = trackRes.tracks ?? [];
+    setResults(prev => ({ ...prev, tracks }));
+    setCounts(prev => ({ ...prev, tracks: trackRes.total }));
+    setHasMore(prev => ({ ...prev, tracks: tracks.length < trackRes.total }));
+  }, [searched]);
+
   const doSearch = useCallback(async (q: string) => {
     setSearched(true);
+    const filters = getTrackFilterParams();
 
     const [trackRes, albumRes, artistRes] = await Promise.all([
-      invoke<SearchEntityResult>("search_entity", { query: q, entity: "tracks", limit: TRACK_PAGE_SIZE, offset: 0 }),
+      invoke<SearchEntityResult>("search_entity", { query: q, entity: "tracks", limit: TRACK_PAGE_SIZE, offset: 0, ...filters }),
       invoke<SearchEntityResult>("search_entity", { query: q, entity: "albums", limit: ENTITY_PAGE_SIZE, offset: 0 }),
       invoke<SearchEntityResult>("search_entity", { query: q, entity: "artists", limit: ENTITY_PAGE_SIZE, offset: 0 }),
     ]);
@@ -153,11 +187,13 @@ export function SearchView({
 
     setLoadingMore(prev => ({ ...prev, [tab]: true }));
     try {
+      const filters = tab === "tracks" ? getTrackFilterParams() : {};
       const res = await invoke<SearchEntityResult>("search_entity", {
         query: queryRef.current,
         entity: tab,
         limit: pageSize,
         offset: currentCount,
+        ...filters,
       });
 
       const newItems = tab === "tracks" ? (res.tracks ?? []) : tab === "albums" ? (res.albums ?? []) : (res.artists ?? []);
@@ -173,6 +209,20 @@ export function SearchView({
   const handleViewModeChange = useCallback((mode: ViewMode) => {
     onViewModesChange({ ...viewModes, [activeTab]: mode });
   }, [activeTab, viewModes, onViewModesChange]);
+
+  const handleSort = useCallback((field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  }, [sortField]);
+
+  const sortIndicator = useCallback((field: SortField) => {
+    if (sortField !== field) return "";
+    return sortDir === "asc" ? " \u25B2" : " \u25BC";
+  }, [sortField, sortDir]);
 
   const handleTrackLike = useCallback((track: Track) => {
     const newLiked = track.liked === 1 ? 0 : 1;
@@ -226,6 +276,9 @@ export function SearchView({
               </button>
             ))}
           </div>
+          {activeTab === "tracks" && (
+            <button className="sort-btn sort-bar-toggle" onClick={() => setSortBarCollapsed(v => !v)} title={sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{sortBarCollapsed ? "\u25BC" : "\u25B2"}</button>
+          )}
           <ViewModeToggle mode={viewModes[activeTab]} onChange={handleViewModeChange} />
         </div>
       )}
@@ -237,6 +290,36 @@ export function SearchView({
               <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
             <p>Search for tracks, albums, and artists</p>
+          </div>
+        )}
+
+        {searched && activeTab === "tracks" && (
+          <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
+            <div className="sort-bar">
+              <div className="sort-bar-row">
+                <span className="sort-bar-label">Sort:</span>
+                <div className="sort-bar-group">
+                  <button className={`sort-btn${sortField === "title" ? " active" : ""}`} onClick={() => handleSort("title")}>Title{sortIndicator("title")}</button>
+                  <button className={`sort-btn${sortField === "artist" ? " active" : ""}`} onClick={() => handleSort("artist")}>Artist{sortIndicator("artist")}</button>
+                  <button className={`sort-btn${sortField === "album" ? " active" : ""}`} onClick={() => handleSort("album")}>Album{sortIndicator("album")}</button>
+                  <button className={`sort-btn${sortField === "year" ? " active" : ""}`} onClick={() => handleSort("year")}>Year{sortIndicator("year")}</button>
+                  <button className={`sort-btn${sortField === "duration" ? " active" : ""}`} onClick={() => handleSort("duration")}>Duration{sortIndicator("duration")}</button>
+                  <button className={`sort-btn${sortField === "added" ? " active" : ""}`} onClick={() => handleSort("added")}>Added{sortIndicator("added")}</button>
+                  <button className={`sort-btn${sortField === "modified" ? " active" : ""}`} onClick={() => handleSort("modified")}>Modified{sortIndicator("modified")}</button>
+                  <button className={`sort-btn${sortField === "random" ? " active" : ""}`} onClick={() => handleSort("random")}>Shuffle</button>
+                  <button className={`sort-btn liked-first-btn${trackLikedFirst ? " active" : ""}`} onClick={() => setTrackLikedFirst(v => !v)} title="Liked first">{"\u2665"} Liked first</button>
+                </div>
+              </div>
+              <div className="sort-bar-row">
+                <span className="sort-bar-label">Filter:</span>
+                <div className="sort-bar-group sort-bar-group-filter">
+                  <button className={`sort-btn${mediaTypeFilter === "all" ? " active" : ""}`} onClick={() => setMediaTypeFilter("all")}>All</button>
+                  <button className={`sort-btn${mediaTypeFilter === "audio" ? " active" : ""}`} onClick={() => setMediaTypeFilter("audio")}>Audio</button>
+                  <button className={`sort-btn${mediaTypeFilter === "video" ? " active" : ""}`} onClick={() => setMediaTypeFilter("video")}>Video</button>
+                  <button className={`sort-btn${filterYoutubeOnly ? " active" : ""}`} onClick={() => setFilterYoutubeOnly(v => !v)}>YouTube</button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -254,7 +337,7 @@ export function SearchView({
             onContextMenu={onTrackContextMenu}
             onArtistClick={onArtistClick}
             onAlbumClick={onAlbumClick}
-            onSort={onSort}
+            onSort={handleSort}
             sortIndicator={sortIndicator}
             onToggleLike={handleTrackLike}
             onToggleDislike={handleTrackDislike}

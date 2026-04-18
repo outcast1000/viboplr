@@ -2103,9 +2103,6 @@ function App() {
               onFetchAlbumImage={albumImageCache.fetchOnDemand}
               columns={library.trackColumns}
               onColumnsChange={library.setTrackColumns}
-              sortField={sortField}
-              onSort={library.handleSort}
-              sortIndicator={library.sortIndicator}
             />
           )}
 

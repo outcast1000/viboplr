@@ -1024,17 +1024,48 @@ impl Database {
         Ok(SearchAllResults { artists, albums, tracks })
     }
 
-    fn list_entity(&self, conn: &rusqlite::Connection, entity: &str, limit: i64, offset: i64) -> SqlResult<SearchEntityResult> {
+    fn list_entity(&self, conn: &rusqlite::Connection, entity: &str, opts: &TrackQuery) -> SqlResult<SearchEntityResult> {
+        let limit = opts.limit.unwrap_or(100);
+        let offset = opts.offset.unwrap_or(0);
         match entity {
             "tracks" => {
+                let mut where_clauses = format!("WHERE 1=1 {}", ENABLED_COLLECTION_FILTER);
+                let mut count_clauses = format!("WHERE 1=1 {}", ENABLED_COLLECTION_FILTER_STANDALONE);
+                if opts.liked_only {
+                    where_clauses.push_str(" AND t.liked = 1");
+                    count_clauses.push_str(" AND t.liked = 1");
+                }
+                if opts.has_youtube_url {
+                    where_clauses.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''");
+                    count_clauses.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''");
+                }
+                match opts.media_type.as_deref() {
+                    Some("audio") => {
+                        let f = " AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))";
+                        where_clauses.push_str(f);
+                        count_clauses.push_str(f);
+                    }
+                    Some("video") => {
+                        let f = " AND LOWER(t.format) IN ('mp4','m4v','mov','webm')";
+                        where_clauses.push_str(f);
+                        count_clauses.push_str(f);
+                    }
+                    _ => {}
+                }
+
                 let total: i64 = conn.query_row(
-                    &format!("SELECT COUNT(*) FROM tracks t WHERE 1=1 {}", ENABLED_COLLECTION_FILTER_STANDALONE),
+                    &format!("SELECT COUNT(*) FROM tracks t {}", count_clauses),
                     [], |row| row.get(0),
                 )?;
-                let sql = format!(
-                    "{} WHERE 1=1 {} ORDER BY t.title LIMIT ?1 OFFSET ?2",
-                    TRACK_SELECT, ENABLED_COLLECTION_FILTER
-                );
+
+                let order = if let Some(col) = sort_column_sql(opts.sort_field.as_deref()) {
+                    let dir = match opts.sort_dir.as_deref() { Some("desc") => "DESC", _ => "ASC" };
+                    format!("ORDER BY {} {}, t.id", col, dir)
+                } else {
+                    "ORDER BY t.title".to_string()
+                };
+
+                let sql = format!("{} {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, where_clauses, order);
                 let mut stmt = conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![limit, offset], |row| track_from_row(row))?;
                 let tracks = rows.collect::<SqlResult<Vec<_>>>()?;
@@ -1070,7 +1101,7 @@ impl Database {
         }
     }
 
-    pub fn search_entity(&self, query: &str, entity: &str, limit: i64, offset: i64) -> SqlResult<SearchEntityResult> {
+    pub fn search_entity(&self, query: &str, entity: &str, opts: &TrackQuery) -> SqlResult<SearchEntityResult> {
         let conn = self.conn.lock().unwrap();
 
         let normalized = strip_diacritics(query);
@@ -1080,31 +1111,30 @@ impl Database {
             .collect();
 
         if words.is_empty() {
-            return self.list_entity(&conn, entity, limit, offset);
+            return self.list_entity(&conn, entity, opts);
         }
 
+        let limit = opts.limit.unwrap_or(100);
+        let offset = opts.offset.unwrap_or(0);
         let fts_terms = words.join(" AND ");
 
         match entity {
             "tracks" => {
-                let track_opts = TrackQuery {
-                    limit: Some(limit),
-                    offset: Some(offset),
-                    ..Default::default()
-                };
-                let tracks = self.search_tracks_inner(&conn, &track_opts, query)?;
+                let tracks = self.search_tracks_inner(&conn, opts, query)?;
 
                 let fts_query = format!("{{title artist_name album_title tag_names path}}:{}", fts_terms);
-                let total: i64 = conn.query_row(
-                    &format!(
-                        "SELECT COUNT(*) FROM tracks t \
+                let mut count_sql = "SELECT COUNT(*) FROM tracks t \
                          JOIN tracks_fts ON tracks_fts.rowid = t.id \
                          WHERE tracks_fts MATCH ?1 \
-                         AND t.collection_id IN (SELECT id FROM collections WHERE enabled = 1)"
-                    ),
-                    params![fts_query],
-                    |row| row.get(0),
-                )?;
+                         AND t.collection_id IN (SELECT id FROM collections WHERE enabled = 1)".to_string();
+                if opts.liked_only { count_sql.push_str(" AND t.liked = 1"); }
+                if opts.has_youtube_url { count_sql.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''"); }
+                match opts.media_type.as_deref() {
+                    Some("audio") => count_sql.push_str(" AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))"),
+                    Some("video") => count_sql.push_str(" AND LOWER(t.format) IN ('mp4','m4v','mov','webm')"),
+                    _ => {}
+                }
+                let total: i64 = conn.query_row(&count_sql, params![fts_query], |row| row.get(0))?;
 
                 Ok(SearchEntityResult { tracks: Some(tracks), albums: None, artists: None, total })
             }
@@ -4312,7 +4342,7 @@ mod tests {
         db.recompute_counts().unwrap();
         db.rebuild_fts().unwrap();
 
-        let result = db.search_entity("bohemian", "tracks", 10, 0).unwrap();
+        let result = db.search_entity("bohemian", "tracks", &TrackQuery { limit: Some(10), ..Default::default() }).unwrap();
         assert_eq!(result.total, 2);
         assert_eq!(result.tracks.as_ref().unwrap().len(), 2);
         assert!(result.albums.is_none());
@@ -4332,7 +4362,7 @@ mod tests {
         db.recompute_counts().unwrap();
         db.rebuild_fts().unwrap();
 
-        let result = db.search_entity("queen", "artists", 10, 0).unwrap();
+        let result = db.search_entity("queen", "artists", &TrackQuery { limit: Some(10), ..Default::default() }).unwrap();
         assert_eq!(result.total, 2);
         assert!(result.artists.is_some());
         assert!(result.tracks.is_none());
@@ -4351,7 +4381,7 @@ mod tests {
         db.recompute_counts().unwrap();
         db.rebuild_fts().unwrap();
 
-        let result = db.search_entity("dark", "albums", 10, 0).unwrap();
+        let result = db.search_entity("dark", "albums", &TrackQuery { limit: Some(10), ..Default::default() }).unwrap();
         assert_eq!(result.total, 2);
         assert!(result.albums.is_some());
         assert!(result.tracks.is_none());
@@ -4369,15 +4399,15 @@ mod tests {
         db.recompute_counts().unwrap();
         db.rebuild_fts().unwrap();
 
-        let page1 = db.search_entity("rock", "tracks", 3, 0).unwrap();
+        let page1 = db.search_entity("rock", "tracks", &TrackQuery { limit: Some(3), ..Default::default() }).unwrap();
         assert_eq!(page1.total, 10);
         assert_eq!(page1.tracks.as_ref().unwrap().len(), 3);
 
-        let page2 = db.search_entity("rock", "tracks", 3, 3).unwrap();
+        let page2 = db.search_entity("rock", "tracks", &TrackQuery { limit: Some(3), offset: Some(3), ..Default::default() }).unwrap();
         assert_eq!(page2.total, 10);
         assert_eq!(page2.tracks.as_ref().unwrap().len(), 3);
 
-        let last_page = db.search_entity("rock", "tracks", 3, 9).unwrap();
+        let last_page = db.search_entity("rock", "tracks", &TrackQuery { limit: Some(3), offset: Some(9), ..Default::default() }).unwrap();
         assert_eq!(last_page.total, 10);
         assert_eq!(last_page.tracks.as_ref().unwrap().len(), 1);
     }

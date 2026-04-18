@@ -419,10 +419,25 @@ pub fn search_entity(
     entity: String,
     limit: i64,
     offset: i64,
+    sort_field: Option<String>,
+    sort_dir: Option<String>,
+    media_type: Option<String>,
+    liked_only: Option<bool>,
+    has_youtube_url: Option<bool>,
 ) -> Result<SearchEntityResult, String> {
+    let track_opts = TrackQuery {
+        limit: Some(limit),
+        offset: Some(offset),
+        sort_field,
+        sort_dir,
+        media_type,
+        liked_only: liked_only.unwrap_or(false),
+        has_youtube_url: has_youtube_url.unwrap_or(false),
+        ..Default::default()
+    };
     state
         .db
-        .search_entity(&query, &entity, limit, offset)
+        .search_entity(&query, &entity, &track_opts)
         .map_err(|e| e.to_string())
 }
 
