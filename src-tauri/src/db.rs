@@ -910,9 +910,6 @@ impl Database {
             sql.push_str(&format!(" AND tt.tag_id = ?{}", param_idx));
             param_idx += 1;
         }
-        if opts.liked_only {
-            sql.push_str(" AND t.liked = 1");
-        }
         if opts.has_youtube_url {
             sql.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''");
         }
@@ -922,12 +919,15 @@ impl Database {
             _ => {}
         }
 
+        let liked_prefix = if opts.liked_only { "t.liked DESC, " } else { "" };
         if let Some(col) = sort_column_sql(opts.sort_field.as_deref()) {
             let dir = match opts.sort_dir.as_deref() {
                 Some("desc") => "DESC",
                 _ => "ASC",
             };
-            sql.push_str(&format!(" ORDER BY {} {}, t.id", col, dir));
+            sql.push_str(&format!(" ORDER BY {}{} {}, t.id", liked_prefix, col, dir));
+        } else if opts.liked_only {
+            sql.push_str(" ORDER BY t.liked DESC, t.id");
         }
 
         let limit = opts.limit.unwrap_or(100);
@@ -1031,10 +1031,6 @@ impl Database {
             "tracks" => {
                 let mut where_clauses = format!("WHERE 1=1 {}", ENABLED_COLLECTION_FILTER);
                 let mut count_clauses = format!("WHERE 1=1 {}", ENABLED_COLLECTION_FILTER_STANDALONE);
-                if opts.liked_only {
-                    where_clauses.push_str(" AND t.liked = 1");
-                    count_clauses.push_str(" AND t.liked = 1");
-                }
                 if opts.has_youtube_url {
                     where_clauses.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''");
                     count_clauses.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''");
@@ -1058,11 +1054,12 @@ impl Database {
                     [], |row| row.get(0),
                 )?;
 
+                let liked_prefix = if opts.liked_only { "t.liked DESC, " } else { "" };
                 let order = if let Some(col) = sort_column_sql(opts.sort_field.as_deref()) {
                     let dir = match opts.sort_dir.as_deref() { Some("desc") => "DESC", _ => "ASC" };
-                    format!("ORDER BY {} {}, t.id", col, dir)
+                    format!("ORDER BY {}{} {}, t.id", liked_prefix, col, dir)
                 } else {
-                    "ORDER BY t.title".to_string()
+                    format!("ORDER BY {}t.title", liked_prefix)
                 };
 
                 let sql = format!("{} {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, where_clauses, order);
@@ -1072,16 +1069,16 @@ impl Database {
                 Ok(SearchEntityResult { tracks: Some(tracks), albums: None, artists: None, total })
             }
             "artists" => {
-                let mut where_clause = "WHERE a.track_count > 0".to_string();
-                if opts.liked_only { where_clause.push_str(" AND a.liked = 1"); }
+                let where_clause = "WHERE a.track_count > 0";
                 let total: i64 = conn.query_row(
                     &format!("SELECT COUNT(*) FROM artists a {}", where_clause), [], |row| row.get(0),
                 )?;
+                let liked_prefix = if opts.liked_only { "a.liked DESC, " } else { "" };
                 let order = match opts.sort_field.as_deref() {
-                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY a.name {}", d) }
-                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY a.track_count {}", d) }
-                    Some("random") => "ORDER BY RANDOM()".to_string(),
-                    _ => "ORDER BY a.name".to_string(),
+                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.name {}", liked_prefix, d) }
+                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.track_count {}", liked_prefix, d) }
+                    Some("random") => format!("ORDER BY {}RANDOM()", liked_prefix),
+                    _ => format!("ORDER BY {}a.name", liked_prefix),
                 };
                 let sql = format!("SELECT a.id, a.name, a.track_count, a.liked FROM artists a {} {} LIMIT ?1 OFFSET ?2", where_clause, order);
                 let mut stmt = conn.prepare(&sql)?;
@@ -1092,18 +1089,18 @@ impl Database {
                 Ok(SearchEntityResult { tracks: None, albums: None, artists: Some(artists), total })
             }
             "albums" => {
-                let mut where_clause = "WHERE a.track_count > 0".to_string();
-                if opts.liked_only { where_clause.push_str(" AND a.liked = 1"); }
+                let where_clause = "WHERE a.track_count > 0";
                 let total: i64 = conn.query_row(
                     &format!("SELECT COUNT(*) FROM albums a {}", where_clause), [], |row| row.get(0),
                 )?;
+                let liked_prefix = if opts.liked_only { "a.liked DESC, " } else { "" };
                 let order = match opts.sort_field.as_deref() {
-                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY a.title {}", d) }
-                    Some("artist") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY ar.name {}", d) }
-                    Some("year") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY a.year {}", d) }
-                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY a.track_count {}", d) }
-                    Some("random") => "ORDER BY RANDOM()".to_string(),
-                    _ => "ORDER BY a.title".to_string(),
+                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.title {}", liked_prefix, d) }
+                    Some("artist") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}ar.name {}", liked_prefix, d) }
+                    Some("year") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.year {}", liked_prefix, d) }
+                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.track_count {}", liked_prefix, d) }
+                    Some("random") => format!("ORDER BY {}RANDOM()", liked_prefix),
+                    _ => format!("ORDER BY {}a.title", liked_prefix),
                 };
                 let sql = format!(
                     "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked \
@@ -1145,7 +1142,6 @@ impl Database {
                          JOIN tracks_fts ON tracks_fts.rowid = t.id \
                          WHERE tracks_fts MATCH ?1 \
                          AND t.collection_id IN (SELECT id FROM collections WHERE enabled = 1)".to_string();
-                if opts.liked_only { count_sql.push_str(" AND t.liked = 1"); }
                 if opts.has_youtube_url { count_sql.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''"); }
                 match opts.media_type.as_deref() {
                     Some("audio") => count_sql.push_str(" AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))"),
@@ -1158,36 +1154,35 @@ impl Database {
             }
             "artists" => {
                 let fts_query = format!("{{artist_name}}:{}", fts_terms);
-                let liked_filter = if opts.liked_only { " AND a.liked = 1" } else { "" };
                 let total: i64 = conn.query_row(
-                    &format!("SELECT COUNT(DISTINCT a.id) FROM artists a \
-                     WHERE a.track_count > 0{} \
+                    "SELECT COUNT(DISTINCT a.id) FROM artists a \
+                     WHERE a.track_count > 0 \
                      AND a.id IN ( \
                        SELECT t.artist_id FROM tracks t \
                        JOIN tracks_fts ON tracks_fts.rowid = t.id \
                        WHERE tracks_fts MATCH ?1 AND t.artist_id IS NOT NULL \
-                     )", liked_filter),
+                     )",
                     params![fts_query],
                     |row| row.get(0),
                 )?;
 
+                let liked_prefix = if opts.liked_only { "a.liked DESC, " } else { "" };
                 let order = match opts.sort_field.as_deref() {
-                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY a.name {}", d) }
-                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY a.track_count {}", d) }
-                    Some("random") => "ORDER BY RANDOM()".to_string(),
-                    _ => "ORDER BY a.name".to_string(),
+                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.name {}", liked_prefix, d) }
+                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.track_count {}", liked_prefix, d) }
+                    Some("random") => format!("ORDER BY {}RANDOM()", liked_prefix),
+                    _ => format!("ORDER BY {}a.name", liked_prefix),
                 };
-                let liked_filter = if opts.liked_only { " AND a.liked = 1" } else { "" };
                 let mut stmt = conn.prepare(
                     &format!("SELECT DISTINCT a.id, a.name, a.track_count, a.liked \
                      FROM artists a \
-                     WHERE a.track_count > 0{} \
+                     WHERE a.track_count > 0 \
                      AND a.id IN ( \
                        SELECT t.artist_id FROM tracks t \
                        JOIN tracks_fts ON tracks_fts.rowid = t.id \
                        WHERE tracks_fts MATCH ?1 AND t.artist_id IS NOT NULL \
                      ) \
-                     {} LIMIT ?2 OFFSET ?3", liked_filter, order)
+                     {} LIMIT ?2 OFFSET ?3", order)
                 )?;
                 let rows = stmt.query_map(params![fts_query, limit, offset], |row| {
                     Ok(Artist {
@@ -1215,8 +1210,17 @@ impl Database {
                     |row| row.get(0),
                 )?;
 
+                let liked_prefix = if opts.liked_only { "al.liked DESC, " } else { "" };
+                let order = match opts.sort_field.as_deref() {
+                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}al.title {}", liked_prefix, d) }
+                    Some("artist") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}ar.name {}", liked_prefix, d) }
+                    Some("year") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}al.year {}", liked_prefix, d) }
+                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}al.track_count {}", liked_prefix, d) }
+                    Some("random") => format!("ORDER BY {}RANDOM()", liked_prefix),
+                    _ => format!("ORDER BY {}al.title", liked_prefix),
+                };
                 let mut stmt = conn.prepare(
-                    "SELECT DISTINCT al.id, al.title, al.artist_id, ar.name, al.year, al.track_count, al.liked \
+                    &format!("SELECT DISTINCT al.id, al.title, al.artist_id, ar.name, al.year, al.track_count, al.liked \
                      FROM albums al \
                      LEFT JOIN artists ar ON al.artist_id = ar.id \
                      WHERE al.track_count > 0 \
@@ -1225,7 +1229,7 @@ impl Database {
                        JOIN tracks_fts ON tracks_fts.rowid = t.id \
                        WHERE tracks_fts MATCH ?1 AND t.album_id IS NOT NULL \
                      ) \
-                     ORDER BY al.title LIMIT ?2 OFFSET ?3"
+                     {} LIMIT ?2 OFFSET ?3", order)
                 )?;
                 let rows = stmt.query_map(params![fts_query, limit, offset], |row| album_from_row(row))?;
                 let albums = rows.collect::<SqlResult<Vec<_>>>()?;
