@@ -149,6 +149,39 @@ Queue items show: thumbnail, title + duration, artist + album, "locate track" bu
 
 Features: drag-and-drop reorder, multi-select (Shift/Cmd+Click), right-click context menu, duplicate detection on enqueue, resizable width via drag handle.
 
+### Playlist Context
+
+When tracks are played from a specific source (album, artist, tag, playlist, Spotify playlist, etc.), a `PlaylistContext` is attached to the queue. This gives the queue panel awareness of *what* the user is playing.
+
+```typescript
+interface PlaylistContext {
+  name: string;              // e.g., album title, artist name, playlist name
+  coverPath?: string | null; // local image path (for library entities)
+  coverUrl?: string | null;  // remote image URL (for plugins like Spotify)
+}
+```
+
+**How it works:**
+- `playTracks(tracks, startIndex, context?)` accepts an optional `PlaylistContext` as the third argument
+- When context is set, the queue panel shows a **context banner** at the top: cover image + name + track count + duration
+- When context is null, the queue panel shows a plain info bar at the bottom instead
+- Context is persisted to the app store as `playlistContext` and restored on startup
+
+**Every play action must pass context when it knows the source.** Examples from the codebase:
+
+| Source | Context passed |
+|--------|---------------|
+| Album "Play All" | `{ name: album.title, coverPath: albumImagePath }` |
+| Artist "Play All" | `{ name: artist.name, coverPath: artistImagePath }` |
+| Tag "Play All" | `{ name: tag.name, coverPath: tagImagePath }` |
+| Saved playlist load | `{ name: result.playlist_name }` |
+| Plugin `requestAction("play-tracks")` | `{ name: payload.playlistName, coverUrl: payload.coverUrl }` |
+| Double-click single track | No context (null) |
+
+**For plugins:** Use `api.ui.requestAction("play-tracks", { tracks, startIndex, playlistName, coverUrl })` to play tracks with context. The `playlistName` and `coverUrl` fields are extracted and passed as context automatically.
+
+**Track image URLs:** Each track in the payload can carry an `image_url` field. When playing tracks from external sources (TIDAL, Spotify), include the image URL so the now playing bar and queue can display artwork without needing a library image lookup.
+
 ## Now Playing Bar
 
 **Component:** `NowPlayingBar.tsx` (row 3, all columns)
