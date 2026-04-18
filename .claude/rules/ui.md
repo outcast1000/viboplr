@@ -24,7 +24,7 @@ Every entity list supports three view modes using shared CSS classes. The stylin
 |------|-----------|--------|--------------|
 | **Table** | `.entity-table` | Grid columns, sortable headers | Right-click on row |
 | **List** | `.entity-list` | Rows with thumbnails, two-line layout (title + subtitle) | Right-click on row |
-| **Tiles** | `.album-grid` | Card grid (`repeat(auto-fill, minmax(160px, 1fr))`) | Via `...` button overlay on card |
+| **Tiles** | `.album-grid` | Card grid (`repeat(auto-fill, minmax(160px, 1fr))`) | Via `...` button overlay on card (see Tile Card Structure below) |
 
 ### Context Menu Consistency
 
@@ -41,6 +41,33 @@ The app must detect what kind of entity it is rendering and show the appropriate
 **Registering new actions:** Both internal features and plugins register context menu items via `contributes.contextMenuItems` in their manifest with `targets: ["track", "album", "artist", "multi-track", "playlist"]`. New actions automatically appear in all context menus for that entity type across every surface.
 
 **When adding a new surface that shows entities:** Use the shared CSS classes, wire up context menus with `pluginMenuItems` and `onPluginAction`, and ensure all three view modes work. Do not create one-off styling — reuse the existing `.entity-table`, `.entity-list`, and `.album-grid` patterns.
+
+### Tile Card Structure
+
+Every tile card follows a common pattern with three interactive zones:
+
+1. **Image area** — fills the top of the card. Contains:
+   - **Play button** — centered overlay, appears on hover (dark semi-transparent backdrop, white play icon). Clicking plays the entity's tracks immediately (with `stopPropagation`).
+   - **Like button(s)** — top-right corner overlay, appears on hover. Tracks have both like (heart) and dislike (X) buttons; other entities have just the heart.
+2. **Body area** — below the image. Contains title, optional subtitle, and a `...` menu button (right-aligned, appears on hover). Clicking the `...` opens the context menu (with `stopPropagation`).
+3. **Click on card** (outside play/like/menu buttons) — navigates to the entity's detail view.
+
+**Per-entity differences:**
+
+| Entity | Card Class | Image Shape | Subtitle | Like Buttons |
+|--------|-----------|-------------|----------|-------------|
+| Album | `.album-card` | Square | artist - year | Heart |
+| Artist | `.artist-card` | Circular (border-radius: 50%), 12px margin | None (name only, centered) | Heart |
+| Tag | `.tag-card` | Square with 8px border-radius, 8px margin | Track count, centered | Heart |
+| Track | `.album-card` | Square (album art) | artist - duration | Heart + Dislike |
+| Playlist | `.playlist-card` | Square (wider grid: 180px min) | track count - saved date | None |
+
+**Shared styling patterns:**
+- Cards use `var(--bg-secondary)` background, `var(--bg-hover)` on hover, 8px border-radius
+- Overlay buttons use `opacity: 0` by default, `opacity: 1` on card hover, with 0.15s transitions
+- Like buttons: 24px circular, `rgba(var(--overlay-inverse), 0.5)` background, red on hover/active
+- Play button: absolute positioned over image, `rgba(0, 0, 0, 0.4)` backdrop, 40px play icon with drop shadow
+- Title uses `--fs-sm` weight 600, subtitle uses `--fs-xs` `var(--text-secondary)`, both with ellipsis overflow
 
 ## Layout
 
