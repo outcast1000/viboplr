@@ -1790,7 +1790,7 @@ function App() {
       <main className={`main${library.selectedTrack !== null && playback.currentTrack?.id === library.selectedTrack && isVideoTrack(playback.currentTrack) ? " video-detail" : ""}`} data-dock={playback.currentTrack && isVideoTrack(playback.currentTrack) ? videoLayout.dockSide : undefined}>
         {/* Content area */}
         <div className="content" ref={contentRef} style={playback.currentTrack && isVideoTrack(playback.currentTrack) ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
-          {view !== "settings" && !(selectedArtist !== null && selectedAlbum === null && library.selectedTrack === null) && (
+          {view !== "settings" && view !== "search" && !(selectedArtist !== null && selectedAlbum === null && library.selectedTrack === null) && (
             <Breadcrumb
               view={view}
               selectedArtist={selectedArtist}
