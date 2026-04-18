@@ -2,6 +2,12 @@
 
 Plugins extend Viboplr with information sections, image providers, context menu actions, sidebar views, event hooks, and settings panels.
 
+## Architecture
+
+Two-layer system:
+1. **Rust layer** — image download worker with Rust-JS bridge, embedded artwork extraction, SQLite-backed caching, plugin file I/O, info type and image provider storage
+2. **TypeScript layer** — plugin discovery (`usePlugins.ts`), info type orchestration (`useInformationTypes.ts`), image resolution bridge (`useImageResolver.ts`), rendering (`InformationSections.tsx`, `PluginViewRenderer.tsx`)
+
 ## Directory Structure
 
 Plugins live in `src-tauri/plugins/`. Each plugin is a folder with:
@@ -11,7 +17,7 @@ plugin-name/
 └── index.js         # Plugin code (ES5, executed via new Function("api", code))
 ```
 
-User-installed plugins (in the app data directory) override built-in plugins with the same ID.
+User-installed plugins (in app data directory) override built-in plugins with the same ID.
 
 ## Manifest Format
 
@@ -27,7 +33,6 @@ User-installed plugins (in the app data directory) override built-in plugins wit
     "informationTypes": [{
       "id": "info_type_id",
       "name": "Tab Label",
-      "description": "What it shows",
       "entity": "artist|album|track|tag",
       "displayKind": "rich_text|lyrics|stat_grid|...",
       "ttl": 7776000,
@@ -62,9 +67,19 @@ User-installed plugins (in the app data directory) override built-in plugins wit
 }
 ```
 
+## Plugin Lifecycle
+
+1. **Discovery** — `invoke("plugin_list_installed")` scans user and built-in plugin dirs. User plugins override built-in by ID.
+2. **Validation** — checks `minAppVersion` via semver comparison. Incompatible plugins get status `"incompatible"`.
+3. **Activation** — reads `index.js` via `plugin_read_file`, executes `new Function("api", code)(api)`, calls `activate(api)`.
+4. **Running** — plugin handlers respond to events, fetch requests, UI actions.
+5. **Deactivation** — calls `deactivate()`, clears all handlers and unsubscribers.
+
+When a plugin's version changes, all its cached values are deleted, forcing re-fetch.
+
 ## Plugin API
 
-Plugins receive a `api` object in their `new Function("api", code)` execution context. The plugin exports `activate(api)` and optionally `deactivate()`.
+Plugins receive an `api` object. The plugin exports `activate(api)` and optionally `deactivate()`.
 
 ### api.library
 - `getTracks(opts?)` / `getArtists()` / `getAlbums()` / `getTrackById(id)` — library queries
@@ -91,7 +106,7 @@ Plugins receive a `api` object in their `new Function("api", code)` execution co
 - `get<T>(key)` / `set(key, value)` / `delete(key)` — persistent key-value storage (SQLite-backed)
 
 ### api.network
-- `fetch(url, init?)` — HTTP requests
+- `fetch(url, init?)` — HTTP requests (proxied through Rust backend)
 - `openUrl(url)` / `openBrowseWindow(url, opts)` — open URLs/browser windows
 - `onDeepLink(handler)` / `onOAuthCallback(handler)` / `startOAuthListener()` — OAuth/deep link support
 
@@ -111,34 +126,122 @@ Plugins receive a `api` object in their `new Function("api", code)` execution co
 - `invoke<T>(command, args)` — call any Tauri backend command
 
 ### api.imageProviders
-- `onFetch(entity, handler)` — register image fetch handler, returns `{ status: "ok", url }` or `{ status: "not_found" }`
+- `onFetch(entity, handler)` — register image fetch handler for `"artist"` or `"album"`. Returns `{ status: "ok", url, headers? }` or `{ status: "ok", data }` (base64) or `{ status: "not_found" }` or `{ status: "error" }`
 
-## Display Kinds
+## Information Sections
 
-For `informationTypes[].displayKind`: `rich_text`, `html`, `entity_list`, `entity_cards`, `stat_grid`, `lyrics`, `tag_list`, `ranked_list`, `annotated_text`, `annotations`, `key_value`, `image_gallery`, `title_line`.
+Tabbed metadata panels shown on entity detail pages (artists, albums, tracks, tags).
+
+### Provider Chain
+
+Multiple plugins can provide the same information type ID (e.g., both `lastfm` and `genius` provide `artist_bio`). Lower `priority` number = tried first. First success wins.
+
+### Entity Keys
+
+Cached values use **name-based keys** (not DB IDs), enabling cross-library metadata sharing:
+- Artist: `artist:{name}`
+- Album: `album:{artistName}:{name}`
+- Track: `track:{artistName}:{name}`
+- Tag: `tag:{name}`
+
+### Cache Decision Logic (`useInformationTypes.ts`)
+
+| Cached Status | TTL State | Action |
+|---|---|---|
+| No cache | — | fetch (show loading) |
+| `"ok"` | fresh | render cached |
+| `"ok"` | stale | render cached + refetch in background |
+| `"not_found"` / `"error"` | fresh (< 1 hour) | hidden |
+| `"not_found"` / `"error"` | stale (>= 1 hour) | retry fetch |
+
+Success TTL is per-type (e.g., 90 days for bios, 7 days for popularity). Error TTL is fixed 1 hour. Concurrent fetches for the same `typeId:entityKey` are deduplicated via `inFlightRef` Set.
+
+### Placement
+
+| Placement | Display Kinds |
+|---|---|
+| **Title (inline in header)** | `title_line` — rendered by `TitleLineInfo.tsx`, never appears as a tab |
+| **Right sidebar** | `ranked_list`, `tag_list`, `image_gallery` |
+| **Below (main tabs)** | All others: `rich_text`, `html`, `entity_list`, `entity_cards`, `stat_grid`, `lyrics`, `annotated_text`, `annotations`, `key_value` |
+
+### Display Kind Data Schemas
+
+| displayKind | Data Shape |
+|---|---|
+| `rich_text` | `{summary, full?}` |
+| `html` | `{content}` |
+| `entity_list` | `{items: [{name, subtitle?, match?, image?, libraryId?, libraryKind?}]}` |
+| `entity_cards` | `{items: [{name, subtitle?, match?, image?, libraryId?, libraryKind?}]}` |
+| `stat_grid` | `{items: [{label, value, unit?}]}` |
+| `lyrics` | `{text, kind: "plain"|"synced", lines?: [{time, text}]}` |
+| `tag_list` | `{tags: [{name, url?}], suggestable?}` |
+| `ranked_list` | `{items: [{name, subtitle?, value, maxValue?, libraryId?, libraryKind?}]}` |
+| `annotated_text` | `{overview?, sections: [{heading?, text}]}` |
+| `annotations` | `{overview?, annotations: [{fragment, explanation}]}` |
+| `key_value` | `{items: [{key, value}]}` |
+| `image_gallery` | `{images: [{url, caption?, source?}]}` |
+| `title_line` | `{items: [{label, value}]}` |
+
+### Built-in Actions
+
+Renderers emit actions via `onAction(actionId, payload)`. Built-in actions handled by `InformationSections.tsx`:
+
+| Action | Payload | Behavior |
+|---|---|---|
+| `save-lyrics` | `{text, kind}` | Upserts lyrics to cache |
+| `play-track` | `{id}` | Plays library track by ID |
+| `play-or-youtube` | `{name, artist?}` | Tries library, falls back to YouTube |
+| `youtube-search` | `{name, artist?}` | Opens YouTube search |
+
+## Image Provider Chain (Rust-JS Bridge)
+
+Image fetching uses a bridge between the Rust download worker and JS plugin handlers.
+
+### Flow
+
+1. **Album only:** Rust tries `EmbeddedArtworkProvider` first (extracts from audio file via `lofty`). If found, bridge is skipped.
+2. Rust worker creates a one-shot `mpsc` channel, registers it in `ImageResolveRegistry`, emits `image-resolve-request` event to frontend.
+3. `useImageResolver.ts` receives event, queries `get_image_providers` for active providers in priority order.
+4. Calls each plugin's `imageFetchHandlers` sequentially. First `{status: "ok"}` wins.
+5. Sends result back via `image_resolve_response` command (URL with optional headers, or base64 data).
+6. Rust worker downloads from URL (or decodes base64), saves to disk, emits `artist-image-ready` / `album-image-ready`.
+7. On failure or 30s timeout: records in `image_fetch_failures` table.
+
+### Default Priority Order (user-configurable via Settings > Providers)
+
+**Artist:** TIDAL (100) -> Deezer (200) -> iTunes (300) -> AudioDB (400) -> MusicBrainz (500)
+**Album:** Embedded (Rust-native, always first) -> TIDAL (100) -> iTunes (200) -> Deezer (300) -> MusicBrainz (500)
+
+### Provider Management
+
+Users can drag-and-drop reorder and toggle providers on/off in Settings > Providers. `sync_image_providers()` and `info_sync_types()` preserve user-customized priorities when plugins reload. `reset_provider_priorities` restores manifest defaults.
+
+## Plugin View Rendering
+
+Plugins with sidebar items render UI via `PluginViewData` (separate from info type renderers):
+
+Types: `track-list`, `card-grid`, `track-row-list`, `text`, `stats-grid`, `button`, `toggle`, `select`, `layout` (vertical/horizontal container), `spacer`, `search-input`, `tabs`, `loading`, `progress-bar`, `settings-row`, `section`.
+
+## Database Tables
+
+- **`information_types`** — registered info types with `type_id`, `entity`, `display_kind`, `plugin_id`, `ttl`, `sort_order`, `priority`, `active`. Unique on `(type_id, plugin_id)`.
+- **`information_values`** — cached values with `information_type_id`, `entity_key` (name-based), `value` (JSON), `status`, `fetched_at`. Primary key on `(information_type_id, entity_key)`.
+- **`image_providers`** — registered image providers with `plugin_id`, `entity`, `priority`, `active`.
+- **`plugin_storage`** — per-plugin key-value store. Primary key on `(plugin_id, key)`.
 
 ## Existing Plugins
 
-| Plugin | What it does |
+| Plugin | Contributions |
 |--------|-------------|
-| **allmusic** | Artist biographies from AllMusic |
-| **audiodb** | Artist images from TheAudioDB |
-| **deezer** | Artist and album images from Deezer |
-| **genius** | Song explanations, artist/album descriptions, annotated lyrics |
-| **itunes** | Artist and album images from iTunes |
-| **lastfm** | Scrobbling, now playing, history import, metadata (9 info types + settings + event hooks) |
-| **lrclib** | Synced and plain lyrics from LRCLIB |
-| **lyrics-ovh** | Plain lyrics from Lyrics.ovh |
-| **lyrics-search** | Meta-search lyrics via DuckDuckGo with site scrapers |
-| **musicbrainz** | Artist and album images from MusicBrainz / Cover Art Archive |
-| **spotify-browse** | Browse Spotify liked songs and playlists (DOM scraping) |
-| **tidal-browse** | Search, stream, download from TIDAL (images + sidebar + context menus + fallback) |
-
-## Key Implementation Details
-
-- Plugins execute in a sandboxed `new Function()` context — no global scope access
-- Multiple plugins can provide the same information type; lower priority number = checked first
-- Plugin state persists in the backend SQLite database per plugin ID
-- Information types and image providers are synced to the DB via `info_sync_types()` / `sync_image_providers()`
-- Frontend loading: `usePlugins.ts` → `plugin_list_installed` command → read `index.js` → execute → call `activate(api)`
-- Gallery plugins can be installed from remote (GitHub-hosted) via `install_gallery_plugin`
+| **allmusic** | Artist biographies (info type: `artist_bio`, `rich_text`) |
+| **audiodb** | Artist images (priority 400) |
+| **deezer** | Artist images (200), album images (300) |
+| **genius** | Song explanations (`annotations`), artist/album bios (`rich_text`, priority 200 — fallback after Last.fm) |
+| **itunes** | Artist images (300), album images (200) |
+| **lastfm** | 9 info types (stats, bios, similar, popularity, tags), scrobbling, event hooks, settings panel |
+| **lrclib** | Synced/plain lyrics (`lyrics`) |
+| **lyrics-ovh** | Plain lyrics (priority 300) |
+| **lyrics-search** | Meta-search lyrics via DuckDuckGo (priority 400, settings) |
+| **musicbrainz** | Artist images (500), album images (500) |
+| **spotify-browse** | Sidebar (Spotify), OAuth PKCE auth, liked songs, playlists, search |
+| **tidal-browse** | Sidebar (TIDAL), context menus (search/upgrade/play), artist+album images (100), fallback provider |
