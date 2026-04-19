@@ -55,7 +55,6 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { FullscreenControls } from "./components/FullscreenControls";
 import { AddServerModal } from "./components/AddServerModal";
 import { ContextMenu } from "./components/ContextMenu";
-import { Breadcrumb } from "./components/Breadcrumb";
 import { ArtistDetailContent } from "./components/ArtistDetailContent";
 import { ImageActions } from "./components/ImageActions";
 import { AlbumDetailHeader } from "./components/AlbumDetailHeader";
@@ -1481,7 +1480,7 @@ function App() {
   // Bridge for keyboard shortcuts
   handleToggleLikeRef.current = likeActions.handleToggleLike;
 
-  const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags, tracks,
+  const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags,
     sortedTracks, sortField, highlightedIndex, highlightedListIndex } = library;
 
   const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name, path: c.path ?? "" }));
@@ -1630,38 +1629,6 @@ function App() {
       <main className={`main${library.selectedTrack !== null && playback.currentTrack?.id === library.selectedTrack && isVideoTrack(playback.currentTrack) ? " video-detail" : ""}`} data-dock={playback.currentTrack && isVideoTrack(playback.currentTrack) ? videoLayout.dockSide : undefined}>
         {/* Content area */}
         <div className="content" ref={contentRef} style={playback.currentTrack && isVideoTrack(playback.currentTrack) ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
-          {view !== "settings" && view !== "search" && !(selectedArtist !== null && selectedAlbum === null && library.selectedTrack === null) && (
-            <Breadcrumb
-              view={view}
-              selectedArtist={selectedArtist}
-              selectedAlbum={selectedAlbum}
-              selectedTag={selectedTag}
-              selectedTrack={library.selectedTrack}
-              tracks={tracks}
-              sortedTracks={sortedTracks}
-              onPlayAll={(tracks, startIndex) => {
-                if (selectedTag !== null) {
-                  const tag = tags.find(t => t.id === selectedTag);
-                  const tagImagePath = tagImageCache.images[selectedTag] ?? null;
-                  queueHook.playTracks(tracks, startIndex, tag ? { name: tag.name, coverPath: tagImagePath } : null);
-                } else if (selectedAlbum !== null) {
-                  const album = albums.find(a => a.id === selectedAlbum);
-                  const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
-                  queueHook.playTracks(tracks, startIndex, album ? { name: album.title, coverPath: albumImagePath } : null);
-                } else if (selectedArtist !== null) {
-                  const artist = artists.find(a => a.id === selectedArtist);
-                  const artistImagePath = artistImageCache.images[selectedArtist] ?? null;
-                  queueHook.playTracks(tracks, startIndex, artist ? { name: artist.name, coverPath: artistImagePath } : null);
-                } else {
-                  queueHook.playTracks(tracks, startIndex);
-                }
-              }}
-              onEnqueueAll={contextMenuActions.handleEnqueue}
-              pluginName={typeof view === "string" && view.startsWith("plugin:") ? (plugins.pluginStates.find(p => p.id === view.slice("plugin:".length).split(":")[0])?.manifest.name) : undefined}
-            >
-            </Breadcrumb>
-          )}
-
           {/* Track detail view */}
           {library.selectedTrack !== null && (() => {
             const track = detailTrackLocal ?? detailTrack;
@@ -1792,6 +1759,16 @@ function App() {
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
                       </button>
+                      {sortedTracks.length > 0 && (
+                        <button
+                          className="artist-play-btn"
+                          title="Play All"
+                          onClick={() => {
+                            const tagImagePath = tagImageCache.images[selectedTag] ?? null;
+                            queueHook.playTracks(sortedTracks.filter(t => t.liked !== -1), 0, tag ? { name: tag.name, coverPath: tagImagePath } : null);
+                          }}
+                        >&#9654;</button>
+                      )}
                     </h2>
                     <span className="artist-meta">{tag?.track_count ?? 0} tracks</span>
                     <ImageActions
