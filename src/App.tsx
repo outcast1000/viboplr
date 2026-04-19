@@ -579,6 +579,7 @@ function App() {
     addLog,
     setScanning, setScanProgress,
     setSyncing, setSyncProgress,
+    onResyncDone: collectionActions.clearResyncingState,
   });
 
   // Resolve a queue track's url to a playable source
@@ -2003,6 +2004,7 @@ function App() {
               onResync={collectionActions.handleResyncCollection}
               checkingConnectionId={collectionActions.checkingConnectionId}
               connectionResult={collectionActions.connectionResult}
+              resyncingCollectionId={collectionActions.resyncingCollectionId}
               onEdit={(c) => collectionActions.setEditingCollection(c)}
               onRemove={(c) => collectionActions.setRemoveCollectionConfirm(c)}
               onAddFolder={handleAddFolder}

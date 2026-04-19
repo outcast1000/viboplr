@@ -45,6 +45,7 @@ interface CollectionsViewProps {
   onResync: (collectionId: number) => void;
   checkingConnectionId: number | null;
   connectionResult: { collectionId: number; ok: boolean; message: string } | null;
+  resyncingCollectionId: number | null;
   onEdit: (collection: Collection) => void;
   onRemove: (collection: Collection) => void;
   onAddFolder: () => void;
@@ -59,6 +60,7 @@ export function CollectionsView({
   onResync,
   checkingConnectionId,
   connectionResult,
+  resyncingCollectionId,
   onEdit,
   onRemove,
   onAddFolder,
@@ -125,13 +127,16 @@ export function CollectionsView({
                   )}
                 </div>
                 <div className="collections-view-card-actions">
-                  <button
-                    className="collections-view-action-btn"
-                    onClick={() => onResync(c.id)}
-                    title="Resync"
-                  >
-                    Resync
-                  </button>
+                  {(c.kind === "local" || c.kind === "subsonic") && (
+                    <button
+                      className={`collections-view-action-btn ${resyncingCollectionId === c.id ? "collections-view-action-checking" : ""}`}
+                      onClick={() => onResync(c.id)}
+                      disabled={resyncingCollectionId === c.id}
+                      title="Resync"
+                    >
+                      {resyncingCollectionId === c.id ? "Resyncing..." : "Resync"}
+                    </button>
+                  )}
                   {c.kind === "subsonic" && (
                     <button
                       className={`collections-view-action-btn ${checkingConnectionId === c.id ? "collections-view-action-checking" : ""}`}

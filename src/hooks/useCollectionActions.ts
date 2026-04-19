@@ -11,9 +11,20 @@ export function useCollectionActions(deps: {
   const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
   const [removeCollectionConfirm, setRemoveCollectionConfirm] = useState<Collection | null>(null);
+  const [resyncingCollectionId, setResyncingCollectionId] = useState<number | null>(null);
 
   async function handleResyncCollection(collectionId: number) {
-    await invoke("resync_collection", { collectionId });
+    setResyncingCollectionId(collectionId);
+    try {
+      await invoke("resync_collection", { collectionId });
+    } catch (e) {
+      console.error("Failed to resync collection:", e);
+      setResyncingCollectionId(null);
+    }
+  }
+
+  function clearResyncingState() {
+    setResyncingCollectionId(null);
   }
 
   async function handleToggleCollectionEnabled(collection: Collection) {
@@ -79,7 +90,9 @@ export function useCollectionActions(deps: {
     setEditingCollection,
     removeCollectionConfirm,
     setRemoveCollectionConfirm,
+    resyncingCollectionId,
     handleResyncCollection,
+    clearResyncingState,
     handleToggleCollectionEnabled,
     handleCheckConnection,
     handleSaveCollection,

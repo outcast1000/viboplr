@@ -9,6 +9,7 @@ interface EventListenerOptions {
   setScanProgress: (v: { scanned: number; total: number }) => void;
   setSyncing: (v: boolean) => void;
   setSyncProgress: (v: { synced: number; total: number; collection: string }) => void;
+  onResyncDone?: () => void;
 }
 
 export function useEventListeners(opts: EventListenerOptions) {
@@ -17,6 +18,7 @@ export function useEventListeners(opts: EventListenerOptions) {
     addLog,
     setScanning, setScanProgress,
     setSyncing, setSyncProgress,
+    onResyncDone,
   } = opts;
 
   // Scan events
@@ -37,6 +39,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       scanStarted = false;
       setScanning(false);
       addLog("Scan complete");
+      onResyncDone?.();
       loadLibrary();
       loadTracks();
     });
@@ -69,6 +72,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       syncStarted = false;
       setSyncing(false);
       addLog("Sync complete");
+      onResyncDone?.();
       loadLibrary();
       loadTracks();
     });
@@ -77,6 +81,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       setSyncing(false);
       addLog("Sync error: " + event.payload.error);
       console.error("Sync error:", event.payload.error);
+      onResyncDone?.();
       loadLibrary();
       loadTracks();
     });

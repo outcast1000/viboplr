@@ -363,7 +363,7 @@ pub fn resync_collection(
             });
             Ok(())
         }
-        _ => Ok(()),
+        _ => Err(format!("Resync not supported for '{}' collections", collection.kind)),
     }
 }
 
