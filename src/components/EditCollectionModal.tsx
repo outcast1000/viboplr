@@ -60,7 +60,7 @@ export function EditCollectionModal({ collection, onSave, onClose }: EditCollect
   return (
     <div className="ds-modal-overlay" onClick={onClose}>
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Edit Collection</h2>
+        <h2 className="ds-modal-title">Edit Collection</h2>
 
         <div className="modal-field">
           <label>Type</label>
@@ -102,6 +102,7 @@ export function EditCollectionModal({ collection, onSave, onClose }: EditCollect
         <div className="modal-field">
           <label>Name</label>
           <input
+            className="ds-input"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -126,7 +127,8 @@ export function EditCollectionModal({ collection, onSave, onClose }: EditCollect
             <select
               value={intervalMins}
               onChange={(e) => setIntervalMins(Number(e.target.value))}
-              className="modal-select"
+              className="ds-select"
+              style={{ width: "100%" }}
             >
               {INTERVAL_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>

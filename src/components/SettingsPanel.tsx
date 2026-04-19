@@ -949,7 +949,7 @@ export function SettingsPanel({
                       <select
                         value={downloadFormat}
                         onChange={(e) => onDownloadFormatChange(e.target.value)}
-                        className="settings-select"
+                        className="ds-select"
                       >
                         <option value="flac">FLAC (Lossless)</option>
                         <option value="aac">M4A (AAC)</option>

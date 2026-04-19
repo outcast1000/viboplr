@@ -8,7 +8,7 @@ export function DeletePlaylistModal({ playlistName, onConfirm, onClose }: Delete
   return (
     <div className="ds-modal-overlay" onClick={onClose}>
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Delete Playlist</h2>
+        <h2 className="ds-modal-title">Delete Playlist</h2>
         <p className="delete-confirm-warning">
           Are you sure you want to delete <strong>{playlistName}</strong>? This cannot be undone.
         </p>

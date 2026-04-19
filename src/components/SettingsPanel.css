@@ -198,21 +198,6 @@
   flex-shrink: 0;
 }
 
-/* Settings inputs */
-.settings-select {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  padding: 5px 8px;
-  border-radius: 6px;
-  font-size: var(--fs-sm);
-  cursor: pointer;
-  outline: none;
-  flex-shrink: 0;
-}
-.settings-select:focus {
-  border-color: var(--accent);
-}
 .settings-actions-row {
   display: flex;
   gap: 8px;

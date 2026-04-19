@@ -60,10 +60,11 @@ export function AddServerModal({ onAdded, onClose, initialUrl = "", initialUsern
   return (
     <div className="ds-modal-overlay" onClick={onClose}>
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Add Subsonic Server</h2>
+        <h2 className="ds-modal-title">Add Subsonic Server</h2>
         <div className="modal-field">
           <label>Display Name</label>
           <input
+            className="ds-input"
             type="text"
             placeholder="My Server"
             value={name}
@@ -73,6 +74,7 @@ export function AddServerModal({ onAdded, onClose, initialUrl = "", initialUsern
         <div className="modal-field">
           <label>Server URL</label>
           <input
+            className="ds-input"
             type="text"
             placeholder="https://music.example.com"
             value={url}
@@ -82,6 +84,7 @@ export function AddServerModal({ onAdded, onClose, initialUrl = "", initialUsern
         <div className="modal-field">
           <label>Username</label>
           <input
+            className="ds-input"
             type="text"
             value={username}
             onChange={(e) => { setUsername(e.target.value); clearStatus(); }}
@@ -90,6 +93,7 @@ export function AddServerModal({ onAdded, onClose, initialUrl = "", initialUsern
         <div className="modal-field">
           <label>Password</label>
           <input
+            className="ds-input"
             type="password"
             value={password}
             onChange={(e) => { setPassword(e.target.value); clearStatus(); }}

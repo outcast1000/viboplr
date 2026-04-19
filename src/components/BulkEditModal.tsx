@@ -126,11 +126,12 @@ export default function BulkEditModal({ tracks, onClose }: BulkEditModalProps) {
   return (
     <div className="ds-modal-overlay" onClick={onClose}>
       <div className="ds-modal" style={{ width: 420 }} onClick={(e) => e.stopPropagation()}>
-        <h3 style={{ margin: "0 0 16px" }}>Edit {count} Track{count !== 1 ? "s" : ""}</h3>
+        <h3 className="ds-modal-title">Edit {count} Track{count !== 1 ? "s" : ""}</h3>
 
         <div className="modal-field">
           <label>Artist</label>
           <input
+            className="ds-input"
             type="text"
             value={artist}
             placeholder={shared.artistPlaceholder}
@@ -141,6 +142,7 @@ export default function BulkEditModal({ tracks, onClose }: BulkEditModalProps) {
         <div className="modal-field">
           <label>Album</label>
           <input
+            className="ds-input"
             type="text"
             value={album}
             placeholder={shared.albumPlaceholder}
@@ -151,6 +153,7 @@ export default function BulkEditModal({ tracks, onClose }: BulkEditModalProps) {
         <div className="modal-field">
           <label>Year</label>
           <input
+            className="ds-input"
             type="number"
             value={year}
             placeholder={shared.yearPlaceholder}

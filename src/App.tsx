@@ -2323,7 +2323,7 @@ function App() {
       {contextMenuActions.deleteConfirm && (
         <div className="ds-modal-overlay" onClick={() => contextMenuActions.setDeleteConfirm(null)}>
           <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete {contextMenuActions.deleteConfirm.title}?</h2>
+            <h2 className="ds-modal-title">Delete {contextMenuActions.deleteConfirm.title}?</h2>
             <p className="delete-confirm-warning">This will permanently delete the file{contextMenuActions.deleteConfirm.trackIds.length > 1 ? "s" : ""} from disk.</p>
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--ghost" onClick={() => contextMenuActions.setDeleteConfirm(null)}>Cancel</button>
@@ -2336,7 +2336,7 @@ function App() {
       {contextMenuActions.deleteError && (
         <div className="ds-modal-overlay" onClick={() => contextMenuActions.setDeleteError(null)}>
           <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete Failed</h2>
+            <h2 className="ds-modal-title">Delete Failed</h2>
             <p className="delete-confirm-warning">{contextMenuActions.deleteError.message}</p>
             <ul className="delete-failure-list">
               {contextMenuActions.deleteError.failures.map((f, i) => (
@@ -2356,7 +2356,7 @@ function App() {
       {contextMenuActions.folderError && (
         <div className="ds-modal-overlay" onClick={() => contextMenuActions.setFolderError(null)}>
           <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Open Containing Folder</h2>
+            <h2 className="ds-modal-title">Open Containing Folder</h2>
             <p className="delete-confirm-warning">{contextMenuActions.folderError}</p>
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--ghost" onClick={() => contextMenuActions.setFolderError(null)}>OK</button>
@@ -2376,7 +2376,7 @@ function App() {
       {collectionActions.removeCollectionConfirm && (
         <div className="ds-modal-overlay" onClick={() => collectionActions.setRemoveCollectionConfirm(null)}>
           <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Remove &ldquo;{collectionActions.removeCollectionConfirm.name}&rdquo;?</h2>
+            <h2 className="ds-modal-title">Remove &ldquo;{collectionActions.removeCollectionConfirm.name}&rdquo;?</h2>
             <p className="delete-confirm-warning">This will permanently remove this collection and all its tracks from the library.</p>
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--ghost" onClick={() => collectionActions.setRemoveCollectionConfirm(null)}>Cancel</button>
@@ -2413,7 +2413,7 @@ function App() {
       {navError && (
         <div className="ds-modal-overlay" onClick={() => setNavError(null)}>
           <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Navigation Error</h2>
+            <h2 className="ds-modal-title">Navigation Error</h2>
             <p>{navError}</p>
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--primary" onClick={() => setNavError(null)}>OK</button>

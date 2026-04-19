@@ -184,7 +184,7 @@ export function TapeExportModal({ tracks, defaultTitle, onClose }: TapeExportMod
   return (
     <div className="ds-modal-overlay" onClick={handleCancel}>
       <div className="ds-modal tape-export-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Export Tape</h2>
+        <h2 className="ds-modal-title">Export Tape</h2>
 
         {!exporting ? (
           <>

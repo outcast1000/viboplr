@@ -65,7 +65,7 @@ export function SavePlaylistModal({ defaultName, onSave, onClose }: SavePlaylist
   return (
     <div className="ds-modal-overlay" onClick={onClose}>
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Save Playlist</h2>
+        <h2 className="ds-modal-title">Save Playlist</h2>
         <div className="save-playlist-image-row">
           <div className="save-playlist-image-preview">
             <img src={imagePath ? convertFileSrc(imagePath) : playlistDefault} alt="" />
@@ -98,6 +98,7 @@ export function SavePlaylistModal({ defaultName, onSave, onClose }: SavePlaylist
         <div className="modal-field">
           <label>Name</label>
           <input
+            className="ds-input"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}

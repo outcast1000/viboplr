@@ -1096,13 +1096,6 @@
   margin-top: 2px;
 }
 
-.ds-modal h2 {
-  font-size: var(--fs-base);
-  font-weight: 700;
-  margin-bottom: 16px;
-  overflow-wrap: break-word;
-}
-
 .modal-field {
   margin-bottom: 12px;
 }
@@ -1114,27 +1107,6 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 4px;
-}
-
-.modal-field input {
-  width: 100%;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-size: var(--fs-sm);
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.modal-field input::placeholder {
-  color: var(--text-secondary);
-  opacity: 0.4;
-}
-
-.modal-field input:focus {
-  border-color: var(--accent);
 }
 
 .queue-duplicate-banner {
@@ -1255,23 +1227,6 @@
   width: auto;
   accent-color: var(--accent);
 }
-
-.modal-select {
-  width: 100%;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-size: var(--fs-sm);
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.modal-select:focus {
-  border-color: var(--accent);
-}
-
 
 /* TIDAL art placeholder */
 .tidal-art-placeholder {

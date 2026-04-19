@@ -190,7 +190,7 @@ export function TidalAlbumDownloadModal({
       <div className="ds-modal tidal-dl-modal" onClick={(e) => e.stopPropagation()} style={step !== "configure" ? { width: 440 } : undefined}>
         {step === "configure" && (
           <>
-            <h2>Download Album</h2>
+            <h2 className="ds-modal-title">Download Album</h2>
 
             <div className="tidal-dl-selected">
               {coverUrl && <img src={coverUrl} alt="" />}
@@ -265,7 +265,7 @@ export function TidalAlbumDownloadModal({
 
         {step === "downloading" && (
           <>
-            <h2>Downloading Album</h2>
+            <h2 className="ds-modal-title">Downloading Album</h2>
 
             <div className="tidal-dl-selected">
               {coverUrl && <img src={coverUrl} alt="" />}
@@ -308,7 +308,7 @@ export function TidalAlbumDownloadModal({
 
         {step === "done" && (
           <>
-            <h2>Download Complete</h2>
+            <h2 className="ds-modal-title">Download Complete</h2>
 
             <div className="tidal-dl-selected">
               {coverUrl && <img src={coverUrl} alt="" />}
