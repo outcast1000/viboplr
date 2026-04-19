@@ -1,6 +1,6 @@
 ---
 name: css-review
-description: Use when the user wants to audit CSS for skin system compliance, check for hardcoded colors, review CSS variables usage, or run a CSS health check. Triggers on "css review", "css audit", "skin compliance", "hardcoded colors", "check css", or "/css-review".
+description: Use when the user wants to audit CSS for skin system compliance, check for hardcoded colors, review CSS variables usage, find unused CSS classes, or run a CSS health check. Triggers on "css review", "css audit", "skin compliance", "hardcoded colors", "unused css", "dead css", "check css", or "/css-review".
 ---
 
 # CSS Skin Compliance Review
@@ -161,12 +161,53 @@ When a fix is ambiguous, note alternatives:
 src/App.css:1430  color: #fff  →  var(--text-primary)  [or --text-secondary if muted context]
 ```
 
-## Step 5: Offer to Apply Fixes
+## Step 5: Dead CSS Detection
 
-After presenting the report, ask the user:
+After the color audit, scan for unused CSS classes.
 
-- **Apply all** — edit all violations with the proposed replacements
-- **Apply per-file** — go file by file with review before each edit
-- **Skip** — use the report as reference only
+### Process
+
+1. **Extract all CSS class selectors** from `src/**/*.css` — match patterns like `.class-name {`, `.class-name,`, `.class-name:`, `.class-name.other`. Strip pseudo-classes and combinators to get the bare class name.
+
+2. **For each class name, search for references** in `src/**/*.tsx` and `src/**/*.ts` files. Look for:
+   - `className="...class-name..."` or `className={'...class-name...'}`
+   - Template literals: `` className={`...class-name...`} ``
+   - String variables: `"class-name"` in className assignments
+   - Dynamic class construction: partial matches in template expressions
+
+3. **Also check plugin JS files** in `src-tauri/plugins/**/*.js` — some CSS classes are used by plugin-rendered views (e.g., `plugin-*` prefixed classes).
+
+4. **Skip classes that are only referenced from other CSS** (compound selectors like `.parent .child`) — these are fine if the parent is used from TSX.
+
+5. **Report unused classes** grouped by file, with line numbers:
+
+```
+Dead CSS Classes
+════════════════
+File                              Unused Classes
+──────────────────────────────────────────────────
+src/components/SettingsPanel.css  24
+src/App.css                       22
+src/components/Sidebar.css        11
+...
+
+Total: N unused classes (N lines of dead CSS)
+```
+
+### Offer to remove
+
+Ask the user whether to remove all dead classes or review per-file.
+
+When removing, delete the entire CSS rule block (selector + braces + properties). Also remove compound selectors that reference the dead class (e.g., `.dead-class:hover`, `.dead-class.modifier`, `.parent .dead-class`). Clean up resulting double blank lines.
+
+## Step 6: Offer to Apply Fixes
+
+After presenting both reports (color violations + dead CSS), ask the user:
+
+- **Apply all** — edit all color violations and remove all dead CSS
+- **Apply per-file** — fix one file at a time with review
+- **Colors only** — just apply color fixes
+- **Dead CSS only** — just remove dead classes
+- **Skip** — use the reports as reference only
 
 When applying fixes, use the Edit tool for each replacement. Group edits by file for efficiency.
