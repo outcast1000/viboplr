@@ -370,6 +370,19 @@ function App() {
   const [clearing, setClearing] = useState(false);
   const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
   const [syncProgress, setSyncProgress] = useState({ synced: 0, total: 0, collection: "" });
+  const [resyncProgress, setResyncProgress] = useState<{
+    collectionId: number;
+    collectionName: string;
+    kind: "scan" | "sync";
+    scanned: number;
+    total: number;
+  } | null>(null);
+  const [resyncComplete, setResyncComplete] = useState<{
+    collectionId: number;
+    collectionName: string;
+    newTracks: number;
+    error?: string;
+  } | null>(null);
   const [artistSections, setArtistSections] = useState<Record<string, boolean>>({ topSongs: true, about: true, albums: true, similarArtists: true });
   const handleToggleArtistSection = (key: string) => {
     setArtistSections(prev => {
@@ -455,6 +468,7 @@ function App() {
     queueHook: {
       setQueue: queueHook.setQueue,
     },
+    collections: library.collections,
   });
 
   // Image caches (albumImageCache moved above useQueue for image_url stamping)
@@ -580,6 +594,9 @@ function App() {
     setScanning, setScanProgress,
     setSyncing, setSyncProgress,
     onResyncDone: collectionActions.clearResyncingState,
+    resyncingCollectionName: collectionActions.resyncingCollection?.name ?? null,
+    setResyncProgress,
+    setResyncComplete,
   });
 
   // Resolve a queue track's url to a playable source
@@ -2004,7 +2021,8 @@ function App() {
               onResync={collectionActions.handleResyncCollection}
               checkingConnectionId={collectionActions.checkingConnectionId}
               connectionResult={collectionActions.connectionResult}
-              resyncingCollectionId={collectionActions.resyncingCollectionId}
+              resyncProgress={resyncProgress}
+              resyncComplete={resyncComplete}
               onEdit={(c) => collectionActions.setEditingCollection(c)}
               onRemove={(c) => collectionActions.setRemoveCollectionConfirm(c)}
               onAddFolder={handleAddFolder}

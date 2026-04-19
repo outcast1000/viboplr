@@ -6,25 +6,27 @@ export function useCollectionActions(deps: {
   library: { loadLibrary: () => Promise<void>; loadTracks: () => Promise<void> };
   playback: { currentTrack: Track | null; handleStop: () => void };
   queueHook: { setQueue: React.Dispatch<React.SetStateAction<Track[]>> };
+  collections: Collection[];
 }) {
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
   const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
   const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
   const [removeCollectionConfirm, setRemoveCollectionConfirm] = useState<Collection | null>(null);
-  const [resyncingCollectionId, setResyncingCollectionId] = useState<number | null>(null);
+  const [resyncingCollection, setResyncingCollection] = useState<{ id: number; name: string } | null>(null);
 
   async function handleResyncCollection(collectionId: number) {
-    setResyncingCollectionId(collectionId);
+    const col = deps.collections.find(c => c.id === collectionId);
+    setResyncingCollection({ id: collectionId, name: col?.name ?? "Collection" });
     try {
       await invoke("resync_collection", { collectionId });
     } catch (e) {
       console.error("Failed to resync collection:", e);
-      setResyncingCollectionId(null);
+      setResyncingCollection(null);
     }
   }
 
   function clearResyncingState() {
-    setResyncingCollectionId(null);
+    setResyncingCollection(null);
   }
 
   async function handleToggleCollectionEnabled(collection: Collection) {
@@ -90,7 +92,7 @@ export function useCollectionActions(deps: {
     setEditingCollection,
     removeCollectionConfirm,
     setRemoveCollectionConfirm,
-    resyncingCollectionId,
+    resyncingCollection,
     handleResyncCollection,
     clearResyncingState,
     handleToggleCollectionEnabled,
