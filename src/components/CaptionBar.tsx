@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WindowControls } from "./WindowControls";
 import { CentralSearchDropdown } from "./CentralSearchDropdown";
+import type { ResyncProgress, ResyncComplete } from "../hooks/useEventListeners";
 
 interface CaptionBarProps {
   canGoBack: boolean;
@@ -25,6 +26,9 @@ interface CaptionBarProps {
   onFetchArtistImage: (artist: any) => void;
   onToggleMiniMode: () => void;
   onToggleHelp: () => void;
+  resyncProgress: ResyncProgress | null;
+  resyncComplete: ResyncComplete | null;
+  onNavigateToCollections: () => void;
 }
 
 export function CaptionBar({
@@ -40,6 +44,9 @@ export function CaptionBar({
   onFetchArtistImage,
   onToggleMiniMode,
   onToggleHelp,
+  resyncProgress,
+  resyncComplete,
+  onNavigateToCollections,
 }: CaptionBarProps) {
   function handleCaptionDoubleClick(e: React.MouseEvent) {
     const target = e.target as HTMLElement;
@@ -85,6 +92,32 @@ export function CaptionBar({
             <polyline points="9 6 15 12 9 18" />
           </svg>
         </button>
+        {(resyncProgress || resyncComplete) && (
+          <button
+            className={`caption-sync-indicator${resyncComplete?.error ? " caption-sync-error" : resyncComplete ? " caption-sync-done" : ""}`}
+            onClick={(e) => { e.stopPropagation(); onNavigateToCollections(); }}
+            title={resyncComplete?.error ? `Sync failed: ${resyncComplete.error}` : resyncProgress ? `${resyncProgress.scanned}/${resyncProgress.total}` : "Sync complete"}
+          >
+            {resyncComplete?.error ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+            ) : resyncComplete ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            ) : (
+              <svg className="caption-sync-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+            )}
+            <span className="caption-sync-text">
+              {resyncComplete?.error ? "Sync failed" : resyncComplete ? "Sync complete" : resyncProgress?.collectionName}
+            </span>
+          </button>
+        )}
         <CentralSearchDropdown
           query={centralSearch.query}
           onQueryChange={centralSearch.setQuery}

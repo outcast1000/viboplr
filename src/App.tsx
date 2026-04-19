@@ -1642,6 +1642,14 @@ function App() {
         onFetchArtistImage={artistImageCache.fetchOnDemand}
         onToggleMiniMode={mini.toggleMiniMode}
         onToggleHelp={() => setShowHelp(h => !h)}
+        resyncProgress={resyncProgress}
+        resyncComplete={resyncComplete}
+        onNavigateToCollections={() => {
+          pushAndScroll();
+          library.setView("collections");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+        }}
       />
 
       {/* Main content */}

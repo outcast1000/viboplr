@@ -94,6 +94,58 @@
   -webkit-app-region: drag;
 }
 
+/* Caption bar sync indicator */
+.caption-sync-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.15s, opacity 0.2s;
+  animation: fade-in 0.2s ease;
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+}
+
+.caption-sync-indicator:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.caption-sync-done {
+  color: var(--success);
+  animation: caption-sync-fadeout 0.3s ease 3s forwards;
+}
+
+.caption-sync-error {
+  color: var(--error);
+  animation: caption-sync-fadeout 0.3s ease 5s forwards;
+}
+
+@keyframes caption-sync-fadeout {
+  to { opacity: 0; pointer-events: none; }
+}
+
+.caption-sync-text {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.caption-sync-spin {
+  animation: caption-sync-spin 1s linear infinite;
+}
+
+@keyframes caption-sync-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 
 .content {
   flex: 1;
