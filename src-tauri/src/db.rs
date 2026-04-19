@@ -486,6 +486,50 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
+    pub fn find_artist_by_name(&self, name: &str) -> SqlResult<Option<Artist>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, name, track_count, liked FROM artists \
+             WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1)) \
+             AND track_count > 0",
+            params![name],
+            |row| Ok(Artist {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                track_count: row.get(2)?,
+                liked: row.get::<_, i32>(3).unwrap_or(0),
+            }),
+        ).optional()
+    }
+
+    // --- Albums ---
+
+    pub fn find_album_by_name(&self, title: &str, artist_name: Option<&str>) -> SqlResult<Option<Album>> {
+        let conn = self.conn.lock().unwrap();
+        if let Some(artist) = artist_name {
+            conn.query_row(
+                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked \
+                 FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
+                 WHERE strip_diacritics(unicode_lower(a.title)) = strip_diacritics(unicode_lower(?1)) \
+                 AND ar.name IS NOT NULL AND strip_diacritics(unicode_lower(ar.name)) = strip_diacritics(unicode_lower(?2)) \
+                 AND a.track_count > 0 \
+                 LIMIT 1",
+                params![title, artist],
+                |row| album_from_row(row),
+            ).optional()
+        } else {
+            conn.query_row(
+                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked \
+                 FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
+                 WHERE strip_diacritics(unicode_lower(a.title)) = strip_diacritics(unicode_lower(?1)) \
+                 AND a.track_count > 0 \
+                 LIMIT 1",
+                params![title],
+                |row| album_from_row(row),
+            ).optional()
+        }
+    }
+
     pub fn get_albums(&self, artist_id: Option<i64>) -> SqlResult<Vec<Album>> {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = artist_id {

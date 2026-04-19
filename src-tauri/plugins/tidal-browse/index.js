@@ -175,6 +175,7 @@ function activate(api) {
         actions: [
           { id: "play-album", label: "Play All", icon: "\u25B6" },
           { id: "download-album", label: "Download Album", icon: "\u2B07" },
+          { id: "view-album-details", label: "View Details", icon: "\u2139" },
         ],
       },
     ];
@@ -220,6 +221,9 @@ function activate(api) {
         meta: albumCount + " album" + (albumCount !== 1 ? "s" : ""),
         imageUrl: coverUrl(artist.picture_id, 640),
         backAction: "go-back",
+        actions: [
+          { id: "view-artist-details", label: "View Details", icon: "\u2139" },
+        ],
       },
     ];
 
@@ -470,6 +474,20 @@ function activate(api) {
     } else {
       state.currentView = "search";
       render();
+    }
+  });
+
+  api.ui.onAction("view-artist-details", function () {
+    var artist = state.artistDetail;
+    if (artist) {
+      api.ui.requestAction("navigate-to-artist", { name: artist.name });
+    }
+  });
+
+  api.ui.onAction("view-album-details", function () {
+    var album = state.albumDetail;
+    if (album) {
+      api.ui.requestAction("navigate-to-album", { name: album.title, artistName: album.artist_name || undefined });
     }
   });
 

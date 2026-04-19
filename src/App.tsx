@@ -57,6 +57,9 @@ import { FullscreenControls } from "./components/FullscreenControls";
 import { AddServerModal } from "./components/AddServerModal";
 import { ContextMenu } from "./components/ContextMenu";
 import { ArtistDetailContent } from "./components/ArtistDetailContent";
+import { FallbackArtistDetail } from "./components/FallbackArtistDetail";
+import { FallbackAlbumDetail } from "./components/FallbackAlbumDetail";
+import { FallbackTrackDetail } from "./components/FallbackTrackDetail";
 import { ImageActions } from "./components/ImageActions";
 import { AlbumDetailHeader } from "./components/AlbumDetailHeader";
 import { InformationSections } from "./components/InformationSections";
@@ -554,6 +557,15 @@ function App() {
             image_url: t.image_url,
           })) as Track[], startIndex, playlistName ? { name: playlistName, coverUrl: coverUrl ?? null } : null);
         }
+      } else if (action === "navigate-to-artist") {
+        pushStateRef.current();
+        library.navigateToArtistByName(payload.name as string);
+      } else if (action === "navigate-to-album") {
+        pushStateRef.current();
+        library.navigateToAlbumByName(payload.name as string, payload.artistName as string | undefined);
+      } else if (action === "navigate-to-track") {
+        pushStateRef.current();
+        library.navigateToTrackByName(payload.name as string, payload.artistName as string | undefined, payload.albumTitle as string | undefined);
       } else if (action === "enqueue-tracks") {
         const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string; image_url?: string }>);
         if (tracks?.length) {
@@ -667,13 +679,16 @@ function App() {
     library.setSelectedAlbum(s.selectedAlbum);
     library.setSelectedTag(s.selectedTag);
     library.setSelectedTrack(s.selectedTrack ?? null);
+    library.setFallbackArtistName(s.fallbackArtistName ?? null);
+    library.setFallbackAlbumName(s.fallbackAlbumName ?? null);
+    library.setFallbackTrackName(s.fallbackTrackName ?? null);
     viewSearch.restore(s.viewSearchQueries);
     // Restore scroll position after React renders the new view
     requestAnimationFrame(() => {
       const sc = getScrollEl();
       if (sc) sc.scrollTop = s.scrollTop;
     });
-  }, [library.setView, library.setSelectedArtist, library.setSelectedAlbum, library.setSelectedTag, library.setSelectedTrack, viewSearch.restore, getScrollEl]);
+  }, [library.setView, library.setSelectedArtist, library.setSelectedAlbum, library.setSelectedTag, library.setSelectedTrack, library.setFallbackArtistName, library.setFallbackAlbumName, library.setFallbackTrackName, viewSearch.restore, getScrollEl]);
 
   const getScrollTop = useCallback(() => getScrollEl()?.scrollTop ?? 0, [getScrollEl]);
 
@@ -684,6 +699,9 @@ function App() {
       selectedAlbum: library.selectedAlbum,
       selectedTag: library.selectedTag,
       selectedTrack: library.selectedTrack,
+      fallbackArtistName: library.fallbackArtistName,
+      fallbackAlbumName: library.fallbackAlbumName,
+      fallbackTrackName: library.fallbackTrackName,
       viewSearchQueries: viewSearch.snapshot(),
     },
     applyNavState,
@@ -1154,6 +1172,10 @@ function App() {
 
       if (e.key === "Escape" && library.selectedTrack !== null) {
         library.setSelectedTrack(null);
+        return;
+      }
+      if (e.key === "Escape" && (library.fallbackArtistName || library.fallbackAlbumName || library.fallbackTrackName)) {
+        goBackRef.current();
         return;
       }
 
@@ -1703,7 +1725,46 @@ function App() {
             );
           })()}
 
-          {library.selectedTrack === null && <>
+          {/* Fallback track detail (non-library) */}
+          {library.fallbackTrackName && !library.selectedTrack && (
+            <FallbackTrackDetail
+              name={library.fallbackTrackName.name}
+              artistName={library.fallbackTrackName.artistName}
+              invokeInfoFetch={plugins.invokeInfoFetch}
+              pluginNames={plugins.pluginNames}
+              onNavigateToArtistByName={library.navigateToArtistByName}
+              onNavigateToAlbumByName={library.navigateToAlbumByName}
+              onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
+              onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
+            />
+          )}
+
+          {library.selectedTrack === null && !library.fallbackTrackName && <>
+          {/* Fallback artist detail (non-library) */}
+          {view === "artists" && library.fallbackArtistName && !selectedArtist && !selectedAlbum && (
+            <FallbackArtistDetail
+              name={library.fallbackArtistName}
+              invokeInfoFetch={plugins.invokeInfoFetch}
+              pluginNames={plugins.pluginNames}
+              onNavigateToArtistByName={library.navigateToArtistByName}
+              onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
+              onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
+            />
+          )}
+
+          {/* Fallback album detail (non-library) */}
+          {view === "albums" && library.fallbackAlbumName && !selectedAlbum && (
+            <FallbackAlbumDetail
+              name={library.fallbackAlbumName.name}
+              artistName={library.fallbackAlbumName.artistName}
+              invokeInfoFetch={plugins.invokeInfoFetch}
+              pluginNames={plugins.pluginNames}
+              onNavigateToArtistByName={library.navigateToArtistByName}
+              onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
+              onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
+            />
+          )}
+
           {/* Artist detail view */}
           {view === "artists" && selectedArtist !== null && selectedAlbum === null && (() => {
             const artist = artists.find(a => a.id === selectedArtist);
@@ -2526,6 +2587,8 @@ function App() {
         onTrackClick={(trackId) => { library.handleTrackClick(trackId); }}
         onArtistClick={library.handleArtistClick}
         onAlbumClick={library.handleAlbumClick}
+        onNavigateToArtistByName={library.navigateToArtistByName}
+        onNavigateToAlbumByName={library.navigateToAlbumByName}
         syncWithPlaying={syncWithPlaying}
         onToggleSync={handleToggleSync}
         showHelp={showHelp}

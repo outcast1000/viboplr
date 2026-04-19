@@ -87,6 +87,8 @@ interface NowPlayingBarProps {
   onTrackClick: (trackId: number) => void;
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
+  onNavigateToArtistByName?: (name: string) => void;
+  onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
   syncWithPlaying: boolean;
   onToggleSync: () => void;
   showHelp: boolean;
@@ -105,6 +107,7 @@ export function NowPlayingBar({
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
   onToggleLike, onToggleDislike, onTrackClick, onArtistClick, onAlbumClick,
+  onNavigateToArtistByName, onNavigateToAlbumByName,
   syncWithPlaying, onToggleSync,
   showHelp, onToggleHelp,
 }: NowPlayingBarProps) {
@@ -280,10 +283,10 @@ export function NowPlayingBar({
                   {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                 </span>
                 <span className="now-subtitle">
-                  <span className="now-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : undefined}><SlideText text={currentTrack.artist_name || "Unknown"} /></span>
+                  <span className="now-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : (currentTrack.artist_name && onNavigateToArtistByName ? () => onNavigateToArtistByName(currentTrack.artist_name!) : undefined)}><SlideText text={currentTrack.artist_name || "Unknown"} /></span>
                   {artistRank != null && artistRank <= 100 && <span className="now-rank-badge" title={`Artist rank #${artistRank}`}>#{artistRank}</span>}
-                  {currentTrack.album_id && currentTrack.album_title && (
-                    <><span className="now-sep"> — </span><span className="now-link" onClick={() => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id)}>{currentTrack.album_title}</span></>
+                  {currentTrack.album_title && (
+                    <><span className="now-sep"> — </span><span className="now-link" onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id) : (onNavigateToAlbumByName ? () => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name ?? undefined) : undefined)}>{currentTrack.album_title}</span></>
                   )}
                 </span>
               </>

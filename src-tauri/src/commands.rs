@@ -487,6 +487,29 @@ pub fn get_track_by_id(state: State<'_, AppState>, track_id: i64) -> Result<Trac
 }
 
 #[tauri::command]
+pub fn find_artist_by_name(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<Option<Artist>, String> {
+    state
+        .db
+        .find_artist_by_name(&name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn find_album_by_name(
+    state: State<'_, AppState>,
+    title: String,
+    artist_name: Option<String>,
+) -> Result<Option<Album>, String> {
+    state
+        .db
+        .find_album_by_name(&title, artist_name.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn find_track_by_metadata(
     state: State<'_, AppState>,
     title: String,

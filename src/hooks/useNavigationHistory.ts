@@ -7,6 +7,9 @@ export interface NavState {
   selectedAlbum: number | null;
   selectedTag: number | null;
   selectedTrack?: number | null;
+  fallbackArtistName?: string | null;
+  fallbackAlbumName?: { name: string; artistName?: string } | null;
+  fallbackTrackName?: { name: string; artistName?: string } | null;
   viewSearchQueries: Record<string, string>;
   scrollTop: number;
 }

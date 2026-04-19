@@ -306,6 +306,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   function handleTrackClick(trackId: number) {
     onBeforeNavigate?.();
+    clearFallback();
     setSelectedTrack(trackId);
   }
 
@@ -315,6 +316,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       return;
     }
     onBeforeNavigate?.();
+    clearFallback();
     setSelectedArtist(artistId);
     setSelectedAlbum(null);
     setSelectedTag(null);
@@ -328,6 +330,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       return;
     }
     onBeforeNavigate?.();
+    clearFallback();
     setSelectedAlbum(albumId);
     setSelectedTag(null);
     setSelectedTrack(null);
@@ -339,6 +342,64 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     } else {
       setSelectedArtist(null);
       setView("albums");
+    }
+  }
+
+  // Fallback state for non-library entities (just a name, shown with info sections only)
+  const [fallbackArtistName, setFallbackArtistName] = useState<string | null>(null);
+  const [fallbackAlbumName, setFallbackAlbumName] = useState<{ name: string; artistName?: string } | null>(null);
+  const [fallbackTrackName, setFallbackTrackName] = useState<{ name: string; artistName?: string } | null>(null);
+
+  function clearFallback() {
+    setFallbackArtistName(null);
+    setFallbackAlbumName(null);
+    setFallbackTrackName(null);
+  }
+
+  async function navigateToArtistByName(name: string) {
+    const result = await invoke<Artist | null>("find_artist_by_name", { name });
+    if (result) {
+      handleArtistClick(result.id);
+    } else {
+      onBeforeNavigate?.();
+      setSelectedArtist(null);
+      setSelectedAlbum(null);
+      setSelectedTag(null);
+      setSelectedTrack(null);
+      clearFallback();
+      setFallbackArtistName(name);
+      setView("artists");
+    }
+  }
+
+  async function navigateToAlbumByName(name: string, artistName?: string) {
+    const result = await invoke<Album | null>("find_album_by_name", { title: name, artistName: artistName ?? null });
+    if (result) {
+      handleAlbumClick(result.id, result.artist_id);
+    } else {
+      onBeforeNavigate?.();
+      setSelectedArtist(null);
+      setSelectedAlbum(null);
+      setSelectedTag(null);
+      setSelectedTrack(null);
+      clearFallback();
+      setFallbackAlbumName({ name, artistName });
+      setView("albums");
+    }
+  }
+
+  async function navigateToTrackByName(name: string, artistName?: string, albumTitle?: string) {
+    const result = await invoke<Track | null>("find_track_by_metadata", { title: name, artistName: artistName ?? null, albumName: albumTitle ?? null });
+    if (result) {
+      handleTrackClick(result.id);
+    } else {
+      onBeforeNavigate?.();
+      setSelectedArtist(null);
+      setSelectedAlbum(null);
+      setSelectedTag(null);
+      setSelectedTrack(null);
+      clearFallback();
+      setFallbackTrackName({ name, artistName });
     }
   }
 
@@ -380,6 +441,10 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     trackColumns, setTrackColumns,
     artistAlbums,
     handleTrackClick, handleArtistClick, handleAlbumClick, handleLocateTrack,
+    fallbackArtistName, setFallbackArtistName,
+    fallbackAlbumName, setFallbackAlbumName,
+    fallbackTrackName, setFallbackTrackName,
+    navigateToArtistByName, navigateToAlbumByName, navigateToTrackByName,
     loadLibrary, loadTracks,
     hasMore, loadingMore, loadMore,
     filterYoutubeOnly, setFilterYoutubeOnly, mediaTypeFilter, setMediaTypeFilter, trackLikedFirst, setTrackLikedFirst,
