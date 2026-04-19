@@ -26,6 +26,14 @@
   --overlay-base: 255, 255, 255;
   --overlay-inverse: 0, 0, 0;
 
+  /* Design tokens (skinnable) */
+  --ds-radius: 6px;
+  --ds-radius-pill: 20px;
+  --ds-radius-card: 8px;
+  --ds-radius-modal: 10px;
+  --ds-card-gap: 16px;
+  --ds-card-min: 160px;
+
   /* Typography scale */
   --fs-2xs: 10px;
   --fs-xs: 13px;

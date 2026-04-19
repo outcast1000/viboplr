@@ -297,3 +297,21 @@ Standard `.ds-*` CSS classes are defined in `src/design-system.css`. When buildi
 **Usage:** `className="ds-btn ds-btn--primary ds-btn--sm"`
 
 **Rule:** New UI must use `.ds-*` classes. Do not create new ad-hoc button, tab, modal, card, input, table, or list styles.
+
+**Design Tokens (skinnable):**
+
+Structural properties exposed as CSS custom properties in `:root` (defined in `base.css`). Skins can override these via `customCSS` to change the app's shape/feel without touching component code.
+
+| Token | Default | Controls |
+|-------|---------|----------|
+| `--ds-radius` | `6px` | Buttons, inputs, selects, table rows, list items |
+| `--ds-radius-pill` | `20px` | Search boxes |
+| `--ds-radius-card` | `8px` | Cards |
+| `--ds-radius-modal` | `10px` | Modals |
+| `--ds-card-gap` | `16px` | Card grid gap |
+| `--ds-card-min` | `160px` | Card grid minimum column width |
+
+Example skin override via `customCSS`:
+```css
+:root { --ds-radius: 0px; --ds-radius-pill: 4px; --ds-radius-card: 2px; }
+```
