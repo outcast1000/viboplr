@@ -19,18 +19,6 @@ export type DisplayKind =
   | "image_gallery"
   | "title_line";
 
-/** Declared in plugin manifest contributes.informationTypes */
-export interface InfoTypeDeclaration {
-  id: string;
-  name: string;
-  description?: string;
-  entity: InfoEntityKind;
-  displayKind: DisplayKind;
-  ttl: number;
-  order: number;
-  priority: number;
-}
-
 /** Entity passed to plugin onFetch handlers */
 export interface InfoEntity {
   kind: InfoEntityKind;
@@ -50,26 +38,6 @@ export type InfoFetchResult =
 export interface InfoProvider {
   pluginId: string;
   integerId: number;
-}
-
-/** Registered info type with provider chain (from DB, grouped by type_id) */
-export interface RegisteredInfoType {
-  typeId: string;
-  name: string;
-  description?: string;
-  displayKind: DisplayKind;
-  ttl: number;
-  sortOrder: number;
-  providers: InfoProvider[];
-}
-
-/** Cached info value (from DB) */
-export interface CachedInfoValue {
-  integerId: number;
-  typeId: string;
-  value: string;
-  status: InfoStatus;
-  fetchedAt: number;
 }
 
 /** Progress entry during fetch chain */

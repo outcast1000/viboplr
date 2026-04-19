@@ -20,15 +20,6 @@ export type SkinColorKey = (typeof SKIN_COLOR_KEYS)[number];
 
 export type SkinColors = Record<SkinColorKey, string>;
 
-export interface SkinJson {
-  name: string;
-  author: string;
-  version: string;
-  type: "dark" | "light";
-  colors: SkinColors;
-  customCSS?: string;
-}
-
 export interface SkinInfo {
   id: string;
   name: string;
@@ -48,9 +39,4 @@ export interface GallerySkinEntry {
   version: string;
   file: string;
   colors: [string, string, string, string];
-}
-
-export interface GalleryIndex {
-  version: number;
-  skins: GallerySkinEntry[];
 }

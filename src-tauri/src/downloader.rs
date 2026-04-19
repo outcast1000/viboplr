@@ -570,3 +570,310 @@ pub fn write_tags(
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_request() -> DownloadRequest {
+        DownloadRequest {
+            id: 1,
+            track_title: "Test Song".to_string(),
+            artist_name: "Test Artist".to_string(),
+            album_title: "Test Album".to_string(),
+            track_number: Some(3),
+            genre: None,
+            year: None,
+            cover_url: None,
+            source_kind: "tidal".to_string(),
+            source_collection_id: None,
+            source_override_url: None,
+            remote_track_id: "123".to_string(),
+            dest_collection_id: 1,
+            dest_collection_path: "/music".to_string(),
+            format: DownloadFormat::Flac,
+            is_batch_last: false,
+            path_pattern: None,
+        }
+    }
+
+    // --- sanitize_filename tests ---
+
+    #[test]
+    fn test_sanitize_filename_normal() {
+        assert_eq!(sanitize_filename("My Song"), "My Song");
+        assert_eq!(sanitize_filename("Track 01"), "Track 01");
+    }
+
+    #[test]
+    fn test_sanitize_filename_illegal_chars() {
+        assert_eq!(sanitize_filename("A/B\\C:D*E?F\"G<H>I|J"), "A_B_C_D_E_F_G_H_I_J");
+        assert_eq!(sanitize_filename("file:name"), "file_name");
+    }
+
+    #[test]
+    fn test_sanitize_filename_whitespace_trim() {
+        assert_eq!(sanitize_filename("  spaced  "), "spaced");
+        assert_eq!(sanitize_filename("\t\ntab\n\t"), "tab");
+    }
+
+    #[test]
+    fn test_sanitize_filename_dots_trim() {
+        assert_eq!(sanitize_filename("...dots..."), "dots");
+        assert_eq!(sanitize_filename(".hidden"), "hidden");
+        assert_eq!(sanitize_filename("file."), "file");
+    }
+
+    #[test]
+    fn test_sanitize_filename_empty() {
+        assert_eq!(sanitize_filename(""), "Unknown");
+        assert_eq!(sanitize_filename("   "), "Unknown");
+        assert_eq!(sanitize_filename("..."), "Unknown");
+        assert_eq!(sanitize_filename(" . "), "Unknown");
+    }
+
+    #[test]
+    fn test_sanitize_filename_unicode() {
+        assert_eq!(sanitize_filename("Café"), "Café");
+        assert_eq!(sanitize_filename("日本語"), "日本語");
+        assert_eq!(sanitize_filename("Привет"), "Привет");
+    }
+
+    #[test]
+    fn test_sanitize_filename_mixed() {
+        assert_eq!(sanitize_filename(" Café:2024 "), "Café_2024");
+        assert_eq!(sanitize_filename("...Song/Title?..."), "Song_Title_");
+    }
+
+    // --- DownloadFormat tests ---
+
+    #[test]
+    fn test_download_format_from_str_valid() {
+        assert_eq!(DownloadFormat::from_str("flac").unwrap(), DownloadFormat::Flac);
+        assert_eq!(DownloadFormat::from_str("aac").unwrap(), DownloadFormat::Aac);
+        assert_eq!(DownloadFormat::from_str("mp3").unwrap(), DownloadFormat::Mp3);
+    }
+
+    #[test]
+    fn test_download_format_from_str_invalid() {
+        assert!(DownloadFormat::from_str("wav").is_err());
+        assert!(DownloadFormat::from_str("ogg").is_err());
+        assert!(DownloadFormat::from_str("").is_err());
+    }
+
+    #[test]
+    fn test_download_format_extension() {
+        assert_eq!(DownloadFormat::Flac.extension(), "flac");
+        assert_eq!(DownloadFormat::Aac.extension(), "m4a");
+        assert_eq!(DownloadFormat::Mp3.extension(), "mp3");
+    }
+
+    #[test]
+    fn test_download_format_tidal_quality() {
+        assert_eq!(DownloadFormat::Flac.tidal_quality(), "LOSSLESS");
+        assert_eq!(DownloadFormat::Aac.tidal_quality(), "HIGH");
+        assert_eq!(DownloadFormat::Mp3.tidal_quality(), "HIGH");
+    }
+
+    #[test]
+    fn test_download_format_subsonic_format_param() {
+        assert_eq!(DownloadFormat::Flac.subsonic_format_param(), None);
+        assert_eq!(DownloadFormat::Aac.subsonic_format_param(), Some("aac"));
+        assert_eq!(DownloadFormat::Mp3.subsonic_format_param(), Some("mp3"));
+    }
+
+    // --- build_dest_path tests ---
+
+    #[test]
+    fn test_build_dest_path_default_with_track_number() {
+        let request = test_request();
+        let path = build_dest_path(&request, None);
+        assert_eq!(
+            path,
+            PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.flac")
+        );
+    }
+
+    #[test]
+    fn test_build_dest_path_default_without_track_number() {
+        let mut request = test_request();
+        request.track_number = None;
+        let path = build_dest_path(&request, None);
+        assert_eq!(
+            path,
+            PathBuf::from("/music/Test Artist/Test Album/Test Song.flac")
+        );
+    }
+
+    #[test]
+    fn test_build_dest_path_custom_pattern_all_tokens() {
+        let mut request = test_request();
+        request.path_pattern = Some("[artist]/[album]/[track_number] - [title]".to_string());
+        let path = build_dest_path(&request, None);
+        assert_eq!(
+            path,
+            PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.flac")
+        );
+    }
+
+    #[test]
+    fn test_build_dest_path_custom_pattern_subdirectories() {
+        let mut request = test_request();
+        request.path_pattern = Some("Artists/[artist]/Albums/[album]/[track_number]-[title]".to_string());
+        let path = build_dest_path(&request, None);
+        assert_eq!(
+            path,
+            PathBuf::from("/music/Artists/Test Artist/Albums/Test Album/03-Test Song.flac")
+        );
+    }
+
+    #[test]
+    fn test_build_dest_path_extension_override() {
+        let request = test_request();
+        let path = build_dest_path(&request, Some("m4a"));
+        assert_eq!(
+            path,
+            PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.m4a")
+        );
+    }
+
+    #[test]
+    fn test_build_dest_path_sanitizes_filenames() {
+        let mut request = test_request();
+        request.artist_name = "Artist/Name".to_string();
+        request.album_title = "Album:Title".to_string();
+        request.track_title = "Track?Name".to_string();
+        let path = build_dest_path(&request, None);
+        assert_eq!(
+            path,
+            PathBuf::from("/music/Artist_Name/Album_Title/03 - Track_Name.flac")
+        );
+    }
+
+    #[test]
+    fn test_build_dest_path_custom_pattern_no_track_number() {
+        let mut request = test_request();
+        request.track_number = None;
+        request.path_pattern = Some("[artist] - [title]".to_string());
+        let path = build_dest_path(&request, None);
+        assert_eq!(
+            path,
+            PathBuf::from("/music/Test Artist - Test Song.flac")
+        );
+    }
+
+    #[test]
+    fn test_build_dest_path_mp3_format() {
+        let mut request = test_request();
+        request.format = DownloadFormat::Mp3;
+        let path = build_dest_path(&request, None);
+        assert_eq!(
+            path,
+            PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.mp3")
+        );
+    }
+
+    #[test]
+    fn test_build_dest_path_aac_format() {
+        let mut request = test_request();
+        request.format = DownloadFormat::Aac;
+        let path = build_dest_path(&request, None);
+        assert_eq!(
+            path,
+            PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.m4a")
+        );
+    }
+
+    // --- DownloadManager tests ---
+
+    #[test]
+    fn test_download_manager_next_id_increments() {
+        let manager = DownloadManager::new();
+        assert_eq!(manager.next_id(), 1);
+        assert_eq!(manager.next_id(), 2);
+        assert_eq!(manager.next_id(), 3);
+    }
+
+    #[test]
+    fn test_download_manager_enqueue_and_cancel() {
+        let manager = DownloadManager::new();
+        let request = test_request();
+
+        manager.enqueue(request.clone());
+        assert_eq!(manager.queue.lock().unwrap().len(), 1);
+
+        let cancelled = manager.cancel(1);
+        assert!(cancelled);
+        assert_eq!(manager.queue.lock().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_download_manager_cancel_nonexistent() {
+        let manager = DownloadManager::new();
+        let request = test_request();
+
+        manager.enqueue(request.clone());
+        let cancelled = manager.cancel(999);
+        assert!(!cancelled);
+        assert_eq!(manager.queue.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_download_manager_get_status_queued() {
+        let manager = DownloadManager::new();
+        let request = test_request();
+
+        manager.enqueue(request.clone());
+        let status = manager.get_status();
+
+        assert_eq!(status.queued.len(), 1);
+        assert_eq!(status.queued[0].track_title, "Test Song");
+        assert_eq!(status.queued[0].status, "queued");
+        assert!(status.active.is_none());
+    }
+
+    #[test]
+    fn test_download_manager_push_completed_respects_limit() {
+        let manager = DownloadManager::new();
+
+        for i in 1..=15 {
+            let status = DownloadStatus {
+                id: i,
+                track_title: format!("Track {}", i),
+                artist_name: "Artist".to_string(),
+                status: "completed".to_string(),
+                progress_pct: 100,
+                error: None,
+            };
+            manager.push_completed(status);
+        }
+
+        let completed = manager.completed.lock().unwrap();
+        assert_eq!(completed.len(), 10);
+        // First 5 should be removed, so we should have items 6-15
+        assert_eq!(completed[0].id, 6);
+        assert_eq!(completed[9].id, 15);
+    }
+
+    #[test]
+    fn test_download_manager_set_active() {
+        let manager = DownloadManager::new();
+
+        assert!(manager.active.lock().unwrap().is_none());
+
+        let status = DownloadStatus {
+            id: 1,
+            track_title: "Active Track".to_string(),
+            artist_name: "Artist".to_string(),
+            status: "downloading".to_string(),
+            progress_pct: 50,
+            error: None,
+        };
+
+        manager.set_active(Some(status.clone()));
+        let active = manager.active.lock().unwrap();
+        assert!(active.is_some());
+        assert_eq!(active.as_ref().unwrap().track_title, "Active Track");
+        assert_eq!(active.as_ref().unwrap().progress_pct, 50);
+    }
+}
+

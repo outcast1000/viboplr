@@ -444,11 +444,3 @@ export interface PluginSettingsPanel {
   icon?: string;
   order: number;
 }
-
-export interface PluginRegistry {
-  plugins: PluginState[];
-  sidebarItems: PluginSidebarItem[];
-  menuItems: PluginMenuItem[];
-  viewData: Map<string, PluginViewData>;
-  settingsPanels: PluginSettingsPanel[];
-}

@@ -133,10 +133,6 @@ export interface ColumnConfig {
   visible: boolean;
 }
 
-export type ArtistSortField = "name" | "tracks" | "random";
-export type AlbumSortField = "name" | "artist" | "year" | "tracks" | "random";
-export type TagSortField = "name" | "tracks" | "random";
-
 export type ViewMode = "basic" | "list" | "tiles";
 
 // TIDAL search result types
