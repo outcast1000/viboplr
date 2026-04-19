@@ -325,7 +325,7 @@
 .tidal-dl-btn-primary {
   background: var(--accent) !important;
   border-color: var(--accent) !important;
-  color: #fff !important;
+  color: var(--accent-text, #fff) !important;
 }
 
 .tidal-dl-btn-primary:hover {

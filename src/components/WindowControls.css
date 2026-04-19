@@ -47,5 +47,5 @@
 }
 .window-control-close:hover {
   background: var(--error);
-  color: #fff;
+  color: var(--accent-text, #fff);
 }

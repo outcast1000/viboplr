@@ -58,27 +58,6 @@
   margin-top: 2px;
 }
 
-/* Tag icon in list view */
-.tag-icon {
-  color: var(--accent);
-  font-weight: 700;
-}
-
-/* List item like icon */
-.list-item-like {
-  width: 20px;
-  flex-shrink: 0;
-  text-align: center;
-  font-size: var(--fs-sm);
-  color: var(--text-tertiary);
-  cursor: pointer;
-  margin-right: 4px;
-}
-
-.list-item-like:hover {
-  color: var(--error);
-}
-
 /* Album card like overlay */
 .album-card-like {
   position: absolute;

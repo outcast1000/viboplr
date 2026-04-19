@@ -1,7 +1,7 @@
 
 /* Video player */
 .video-container {
-  background: #000;
+  background: var(--bg-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -174,7 +174,7 @@
 }
 
 .fs-title {
-  color: #fff;
+  color: var(--text-primary);
   font-size: var(--fs-base);
   font-weight: 500;
   white-space: nowrap;
@@ -195,42 +195,11 @@
 }
 
 .fs-link:hover {
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .fs-sep {
   color: rgba(var(--overlay-base), 0.4);
-}
-
-.fs-like-btn {
-  font-size: var(--fs-lg);
-  cursor: pointer;
-  color: rgba(var(--overlay-base), 0.5);
-  flex-shrink: 0;
-}
-
-.fs-like-btn:hover {
-  color: #fff;
-}
-
-.fs-like-btn.liked {
-  color: var(--accent);
-}
-
-.fs-dislike-btn {
-  font-size: var(--fs-lg);
-  cursor: pointer;
-  color: rgba(var(--overlay-base), 0.5);
-  flex-shrink: 0;
-  margin-left: 4px;
-}
-
-.fs-dislike-btn:hover {
-  color: #fff;
-}
-
-.fs-dislike-btn.disliked {
-  color: var(--accent);
 }
 
 .fs-center {
@@ -245,7 +214,7 @@
 }
 
 .fs-controls .ctrl-btn:hover {
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .fs-play-btn {
@@ -277,10 +246,6 @@
 
 .fs-volume .volume-slider {
   width: 80px;
-}
-
-.fs-exit-btn {
-  margin-left: 4px;
 }
 
 /* Video splitter */
@@ -487,33 +452,8 @@
   margin-bottom: 2px;
 }
 
-.track-detail-toggle {
-  background: none;
-  border: none;
-  color: var(--text-tertiary);
-  font-size: var(--fs-2xs);
-  cursor: pointer;
-  padding: 0;
-  margin-top: 4px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.track-detail-toggle:hover {
-  color: var(--text-secondary);
-}
-
-.track-detail-toggle-chevron {
-  transition: transform 0.2s ease;
-}
-
-.track-detail-toggle-chevron.open {
-  transform: rotate(180deg);
-}
-
 .track-detail-lastfm-link {
-  color: #d51007;
+  color: var(--error);
   cursor: pointer;
   display: inline-flex;
   vertical-align: middle;
@@ -639,35 +579,10 @@
   min-height: 150px;
 }
 
-.track-detail-section-title {
-  font-size: var(--fs-xs);
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.track-detail-count {
-  text-transform: none;
-  font-weight: 400;
-}
-
-.track-detail-sublabel {
-  font-size: var(--fs-2xs);
-  color: var(--text-tertiary);
-  margin: 8px 0 4px;
-}
-
 .track-detail-empty {
   font-size: var(--fs-sm);
   color: var(--text-tertiary);
   padding: 8px 0;
-}
-
-.track-tag-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
 }
 
 .track-tag-chip {
@@ -694,13 +609,6 @@
 .track-tag-suggestion:hover {
   border-color: var(--accent);
   color: var(--accent);
-}
-
-.track-tag-lastfm {
-  border-color: transparent;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-tertiary);
-  cursor: default;
 }
 
 .track-tag-assigned {
@@ -902,38 +810,6 @@
   gap: 4px;
   word-break: break-all;
   min-width: 0;
-}
-
-/* Inline web search links in track detail meta */
-.track-detail-web-links {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: 8px;
-  vertical-align: middle;
-}
-
-.track-detail-web-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-tertiary);
-  padding: 2px;
-  border-radius: 3px;
-  transition: color 0.15s, opacity 0.15s;
-  opacity: 0.6;
-}
-
-.track-detail-web-link:hover {
-  color: var(--text-primary);
-  opacity: 1;
-}
-
-.track-detail-web-link img {
-  border-radius: 2px;
 }
 
 /* YouTube row in track detail */

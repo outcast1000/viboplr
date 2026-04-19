@@ -1,51 +1,4 @@
 
-/* Collection cards (settings panel) */
-.collection-card {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  transition: border-color 0.15s;
-}
-
-.collection-card:hover {
-  border-color: var(--text-secondary);
-}
-
-.collection-card-disabled {
-  opacity: 0.5;
-}
-
-.collection-card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--fs-sm);
-}
-
-.collection-card-header .collection-action {
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.collection-card:hover .collection-action {
-  opacity: 1;
-}
-
-.collection-card-name {
-  flex: 1;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.collection-card-disabled .collection-card-name {
-  text-decoration: line-through;
-}
-
 .collection-enable-toggle {
   background: none;
   border: 1px solid var(--border);
@@ -65,23 +18,6 @@
 .collection-enable-toggle.collection-enable-toggle-on {
   border-color: var(--accent);
   color: var(--accent);
-}
-
-.collection-card-details {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-top: 6px;
-  padding-left: 42px;
-}
-
-.collection-card-detail {
-  font-size: var(--fs-xs);
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
 }
 
 .add-folder-btn {
@@ -233,81 +169,6 @@
 .settings-card-flush {
   padding: 4px 6px;
 }
-.settings-card-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 0 -14px;
-}
-
-/* MusicGateAway info */
-.settings-mga-info {
-  margin-top: 8px;
-  padding: 12px 14px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-.settings-mga-info p {
-  margin: 0 0 10px 0;
-}
-.settings-mga-info a {
-  color: var(--accent);
-  text-decoration: none;
-}
-.settings-mga-info a:hover {
-  text-decoration: underline;
-}
-.settings-mga-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-.settings-mga-test-result {
-  font-size: var(--fs-xs);
-}
-.settings-mga-test-ok {
-  color: var(--success);
-}
-.settings-mga-test-err {
-  color: var(--error);
-}
-.settings-mga-advanced-toggle {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: var(--fs-xs);
-  padding: 0;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.settings-mga-advanced-toggle:hover {
-  color: var(--text-primary);
-}
-.settings-mga-advanced {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.settings-mga-url-label {
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  color: var(--text-primary);
-}
-.settings-mga-url-hint {
-  font-size: var(--fs-2xs);
-  color: var(--text-secondary);
-}
-.settings-mga-path-display {
-  word-break: break-all;
-  font-family: var(--font-mono, monospace);
-  font-size: var(--fs-xs);
-}
 
 /* Settings rows */
 .settings-row {
@@ -322,9 +183,6 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-}
-.settings-row-sub {
-  padding-top: 0;
 }
 .settings-label {
   font-size: var(--fs-sm);
@@ -380,7 +238,7 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--text-primary);
   transition: transform 0.2s;
   pointer-events: none;
 }
@@ -418,7 +276,7 @@
 .settings-btn-accent {
   background: var(--accent);
   border: 1px solid var(--accent);
-  color: #fff;
+  color: var(--accent-text, #fff);
   padding: 5px 12px;
   border-radius: 6px;
   cursor: pointer;
@@ -445,21 +303,6 @@
 .settings-select:focus {
   border-color: var(--accent);
 }
-.settings-text-input {
-  flex: 1;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  padding: 6px 8px;
-  border-radius: 6px;
-  font-size: var(--fs-sm);
-  outline: none;
-  transition: border-color 0.15s;
-}
-.settings-text-input:focus {
-  border-color: var(--accent);
-}
-
 .settings-actions-row {
   display: flex;
   gap: 8px;
@@ -543,75 +386,6 @@
   height: 100%;
   background: var(--accent);
   transition: width 0.2s;
-}
-
-/* Last.fm import modal */
-.lastfm-import-modal-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(var(--overlay-inverse), 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 10;
-  border-radius: 12px;
-}
-.lastfm-import-modal {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 24px;
-  width: 380px;
-  max-width: 90%;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.lastfm-import-modal h3 {
-  margin: 0;
-  font-size: var(--fs-base);
-  font-weight: 600;
-}
-.lastfm-import-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.lastfm-import-progress-bar {
-  height: 6px;
-  background: var(--border);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.lastfm-import-progress-fill {
-  height: 100%;
-  background: var(--error);
-  transition: width 0.3s;
-  border-radius: 3px;
-}
-.lastfm-import-stats {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-}
-.lastfm-import-status {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-}
-.lastfm-import-done {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.lastfm-import-stats-final {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-}
-.lastfm-import-modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 /* Debug timing table */

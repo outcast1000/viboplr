@@ -4,11 +4,6 @@
   position: relative;
 }
 
-.auto-continue-btn {
-  font-size: var(--fs-lg);
-  font-weight: 700;
-}
-
 .auto-continue-popover {
   position: absolute;
   bottom: 100%;

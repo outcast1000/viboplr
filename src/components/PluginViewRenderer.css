@@ -24,12 +24,6 @@
   color: var(--text-primary);
 }
 
-.plugin-view-header h2 {
-  font-size: var(--fs-lg);
-  font-weight: 600;
-  margin: 0 0 12px;
-}
-
 .plugin-view-empty {
   color: var(--text-secondary);
   font-size: var(--fs-sm);
@@ -144,7 +138,7 @@
   pointer-events: none;
   background: rgba(0, 0, 0, 0.4);
   border: none;
-  color: #fff;
+  color: var(--text-primary);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s;
@@ -277,7 +271,7 @@
 
 .plugin-button-accent {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text, #fff);
 }
 
 .plugin-button-accent:hover {
@@ -287,20 +281,6 @@
 .plugin-settings-row-disabled {
   opacity: 0.4;
   pointer-events: none;
-}
-
-/* Plugin layout */
-.plugin-layout-vertical {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.plugin-layout-horizontal {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 12px;
 }
 
 .plugin-spacer {
@@ -387,20 +367,21 @@
   flex: 1;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 8px 12px 8px 32px;
+  border-radius: 20px;
+  padding: 8px 36px;
   color: var(--text-primary);
   font-size: var(--fs-sm);
+  outline: none;
+  transition: border-color 0.15s;
 }
 
 .plugin-search-input input:focus {
   border-color: var(--accent);
-  outline: none;
 }
 
 .plugin-search-clear {
   position: absolute;
-  right: 8px;
+  right: 10px;
   background: none;
   border: none;
   color: var(--text-secondary);
@@ -408,12 +389,13 @@
   padding: 2px;
   display: flex;
   align-items: center;
-  border-radius: 3px;
+  border-radius: 4px;
+  opacity: 0.6;
+  transition: opacity 0.15s;
 }
 
 .plugin-search-clear:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  opacity: 1;
 }
 
 /* Plugin tabs */
@@ -647,7 +629,7 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: white;
+  background: var(--text-primary);
   transition: transform 0.2s;
 }
 
@@ -707,8 +689,4 @@
 
 .plugin-settings-panel .settings-group {
   margin-bottom: 0;
-}
-
-.plugin-settings-panel .plugin-layout-vertical {
-  gap: 4px;
 }

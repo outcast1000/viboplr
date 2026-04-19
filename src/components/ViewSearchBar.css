@@ -17,20 +17,21 @@
 
 .view-search-icon {
   position: absolute;
-  left: 8px;
+  left: 10px;
   color: var(--text-secondary);
   pointer-events: none;
 }
 
 .view-search-input-wrap input {
   flex: 1;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 5px;
-  padding: 6px 10px 6px 30px;
+  border-radius: 20px;
+  padding: 8px 36px;
   color: inherit;
   font-size: var(--fs-sm);
   outline: none;
+  transition: border-color 0.15s;
 }
 
 .view-search-input-wrap input:focus {
@@ -39,7 +40,7 @@
 
 .view-search-input-wrap .search-clear-btn {
   position: absolute;
-  right: 6px;
+  right: 10px;
 }
 
 

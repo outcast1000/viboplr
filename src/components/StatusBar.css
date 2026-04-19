@@ -1,11 +1,3 @@
-
-/* Session log */
-.session-log {
-  max-height: 300px;
-  overflow-y: auto;
-  font-size: var(--fs-sm);
-  font-family: monospace;
-}
 .log-entry {
   padding: 3px 0;
   display: flex;
@@ -231,12 +223,4 @@
 
 .download-cancel-btn:hover {
   color: var(--text-primary);
-}
-
-.download-item-complete .download-item-status {
-  color: var(--accent);
-}
-
-.download-item-error .download-item-status {
-  color: var(--error);
 }
