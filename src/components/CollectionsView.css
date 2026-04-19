@@ -148,3 +148,56 @@
 .collections-view-add-buttons .add-folder-btn {
   flex: 1;
 }
+
+/* Resync progress */
+.collection-resync-status {
+  margin-top: 6px;
+  padding-left: 42px;
+}
+
+.collection-progress-bar-track {
+  height: 3px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.collection-progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.collection-progress-indeterminate {
+  width: 40% !important;
+  animation: progress-indeterminate 1.5s ease-in-out infinite;
+}
+
+.collection-progress-done .collection-progress-bar-fill {
+  background: var(--success);
+}
+
+.collection-progress-error .collection-progress-bar-fill {
+  background: var(--error);
+}
+
+.collection-progress-text {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-progress-error + .collection-progress-text,
+.collection-progress-error ~ .collection-progress-text {
+  color: var(--error);
+}
+
+@keyframes progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}

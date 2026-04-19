@@ -1,4 +1,5 @@
 import type { Collection, CollectionStats } from "../types";
+import type { ResyncProgress, ResyncComplete } from "../hooks/useEventListeners";
 import { collectionKindLabel } from "../utils";
 import "./CollectionsView.css";
 
@@ -45,7 +46,8 @@ interface CollectionsViewProps {
   onResync: (collectionId: number) => void;
   checkingConnectionId: number | null;
   connectionResult: { collectionId: number; ok: boolean; message: string } | null;
-  resyncingCollectionId: number | null;
+  resyncProgress: ResyncProgress | null;
+  resyncComplete: ResyncComplete | null;
   onEdit: (collection: Collection) => void;
   onRemove: (collection: Collection) => void;
   onAddFolder: () => void;
@@ -60,7 +62,8 @@ export function CollectionsView({
   onResync,
   checkingConnectionId,
   connectionResult,
-  resyncingCollectionId,
+  resyncProgress,
+  resyncComplete,
   onEdit,
   onRemove,
   onAddFolder,
@@ -126,15 +129,34 @@ export function CollectionsView({
                     <span className="collections-view-detail">Auto-update every {c.auto_update_interval_mins < 60 ? `${c.auto_update_interval_mins}m` : `${c.auto_update_interval_mins / 60}h`}</span>
                   )}
                 </div>
+                {(resyncProgress?.collectionId === c.id || resyncComplete?.collectionId === c.id) && (
+                  <div className="collection-resync-status">
+                    <div className={`collection-progress-bar-track${resyncComplete?.error ? " collection-progress-error" : resyncComplete ? " collection-progress-done" : ""}`}>
+                      <div
+                        className={`collection-progress-bar-fill${resyncProgress && resyncProgress.total === 0 ? " collection-progress-indeterminate" : ""}`}
+                        style={{ width: resyncComplete ? "100%" : resyncProgress && resyncProgress.total > 0 ? `${Math.round((resyncProgress.scanned / resyncProgress.total) * 100)}%` : undefined }}
+                      />
+                    </div>
+                    <span className="collection-progress-text">
+                      {resyncComplete?.error
+                        ? <span title={resyncComplete.error}>Error: {resyncComplete.error}</span>
+                        : resyncComplete
+                        ? `Complete${resyncComplete.newTracks > 0 ? ` — ${resyncComplete.newTracks} new track${resyncComplete.newTracks !== 1 ? "s" : ""} added` : " — no new tracks"}`
+                        : resyncProgress && resyncProgress.total > 0
+                        ? `${resyncProgress.kind === "scan" ? "Scanning" : "Syncing"}... ${resyncProgress.scanned}/${resyncProgress.total} ${resyncProgress.kind === "scan" ? "files" : "albums"}`
+                        : `Preparing ${resyncProgress?.kind === "scan" ? "scan" : "sync"}...`}
+                    </span>
+                  </div>
+                )}
                 <div className="collections-view-card-actions">
                   {(c.kind === "local" || c.kind === "subsonic") && (
                     <button
-                      className={`collections-view-action-btn ${resyncingCollectionId === c.id ? "collections-view-action-checking" : ""}`}
+                      className={`collections-view-action-btn ${resyncProgress?.collectionId === c.id || resyncComplete?.collectionId === c.id ? "collections-view-action-checking" : ""}`}
                       onClick={() => onResync(c.id)}
-                      disabled={resyncingCollectionId === c.id}
+                      disabled={resyncProgress != null || (resyncComplete != null && !resyncComplete.error)}
                       title="Resync"
                     >
-                      {resyncingCollectionId === c.id ? "Resyncing..." : "Resync"}
+                      {resyncProgress?.collectionId === c.id ? "Resyncing..." : "Resync"}
                     </button>
                   )}
                   {c.kind === "subsonic" && (
