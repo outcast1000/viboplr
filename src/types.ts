@@ -219,3 +219,10 @@ export interface MixtapeImportProgress {
   total_tracks: number;
   track_title: string;
 }
+
+export interface MixtapeContext {
+  type: MixtapeType;
+  metadata: Record<string, string>;
+  coverImagePath?: string | null;
+  includeThumbs: boolean;
+}

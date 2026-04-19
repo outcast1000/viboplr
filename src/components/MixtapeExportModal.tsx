@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import type { MixtapeType, MixtapeContext } from "../types";
 
 export interface ExportTrack {
   id: number;
@@ -15,10 +16,11 @@ export interface ExportTrack {
 interface MixtapeExportModalProps {
   tracks: ExportTrack[];
   defaultTitle?: string;
+  mixtapeContext?: MixtapeContext | null;
   onClose: () => void;
+  onExported?: (context: MixtapeContext) => void;
 }
 
-type MixtapeType = "custom" | "album" | "best_of_artist";
 type Quality = "flac" | "mp3_320" | "mp3_128" | "aac";
 
 interface MixtapeExportProgress {
@@ -41,21 +43,35 @@ const formatFileSize = (bytes?: number): string => {
   return `${(mb / 1024).toFixed(2)} GB`;
 };
 
-export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExportModalProps) {
+export function MixtapeExportModal({ tracks, defaultTitle, mixtapeContext, onClose, onExported }: MixtapeExportModalProps) {
   const [title, setTitle] = useState(defaultTitle || "");
-  const [mixtapeType, setMixtapeType] = useState<MixtapeType>("custom");
-  const [quality, setQuality] = useState<Quality>("flac");
-  const [coverPath, setCoverPath] = useState<string | null>(null);
-  const [includeThumb, setIncludeThumb] = useState(true);
+  const [mixtapeType, setMixtapeType] = useState<MixtapeType>(mixtapeContext?.type ?? "custom");
+  const [quality, setQuality] = useState<Quality>((mixtapeContext?.metadata?.quality as Quality) ?? "flac");
+  const [coverPath, setCoverPath] = useState<string | null>(mixtapeContext?.coverImagePath ?? null);
+  const [includeThumb, setIncludeThumb] = useState(mixtapeContext?.includeThumbs ?? true);
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState<MixtapeExportProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [trackList, setTrackList] = useState<ExportTrack[]>(tracks);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [metadataEntries, setMetadataEntries] = useState<{ key: string; value: string }[]>([
-    { key: "quality", value: "flac" },
-    { key: "liner_notes", value: "" },
-  ]);
+  const [metadataEntries, setMetadataEntries] = useState<{ key: string; value: string }[]>(() => {
+    if (mixtapeContext?.metadata && Object.keys(mixtapeContext.metadata).length > 0) {
+      return Object.entries(mixtapeContext.metadata).map(([key, value]) => ({ key, value }));
+    }
+    return [
+      { key: "quality", value: "flac" },
+      { key: "liner_notes", value: "" },
+    ];
+  });
+
+  const metadataEntriesRef = useRef(metadataEntries);
+  useEffect(() => { metadataEntriesRef.current = metadataEntries; }, [metadataEntries]);
+  const mixtapeTypeRef = useRef(mixtapeType);
+  useEffect(() => { mixtapeTypeRef.current = mixtapeType; }, [mixtapeType]);
+  const coverPathRef = useRef(coverPath);
+  useEffect(() => { coverPathRef.current = coverPath; }, [coverPath]);
+  const includeThumbRef = useRef(includeThumb);
+  useEffect(() => { includeThumbRef.current = includeThumb; }, [includeThumb]);
 
   const estimatedSize = trackList.reduce((sum, t) => sum + (t.fileSize || 0), 0);
 
@@ -197,6 +213,19 @@ export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExp
 
     const unlistenComplete = listen("mixtape-export-complete", () => {
       setExporting(false);
+      const metadata: Record<string, string> = {};
+      for (const entry of metadataEntriesRef.current) {
+        const key = entry.key.trim().toLowerCase().replace(/\s+/g, "_");
+        if (key && entry.value.trim()) {
+          metadata[key] = entry.value.trim();
+        }
+      }
+      onExported?.({
+        type: mixtapeTypeRef.current,
+        metadata,
+        coverImagePath: coverPathRef.current,
+        includeThumbs: includeThumbRef.current,
+      });
       onClose();
     });
 

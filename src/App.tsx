@@ -9,7 +9,7 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir } from "./types";
+import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, MixtapeContext } from "./types";
 import { isVideoTrack, parseSubsonicUrl, tidalCoverUrl } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
@@ -415,6 +415,7 @@ function App() {
   const [mixtapePreviewPath, setMixtapePreviewPath] = useState<string | null>(null);
   const [mixtapeExportTracks, setMixtapeExportTracks] = useState<ExportTrack[] | null>(null);
   const [mixtapeExportDefaultTitle, setMixtapeExportDefaultTitle] = useState<string>("");
+  const [queueMixtapeExport, setQueueMixtapeExport] = useState(false);
 
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
@@ -1541,8 +1542,30 @@ function App() {
     }
   }, []);
 
+  const handleQueueSaveAsMixtape = useCallback(() => {
+    if (queueHook.queue.length === 0) return;
+    const exportTracks = queueHook.queue
+      .filter(t => t.id > 0)
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        artistName: t.artist_name || undefined,
+        albumTitle: t.album_title || undefined,
+        durationSecs: t.duration_secs || undefined,
+        fileSize: t.file_size || undefined,
+      }));
+    if (exportTracks.length === 0) return;
+    setMixtapeExportTracks(exportTracks);
+    setMixtapeExportDefaultTitle(queueHook.playlistContext?.name || "");
+    setQueueMixtapeExport(true);
+  }, [queueHook.queue, queueHook.playlistContext]);
+
+  const handleMixtapeExported = useCallback((context: MixtapeContext) => {
+    queueHook.setPlaylistContext(prev => prev ? { ...prev, mixtape: context } : { name: "", mixtape: context });
+  }, [queueHook.setPlaylistContext]);
+
   // Queue handler for mixtape "Just Play" mode — replaces the queue with mixtape tracks
-  const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; coverPath?: string | null }) => {
+  const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; coverPath?: string | null; mixtape?: MixtapeContext | null }) => {
     queueHook.playTracks(tracks, 0, context);
   }, [queueHook.playTracks]);
 
@@ -2365,8 +2388,9 @@ function App() {
           }}
           onMoveMultiple={queueHook.moveMultiple}
           onClear={queueHook.clearQueue}
-          onSavePlaylist={queueHook.savePlaylist}
+          onSaveAsM3U={queueHook.saveAsM3U}
           onSaveAsPlaylist={handleSaveAsPlaylist}
+          onSaveAsMixtape={handleQueueSaveAsMixtape}
           onLoadPlaylist={() => queueHook.loadPlaylist(setMixtapePreviewPath)}
           onContextMenu={(e, indices) => {
             const tracks = indices.map(i => queueHook.queue[i]).filter(Boolean);
@@ -2556,7 +2580,9 @@ function App() {
         <MixtapeExportModal
           tracks={mixtapeExportTracks}
           defaultTitle={mixtapeExportDefaultTitle}
-          onClose={() => setMixtapeExportTracks(null)}
+          mixtapeContext={queueMixtapeExport ? queueHook.playlistContext?.mixtape : undefined}
+          onClose={() => { setMixtapeExportTracks(null); setQueueMixtapeExport(false); }}
+          onExported={queueMixtapeExport ? handleMixtapeExported : undefined}
         />
       )}
 
