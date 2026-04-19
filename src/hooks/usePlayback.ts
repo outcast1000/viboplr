@@ -326,6 +326,8 @@ export function usePlayback(
       await playWithSrc(track, src, source);
     } catch (e) {
       console.error("Playback error:", e);
+      setPlaybackError(e instanceof Error ? e.message : String(e));
+      setFailedTrack(track);
     }
   }
 
@@ -338,6 +340,8 @@ export function usePlayback(
       await playWithSrc(track, url);
     } catch (e) {
       console.error("Playback error:", e);
+      setPlaybackError(e instanceof Error ? e.message : String(e));
+      setFailedTrack(track);
     }
   }
 
