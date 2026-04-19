@@ -3309,11 +3309,6 @@ pub fn import_mixtape(
                 let _ = app.emit("mixtape-just-play", serde_json::json!({
                     "tracks": track_paths,
                     "coverPath": playback_dir.join("cover.jpg").to_string_lossy(),
-                    "manifest": {
-                        "title": manifest.title,
-                        "type": manifest.mixtape_type,
-                        "metadata": manifest.metadata,
-                    }
                 }));
 
                 let _ = app.emit("mixtape-import-complete", serde_json::json!({

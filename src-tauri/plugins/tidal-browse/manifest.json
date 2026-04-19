@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "author": "Viboplr",
   "description": "Search, stream, and download from TIDAL",
+  "icon": "M2 12l5-5 5 5-5 5zM12 12l5-5 5 5-5 5zM7 7l5-5 5 5-5 5z",
   "minAppVersion": "0.7.0",
   "contributes": {
     "imageProviders": [

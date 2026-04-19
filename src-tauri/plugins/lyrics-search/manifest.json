@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "author": "Viboplr",
   "description": "Meta-search lyrics via DuckDuckGo with whitelisted site scrapers",
+  "icon": "M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM21 21l-4.35-4.35",
   "minAppVersion": "0.9.5",
   "contributes": {
     "informationTypes": [

@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "author": "Viboplr",
   "description": "Plain lyrics from Lyrics.ovh",
+  "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
   "minAppVersion": "0.9.5",
   "contributes": {
     "informationTypes": [

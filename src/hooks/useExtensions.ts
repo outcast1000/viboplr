@@ -225,6 +225,7 @@ export function useExtensions(props: UseExtensionsProps) {
                 : "disabled",
         updateAvailable: update,
         source: ps.builtin ? "builtin" : "user",
+        icon: ps.manifest.icon,
         contributes: ps.manifest.contributes,
         apiUsage: ps.manifest.apiUsage,
         homepage: ps.manifest.homepage,

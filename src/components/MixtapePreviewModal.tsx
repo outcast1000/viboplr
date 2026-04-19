@@ -2,13 +2,13 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { useState, useEffect, useCallback } from "react";
-import type { MixtapePreview, MixtapeImportProgress, Track, MixtapeType, MixtapeContext } from "../types";
+import type { MixtapePreview, MixtapeImportProgress, Track } from "../types";
 import playlistDefault from "../assets/playlist-default.png";
 
 interface MixtapePreviewModalProps {
   mixtapePath: string;
   onClose: () => void;
-  onQueueTracks?: (tracks: Track[], context: { name: string; coverPath?: string | null; mixtape?: MixtapeContext | null }) => void;
+  onQueueTracks?: (tracks: Track[], context: { name: string; coverPath?: string | null }) => void;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -79,28 +79,11 @@ export function MixtapePreviewModal({
       setProgress(null);
     });
 
-    interface JustPlayPayload {
-      tracks: Track[];
-      coverPath?: string;
-      manifest: {
-        title: string;
-        type: MixtapeType;
-        metadata: Record<string, string>;
-      };
-    }
-
-    const unlistenJustPlay = listen<JustPlayPayload>("mixtape-just-play", (event) => {
+    const unlistenJustPlay = listen<Track[]>("mixtape-just-play", (event) => {
       if (onQueueTracks && preview) {
-        const { tracks: playTracks, manifest } = event.payload;
-        onQueueTracks(playTracks, {
+        onQueueTracks(event.payload, {
           name: preview.manifest.title,
           coverPath: preview.cover_temp_path,
-          mixtape: {
-            type: manifest.type,
-            metadata: manifest.metadata,
-            coverImagePath: null,
-            includeThumbs: true,
-          },
         });
       }
       onClose();

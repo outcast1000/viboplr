@@ -81,6 +81,7 @@ export interface PluginManifest {
   author?: string;
   description?: string;
   minAppVersion?: string;
+  icon?: string;
   apiUsage?: PluginApiUsage[];
   homepage?: string;
   contributes?: PluginManifestContributes;
@@ -478,6 +479,7 @@ export interface ExtensionItem {
   status: "active" | "disabled" | "incompatible" | "error" | "not_installed";
   updateAvailable?: ExtensionUpdate;
   source: "builtin" | "user" | "gallery";
+  icon?: string;
   contributes?: PluginManifestContributes;
   apiUsage?: PluginApiUsage[];
   homepage?: string;

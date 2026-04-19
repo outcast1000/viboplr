@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "author": "Viboplr",
   "description": "Artist and album images from iTunes",
+  "icon": "M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
   "contributes": {
     "imageProviders": [
       { "entity": "artist", "priority": 300 },

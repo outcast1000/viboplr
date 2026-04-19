@@ -41,7 +41,16 @@ function SkinIcon({ colors }: { colors: [string, string, string, string] }) {
   );
 }
 
-function PluginIcon({ name }: { name: string }) {
+function PluginIcon({ name, icon }: { name: string; icon?: string }) {
+  if (icon) {
+    return (
+      <div className="ext-icon ext-icon--plugin">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d={icon} />
+        </svg>
+      </div>
+    );
+  }
   const letter = name.charAt(0).toUpperCase();
   return <div className="ext-icon ext-icon--plugin">{letter}</div>;
 }
@@ -66,7 +75,7 @@ function ExtensionListItem({ ext, selected, onClick }: { ext: ExtensionItem; sel
       {ext.kind === "skin" && ext.skinColors ? (
         <SkinIcon colors={ext.skinColors} />
       ) : (
-        <PluginIcon name={ext.name} />
+        <PluginIcon name={ext.name} icon={ext.icon} />
       )}
       <div className="ext-list-item-info">
         <div className="ext-list-item-header">
@@ -111,7 +120,7 @@ function ExtensionDetail({
         {ext.kind === "skin" && ext.skinColors ? (
           <SkinIcon colors={ext.skinColors} />
         ) : (
-          <PluginIcon name={ext.name} />
+          <PluginIcon name={ext.name} icon={ext.icon} />
         )}
         <div className="ext-detail-header-info">
           <div className="ext-detail-name">{ext.name}</div>

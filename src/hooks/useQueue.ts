@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import type { Track, PlaylistLoadResult, PlaylistEntry, Collection, MixtapeContext } from "../types";
+import type { Track, PlaylistLoadResult, PlaylistEntry, Collection } from "../types";
 import { trackToQueueEntry, queueEntryToTrack, stampUrl } from "../queueEntry";
 import { store } from "../store";
 
@@ -9,7 +9,6 @@ export interface PlaylistContext {
   name: string;
   coverPath?: string | null;
   coverUrl?: string | null;
-  mixtape?: MixtapeContext | null;
 }
 
 export function useQueue(
@@ -399,7 +398,7 @@ export function useQueue(
     handlePlay(stamped, source);
   }
 
-  async function saveAsM3U() {
+  async function savePlaylist() {
     if (queueRef.current.length === 0) return;
     const filePath = await save({
       filters: [{ name: "M3U Playlist", extensions: ["m3u"] }],
@@ -454,6 +453,6 @@ export function useQueue(
     removeFromQueue, removeMultiple, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
-    playlistContext, setPlaylistContext, saveAsM3U, loadPlaylist,
+    playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,
   };
 }

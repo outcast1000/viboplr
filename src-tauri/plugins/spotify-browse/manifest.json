@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "author": "Viboplr",
   "description": "Browse your Spotify library — liked songs and playlists",
+  "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM8.5 16c2.5-1 5.5-1 7.5 0M7 13c3-1.5 7.5-1.5 10.5 0M5.5 10c4-2 9.5-2 13.5 0",
   "minAppVersion": "0.7.0",
   "contributes": {
     "sidebarItems": [
