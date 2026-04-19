@@ -269,7 +269,7 @@ pub fn scan_folder(
     folder_path: &str,
     collection_id: Option<i64>,
     progress_callback: impl Fn(u64, u64) + Send,
-) {
+) -> u64 {
     let root = PathBuf::from(folder_path);
     let start = Instant::now();
 
@@ -301,11 +301,13 @@ pub fn scan_folder(
     }
 
     // Delete tracks whose files no longer exist on disk
+    let mut removed: u64 = 0;
     if let Some(cid) = collection_id {
         if let Ok(db_paths) = db.get_local_track_paths_for_collection(cid) {
             let missing: Vec<String> = db_paths.into_iter().filter(|p| !seen_paths.contains(p)).collect();
             if !missing.is_empty() {
-                info!("Deleting {} tracks no longer on disk", missing.len());
+                removed = missing.len() as u64;
+                info!("Deleting {} tracks no longer on disk", removed);
                 let _ = db.delete_tracks_by_paths_in_collection(cid, &missing);
             }
         }
@@ -313,6 +315,7 @@ pub fn scan_folder(
 
     let elapsed = start.elapsed();
     info!("Scan complete: {} files in {:.1}s", scanned, elapsed.as_secs_f64());
+    removed
 }
 
 pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>) {

@@ -32,6 +32,13 @@ function formatTotalDuration(secs: number): string {
   return `${mins}m`;
 }
 
+function formatResyncStats(added: number, removed: number): string {
+  const parts: string[] = [];
+  if (added > 0) parts.push(`${added} added`);
+  if (removed > 0) parts.push(`${removed} removed`);
+  return parts.length > 0 ? parts.join(", ") : "no changes";
+}
+
 function getConnectionStatus(c: Collection): "connected" | "error" | "unknown" | null {
   if (c.kind !== "subsonic") return null;
   if (c.last_sync_error) return "error";
@@ -141,7 +148,7 @@ export function CollectionsView({
                       {resyncComplete?.error
                         ? <span title={resyncComplete.error}>Error: {resyncComplete.error}</span>
                         : resyncComplete
-                        ? `Complete${resyncComplete.newTracks > 0 ? ` — ${resyncComplete.newTracks} new track${resyncComplete.newTracks !== 1 ? "s" : ""} added` : " — no new tracks"}`
+                        ? `Complete — ${formatResyncStats(resyncComplete.newTracks, resyncComplete.removedTracks)}`
                         : resyncProgress && resyncProgress.total > 0
                         ? `${resyncProgress.kind === "scan" ? "Scanning" : "Syncing"}... ${resyncProgress.scanned}/${resyncProgress.total} ${resyncProgress.kind === "scan" ? "files" : "albums"}`
                         : `Preparing ${resyncProgress?.kind === "scan" ? "scan" : "sync"}...`}

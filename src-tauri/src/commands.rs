@@ -128,7 +128,7 @@ pub fn add_collection(
             let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
             thread::spawn(move || {
                 let start = std::time::Instant::now();
-                scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
+                let removed_tracks = scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
                     let _ = app.emit(
                         "scan-progress",
                         ScanProgress {
@@ -148,6 +148,7 @@ pub fn add_collection(
                     "folder": scan_path,
                     "collectionId": collection_id,
                     "newTracks": new_tracks,
+                    "removedTracks": removed_tracks,
                 }));
             });
 
@@ -216,7 +217,7 @@ pub fn add_collection(
                         },
                     );
                 }) {
-                    Ok(()) => {
+                    Ok(removed_tracks) => {
                         let track_count_after = db.get_track_count_for_collection(collection_id).unwrap_or(0);
                         let new_tracks = (track_count_after - track_count_before).max(0);
                         let _ = app.emit(
@@ -224,6 +225,7 @@ pub fn add_collection(
                             serde_json::json!({
                                 "collectionId": collection_id,
                                 "newTracks": new_tracks,
+                                "removedTracks": removed_tracks,
                             }),
                         );
                     }
@@ -319,7 +321,7 @@ pub fn resync_collection(
             let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
             thread::spawn(move || {
                 let start = std::time::Instant::now();
-                scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
+                let removed_tracks = scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
                     let _ = app.emit(
                         "scan-progress",
                         ScanProgress {
@@ -339,6 +341,7 @@ pub fn resync_collection(
                     "folder": scan_path,
                     "collectionId": collection_id,
                     "newTracks": new_tracks,
+                    "removedTracks": removed_tracks,
                 }));
             });
             Ok(())
@@ -371,7 +374,7 @@ pub fn resync_collection(
                         },
                     );
                 }) {
-                    Ok(()) => {
+                    Ok(removed_tracks) => {
                         let track_count_after = db.get_track_count_for_collection(collection_id).unwrap_or(0);
                         let new_tracks = (track_count_after - track_count_before).max(0);
                         let _ = app.emit(
@@ -379,6 +382,7 @@ pub fn resync_collection(
                             serde_json::json!({
                                 "collectionId": collection_id,
                                 "newTracks": new_tracks,
+                                "removedTracks": removed_tracks,
                             }),
                         );
                     }

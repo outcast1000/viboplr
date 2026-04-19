@@ -381,6 +381,7 @@ function App() {
     collectionId: number;
     collectionName: string;
     newTracks: number;
+    removedTracks: number;
     error?: string;
   } | null>(null);
   const [artistSections, setArtistSections] = useState<Record<string, boolean>>({ topSongs: true, about: true, albums: true, similarArtists: true });

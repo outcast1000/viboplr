@@ -9,7 +9,7 @@ pub fn sync_collection(
     client: &SubsonicClient,
     collection_id: i64,
     progress_callback: impl Fn(u64, u64) + Send,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     let start = std::time::Instant::now();
 
     // Build set of all existing relative paths (track IDs) for this collection
@@ -118,6 +118,7 @@ pub fn sync_collection(
         .into_iter()
         .filter(|p| !seen_paths.contains(p))
         .collect();
+    let removed_count = removed.len() as u64;
     db.delete_tracks_by_paths_in_collection(collection_id, &removed)
         .map_err(|e| e.to_string())?;
 
@@ -126,5 +127,5 @@ pub fn sync_collection(
     db.update_collection_synced(collection_id, start.elapsed().as_secs_f64())
         .map_err(|e| e.to_string())?;
 
-    Ok(())
+    Ok(removed_count)
 }

@@ -13,6 +13,7 @@ interface ResyncComplete {
   collectionId: number;
   collectionName: string;
   newTracks: number;
+  removedTracks: number;
   error?: string;
 }
 
@@ -68,7 +69,7 @@ export function useEventListeners(opts: EventListenerOptions) {
         }
       }
     );
-    const unlisten2 = listen<{ folder?: string; collectionId?: number; newTracks?: number }>("scan-complete", (event) => {
+    const unlisten2 = listen<{ folder?: string; collectionId?: number; newTracks?: number; removedTracks?: number }>("scan-complete", (event) => {
       scanStarted = false;
       setScanning(false);
       addLog("Scan complete");
@@ -79,6 +80,7 @@ export function useEventListeners(opts: EventListenerOptions) {
           collectionId: event.payload.collectionId,
           collectionName: resyncingCollectionName ?? event.payload.folder ?? "Collection",
           newTracks: event.payload.newTracks ?? 0,
+          removedTracks: event.payload.removedTracks ?? 0,
         });
         setTimeout(() => setResyncComplete(null), 3000);
       }
@@ -120,7 +122,7 @@ export function useEventListeners(opts: EventListenerOptions) {
         }
       }
     );
-    const unlisten2 = listen<{ collectionId: number; newTracks?: number }>("sync-complete", (event) => {
+    const unlisten2 = listen<{ collectionId: number; newTracks?: number; removedTracks?: number }>("sync-complete", (event) => {
       syncStarted = false;
       setSyncing(false);
       addLog("Sync complete");
@@ -130,6 +132,7 @@ export function useEventListeners(opts: EventListenerOptions) {
         collectionId: event.payload.collectionId,
         collectionName: resyncingCollectionName ?? "Collection",
         newTracks: event.payload.newTracks ?? 0,
+        removedTracks: event.payload.removedTracks ?? 0,
       });
       setTimeout(() => setResyncComplete(null), 3000);
       loadLibrary();
@@ -146,6 +149,7 @@ export function useEventListeners(opts: EventListenerOptions) {
         collectionId: event.payload.collectionId,
         collectionName: resyncingCollectionName ?? "Collection",
         newTracks: 0,
+        removedTracks: 0,
         error: event.payload.error,
       });
       // Error persists on the inline card until next resync attempt — no auto-clear.
