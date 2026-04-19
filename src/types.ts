@@ -82,7 +82,7 @@ export interface CollectionStats {
   total_duration: number;
 }
 
-export type View = "search" | "artists" | "albums" | "tags" | "history" | "collections" | "playlists" | "settings" | `plugin:${string}`;
+export type View = "search" | "artists" | "albums" | "tags" | "history" | "collections" | "playlists" | "settings" | "extensions" | `plugin:${string}`;
 
 export interface HistoryEntry {
   id: number;

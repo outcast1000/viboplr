@@ -82,6 +82,18 @@ pub fn fetch_url(url: &str) -> Result<String, String> {
     resp.text().map_err(|e| format!("Read error: {}", e))
 }
 
+pub fn update_skin_in_dir(dir: &Path, id: &str, skin_json: &str) -> Result<String, String> {
+    let _: serde_json::Value = serde_json::from_str(skin_json)
+        .map_err(|e| format!("Invalid JSON: {}", e))?;
+    let path = dir.join(format!("{}.json", id));
+    if !path.exists() {
+        return Err(format!("Skin '{}' not found", id));
+    }
+    std::fs::write(&path, skin_json)
+        .map_err(|e| format!("Failed to write skin: {}", e))?;
+    Ok(id.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,5 +134,34 @@ mod tests {
         save_skin_to_dir(dir.path(), &test_skin_json()).unwrap();
         let id2 = save_skin_to_dir(dir.path(), &test_skin_json()).unwrap();
         assert_eq!(id2, "test-2");
+    }
+
+    #[test]
+    fn test_update_skin_in_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+
+        let skin_v1 = "{\"name\":\"Test Skin\",\"author\":\"Test\",\"version\":\"1.0.0\",\"type\":\"dark\",\"colors\":{\"bg-primary\":\"#000\"}}";
+        let slug = save_skin_to_dir(dir, skin_v1).unwrap();
+
+        let skin_v2 = "{\"name\":\"Test Skin\",\"author\":\"Test\",\"version\":\"2.0.0\",\"type\":\"dark\",\"colors\":{\"bg-primary\":\"#111\"}}";
+        let new_slug = update_skin_in_dir(dir, &slug, skin_v2).unwrap();
+
+        assert_eq!(new_slug, slug);
+        let content = std::fs::read_to_string(dir.join(format!("{}.json", new_slug))).unwrap();
+        assert!(content.contains("2.0.0"));
+    }
+
+    #[test]
+    fn test_update_skin_invalid_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+
+        let skin = "{\"name\":\"Test\",\"author\":\"A\",\"version\":\"1.0.0\",\"type\":\"dark\",\"colors\":{}}";
+        let slug = save_skin_to_dir(dir, skin).unwrap();
+
+        let result = update_skin_in_dir(dir, &slug, "not json");
+        assert!(result.is_err());
+        assert!(dir.join(format!("{}.json", slug)).exists());
     }
 }

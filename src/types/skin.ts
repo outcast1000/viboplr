@@ -29,6 +29,7 @@ export interface SkinInfo {
   source: "builtin" | "user";
   colors: SkinColors;
   customCSS?: string;
+  updateUrl?: string;
 }
 
 export interface GallerySkinEntry {
@@ -38,5 +39,6 @@ export interface GallerySkinEntry {
   type: "dark" | "light";
   version: string;
   file: string;
+  updateUrl?: string;
   colors: [string, string, string, string];
 }

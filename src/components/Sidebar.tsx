@@ -52,6 +52,8 @@ interface SidebarProps {
   onShowPlaylists: () => void;
   onShowCollections: () => void;
   onShowSettings: () => void;
+  onShowExtensions?: () => void;
+  extensionUpdateCount?: number;
   updateAvailable: boolean;
   pluginNavItems?: PluginSidebarItem[];
   onPluginView?: (pluginId: string, viewId: string) => void;
@@ -61,7 +63,8 @@ export function Sidebar({
   view,
   selectedTrack,
   collapsed,
-  onShowSearch, onShowHistory, onShowPlaylists, onShowCollections, onShowSettings,
+  onShowSearch, onShowHistory, onShowPlaylists, onShowCollections, onShowSettings, onShowExtensions,
+  extensionUpdateCount,
   updateAvailable,
   pluginNavItems,
   onPluginView,
@@ -127,6 +130,13 @@ export function Sidebar({
       <div className="sidebar-bottom">
         <button className={`nav-btn sidebar-bottom-btn${noDetail && view === "collections" ? " active" : ""}`} onClick={onShowCollections} title={collapsed ? "Collections" : undefined}>
           <span className="nav-btn-label">{icons.collections} {!collapsed && "Collections"}</span>
+        </button>
+        <button className={`nav-btn sidebar-bottom-btn${noDetail && view === "extensions" ? " active" : ""}`} onClick={() => onShowExtensions?.()} title={collapsed ? "Extensions" : undefined}>
+          <span className="nav-btn-label">
+            <svg {...iconProps}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 17h7M17.5 14v7"/></svg>
+            {!collapsed && "Extensions"}
+          </span>
+          {!!extensionUpdateCount && extensionUpdateCount > 0 && <span className="ext-nav-badge">{extensionUpdateCount}</span>}
         </button>
         <button className={`nav-btn sidebar-bottom-btn${view === "settings" ? " active" : ""}`} onClick={onShowSettings} title={collapsed ? "Settings" : undefined}>
           <span className="nav-btn-label">{icons.settings} {!collapsed && "Settings"}</span>

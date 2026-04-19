@@ -69,6 +69,11 @@ export interface PluginManifestContributes {
   settingsPanel?: PluginManifestSettingsPanel;
 }
 
+export interface PluginApiUsage {
+  api: string;
+  reason: string;
+}
+
 export interface PluginManifest {
   id: string;
   name: string;
@@ -76,7 +81,10 @@ export interface PluginManifest {
   author?: string;
   description?: string;
   minAppVersion?: string;
+  apiUsage?: PluginApiUsage[];
+  homepage?: string;
   contributes?: PluginManifestContributes;
+  updateUrl?: string;
 }
 
 // -- Installed plugin from backend --
@@ -413,6 +421,7 @@ export interface GalleryPluginEntry {
   description: string;
   version: string;
   minAppVersion?: string;
+  updateUrl?: string;
   files: string[];
 }
 
@@ -444,3 +453,39 @@ export interface PluginSettingsPanel {
   icon?: string;
   order: number;
 }
+
+// -- Extension types --
+
+export interface ExtensionUpdate {
+  id: string;
+  kind: "plugin" | "skin";
+  name: string;
+  currentVersion: string;
+  latestVersion: string;
+  changelog: string;
+  downloadUrl: string;
+  status: "available" | "requires_app_update";
+  minAppVersion?: string;
+}
+
+export interface ExtensionItem {
+  id: string;
+  kind: "plugin" | "skin";
+  name: string;
+  author: string;
+  version: string;
+  description: string;
+  status: "active" | "disabled" | "incompatible" | "error" | "not_installed";
+  updateAvailable?: ExtensionUpdate;
+  source: "builtin" | "user" | "gallery";
+  contributes?: PluginManifestContributes;
+  apiUsage?: PluginApiUsage[];
+  homepage?: string;
+  minAppVersion?: string;
+  skinColors?: [string, string, string, string];
+  skinType?: "dark" | "light";
+  isActiveSkin?: boolean;
+  updateUrl?: string;
+}
+
+export type ExtensionFilter = "all" | "plugins" | "skins" | "installed" | "updates" | "gallery";

@@ -1,0 +1,446 @@
+import React, { useEffect } from "react";
+import type {
+  ExtensionItem,
+  ExtensionFilter,
+  ExtensionUpdate,
+  GalleryPluginEntry,
+} from "../types/plugin";
+import type { GallerySkinEntry } from "../types/skin";
+
+interface ExtensionsViewProps {
+  extensions: ExtensionItem[];
+  updateCount: number;
+  selectedId: string | null;
+  onSelectExtension: (id: string | null) => void;
+  filter: ExtensionFilter;
+  onSetFilter: (f: ExtensionFilter) => void;
+  searchQuery: string;
+  onSetSearchQuery: (q: string) => void;
+  installing: Set<string>;
+  checking: boolean;
+  lastChecked: number | null;
+  onCheckForUpdates: () => void;
+  onUpdateExtension: (id: string) => void;
+  onUpdateAll: () => void;
+  onInstallFromGallery: (entry: GalleryPluginEntry | GallerySkinEntry) => void;
+  onUninstall: (id: string, kind: "plugin" | "skin") => void;
+  onToggleEnabled: (id: string, kind: "plugin" | "skin") => void;
+  onFetchPluginGallery: () => void;
+  onFetchSkinGallery: () => void;
+  galleryPlugins: GalleryPluginEntry[];
+  gallerySkins: GallerySkinEntry[];
+}
+
+const FILTER_TABS: { key: ExtensionFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "plugins", label: "Plugins" },
+  { key: "skins", label: "Skins" },
+  { key: "installed", label: "Installed" },
+  { key: "updates", label: "Updates" },
+  { key: "gallery", label: "Gallery" },
+];
+
+function SkinIcon({ colors }: { colors: [string, string, string, string] }) {
+  return (
+    <div className="ext-icon ext-icon--skin">
+      <div style={{ background: colors[0] }} />
+      <div style={{ background: colors[1] }} />
+      <div style={{ background: colors[2] }} />
+      <div style={{ background: colors[3] }} />
+    </div>
+  );
+}
+
+function PluginIcon({ name }: { name: string }) {
+  const letter = name.charAt(0).toUpperCase();
+  return <div className="ext-icon ext-icon--plugin">{letter}</div>;
+}
+
+function StatusBadge({
+  status,
+  update,
+}: {
+  status: string;
+  update?: ExtensionUpdate;
+}) {
+  if (update) {
+    return <span className="ext-badge ext-badge--update">update</span>;
+  }
+  switch (status) {
+    case "active":
+      return <span className="ext-badge ext-badge--active">active</span>;
+    case "incompatible":
+      return (
+        <span className="ext-badge ext-badge--error">incompatible</span>
+      );
+    case "error":
+      return <span className="ext-badge ext-badge--error">error</span>;
+    case "disabled":
+      return <span className="ext-badge ext-badge--disabled">disabled</span>;
+    case "not_installed":
+      return null;
+    default:
+      return null;
+  }
+}
+
+function ExtensionListItem({
+  ext,
+  selected,
+  onClick,
+}: {
+  ext: ExtensionItem;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div
+      className={`ext-list-item ${selected ? "ext-list-item--selected" : ""} ${ext.status === "not_installed" ? "ext-list-item--gallery" : ""}`}
+      onClick={onClick}
+    >
+      {ext.kind === "skin" && ext.skinColors ? (
+        <SkinIcon colors={ext.skinColors} />
+      ) : (
+        <PluginIcon name={ext.name} />
+      )}
+      <div className="ext-list-item-info">
+        <div className="ext-list-item-header">
+          <span className="ext-list-item-name">{ext.name}</span>
+          <StatusBadge
+            status={ext.status}
+            update={ext.updateAvailable}
+          />
+        </div>
+        <div className="ext-list-item-desc">{ext.description}</div>
+        <div className="ext-list-item-meta">
+          {ext.author}
+          {" \u00b7 "}
+          {ext.updateAvailable
+            ? `v${ext.version} \u2192 v${ext.updateAvailable.latestVersion}`
+            : `v${ext.version}`}
+          {" \u00b7 "}
+          {ext.kind === "plugin" ? "Plugin" : "Skin"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExtensionDetail({
+  ext,
+  installing,
+  onUpdate,
+  onUninstall,
+  onToggleEnabled,
+  onInstallFromGallery,
+  galleryPlugins,
+  gallerySkins,
+}: {
+  ext: ExtensionItem;
+  installing: boolean;
+  onUpdate: () => void;
+  onUninstall: () => void;
+  onToggleEnabled: () => void;
+  onInstallFromGallery: (
+    entry: GalleryPluginEntry | GallerySkinEntry,
+  ) => void;
+  galleryPlugins: GalleryPluginEntry[];
+  gallerySkins: GallerySkinEntry[];
+}) {
+  const isInstalled = ext.status !== "not_installed";
+
+  return (
+    <div className="ext-detail">
+      <div className="ext-detail-header">
+        {ext.kind === "skin" && ext.skinColors ? (
+          <SkinIcon colors={ext.skinColors} />
+        ) : (
+          <PluginIcon name={ext.name} />
+        )}
+        <div className="ext-detail-header-info">
+          <div className="ext-detail-name">{ext.name}</div>
+          <div className="ext-detail-desc">{ext.description}</div>
+          <div className="ext-detail-meta">
+            By <strong>{ext.author}</strong> {"\u00b7"} v{ext.version} {"\u00b7"}{" "}
+            {ext.kind === "plugin" ? "Plugin" : "Skin"}
+            {isInstalled && (
+              <>
+                {" \u00b7 "}
+                {ext.status === "active" ? "Enabled" : "Disabled"}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="ext-detail-actions">
+        {ext.updateAvailable &&
+          ext.updateAvailable.status === "available" && (
+            <button
+              className="ds-btn ds-btn--primary ds-btn--sm"
+              onClick={onUpdate}
+              disabled={installing}
+            >
+              {installing
+                ? "Updating..."
+                : `Update to v${ext.updateAvailable.latestVersion}`}
+            </button>
+          )}
+        {ext.updateAvailable &&
+          ext.updateAvailable.status === "requires_app_update" && (
+            <button className="ds-btn ds-btn--secondary ds-btn--sm" disabled>
+              Requires app v{ext.updateAvailable.minAppVersion}
+            </button>
+          )}
+        {isInstalled && (
+          <>
+            <button
+              className="ds-btn ds-btn--secondary ds-btn--sm"
+              onClick={onToggleEnabled}
+            >
+              {ext.status === "active" ? "Disable" : "Enable"}
+            </button>
+            {ext.source !== "builtin" && (
+              <button
+                className="ds-btn ds-btn--secondary ds-btn--sm"
+                onClick={onUninstall}
+              >
+                Uninstall
+              </button>
+            )}
+          </>
+        )}
+        {!isInstalled && (
+          <button
+            className="ds-btn ds-btn--primary ds-btn--sm"
+            disabled={installing}
+            onClick={() => {
+              if (ext.kind === "plugin") {
+                const entry = galleryPlugins.find((p) => p.id === ext.id);
+                if (entry) onInstallFromGallery(entry);
+              } else {
+                const entry = gallerySkins.find((s) => s.id === ext.id);
+                if (entry) onInstallFromGallery(entry);
+              }
+            }}
+          >
+            {installing ? "Installing..." : "Install"}
+          </button>
+        )}
+      </div>
+
+      {ext.updateAvailable && (
+        <div className="ext-detail-update-box">
+          <div className="ext-detail-update-title">
+            Update Available: v{ext.updateAvailable.latestVersion}
+          </div>
+          {ext.updateAvailable.changelog && (
+            <div className="ext-detail-update-changelog">
+              {ext.updateAvailable.changelog}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="ext-detail-info">
+        <div className="ext-detail-info-grid">
+          <span className="ext-detail-info-label">Version</span>
+          <span>{ext.version}</span>
+          <span className="ext-detail-info-label">Author</span>
+          <span>{ext.author}</span>
+          {ext.homepage && (
+            <>
+              <span className="ext-detail-info-label">Homepage</span>
+              <span><a className="ext-detail-link" href={ext.homepage} target="_blank" rel="noopener noreferrer">{ext.homepage.replace(/^https?:\/\//, "")}</a></span>
+            </>
+          )}
+          <span className="ext-detail-info-label">Type</span>
+          <span>{ext.kind === "plugin" ? "Plugin" : "Skin"}</span>
+          {ext.minAppVersion && (
+            <>
+              <span className="ext-detail-info-label">Min App Version</span>
+              <span>{ext.minAppVersion}</span>
+            </>
+          )}
+          <span className="ext-detail-info-label">Source</span>
+          <span>{ext.source}</span>
+          {ext.kind === "skin" && ext.skinType && (
+            <>
+              <span className="ext-detail-info-label">Theme</span>
+              <span>{ext.skinType === "dark" ? "Dark" : "Light"}</span>
+            </>
+          )}
+          {ext.contributes && (() => {
+            const items: { category: string; names: string[] }[] = [];
+            if (ext.contributes.informationTypes?.length)
+              items.push({ category: "Info Types", names: ext.contributes.informationTypes.map(t => t.name) });
+            if (ext.contributes.imageProviders?.length)
+              items.push({ category: "Image Providers", names: ext.contributes.imageProviders.map(p => `${p.entity} images`) });
+            if (ext.contributes.contextMenuItems?.length) {
+              const byTarget = new Map<string, string[]>();
+              for (const m of ext.contributes.contextMenuItems) {
+                for (const t of m.targets) {
+                  const list = byTarget.get(t) || [];
+                  list.push(m.label);
+                  byTarget.set(t, list);
+                }
+              }
+              for (const [target, labels] of byTarget) {
+                items.push({ category: `Menu (${target})`, names: labels });
+              }
+            }
+            if (ext.contributes.sidebarItems?.length)
+              items.push({ category: "Sidebar", names: ext.contributes.sidebarItems.map(s => s.label) });
+            if (ext.contributes.eventHooks?.length)
+              items.push({ category: "Event Hooks", names: ext.contributes.eventHooks });
+            if (ext.contributes.fallbackProviders?.length)
+              items.push({ category: "Fallback Playback Providers", names: ext.contributes.fallbackProviders.map(f => f.name) });
+            if (ext.contributes.settingsPanel)
+              items.push({ category: "Settings", names: [ext.contributes.settingsPanel.label] });
+            if (!items.length) return null;
+            return items.map(({ category, names }) => (
+              <React.Fragment key={category}>
+                <span className="ext-detail-info-label">{category}</span>
+                <span>{names.join(", ")}</span>
+              </React.Fragment>
+            ));
+          })()}
+        </div>
+      </div>
+
+      {ext.apiUsage && ext.apiUsage.length > 0 && (
+        <div className="ext-detail-api-usage">
+          <div className="ext-detail-api-usage-title">API Usage</div>
+          <div className="ext-detail-api-usage-list">
+            {ext.apiUsage.map((usage, i) => (
+              <div key={i} className="ext-detail-api-usage-item">
+                <code className="ext-detail-api-usage-api">{usage.api}</code>
+                <span className="ext-detail-api-usage-reason">{usage.reason}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ExtensionsView(props: ExtensionsViewProps) {
+  const {
+    extensions,
+    updateCount,
+    selectedId,
+    onSelectExtension,
+    filter,
+    onSetFilter,
+    searchQuery,
+    onSetSearchQuery,
+    installing,
+    checking,
+    onCheckForUpdates,
+    onUpdateExtension,
+    onUpdateAll,
+    onInstallFromGallery,
+    onUninstall,
+    onToggleEnabled,
+    onFetchPluginGallery,
+    onFetchSkinGallery,
+    galleryPlugins,
+    gallerySkins,
+  } = props;
+
+  useEffect(() => {
+    onFetchPluginGallery();
+    onFetchSkinGallery();
+  }, []);
+
+  const selectedExt = extensions.find((e) => e.id === selectedId) || null;
+
+  return (
+    <div className="extensions-view">
+      <div className="ext-topbar">
+        <input
+          className="ds-search"
+          type="text"
+          placeholder="Search extensions..."
+          value={searchQuery}
+          onChange={(e) => onSetSearchQuery(e.target.value)}
+        />
+        <div className="ext-topbar-actions">
+          {updateCount > 0 && (
+            <>
+              <span className="ext-update-count">{updateCount} update{updateCount !== 1 ? "s" : ""}</span>
+              <button
+                className="ds-btn ds-btn--primary ds-btn--sm"
+                onClick={onUpdateAll}
+              >
+                Update All
+              </button>
+            </>
+          )}
+          <button
+            className="ds-btn ds-btn--secondary ds-btn--sm"
+            onClick={onCheckForUpdates}
+            disabled={checking}
+          >
+            {checking ? "Checking..." : "Check for Updates"}
+          </button>
+        </div>
+      </div>
+
+      <div className="ds-tabs ds-tabs--no-border ext-filter-tabs">
+        {FILTER_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            className={`ds-tab ${filter === tab.key ? "active" : ""}`}
+            onClick={() => onSetFilter(tab.key)}
+          >
+            {tab.label}
+            {tab.key === "updates" && updateCount > 0 && (
+              <span className="ds-tab-badge">{updateCount}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="ext-content">
+        <div className="ext-list">
+          {extensions.length === 0 && (
+            <div className="ext-empty">No extensions found</div>
+          )}
+          {extensions.map((ext) => (
+            <ExtensionListItem
+              key={`${ext.kind}-${ext.id}`}
+              ext={ext}
+              selected={selectedId === ext.id}
+              onClick={() => onSelectExtension(ext.id)}
+            />
+          ))}
+        </div>
+
+        <div className="ext-detail-pane">
+          {selectedExt ? (
+            <ExtensionDetail
+              ext={selectedExt}
+              installing={installing.has(selectedExt.id)}
+              onUpdate={() => onUpdateExtension(selectedExt.id)}
+              onUninstall={() =>
+                onUninstall(selectedExt.id, selectedExt.kind)
+              }
+              onToggleEnabled={() =>
+                onToggleEnabled(selectedExt.id, selectedExt.kind)
+              }
+              onInstallFromGallery={onInstallFromGallery}
+              galleryPlugins={galleryPlugins}
+              gallerySkins={gallerySkins}
+            />
+          ) : (
+            <div className="ext-detail-empty">
+              Select an extension to view details
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

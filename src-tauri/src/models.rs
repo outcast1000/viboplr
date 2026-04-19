@@ -391,3 +391,28 @@ pub struct TapeImportProgress {
     pub track_title: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    pub version: String,
+    #[serde(default)]
+    pub min_app_version: Option<String>,
+    pub file: String,
+    #[serde(default)]
+    pub changelog: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionUpdate {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub current_version: String,
+    pub latest_version: String,
+    pub changelog: String,
+    pub download_url: String,
+    pub status: String,
+    pub min_app_version: Option<String>,
+}
+

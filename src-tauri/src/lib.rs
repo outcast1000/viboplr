@@ -18,6 +18,7 @@ mod tag_writer;
 mod tape;
 mod timing;
 mod downloader;
+mod update_checker;
 use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry};
 use db::Database;
 use downloader::DownloadManager;
