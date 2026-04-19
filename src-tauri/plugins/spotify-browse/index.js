@@ -4,7 +4,6 @@
 
 function activate(api) {
   var browseHandle = null;
-  var DEV = true;
 
   var state = {
     currentView: "home",
@@ -18,6 +17,7 @@ function activate(api) {
     errorMessage: "",
     browserVisible: false,
     debugLog: [],
+    showDebugLog: false,
     lastLoginCheck: null,
   };
 
@@ -29,7 +29,6 @@ function activate(api) {
   }
 
   function dbg(tag, msg, data) {
-    if (!DEV) return;
     var ts = new Date().toLocaleTimeString();
     state.debugLog.push({ ts: ts, tag: tag, msg: msg, data: data });
     if (state.debugLog.length > 200) state.debugLog.shift();
@@ -46,7 +45,13 @@ function activate(api) {
   }
 
   function cleanup() {
-    if (browseHandle) { browseHandle.close(); browseHandle = null; }
+    if (browseHandle) {
+      browseHandle.close().catch(function(err) {
+        console.error("Failed to close browse window:", err);
+      });
+      browseHandle = null;
+    }
+    state.browserVisible = false;
   }
 
   // ---- Render ----
@@ -62,7 +67,7 @@ function activate(api) {
     } else if (state.status === "waiting-login") {
       ch.push({ type: "text", content: "<h3>Waiting for login\u2026</h3>" });
       ch.push({ type: "text", content: "<p>Log in to Spotify in the browser window. Click <b>Show Browser</b> to open it.</p>" });
-      if (DEV && state.lastLoginCheck) {
+      if (state.lastLoginCheck) {
         var lc = state.lastLoginCheck;
         var sig = lc.signals || {};
         var posItems = [];
@@ -73,12 +78,11 @@ function activate(api) {
         if (sig.loginBtn) negItems.push("loginBtn"); if (sig.signupBtn) negItems.push("signupBtn");
         if (sig.loginLink) negItems.push("loginLink");
         var lcHtml = "<div style='font-size:11px;background:rgba(0,0,0,0.2);padding:8px;border-radius:4px;margin:8px 0'>" +
-          "<b>Login detection debug</b> (polls every 3s)<br>" +
+          "<b>Login detection</b> (polls every 3s)<br>" +
           "<span style='color:#4f4'>Positive signals:</span> " + (posItems.length ? posItems.join(", ") : "<i>none</i>") + "<br>" +
           "<span style='color:#f44'>Negative signals:</span> " + (negItems.length ? negItems.join(", ") : "<i>none</i>") + "<br>" +
           "Result: <b>" + (lc.loggedIn ? "LOGGED IN" : "NOT LOGGED IN") + "</b><br>" +
           "URL: " + escapeHtml(lc.url || "") +
-          (lc.pageDump ? "<br><details><summary style='cursor:pointer'>Page dump (no clear signal)</summary><pre style='font-size:10px;white-space:pre-wrap;word-break:break-all'>" + escapeHtml(JSON.stringify(lc.pageDump, null, 2)) + "</pre></details>" : "") +
           "</div>";
         ch.push({ type: "text", content: lcHtml });
       }
@@ -152,7 +156,16 @@ function activate(api) {
       ch.push({ type: "card-grid", items: cards });
     }
 
-    if (DEV && state.debugLog.length > 0) {
+    ch.push({ type: "spacer" });
+    ch.push({
+      type: "layout", direction: "horizontal", children: [
+        { type: "button", label: state.showDebugLog ? "Hide Debug Log" : "Debug Log" + (state.debugLog.length > 0 ? " (" + state.debugLog.length + ")" : ""), action: "toggle-debug-log", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
+        state.showDebugLog && state.debugLog.length > 0 ? { type: "button", label: "Copy Log", action: "copy-debug-log", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } } : { type: "spacer" },
+        state.showDebugLog && state.debugLog.length > 0 ? { type: "button", label: "Clear", action: "clear-debug-log", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } } : { type: "spacer" },
+      ]
+    });
+
+    if (state.showDebugLog && state.debugLog.length > 0) {
       var tagBg = {
         flow: "#2a4a6a", login: "#2a5a2a", m4y: "#5a4a1a", playlists: "#4a2a5a",
         tracks: "#1a4a4a", error: "#5a1a1a", msg: "#3a3a3a"
@@ -180,15 +193,12 @@ function activate(api) {
         }
         logHtml += "</div>";
       }
-      ch.push({ type: "spacer" });
       ch.push({ type: "text", content:
-        "<details open><summary style='cursor:pointer;font-size:12px;font-weight:bold;margin-bottom:4px'>" +
-        "Debug Log (" + state.debugLog.length + ")</summary>" +
         "<div style='font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.4;" +
         "max-height:500px;overflow:auto;background:rgba(0,0,0,0.25);border-radius:6px;" +
         "user-select:text;-webkit-user-select:text;cursor:text;border:1px solid rgba(255,255,255,0.08)'>" +
         logHtml +
-        "</div></details>"
+        "</div>"
       });
     }
 
@@ -513,6 +523,19 @@ function activate(api) {
     var t = msg.type;
     var d = msg.data;
 
+    if (t === "window-closed") {
+      dbg("flow", "browse window was closed externally");
+      browseHandle = null;
+      state.browserVisible = false;
+      if (state.status !== "done" && state.status !== "idle") {
+        resetTimers();
+        state.status = "error";
+        state.errorMessage = "Browser window was closed. Click Try Again to restart.";
+      }
+      renderHome();
+      return;
+    }
+
     if (t === "debug" && d) {
       dbg(d.tag || "browse", d.msg || "", d.data);
       renderHome();
@@ -770,13 +793,23 @@ function activate(api) {
   });
 
   api.ui.onAction("toggle-browser", function() {
-    if (!browseHandle) return;
-    state.browserVisible = !state.browserVisible;
-    if (state.browserVisible) {
-      browseHandle.show();
-    } else {
-      browseHandle.hide();
+    if (!browseHandle) {
+      dbg("flow", "toggle-browser: no handle, ignoring");
+      return;
     }
+    state.browserVisible = !state.browserVisible;
+    var p = state.browserVisible ? browseHandle.show() : browseHandle.hide();
+    p.catch(function(err) {
+      dbg("error", "toggle-browser failed (window gone?)", { error: "" + err });
+      browseHandle = null;
+      state.browserVisible = false;
+      if (state.status !== "done" && state.status !== "idle") {
+        resetTimers();
+        state.status = "error";
+        state.errorMessage = "Browser window was closed. Click Try Again to restart.";
+      }
+      renderHome();
+    });
     renderHome();
   });
 
@@ -785,6 +818,36 @@ function activate(api) {
     resetTimers();
     state.status = "idle";
     renderHome();
+  });
+
+  api.ui.onAction("toggle-debug-log", function() {
+    state.showDebugLog = !state.showDebugLog;
+    if (state.currentView === "home") renderHome(); else renderPlaylist();
+  });
+
+  api.ui.onAction("copy-debug-log", function() {
+    var lines = [];
+    for (var i = 0; i < state.debugLog.length; i++) {
+      var e = state.debugLog[i];
+      var line = e.ts + " [" + e.tag.toUpperCase() + "] " + e.msg;
+      if (e.data !== undefined) line += " " + formatDebugData(e.data);
+      lines.push(line);
+    }
+    var text = lines.join("\n");
+    try {
+      navigator.clipboard.writeText(text).then(function() {
+        api.ui.showNotification("Debug log copied to clipboard");
+      }).catch(function(err) {
+        console.error("Failed to copy debug log:", err);
+      });
+    } catch(err) {
+      console.error("Failed to copy debug log:", err);
+    }
+  });
+
+  api.ui.onAction("clear-debug-log", function() {
+    state.debugLog = [];
+    if (state.currentView === "home") renderHome(); else renderPlaylist();
   });
 
   api.ui.onAction("go-home", function() {

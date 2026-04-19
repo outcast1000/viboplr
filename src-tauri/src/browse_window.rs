@@ -14,6 +14,11 @@ struct BrowseWindowNavigation {
     url: String,
 }
 
+#[derive(Clone, Serialize)]
+struct BrowseWindowClosed {
+    label: String,
+}
+
 /// Open a secondary webview window that loads an external URL.
 /// An initialization script injects `window.__viboplr.send(type, data)` so
 /// injected scraping code can send results back to the main app via IPC.
@@ -66,7 +71,10 @@ pub async fn open_browse_window(
                      AppleWebKit/605.1.15 (KHTML, like Gecko) \
                      Version/17.5 Safari/605.1.15";
 
-    WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed_url))
+    let label_for_close = label.clone();
+    let app_for_close = app.clone();
+
+    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed_url))
         .title(title.unwrap_or_else(|| "Viboplr Browse".to_string()))
         .inner_size(width.unwrap_or(1200.0), height.unwrap_or(800.0))
         .visible(visible.unwrap_or(true))
@@ -84,6 +92,17 @@ pub async fn open_browse_window(
         })
         .build()
         .map_err(|e| e.to_string())?;
+
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            let _ = app_for_close.emit(
+                "browse-window-closed",
+                BrowseWindowClosed {
+                    label: label_for_close.clone(),
+                },
+            );
+        }
+    });
 
     Ok(())
 }

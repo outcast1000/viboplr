@@ -365,6 +365,18 @@ export function usePlugins(
             );
             unlisteners.push(navUnlisten);
 
+            const closeUnlisten = await listen<{ label: string }>(
+              "browse-window-closed",
+              (event) => {
+                if (event.payload.label !== label) return;
+                const msg = { type: "window-closed", data: {} };
+                for (const h of messageHandlers) {
+                  try { h(msg); } catch (e) { console.error(`[plugin:${pluginId}] browse close error:`, e); }
+                }
+              },
+            );
+            unlisteners.push(closeUnlisten);
+
             // Clean up listeners when plugin deactivates
             for (const ul of unlisteners) trackUnsubscribe(ul);
 
