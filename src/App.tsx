@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrent as getDeepLinkCurrent } from "@tauri-apps/plugin-deep-link";
 import { listen } from "@tauri-apps/api/event";
 import "./base.css";
+import "./design-system.css";
 import "./App.css";
 
 import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir } from "./types";

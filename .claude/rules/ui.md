@@ -272,3 +272,28 @@ Plus derived RGB versions (`--bg-primary-rgb`, `--accent-rgb`, `--now-playing-bg
 - Always use CSS custom properties (`var(--bg-primary)`, etc.) — never hardcode colors
 - Test UI changes across multiple skins
 - Use the 7-level type scale: `--fs-2xs` through `--fs-2xl`
+
+## Design System
+
+Standard `.ds-*` CSS classes are defined in `src/design-system.css`. When building new UI, use these classes instead of creating ad-hoc styles. Existing components will migrate incrementally.
+
+**Available classes:**
+
+| Category | Base Class | Variants |
+|----------|-----------|----------|
+| Buttons | `.ds-btn` | `--primary`, `--secondary`, `--danger`, `--ghost`, `--sm`, `--lg` |
+| Tabs | `.ds-tabs` + `.ds-tab` | `--compact`, `--no-border`, `.ds-tab-badge` |
+| Modals | `.ds-modal-overlay` + `.ds-modal` | `--sm`, `--lg`, `--xl`, `.ds-modal-title`, `.ds-modal-actions` |
+| Cards | `.ds-card` | `.ds-card-art`, `--circular`, `.ds-card-play`, `--accent`, `.ds-card-like`, `.ds-card-more`, `.ds-card-body`, `.ds-card-title`, `.ds-card-subtitle` |
+| Card grid | `.ds-card-grid` | `--wide` |
+| Inputs | `.ds-input` | — |
+| Selects | `.ds-select` | — |
+| Toggles | `.ds-toggle` + `.ds-toggle-thumb` | `.on` state |
+| Search | `.ds-search` | — |
+| Tables | `.ds-table` | `.ds-table-header`, `.ds-table-row`, `.highlighted`, `.active` |
+| Columns | `.ds-col--grow`, `--shrink`, `--right`, `--secondary` | — |
+| Lists | `.ds-list` + `.ds-list-item` | `.ds-list-item-img`, `--circular`, `.ds-list-item-info`, `.ds-list-item-name`, `.ds-list-item-secondary` |
+
+**Usage:** `className="ds-btn ds-btn--primary ds-btn--sm"`
+
+**Rule:** New UI must use `.ds-*` classes. Do not create new ad-hoc button, tab, modal, card, input, table, or list styles.

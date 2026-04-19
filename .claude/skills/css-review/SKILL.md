@@ -17,6 +17,7 @@ Before scanning, build a semantic model by reading these files:
    - `--overlay-base`: `255, 255, 255` (dark mode) / `0, 0, 0` (light mode) — used for same-theme glass highlights and translucent borders
    - `--overlay-inverse`: `0, 0, 0` (dark mode) / `255, 255, 255` (light mode) — used for overlays on contrasting surfaces
 4. **Read 2-3 skin JSON files from `src/skins/`** — understand what hex values map to which variables across different skins (e.g., `#fff` might be `--text-primary` in a dark skin but `--bg-primary` in a light skin)
+5. **Read `src/design-system.css`** — understand the `.ds-*` class system so you can recommend using design system classes instead of ad-hoc styles when proposing fixes
 
 ### Semantic Mapping
 
@@ -200,7 +201,35 @@ Ask the user whether to remove all dead classes or review per-file.
 
 When removing, delete the entire CSS rule block (selector + braces + properties). Also remove compound selectors that reference the dead class (e.g., `.dead-class:hover`, `.dead-class.modifier`, `.parent .dead-class`). Clean up resulting double blank lines.
 
-## Step 6: Offer to Apply Fixes
+## Step 6: Design System Adoption Check
+
+After color and dead CSS checks, audit whether components use `.ds-*` classes where available.
+
+### Process
+
+1. **Read `src/design-system.css`** to know all available `.ds-*` classes
+2. **Scan for ad-hoc patterns** that duplicate design system classes:
+   - Buttons: Grep for `.modal-btn`, `.settings-btn-`, `.plugin-button` in CSS — these should migrate to `.ds-btn`
+   - Tabs: Grep for `.search-view-tab`, `.settings-tab`, `.history-tab` in CSS — these should migrate to `.ds-tab`
+   - Modals: Grep for `.modal-overlay` (non-ds) in CSS — should migrate to `.ds-modal-overlay`
+   - Cards: Grep for `.album-card`, `.artist-card`, `.tag-card`, `.playlist-card`, `.plugin-card` in CSS — should migrate to `.ds-card`
+   - Inputs: Grep for `.modal-field input`, `.settings-select`, `.toggle-switch` in CSS — should migrate to `.ds-input` / `.ds-select` / `.ds-toggle`
+
+3. **Report adoption status:**
+
+```
+Design System Adoption
+══════════════════════
+Component    ds-* classes    Ad-hoc classes    Adoption
+─────────────────────────────────────────────────────────
+Buttons      ds-btn          modal-btn, etc.   0/N migrated
+Tabs         ds-tab          settings-tab...   0/N migrated
+Modals       ds-modal        modal-overlay...  0/N migrated
+Cards        ds-card         album-card...     0/N migrated
+Inputs       ds-input        modal-field...    0/N migrated
+```
+
+## Step 7: Offer to Apply Fixes
 
 After presenting both reports (color violations + dead CSS), ask the user:
 
