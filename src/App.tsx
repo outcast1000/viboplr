@@ -2167,7 +2167,6 @@ function App() {
           {/* Extensions view */}
           {view === "extensions" && (
             <ExtensionsView
-              extensions={extensionsHook.extensions}
               allExtensions={extensionsHook.allExtensions}
               updateCount={extensionsHook.updateCount}
               selectedId={extensionsHook.selectedId}

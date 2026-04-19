@@ -1,19 +1,18 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type {
   ExtensionItem,
-  ExtensionFilter,
   ExtensionUpdate,
   GalleryPluginEntry,
 } from "../types/plugin";
 import type { GallerySkinEntry } from "../types/skin";
 
+type ExtTab = "skins" | "plugins";
+
 interface ExtensionsViewProps {
-  extensions: ExtensionItem[];
+  allExtensions: ExtensionItem[];
   updateCount: number;
   selectedId: string | null;
   onSelectExtension: (id: string | null) => void;
-  filter: ExtensionFilter;
-  onSetFilter: (f: ExtensionFilter) => void;
   searchQuery: string;
   onSetSearchQuery: (q: string) => void;
   installing: Set<string>;
@@ -31,15 +30,6 @@ interface ExtensionsViewProps {
   gallerySkins: GallerySkinEntry[];
 }
 
-const FILTER_TABS: { key: ExtensionFilter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "plugins", label: "Plugins" },
-  { key: "skins", label: "Skins" },
-  { key: "installed", label: "Installed" },
-  { key: "updates", label: "Updates" },
-  { key: "gallery", label: "Gallery" },
-];
-
 function SkinIcon({ colors }: { colors: [string, string, string, string] }) {
   return (
     <div className="ext-icon ext-icon--skin">
@@ -56,43 +46,18 @@ function PluginIcon({ name }: { name: string }) {
   return <div className="ext-icon ext-icon--plugin">{letter}</div>;
 }
 
-function StatusBadge({
-  status,
-  update,
-}: {
-  status: string;
-  update?: ExtensionUpdate;
-}) {
-  if (update) {
-    return <span className="ext-badge ext-badge--update">update</span>;
-  }
+function StatusBadge({ status, update }: { status: string; update?: ExtensionUpdate }) {
+  if (update) return <span className="ext-badge ext-badge--update">update</span>;
   switch (status) {
-    case "active":
-      return <span className="ext-badge ext-badge--active">active</span>;
-    case "incompatible":
-      return (
-        <span className="ext-badge ext-badge--error">incompatible</span>
-      );
-    case "error":
-      return <span className="ext-badge ext-badge--error">error</span>;
-    case "disabled":
-      return <span className="ext-badge ext-badge--disabled">disabled</span>;
-    case "not_installed":
-      return null;
-    default:
-      return null;
+    case "active": return <span className="ext-badge ext-badge--active">active</span>;
+    case "incompatible": return <span className="ext-badge ext-badge--error">incompatible</span>;
+    case "error": return <span className="ext-badge ext-badge--error">error</span>;
+    case "disabled": return <span className="ext-badge ext-badge--disabled">disabled</span>;
+    default: return null;
   }
 }
 
-function ExtensionListItem({
-  ext,
-  selected,
-  onClick,
-}: {
-  ext: ExtensionItem;
-  selected: boolean;
-  onClick: () => void;
-}) {
+function ExtensionListItem({ ext, selected, onClick }: { ext: ExtensionItem; selected: boolean; onClick: () => void }) {
   return (
     <div
       className={`ext-list-item ${selected ? "ext-list-item--selected" : ""} ${ext.status === "not_installed" ? "ext-list-item--gallery" : ""}`}
@@ -106,10 +71,7 @@ function ExtensionListItem({
       <div className="ext-list-item-info">
         <div className="ext-list-item-header">
           <span className="ext-list-item-name">{ext.name}</span>
-          <StatusBadge
-            status={ext.status}
-            update={ext.updateAvailable}
-          />
+          <StatusBadge status={ext.status} update={ext.updateAvailable} />
         </div>
         <div className="ext-list-item-desc">{ext.description}</div>
         <div className="ext-list-item-meta">
@@ -118,34 +80,28 @@ function ExtensionListItem({
           {ext.updateAvailable
             ? `v${ext.version} \u2192 v${ext.updateAvailable.latestVersion}`
             : `v${ext.version}`}
-          {" \u00b7 "}
-          {ext.kind === "plugin" ? "Plugin" : "Skin"}
         </div>
       </div>
     </div>
   );
 }
 
+function SectionHeader({ title, count }: { title: string; count: number }) {
+  if (count === 0) return null;
+  return (
+    <div className="ext-section-header">
+      <span>{title}</span>
+      <span className="ext-section-count">{count}</span>
+    </div>
+  );
+}
+
 function ExtensionDetail({
-  ext,
-  installing,
-  onUpdate,
-  onUninstall,
-  onToggleEnabled,
-  onInstallFromGallery,
-  galleryPlugins,
-  gallerySkins,
+  ext, installing, onUpdate, onUninstall, onToggleEnabled, onInstallFromGallery, galleryPlugins, gallerySkins,
 }: {
-  ext: ExtensionItem;
-  installing: boolean;
-  onUpdate: () => void;
-  onUninstall: () => void;
-  onToggleEnabled: () => void;
-  onInstallFromGallery: (
-    entry: GalleryPluginEntry | GallerySkinEntry,
-  ) => void;
-  galleryPlugins: GalleryPluginEntry[];
-  gallerySkins: GallerySkinEntry[];
+  ext: ExtensionItem; installing: boolean; onUpdate: () => void; onUninstall: () => void;
+  onToggleEnabled: () => void; onInstallFromGallery: (entry: GalleryPluginEntry | GallerySkinEntry) => void;
+  galleryPlugins: GalleryPluginEntry[]; gallerySkins: GallerySkinEntry[];
 }) {
   const isInstalled = ext.status !== "not_installed";
 
@@ -164,66 +120,43 @@ function ExtensionDetail({
             By <strong>{ext.author}</strong> {"\u00b7"} v{ext.version} {"\u00b7"}{" "}
             {ext.kind === "plugin" ? "Plugin" : "Skin"}
             {isInstalled && (
-              <>
-                {" \u00b7 "}
-                {ext.status === "active" ? "Enabled" : "Disabled"}
-              </>
+              <>{" \u00b7 "}{ext.status === "active" ? "Enabled" : "Disabled"}</>
             )}
           </div>
         </div>
       </div>
 
       <div className="ext-detail-actions">
-        {ext.updateAvailable &&
-          ext.updateAvailable.status === "available" && (
-            <button
-              className="ds-btn ds-btn--primary ds-btn--sm"
-              onClick={onUpdate}
-              disabled={installing}
-            >
-              {installing
-                ? "Updating..."
-                : `Update to v${ext.updateAvailable.latestVersion}`}
-            </button>
-          )}
-        {ext.updateAvailable &&
-          ext.updateAvailable.status === "requires_app_update" && (
-            <button className="ds-btn ds-btn--secondary ds-btn--sm" disabled>
-              Requires app v{ext.updateAvailable.minAppVersion}
-            </button>
-          )}
+        {ext.updateAvailable && ext.updateAvailable.status === "available" && (
+          <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={onUpdate} disabled={installing}>
+            {installing ? "Updating..." : `Update to v${ext.updateAvailable.latestVersion}`}
+          </button>
+        )}
+        {ext.updateAvailable && ext.updateAvailable.status === "requires_app_update" && (
+          <button className="ds-btn ds-btn--secondary ds-btn--sm" disabled>
+            Requires app v{ext.updateAvailable.minAppVersion}
+          </button>
+        )}
         {isInstalled && (
           <>
-            <button
-              className="ds-btn ds-btn--secondary ds-btn--sm"
-              onClick={onToggleEnabled}
-            >
+            <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onToggleEnabled}>
               {ext.status === "active" ? "Disable" : "Enable"}
             </button>
             {ext.source !== "builtin" && (
-              <button
-                className="ds-btn ds-btn--secondary ds-btn--sm"
-                onClick={onUninstall}
-              >
-                Uninstall
-              </button>
+              <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onUninstall}>Uninstall</button>
             )}
           </>
         )}
         {!isInstalled && (
-          <button
-            className="ds-btn ds-btn--primary ds-btn--sm"
-            disabled={installing}
-            onClick={() => {
-              if (ext.kind === "plugin") {
-                const entry = galleryPlugins.find((p) => p.id === ext.id);
-                if (entry) onInstallFromGallery(entry);
-              } else {
-                const entry = gallerySkins.find((s) => s.id === ext.id);
-                if (entry) onInstallFromGallery(entry);
-              }
-            }}
-          >
+          <button className="ds-btn ds-btn--primary ds-btn--sm" disabled={installing} onClick={() => {
+            if (ext.kind === "plugin") {
+              const entry = galleryPlugins.find((p) => p.id === ext.id);
+              if (entry) onInstallFromGallery(entry);
+            } else {
+              const entry = gallerySkins.find((s) => s.id === ext.id);
+              if (entry) onInstallFromGallery(entry);
+            }
+          }}>
             {installing ? "Installing..." : "Install"}
           </button>
         )}
@@ -231,13 +164,9 @@ function ExtensionDetail({
 
       {ext.updateAvailable && (
         <div className="ext-detail-update-box">
-          <div className="ext-detail-update-title">
-            Update Available: v{ext.updateAvailable.latestVersion}
-          </div>
+          <div className="ext-detail-update-title">Update Available: v{ext.updateAvailable.latestVersion}</div>
           {ext.updateAvailable.changelog && (
-            <div className="ext-detail-update-changelog">
-              {ext.updateAvailable.changelog}
-            </div>
+            <div className="ext-detail-update-changelog">{ext.updateAvailable.changelog}</div>
           )}
         </div>
       )}
@@ -327,12 +256,10 @@ function ExtensionDetail({
 
 export default function ExtensionsView(props: ExtensionsViewProps) {
   const {
-    extensions,
+    allExtensions,
     updateCount,
     selectedId,
     onSelectExtension,
-    filter,
-    onSetFilter,
     searchQuery,
     onSetSearchQuery,
     installing,
@@ -349,12 +276,37 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     gallerySkins,
   } = props;
 
+  const [tab, setTab] = useState<ExtTab>("plugins");
+
   useEffect(() => {
     onFetchPluginGallery();
     onFetchSkinGallery();
   }, []);
 
-  const selectedExt = extensions.find((e) => e.id === selectedId) || null;
+  const kindFilter = tab === "skins" ? "skin" : "plugin";
+
+  const filtered = useMemo(() => {
+    let items = allExtensions.filter((e) => e.kind === kindFilter);
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      items = items.filter(
+        (e) =>
+          e.name.toLowerCase().includes(q) ||
+          e.description.toLowerCase().includes(q) ||
+          e.author.toLowerCase().includes(q),
+      );
+    }
+    return items;
+  }, [allExtensions, kindFilter, searchQuery]);
+
+  const withUpdates = filtered.filter((e) => e.updateAvailable);
+  const installed = filtered.filter((e) => e.status !== "not_installed" && !e.updateAvailable);
+  const gallery = filtered.filter((e) => e.status === "not_installed");
+
+  const selectedExt = allExtensions.find((e) => e.id === selectedId) || null;
+
+  const skinUpdateCount = allExtensions.filter((e) => e.kind === "skin" && e.updateAvailable?.status === "available").length;
+  const pluginUpdateCount = allExtensions.filter((e) => e.kind === "plugin" && e.updateAvailable?.status === "available").length;
 
   return (
     <div className="extensions-view">
@@ -362,7 +314,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
         <input
           className="ds-search"
           type="text"
-          placeholder="Search extensions..."
+          placeholder={`Search ${tab}...`}
           value={searchQuery}
           onChange={(e) => onSetSearchQuery(e.target.value)}
         />
@@ -370,51 +322,45 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
           {updateCount > 0 && (
             <>
               <span className="ext-update-count">{updateCount} update{updateCount !== 1 ? "s" : ""}</span>
-              <button
-                className="ds-btn ds-btn--primary ds-btn--sm"
-                onClick={onUpdateAll}
-              >
-                Update All
-              </button>
+              <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={onUpdateAll}>Update All</button>
             </>
           )}
-          <button
-            className="ds-btn ds-btn--secondary ds-btn--sm"
-            onClick={onCheckForUpdates}
-            disabled={checking}
-          >
+          <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onCheckForUpdates} disabled={checking}>
             {checking ? "Checking..." : "Check for Updates"}
           </button>
         </div>
       </div>
 
       <div className="ds-tabs ds-tabs--no-border ext-filter-tabs">
-        {FILTER_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            className={`ds-tab ${filter === tab.key ? "active" : ""}`}
-            onClick={() => onSetFilter(tab.key)}
-          >
-            {tab.label}
-            {tab.key === "updates" && updateCount > 0 && (
-              <span className="ds-tab-badge">{updateCount}</span>
-            )}
-          </button>
-        ))}
+        <button className={`ds-tab ${tab === "skins" ? "active" : ""}`} onClick={() => setTab("skins")}>
+          Skins
+          {skinUpdateCount > 0 && <span className="ds-tab-badge">{skinUpdateCount}</span>}
+        </button>
+        <button className={`ds-tab ${tab === "plugins" ? "active" : ""}`} onClick={() => setTab("plugins")}>
+          Plugins
+          {pluginUpdateCount > 0 && <span className="ds-tab-badge">{pluginUpdateCount}</span>}
+        </button>
       </div>
 
       <div className="ext-content">
         <div className="ext-list">
-          {extensions.length === 0 && (
-            <div className="ext-empty">No extensions found</div>
+          {filtered.length === 0 && (
+            <div className="ext-empty">No {tab} found</div>
           )}
-          {extensions.map((ext) => (
-            <ExtensionListItem
-              key={`${ext.kind}-${ext.id}`}
-              ext={ext}
-              selected={selectedId === ext.id}
-              onClick={() => onSelectExtension(ext.id)}
-            />
+
+          <SectionHeader title="Updates" count={withUpdates.length} />
+          {withUpdates.map((ext) => (
+            <ExtensionListItem key={`${ext.kind}-${ext.id}`} ext={ext} selected={selectedId === ext.id} onClick={() => onSelectExtension(ext.id)} />
+          ))}
+
+          <SectionHeader title="Installed" count={installed.length} />
+          {installed.map((ext) => (
+            <ExtensionListItem key={`${ext.kind}-${ext.id}`} ext={ext} selected={selectedId === ext.id} onClick={() => onSelectExtension(ext.id)} />
+          ))}
+
+          <SectionHeader title="Gallery" count={gallery.length} />
+          {gallery.map((ext) => (
+            <ExtensionListItem key={`${ext.kind}-${ext.id}`} ext={ext} selected={selectedId === ext.id} onClick={() => onSelectExtension(ext.id)} />
           ))}
         </div>
 
@@ -424,20 +370,14 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
               ext={selectedExt}
               installing={installing.has(selectedExt.id)}
               onUpdate={() => onUpdateExtension(selectedExt.id)}
-              onUninstall={() =>
-                onUninstall(selectedExt.id, selectedExt.kind)
-              }
-              onToggleEnabled={() =>
-                onToggleEnabled(selectedExt.id, selectedExt.kind)
-              }
+              onUninstall={() => onUninstall(selectedExt.id, selectedExt.kind)}
+              onToggleEnabled={() => onToggleEnabled(selectedExt.id, selectedExt.kind)}
               onInstallFromGallery={onInstallFromGallery}
               galleryPlugins={galleryPlugins}
               gallerySkins={gallerySkins}
             />
           ) : (
-            <div className="ext-detail-empty">
-              Select an extension to view details
-            </div>
+            <div className="ext-detail-empty">Select an extension to view details</div>
           )}
         </div>
       </div>
