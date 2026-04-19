@@ -1634,9 +1634,9 @@
   flex-shrink: 0;
 }
 
-/* --- Tape modals --- */
-.tape-preview-modal,
-.tape-export-modal {
+/* --- Mixtape modals --- */
+.mixtape-preview-modal,
+.mixtape-export-modal {
   max-width: 640px;
   width: 640px;
   max-height: 85vh;
@@ -1645,14 +1645,14 @@
   overflow: hidden;
 }
 
-.tape-preview-header {
+.mixtape-preview-header {
   display: flex;
   gap: 16px;
   padding: 16px;
   border-bottom: 1px solid var(--border);
 }
 
-.tape-preview-cover {
+.mixtape-preview-cover {
   width: 120px;
   height: 120px;
   object-fit: cover;
@@ -1660,14 +1660,14 @@
   flex-shrink: 0;
 }
 
-.tape-preview-info {
+.mixtape-preview-info {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
 }
 
-.tape-preview-info h2 {
+.mixtape-preview-info h2 {
   font-size: var(--fs-lg);
   margin: 0;
   overflow: hidden;
@@ -1675,12 +1675,12 @@
   white-space: nowrap;
 }
 
-.tape-preview-badges {
+.mixtape-preview-badges {
   display: flex;
   gap: 6px;
 }
 
-.tape-badge {
+.mixtape-badge {
   font-size: var(--fs-2xs);
   padding: 2px 8px;
   border-radius: 10px;
@@ -1691,27 +1691,27 @@
   letter-spacing: 0.03em;
 }
 
-.tape-preview-comment {
+.mixtape-preview-comment {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
   font-style: italic;
   margin: 4px 0 0;
 }
 
-.tape-preview-meta {
+.mixtape-preview-meta {
   font-size: var(--fs-xs);
   color: var(--text-tertiary);
   margin: 0;
 }
 
-.tape-preview-tracklist,
-.tape-export-tracklist {
+.mixtape-preview-tracklist,
+.mixtape-export-tracklist {
   flex: 1;
   overflow-y: auto;
   padding: 8px 0;
 }
 
-.tape-export-tracklist-header {
+.mixtape-export-tracklist-header {
   display: flex;
   justify-content: space-between;
   padding: 4px 16px 8px;
@@ -1719,8 +1719,8 @@
   color: var(--text-tertiary);
 }
 
-.tape-preview-track,
-.tape-export-track {
+.mixtape-preview-track,
+.mixtape-export-track {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1728,19 +1728,19 @@
   font-size: var(--fs-sm);
 }
 
-.tape-preview-track:hover,
-.tape-export-track:hover {
+.mixtape-preview-track:hover,
+.mixtape-export-track:hover {
   background: var(--hover);
 }
 
-.tape-track-grip {
+.mixtape-track-grip {
   cursor: grab;
   color: var(--text-tertiary);
   font-size: var(--fs-xs);
   user-select: none;
 }
 
-.tape-track-num {
+.mixtape-track-num {
   width: 24px;
   text-align: right;
   color: var(--text-tertiary);
@@ -1748,7 +1748,7 @@
   flex-shrink: 0;
 }
 
-.tape-track-info {
+.mixtape-track-info {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -1756,13 +1756,13 @@
   gap: 1px;
 }
 
-.tape-track-title {
+.mixtape-track-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tape-track-artist {
+.mixtape-track-artist {
   font-size: var(--fs-xs);
   color: var(--text-secondary);
   overflow: hidden;
@@ -1770,14 +1770,14 @@
   white-space: nowrap;
 }
 
-.tape-track-duration {
+.mixtape-track-duration {
   flex-shrink: 0;
   font-size: var(--fs-xs);
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
 }
 
-.tape-preview-actions {
+.mixtape-preview-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -1785,7 +1785,7 @@
   border-top: 1px solid var(--border);
 }
 
-.tape-action-btn {
+.mixtape-action-btn {
   flex: 1;
   min-width: 120px;
   padding: 8px 12px;
@@ -1798,22 +1798,22 @@
   transition: background 0.15s;
 }
 
-.tape-action-btn:hover {
+.mixtape-action-btn:hover {
   background: var(--hover);
 }
 
-.tape-action-btn.primary {
+.mixtape-action-btn.primary {
   background: var(--accent);
   color: var(--accent-text, #fff);
   border-color: var(--accent);
   font-weight: 600;
 }
 
-.tape-action-btn.primary:hover {
+.mixtape-action-btn.primary:hover {
   filter: brightness(1.1);
 }
 
-.tape-action-btn.cancel {
+.mixtape-action-btn.cancel {
   flex: 0;
   min-width: auto;
   background: transparent;
@@ -1821,31 +1821,31 @@
   color: var(--text-secondary);
 }
 
-.tape-progress {
+.mixtape-progress {
   padding: 12px 16px;
   border-top: 1px solid var(--border);
 }
 
-.tape-progress-bar {
+.mixtape-progress-bar {
   height: 4px;
   background: var(--border);
   border-radius: 2px;
   overflow: hidden;
 }
 
-.tape-progress-fill {
+.mixtape-progress-fill {
   height: 100%;
   background: var(--accent);
   transition: width 0.3s;
 }
 
-.tape-progress-text {
+.mixtape-progress-text {
   font-size: var(--fs-xs);
   color: var(--text-secondary);
   margin: 6px 0 0;
 }
 
-.tape-cancel-btn {
+.mixtape-cancel-btn {
   font-size: var(--fs-xs);
   color: var(--text-tertiary);
   background: none;
@@ -1855,11 +1855,11 @@
   margin-top: 4px;
 }
 
-.tape-cancel-btn:hover {
+.mixtape-cancel-btn:hover {
   color: var(--text);
 }
 
-.tape-preview-error {
+.mixtape-preview-error {
   color: var(--error, #e74c3c);
   font-size: var(--fs-sm);
   padding: 8px 16px;
@@ -1867,28 +1867,28 @@
 }
 
 /* Export-specific */
-.tape-export-form {
+.mixtape-export-form {
   display: flex;
   gap: 16px;
   padding: 16px;
   border-bottom: 1px solid var(--border);
 }
 
-.tape-export-cover-section {
+.mixtape-export-cover-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
   align-items: center;
 }
 
-.tape-export-cover-preview {
+.mixtape-export-cover-preview {
   width: 120px;
   height: 120px;
   object-fit: cover;
   border-radius: 6px;
 }
 
-.tape-export-cover-placeholder {
+.mixtape-export-cover-placeholder {
   width: 120px;
   height: 120px;
   border: 2px dashed var(--border);
@@ -1903,17 +1903,17 @@
   padding: 8px;
 }
 
-.tape-export-cover-placeholder:hover {
+.mixtape-export-cover-placeholder:hover {
   border-color: var(--accent);
   color: var(--text-secondary);
 }
 
-.tape-export-cover-actions {
+.mixtape-export-cover-actions {
   display: flex;
   gap: 4px;
 }
 
-.tape-export-cover-actions button {
+.mixtape-export-cover-actions button {
   font-size: var(--fs-2xs);
   padding: 2px 6px;
   border-radius: 4px;
@@ -1923,7 +1923,7 @@
   cursor: pointer;
 }
 
-.tape-export-fields {
+.mixtape-export-fields {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -1931,7 +1931,7 @@
   min-width: 0;
 }
 
-.tape-export-fields label {
+.mixtape-export-fields label {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1939,9 +1939,9 @@
   color: var(--text-secondary);
 }
 
-.tape-export-fields input,
-.tape-export-fields textarea,
-.tape-export-fields select {
+.mixtape-export-fields input,
+.mixtape-export-fields textarea,
+.mixtape-export-fields select {
   background: var(--input-bg, var(--surface));
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1950,25 +1950,116 @@
   color: var(--text);
 }
 
-.tape-export-row {
+.mixtape-export-row {
   display: flex;
   gap: 10px;
 }
 
-.tape-export-row label {
+.mixtape-export-row label {
   flex: 1;
 }
 
-.tape-export-checkbox {
+.mixtape-export-checkbox {
   flex-direction: row !important;
   align-items: center;
   gap: 6px !important;
 }
 
-.tape-export-modal h2 {
+.mixtape-export-modal h2 {
   padding: 16px 16px 0;
   margin: 0;
   font-size: var(--fs-lg);
+}
+
+.mixtape-metadata-editor {
+  margin-top: 8px;
+}
+
+.mixtape-metadata-editor > label {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.mixtape-metadata-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+  align-items: center;
+}
+
+.mixtape-metadata-row input {
+  flex: 1;
+  padding: 6px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  color: var(--text-primary);
+  font-size: var(--fs-xs);
+}
+
+.mixtape-metadata-row input:first-child {
+  flex: 0 0 120px;
+}
+
+.mixtape-metadata-row input[readOnly] {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.mixtape-metadata-row input.mixtape-metadata-error {
+  border-color: var(--error);
+}
+
+.mixtape-metadata-remove {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mixtape-metadata-remove:hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.mixtape-metadata-add {
+  margin-top: 4px;
+  padding: 4px 10px;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: var(--ds-radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+}
+
+.mixtape-metadata-add:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.mixtape-preview-metadata {
+  margin-top: 8px;
+}
+
+.mixtape-preview-meta-entry {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
+.mixtape-meta-key {
+  color: var(--text-tertiary);
 }
 
 /* Search View */

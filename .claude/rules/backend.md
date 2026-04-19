@@ -24,7 +24,7 @@
 - **plugins.rs** — Plugin management: directory scanning, file reading (with path traversal protection), storage, gallery install.
 - **lyric_provider/** — Trait-based `LyricProvider` fallback chain. Currently: LRCLIB (lrclib.net). Returns synced (LRC) or plain text.
 - **skins.rs** — Skin file I/O, gallery fetching from GitHub, slug generation.
-- **tape.rs** — Tape export functionality.
+- **mixtape.rs** — Mixtape export/import functionality.
 - **timing.rs** — Startup performance profiling.
 - **seed.rs** — Debug-only (`#[cfg(debug_assertions)]`). Fake data seeding.
 

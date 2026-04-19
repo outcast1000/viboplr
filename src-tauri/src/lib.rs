@@ -15,7 +15,7 @@ mod skins;
 mod subsonic;
 mod sync;
 mod tag_writer;
-mod tape;
+mod mixtape;
 mod timing;
 mod downloader;
 mod update_checker;
@@ -170,11 +170,11 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::open_logs_folder,
         commands::get_app_paths,
         commands::write_frontend_log,
-        commands::preview_tape,
-        commands::export_tape,
-        commands::import_tape,
-        commands::cancel_tape_operation,
-        commands::cleanup_temp_tapes,
+        commands::preview_mixtape,
+        commands::export_mixtape,
+        commands::import_mixtape,
+        commands::cancel_mixtape_operation,
+        commands::cleanup_temp_mixtapes,
         browse_window::open_browse_window,
         browse_window::browse_window_eval,
         browse_window::close_browse_window,
@@ -326,11 +326,11 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::open_logs_folder,
         commands::get_app_paths,
         commands::write_frontend_log,
-        commands::preview_tape,
-        commands::export_tape,
-        commands::import_tape,
-        commands::cancel_tape_operation,
-        commands::cleanup_temp_tapes,
+        commands::preview_mixtape,
+        commands::export_mixtape,
+        commands::import_mixtape,
+        commands::cancel_mixtape_operation,
+        commands::cleanup_temp_mixtapes,
         browse_window::open_browse_window,
         browse_window::browse_window_eval,
         browse_window::close_browse_window,
@@ -1078,7 +1078,7 @@ pub fn run() {
                     native_plugins_dir,
                     image_resolve_registry: worker_registry_for_state,
                     tidal_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                    tape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 });
             });
 
@@ -1105,10 +1105,10 @@ pub fn run() {
                     eprintln!("[RunEvent::Opened] urls: {:?}", urls);
                     for url in urls {
                         let url_str = url.to_string();
-                        if url_str.ends_with(".tape") {
+                        if url_str.ends_with(".mixtape") {
                             let path = url_str.strip_prefix("file://").unwrap_or(&url_str);
-                            eprintln!("[RunEvent::Opened] tape file: {}", path);
-                            let _ = app.emit("tape-file-opened", path.to_string());
+                            eprintln!("[RunEvent::Opened] mixtape file: {}", path);
+                            let _ = app.emit("mixtape-file-opened", path.to_string());
                         } else {
                             eprintln!("[RunEvent::Opened] emitting deep-link-received: {}", url);
                             let _ = app.emit("deep-link-received", url.to_string());

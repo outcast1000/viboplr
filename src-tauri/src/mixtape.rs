@@ -1,7 +1,8 @@
 use crate::entity_image::canonical_slug;
-use crate::models::{TapeManifest, TapePreview, TapeTrack, TapeType};
+use crate::models::{MixtapeManifest, MixtapePreview, MixtapeTrack, MixtapeType};
 use image::imageops::FilterType;
 use image::GenericImageView;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read as IoRead, Write as IoWrite, BufReader, BufWriter};
 use std::path::Path;
@@ -26,21 +27,19 @@ pub fn thumb_archive_path(position: usize) -> String {
     format!("thumbs/{:02}.jpg", position + 1)
 }
 
-/// Build a TapeManifest from export options and resolved track data.
+/// Build a MixtapeManifest from export options and resolved track data.
 pub fn build_manifest(
     title: String,
-    tape_type: TapeType,
-    quality: String,
-    comment: Option<String>,
+    mixtape_type: MixtapeType,
+    metadata: HashMap<String, String>,
     created_by: Option<String>,
-    tracks: Vec<TapeTrack>,
-) -> TapeManifest {
-    TapeManifest {
+    tracks: Vec<MixtapeTrack>,
+) -> MixtapeManifest {
+    MixtapeManifest {
         version: 1,
         title,
-        tape_type,
-        quality,
-        comment,
+        mixtape_type,
+        metadata,
         created_at: chrono::Utc::now().to_rfc3339(),
         created_by,
         cover: None,
@@ -79,8 +78,8 @@ fn resize_image_to_jpeg(path: &Path, max_dimension: u32) -> Result<Vec<u8>, Stri
     Ok(jpeg_bytes)
 }
 
-/// Source data for a single track to be included in a tape.
-pub struct TapeTrackSource {
+/// Source data for a single track to be included in a mixtape.
+pub struct MixtapeTrackSource {
     pub title: String,
     pub artist: String,
     pub album: Option<String>,
@@ -89,14 +88,14 @@ pub struct TapeTrackSource {
     pub thumb_path: Option<String>,
 }
 
-/// Build a .tape ZIP archive.
+/// Build a .mixtape ZIP archive.
 ///
 /// Returns the file size in bytes on success.
-pub fn build_tape<F>(
+pub fn build_mixtape<F>(
     dest_path: &Path,
     cover_path: Option<&Path>,
-    track_sources: &[TapeTrackSource],
-    mut manifest: TapeManifest,
+    track_sources: &[MixtapeTrackSource],
+    mut manifest: MixtapeManifest,
     include_thumbs: bool,
     cancel: &AtomicBool,
     mut on_progress: F,
@@ -104,7 +103,7 @@ pub fn build_tape<F>(
 where
     F: FnMut(u32, u32, &str, u32),
 {
-    let file = File::create(dest_path).map_err(|e| format!("Failed to create tape file: {}", e))?;
+    let file = File::create(dest_path).map_err(|e| format!("Failed to create mixtape file: {}", e))?;
     let mut zip = ZipWriter::new(BufWriter::new(file));
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
@@ -129,7 +128,7 @@ where
         if cancel.load(Ordering::Relaxed) {
             drop(zip);
             let _ = std::fs::remove_file(dest_path);
-            return Err("Tape creation cancelled".to_string());
+            return Err("Mixtape creation cancelled".to_string());
         }
 
         let archive_path = track_archive_path(i, &source.title, &source.audio_path);
@@ -161,7 +160,7 @@ where
             None
         };
 
-        track_entries.push(TapeTrack {
+        track_entries.push(MixtapeTrack {
             title: source.title.clone(),
             artist: source.artist.clone(),
             album: source.album.clone(),
@@ -207,11 +206,11 @@ where
     Ok(size)
 }
 
-/// Read and preview a .tape archive without extracting it.
+/// Read and preview a .mixtape archive without extracting it.
 ///
 /// Extracts the cover image to temp_dir and returns metadata.
-pub fn read_tape(path: &Path, temp_dir: &Path) -> Result<TapePreview, String> {
-    let file = File::open(path).map_err(|e| format!("Failed to open tape: {}", e))?;
+pub fn read_mixtape(path: &Path, temp_dir: &Path) -> Result<MixtapePreview, String> {
+    let file = File::open(path).map_err(|e| format!("Failed to open mixtape: {}", e))?;
     let file_size = file
         .metadata()
         .map_err(|e| format!("Failed to read file size: {}", e))?
@@ -223,23 +222,23 @@ pub fn read_tape(path: &Path, temp_dir: &Path) -> Result<TapePreview, String> {
     let manifest = {
         let mut manifest_file = archive
             .by_name("manifest.json")
-            .map_err(|_| "manifest.json not found in tape".to_string())?;
+            .map_err(|_| "manifest.json not found in mixtape".to_string())?;
         let mut manifest_str = String::new();
         manifest_file
             .read_to_string(&mut manifest_str)
             .map_err(|e| format!("Failed to read manifest: {}", e))?;
-        serde_json::from_str::<TapeManifest>(&manifest_str)
+        serde_json::from_str::<MixtapeManifest>(&manifest_str)
             .map_err(|e| format!("Failed to parse manifest: {}", e))?
     };
 
     if manifest.version != 1 {
-        return Err(format!("Unsupported tape version: {}", manifest.version));
+        return Err(format!("Unsupported mixtape version: {}", manifest.version));
     }
 
     // Extract cover to temp directory if present
     let cover_temp_path = if let Some(ref cover_name) = manifest.cover {
         if let Ok(mut cover_file) = archive.by_name(cover_name) {
-            let cover_dest = temp_dir.join("tape-cover.jpg");
+            let cover_dest = temp_dir.join("mixtape-cover.jpg");
             let mut cover_out = File::create(&cover_dest)
                 .map_err(|e| format!("Failed to create temp cover file: {}", e))?;
             std::io::copy(&mut cover_file, &mut cover_out)
@@ -258,7 +257,7 @@ pub fn read_tape(path: &Path, temp_dir: &Path) -> Result<TapePreview, String> {
         .filter_map(|t| t.duration_secs)
         .sum();
 
-    Ok(TapePreview {
+    Ok(MixtapePreview {
         manifest,
         cover_temp_path,
         file_size,
@@ -266,26 +265,26 @@ pub fn read_tape(path: &Path, temp_dir: &Path) -> Result<TapePreview, String> {
     })
 }
 
-/// Options for extracting a tape archive.
+/// Options for extracting a mixtape archive.
 pub struct ExtractOptions {
     pub audio: bool,
     pub images: bool,
 }
 
-/// Extract a .tape archive to a destination directory.
+/// Extract a .mixtape archive to a destination directory.
 ///
 /// Returns the manifest on success.
-pub fn extract_tape<F>(
+pub fn extract_mixtape<F>(
     path: &Path,
     dest_dir: &Path,
     options: &ExtractOptions,
     cancel: &AtomicBool,
     mut on_progress: F,
-) -> Result<TapeManifest, String>
+) -> Result<MixtapeManifest, String>
 where
     F: FnMut(u32, u32, &str),
 {
-    let file = File::open(path).map_err(|e| format!("Failed to open tape: {}", e))?;
+    let file = File::open(path).map_err(|e| format!("Failed to open mixtape: {}", e))?;
     let mut archive =
         ZipArchive::new(file).map_err(|e| format!("Failed to read ZIP archive: {}", e))?;
 
@@ -298,7 +297,7 @@ where
         manifest_file
             .read_to_string(&mut manifest_str)
             .map_err(|e| format!("Failed to read manifest: {}", e))?;
-        serde_json::from_str::<TapeManifest>(&manifest_str)
+        serde_json::from_str::<MixtapeManifest>(&manifest_str)
             .map_err(|e| format!("Failed to parse manifest: {}", e))?
     };
 
@@ -396,12 +395,11 @@ mod tests {
     #[test]
     fn test_build_manifest() {
         let manifest = build_manifest(
-            "Test Tape".into(),
-            TapeType::Custom,
-            "flac".into(),
-            Some("liner notes".into()),
+            "Test Mixtape".into(),
+            MixtapeType::Custom,
+            HashMap::new(),
             Some("alex".into()),
-            vec![TapeTrack {
+            vec![MixtapeTrack {
                 title: "Track 1".into(),
                 artist: "Artist".into(),
                 album: None,
@@ -411,7 +409,7 @@ mod tests {
             }],
         );
         assert_eq!(manifest.version, 1);
-        assert_eq!(manifest.title, "Test Tape");
+        assert_eq!(manifest.title, "Test Mixtape");
         assert_eq!(manifest.cover, None);
         assert_eq!(manifest.tracks.len(), 1);
     }
@@ -420,20 +418,19 @@ mod tests {
     fn test_manifest_json_roundtrip() {
         let manifest = build_manifest(
             "Roundtrip Test".into(),
-            TapeType::BestOfArtist,
-            "mp3_320".into(),
-            None,
+            MixtapeType::BestOfArtist,
+            HashMap::new(),
             None,
             vec![],
         );
         let json = serde_json::to_string(&manifest).unwrap();
-        let parsed: TapeManifest = serde_json::from_str(&json).unwrap();
+        let parsed: MixtapeManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.title, "Roundtrip Test");
         assert_eq!(parsed.version, 1);
     }
 
     #[test]
-    fn test_build_tape_creates_valid_zip() {
+    fn test_build_mixtape_creates_valid_zip() {
         let tmp = tempfile::tempdir().unwrap();
 
         let audio_path = tmp.path().join("song.mp3");
@@ -443,16 +440,15 @@ mod tests {
         let img = image::RgbImage::from_pixel(100, 100, image::Rgb([255, 0, 0]));
         img.save(&cover_path).unwrap();
 
-        let dest = tmp.path().join("test.tape");
+        let dest = tmp.path().join("test.mixtape");
         let manifest = build_manifest(
             "Test".into(),
-            TapeType::Custom,
-            "mp3".into(),
-            None,
+            MixtapeType::Custom,
+            HashMap::new(),
             None,
             vec![],
         );
-        let sources = vec![TapeTrackSource {
+        let sources = vec![MixtapeTrackSource {
             title: "Song One".into(),
             artist: "Artist".into(),
             album: Some("Album".into()),
@@ -461,7 +457,7 @@ mod tests {
             thumb_path: None,
         }];
         let cancel = AtomicBool::new(false);
-        let size = build_tape(&dest, Some(cover_path.as_path()), &sources, manifest, false, &cancel, |_, _, _, _| {}).unwrap();
+        let size = build_mixtape(&dest, Some(cover_path.as_path()), &sources, manifest, false, &cancel, |_, _, _, _| {}).unwrap();
         assert!(size > 0);
         assert!(dest.exists());
 
@@ -479,28 +475,27 @@ mod tests {
         let mut manifest_file = archive.by_name("manifest.json").unwrap();
         let mut manifest_str = String::new();
         manifest_file.read_to_string(&mut manifest_str).unwrap();
-        let parsed: TapeManifest = serde_json::from_str(&manifest_str).unwrap();
+        let parsed: MixtapeManifest = serde_json::from_str(&manifest_str).unwrap();
         assert_eq!(parsed.title, "Test");
         assert_eq!(parsed.tracks.len(), 1);
         assert_eq!(parsed.tracks[0].title, "Song One");
     }
 
-    fn create_test_tape(dir: &Path) -> std::path::PathBuf {
+    fn create_test_mixtape(dir: &Path) -> std::path::PathBuf {
         let audio_path = dir.join("song.mp3");
         std::fs::write(&audio_path, b"fake mp3 data for testing").unwrap();
         let cover_path = dir.join("cover.jpg");
         let img = image::RgbImage::from_pixel(100, 100, image::Rgb([0, 128, 255]));
         img.save(&cover_path).unwrap();
-        let dest = dir.join("test.tape");
+        let dest = dir.join("test.mixtape");
         let manifest = build_manifest(
             "Preview Test".into(),
-            TapeType::Album,
-            "mp3_320".into(),
-            Some("Great tape!".into()),
+            MixtapeType::Album,
+            HashMap::new(),
             Some("tester".into()),
             vec![],
         );
-        let sources = vec![TapeTrackSource {
+        let sources = vec![MixtapeTrackSource {
             title: "Test Song".into(),
             artist: "Test Artist".into(),
             album: Some("Test Album".into()),
@@ -509,15 +504,15 @@ mod tests {
             thumb_path: Some(cover_path.to_str().unwrap().to_string()),
         }];
         let cancel = AtomicBool::new(false);
-        build_tape(&dest, Some(cover_path.as_path()), &sources, manifest, true, &cancel, |_, _, _, _| {}).unwrap();
+        build_mixtape(&dest, Some(cover_path.as_path()), &sources, manifest, true, &cancel, |_, _, _, _| {}).unwrap();
         dest
     }
 
     #[test]
-    fn test_read_tape() {
+    fn test_read_mixtape() {
         let tmp = tempfile::tempdir().unwrap();
-        let tape_path = create_test_tape(tmp.path());
-        let preview = read_tape(&tape_path, tmp.path()).unwrap();
+        let mixtape_path = create_test_mixtape(tmp.path());
+        let preview = read_mixtape(&mixtape_path, tmp.path()).unwrap();
         assert_eq!(preview.manifest.title, "Preview Test");
         assert_eq!(preview.manifest.tracks.len(), 1);
         assert_eq!(preview.manifest.tracks[0].artist, "Test Artist");
@@ -527,13 +522,13 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_tape_audio_only() {
+    fn test_extract_mixtape_audio_only() {
         let tmp = tempfile::tempdir().unwrap();
-        let tape_path = create_test_tape(tmp.path());
+        let mixtape_path = create_test_mixtape(tmp.path());
         let extract_dir = tmp.path().join("extracted");
         let cancel = AtomicBool::new(false);
-        let manifest = extract_tape(
-            &tape_path,
+        let manifest = extract_mixtape(
+            &mixtape_path,
             &extract_dir,
             &ExtractOptions {
                 audio: true,
@@ -549,13 +544,13 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_tape_full() {
+    fn test_extract_mixtape_full() {
         let tmp = tempfile::tempdir().unwrap();
-        let tape_path = create_test_tape(tmp.path());
+        let mixtape_path = create_test_mixtape(tmp.path());
         let extract_dir = tmp.path().join("full");
         let cancel = AtomicBool::new(false);
-        let manifest = extract_tape(
-            &tape_path,
+        let manifest = extract_mixtape(
+            &mixtape_path,
             &extract_dir,
             &ExtractOptions {
                 audio: true,
@@ -573,23 +568,22 @@ mod tests {
     }
 
     #[test]
-    fn test_build_tape_cancellation() {
+    fn test_build_mixtape_cancellation() {
         let tmp = tempfile::tempdir().unwrap();
         let audio_path = tmp.path().join("song.mp3");
         std::fs::write(&audio_path, b"data").unwrap();
         let cover_path = tmp.path().join("cover.jpg");
         let img = image::RgbImage::from_pixel(10, 10, image::Rgb([0, 0, 0]));
         img.save(&cover_path).unwrap();
-        let dest = tmp.path().join("cancelled.tape");
+        let dest = tmp.path().join("cancelled.mixtape");
         let manifest = build_manifest(
             "X".into(),
-            TapeType::Custom,
-            "mp3".into(),
-            None,
+            MixtapeType::Custom,
+            HashMap::new(),
             None,
             vec![],
         );
-        let sources = vec![TapeTrackSource {
+        let sources = vec![MixtapeTrackSource {
             title: "S".into(),
             artist: "A".into(),
             album: None,
@@ -598,7 +592,7 @@ mod tests {
             thumb_path: None,
         }];
         let cancel = AtomicBool::new(true);
-        let result = build_tape(&dest, Some(cover_path.as_path()), &sources, manifest, false, &cancel, |_, _, _, _| {});
+        let result = build_mixtape(&dest, Some(cover_path.as_path()), &sources, manifest, false, &cancel, |_, _, _, _| {});
         assert!(result.is_err());
         assert!(!dest.exists());
     }

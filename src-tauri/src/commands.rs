@@ -60,7 +60,7 @@ pub struct AppState {
     pub native_plugins_dir: Option<std::path::PathBuf>,
     pub image_resolve_registry: Arc<ImageResolveRegistry>,
     pub tidal_download_cancel: Arc<AtomicBool>,
-    pub tape_cancel: Arc<AtomicBool>,
+    pub mixtape_cancel: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2952,28 +2952,28 @@ pub async fn oauth_listen(app: tauri::AppHandle) -> Result<u16, String> {
     Ok(port)
 }
 
-// ── Tape operations ───────────────────────────────────────────
+// ── Mixtape operations ───────────────────────────────────────────
 
 #[tauri::command]
-pub fn preview_tape(
+pub fn preview_mixtape(
     path: String,
     state: State<'_, AppState>,
-) -> Result<crate::models::TapePreview, String> {
+) -> Result<crate::models::MixtapePreview, String> {
     let temp_dir = state.app_dir.join("temp");
     std::fs::create_dir_all(&temp_dir)
         .map_err(|e| format!("Failed to create temp dir: {}", e))?;
-    crate::tape::read_tape(std::path::Path::new(&path), &temp_dir)
+    crate::mixtape::read_mixtape(std::path::Path::new(&path), &temp_dir)
 }
 
 #[tauri::command]
-pub fn export_tape(
+pub fn export_mixtape(
     dest_path: String,
-    options: crate::models::TapeExportOptions,
+    options: crate::models::MixtapeExportOptions,
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let db = state.db.clone();
-    let cancel = state.tape_cancel.clone();
+    let cancel = state.mixtape_cancel.clone();
     let app_dir = state.app_dir.clone();
     cancel.store(false, Ordering::Relaxed);
 
@@ -3003,7 +3003,7 @@ pub fn export_tape(
             None
         };
 
-        sources.push(crate::tape::TapeTrackSource {
+        sources.push(crate::mixtape::MixtapeTrackSource {
             title: track.title.clone(),
             artist: track.artist_name.clone().unwrap_or_default(),
             album: track.album_title.clone(),
@@ -3016,9 +3016,9 @@ pub fn export_tape(
         return Err(format!("No exportable tracks. Skipped: {}", skipped.join(", ")));
     }
 
-    let manifest = crate::tape::build_manifest(
-        options.title, options.tape_type, options.quality,
-        options.comment, options.created_by, vec![],
+    let manifest = crate::mixtape::build_manifest(
+        options.title, options.mixtape_type, options.metadata,
+        options.created_by, vec![],
     );
 
     let cover_image_path = options.cover_image_path.clone();
@@ -3028,22 +3028,22 @@ pub fn export_tape(
         let dest = std::path::Path::new(&dest_path);
         let cover = cover_image_path.as_ref().map(|p| std::path::Path::new(p.as_str()));
 
-        match crate::tape::build_tape(
+        match crate::mixtape::build_mixtape(
             dest, cover, &sources, manifest, include_thumbs, &cancel,
             |current, total, title, _sub_progress| {
-                let _ = app.emit("tape-export-progress", crate::models::TapeExportProgress {
+                let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
                     current_track: current, total_tracks: total,
                     phase: "packing".to_string(), track_title: title.to_string(),
                 });
             },
         ) {
             Ok(file_size) => {
-                let _ = app.emit("tape-export-complete", serde_json::json!({
+                let _ = app.emit("mixtape-export-complete", serde_json::json!({
                     "path": dest_path, "fileSize": file_size,
                 }));
             }
             Err(e) => {
-                let _ = app.emit("tape-export-error", serde_json::json!({ "message": e }));
+                let _ = app.emit("mixtape-export-error", serde_json::json!({ "message": e }));
             }
         }
     });
@@ -3052,46 +3052,46 @@ pub fn export_tape(
 }
 
 #[tauri::command]
-pub fn import_tape(
+pub fn import_mixtape(
     path: String,
-    mode: crate::models::TapeImportMode,
+    mode: crate::models::MixtapeImportMode,
     dest_dir: Option<String>,
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let db = state.db.clone();
-    let cancel = state.tape_cancel.clone();
+    let cancel = state.mixtape_cancel.clone();
     let app_dir = state.app_dir.clone();
     cancel.store(false, Ordering::Relaxed);
 
     thread::spawn(move || {
-        let tape_path = std::path::Path::new(&path);
+        let mixtape_path = std::path::Path::new(&path);
 
         match mode {
-            crate::models::TapeImportMode::PlaylistAndFiles => {
+            crate::models::MixtapeImportMode::PlaylistAndFiles => {
                 // Read the manifest first to get metadata
                 let temp_dir = app_dir.join("temp");
                 let _ = std::fs::create_dir_all(&temp_dir);
-                let preview = match crate::tape::read_tape(tape_path, &temp_dir) {
+                let preview = match crate::mixtape::read_mixtape(mixtape_path, &temp_dir) {
                     Ok(p) => p,
                     Err(e) => {
-                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e }));
+                        let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e }));
                         return;
                     }
                 };
 
                 let track_count = preview.manifest.tracks.len() as u32;
-                let tape_title = preview.manifest.title.clone();
+                let mixtape_title = preview.manifest.title.clone();
 
-                // Extract to app_dir/tapes/{slug}/
-                let slug = crate::entity_image::canonical_slug(&tape_title);
-                let extract_dir = app_dir.join("tapes").join(&slug);
-                let extract_opts = crate::tape::ExtractOptions { audio: true, images: true };
+                // Extract to app_dir/mixtapes/{slug}/
+                let slug = crate::entity_image::canonical_slug(&mixtape_title);
+                let extract_dir = app_dir.join("mixtapes").join(&slug);
+                let extract_opts = crate::mixtape::ExtractOptions { audio: true, images: true };
 
-                let manifest = match crate::tape::extract_tape(
-                    tape_path, &extract_dir, &extract_opts, &cancel,
+                let manifest = match crate::mixtape::extract_mixtape(
+                    mixtape_path, &extract_dir, &extract_opts, &cancel,
                     |current, total, title| {
-                        let _ = app.emit("tape-import-progress", crate::models::TapeImportProgress {
+                        let _ = app.emit("mixtape-import-progress", crate::models::MixtapeImportProgress {
                             current_track: current, total_tracks: total,
                             track_title: title.to_string(),
                         });
@@ -3099,17 +3099,17 @@ pub fn import_tape(
                 ) {
                     Ok(m) => m,
                     Err(e) => {
-                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e }));
+                        let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e }));
                         return;
                     }
                 };
 
                 // Create playlist
-                let source = Some("tape");
-                let playlist_id = match db.save_playlist(&tape_title, source, None) {
+                let source = Some("mixtape");
+                let playlist_id = match db.save_playlist(&mixtape_title, source, None) {
                     Ok(id) => id,
                     Err(e) => {
-                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e.to_string() }));
+                        let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e.to_string() }));
                         return;
                     }
                 };
@@ -3141,7 +3141,7 @@ pub fn import_tape(
                     }).collect();
 
                 if let Err(e) = db.save_playlist_tracks(playlist_id, &track_refs) {
-                    let _ = app.emit("tape-import-error", serde_json::json!({ "message": e.to_string() }));
+                    let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e.to_string() }));
                     return;
                 }
 
@@ -3157,32 +3157,32 @@ pub fn import_tape(
                     }
                 }
 
-                let _ = app.emit("tape-import-complete", serde_json::json!({
+                let _ = app.emit("mixtape-import-complete", serde_json::json!({
                     "mode": "PlaylistAndFiles", "trackCount": track_count, "playlistId": playlist_id,
                 }));
             }
 
-            crate::models::TapeImportMode::PlaylistOnly => {
+            crate::models::MixtapeImportMode::PlaylistOnly => {
                 // Read manifest without extracting audio
                 let temp_dir = app_dir.join("temp");
                 let _ = std::fs::create_dir_all(&temp_dir);
-                let preview = match crate::tape::read_tape(tape_path, &temp_dir) {
+                let preview = match crate::mixtape::read_mixtape(mixtape_path, &temp_dir) {
                     Ok(p) => p,
                     Err(e) => {
-                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e }));
+                        let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e }));
                         return;
                     }
                 };
 
                 let track_count = preview.manifest.tracks.len() as u32;
-                let tape_title = preview.manifest.title.clone();
+                let mixtape_title = preview.manifest.title.clone();
 
                 // Create playlist with metadata only (no file paths)
-                let source = Some("tape");
-                let playlist_id = match db.save_playlist(&tape_title, source, None) {
+                let source = Some("mixtape");
+                let playlist_id = match db.save_playlist(&mixtape_title, source, None) {
                     Ok(id) => id,
                     Err(e) => {
-                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e.to_string() }));
+                        let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e.to_string() }));
                         return;
                     }
                 };
@@ -3212,7 +3212,7 @@ pub fn import_tape(
                     }).collect();
 
                 if let Err(e) = db.save_playlist_tracks(playlist_id, &track_refs) {
-                    let _ = app.emit("tape-import-error", serde_json::json!({ "message": e.to_string() }));
+                    let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e.to_string() }));
                     return;
                 }
 
@@ -3230,28 +3230,28 @@ pub fn import_tape(
                     }
                 }
 
-                let _ = app.emit("tape-import-complete", serde_json::json!({
+                let _ = app.emit("mixtape-import-complete", serde_json::json!({
                     "mode": "PlaylistOnly", "trackCount": track_count, "playlistId": playlist_id,
                 }));
             }
 
-            crate::models::TapeImportMode::FilesOnly => {
+            crate::models::MixtapeImportMode::FilesOnly => {
                 let extract_dest = match dest_dir {
                     Some(ref d) => std::path::PathBuf::from(d),
                     None => {
-                        let _ = app.emit("tape-import-error", serde_json::json!({
+                        let _ = app.emit("mixtape-import-error", serde_json::json!({
                             "message": "dest_dir is required for FilesOnly mode"
                         }));
                         return;
                     }
                 };
 
-                let extract_opts = crate::tape::ExtractOptions { audio: true, images: false };
+                let extract_opts = crate::mixtape::ExtractOptions { audio: true, images: false };
 
-                let manifest = match crate::tape::extract_tape(
-                    tape_path, &extract_dest, &extract_opts, &cancel,
+                let manifest = match crate::mixtape::extract_mixtape(
+                    mixtape_path, &extract_dest, &extract_opts, &cancel,
                     |current, total, title| {
-                        let _ = app.emit("tape-import-progress", crate::models::TapeImportProgress {
+                        let _ = app.emit("mixtape-import-progress", crate::models::MixtapeImportProgress {
                             current_track: current, total_tracks: total,
                             track_title: title.to_string(),
                         });
@@ -3259,29 +3259,29 @@ pub fn import_tape(
                 ) {
                     Ok(m) => m,
                     Err(e) => {
-                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e }));
+                        let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e }));
                         return;
                     }
                 };
 
                 let track_count = manifest.tracks.len() as u32;
-                let _ = app.emit("tape-import-complete", serde_json::json!({
+                let _ = app.emit("mixtape-import-complete", serde_json::json!({
                     "mode": "FilesOnly", "trackCount": track_count,
                 }));
             }
 
-            crate::models::TapeImportMode::JustPlay => {
+            crate::models::MixtapeImportMode::JustPlay => {
                 // Extract to temp directory for immediate playback
-                let playback_dir = app_dir.join("temp").join("tape_playback");
+                let playback_dir = app_dir.join("temp").join("mixtape_playback");
                 let _ = std::fs::remove_dir_all(&playback_dir);
                 let _ = std::fs::create_dir_all(&playback_dir);
 
-                let extract_opts = crate::tape::ExtractOptions { audio: true, images: true };
+                let extract_opts = crate::mixtape::ExtractOptions { audio: true, images: true };
 
-                let manifest = match crate::tape::extract_tape(
-                    tape_path, &playback_dir, &extract_opts, &cancel,
+                let manifest = match crate::mixtape::extract_mixtape(
+                    mixtape_path, &playback_dir, &extract_opts, &cancel,
                     |current, total, title| {
-                        let _ = app.emit("tape-import-progress", crate::models::TapeImportProgress {
+                        let _ = app.emit("mixtape-import-progress", crate::models::MixtapeImportProgress {
                             current_track: current, total_tracks: total,
                             track_title: title.to_string(),
                         });
@@ -3289,7 +3289,7 @@ pub fn import_tape(
                 ) {
                     Ok(m) => m,
                     Err(e) => {
-                        let _ = app.emit("tape-import-error", serde_json::json!({ "message": e }));
+                        let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e }));
                         return;
                     }
                 };
@@ -3306,12 +3306,12 @@ pub fn import_tape(
 
                 let track_count = manifest.tracks.len() as u32;
 
-                let _ = app.emit("tape-just-play", serde_json::json!({
+                let _ = app.emit("mixtape-just-play", serde_json::json!({
                     "tracks": track_paths,
                     "coverPath": playback_dir.join("cover.jpg").to_string_lossy(),
                 }));
 
-                let _ = app.emit("tape-import-complete", serde_json::json!({
+                let _ = app.emit("mixtape-import-complete", serde_json::json!({
                     "mode": "JustPlay", "trackCount": track_count,
                 }));
             }
@@ -3322,16 +3322,16 @@ pub fn import_tape(
 }
 
 #[tauri::command]
-pub fn cancel_tape_operation(state: State<'_, AppState>) -> Result<(), String> {
-    state.tape_cancel.store(true, Ordering::Relaxed);
+pub fn cancel_mixtape_operation(state: State<'_, AppState>) -> Result<(), String> {
+    state.mixtape_cancel.store(true, Ordering::Relaxed);
     Ok(())
 }
 
 #[tauri::command]
-pub fn cleanup_temp_tapes(state: State<'_, AppState>) -> Result<(), String> {
-    let temp_tape_dir = state.app_dir.join("temp").join("tape_playback");
-    if temp_tape_dir.exists() {
-        std::fs::remove_dir_all(&temp_tape_dir)
+pub fn cleanup_temp_mixtapes(state: State<'_, AppState>) -> Result<(), String> {
+    let temp_mixtape_dir = state.app_dir.join("temp").join("mixtape_playback");
+    if temp_mixtape_dir.exists() {
+        std::fs::remove_dir_all(&temp_mixtape_dir)
             .map_err(|e| format!("Cleanup failed: {}", e))?;
     }
     Ok(())
@@ -3360,7 +3360,7 @@ mod tests {
                 pending: Mutex::new(std::collections::HashMap::new()),
             }),
             tidal_download_cancel: Arc::new(AtomicBool::new(false)),
-            tape_cancel: Arc::new(AtomicBool::new(false)),
+            mixtape_cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -303,11 +304,11 @@ pub struct PlaylistTrack {
     pub image_path: Option<String>,
 }
 
-// --- Tape file format types ---
+// --- Mixtape file format types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum TapeType {
+pub enum MixtapeType {
     Custom,
     Album,
     BestOfArtist,
@@ -315,7 +316,7 @@ pub enum TapeType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum TapeImportMode {
+pub enum MixtapeImportMode {
     PlaylistAndFiles,
     PlaylistOnly,
     FilesOnly,
@@ -323,24 +324,23 @@ pub enum TapeImportMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TapeManifest {
+pub struct MixtapeManifest {
     pub version: u32,
     pub title: String,
     #[serde(rename = "type")]
-    pub tape_type: TapeType,
-    pub quality: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub comment: Option<String>,
+    pub mixtape_type: MixtapeType,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, String>,
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover: Option<String>,
-    pub tracks: Vec<TapeTrack>,
+    pub tracks: Vec<MixtapeTrack>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TapeTrack {
+pub struct MixtapeTrack {
     pub title: String,
     pub artist: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -354,8 +354,8 @@ pub struct TapeTrack {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TapePreview {
-    pub manifest: TapeManifest,
+pub struct MixtapePreview {
+    pub manifest: MixtapeManifest,
     pub cover_temp_path: Option<String>,
     pub file_size: u64,
     pub total_duration_secs: f64,
@@ -363,11 +363,10 @@ pub struct TapePreview {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TapeExportOptions {
+pub struct MixtapeExportOptions {
     pub title: String,
-    pub tape_type: TapeType,
-    pub quality: String,
-    pub comment: Option<String>,
+    pub mixtape_type: MixtapeType,
+    pub metadata: HashMap<String, String>,
     pub created_by: Option<String>,
     pub cover_image_path: Option<String>,
     pub include_thumbs: bool,
@@ -376,7 +375,7 @@ pub struct TapeExportOptions {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TapeExportProgress {
+pub struct MixtapeExportProgress {
     pub current_track: u32,
     pub total_tracks: u32,
     pub phase: String,
@@ -385,7 +384,7 @@ pub struct TapeExportProgress {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TapeImportProgress {
+pub struct MixtapeImportProgress {
     pub current_track: u32,
     pub total_tracks: u32,
     pub track_title: String,

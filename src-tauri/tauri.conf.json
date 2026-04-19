@@ -47,9 +47,9 @@
     ],
     "fileAssociations": [
       {
-        "ext": ["tape"],
-        "mimeType": "application/x-viboplr-tape",
-        "description": "Viboplr Tape"
+        "ext": ["mixtape"],
+        "mimeType": "application/x-viboplr-mixtape",
+        "description": "Viboplr Mixtape"
       }
     ]
   },

@@ -184,10 +184,10 @@ export interface TidalArtistDetail {
   albums: TidalSearchAlbum[];
 }
 
-// Tape file format types
-export type TapeType = "custom" | "album" | "best_of_artist";
+// Mixtape file format types
+export type MixtapeType = "custom" | "album" | "best_of_artist";
 
-export interface TapeTrack {
+export interface MixtapeTrack {
   title: string;
   artist: string;
   album: string | null;
@@ -196,26 +196,25 @@ export interface TapeTrack {
   thumb: string | null;
 }
 
-export interface TapeManifest {
+export interface MixtapeManifest {
   version: number;
   title: string;
-  type: TapeType;
-  quality: string;
-  comment: string | null;
+  type: MixtapeType;
+  metadata: Record<string, string>;
   created_at: string;
   created_by: string | null;
   cover: string | null;
-  tracks: TapeTrack[];
+  tracks: MixtapeTrack[];
 }
 
-export interface TapePreview {
-  manifest: TapeManifest;
+export interface MixtapePreview {
+  manifest: MixtapeManifest;
   cover_temp_path: string | null;
   file_size: number;
   total_duration_secs: number;
 }
 
-export interface TapeImportProgress {
+export interface MixtapeImportProgress {
   current_track: number;
   total_tracks: number;
   track_title: string;

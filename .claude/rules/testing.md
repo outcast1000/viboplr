@@ -14,7 +14,7 @@ npm run test:e2e   # Playwright E2E tests
 
 **Framework:** `cargo test` with `#[cfg(test)]` modules.
 
-**Files with tests:** `db.rs`, `scanner.rs`, `tape.rs`, `plugins.rs`, `commands.rs`, `skins.rs`, `entity_image.rs`.
+**Files with tests:** `db.rs`, `scanner.rs`, `mixtape.rs`, `plugins.rs`, `commands.rs`, `skins.rs`, `entity_image.rs`.
 
 **Test dependencies:** `tempfile = "3"` for temporary files.
 

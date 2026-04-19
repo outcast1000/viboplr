@@ -410,14 +410,14 @@ export function useQueue(
     setPlaylistContext(prev => prev ? { ...prev, name } : { name });
   }
 
-  async function loadPlaylist(onOpenTape?: (path: string) => void) {
+  async function loadPlaylist(onOpenMixtape?: (path: string) => void) {
     const filePath = await open({
-      filters: [{ name: "Playlist", extensions: ["m3u", "m3u8", "tape"] }],
+      filters: [{ name: "Playlist", extensions: ["m3u", "m3u8", "mixtape"] }],
       multiple: false,
     });
     if (!filePath) return;
-    if (typeof filePath === "string" && filePath.endsWith(".tape")) {
-      onOpenTape?.(filePath);
+    if (typeof filePath === "string" && filePath.endsWith(".mixtape")) {
+      onOpenMixtape?.(filePath);
       return;
     }
     const result = await invoke<PlaylistLoadResult>("load_playlist", { path: filePath });

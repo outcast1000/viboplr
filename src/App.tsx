@@ -75,9 +75,9 @@ import { TidalDownloadModal } from "./components/TidalDownloadModal";
 import { TidalAlbumDownloadModal, type TidalAlbumDownloadInput } from "./components/TidalAlbumDownloadModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
-import { TapePreviewModal } from "./components/TapePreviewModal";
-import { TapeExportModal } from "./components/TapeExportModal";
-import type { ExportTrack } from "./components/TapeExportModal";
+import { MixtapePreviewModal } from "./components/MixtapePreviewModal";
+import { MixtapeExportModal } from "./components/MixtapeExportModal";
+import type { ExportTrack } from "./components/MixtapeExportModal";
 
 import { SearchView } from "./components/SearchView";
 import { StatusBar } from "./components/StatusBar";
@@ -410,9 +410,9 @@ function App() {
   const [syncWithPlaying, setSyncWithPlaying] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
-  const [tapePreviewPath, setTapePreviewPath] = useState<string | null>(null);
-  const [tapeExportTracks, setTapeExportTracks] = useState<ExportTrack[] | null>(null);
-  const [tapeExportDefaultTitle, setTapeExportDefaultTitle] = useState<string>("");
+  const [mixtapePreviewPath, setMixtapePreviewPath] = useState<string | null>(null);
+  const [mixtapeExportTracks, setMixtapeExportTracks] = useState<ExportTrack[] | null>(null);
+  const [mixtapeExportDefaultTitle, setMixtapeExportDefaultTitle] = useState<string>("");
 
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
@@ -764,24 +764,24 @@ function App() {
     };
   }, [plugins.forwardDeepLink]);
 
-  // Listen for tape file opened events (from file association / CLI)
+  // Listen for mixtape file opened events (from file association / CLI)
   useEffect(() => {
-    const unlistenTapeOpen = listen<string>("tape-file-opened", (event) => {
-      setTapePreviewPath(event.payload);
+    const unlistenMixtapeOpen = listen<string>("mixtape-file-opened", (event) => {
+      setMixtapePreviewPath(event.payload);
     });
     return () => {
-      unlistenTapeOpen.then(f => f());
+      unlistenMixtapeOpen.then(f => f());
     };
   }, []);
 
-  // Handle drag-and-drop of .tape files onto the window
+  // Handle drag-and-drop of .mixtape files onto the window
   useEffect(() => {
     const unlisten = getCurrentWindow().onDragDropEvent((event) => {
       if (event.payload.type === "drop") {
         const paths: string[] = event.payload.paths;
-        const tapePath = paths.find(p => p.endsWith(".tape"));
-        if (tapePath) {
-          setTapePreviewPath(tapePath);
+        const mixtapePath = paths.find(p => p.endsWith(".mixtape"));
+        if (mixtapePath) {
+          setMixtapePreviewPath(mixtapePath);
         }
       }
     });
@@ -790,9 +790,9 @@ function App() {
     };
   }, []);
 
-  // Clean up temporary tape files on app startup
+  // Clean up temporary mixtape files on app startup
   useEffect(() => {
-    invoke("cleanup_temp_tapes").catch(() => {});
+    invoke("cleanup_temp_mixtapes").catch(() => {});
   }, []);
 
   // Restore persisted state on mount
@@ -1496,11 +1496,11 @@ function App() {
     }
   }
 
-  // Tape export trigger — fetches full track data and opens the export modal
-  const handleExportAsTape = useCallback(async (trackIds: number[], defaultTitle?: string) => {
+  // Mixtape export trigger — fetches full track data and opens the export modal
+  const handleExportAsMixtape = useCallback(async (trackIds: number[], defaultTitle?: string) => {
     try {
       const tracks = await invoke<Track[]>("get_tracks_by_ids", { ids: trackIds });
-      setTapeExportTracks(tracks.map((t) => ({
+      setMixtapeExportTracks(tracks.map((t) => ({
         id: t.id,
         title: t.title,
         artistName: t.artist_name || undefined,
@@ -1508,14 +1508,14 @@ function App() {
         durationSecs: t.duration_secs || undefined,
         fileSize: t.file_size || undefined,
       })));
-      setTapeExportDefaultTitle(defaultTitle || "");
+      setMixtapeExportDefaultTitle(defaultTitle || "");
     } catch (e) {
-      console.error("Failed to prepare tape export:", e);
+      console.error("Failed to prepare mixtape export:", e);
     }
   }, []);
 
-  // Queue handler for tape "Just Play" mode — replaces the queue with tape tracks
-  const handleTapeQueueTracks = useCallback((tracks: Track[], context: { name: string; coverPath?: string | null }) => {
+  // Queue handler for mixtape "Just Play" mode — replaces the queue with mixtape tracks
+  const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; coverPath?: string | null }) => {
     queueHook.playTracks(tracks, 0, context);
   }, [queueHook.playTracks]);
 
@@ -2074,8 +2074,8 @@ function App() {
                 searchQuery={viewSearch.getQuery("playlists")}
                 onPlayTracks={queueHook.playTracks}
                 onEnqueueTracks={queueHook.enqueueTracks}
-                onExportAsTape={handleExportAsTape}
-                onOpenTape={setTapePreviewPath}
+                onExportAsMixtape={handleExportAsMixtape}
+                onOpenMixtape={setMixtapePreviewPath}
                 pluginMenuItems={plugins.menuItems}
                 onPluginAction={plugins.dispatchContextMenuAction}
               />
@@ -2307,7 +2307,7 @@ function App() {
           onClear={queueHook.clearQueue}
           onSavePlaylist={queueHook.savePlaylist}
           onSaveAsPlaylist={handleSaveAsPlaylist}
-          onLoadPlaylist={() => queueHook.loadPlaylist(setTapePreviewPath)}
+          onLoadPlaylist={() => queueHook.loadPlaylist(setMixtapePreviewPath)}
           onContextMenu={(e, indices) => {
             const tracks = indices.map(i => queueHook.queue[i]).filter(Boolean);
             const first = tracks[0];
@@ -2369,7 +2369,7 @@ function App() {
           } : undefined}
           onDownload={contextMenuActions.contextMenu.target.kind === "track" && contextMenuActions.contextMenu.target.trackId ? (destId: number) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track" && t.trackId) downloads.downloadTrack(t.trackId, destId, library.tracks); } : undefined}
           localCollections={localCollections}
-          onExportAsTape={handleExportAsTape}
+          onExportAsMixtape={handleExportAsMixtape}
           onClose={() => contextMenuActions.setContextMenu(null)}
           pluginMenuItems={plugins.menuItems}
           onPluginAction={plugins.dispatchContextMenuAction}
@@ -2485,18 +2485,18 @@ function App() {
         />
       )}
 
-      {tapePreviewPath && (
-        <TapePreviewModal
-          tapePath={tapePreviewPath}
-          onClose={() => setTapePreviewPath(null)}
-          onQueueTracks={handleTapeQueueTracks}
+      {mixtapePreviewPath && (
+        <MixtapePreviewModal
+          mixtapePath={mixtapePreviewPath}
+          onClose={() => setMixtapePreviewPath(null)}
+          onQueueTracks={handleMixtapeQueueTracks}
         />
       )}
-      {tapeExportTracks && (
-        <TapeExportModal
-          tracks={tapeExportTracks}
-          defaultTitle={tapeExportDefaultTitle}
-          onClose={() => setTapeExportTracks(null)}
+      {mixtapeExportTracks && (
+        <MixtapeExportModal
+          tracks={mixtapeExportTracks}
+          defaultTitle={mixtapeExportDefaultTitle}
+          onClose={() => setMixtapeExportTracks(null)}
         />
       )}
 
