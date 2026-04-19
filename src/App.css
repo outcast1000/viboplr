@@ -215,8 +215,8 @@
 }
 
 .artist-avatar {
-  width: 160px;
-  height: 160px;
+  width: 240px;
+  height: 240px;
   border-radius: 50%;
   background: var(--bg-surface);
   display: flex;
@@ -246,8 +246,8 @@
 }
 
 .artist-avatar-img {
-  width: 160px;
-  height: 160px;
+  width: 240px;
+  height: 240px;
   border-radius: 50%;
   object-fit: cover;
 }

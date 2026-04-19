@@ -217,10 +217,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(var(--overlay-inverse), 0.5);
   border: none;
   border-radius: inherit;
-  color: var(--text-primary);
+  color: rgb(var(--overlay-base));
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s;
@@ -231,9 +231,9 @@
 }
 
 .detail-art-play svg {
-  width: 40px;
-  height: 40px;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
+  width: 48px;
+  height: 48px;
+  filter: drop-shadow(0 1px 4px rgba(var(--overlay-inverse), 0.5));
 }
 
 .ds-card-play {
