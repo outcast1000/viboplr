@@ -460,7 +460,7 @@ function App() {
   });
 
   // Downloads
-  const downloads = useDownloads(downloadFormatRef, addLog);
+  const downloads = useDownloads(downloadFormatRef, addLog, plugins.dispatchEvent);
 
   // Like actions
   const likeActions = useLikeActions({

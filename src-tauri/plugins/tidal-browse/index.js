@@ -10,6 +10,8 @@ function activate(api) {
     lastQuery: "",
     albumDetail: null,
     artistDetail: null,
+    downloadLog: [],
+    showDownloadLog: false,
   };
 
   function coverUrl(coverId, size) {
@@ -23,6 +25,25 @@ function activate(api) {
     var m = Math.floor(secs / 60);
     var s = Math.floor(secs % 60);
     return m + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return "0 B";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1048576).toFixed(1) + " MB";
+  }
+
+  function formatMs(ms) {
+    if (!ms) return "0s";
+    if (ms < 1000) return ms + "ms";
+    return (ms / 1000).toFixed(1) + "s";
+  }
+
+  function dlLog(tag, msg, data) {
+    var ts = new Date().toLocaleTimeString();
+    state.downloadLog.push({ ts: ts, tag: tag, msg: msg, data: data });
+    if (state.downloadLog.length > 500) state.downloadLog.shift();
   }
 
   // -- Image providers --
@@ -147,6 +168,44 @@ function activate(api) {
       children.push({
         type: "text",
         content: "Search TIDAL for tracks, albums, and artists.",
+      });
+    }
+
+    children.push({ type: "spacer" });
+    children.push({
+      type: "layout", direction: "horizontal", children: [
+        { type: "button", label: state.showDownloadLog ? "Hide Download Log" : "Download Log" + (state.downloadLog.length > 0 ? " (" + state.downloadLog.length + ")" : ""), action: "toggle-download-log", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
+        state.showDownloadLog && state.downloadLog.length > 0 ? { type: "button", label: "Copy Log", action: "copy-download-log", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } } : { type: "spacer" },
+        state.showDownloadLog && state.downloadLog.length > 0 ? { type: "button", label: "Clear", action: "clear-download-log", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } } : { type: "spacer" },
+      ]
+    });
+
+    if (state.showDownloadLog && state.downloadLog.length > 0) {
+      var tagBg = { complete: "#1a4a2a", error: "#5a1a1a" };
+      var logHtml = "";
+      for (var li = 0; li < state.downloadLog.length; li++) {
+        var e = state.downloadLog[li];
+        var bg = tagBg[e.tag] || "#333";
+        logHtml += "<div style='padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.06);" +
+          (e.tag === "error" ? "background:rgba(255,50,50,0.1);" : "") + "'>";
+        logHtml += "<span style='opacity:0.4;font-size:10px'>" + escapeHtml(e.ts) + "</span> ";
+        logHtml += "<span style='background:" + bg + ";padding:1px 6px;border-radius:3px;font-size:10px;font-weight:bold'>" +
+          escapeHtml(e.tag.toUpperCase()) + "</span> ";
+        logHtml += escapeHtml(e.msg);
+        if (e.data) {
+          logHtml += "<pre style='margin:4px 0 2px 0;padding:6px 8px;background:rgba(0,0,0,0.3);" +
+            "border-radius:4px;font-size:10px;white-space:pre-wrap;word-break:break-all;" +
+            "user-select:text;-webkit-user-select:text;cursor:text;max-height:200px;overflow:auto'>" +
+            escapeHtml(e.data) + "</pre>";
+        }
+        logHtml += "</div>";
+      }
+      children.push({ type: "text", content:
+        "<div style='font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.4;" +
+        "max-height:500px;overflow:auto;background:rgba(0,0,0,0.25);border-radius:6px;" +
+        "user-select:text;-webkit-user-select:text;cursor:text;border:1px solid rgba(255,255,255,0.08)'>" +
+        logHtml +
+        "</div>"
       });
     }
 
@@ -523,6 +582,36 @@ function activate(api) {
     }
   });
 
+  api.ui.onAction("toggle-download-log", function () {
+    state.showDownloadLog = !state.showDownloadLog;
+    render();
+  });
+
+  api.ui.onAction("copy-download-log", function () {
+    var lines = [];
+    for (var i = 0; i < state.downloadLog.length; i++) {
+      var e = state.downloadLog[i];
+      var line = e.ts + " [" + e.tag.toUpperCase() + "] " + e.msg;
+      if (e.data) line += " | " + e.data.replace(/\n/g, " | ");
+      lines.push(line);
+    }
+    var text = lines.join("\n");
+    try {
+      navigator.clipboard.writeText(text).then(function () {
+        api.ui.showNotification("Download log copied to clipboard");
+      }).catch(function (err) {
+        console.error("Failed to copy download log:", err);
+      });
+    } catch (err) {
+      console.error("Failed to copy download log:", err);
+    }
+  });
+
+  api.ui.onAction("clear-download-log", function () {
+    state.downloadLog = [];
+    render();
+  });
+
   // -- Context menu actions --
 
   api.contextMenu.onAction("search-tidal", function (target) {
@@ -683,6 +772,26 @@ function activate(api) {
       // TIDAL unavailable — skip
     }
     return null;
+  });
+
+  // -- Download event logging --
+
+  api.playback.onDownloadComplete(function (data) {
+    var details = "Path: " + (data.destPath || "?") +
+      "\nSize: " + formatBytes(data.fileSize) +
+      "\nFormat: " + (data.format || "?") +
+      "\nSource: " + (data.sourceUrl || "?") +
+      "\nTime: " + formatMs(data.durationMs);
+    dlLog("complete", (data.trackTitle || "?") + " \u2014 " + (data.artistName || "?"), details);
+    render();
+  });
+
+  api.playback.onDownloadError(function (data) {
+    var details = "Error: " + (data.error || "unknown") +
+      "\nSource: " + (data.sourceKind || "?") +
+      "\nTime: " + formatMs(data.durationMs);
+    dlLog("error", (data.trackTitle || "?") + " \u2014 " + (data.artistName || "?"), details);
+    render();
   });
 
   // Initial render

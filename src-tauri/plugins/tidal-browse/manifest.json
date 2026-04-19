@@ -7,6 +7,7 @@
   "icon": "M2 12l5-5 5 5-5 5zM12 12l5-5 5 5-5 5zM7 7l5-5 5 5-5 5z",
   "minAppVersion": "0.7.0",
   "contributes": {
+    "eventHooks": ["download:complete", "download:error"],
     "imageProviders": [
       { "entity": "artist", "priority": 100 },
       { "entity": "album", "priority": 100 }

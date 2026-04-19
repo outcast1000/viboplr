@@ -112,6 +112,8 @@ export function usePlugins(
     "track:played": [],
     "track:scrobbled": [],
     "track:liked": [],
+    "download:complete": [],
+    "download:error": [],
   });
   const enabledPluginsRef = useRef<Set<string>>(new Set());
   const viewDataRef = useRef<Map<string, PluginViewData>>(new Map());
@@ -236,6 +238,16 @@ export function usePlugins(
             trackUnsubscribe(unsub);
             return unsub;
           },
+          onDownloadComplete: (handler) =>
+            subscribeEvent(
+              "download:complete",
+              handler as (...args: unknown[]) => void,
+            ),
+          onDownloadError: (handler) =>
+            subscribeEvent(
+              "download:error",
+              handler as (...args: unknown[]) => void,
+            ),
         },
 
         contextMenu: {

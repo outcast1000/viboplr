@@ -22,6 +22,7 @@ export interface UseDownloadsReturn {
 export function useDownloads(
   downloadFormatRef: React.MutableRefObject<string>,
   addLog: (msg: string) => void,
+  dispatchPluginEvent?: (event: "download:complete" | "download:error", data: unknown) => void,
 ): UseDownloadsReturn {
   const [downloadFormat, setDownloadFormat] = useState("flac");
   const [downloadStatus, setDownloadStatus] = useState<DownloadStatus | null>(null);
@@ -31,18 +32,37 @@ export function useDownloads(
       "download-progress",
       () => { invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus); }
     );
-    const unlisten2 = listen<{ id: number; trackTitle: string; destPath: string }>(
+    const unlisten2 = listen<{
+      id: number;
+      trackTitle: string;
+      artistName: string;
+      destPath: string;
+      fileSize: number;
+      sourceUrl: string;
+      format: string;
+      sourceKind: string;
+      durationMs: number;
+    }>(
       "download-complete",
       (event) => {
         addLog(`Downloaded: ${event.payload.trackTitle}`);
         invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus);
+        dispatchPluginEvent?.("download:complete", event.payload);
       }
     );
-    const unlisten3 = listen<{ id: number; trackTitle: string; error: string }>(
+    const unlisten3 = listen<{
+      id: number;
+      trackTitle: string;
+      artistName: string;
+      error: string;
+      sourceKind: string;
+      durationMs: number;
+    }>(
       "download-error",
       (event) => {
         addLog(`Download error: ${event.payload.trackTitle} - ${event.payload.error}`);
         invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus);
+        dispatchPluginEvent?.("download:error", event.payload);
       }
     );
     return () => {

@@ -881,8 +881,15 @@ pub fn run() {
                     dl_worker_manager.set_active(Some(status.clone()));
                     let _ = dl_app_handle.emit("download-progress", &status);
 
+                    let download_start = std::time::Instant::now();
+
                     match crate::downloader::process_download(&request, &dl_worker_db, &dl_app_handle, &dl_worker_manager) {
-                        Ok(dest_path) => {
+                        Ok(result) => {
+                            let duration_ms = download_start.elapsed().as_millis() as u64;
+                            let file_size = std::fs::metadata(&result.dest_path)
+                                .map(|m| m.len())
+                                .unwrap_or(0);
+
                             let complete = crate::downloader::DownloadStatus {
                                 id: request.id,
                                 track_title: request.track_title.clone(),
@@ -896,7 +903,13 @@ pub fn run() {
                             let _ = dl_app_handle.emit("download-complete", serde_json::json!({
                                 "id": request.id,
                                 "trackTitle": request.track_title,
-                                "destPath": dest_path.to_string_lossy(),
+                                "artistName": request.artist_name,
+                                "destPath": result.dest_path.to_string_lossy(),
+                                "fileSize": file_size,
+                                "sourceUrl": result.source_url,
+                                "format": result.format,
+                                "sourceKind": result.source_kind,
+                                "durationMs": duration_ms,
                             }));
 
                             // Emit scan-complete so frontend refreshes library
@@ -905,6 +918,7 @@ pub fn run() {
                             }));
                         }
                         Err(e) => {
+                            let duration_ms = download_start.elapsed().as_millis() as u64;
                             log::error!("Download failed for {}: {}", request.track_title, e);
                             let error_status = crate::downloader::DownloadStatus {
                                 id: request.id,
@@ -919,7 +933,10 @@ pub fn run() {
                             let _ = dl_app_handle.emit("download-error", serde_json::json!({
                                 "id": request.id,
                                 "trackTitle": request.track_title,
+                                "artistName": request.artist_name,
                                 "error": e,
+                                "sourceKind": request.source_kind,
+                                "durationMs": duration_ms,
                             }));
                         }
                     }
