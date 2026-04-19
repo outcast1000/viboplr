@@ -420,16 +420,16 @@ export function SearchView({
       </div>
 
       {searched && (
-        <div className="search-view-tabs">
-          <div className="search-view-tab-list">
+        <div className="ds-tabs" style={{ padding: "0 16px", gap: 4 }}>
+          <div style={{ display: "flex", flex: 1 }}>
             {tabs.map(tab => (
               <button
                 key={tab.id}
-                className={`search-view-tab ${activeTab === tab.id ? "active" : ""}`}
+                className={`ds-tab ${activeTab === tab.id ? "active" : ""}`}
                 onClick={() => setActiveTab(tab.id)}
               >
                 {tab.label}
-                {tab.count > 0 && <span className="search-view-tab-count">{tab.count}</span>}
+                {tab.count > 0 && <span className="ds-tab-badge">{tab.count}</span>}
               </button>
             ))}
           </div>

@@ -883,11 +883,11 @@ export function SettingsPanel({
 
   return (
     <div className="settings-view">
-      <div className="settings-tab-bar">
+      <div className="ds-tabs">
         {navItems.map(item => (
           <button
             key={item.key}
-            className={`settings-tab ${settingsTab === item.key ? "active" : ""}`}
+            className={`ds-tab ${settingsTab === item.key ? "active" : ""}`}
             onClick={() => {
               setSettingsTab(item.key);
               if (item.key === "debug") onFetchBackendTimings();

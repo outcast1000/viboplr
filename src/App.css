@@ -2086,52 +2086,6 @@
   opacity: 1;
 }
 
-.search-view-tabs {
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--border);
-  gap: 4px;
-}
-
-.search-view-tab-list {
-  display: flex;
-  gap: 0;
-  flex: 1;
-}
-
-.search-view-tab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-secondary);
-  font-size: var(--fs-sm);
-  padding: 8px 16px;
-  cursor: pointer;
-  transition: all 0.15s;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.search-view-tab:hover {
-  color: var(--text-primary);
-}
-
-.search-view-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.search-view-tab-count {
-  font-size: var(--fs-xs);
-  color: var(--text-tertiary);
-}
-
-.search-view-tab.active .search-view-tab-count {
-  color: var(--accent-dim);
-}
-
 .search-view-results {
   flex: 1;
   overflow-y: auto;

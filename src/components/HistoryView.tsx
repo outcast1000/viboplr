@@ -244,11 +244,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
   return (
     <div className="history-view">
       {!q && (
-        <div className="history-tabs">
+        <div className="ds-tabs">
           {tabs.map(tab => (
             <button
               key={tab.key}
-              className={`history-tab${activeTab === tab.key ? " active" : ""}`}
+              className={`ds-tab${activeTab === tab.key ? " active" : ""}`}
               onClick={() => setActiveTab(tab.key)}
             >
               {tab.label}

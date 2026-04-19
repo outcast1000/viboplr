@@ -113,31 +113,8 @@
   flex: 1;
   overflow: hidden;
 }
-.settings-tab-bar {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--border);
+.settings-view .ds-tabs {
   padding: 0 20px;
-  flex-shrink: 0;
-}
-.settings-tab {
-  padding: 10px 16px;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-secondary);
-  font-size: var(--fs-sm);
-  font-family: inherit;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-  margin-bottom: -1px;
-}
-.settings-tab:hover {
-  color: var(--text-primary);
-}
-.settings-tab.active {
-  color: var(--text-primary);
-  border-bottom-color: var(--accent);
 }
 .settings-content-body {
   flex: 1;
