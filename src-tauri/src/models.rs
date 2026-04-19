@@ -143,6 +143,7 @@ pub struct ScanProgress {
     pub folder: String,
     pub scanned: u64,
     pub total: u64,
+    pub collection_id: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,6 +151,7 @@ pub struct SyncProgress {
     pub collection: String,
     pub synced: u64,
     pub total: u64,
+    pub collection_id: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -125,6 +125,7 @@ pub fn add_collection(
             // Start background scan
             let db = state.db.clone();
             let scan_path = folder_path.to_string();
+            let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
             thread::spawn(move || {
                 let start = std::time::Instant::now();
                 scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
@@ -134,13 +135,20 @@ pub fn add_collection(
                             folder: scan_path.clone(),
                             scanned,
                             total,
+                            collection_id,
                         },
                     );
                 });
                 let _ = db.rebuild_fts();
                 let _ = db.recompute_counts();
                 let _ = db.update_collection_synced(collection_id, start.elapsed().as_secs_f64());
-                let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
+                let track_count_after = db.get_track_count_for_collection(collection_id).unwrap_or(0);
+                let new_tracks = (track_count_after - track_count_before).max(0);
+                let _ = app.emit("scan-complete", serde_json::json!({
+                    "folder": scan_path,
+                    "collectionId": collection_id,
+                    "newTracks": new_tracks,
+                }));
             });
 
             Ok(collection)
@@ -179,6 +187,7 @@ pub fn add_collection(
             let creds_salt = client.salt.clone();
             let creds_method = client.auth_method.clone();
 
+            let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
             thread::spawn(move || {
                 let client = SubsonicClient::from_stored(
                     &creds_url,
@@ -193,6 +202,7 @@ pub fn add_collection(
                         collection: collection_name.clone(),
                         synced: 0,
                         total: 0,
+                        collection_id,
                     },
                 );
                 match crate::sync::sync_collection(&db, &client, collection_id, |synced, total| {
@@ -202,13 +212,19 @@ pub fn add_collection(
                             collection: collection_name.clone(),
                             synced,
                             total,
+                            collection_id,
                         },
                     );
                 }) {
                     Ok(()) => {
+                        let track_count_after = db.get_track_count_for_collection(collection_id).unwrap_or(0);
+                        let new_tracks = (track_count_after - track_count_before).max(0);
                         let _ = app.emit(
                             "sync-complete",
-                            serde_json::json!({ "collectionId": collection_id }),
+                            serde_json::json!({
+                                "collectionId": collection_id,
+                                "newTracks": new_tracks,
+                            }),
                         );
                     }
                     Err(e) => {
@@ -300,6 +316,7 @@ pub fn resync_collection(
             let folder_path = collection.path.ok_or("Collection has no path")?;
             let db = state.db.clone();
             let scan_path = folder_path.clone();
+            let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
             thread::spawn(move || {
                 let start = std::time::Instant::now();
                 scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
@@ -309,13 +326,20 @@ pub fn resync_collection(
                             folder: scan_path.clone(),
                             scanned,
                             total,
+                            collection_id,
                         },
                     );
                 });
                 let _ = db.rebuild_fts();
                 let _ = db.recompute_counts();
                 let _ = db.update_collection_synced(collection_id, start.elapsed().as_secs_f64());
-                let _ = app.emit("scan-complete", serde_json::json!({ "folder": scan_path }));
+                let track_count_after = db.get_track_count_for_collection(collection_id).unwrap_or(0);
+                let new_tracks = (track_count_after - track_count_before).max(0);
+                let _ = app.emit("scan-complete", serde_json::json!({
+                    "folder": scan_path,
+                    "collectionId": collection_id,
+                    "newTracks": new_tracks,
+                }));
             });
             Ok(())
         }
@@ -326,6 +350,7 @@ pub fn resync_collection(
                 .map_err(|e| e.to_string())?;
             let collection_name = collection.name.clone();
             let db = state.db.clone();
+            let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
 
             thread::spawn(move || {
                 let client = SubsonicClient::from_stored(
@@ -342,13 +367,19 @@ pub fn resync_collection(
                             collection: collection_name.clone(),
                             synced,
                             total,
+                            collection_id,
                         },
                     );
                 }) {
                     Ok(()) => {
+                        let track_count_after = db.get_track_count_for_collection(collection_id).unwrap_or(0);
+                        let new_tracks = (track_count_after - track_count_before).max(0);
                         let _ = app.emit(
                             "sync-complete",
-                            serde_json::json!({ "collectionId": collection_id }),
+                            serde_json::json!({
+                                "collectionId": collection_id,
+                                "newTracks": new_tracks,
+                            }),
                         );
                     }
                     Err(e) => {

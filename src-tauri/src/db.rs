@@ -635,6 +635,15 @@ impl Database {
         )
     }
 
+    pub fn get_track_count_for_collection(&self, collection_id: i64) -> SqlResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COUNT(*) FROM tracks WHERE collection_id = ?1",
+            params![collection_id],
+            |row| row.get(0),
+        )
+    }
+
     pub fn upsert_track(
         &self,
         path: &str,
