@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import { save, open } from "@tauri-apps/plugin-dialog";
+import { save } from "@tauri-apps/plugin-dialog";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import playlistDefault from "../assets/playlist-default.png";
@@ -60,7 +60,6 @@ interface PlaylistsViewProps {
   onPlayTracks: (tracks: any[], startIndex: number, context?: { name: string; coverPath?: string | null; coverUrl?: string | null } | null) => void;
   onEnqueueTracks: (tracks: any[]) => void;
   onExportAsMixtape?: (trackIds: number[], defaultTitle?: string) => void;
-  onOpenMixtape?: (path: string) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
 }
@@ -69,7 +68,7 @@ function isLocalPath(source: string | null): boolean {
   return !!source && !source.startsWith("subsonic://") && !source.startsWith("tidal://") && !source.startsWith("spotify-track://");
 }
 
-export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onExportAsMixtape, onOpenMixtape, pluginMenuItems, onPluginAction }: PlaylistsViewProps) {
+export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onExportAsMixtape, pluginMenuItems, onPluginAction }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
@@ -108,14 +107,6 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
     setTracks([]);
     loadPlaylists();
   }, [deleteConfirm, loadPlaylists]);
-
-  const handleOpenMixtape = useCallback(async () => {
-    const path = await open({
-      filters: [{ name: "Mixtape", extensions: ["mixtape"] }],
-      multiple: false,
-    });
-    if (path && onOpenMixtape) onOpenMixtape(path as string);
-  }, [onOpenMixtape]);
 
   const handleExport = useCallback(async (pl: Playlist) => {
     const path = await save({
@@ -219,8 +210,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
             </div>
             <div className="playlists-detail-actions">
               <button className="playlists-action-btn playlists-action-btn-play" onClick={() => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0, { name: selectedPlaylist.name, coverPath: selectedPlaylist.image_path })} disabled={tracks.length === 0}>Play</button>
-              <button className="playlists-action-btn" onClick={() => handleExport(selectedPlaylist)}>Export M3U</button>
-              {onOpenMixtape && <button className="playlists-action-btn" onClick={handleOpenMixtape}>Open Mixtape</button>}
+              <button className="playlists-action-btn" onClick={() => handleExport(selectedPlaylist)}>Export as M3U</button>
               {onExportAsMixtape && (
                 <button className="playlists-action-btn" onClick={async () => {
                   const paths = tracks.map(t => t.source).filter((s): s is string => s != null);
@@ -230,8 +220,10 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
                     if (libraryTracks.length > 0) {
                       onExportAsMixtape(libraryTracks.map(t => t.id), selectedPlaylist.name);
                     }
-                  } catch {}
-                }} disabled={tracks.length === 0}>Make a Mixtape</button>
+                  } catch (e) {
+                    console.error("Failed to prepare mixtape export:", e);
+                  }
+                }} disabled={tracks.length === 0}>Export as Mixtape</button>
               )}
               <button className="playlists-action-btn playlists-action-btn-danger" onClick={() => setDeleteConfirm(selectedPlaylist)}>Delete</button>
             </div>
@@ -332,11 +324,6 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
   // List view
   return (
     <div className="playlists-view">
-      {onOpenMixtape && (
-        <div className="playlists-actions-bar">
-          <button className="playlists-action-btn" onClick={handleOpenMixtape}>Open Mixtape</button>
-        </div>
-      )}
       {filtered.length === 0 ? (
         <div className="playlists-empty">No saved playlists</div>
       ) : (
@@ -374,6 +361,33 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
           </div>
           <div className="context-menu-item" onClick={() => { openPlaylist(contextMenu.pl); setContextMenu(null); }}>
             <span>View / Edit</span>
+          </div>
+          <div className="context-menu-separator" />
+          <div className="context-menu-item" onClick={() => { handleExport(contextMenu.pl); setContextMenu(null); }}>
+            <span>Export as M3U</span>
+          </div>
+          {onExportAsMixtape && (
+            <div className="context-menu-item" onClick={async () => {
+              const pl = contextMenu.pl;
+              setContextMenu(null);
+              try {
+                const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
+                const paths = rows.map(t => t.source).filter((s): s is string => s != null);
+                if (paths.length === 0) return;
+                const libraryTracks = await invoke<{ id: number }[]>("get_tracks_by_paths", { paths });
+                if (libraryTracks.length > 0) {
+                  onExportAsMixtape(libraryTracks.map(t => t.id), pl.name);
+                }
+              } catch (e) {
+                console.error("Failed to prepare mixtape export:", e);
+              }
+            }}>
+              <span>Export as Mixtape</span>
+            </div>
+          )}
+          <div className="context-menu-separator" />
+          <div className="context-menu-item context-menu-item-danger" onClick={() => { setDeleteConfirm(contextMenu.pl); setContextMenu(null); }}>
+            <span>Delete</span>
           </div>
           {pluginMenuItems && pluginMenuItems.length > 0 && (() => {
             const matching = pluginMenuItems.filter(item => item.targets.includes("playlist"));

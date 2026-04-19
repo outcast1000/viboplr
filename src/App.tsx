@@ -2111,7 +2111,6 @@ function App() {
                 onPlayTracks={queueHook.playTracks}
                 onEnqueueTracks={queueHook.enqueueTracks}
                 onExportAsMixtape={handleExportAsMixtape}
-                onOpenMixtape={setMixtapePreviewPath}
                 pluginMenuItems={plugins.menuItems}
                 onPluginAction={plugins.dispatchContextMenuAction}
               />
