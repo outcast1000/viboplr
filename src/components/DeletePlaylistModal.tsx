@@ -6,8 +6,8 @@ interface DeletePlaylistModalProps {
 
 export function DeletePlaylistModal({ playlistName, onConfirm, onClose }: DeletePlaylistModalProps) {
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="ds-modal-overlay" onClick={onClose}>
+      <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
         <h2>Delete Playlist</h2>
         <p className="delete-confirm-warning">
           Are you sure you want to delete <strong>{playlistName}</strong>? This cannot be undone.

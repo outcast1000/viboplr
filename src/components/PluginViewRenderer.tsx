@@ -794,13 +794,13 @@ function PluginToggle({
         {description && <span className="plugin-settings-description">{description}</span>}
       </div>
       <button
-        className={`plugin-toggle${checked ? " plugin-toggle-on" : ""}`}
+        className={`ds-toggle${checked ? " on" : ""}`}
         onClick={() => onAction?.(action, { value: !checked })}
         role="switch"
         aria-checked={checked}
         disabled={disabled}
       >
-        <span className="plugin-toggle-thumb" />
+        <span className="ds-toggle-thumb" />
       </button>
     </div>
   );

@@ -192,37 +192,6 @@
   flex-shrink: 0;
 }
 
-/* Toggle switch */
-.toggle-switch {
-  position: relative;
-  width: 36px;
-  height: 20px;
-  border-radius: 10px;
-  border: none;
-  background: var(--border);
-  cursor: pointer;
-  padding: 0;
-  flex-shrink: 0;
-  transition: background 0.2s;
-}
-.toggle-switch-on {
-  background: var(--accent);
-}
-.toggle-switch-thumb {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--text-primary);
-  transition: transform 0.2s;
-  pointer-events: none;
-}
-.toggle-switch-on .toggle-switch-thumb {
-  transform: translateX(16px);
-}
-
 .settings-row-actions {
   display: flex;
   gap: 6px;

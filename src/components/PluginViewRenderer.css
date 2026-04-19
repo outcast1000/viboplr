@@ -595,39 +595,6 @@
   color: var(--text-secondary);
 }
 
-/* Plugin toggle */
-.plugin-toggle {
-  position: relative;
-  width: 36px;
-  height: 20px;
-  border-radius: 10px;
-  border: none;
-  background: var(--bg-tertiary);
-  cursor: pointer;
-  padding: 0;
-  flex-shrink: 0;
-  transition: background 0.2s;
-}
-
-.plugin-toggle-on {
-  background: var(--accent);
-}
-
-.plugin-toggle-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--text-primary);
-  transition: transform 0.2s;
-}
-
-.plugin-toggle-on .plugin-toggle-thumb {
-  transform: translateX(16px);
-}
-
 /* Plugin select */
 .plugin-select {
   background: var(--bg-secondary);

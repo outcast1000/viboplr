@@ -2321,8 +2321,8 @@ function App() {
       )}
 
       {contextMenuActions.deleteConfirm && (
-        <div className="modal-overlay" onClick={() => contextMenuActions.setDeleteConfirm(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="ds-modal-overlay" onClick={() => contextMenuActions.setDeleteConfirm(null)}>
+          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
             <h2>Delete {contextMenuActions.deleteConfirm.title}?</h2>
             <p className="delete-confirm-warning">This will permanently delete the file{contextMenuActions.deleteConfirm.trackIds.length > 1 ? "s" : ""} from disk.</p>
             <div className="ds-modal-actions">
@@ -2334,8 +2334,8 @@ function App() {
       )}
 
       {contextMenuActions.deleteError && (
-        <div className="modal-overlay" onClick={() => contextMenuActions.setDeleteError(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="ds-modal-overlay" onClick={() => contextMenuActions.setDeleteError(null)}>
+          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
             <h2>Delete Failed</h2>
             <p className="delete-confirm-warning">{contextMenuActions.deleteError.message}</p>
             <ul className="delete-failure-list">
@@ -2354,8 +2354,8 @@ function App() {
       )}
 
       {contextMenuActions.folderError && (
-        <div className="modal-overlay" onClick={() => contextMenuActions.setFolderError(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="ds-modal-overlay" onClick={() => contextMenuActions.setFolderError(null)}>
+          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
             <h2>Open Containing Folder</h2>
             <p className="delete-confirm-warning">{contextMenuActions.folderError}</p>
             <div className="ds-modal-actions">
@@ -2374,8 +2374,8 @@ function App() {
       )}
 
       {collectionActions.removeCollectionConfirm && (
-        <div className="modal-overlay" onClick={() => collectionActions.setRemoveCollectionConfirm(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="ds-modal-overlay" onClick={() => collectionActions.setRemoveCollectionConfirm(null)}>
+          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
             <h2>Remove &ldquo;{collectionActions.removeCollectionConfirm.name}&rdquo;?</h2>
             <p className="delete-confirm-warning">This will permanently remove this collection and all its tracks from the library.</p>
             <div className="ds-modal-actions">
@@ -2411,8 +2411,8 @@ function App() {
       )}
 
       {navError && (
-        <div className="modal-overlay" onClick={() => setNavError(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="ds-modal-overlay" onClick={() => setNavError(null)}>
+          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
             <h2>Navigation Error</h2>
             <p>{navError}</p>
             <div className="ds-modal-actions">
@@ -2423,7 +2423,7 @@ function App() {
       )}
 
       {pluginLoadingMessage && (
-        <div className="modal-overlay">
+        <div className="ds-modal-overlay">
           <div className="loading-card">
             <div className="loading-card-icon">
               <div className="loading-card-spinner" />

@@ -272,7 +272,6 @@ body {
 }
 
 /* Modal scale-in animation */
-.modal-overlay .modal,
 .shortcuts-modal {
   animation: scale-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }

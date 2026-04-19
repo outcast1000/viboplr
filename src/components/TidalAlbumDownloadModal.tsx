@@ -186,8 +186,8 @@ export function TidalAlbumDownloadModal({
     : 0;
 
   return (
-    <div className="modal-overlay">
-      <div className="modal tidal-dl-modal" onClick={(e) => e.stopPropagation()} style={step !== "configure" ? { width: 440 } : undefined}>
+    <div className="ds-modal-overlay">
+      <div className="ds-modal tidal-dl-modal" onClick={(e) => e.stopPropagation()} style={step !== "configure" ? { width: 440 } : undefined}>
         {step === "configure" && (
           <>
             <h2>Download Album</h2>

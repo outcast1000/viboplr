@@ -313,8 +313,8 @@ export function TidalDownloadModal({
   }, [step, isUpgrade, showDestPicker]);
 
   return (
-    <div className="modal-overlay" onClick={handleCancel}>
-      <div className="modal tidal-dl-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="ds-modal-overlay" onClick={handleCancel}>
+      <div className="ds-modal tidal-dl-modal" onClick={(e) => e.stopPropagation()}>
         <h2>{isUpgrade && !showDestPicker ? "Upgrade via TIDAL" : "Download from TIDAL"}</h2>
         <p className="tidal-dl-track">
           {input.title}{input.artistName ? ` \u2014 ${input.artistName}` : ""}

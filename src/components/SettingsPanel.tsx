@@ -654,12 +654,12 @@ function SettingsProviderIcon({ provider }: { provider: SearchProviderConfig }) 
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
-      className={`toggle-switch ${checked ? "toggle-switch-on" : ""}`}
+      className={`ds-toggle ${checked ? "on" : ""}`}
       onClick={() => onChange(!checked)}
       role="switch"
       aria-checked={checked}
     >
-      <span className="toggle-switch-thumb" />
+      <span className="ds-toggle-thumb" />
     </button>
   );
 }
@@ -1146,10 +1146,10 @@ export function SettingsPanel({
                   pluginStates.map(plugin => (
                     <div key={plugin.id} className="settings-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0" }}>
                       <button
-                        className={`toggle-switch${plugin.enabled ? " toggle-switch-on" : ""}`}
+                        className={`ds-toggle${plugin.enabled ? " on" : ""}`}
                         onClick={() => onTogglePlugin?.(plugin.id, !plugin.enabled)}
                       >
-                        <span className="toggle-switch-thumb" />
+                        <span className="ds-toggle-thumb" />
                       </button>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 500 }}>

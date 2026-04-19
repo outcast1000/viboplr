@@ -124,8 +124,8 @@ export default function BulkEditModal({ tracks, onClose }: BulkEditModalProps) {
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ width: 420 }} onClick={(e) => e.stopPropagation()}>
+    <div className="ds-modal-overlay" onClick={onClose}>
+      <div className="ds-modal" style={{ width: 420 }} onClick={(e) => e.stopPropagation()}>
         <h3 style={{ margin: "0 0 16px" }}>Edit {count} Track{count !== 1 ? "s" : ""}</h3>
 
         <div className="modal-field">

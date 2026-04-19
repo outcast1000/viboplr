@@ -1047,15 +1047,6 @@
 
 
 /* Modal */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(var(--overlay-inverse), 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
-}
 
 .loading-card {
   background: var(--bg-secondary);
@@ -1105,17 +1096,7 @@
   margin-top: 2px;
 }
 
-.modal {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 24px;
-  width: 380px;
-  max-width: 90vw;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-}
-
-.modal h2 {
+.ds-modal h2 {
   font-size: var(--fs-base);
   font-weight: 700;
   margin-bottom: 16px;

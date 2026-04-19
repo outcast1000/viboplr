@@ -168,8 +168,8 @@ export function TapePreviewModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal tape-preview-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="ds-modal-overlay" onClick={onClose}>
+      <div className="ds-modal tape-preview-modal" onClick={(e) => e.stopPropagation()}>
         {loading && (
           <div className="tape-preview-loading">
             <div>Loading tape preview...</div>
