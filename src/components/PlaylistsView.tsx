@@ -194,8 +194,8 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>Open Containing Folder</h2>
         <p className="delete-confirm-warning">{folderError}</p>
-        <div className="modal-actions">
-          <button className="modal-btn modal-btn-cancel" onClick={() => setFolderError(null)}>OK</button>
+        <div className="ds-modal-actions">
+          <button className="ds-btn ds-btn--ghost" onClick={() => setFolderError(null)}>OK</button>
         </div>
       </div>
     </div>

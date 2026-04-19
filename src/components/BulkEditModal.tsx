@@ -190,10 +190,10 @@ export default function BulkEditModal({ tracks, onClose }: BulkEditModalProps) {
           </div>
         )}
 
-        <div className="modal-actions">
-          <button className="modal-btn modal-btn-cancel" onClick={onClose}>Cancel</button>
+        <div className="ds-modal-actions">
+          <button className="ds-btn ds-btn--ghost" onClick={onClose}>Cancel</button>
           <button
-            className="modal-btn modal-btn-confirm"
+            className="ds-btn ds-btn--primary"
             onClick={handleSave}
             disabled={!hasDirtyFields || saving}
           >

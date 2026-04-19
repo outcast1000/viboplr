@@ -110,7 +110,7 @@ function PluginViewNode({
     case "button":
       return (
         <button
-          className={`plugin-button${node.variant === "accent" ? " plugin-button-accent" : ""}`}
+          className={node.variant === "accent" ? "ds-btn ds-btn--primary" : "plugin-button"}
           onClick={() => onAction?.(node.action)}
           disabled={node.disabled}
           style={node.style as React.CSSProperties | undefined}

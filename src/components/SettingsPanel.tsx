@@ -598,7 +598,7 @@ function ProviderPrioritySection({
         )}
       </div>
       <div className="settings-actions-row provider-priority-actions">
-        <button className="settings-btn-secondary" onClick={handleReset}>Reset to Defaults</button>
+        <button className="ds-btn ds-btn--secondary" onClick={handleReset}>Reset to Defaults</button>
       </div>
     </div>
   );
@@ -973,8 +973,8 @@ export function SettingsPanel({
                         <span className="settings-description">{appPaths?.profile ?? ""}</span>
                       </div>
                       <div className="settings-row-actions">
-                        <button className="settings-btn-secondary" onClick={() => appPaths && navigator.clipboard.writeText(appPaths.profile).catch(console.error)} title="Copy path">Copy</button>
-                        <button className="settings-btn-secondary" onClick={() => invoke("open_profile_folder").catch(console.error)}>Open</button>
+                        <button className="ds-btn ds-btn--secondary" onClick={() => appPaths && navigator.clipboard.writeText(appPaths.profile).catch(console.error)} title="Copy path">Copy</button>
+                        <button className="ds-btn ds-btn--secondary" onClick={() => invoke("open_profile_folder").catch(console.error)}>Open</button>
                       </div>
                     </div>
                   </div>
@@ -1000,7 +1000,7 @@ export function SettingsPanel({
                       {updateState.available.body && (
                         <p className="update-notes">{updateState.available.body}</p>
                       )}
-                      <button className="settings-btn-accent update-install-btn" onClick={onInstallUpdate}>
+                      <button className="ds-btn ds-btn--primary update-install-btn" onClick={onInstallUpdate}>
                         Download &amp; Install
                       </button>
                     </div>
@@ -1026,7 +1026,7 @@ export function SettingsPanel({
                         <span className="update-up-to-date">Up to date</span>
                       )}
                       <button
-                        className="settings-btn-secondary"
+                        className="ds-btn ds-btn--secondary"
                         onClick={onCheckForUpdates}
                         disabled={updateState.checking}
                       >
@@ -1087,8 +1087,8 @@ export function SettingsPanel({
                   </div>
 
                   <div className="skin-actions">
-                    <button className="settings-btn-secondary" onClick={onImportSkin}>Import from file...</button>
-                    <button className="settings-btn-secondary" onClick={onFetchGallery}>Browse Gallery</button>
+                    <button className="ds-btn ds-btn--secondary" onClick={onImportSkin}>Import from file...</button>
+                    <button className="ds-btn ds-btn--secondary" onClick={onFetchGallery}>Browse Gallery</button>
                   </div>
 
                   {(gallerySkins.length > 0 || galleryLoading || galleryError) && (
@@ -1105,7 +1105,7 @@ export function SettingsPanel({
                       {galleryError && (
                         <div style={{ color: "var(--error)", fontSize: "var(--fs-xs)" }}>
                           {galleryError}
-                          <button className="settings-btn-secondary" style={{ marginLeft: 10 }} onClick={onFetchGallery}>Retry</button>
+                          <button className="ds-btn ds-btn--secondary" style={{ marginLeft: 10 }} onClick={onFetchGallery}>Retry</button>
                         </div>
                       )}
                       {!galleryLoading && !galleryError && gallerySkins.length > 0 && (
@@ -1231,7 +1231,7 @@ export function SettingsPanel({
                     {galleryPluginsError && (
                       <div style={{ color: "var(--error)", fontSize: "var(--fs-xs)" }}>
                         {galleryPluginsError}
-                        <button className="settings-btn-secondary" style={{ marginLeft: 10 }} onClick={onFetchPluginGallery}>Retry</button>
+                        <button className="ds-btn ds-btn--secondary" style={{ marginLeft: 10 }} onClick={onFetchPluginGallery}>Retry</button>
                       </div>
                     )}
                     {!galleryPluginsLoading && !galleryPluginsError && galleryPlugins && galleryPlugins.length > 0 && (
@@ -1338,8 +1338,8 @@ export function SettingsPanel({
                                 Use {"{artist}"} and {"{title}"} as placeholders. Leave a URL blank to hide this provider for that context.
                               </div>
                               <div className="provider-form-actions">
-                                <button className="settings-btn-secondary" onClick={cancelEdit}>Cancel</button>
-                                <button className="settings-btn-accent" onClick={saveEdit}>Save</button>
+                                <button className="ds-btn ds-btn--secondary" onClick={cancelEdit}>Cancel</button>
+                                <button className="ds-btn ds-btn--primary" onClick={saveEdit}>Save</button>
                               </div>
                             </div>
                           </div>
@@ -1380,8 +1380,8 @@ export function SettingsPanel({
                               </div>
                             </div>
                             <div className="settings-actions-row">
-                              <button className="settings-btn-secondary" onClick={startAdd}>+ Add Provider</button>
-                              <button className="settings-btn-secondary" onClick={resetToDefaults}>Reset to Defaults</button>
+                              <button className="ds-btn ds-btn--secondary" onClick={startAdd}>+ Add Provider</button>
+                              <button className="ds-btn ds-btn--secondary" onClick={resetToDefaults}>Reset to Defaults</button>
                             </div>
                           </>
                         )}
@@ -1410,8 +1410,8 @@ export function SettingsPanel({
                       <span className="settings-description">{appPaths?.logs ?? ""}</span>
                     </div>
                     <div className="settings-row-actions">
-                      <button className="settings-btn-secondary" onClick={() => appPaths && navigator.clipboard.writeText(appPaths.logs).catch(console.error)} title="Copy path">Copy</button>
-                      <button className="settings-btn-secondary" onClick={() => invoke("open_logs_folder").catch(console.error)}>Open</button>
+                      <button className="ds-btn ds-btn--secondary" onClick={() => appPaths && navigator.clipboard.writeText(appPaths.logs).catch(console.error)} title="Copy path">Copy</button>
+                      <button className="ds-btn ds-btn--secondary" onClick={() => invoke("open_logs_folder").catch(console.error)}>Open</button>
                     </div>
                   </div>
                 </div>
@@ -1422,7 +1422,7 @@ export function SettingsPanel({
                       <span className="settings-label">Image cache</span>
                       <span className="settings-description">Retry previously failed image downloads</span>
                     </div>
-                    <button className="settings-btn-secondary" onClick={onClearImageFailures}>Retry</button>
+                    <button className="ds-btn ds-btn--secondary" onClick={onClearImageFailures}>Retry</button>
                   </div>
                 </div>
                 {import.meta.env.DEV && (
@@ -1435,8 +1435,8 @@ export function SettingsPanel({
                           <span className="settings-description">Seed or clear the database</span>
                         </div>
                         <div style={{ display: "flex", gap: 8 }}>
-                          <button className="settings-btn-secondary" onClick={onSeedDatabase}>Seed</button>
-                          <button className="settings-btn-secondary" onClick={onClearDatabase} disabled={clearing}>
+                          <button className="ds-btn ds-btn--secondary" onClick={onSeedDatabase}>Seed</button>
+                          <button className="ds-btn ds-btn--secondary" onClick={onClearDatabase} disabled={clearing}>
                             {clearing ? "Clearing..." : "Clear"}
                           </button>
                         </div>

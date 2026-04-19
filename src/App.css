@@ -1156,33 +1156,6 @@
   border-color: var(--accent);
 }
 
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.modal-btn {
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: var(--fs-sm);
-  cursor: pointer;
-  border: none;
-  transition: all 0.15s;
-}
-
-.modal-btn-cancel {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-}
-
-.modal-btn-cancel:hover {
-  border-color: var(--text-secondary);
-  color: var(--text-primary);
-}
-
 .queue-duplicate-banner {
   display: flex;
   flex-direction: column;
@@ -1229,19 +1202,6 @@
 
 .queue-duplicate-btn-primary:hover {
   filter: brightness(1.1);
-}
-
-.modal-btn-confirm:hover {
-  background: var(--accent-dim);
-}
-
-.modal-btn-danger {
-  background: var(--error);
-  color: var(--accent-text, #fff);
-}
-
-.modal-btn-danger:hover {
-  background: var(--error);
 }
 
 .delete-confirm-warning {

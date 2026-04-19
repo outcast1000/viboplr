@@ -35,11 +35,11 @@ export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSki
         <p className="playback-error-countdown">
           Skipping to next track in {remaining}s...
         </p>
-        <div className="modal-actions">
-          <button className="modal-btn modal-btn-cancel" onClick={onDismiss}>
+        <div className="ds-modal-actions">
+          <button className="ds-btn ds-btn--ghost" onClick={onDismiss}>
             Dismiss
           </button>
-          <button className="modal-btn modal-btn-confirm" onClick={onSkip}>
+          <button className="ds-btn ds-btn--primary" onClick={onSkip}>
             Skip Now
           </button>
         </div>

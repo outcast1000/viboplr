@@ -2325,9 +2325,9 @@ function App() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Delete {contextMenuActions.deleteConfirm.title}?</h2>
             <p className="delete-confirm-warning">This will permanently delete the file{contextMenuActions.deleteConfirm.trackIds.length > 1 ? "s" : ""} from disk.</p>
-            <div className="modal-actions">
-              <button className="modal-btn modal-btn-cancel" onClick={() => contextMenuActions.setDeleteConfirm(null)}>Cancel</button>
-              <button className="modal-btn modal-btn-danger" onClick={contextMenuActions.handleDeleteConfirm} autoFocus>Delete</button>
+            <div className="ds-modal-actions">
+              <button className="ds-btn ds-btn--ghost" onClick={() => contextMenuActions.setDeleteConfirm(null)}>Cancel</button>
+              <button className="ds-btn ds-btn--danger" onClick={contextMenuActions.handleDeleteConfirm} autoFocus>Delete</button>
             </div>
           </div>
         </div>
@@ -2346,8 +2346,8 @@ function App() {
                 </li>
               ))}
             </ul>
-            <div className="modal-actions">
-              <button className="modal-btn modal-btn-cancel" onClick={() => contextMenuActions.setDeleteError(null)}>OK</button>
+            <div className="ds-modal-actions">
+              <button className="ds-btn ds-btn--ghost" onClick={() => contextMenuActions.setDeleteError(null)}>OK</button>
             </div>
           </div>
         </div>
@@ -2358,8 +2358,8 @@ function App() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Open Containing Folder</h2>
             <p className="delete-confirm-warning">{contextMenuActions.folderError}</p>
-            <div className="modal-actions">
-              <button className="modal-btn modal-btn-cancel" onClick={() => contextMenuActions.setFolderError(null)}>OK</button>
+            <div className="ds-modal-actions">
+              <button className="ds-btn ds-btn--ghost" onClick={() => contextMenuActions.setFolderError(null)}>OK</button>
             </div>
           </div>
         </div>
@@ -2378,9 +2378,9 @@ function App() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Remove &ldquo;{collectionActions.removeCollectionConfirm.name}&rdquo;?</h2>
             <p className="delete-confirm-warning">This will permanently remove this collection and all its tracks from the library.</p>
-            <div className="modal-actions">
-              <button className="modal-btn modal-btn-cancel" onClick={() => collectionActions.setRemoveCollectionConfirm(null)}>Cancel</button>
-              <button className="modal-btn modal-btn-danger" onClick={collectionActions.handleRemoveCollectionConfirm}>Remove</button>
+            <div className="ds-modal-actions">
+              <button className="ds-btn ds-btn--ghost" onClick={() => collectionActions.setRemoveCollectionConfirm(null)}>Cancel</button>
+              <button className="ds-btn ds-btn--danger" onClick={collectionActions.handleRemoveCollectionConfirm}>Remove</button>
             </div>
           </div>
         </div>
@@ -2415,8 +2415,8 @@ function App() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Navigation Error</h2>
             <p>{navError}</p>
-            <div className="modal-actions">
-              <button className="modal-btn modal-btn-confirm" onClick={() => setNavError(null)}>OK</button>
+            <div className="ds-modal-actions">
+              <button className="ds-btn ds-btn--primary" onClick={() => setNavError(null)}>OK</button>
             </div>
           </div>
         </div>

@@ -100,14 +100,14 @@ export function AddServerModal({ onAdded, onClose, initialUrl = "", initialUsern
             {status}
           </div>
         )}
-        <div className="modal-actions">
-          <button className="modal-btn modal-btn-cancel" onClick={onClose}>
+        <div className="ds-modal-actions">
+          <button className="ds-btn ds-btn--ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className="modal-btn modal-btn-cancel" onClick={handleTest} disabled={testing || !canTest}>
+          <button className="ds-btn ds-btn--ghost" onClick={handleTest} disabled={testing || !canTest}>
             {testing ? "Testing..." : "Test"}
           </button>
-          <button className="modal-btn modal-btn-confirm" onClick={handleConnect} disabled={!canTest}>
+          <button className="ds-btn ds-btn--primary" onClick={handleConnect} disabled={!canTest}>
             Connect
           </button>
         </div>

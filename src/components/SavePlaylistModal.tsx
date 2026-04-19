@@ -105,11 +105,11 @@ export function SavePlaylistModal({ defaultName, onSave, onClose }: SavePlaylist
             autoFocus
           />
         </div>
-        <div className="modal-actions">
-          <button className="modal-btn modal-btn-cancel" onClick={onClose}>
+        <div className="ds-modal-actions">
+          <button className="ds-btn ds-btn--ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className="modal-btn modal-btn-confirm" onClick={handleSave} disabled={!name.trim()}>
+          <button className="ds-btn ds-btn--primary" onClick={handleSave} disabled={!name.trim()}>
             Save
           </button>
         </div>

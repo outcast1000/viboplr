@@ -12,11 +12,11 @@ export function DeletePlaylistModal({ playlistName, onConfirm, onClose }: Delete
         <p className="delete-confirm-warning">
           Are you sure you want to delete <strong>{playlistName}</strong>? This cannot be undone.
         </p>
-        <div className="modal-actions">
-          <button className="modal-btn modal-btn-cancel" onClick={onClose}>
+        <div className="ds-modal-actions">
+          <button className="ds-btn ds-btn--ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className="modal-btn modal-btn-danger" onClick={onConfirm}>
+          <button className="ds-btn ds-btn--danger" onClick={onConfirm}>
             Delete
           </button>
         </div>
