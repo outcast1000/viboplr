@@ -36,6 +36,7 @@ import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useSkins } from "./hooks/useSkins";
 import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
 import { useImageResolver } from "./hooks/useImageResolver";
+import { useExtensions } from "./hooks/useExtensions";
 
 import { useDownloads } from "./hooks/useDownloads";
 import { useLikeActions } from "./hooks/useLikeActions";
@@ -53,6 +54,7 @@ import { TrackList } from "./components/TrackList";
 import { NowPlayingBar } from "./components/NowPlayingBar";
 import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
+import ExtensionsView from "./components/ExtensionsView";
 import { FullscreenControls } from "./components/FullscreenControls";
 import { AddServerModal } from "./components/AddServerModal";
 import { ContextMenu } from "./components/ContextMenu";
@@ -431,6 +433,31 @@ function App() {
 
   // Skins
   const skins = useSkins();
+
+  // Extensions
+  const extensionsHook = useExtensions({
+    pluginStates: plugins.pluginStates,
+    installedSkins: skins.installedSkins,
+    activeSkinId: skins.activeSkinId,
+    gallerySkins: skins.gallerySkins,
+    galleryPlugins: plugins.galleryPlugins || [],
+    onTogglePlugin: (id: string) => {
+      const plugin = plugins.pluginStates.find(p => p.id === id);
+      if (plugin) {
+        plugins.togglePlugin(id, plugin.status !== "active");
+      }
+    },
+    onReloadPlugin: plugins.reloadPlugin,
+    onDeletePlugin: plugins.deletePlugin,
+    onInstallPluginFromGallery: plugins.installFromGallery,
+    onInstallSkinFromGallery: skins.installFromGallery,
+    onDeleteSkin: skins.deleteSkin,
+    onApplySkin: skins.applySkin,
+    onFetchPluginGallery: plugins.fetchPluginGallery,
+    onFetchSkinGallery: skins.fetchGallery,
+    onReloadAllPlugins: plugins.reloadAllPlugins,
+    addLog,
+  });
 
   // Downloads
   const downloads = useDownloads(downloadFormatRef, addLog);
@@ -1613,7 +1640,16 @@ function App() {
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
         }}
+        onShowExtensions={() => {
+          pushAndScroll();
+          library.setView("extensions");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSelectedTrack(null);
+        }}
         updateAvailable={updater.updateState.available !== null}
+        extensionUpdateCount={extensionsHook.updateCount}
         pluginNavItems={plugins.sidebarItems}
         onPluginView={(pluginId, viewId) => {
           library.setView(`plugin:${pluginId}:${viewId}`);
@@ -2128,6 +2164,31 @@ function App() {
               />
             );
           })()}
+          {/* Extensions view */}
+          {view === "extensions" && (
+            <ExtensionsView
+              extensions={extensionsHook.extensions}
+              allExtensions={extensionsHook.allExtensions}
+              updateCount={extensionsHook.updateCount}
+              selectedId={extensionsHook.selectedId}
+              onSelectExtension={extensionsHook.setSelectedId}
+              searchQuery={extensionsHook.searchQuery}
+              onSetSearchQuery={extensionsHook.setSearchQuery}
+              installing={extensionsHook.installing}
+              checking={extensionsHook.checking}
+              lastChecked={extensionsHook.lastChecked}
+              onCheckForUpdates={extensionsHook.checkForUpdates}
+              onUpdateExtension={extensionsHook.updateExtension}
+              onUpdateAll={extensionsHook.updateAll}
+              onInstallFromGallery={extensionsHook.installFromGallery}
+              onUninstall={extensionsHook.uninstall}
+              onToggleEnabled={extensionsHook.toggleEnabled}
+              onFetchPluginGallery={extensionsHook.onFetchPluginGallery}
+              onFetchSkinGallery={extensionsHook.onFetchSkinGallery}
+              galleryPlugins={plugins.galleryPlugins || []}
+              gallerySkins={skins.gallerySkins || []}
+            />
+          )}
           {/* Settings view */}
           {view === "settings" && (
             <SettingsPanel
