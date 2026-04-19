@@ -258,6 +258,13 @@ export function TrackDetailView({
                 <circle cx="12" cy="12" r="3" />
               </svg>
             )}
+            <button
+              className="detail-art-play"
+              title="Play"
+              onClick={onPlay}
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+            </button>
             {albumImagePath && track.album_id ? (
               <ImageActions
                 entityId={track.album_id}
@@ -285,7 +292,6 @@ export function TrackDetailView({
           <div className="track-detail-info">
             <h2>
               {track.title}
-              <button className="artist-play-btn" title="Play" onClick={onPlay}>&#9654;</button>
               <button
                 className={`detail-love-btn${track.liked === 1 ? " liked" : ""}`}
                 title={track.liked === 1 ? "Unlike" : "Love"}

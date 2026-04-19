@@ -153,6 +153,15 @@ export function ArtistDetailContent({
             ) : (
               artist ? getInitials(artist.name) : "?"
             )}
+            {sortedTracks.length > 0 && (
+              <button
+                className="detail-art-play"
+                title="Play All"
+                onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0, { name: artist?.name ?? "Unknown", coverPath: artistImagePath })}
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+              </button>
+            )}
             <ImageActions
               entityId={selectedArtist}
               entityType="artist"
@@ -188,13 +197,6 @@ export function ArtistDetailContent({
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
               </button>
-              {sortedTracks.length > 0 && (
-                <button
-                  className="artist-play-btn"
-                  title="Play All"
-                  onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0, { name: artist?.name ?? "Unknown", coverPath: artistImagePath })}
-                >&#9654;</button>
-              )}
             </h2>
             <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>
             <span className="artist-bio-stats">
