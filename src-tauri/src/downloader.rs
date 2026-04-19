@@ -92,14 +92,6 @@ pub struct DownloadQueueInfo {
     pub completed: Vec<DownloadStatus>,
 }
 
-#[derive(Debug, Clone)]
-pub struct DownloadResult {
-    pub dest_path: PathBuf,
-    pub source_url: String,
-    pub format: String,
-    pub source_kind: String,
-}
-
 pub struct DownloadManager {
     pub queue: Mutex<VecDeque<DownloadRequest>>,
     pub condvar: Condvar,
@@ -247,7 +239,7 @@ pub fn process_download(
     db: &Arc<Database>,
     app: &AppHandle,
     manager: &Arc<DownloadManager>,
-) -> Result<DownloadResult, String> {
+) -> Result<PathBuf, String> {
     // Step 1: Resolve stream URL
     // For TIDAL, use the native TidalClient (direct download + tagging)
     if request.source_kind == "tidal" {
@@ -366,12 +358,7 @@ pub fn process_download(
             }
         }
 
-        return Ok(DownloadResult {
-            dest_path,
-            source_url: stream_info.url.clone(),
-            format: actual_ext.to_string(),
-            source_kind: request.source_kind.clone(),
-        });
+        return Ok(dest_path);
     }
 
     // Subsonic download path
@@ -505,13 +492,7 @@ pub fn process_download(
         let _ = db.recompute_counts();
     }
 
-    let actual_format = dest_path.extension().and_then(|e| e.to_str()).unwrap_or("unknown").to_string();
-    Ok(DownloadResult {
-        dest_path,
-        source_url: stream_url,
-        format: actual_format,
-        source_kind: request.source_kind.clone(),
-    })
+    Ok(dest_path)
 }
 
 pub fn write_tags(

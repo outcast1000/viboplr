@@ -26,6 +26,7 @@ interface ExtensionsViewProps {
   onToggleEnabled: (id: string, kind: "plugin" | "skin") => void;
   onFetchPluginGallery: () => void;
   onFetchSkinGallery: () => void;
+  onInstallFromUrl: (url: string) => Promise<void>;
   galleryPlugins: GalleryPluginEntry[];
   gallerySkins: GallerySkinEntry[];
 }
@@ -281,11 +282,15 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     onToggleEnabled,
     onFetchPluginGallery,
     onFetchSkinGallery,
+    onInstallFromUrl,
     galleryPlugins,
     gallerySkins,
   } = props;
 
   const [tab, setTab] = useState<ExtTab>("plugins");
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [urlValue, setUrlValue] = useState("");
+  const [urlInstalling, setUrlInstalling] = useState(false);
 
   useEffect(() => {
     onFetchPluginGallery();
@@ -337,8 +342,49 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
           <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onCheckForUpdates} disabled={checking}>
             {checking ? "Checking..." : "Check for Updates"}
           </button>
+          <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => setShowUrlInput(!showUrlInput)}>
+            Install from URL
+          </button>
         </div>
       </div>
+
+      {showUrlInput && (
+        <div className="ext-url-bar">
+          <input
+            className="ds-input"
+            type="text"
+            placeholder="GitHub URL or zip URL..."
+            value={urlValue}
+            onChange={(e) => setUrlValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && urlValue.trim()) {
+                setUrlInstalling(true);
+                onInstallFromUrl(urlValue.trim()).finally(() => {
+                  setUrlInstalling(false);
+                  setUrlValue("");
+                  setShowUrlInput(false);
+                });
+              }
+            }}
+            autoFocus
+          />
+          <button
+            className="ds-btn ds-btn--primary ds-btn--sm"
+            disabled={urlInstalling || !urlValue.trim()}
+            onClick={() => {
+              if (!urlValue.trim()) return;
+              setUrlInstalling(true);
+              onInstallFromUrl(urlValue.trim()).finally(() => {
+                setUrlInstalling(false);
+                setUrlValue("");
+                setShowUrlInput(false);
+              });
+            }}
+          >
+            {urlInstalling ? "Installing..." : "Install"}
+          </button>
+        </div>
+      )}
 
       <div className="ds-tabs ds-tabs--no-border ext-filter-tabs">
         <button className={`ds-tab ${tab === "skins" ? "active" : ""}`} onClick={() => setTab("skins")}>

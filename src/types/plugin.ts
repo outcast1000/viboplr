@@ -28,9 +28,7 @@ export type PluginEventName =
   | "track:started"
   | "track:played"
   | "track:scrobbled"
-  | "track:liked"
-  | "download:complete"
-  | "download:error";
+  | "track:liked";
 
 export interface PluginManifestInfoType {
   id: string;
@@ -258,8 +256,6 @@ export interface PluginPlaybackAPI {
     providerId: string,
     handler: (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>,
   ): () => void;
-  onDownloadComplete(handler: (data: unknown) => void): () => void;
-  onDownloadError(handler: (data: unknown) => void): () => void;
 }
 
 // Loose shape plugins pass for TIDAL tracks (matches TidalSearchTrack)

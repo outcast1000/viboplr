@@ -201,6 +201,20 @@ export function useExtensions(props: UseExtensionsProps) {
     [onTogglePlugin, onApplySkin],
   );
 
+  const installFromUrl = useCallback(
+    async (url: string) => {
+      try {
+        const pluginId = await invoke<string>("install_plugin_from_url", { url });
+        addLog(`Installed plugin ${pluginId} from URL`);
+        onReloadAllPlugins();
+      } catch (e) {
+        console.error("Failed to install from URL:", e);
+        addLog(`Failed to install from URL: ${String(e)}`);
+      }
+    },
+    [addLog, onReloadAllPlugins],
+  );
+
   const extensions: ExtensionItem[] = useMemo(() => {
     const items: ExtensionItem[] = [];
 
@@ -361,6 +375,7 @@ export function useExtensions(props: UseExtensionsProps) {
     updateExtension,
     updateAll,
     installFromGallery,
+    installFromUrl,
     uninstall,
     toggleEnabled,
     onFetchPluginGallery,

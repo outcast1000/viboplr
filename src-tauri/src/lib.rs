@@ -175,6 +175,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::import_mixtape,
         commands::cancel_mixtape_operation,
         commands::cleanup_temp_mixtapes,
+        commands::check_for_extension_updates,
+        commands::download_and_install_plugin_update,
+        commands::download_and_install_skin_update,
+        commands::install_plugin_from_url,
         browse_window::open_browse_window,
         browse_window::browse_window_eval,
         browse_window::close_browse_window,
@@ -331,6 +335,10 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::import_mixtape,
         commands::cancel_mixtape_operation,
         commands::cleanup_temp_mixtapes,
+        commands::check_for_extension_updates,
+        commands::download_and_install_plugin_update,
+        commands::download_and_install_skin_update,
+        commands::install_plugin_from_url,
         browse_window::open_browse_window,
         browse_window::browse_window_eval,
         browse_window::close_browse_window,
@@ -881,15 +889,8 @@ pub fn run() {
                     dl_worker_manager.set_active(Some(status.clone()));
                     let _ = dl_app_handle.emit("download-progress", &status);
 
-                    let download_start = std::time::Instant::now();
-
                     match crate::downloader::process_download(&request, &dl_worker_db, &dl_app_handle, &dl_worker_manager) {
-                        Ok(result) => {
-                            let duration_ms = download_start.elapsed().as_millis() as u64;
-                            let file_size = std::fs::metadata(&result.dest_path)
-                                .map(|m| m.len())
-                                .unwrap_or(0);
-
+                        Ok(dest_path) => {
                             let complete = crate::downloader::DownloadStatus {
                                 id: request.id,
                                 track_title: request.track_title.clone(),
@@ -903,13 +904,7 @@ pub fn run() {
                             let _ = dl_app_handle.emit("download-complete", serde_json::json!({
                                 "id": request.id,
                                 "trackTitle": request.track_title,
-                                "artistName": request.artist_name,
-                                "destPath": result.dest_path.to_string_lossy(),
-                                "fileSize": file_size,
-                                "sourceUrl": result.source_url,
-                                "format": result.format,
-                                "sourceKind": result.source_kind,
-                                "durationMs": duration_ms,
+                                "destPath": dest_path.to_string_lossy(),
                             }));
 
                             // Emit scan-complete so frontend refreshes library
@@ -918,7 +913,6 @@ pub fn run() {
                             }));
                         }
                         Err(e) => {
-                            let duration_ms = download_start.elapsed().as_millis() as u64;
                             log::error!("Download failed for {}: {}", request.track_title, e);
                             let error_status = crate::downloader::DownloadStatus {
                                 id: request.id,
@@ -933,10 +927,7 @@ pub fn run() {
                             let _ = dl_app_handle.emit("download-error", serde_json::json!({
                                 "id": request.id,
                                 "trackTitle": request.track_title,
-                                "artistName": request.artist_name,
                                 "error": e,
-                                "sourceKind": request.source_kind,
-                                "durationMs": duration_ms,
                             }));
                         }
                     }
@@ -1080,6 +1071,10 @@ pub fn run() {
                 None
             });
 
+            // Clone values before moving into AppState, for use in update checker
+            let checker_app_dir = app_dir.clone();
+            let checker_native_dir = native_plugins_dir.clone();
+
             timer.time("manage_app_state", || {
                 let tidal_client = Arc::new(tidal::TidalClient::new(None));
                 tidal::set_global_client(tidal_client.clone());
@@ -1096,8 +1091,23 @@ pub fn run() {
                     image_resolve_registry: worker_registry_for_state,
                     tidal_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    update_checker_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 });
             });
+
+            // Spawn the update checker thread
+            {
+                let checker_app_handle = app.handle().clone();
+                let checker_app_version = app.package_info().version.to_string();
+                let checker_cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                crate::update_checker::spawn_update_checker(
+                    checker_app_handle,
+                    checker_app_dir,
+                    checker_native_dir.unwrap_or_default(),
+                    checker_app_version,
+                    checker_cancel,
+                );
+            }
 
             // Dump startup timings to log file
             for entry in timing::timer().get_entries() {

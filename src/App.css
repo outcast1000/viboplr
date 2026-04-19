@@ -2205,6 +2205,13 @@
   font-weight: 600;
 }
 .ext-filter-tabs { padding: 0 16px; }
+.ext-url-bar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.ext-url-bar .ds-input { flex: 1; }
 .ext-content {
   display: flex;
   flex: 1;

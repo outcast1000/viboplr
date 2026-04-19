@@ -412,6 +412,7 @@ function App() {
   const [syncWithPlaying, setSyncWithPlaying] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
+  const [deepLinkInstall, setDeepLinkInstall] = useState<{ kind: "plugin" | "skin"; url: string } | null>(null);
   const [mixtapePreviewPath, setMixtapePreviewPath] = useState<string | null>(null);
   const [mixtapeExportTracks, setMixtapeExportTracks] = useState<ExportTrack[] | null>(null);
   const [mixtapeExportDefaultTitle, setMixtapeExportDefaultTitle] = useState<string>("");
@@ -460,7 +461,7 @@ function App() {
   });
 
   // Downloads
-  const downloads = useDownloads(downloadFormatRef, addLog, plugins.dispatchEvent);
+  const downloads = useDownloads(downloadFormatRef, addLog);
 
   // Like actions
   const likeActions = useLikeActions({
@@ -773,7 +774,20 @@ function App() {
           setShowAddServer(true);
           break;
         }
-        // Forward viboplr:// deep links to plugins
+        // Handle viboplr:// install deep links
+        if (raw.startsWith("viboplr://install-plugin?") || raw.startsWith("viboplr://install-plugin/?")) {
+          const params = new URLSearchParams(raw.split("?")[1]);
+          const url = params.get("url");
+          if (url) setDeepLinkInstall({ kind: "plugin", url });
+          break;
+        }
+        if (raw.startsWith("viboplr://install-skin?") || raw.startsWith("viboplr://install-skin/?")) {
+          const params = new URLSearchParams(raw.split("?")[1]);
+          const url = params.get("url");
+          if (url) setDeepLinkInstall({ kind: "skin", url });
+          break;
+        }
+        // Forward other viboplr:// deep links to plugins
         if (raw.startsWith("viboplr://")) {
           plugins.forwardDeepLink(raw);
         }
@@ -1687,6 +1701,35 @@ function App() {
       )}
 
 
+      {deepLinkInstall && (
+        <div className="ds-modal-overlay" onClick={() => setDeepLinkInstall(null)}>
+          <div className="ds-modal ds-modal--sm" onClick={(e) => e.stopPropagation()}>
+            <div className="ds-modal-title">Install {deepLinkInstall.kind === "plugin" ? "Plugin" : "Skin"}</div>
+            <p style={{ fontSize: "var(--fs-sm)", color: "var(--text-secondary)", margin: "12px 0" }}>
+              Install from <strong style={{ color: "var(--text-primary)", wordBreak: "break-all" }}>{deepLinkInstall.url}</strong>?
+            </p>
+            <div className="ds-modal-actions">
+              <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => setDeepLinkInstall(null)}>Cancel</button>
+              <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={async () => {
+                const { kind, url } = deepLinkInstall;
+                setDeepLinkInstall(null);
+                if (kind === "plugin") {
+                  await extensionsHook.installFromUrl(url);
+                } else {
+                  try {
+                    const id = await invoke<string>("install_gallery_skin", { url });
+                    addLog(`Installed skin ${id} from URL`);
+                  } catch (e) {
+                    console.error("Failed to install skin from URL:", e);
+                    addLog(`Failed to install skin: ${String(e)}`);
+                  }
+                }
+              }}>Install</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Caption bar - full width */}
       <CaptionBar
         canGoBack={canGoBack}
@@ -2185,6 +2228,7 @@ function App() {
               onToggleEnabled={extensionsHook.toggleEnabled}
               onFetchPluginGallery={extensionsHook.onFetchPluginGallery}
               onFetchSkinGallery={extensionsHook.onFetchSkinGallery}
+              onInstallFromUrl={extensionsHook.installFromUrl}
               galleryPlugins={plugins.galleryPlugins || []}
               gallerySkins={skins.gallerySkins || []}
             />

@@ -147,6 +147,135 @@ pub fn install_plugin_from_zip(
     Ok(())
 }
 
+pub fn install_plugin_from_url(app_dir: &Path, url: &str) -> Result<String, String> {
+    let zip_url = normalize_github_url(url);
+
+    let resp = reqwest::blocking::Client::new()
+        .get(&zip_url)
+        .header("User-Agent", "Viboplr")
+        .send()
+        .map_err(|e| format!("Download failed: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let bytes = resp.bytes().map_err(|e| format!("Read error: {}", e))?;
+
+    let cursor = std::io::Cursor::new(&*bytes);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| format!("Invalid zip archive: {}", e))?;
+
+    let (plugin_id, prefix) = find_plugin_id_in_zip(&mut archive)?;
+
+    let plugins = plugins_dir(app_dir);
+    let tmp_dir = plugins.join(format!(".tmp-{}", plugin_id));
+    let final_dir = plugins.join(&plugin_id);
+
+    if tmp_dir.exists() {
+        std::fs::remove_dir_all(&tmp_dir).ok();
+    }
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)
+            .map_err(|e| format!("Zip read error: {}", e))?;
+        let full_name = file.name().to_string();
+
+        let name = if !prefix.is_empty() {
+            match full_name.strip_prefix(&prefix) {
+                Some(rest) if !rest.is_empty() => rest.to_string(),
+                _ => continue,
+            }
+        } else {
+            full_name.clone()
+        };
+
+        if name.contains("..") || name.starts_with('/') {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            return Err(format!("Invalid path in zip: {}", name));
+        }
+
+        if file.is_dir() {
+            std::fs::create_dir_all(tmp_dir.join(&name)).ok();
+            continue;
+        }
+
+        if let Some(parent) = std::path::Path::new(&name).parent() {
+            std::fs::create_dir_all(tmp_dir.join(parent)).ok();
+        }
+
+        let dest = tmp_dir.join(&name);
+        let mut out = std::fs::File::create(&dest)
+            .map_err(|e| format!("Failed to create {}: {}", name, e))?;
+        std::io::copy(&mut file, &mut out)
+            .map_err(|e| format!("Failed to write {}: {}", name, e))?;
+    }
+
+    if !tmp_dir.join("manifest.json").exists() {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return Err("Extracted files don't contain manifest.json at root".to_string());
+    }
+
+    if final_dir.exists() {
+        std::fs::remove_dir_all(&final_dir)
+            .map_err(|e| format!("Failed to remove old plugin: {}", e))?;
+    }
+    std::fs::rename(&tmp_dir, &final_dir)
+        .map_err(|e| format!("Failed to install plugin: {}", e))?;
+
+    Ok(plugin_id)
+}
+
+fn find_plugin_id_in_zip<R: Read + std::io::Seek>(archive: &mut zip::ZipArchive<R>) -> Result<(String, String), String> {
+    for i in 0..archive.len() {
+        let file = archive.by_index(i).map_err(|e| format!("Zip read error: {}", e))?;
+        let name = file.name().to_string();
+        if name == "manifest.json" || name.ends_with("/manifest.json") {
+            drop(file);
+            let mut file = archive.by_index(i).map_err(|e| format!("Zip read error: {}", e))?;
+            let mut content = String::new();
+            file.read_to_string(&mut content).map_err(|e| format!("Read error: {}", e))?;
+            let manifest: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|e| format!("Invalid manifest.json: {}", e))?;
+            let id = manifest["id"].as_str()
+                .ok_or_else(|| "manifest.json missing 'id' field".to_string())?
+                .to_string();
+            sanitize_plugin_id(&id)?;
+            let prefix = if name == "manifest.json" {
+                String::new()
+            } else {
+                name.trim_end_matches("manifest.json").to_string()
+            };
+            return Ok((id, prefix));
+        }
+    }
+    Err("Zip does not contain manifest.json".to_string())
+}
+
+fn normalize_github_url(url: &str) -> String {
+    let url = url.trim().trim_end_matches('/');
+    if url.ends_with(".zip") {
+        return url.to_string();
+    }
+    let stripped = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    if stripped.starts_with("github.com/") {
+        let parts: Vec<&str> = stripped.trim_start_matches("github.com/").split('/').collect();
+        if parts.len() >= 2 {
+            let user = parts[0];
+            let repo = parts[1];
+            let branch = if parts.len() >= 4 && parts[2] == "tree" {
+                parts[3]
+            } else {
+                "main"
+            };
+            return format!("https://github.com/{}/{}/archive/refs/heads/{}.zip", user, repo, branch);
+        }
+    }
+    url.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,5 +404,51 @@ mod tests {
 
         let content = std::fs::read_to_string(plugins_dir(app_dir).join("test/index.js")).unwrap();
         assert_eq!(content, "v2");
+    }
+
+    #[test]
+    fn test_normalize_github_url() {
+        assert_eq!(
+            normalize_github_url("https://github.com/user/repo"),
+            "https://github.com/user/repo/archive/refs/heads/main.zip"
+        );
+        assert_eq!(
+            normalize_github_url("github.com/user/repo"),
+            "https://github.com/user/repo/archive/refs/heads/main.zip"
+        );
+        assert_eq!(
+            normalize_github_url("https://github.com/user/repo/tree/develop"),
+            "https://github.com/user/repo/archive/refs/heads/develop.zip"
+        );
+        assert_eq!(
+            normalize_github_url("https://example.com/plugin.zip"),
+            "https://example.com/plugin.zip"
+        );
+        assert_eq!(
+            normalize_github_url("https://example.com/some-url"),
+            "https://example.com/some-url"
+        );
+    }
+
+    #[test]
+    fn test_find_plugin_id_in_zip_with_prefix() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("test.zip");
+        let file = std::fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        zip.start_file("repo-main/manifest.json", options).unwrap();
+        zip.write_all(br#"{"id":"my-plugin","name":"My Plugin","version":"1.0.0"}"#).unwrap();
+        zip.start_file("repo-main/index.js", options).unwrap();
+        zip.write_all(b"code").unwrap();
+        zip.finish().unwrap();
+
+        let bytes = std::fs::read(&zip_path).unwrap();
+        let cursor = std::io::Cursor::new(&*bytes);
+        let mut archive = zip::ZipArchive::new(cursor).unwrap();
+        let (id, prefix) = find_plugin_id_in_zip(&mut archive).unwrap();
+        assert_eq!(id, "my-plugin");
+        assert_eq!(prefix, "repo-main/");
     }
 }
