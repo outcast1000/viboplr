@@ -346,9 +346,9 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     return items;
   }, [allExtensions, kindFilter, searchQuery]);
 
-  const withUpdates = filtered.filter((e) => e.updateAvailable);
-  const installed = filtered.filter((e) => e.status !== "not_installed" && !e.updateAvailable);
-  const gallery = filtered.filter((e) => e.status === "not_installed");
+  const active = filtered.filter((e) => e.status === "active");
+  const installed = filtered.filter((e) => e.status !== "not_installed" && e.status !== "active");
+  const available = filtered.filter((e) => e.status === "not_installed");
 
   const selectedExt = allExtensions.find((e) => e.id === selectedId) || null;
 
@@ -420,13 +420,13 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
       )}
 
       <div className="ds-tabs ds-tabs--no-border ext-filter-tabs">
-        <button className={`ds-tab ${tab === "skins" ? "active" : ""}`} onClick={() => setTab("skins")}>
-          Skins
-          {skinUpdateCount > 0 && <span className="ds-tab-badge">{skinUpdateCount}</span>}
-        </button>
         <button className={`ds-tab ${tab === "plugins" ? "active" : ""}`} onClick={() => setTab("plugins")}>
           Plugins
           {pluginUpdateCount > 0 && <span className="ds-tab-badge">{pluginUpdateCount}</span>}
+        </button>
+        <button className={`ds-tab ${tab === "skins" ? "active" : ""}`} onClick={() => setTab("skins")}>
+          Skins
+          {skinUpdateCount > 0 && <span className="ds-tab-badge">{skinUpdateCount}</span>}
         </button>
       </div>
 
@@ -436,8 +436,8 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
             <div className="ext-empty">No {tab} found</div>
           )}
 
-          <SectionHeader title="Updates" count={withUpdates.length} />
-          {withUpdates.map((ext) => (
+          <SectionHeader title="Active" count={active.length} />
+          {active.map((ext) => (
             <ExtensionListItem key={`${ext.kind}-${ext.id}`} ext={ext} selected={selectedId === ext.id} onClick={() => onSelectExtension(ext.id)} />
           ))}
 
@@ -446,8 +446,8 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
             <ExtensionListItem key={`${ext.kind}-${ext.id}`} ext={ext} selected={selectedId === ext.id} onClick={() => onSelectExtension(ext.id)} />
           ))}
 
-          <SectionHeader title="Gallery" count={gallery.length} />
-          {gallery.map((ext) => (
+          <SectionHeader title="Available" count={available.length} />
+          {available.map((ext) => (
             <ExtensionListItem key={`${ext.kind}-${ext.id}`} ext={ext} selected={selectedId === ext.id} onClick={() => onSelectExtension(ext.id)} />
           ))}
         </div>
