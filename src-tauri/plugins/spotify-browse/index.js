@@ -19,6 +19,14 @@ function activate(api) {
     debugLog: [],
     showDebugLog: false,
     lastLoginCheck: null,
+    archivedIds: [],
+    updatedPlaylistIds: {},
+    refreshing: false,
+    savedAt: null,
+    archiveIndex: [],
+    refreshSummary: "",
+    currentArchive: null,
+    currentArchiveKey: null,
   };
 
   // ---- Helpers ----
@@ -54,9 +62,51 @@ function activate(api) {
     state.browserVisible = false;
   }
 
+  // ---- Change detection & archiving helpers ----
+
+  var DYNAMIC_PREFIXES = [
+    "Discover Weekly", "Daily Mix", "Release Radar",
+    "Repeat Rewind", "On Repeat", "Your Top Songs"
+  ];
+
+  function isArchivable(playlist) {
+    if (state.archivedIds.indexOf(playlist.id) !== -1) return true;
+    for (var i = 0; i < DYNAMIC_PREFIXES.length; i++) {
+      if (playlist.name.indexOf(DYNAMIC_PREFIXES[i]) === 0) return true;
+    }
+    return false;
+  }
+
+  function tracksChanged(oldTracks, newTracks) {
+    if (!oldTracks || oldTracks.length !== newTracks.length) return true;
+    var oldSet = {};
+    for (var i = 0; i < oldTracks.length; i++) {
+      oldSet[oldTracks[i].name + "\0" + oldTracks[i].artist] = true;
+    }
+    for (var j = 0; j < newTracks.length; j++) {
+      if (!oldSet[newTracks[j].name + "\0" + newTracks[j].artist]) return true;
+    }
+    return false;
+  }
+
+  function generateArchiveId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2);
+  }
+
+  function saveState() {
+    state.savedAt = Date.now();
+    api.storage.set("spotify_browse_state", {
+      playlists: state.playlists,
+      playlistTracks: state.playlistTracks,
+      savedAt: state.savedAt,
+      archivedIds: state.archivedIds,
+    }).catch(console.error);
+  }
+
   // ---- Render ----
 
   function renderHome() {
+    api.ui.setBadge("spotify", null);
     var ch = [];
 
     if (state.status === "idle") {
@@ -118,14 +168,21 @@ function activate(api) {
         type: "layout", direction: "horizontal", children: [
           { type: "text", content: "<h3 style='margin:0'>Made for You</h3>" },
           { type: "text", content: "<span style='opacity:0.5;font-size:var(--fs-xs)'>" + state.playlists.length + " playlists</span>" },
+          { type: "button", label: state.refreshing ? "Refreshing\u2026" : "Refresh", action: "manual-refresh", disabled: state.refreshing, variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
           { type: "button", label: "Refresh", action: "open-spotify", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
         ]
       });
+      if (state.refreshSummary) {
+        ch.push({ type: "text", content: "<p style='opacity:0.6;font-size:var(--fs-xs)'>" + escapeHtml(state.refreshSummary) + "</p>" });
+      }
       var cards = [];
       for (var i = 0; i < state.playlists.length; i++) {
         var p = state.playlists[i];
         var ts = state.playlistTracks[p.id];
         var sub = ts ? ts.length + " tracks" : (p.description || "");
+        if (state.updatedPlaylistIds[p.id]) {
+          sub = "\u2022 Updated \u2014 " + sub;
+        }
         var cardTracks = [];
         if (ts) {
           for (var ti = 0; ti < ts.length; ti++) {
@@ -154,6 +211,29 @@ function activate(api) {
         });
       }
       ch.push({ type: "card-grid", items: cards });
+    }
+
+    if (state.archiveIndex && state.archiveIndex.length > 0) {
+      ch.push({ type: "spacer" });
+      ch.push({ type: "text", content: "<h3>Archived</h3>" });
+      var archiveItems = [];
+      for (var ai = 0; ai < state.archiveIndex.length; ai++) {
+        var entry = state.archiveIndex[ai];
+        archiveItems.push({
+          id: "archive:" + entry.storageKey,
+          title: entry.name,
+          subtitle: entry.trackCount + " tracks",
+          action: "view-archive",
+        });
+      }
+      ch.push({
+        type: "track-row-list",
+        items: archiveItems,
+        selectable: true,
+        actions: [
+          { id: "delete-archive", label: "Delete", icon: "\uD83D\uDDD1" },
+        ],
+      });
     }
 
     ch.push({ type: "spacer" });
@@ -220,6 +300,12 @@ function activate(api) {
       ch.push({ type: "card-grid", columns: 3, items: [{ id: "cover", title: "", imageUrl: pl.imageUrl }] });
       ch.push({ type: "spacer" });
     }
+    ch.push({
+      type: "toggle",
+      label: isArchivable(state.currentPlaylist) ? "Archive snapshots (auto-detected)" : "Archive snapshots",
+      checked: isArchivable(state.currentPlaylist),
+      action: "toggle-archive",
+    });
     if (tracks.length > 0) {
       var items = [];
       for (var i = 0; i < tracks.length; i++) {
@@ -236,6 +322,36 @@ function activate(api) {
     } else {
       ch.push({ type: "text", content: "<p style='opacity:0.5'>No tracks scraped</p>" });
     }
+    api.ui.setViewData("spotify", { type: "layout", direction: "vertical", children: ch });
+  }
+
+  function renderArchiveDetail() {
+    var archive = state.currentArchive;
+    if (!archive) return;
+    var ch = [
+      { type: "button", label: "\u2190 Back", action: "go-home" },
+      { type: "spacer" },
+      { type: "text", content: "<h2>" + escapeHtml(archive.name) + "</h2>" },
+      { type: "text", content: "<p style='opacity:0.6'>" + archive.tracks.length + " tracks</p>" },
+    ];
+
+    if (archive.tracks.length > 0) {
+      var items = [];
+      for (var i = 0; i < archive.tracks.length; i++) {
+        var t = archive.tracks[i];
+        items.push({
+          id: "archived-track:" + i,
+          title: t.name || "Unknown",
+          subtitle: (t.artist || "Unknown") + (t.album ? " \u2014 " + t.album : ""),
+          duration: t.duration || "",
+          imageUrl: t.imageUrl || undefined,
+        });
+      }
+      ch.push({ type: "track-row-list", items: items });
+    } else {
+      ch.push({ type: "text", content: "<p style='opacity:0.5'>No tracks in this snapshot</p>" });
+    }
+
     api.ui.setViewData("spotify", { type: "layout", direction: "vertical", children: ch });
   }
 
@@ -665,7 +781,7 @@ function activate(api) {
       dbg("flow", "=== ALL PLAYLISTS DONE ===", { playlistCount: state.playlists.length, trackCounts: Object.keys(state.playlistTracks).map(function(k) { return k + ": " + (state.playlistTracks[k] || []).length; }) });
       state.status = "done";
       renderHome();
-      saveToStorage();
+      saveState();
       cleanup();
       return;
     }
@@ -701,12 +817,233 @@ function activate(api) {
     }, 4000);
   }
 
-  function saveToStorage() {
-    api.storage.set("spotify_browse_playlists", {
-      playlists: state.playlists,
-      tracks: state.playlistTracks,
-      savedAt: Date.now(),
-    }).catch(function() {});
+  // ---- Standalone scrape (for refresh) ----
+
+  function performScrape(showProgress) {
+    return new Promise(function(resolve, reject) {
+      var result = { playlists: [], tracks: {} };
+      var handle = null;
+      var timer = null;
+      var gen = ++scrapeGeneration;
+      var trackIdx = 0;
+      var trackList = [];
+      var trackTimeout = null;
+      var trackCheck = null;
+
+      function done(val) {
+        if (timer) { clearInterval(timer); timer = null; }
+        if (trackTimeout) { clearTimeout(trackTimeout); trackTimeout = null; }
+        if (trackCheck) { clearInterval(trackCheck); trackCheck = null; }
+        if (handle) { handle.close().catch(console.error); handle = null; }
+        resolve(val);
+      }
+
+      function fail(err) {
+        if (timer) { clearInterval(timer); timer = null; }
+        if (trackTimeout) { clearTimeout(trackTimeout); trackTimeout = null; }
+        if (trackCheck) { clearInterval(trackCheck); trackCheck = null; }
+        if (handle) { handle.close().catch(console.error); handle = null; }
+        reject(err);
+      }
+
+      api.network.openBrowseWindow("https://open.spotify.com", {
+        title: "Spotify",
+        width: 1200,
+        height: 800,
+        visible: false,
+      }).then(function(h) {
+        handle = h;
+        var loginRetries = 0;
+        var m4yRetries = 0;
+        var plRetries = 0;
+
+        h.onMessage(function(msg) {
+          var t = msg.type;
+          var d = msg.data;
+
+          if (t === "window-closed") {
+            done(null);
+            return;
+          }
+
+          if (t === "login-check" && d) {
+            if (d.loggedIn) {
+              if (timer) { clearInterval(timer); timer = null; }
+              if (showProgress) { state.status = "finding-made-for-you"; renderHome(); }
+              m4yRetries = 0;
+              setTimeout(function tryM4Y() {
+                m4yRetries++;
+                if (m4yRetries > 15) {
+                  h.eval(SCRIPT_SCRAPE_PLAYLISTS);
+                  return;
+                }
+                h.eval(SCRIPT_FIND_MADE_FOR_YOU);
+                setTimeout(function() {
+                  if (result.playlists.length === 0 && m4yRetries <= 15) tryM4Y();
+                }, 2000);
+              }, 2000);
+            }
+            return;
+          }
+
+          if (t === "made-for-you-found") {
+            if (showProgress) { state.status = "scraping-playlists"; renderHome(); }
+            setTimeout(function tryPl() {
+              plRetries++;
+              h.eval(SCRIPT_SCRAPE_PLAYLISTS);
+              setTimeout(function() {
+                if (result.playlists.length === 0 && plRetries <= 10) tryPl();
+              }, 2000);
+            }, 4000);
+            return;
+          }
+
+          if (t === "made-for-you-not-found") {
+            // handled by tryM4Y retry loop
+            return;
+          }
+
+          if (t === "playlists" && Array.isArray(d) && d.length > 0) {
+            result.playlists = d;
+            trackList = d.slice();
+            trackIdx = 0;
+            if (showProgress) {
+              state.status = "scraping-tracks";
+              state.scrapeProgress = { current: 0, total: trackList.length, name: "" };
+              renderHome();
+            }
+            scrapeNext();
+            return;
+          }
+
+          if (t === "tracks" && d && d.playlistId) {
+            result.tracks[d.playlistId] = d.tracks || [];
+            if (trackCheck) { clearInterval(trackCheck); trackCheck = null; }
+            if (trackTimeout) { clearTimeout(trackTimeout); trackTimeout = null; }
+            setTimeout(scrapeNext, 1000);
+            return;
+          }
+        });
+
+        function scrapeNext() {
+          if (trackIdx >= trackList.length) {
+            done(result);
+            return;
+          }
+          var pl = trackList[trackIdx];
+          trackIdx++;
+          if (showProgress) {
+            state.scrapeProgress = { current: trackIdx, total: trackList.length, name: pl.name };
+            renderHome();
+          }
+          h.eval(scriptNavigatePlaylist(pl.id));
+          setTimeout(function() {
+            h.eval(scriptScrollThenScrape(pl.id, gen));
+            trackTimeout = setTimeout(function() {
+              result.tracks[pl.id] = result.tracks[pl.id] || [];
+              scrapeNext();
+            }, 45000);
+          }, 4000);
+        }
+
+        // Phase 1: poll login
+        if (showProgress) { state.status = "waiting-login"; renderHome(); }
+        timer = setInterval(function() {
+          loginRetries++;
+          if (loginRetries > 10) {
+            clearInterval(timer); timer = null;
+            done(null);
+            return;
+          }
+          h.eval(SCRIPT_CHECK_LOGIN);
+        }, 3000);
+        // First check after 3s
+        setTimeout(function() { h.eval(SCRIPT_CHECK_LOGIN); }, 3000);
+
+      }).catch(fail);
+    });
+  }
+
+  // ---- Change detection & archiving ----
+
+  function processRefreshResults(newPlaylists, newTracks) {
+    var hasChanges = false;
+    var archivedCount = 0;
+
+    for (var i = 0; i < newPlaylists.length; i++) {
+      var pl = newPlaylists[i];
+      var oldTracks = state.playlistTracks[pl.id];
+      var fresh = newTracks[pl.id] || [];
+
+      if (tracksChanged(oldTracks, fresh)) {
+        hasChanges = true;
+        state.updatedPlaylistIds[pl.id] = true;
+
+        if (isArchivable(pl) && oldTracks && oldTracks.length > 0) {
+          archiveSnapshot(pl, oldTracks);
+          archivedCount++;
+        }
+      }
+    }
+
+    state.playlists = newPlaylists;
+    state.playlistTracks = newTracks;
+    saveState();
+    return { hasChanges: hasChanges, archivedCount: archivedCount };
+  }
+
+  function archiveSnapshot(playlist, tracks) {
+    var archiveId = generateArchiveId();
+    var dateStr = new Date(state.savedAt || Date.now())
+      .toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    var name = playlist.name + " \u2014 " + dateStr;
+
+    var snapshot = {
+      name: name,
+      playlistId: playlist.id,
+      date: new Date().toISOString(),
+      tracks: tracks,
+    };
+    api.storage.set("spotify_browse_archive:" + archiveId, snapshot).catch(console.error);
+
+    api.storage.get("spotify_browse_archive_index").then(function(index) {
+      var arr = index || [];
+      arr.push({
+        playlistId: playlist.id,
+        name: name,
+        date: snapshot.date,
+        storageKey: archiveId,
+        trackCount: tracks.length,
+      });
+      state.archiveIndex = arr;
+      return api.storage.set("spotify_browse_archive_index", arr);
+    }).catch(console.error);
+  }
+
+  // ---- Refresh ----
+
+  function silentRefresh() {
+    if (state.refreshing) return;
+    state.refreshing = true;
+
+    performScrape(false).then(function(result) {
+      state.refreshing = false;
+      if (!result) {
+        api.ui.setBadge("spotify", { type: "dot", variant: "error" });
+        return;
+      }
+      var outcome = processRefreshResults(result.playlists, result.tracks);
+      if (outcome.hasChanges) {
+        api.ui.setBadge("spotify", { type: "dot", variant: "accent" });
+      }
+      api.scheduler.complete("auto-refresh").catch(console.error);
+      state.status = "done";
+      renderHome();
+    }).catch(function(err) {
+      state.refreshing = false;
+      console.error("Silent refresh failed:", err);
+      api.ui.setBadge("spotify", { type: "dot", variant: "error" });
+    });
   }
 
   // ---- Actions ----
@@ -864,6 +1201,7 @@ function activate(api) {
     for (var i = 0; i < state.playlists.length; i++) {
       if (state.playlists[i].id === pid) {
         state.currentPlaylist = state.playlists[i];
+        delete state.updatedPlaylistIds[pid];
         state.currentView = "playlist";
         renderPlaylist();
         return;
@@ -1012,16 +1350,126 @@ function activate(api) {
     });
   });
 
+  api.ui.onAction("view-archive", function(data) {
+    if (!data || !data.itemId) return;
+    var key = data.itemId.replace("archive:", "");
+    api.storage.get("spotify_browse_archive:" + key).then(function(snapshot) {
+      if (!snapshot) return;
+      state.currentView = "archive-detail";
+      state.currentArchive = snapshot;
+      state.currentArchiveKey = key;
+      renderArchiveDetail();
+    }).catch(console.error);
+  });
+
+  api.ui.onAction("delete-archive", function(data) {
+    if (!data || !data.selectedIds) return;
+    var keysToDelete = {};
+    for (var i = 0; i < data.selectedIds.length; i++) {
+      keysToDelete[data.selectedIds[i].replace("archive:", "")] = true;
+    }
+    var keys = Object.keys(keysToDelete);
+    var promises = [];
+    for (var k = 0; k < keys.length; k++) {
+      promises.push(api.storage.delete("spotify_browse_archive:" + keys[k]));
+    }
+    Promise.all(promises).then(function() {
+      var filtered = [];
+      for (var f = 0; f < (state.archiveIndex || []).length; f++) {
+        if (!keysToDelete[state.archiveIndex[f].storageKey]) {
+          filtered.push(state.archiveIndex[f]);
+        }
+      }
+      state.archiveIndex = filtered;
+      return api.storage.set("spotify_browse_archive_index", filtered);
+    }).then(function() {
+      renderHome();
+    }).catch(console.error);
+  });
+
+  api.ui.onAction("toggle-archive", function() {
+    if (!state.currentPlaylist) return;
+    var id = state.currentPlaylist.id;
+    var idx = state.archivedIds.indexOf(id);
+    if (idx === -1) {
+      state.archivedIds.push(id);
+    } else {
+      state.archivedIds.splice(idx, 1);
+    }
+    saveState();
+    renderPlaylist();
+  });
+
+  api.ui.onAction("manual-refresh", function() {
+    if (state.refreshing) return;
+    state.refreshing = true;
+    state.updatedPlaylistIds = {};
+    state.refreshSummary = "";
+    state.status = "waiting-login";
+    renderHome();
+
+    performScrape(true).then(function(result) {
+      state.refreshing = false;
+      if (!result) {
+        state.status = "error";
+        state.errorMessage = "Not logged in to Spotify. Click 'Open Spotify' to log in.";
+        renderHome();
+        return;
+      }
+      var outcome = processRefreshResults(result.playlists, result.tracks);
+      state.status = "done";
+      var updatedCount = Object.keys(state.updatedPlaylistIds).length;
+      if (updatedCount > 0) {
+        state.refreshSummary = "Updated " + updatedCount + " playlist" + (updatedCount > 1 ? "s" : "")
+          + (outcome.archivedCount > 0 ? ", archived " + outcome.archivedCount + " snapshot" + (outcome.archivedCount > 1 ? "s" : "") : "");
+      } else {
+        state.refreshSummary = "No changes detected.";
+      }
+      renderHome();
+    }).catch(function(err) {
+      state.refreshing = false;
+      state.status = "error";
+      state.errorMessage = "Refresh failed: " + (err.message || err);
+      renderHome();
+    });
+  });
+
   // ---- Init: restore previous data ----
 
-  api.storage.get("spotify_browse_playlists").then(function(saved) {
+  // Restore state (with legacy migration)
+  api.storage.get("spotify_browse_state").then(function(saved) {
     if (saved && saved.playlists && saved.playlists.length > 0) {
       state.playlists = saved.playlists;
-      state.playlistTracks = saved.tracks || {};
+      state.playlistTracks = saved.playlistTracks || {};
+      state.archivedIds = saved.archivedIds || [];
+      state.savedAt = saved.savedAt || null;
       state.status = "done";
+      renderHome();
+    } else {
+      api.storage.get("spotify_browse_playlists").then(function(legacy) {
+        if (legacy && legacy.playlists && legacy.playlists.length > 0) {
+          state.playlists = legacy.playlists;
+          state.playlistTracks = legacy.tracks || {};
+          state.archivedIds = [];
+          state.status = "done";
+          saveState();
+          api.storage.delete("spotify_browse_playlists").catch(console.error);
+        }
+        renderHome();
+      }).catch(function(err) { console.error("Failed to load legacy state:", err); renderHome(); });
     }
-    renderHome();
-  }).catch(function() { renderHome(); });
+  }).catch(function(err) { console.error("Failed to load state:", err); renderHome(); });
+
+  // Load archive index
+  api.storage.get("spotify_browse_archive_index").then(function(index) {
+    state.archiveIndex = index || [];
+  }).catch(console.error);
+
+  // Register 24h auto-refresh scheduler
+  api.scheduler.register("auto-refresh", 24 * 60 * 60 * 1000).catch(console.error);
+  api.scheduler.onDue("auto-refresh", function() {
+    silentRefresh();
+  });
 }
 
 function deactivate() {}
