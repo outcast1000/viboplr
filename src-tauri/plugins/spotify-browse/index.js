@@ -1476,6 +1476,16 @@ function activate(api) {
     for (var i = 0; i < data.selectedIds.length; i++) {
       keysToDelete[data.selectedIds[i].replace("archive:", "")] = true;
     }
+
+    // Collect playlistIds from archives being deleted (before removing from index)
+    var deletedPlaylistIds = {};
+    for (var ai = 0; ai < (state.archiveIndex || []).length; ai++) {
+      var entry = state.archiveIndex[ai];
+      if (keysToDelete[entry.storageKey] && entry.playlistId) {
+        deletedPlaylistIds[entry.playlistId] = true;
+      }
+    }
+
     var keys = Object.keys(keysToDelete);
     var promises = [];
     for (var k = 0; k < keys.length; k++) {
@@ -1489,6 +1499,26 @@ function activate(api) {
         }
       }
       state.archiveIndex = filtered;
+
+      // Clean up cache dirs for deleted archive playlists no longer referenced
+      var liveIds = {};
+      for (var li = 0; li < state.playlists.length; li++) {
+        liveIds[state.playlists[li].id] = true;
+      }
+      var remainingArchiveIds = {};
+      for (var ra = 0; ra < filtered.length; ra++) {
+        if (filtered[ra].playlistId) remainingArchiveIds[filtered[ra].playlistId] = true;
+      }
+      var pids = Object.keys(deletedPlaylistIds);
+      for (var di = 0; di < pids.length; di++) {
+        if (!liveIds[pids[di]] && !remainingArchiveIds[pids[di]]) {
+          api.informationTypes.invoke("plugin_cache_delete_dir", {
+            pluginId: "spotify-browse",
+            subdir: pids[di],
+          }).catch(console.error);
+        }
+      }
+
       return api.storage.set("spotify_browse_archive_index", filtered);
     }).then(function() {
       render();
@@ -1577,6 +1607,28 @@ function activate(api) {
   // Load archive index
   api.storage.get("spotify_browse_archive_index").then(function(index) {
     state.archiveIndex = index || [];
+
+    // Clean up orphaned cache directories
+    api.informationTypes.invoke("plugin_cache_list_dirs", {
+      pluginId: "spotify-browse",
+    }).then(function(dirs) {
+      if (!dirs || !dirs.length) return;
+      var knownIds = {};
+      for (var i = 0; i < state.playlists.length; i++) {
+        knownIds[state.playlists[i].id] = true;
+      }
+      for (var j = 0; j < (state.archiveIndex || []).length; j++) {
+        if (state.archiveIndex[j].playlistId) knownIds[state.archiveIndex[j].playlistId] = true;
+      }
+      for (var d = 0; d < dirs.length; d++) {
+        if (!knownIds[dirs[d]]) {
+          api.informationTypes.invoke("plugin_cache_delete_dir", {
+            pluginId: "spotify-browse",
+            subdir: dirs[d],
+          }).catch(console.error);
+        }
+      }
+    }).catch(console.error);
   }).catch(console.error);
 
   // Register 24h auto-refresh scheduler
