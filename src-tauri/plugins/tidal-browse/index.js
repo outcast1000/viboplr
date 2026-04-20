@@ -103,7 +103,7 @@ function activate(api) {
     return {
       tidal_id: a.id ? String(a.id) : "",
       name: a.name || "Unknown",
-      picture_id: a.picture || null,
+      picture_id: a.picture || a.pictureId || null,
     };
   }
 
@@ -171,7 +171,7 @@ function activate(api) {
     return {
       tidal_id: artistData.id ? String(artistData.id) : "",
       name: artistData.name || "Unknown",
-      picture_id: artistData.picture || null,
+      picture_id: artistData.picture || artistData.pictureId || null,
       albums: albums,
     };
   }

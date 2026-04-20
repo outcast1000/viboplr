@@ -296,7 +296,7 @@ function PluginDetailHeader({
         <div className="album-detail-header">
           <div className="album-detail-art">
             {imageUrl ? (
-              <img className="album-detail-art-img" src={imageUrl} alt={title} />
+              <img className="album-detail-art-img" src={imageUrl} alt={title} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
             ) : (
               <svg className="album-detail-art-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" />
