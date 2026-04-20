@@ -498,7 +498,7 @@ function activate(api) {
     'for(var i=0;i<cards.length;i++){' +
       'var c=cards[i];' +
       'var a=c.querySelector("a[href*=\\"/playlist/\\"]");' +
-      'if(!a){_dbg("playlists","card["+i+"] no playlist link, skipping");continue}' +
+      'if(!a){continue}' +
       'var m=(a.getAttribute("href")||"").match(/\\/playlist\\/([a-zA-Z0-9]+)/);' +
       'if(!m||seen[m[1]])continue;seen[m[1]]=1;' +
       'var ne=c.querySelector("[data-testid=\\"card-title\\"]")||c.querySelector("p")||c.querySelector("span");' +
@@ -523,11 +523,10 @@ function activate(api) {
       'var rds="";var rsub=rw.querySelector("span:not(:first-child)");' +
       'if(rsub)rds=rsub.textContent.trim();' +
       'var rimg=bestImg(rw);' +
-      '_dbg("playlists","row["+ri+"] found",{id:rm[1],name:rnm,desc:rds,hasImg:!!rimg,rowHTML:rw.innerHTML.substring(0,200)});' +
+      '_dbg("playlists","row["+ri+"] found",{id:rm[1],name:rnm,desc:rds,hasImg:!!rimg});' +
       'if(rnm)out.push({id:rm[1],name:rnm,description:rds,imageUrl:rimg,uri:"spotify:playlist:"+rm[1]});' +
     '}' +
     // Strategy 3: any remaining playlist links not caught above
-    // Walk up from each link to find the nearest container with an image
     'function findImgContainer(el){' +
       'var node=el;' +
       'for(var up=0;up<6&&node;up++){' +
@@ -553,7 +552,11 @@ function activate(api) {
     '}catch(e){window.__viboplr.send("error",{message:""+e})}})()';
 
   function scriptNavigatePlaylist(id) {
-    return '(function(){window.location.href="/playlist/' + id + '"})()';
+    return '(function(){' +
+      DBG_HELPER +
+      '_dbg("tracks","navigating to /playlist/' + id + '");' +
+      'window.location.href="/playlist/' + id + '"' +
+    '})()';
   }
 
   function scriptScrollThenScrape(playlistId, gen) {
@@ -713,6 +716,10 @@ function activate(api) {
     }
 
     if (t === "playlists") {
+      if (state.status !== "scraping-playlists") {
+        dbg("flow", "IGNORING stale playlists message (status=" + state.status + ")");
+        return;
+      }
       if (Array.isArray(d) && d.length > 0) {
         dbg("flow", "playlists received", { count: d.length, names: d.map(function(p) { return p.name; }) });
         state.playlists = d;
@@ -778,6 +785,7 @@ function activate(api) {
   }
 
   function retryPlaylistScrape() {
+    if (state.status !== "scraping-playlists") return;
     playlistRetries++;
     dbg("flow", "playlist scrape retry " + playlistRetries + "/10");
     if (playlistRetries > 10) {
@@ -788,7 +796,7 @@ function activate(api) {
       cleanup();
       return;
     }
-    playlistRetryTimer = setTimeout(doPlaylistScrape, 2000);
+    playlistRetryTimer = setTimeout(doPlaylistScrape, 5000);
   }
 
   function beginTrackScrape() {
@@ -922,11 +930,12 @@ function activate(api) {
           if (t === "made-for-you-found") {
             if (showProgress) { state.status = "scraping-playlists"; render(); }
             setTimeout(function tryPl() {
+              if (result.playlists.length > 0) return;
               plRetries++;
               h.eval(SCRIPT_SCRAPE_PLAYLISTS);
               setTimeout(function() {
                 if (result.playlists.length === 0 && plRetries <= 10) tryPl();
-              }, 2000);
+              }, 5000);
             }, 4000);
             return;
           }
