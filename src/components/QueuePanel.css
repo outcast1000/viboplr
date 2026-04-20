@@ -260,13 +260,28 @@
   display: none;
 }
 
+.queue-item-art-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: none;
+}
+
+.queue-item-art-wrapper .source-badge {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  bottom: 0;
+  right: 0;
+}
+
 .queue-item-thumb {
   width: 32px;
   height: 32px;
   border-radius: 3px;
   object-fit: cover;
   flex-shrink: 0;
-  display: none;
 }
 
 .queue-item-locate {
@@ -318,7 +333,7 @@
 }
 
 @container queue (min-width: 250px) {
-  .queue-item-thumb { display: block; }
+  .queue-item-art-wrapper { display: block; }
 }
 
 @container queue (min-width: 300px) {

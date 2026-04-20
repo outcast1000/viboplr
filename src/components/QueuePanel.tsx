@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import { formatDuration } from "../utils";
+import { SourceBadge } from "./NowPlayingBar";
 import "./QueuePanel.css";
 
 export interface PendingEnqueue {
@@ -352,8 +353,13 @@ export function QueuePanel({
             onDoubleClick={() => handleDoubleClick(t, i)}
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
-            {t.image_url && (
-              <img className="queue-item-thumb" src={t.image_url.startsWith("http") ? t.image_url : convertFileSrc(t.image_url)} alt="" />
+            {(t.image_url || !t.path.startsWith("file://")) && (
+              <div className="queue-item-art-wrapper">
+                {t.image_url && (
+                  <img className="queue-item-thumb" src={t.image_url.startsWith("http") ? t.image_url : convertFileSrc(t.image_url)} alt="" />
+                )}
+                <SourceBadge track={t} size={10} />
+              </div>
             )}
             <div className="queue-item-info" title={t.url || t.path || ""}>
               <div className="queue-item-line1">
