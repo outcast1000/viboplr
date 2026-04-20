@@ -2518,8 +2518,9 @@ function App() {
               });
             }
           } : undefined}
-          onDownloadTrack={contextMenuActions.contextMenu.target.kind === "track" && contextMenuActions.contextMenu.target.trackId ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track" && t.trackId) { const track = library.tracks.find(tr => tr.id === t.trackId); if (track) contextMenuActions.handleDownloadTrack(track); } } : undefined}
-          onDownloadMulti={contextMenuActions.contextMenu.target.kind === "multi-track" ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "multi-track") { const idSet = new Set(t.trackIds); const selected = library.tracks.filter(tr => idSet.has(tr.id)); contextMenuActions.handleDownloadMulti(selected); } } : undefined}
+          onDownloadTrack={(providerId) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track" && t.trackId) { const track = library.tracks.find(tr => tr.id === t.trackId); if (track) contextMenuActions.handleDownloadTrack(track, providerId); } else if (t.kind === "album" && t.albumId) { const albumTracks = library.tracks.filter(tr => tr.album_id === t.albumId); if (albumTracks.length) contextMenuActions.handleDownloadMulti(albumTracks, providerId); } }}
+          onDownloadMulti={(providerId) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "multi-track") { const idSet = new Set(t.trackIds); const selected = library.tracks.filter(tr => idSet.has(tr.id)); contextMenuActions.handleDownloadMulti(selected, providerId); } }}
+          downloadProviders={downloadProviders.map(p => ({ id: p.id, name: p.name }))}
           onExportAsMixtape={handleExportAsMixtape}
           onClose={() => contextMenuActions.setContextMenu(null)}
           pluginMenuItems={plugins.menuItems}

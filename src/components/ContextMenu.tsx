@@ -36,8 +36,9 @@ interface ContextMenuProps {
   onMoveToTop?: () => void;
   onMoveToBottom?: () => void;
   onLocateTrack?: () => void;
-  onDownloadTrack?: () => void;
-  onDownloadMulti?: () => void;
+  onDownloadTrack?: (providerId: string | null) => void;
+  onDownloadMulti?: (providerId: string | null) => void;
+  downloadProviders?: { id: string; name: string }[];
   onBulkEdit?: () => void;
   onExportAsMixtape?: (trackIds: number[]) => void;
   onClose: () => void;
@@ -119,7 +120,7 @@ function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarget {
 
 export function ContextMenu({
   menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onViewDetails,
-  onDelete, onRefreshImage, onRemoveFromQueue, onKeepOnly, onMoveToTop, onMoveToBottom, onLocateTrack, onDownloadTrack, onDownloadMulti,
+  onDelete, onRefreshImage, onRemoveFromQueue, onKeepOnly, onMoveToTop, onMoveToBottom, onLocateTrack, onDownloadTrack, onDownloadMulti, downloadProviders,
   onBulkEdit, onExportAsMixtape, onClose,
   pluginMenuItems, onPluginAction,
   onSetDockSide, onSetFitMode,
@@ -291,19 +292,63 @@ export function ContextMenu({
           </div>
         </>
       )}
-      {target.kind === "track" && target.trackId && (target.subsonic || target.tidal) && onDownloadTrack && (
+      {target.kind === "track" && onDownloadTrack && downloadProviders && downloadProviders.length > 0 && (
         <>
           <div className="context-menu-separator" />
-          <div className="context-menu-item" onClick={() => { onDownloadTrack(); onClose(); }}>
-            <IconDownload size={14} /><span>Download</span>
+          <div className="context-menu-submenu">
+            <div className="context-menu-item">
+              <IconDownload size={14} /><span>Download</span>
+            </div>
+            <div className="context-menu-submenu-list">
+              <div className="context-menu-item" onClick={() => { onDownloadTrack(null); onClose(); }}>
+                <span>Auto</span>
+              </div>
+              {downloadProviders.map(p => (
+                <div key={p.id} className="context-menu-item" onClick={() => { onDownloadTrack(p.id); onClose(); }}>
+                  <span>{p.name}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </>
       )}
-      {isMulti && onDownloadMulti && (
+      {target.kind === "album" && onDownloadTrack && downloadProviders && downloadProviders.length > 0 && (
         <>
           <div className="context-menu-separator" />
-          <div className="context-menu-item" onClick={() => { onDownloadMulti(); onClose(); }}>
-            <IconDownload size={14} /><span>Download {target.trackIds.length} tracks</span>
+          <div className="context-menu-submenu">
+            <div className="context-menu-item">
+              <IconDownload size={14} /><span>Download Album</span>
+            </div>
+            <div className="context-menu-submenu-list">
+              <div className="context-menu-item" onClick={() => { onDownloadTrack(null); onClose(); }}>
+                <span>Auto</span>
+              </div>
+              {downloadProviders.map(p => (
+                <div key={p.id} className="context-menu-item" onClick={() => { onDownloadTrack(p.id); onClose(); }}>
+                  <span>{p.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+      {isMulti && onDownloadMulti && downloadProviders && downloadProviders.length > 0 && (
+        <>
+          <div className="context-menu-separator" />
+          <div className="context-menu-submenu">
+            <div className="context-menu-item">
+              <IconDownload size={14} /><span>Download {target.trackIds.length} tracks</span>
+            </div>
+            <div className="context-menu-submenu-list">
+              <div className="context-menu-item" onClick={() => { onDownloadMulti(null); onClose(); }}>
+                <span>Auto</span>
+              </div>
+              {downloadProviders.map(p => (
+                <div key={p.id} className="context-menu-item" onClick={() => { onDownloadMulti(p.id); onClose(); }}>
+                  <span>{p.name}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </>
       )}

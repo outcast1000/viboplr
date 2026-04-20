@@ -351,23 +351,30 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } });
   }
 
-  const handleDownloadTrack = useCallback(async (track: Track) => {
+  const handleDownloadTrack = useCallback(async (track: Track, providerId: string | null = null) => {
     const url = track.url ?? track.path;
-    if (!url) return;
-    const parsed = parseUrlScheme(url);
 
-    let sourceProviderId: string | null = null;
+    let sourceProviderId: string | null = providerId;
     let sourceTrackId: string | null = null;
     let sourceCollectionId: number | null = null;
 
-    if (parsed.scheme === "tidal") {
-      sourceProviderId = "tidal-browse:tidal-download";
-      sourceTrackId = parsed.id;
-      sourceCollectionId = track.collection_id;
-    } else if (parsed.scheme === "subsonic") {
-      sourceProviderId = "__builtin:subsonic";
-      sourceTrackId = parsed.id;
-      sourceCollectionId = track.collection_id;
+    if (!providerId && url) {
+      const parsed = parseUrlScheme(url);
+      if (parsed.scheme === "tidal") {
+        sourceProviderId = "tidal-browse:tidal-download";
+        sourceTrackId = parsed.id;
+        sourceCollectionId = track.collection_id;
+      } else if (parsed.scheme === "subsonic") {
+        sourceProviderId = "__builtin:subsonic";
+        sourceTrackId = parsed.id;
+        sourceCollectionId = track.collection_id;
+      }
+    } else if (providerId && url) {
+      const parsed = parseUrlScheme(url);
+      if (parsed.scheme === "tidal" || parsed.scheme === "subsonic") {
+        sourceTrackId = parsed.id;
+        sourceCollectionId = track.collection_id;
+      }
     }
 
     try {
@@ -391,31 +398,33 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }, [addLog]);
 
-  const handleDownloadMulti = useCallback(async (tracks: Track[]) => {
-    const nonLocal = tracks.filter(t => {
-      const parsed = parseUrlScheme(t.url ?? t.path);
-      return parsed.scheme !== "file";
-    });
-    if (nonLocal.length === 0) return;
-
-    for (let i = 0; i < nonLocal.length; i++) {
-      const track = nonLocal[i];
+  const handleDownloadMulti = useCallback(async (tracks: Track[], providerId: string | null = null) => {
+    for (let i = 0; i < tracks.length; i++) {
+      const track = tracks[i];
       const url = track.url ?? track.path;
-      const parsed = parseUrlScheme(url);
-      const isLast = i === nonLocal.length - 1;
+      const isLast = i === tracks.length - 1;
 
-      let sourceProviderId: string | null = null;
+      let sourceProviderId: string | null = providerId;
       let sourceTrackId: string | null = null;
       let sourceCollectionId: number | null = null;
 
-      if (parsed.scheme === "tidal") {
-        sourceProviderId = "tidal-browse:tidal-download";
-        sourceTrackId = parsed.id;
-        sourceCollectionId = track.collection_id;
-      } else if (parsed.scheme === "subsonic") {
-        sourceProviderId = "__builtin:subsonic";
-        sourceTrackId = parsed.id;
-        sourceCollectionId = track.collection_id;
+      if (!providerId && url) {
+        const parsed = parseUrlScheme(url);
+        if (parsed.scheme === "tidal") {
+          sourceProviderId = "tidal-browse:tidal-download";
+          sourceTrackId = parsed.id;
+          sourceCollectionId = track.collection_id;
+        } else if (parsed.scheme === "subsonic") {
+          sourceProviderId = "__builtin:subsonic";
+          sourceTrackId = parsed.id;
+          sourceCollectionId = track.collection_id;
+        }
+      } else if (providerId && url) {
+        const parsed = parseUrlScheme(url);
+        if (parsed.scheme === "tidal" || parsed.scheme === "subsonic") {
+          sourceTrackId = parsed.id;
+          sourceCollectionId = track.collection_id;
+        }
       }
 
       try {
@@ -437,7 +446,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         addLog(`Download failed: ${track.title} - ${e}`);
       }
     }
-    addLog(`Downloading ${nonLocal.length} track${nonLocal.length > 1 ? "s" : ""}`);
+    addLog(`Downloading ${tracks.length} track${tracks.length > 1 ? "s" : ""}`);
   }, [addLog]);
 
   function handleEntityContextMenu(e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) {
