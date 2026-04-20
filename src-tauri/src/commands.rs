@@ -1491,46 +1491,6 @@ pub fn subsonic_test_connection(
 // --- TIDAL commands ---
 
 #[tauri::command]
-pub async fn tidal_check_status(
-    state: State<'_, AppState>,
-) -> Result<tidal::TidalStatus, String> {
-    let client = state.tidal_client.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<tidal::TidalStatus, String> {
-        client.check_status().map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn tidal_get_artist_albums(
-    state: State<'_, AppState>,
-    artist_id: String,
-) -> Result<Vec<TidalSearchAlbum>, String> {
-    let client = state.tidal_client.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<TidalSearchAlbum>, String> {
-        client
-            .get_artist_albums(&artist_id)
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn tidal_search(
-    state: State<'_, AppState>,
-    query: String,
-    limit: u32,
-    offset: u32,
-) -> Result<TidalSearchResult, String> {
-    let client = state.tidal_client.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<TidalSearchResult, String> {
-        client.search(&query, limit, offset).map_err(|e| e.to_string())
-    }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
 pub fn tidal_save_track(
     state: State<'_, AppState>,
     tidal_track_id: String,
@@ -1622,28 +1582,6 @@ pub async fn tidal_get_stream_url(
             .get_stream_url(&tidal_track_id, &resolved_quality)
             .map_err(|e| e.to_string())?;
         Ok(info.url)
-    }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn tidal_get_album(
-    state: State<'_, AppState>,
-    album_id: String,
-) -> Result<TidalAlbumDetail, String> {
-    let client = state.tidal_client.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<TidalAlbumDetail, String> {
-        client.get_album(&album_id).map_err(|e| e.to_string())
-    }).await.map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-pub async fn tidal_get_artist(
-    state: State<'_, AppState>,
-    artist_id: String,
-) -> Result<TidalArtistDetail, String> {
-    let client = state.tidal_client.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<TidalArtistDetail, String> {
-        client.get_artist(&artist_id).map_err(|e| e.to_string())
     }).await.map_err(|e| e.to_string())?
 }
 

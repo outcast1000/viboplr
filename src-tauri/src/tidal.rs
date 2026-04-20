@@ -6,8 +6,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use crate::models::{
-    TidalAlbumDetail, TidalArtistDetail, TidalSearchAlbum, TidalSearchArtist, TidalSearchResult,
-    TidalSearchTrack,
+    TidalAlbumDetail, TidalSearchTrack,
 };
 
 // --- Global access for image providers (which lack AppState) ---
@@ -256,68 +255,6 @@ impl TidalClient {
             .unwrap_or_else(|| TidalError("All TIDAL instances failed".to_string())))
     }
 
-    /// Combined search: tracks + albums + artists.
-    /// The API uses different query params per type: s= for tracks, a= for artists, al= for albums.
-    /// We fire all three in parallel to keep latency low.
-    pub fn search(
-        &self,
-        query: &str,
-        limit: u32,
-        offset: u32,
-    ) -> Result<TidalSearchResult, TidalError> {
-        let encoded = urlencoding::encode(query);
-        let track_path = format!("/search/?s={}&limit={}&offset={}", encoded, limit, offset);
-        let artist_path = format!("/search/?a={}&limit={}&offset={}", encoded, limit, offset);
-        let album_path = format!("/search/?al={}&limit={}&offset={}", encoded, limit, offset);
-
-        let (tracks, artists, albums) = std::thread::scope(|s| {
-            let t_handle = s.spawn(|| self.get_json(&track_path));
-            let a_handle = s.spawn(|| self.get_json(&artist_path));
-            let al_handle = s.spawn(|| self.get_json(&album_path));
-
-            let tracks = t_handle
-                .join()
-                .ok()
-                .and_then(|r| r.ok())
-                .and_then(|json| {
-                    json["data"]["items"]
-                        .as_array()
-                        .map(|arr| arr.iter().map(|t| parse_track(t)).collect())
-                })
-                .unwrap_or_default();
-
-            let artists = a_handle
-                .join()
-                .ok()
-                .and_then(|r| r.ok())
-                .and_then(|json| {
-                    json["data"]["artists"]["items"]
-                        .as_array()
-                        .map(|arr| arr.iter().map(|a| parse_artist(a)).collect())
-                })
-                .unwrap_or_default();
-
-            let albums = al_handle
-                .join()
-                .ok()
-                .and_then(|r| r.ok())
-                .and_then(|json| {
-                    json["data"]["albums"]["items"]
-                        .as_array()
-                        .map(|arr| arr.iter().map(|a| parse_album(a)).collect())
-                })
-                .unwrap_or_default();
-
-            (tracks, artists, albums)
-        });
-
-        Ok(TidalSearchResult {
-            tracks,
-            albums,
-            artists,
-        })
-    }
-
     /// Get single track metadata.
     pub fn get_track_info(&self, id: &str) -> Result<TidalSearchTrack, TidalError> {
         let json = self.get_json(&format!("/info/?id={}", id))?;
@@ -410,74 +347,6 @@ impl TidalClient {
         })
     }
 
-    /// Get artist detail with album discography.
-    pub fn get_artist(&self, id: &str) -> Result<TidalArtistDetail, TidalError> {
-        let json = self.get_json(&format!("/artist/?id={}", id))?;
-        let artist_data = if json["artist"].is_object() {
-            &json["artist"]
-        } else {
-            &json["data"]
-        };
-
-        let albums = self.get_artist_albums(id).unwrap_or_default();
-
-        Ok(TidalArtistDetail {
-            tidal_id: artist_data["id"]
-                .as_i64()
-                .map(|n| n.to_string())
-                .unwrap_or_default(),
-            name: artist_data["name"]
-                .as_str()
-                .unwrap_or("Unknown")
-                .to_string(),
-            picture_id: artist_data["picture"].as_str().map(|s| s.to_string()),
-            albums,
-        })
-    }
-
-    /// Get an artist's album discography.
-    pub fn get_artist_albums(&self, id: &str) -> Result<Vec<TidalSearchAlbum>, TidalError> {
-        let json = self.get_json(&format!("/artist/?f={}&skip_tracks=true", id))?;
-        let items = json["albums"]["items"]
-            .as_array()
-            .or_else(|| json["data"]["albums"].as_array());
-        Ok(items
-            .map(|arr| arr.iter().map(|a| parse_album(a)).collect())
-            .unwrap_or_default())
-    }
-
-    /// Check whether TIDAL instances are reachable.
-    pub fn check_status(&self) -> Result<TidalStatus, TidalError> {
-        let mut cache = INSTANCE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
-
-        let needs_refresh = match &*cache {
-            Some(c) => c.fetched_at.elapsed().as_secs() > CACHE_TTL_SECS,
-            None => true,
-        };
-
-        if needs_refresh {
-            if let Some(new_cache) = fetch_instance_list(&self.client) {
-                *cache = Some(new_cache);
-            }
-        }
-
-        match &*cache {
-            Some(c) => Ok(TidalStatus {
-                available: !c.api_urls.is_empty(),
-                instance_count: (c.api_urls.len() + c.streaming_urls.len()) as u32,
-            }),
-            None => Ok(TidalStatus {
-                available: false,
-                instance_count: 0,
-            }),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct TidalStatus {
-    pub available: bool,
-    pub instance_count: u32,
 }
 
 // --- JSON parsing helpers ---
@@ -512,36 +381,5 @@ fn parse_track(t: &Value) -> TidalSearchTrack {
         cover_id: t["album"]["cover"].as_str().map(|s| s.to_string()),
         duration_secs: t["duration"].as_i64().map(|d| d as f64),
         track_number: t["trackNumber"].as_i64().map(|n| n as i32),
-    }
-}
-
-fn parse_album(a: &Value) -> TidalSearchAlbum {
-    TidalSearchAlbum {
-        tidal_id: a["id"]
-            .as_i64()
-            .map(|n| n.to_string())
-            .unwrap_or_default(),
-        title: a["title"].as_str().unwrap_or("Unknown").to_string(),
-        artist_name: a["artists"]
-            .as_array()
-            .and_then(|arr| arr.first())
-            .and_then(|a| a["name"].as_str())
-            .map(|s| s.to_string()),
-        cover_id: a["cover"].as_str().map(|s| s.to_string()),
-        year: a["releaseDate"]
-            .as_str()
-            .and_then(|d| d.split('-').next())
-            .and_then(|y| y.parse().ok()),
-    }
-}
-
-fn parse_artist(a: &Value) -> TidalSearchArtist {
-    TidalSearchArtist {
-        tidal_id: a["id"]
-            .as_i64()
-            .map(|n| n.to_string())
-            .unwrap_or_default(),
-        name: a["name"].as_str().unwrap_or("Unknown").to_string(),
-        picture_id: a["picture"].as_str().map(|s| s.to_string()),
     }
 }
