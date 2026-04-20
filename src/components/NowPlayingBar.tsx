@@ -151,7 +151,7 @@ export function NowPlayingBar({
           if (!(e.target as HTMLElement).closest("button")) onToggleMiniMode();
         } : undefined}>
         <div className="now-info">
-          {imagePath && <img className="now-mini-art" src={convertFileSrc(imagePath)} alt="" />}
+          {imagePath && <img className="now-mini-art" src={imagePath.startsWith("http") ? imagePath : convertFileSrc(imagePath)} alt="" />}
           {!imagePath && currentTrack && (
             <span className="now-mini-art-fallback">{(currentTrack.title[0] ?? "?").toUpperCase()}</span>
           )}
@@ -235,7 +235,7 @@ export function NowPlayingBar({
         <div className="now-info">
           <div className={`now-art-wrapper${playing ? " playing" : ""}`}>
             {imagePath ? (
-              <img className="now-art" src={convertFileSrc(imagePath)} alt="" />
+              <img className="now-art" src={imagePath.startsWith("http") ? imagePath : convertFileSrc(imagePath)} alt="" />
             ) : (
               <div className="now-art now-art-placeholder">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="24" height="24">

@@ -2663,6 +2663,7 @@ function App() {
         imagePath={
           (playback.currentTrack?.album_id != null && albumImageCache.images[playback.currentTrack.album_id])
           || (playback.currentTrack?.artist_id != null && artistImageCache.images[playback.currentTrack.artist_id])
+          || playback.currentTrack?.image_url
           || null
         }
         miniMode={mini.miniMode}
