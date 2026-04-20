@@ -2900,7 +2900,23 @@ pub fn delete_user_plugin(state: State<'_, AppState>, plugin_id: String) -> Resu
     if !user_dir.exists() {
         return Err(format!("Plugin '{}' is not a user plugin or does not exist", plugin_id));
     }
+    let _ = state.db.plugin_scheduler_unregister_all(&plugin_id);
     crate::plugins::delete_plugin(&state.app_dir, &plugin_id)
+}
+
+#[tauri::command]
+pub fn plugin_scheduler_register(state: State<'_, AppState>, plugin_id: String, task_id: String, interval_ms: i64) -> Result<(), String> {
+    state.db.plugin_scheduler_register(&plugin_id, &task_id, interval_ms)
+}
+
+#[tauri::command]
+pub fn plugin_scheduler_unregister(state: State<'_, AppState>, plugin_id: String, task_id: String) -> Result<(), String> {
+    state.db.plugin_scheduler_unregister(&plugin_id, &task_id)
+}
+
+#[tauri::command]
+pub fn plugin_scheduler_complete(state: State<'_, AppState>, plugin_id: String, task_id: String) -> Result<bool, String> {
+    state.db.plugin_scheduler_complete(&plugin_id, &task_id)
 }
 
 /// Start a one-shot HTTP server on localhost for OAuth callbacks.

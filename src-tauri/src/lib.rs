@@ -141,6 +141,9 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::plugin_storage_get,
         commands::plugin_storage_set,
         commands::plugin_storage_delete,
+        commands::plugin_scheduler_register,
+        commands::plugin_scheduler_unregister,
+        commands::plugin_scheduler_complete,
 
         commands::plugin_get_lastfm_credentials,
         commands::plugin_record_history_plays_batch,
@@ -301,6 +304,9 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::plugin_storage_get,
         commands::plugin_storage_set,
         commands::plugin_storage_delete,
+        commands::plugin_scheduler_register,
+        commands::plugin_scheduler_unregister,
+        commands::plugin_scheduler_complete,
 
         commands::plugin_get_lastfm_credentials,
         commands::plugin_record_history_plays_batch,
@@ -933,6 +939,64 @@ pub fn run() {
                     }
                 }
             }); });
+
+            // Plugin scheduler background thread
+            {
+                let app_handle = app.handle().clone();
+                let db = Arc::clone(&db);
+                std::thread::spawn(move || {
+                    use std::collections::HashSet;
+                    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+                    let mut dispatched: HashSet<(String, String)> = HashSet::new();
+
+                    // Wait for frontend to be ready
+                    std::thread::sleep(Duration::from_secs(5));
+
+                    loop {
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as i64;
+
+                        if let Ok(schedules) = db.plugin_scheduler_get_all() {
+                            // Clean up dispatched set: remove entries whose last_run is now recent
+                            dispatched.retain(|(pid, tid)| {
+                                schedules.iter().any(|(p, t, interval, lr)| {
+                                    p == pid && t == tid && match lr {
+                                        Some(last) => (now - last) >= *interval,
+                                        None => true,
+                                    }
+                                })
+                            });
+
+                            // Dispatch due tasks
+                            for (plugin_id, task_id, interval_ms, last_run) in &schedules {
+                                let key = (plugin_id.clone(), task_id.clone());
+                                if dispatched.contains(&key) {
+                                    continue;
+                                }
+                                let is_due = match last_run {
+                                    None => true,
+                                    Some(lr) => (now - lr) >= *interval_ms,
+                                };
+                                if is_due {
+                                    dispatched.insert(key);
+                                    let _ = app_handle.emit(
+                                        "plugin-scheduler-due",
+                                        serde_json::json!({
+                                            "pluginId": plugin_id,
+                                            "taskId": task_id,
+                                        }),
+                                    );
+                                }
+                            }
+                        }
+
+                        std::thread::sleep(Duration::from_secs(60));
+                    }
+                });
+            }
 
             // Restore window size/position from store before showing, to avoid IPC round-trips
             timer.time("restore_window", || {
