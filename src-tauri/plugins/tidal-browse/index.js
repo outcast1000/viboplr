@@ -56,98 +56,96 @@ function activate(api) {
       },
     ];
 
-    if (state.searchResults) {
-      var trackCount = (state.searchResults.tracks || []).length;
-      var albumCount = (state.searchResults.albums || []).length;
-      var artistCount = (state.searchResults.artists || []).length;
+    var trackCount = state.searchResults ? (state.searchResults.tracks || []).length : 0;
+    var albumCount = state.searchResults ? (state.searchResults.albums || []).length : 0;
+    var artistCount = state.searchResults ? (state.searchResults.artists || []).length : 0;
 
-      children.push({
-        type: "tabs",
-        tabs: [
-          { id: "tracks", label: "Tracks", count: trackCount },
-          { id: "albums", label: "Albums", count: albumCount },
-          { id: "artists", label: "Artists", count: artistCount },
-        ],
-        activeTab: state.activeTab,
-        action: "switch-tab",
-      });
+    children.push({
+      type: "tabs",
+      tabs: [
+        { id: "tracks", label: "Tracks", count: trackCount || undefined },
+        { id: "albums", label: "Albums", count: albumCount || undefined },
+        { id: "artists", label: "Artists", count: artistCount || undefined },
+      ],
+      activeTab: state.activeTab,
+      action: "switch-tab",
+    });
 
-      if (state.activeTab === "tracks") {
-        var tracks = state.searchResults.tracks || [];
-        if (tracks.length === 0) {
-          children.push({ type: "text", content: "No tracks found." });
-        } else {
-          children.push({
-            type: "track-row-list",
-            selectable: true,
-            actions: [
-              { id: "play-selected", label: "Play", icon: "\u25B6" },
-              { id: "queue-selected", label: "Queue", icon: "+" },
-              { id: "download-selected", label: "Download", icon: "\u2B07" },
-            ],
-            items: tracks.map(function (t) {
-              return {
-                id: "track:" + t.tidal_id,
-                title: t.title,
-                subtitle: (t.artist_name || "Unknown") + " \u2014 " + (t.album_title || ""),
-                imageUrl: coverUrl(t.cover_id, 160),
-                duration: formatDuration(t.duration_secs),
-                action: "play-track",
-              };
-            }),
-          });
-        }
-      } else if (state.activeTab === "albums") {
-        var albums = state.searchResults.albums || [];
-        if (albums.length === 0) {
-          children.push({ type: "text", content: "No albums found." });
-        } else {
-          children.push({
-            type: "card-grid",
-            items: albums.map(function (a) {
-              return {
-                id: "album:" + a.tidal_id,
-                title: a.title,
-                subtitle: (a.artist_name || "Unknown") + (a.year ? " - " + a.year : ""),
-                imageUrl: coverUrl(a.cover_id, 320),
-                action: "view-album",
-                targetKind: "album",
-                contextMenuActions: [
-                  { id: "play-playlist", label: "Play Album" },
-                  { id: "view-album", label: "View Album" },
-                  { id: "download-album-card", label: "Download Album" },
-                ],
-              };
-            }),
-          });
-        }
-      } else if (state.activeTab === "artists") {
-        var artists = state.searchResults.artists || [];
-        if (artists.length === 0) {
-          children.push({ type: "text", content: "No artists found." });
-        } else {
-          children.push({
-            type: "card-grid",
-            items: artists.map(function (a) {
-              return {
-                id: "artist:" + a.tidal_id,
-                title: a.name,
-                imageUrl: coverUrl(a.picture_id, 320),
-                action: "view-artist",
-                targetKind: "artist",
-                contextMenuActions: [
-                  { id: "view-artist", label: "View Artist" },
-                ],
-              };
-            }),
-          });
-        }
-      }
-    } else {
+    if (!state.searchResults) {
       children.push({
         type: "text",
         content: "Search TIDAL for tracks, albums, and artists.",
       });
+    } else if (state.activeTab === "tracks") {
+      var tracks = state.searchResults.tracks || [];
+      if (tracks.length === 0) {
+        children.push({ type: "text", content: "No tracks found." });
+      } else {
+        children.push({
+          type: "track-row-list",
+          selectable: true,
+          actions: [
+            { id: "play-selected", label: "Play", icon: "\u25B6" },
+            { id: "queue-selected", label: "Queue", icon: "+" },
+            { id: "download-selected", label: "Download", icon: "\u2B07" },
+          ],
+          items: tracks.map(function (t) {
+            return {
+              id: "track:" + t.tidal_id,
+              title: t.title,
+              subtitle: (t.artist_name || "Unknown") + " \u2014 " + (t.album_title || ""),
+              imageUrl: coverUrl(t.cover_id, 160),
+              duration: formatDuration(t.duration_secs),
+              action: "play-track",
+            };
+          }),
+        });
+      }
+    } else if (state.activeTab === "albums") {
+      var albums = state.searchResults.albums || [];
+      if (albums.length === 0) {
+        children.push({ type: "text", content: "No albums found." });
+      } else {
+        children.push({
+          type: "card-grid",
+          items: albums.map(function (a) {
+            return {
+              id: "album:" + a.tidal_id,
+              title: a.title,
+              subtitle: (a.artist_name || "Unknown") + (a.year ? " - " + a.year : ""),
+              imageUrl: coverUrl(a.cover_id, 320),
+              action: "view-album",
+              targetKind: "album",
+              contextMenuActions: [
+                { id: "play-playlist", label: "Play Album" },
+                { id: "view-album", label: "View Album" },
+                { id: "download-album-card", label: "Download Album" },
+              ],
+            };
+          }),
+        });
+      }
+    } else if (state.activeTab === "artists") {
+      var artists = state.searchResults.artists || [];
+      if (artists.length === 0) {
+        children.push({ type: "text", content: "No artists found." });
+      } else {
+        children.push({
+          type: "card-grid",
+          items: artists.map(function (a) {
+            return {
+              id: "artist:" + a.tidal_id,
+              title: a.name,
+              imageUrl: coverUrl(a.picture_id, 320),
+              action: "view-artist",
+              targetKind: "artist",
+              contextMenuActions: [
+                { id: "view-artist", label: "View Artist" },
+              ],
+            };
+          }),
+        });
+      }
     }
 
     api.ui.setViewData("tidal", {

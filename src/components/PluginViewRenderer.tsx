@@ -34,24 +34,35 @@ export function PluginViewRenderer({
     );
   }
 
-  // Hoist top-level search-input out of the scrollable area
-  let searchNode: PluginViewData | null = null;
+  // Hoist top-level search-input and tabs out of the scrollable area
+  const hoisted: PluginViewData[] = [];
   let contentData = data;
-  if (data.type === "layout" && data.direction === "vertical" && data.children.length > 0 && data.children[0].type === "search-input") {
-    searchNode = data.children[0];
-    contentData = { ...data, children: data.children.slice(1) };
+  if (data.type === "layout" && data.direction === "vertical") {
+    let i = 0;
+    while (i < data.children.length && (data.children[i].type === "search-input" || data.children[i].type === "tabs")) {
+      hoisted.push(data.children[i]);
+      i++;
+    }
+    if (hoisted.length > 0) {
+      contentData = { ...data, children: data.children.slice(i) };
+    }
   }
 
   return (
     <>
-      {searchNode && searchNode.type === "search-input" && (
-        <PluginSearchInput
-          placeholder={searchNode.placeholder}
-          action={searchNode.action}
-          value={searchNode.value}
+      {hoisted.map((node, i) => (
+        <PluginViewNode
+          key={i}
+          node={node}
+          currentTrack={currentTrack}
+          onPlayTrack={onPlayTrack}
           onAction={onAction}
+          onTrackContextMenu={onTrackContextMenu}
+          onTrackRowContextMenu={onTrackRowContextMenu}
+          pluginMenuItems={pluginMenuItems}
+          onPluginAction={onPluginAction}
         />
-      )}
+      ))}
       <div className="plugin-view">
         <div className="plugin-view-content">
           <PluginViewNode
@@ -626,16 +637,16 @@ function PluginTabs({
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
   return (
-    <div className="plugin-tabs">
+    <div className="ds-tabs">
       {tabs.map((tab) => (
         <button
           key={tab.id}
-          className={`plugin-tab${tab.id === activeTab ? " active" : ""}`}
+          className={`ds-tab${tab.id === activeTab ? " active" : ""}`}
           onClick={() => onAction?.(action, { tabId: tab.id })}
         >
           {tab.label}
           {tab.count != null && tab.count > 0 && (
-            <span className="plugin-tab-count">{tab.count}</span>
+            <span className="ds-tab-badge">{tab.count}</span>
           )}
         </button>
       ))}

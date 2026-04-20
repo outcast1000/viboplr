@@ -341,32 +341,6 @@
 }
 
 
-/* Plugin tabs */
-.plugin-tabs {
-  display: flex;
-  gap: 2px;
-  border-bottom: 1px solid var(--border);
-}
-
-.plugin-tab {
-  padding: 6px 14px;
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-  border: none;
-  background: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-
-.plugin-tab:hover {
-  color: var(--text-primary);
-}
-
-.plugin-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
 
 /* Plugin loading */
 .plugin-loading {
@@ -393,11 +367,6 @@
   to { transform: rotate(360deg); }
 }
 
-.plugin-tab-count {
-  font-size: var(--fs-2xs);
-  opacity: 0.6;
-  margin-left: 4px;
-}
 
 /* Plugin track row list */
 .ptr-toolbar {
