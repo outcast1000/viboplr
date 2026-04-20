@@ -134,7 +134,7 @@ function PluginViewNode({
         />
       );
     case "text":
-      return <PluginText content={node.content} />;
+      return <PluginText content={node.content} className={node.className} />;
     case "stats-grid":
       return <PluginStatsGrid items={node.items} />;
     case "button":
@@ -569,17 +569,17 @@ export function sanitizeHTML(html: string): string {
   });
 }
 
-function PluginText({ content }: { content: string }) {
-  // Check if content has HTML tags
+function PluginText({ content, className }: { content: string; className?: string }) {
+  const cls = className ? `plugin-text ${className}` : "plugin-text";
   if (/<[a-zA-Z]/.test(content)) {
     return (
       <div
-        className="plugin-text"
+        className={cls}
         dangerouslySetInnerHTML={{ __html: sanitizeHTML(content) }}
       />
     );
   }
-  return <div className="plugin-text">{content}</div>;
+  return <div className={cls}>{content}</div>;
 }
 
 // -- Stats Grid --

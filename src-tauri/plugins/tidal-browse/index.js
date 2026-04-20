@@ -75,11 +75,12 @@ function activate(api) {
       children.push({
         type: "text",
         content: "Search TIDAL for tracks, albums, and artists.",
+        className: "ds-empty",
       });
     } else if (state.activeTab === "tracks") {
       var tracks = state.searchResults.tracks || [];
       if (tracks.length === 0) {
-        children.push({ type: "text", content: "No tracks found." });
+        children.push({ type: "text", content: "No tracks found.", className: "ds-empty" });
       } else {
         children.push({
           type: "track-row-list",
@@ -104,7 +105,7 @@ function activate(api) {
     } else if (state.activeTab === "albums") {
       var albums = state.searchResults.albums || [];
       if (albums.length === 0) {
-        children.push({ type: "text", content: "No albums found." });
+        children.push({ type: "text", content: "No albums found.", className: "ds-empty" });
       } else {
         children.push({
           type: "card-grid",
@@ -128,7 +129,7 @@ function activate(api) {
     } else if (state.activeTab === "artists") {
       var artists = state.searchResults.artists || [];
       if (artists.length === 0) {
-        children.push({ type: "text", content: "No artists found." });
+        children.push({ type: "text", content: "No artists found.", className: "ds-empty" });
       } else {
         children.push({
           type: "card-grid",

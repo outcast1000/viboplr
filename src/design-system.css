@@ -434,6 +434,15 @@
   border-color: var(--accent);
 }
 
+/* ── Empty state ── */
+
+.ds-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--fs-base);
+}
+
 /* ── Tables ── */
 
 .ds-table {

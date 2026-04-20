@@ -173,7 +173,7 @@ export type PluginViewData =
       selectable?: boolean;
       actions?: { id: string; label: string; icon?: string }[];
     }
-  | { type: "text"; content: string }
+  | { type: "text"; content: string; className?: string }
   | { type: "stats-grid"; items: StatItem[] }
   | { type: "button"; label: string; action: string; variant?: "accent" | "secondary"; disabled?: boolean; style?: Record<string, string> }
   | {
