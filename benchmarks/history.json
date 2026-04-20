@@ -69,5 +69,40 @@
       {"name": "recompute_counts", "iterations": 3, "rounds": 3, "avg_ms": 56.975, "min_ms": 56.826, "max_ms": 57.102},
       {"name": "get_track_count", "iterations": 50, "rounds": 3, "avg_ms": 5.570, "min_ms": 5.565, "max_ms": 5.576}
     ]
+  },
+  {
+    "date": "2026-04-20T12:00:00Z",
+    "version": "0.9.21",
+    "commit": "53ad00b",
+    "results": [
+      {"name": "seed_database", "iterations": 1, "rounds": 1, "avg_ms": 7800.830, "min_ms": 7800.830, "max_ms": 7800.830},
+      {"name": "search_all(\"Artist 0042\")", "iterations": 50, "rounds": 3, "avg_ms": 4.299, "min_ms": 4.277, "max_ms": 4.330},
+      {"name": "search_all(\"Track 00100\")", "iterations": 50, "rounds": 3, "avg_ms": 3.241, "min_ms": 3.238, "max_ms": 3.249},
+      {"name": "search_all(\"Album 0300\")", "iterations": 50, "rounds": 3, "avg_ms": 4.250, "min_ms": 4.215, "max_ms": 4.275},
+      {"name": "search_all(\"Rock\")", "iterations": 50, "rounds": 3, "avg_ms": 0.599, "min_ms": 0.596, "max_ms": 0.601},
+      {"name": "search_all(\"Nonexistent Query XYZ\")", "iterations": 50, "rounds": 3, "avg_ms": 0.755, "min_ms": 0.735, "max_ms": 0.766},
+      {"name": "search_all(\"Art\")", "iterations": 50, "rounds": 3, "avg_ms": 12.113, "min_ms": 11.903, "max_ms": 12.249},
+      {"name": "search_all(\"trac title\")", "iterations": 50, "rounds": 3, "avg_ms": 5.627, "min_ms": 5.515, "max_ms": 5.838},
+      {"name": "search_all(\"music/artist_0001\")", "iterations": 50, "rounds": 3, "avg_ms": 0.609, "min_ms": 0.591, "max_ms": 0.630},
+      {"name": "get_tracks(\"Artist 0042\")", "iterations": 50, "rounds": 3, "avg_ms": 2.222, "min_ms": 2.212, "max_ms": 2.233},
+      {"name": "get_tracks(\"Track 00100\")", "iterations": 50, "rounds": 3, "avg_ms": 1.573, "min_ms": 1.560, "max_ms": 1.587},
+      {"name": "get_tracks(\"Album 0300\")", "iterations": 50, "rounds": 3, "avg_ms": 2.421, "min_ms": 2.247, "max_ms": 2.752},
+      {"name": "get_tracks(\"Rock\")", "iterations": 50, "rounds": 3, "avg_ms": 0.652, "min_ms": 0.650, "max_ms": 0.654},
+      {"name": "get_tracks(\"Nonexistent Query XYZ\")", "iterations": 50, "rounds": 3, "avg_ms": 0.279, "min_ms": 0.276, "max_ms": 0.282},
+      {"name": "get_tracks(\"Art\")", "iterations": 50, "rounds": 3, "avg_ms": 2.038, "min_ms": 2.020, "max_ms": 2.048},
+      {"name": "get_tracks(\"trac title\")", "iterations": 50, "rounds": 3, "avg_ms": 2.707, "min_ms": 2.657, "max_ms": 2.746},
+      {"name": "get_tracks(\"music/artist_0001\")", "iterations": 50, "rounds": 3, "avg_ms": 0.278, "min_ms": 0.273, "max_ms": 0.286},
+      {"name": "get_tracks(browse, page 1)", "iterations": 50, "rounds": 3, "avg_ms": 11.127, "min_ms": 9.888, "max_ms": 13.593},
+      {"name": "get_tracks(browse, page 100)", "iterations": 50, "rounds": 3, "avg_ms": 43.181, "min_ms": 42.440, "max_ms": 43.753},
+      {"name": "get_history_most_played(50)", "iterations": 50, "rounds": 3, "avg_ms": 8.180, "min_ms": 7.927, "max_ms": 8.613},
+      {"name": "get_history_most_played_since(50)", "iterations": 50, "rounds": 3, "avg_ms": 39.106, "min_ms": 38.820, "max_ms": 39.412},
+      {"name": "search_history_tracks(\"track\")", "iterations": 50, "rounds": 3, "avg_ms": 8.430, "min_ms": 8.365, "max_ms": 8.527},
+      {"name": "search_history_artists(\"artist\")", "iterations": 50, "rounds": 3, "avg_ms": 1.342, "min_ms": 1.326, "max_ms": 1.368},
+      {"name": "get_track_rank", "iterations": 50, "rounds": 3, "avg_ms": 3.497, "min_ms": 3.491, "max_ms": 3.509},
+      {"name": "get_artist_rank", "iterations": 50, "rounds": 3, "avg_ms": 0.308, "min_ms": 0.301, "max_ms": 0.316},
+      {"name": "rebuild_fts", "iterations": 3, "rounds": 3, "avg_ms": 431.469, "min_ms": 428.080, "max_ms": 435.834},
+      {"name": "recompute_counts", "iterations": 3, "rounds": 3, "avg_ms": 57.518, "min_ms": 53.887, "max_ms": 63.562},
+      {"name": "get_track_count", "iterations": 50, "rounds": 3, "avg_ms": 5.596, "min_ms": 5.530, "max_ms": 5.653}
+    ]
   }
 ]
