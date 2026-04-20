@@ -12,6 +12,8 @@ interface UseContextMenuActionsDeps {
     artists: Artist[];
     albums: Album[];
     setTracks: React.Dispatch<React.SetStateAction<Track[]>>;
+    loadLibrary: () => Promise<void>;
+    loadTracks: () => Promise<void>;
   };
   queueHook: {
     playTracks: (tracks: Track[], index: number, context?: { name: string; coverPath?: string | null; coverUrl?: string | null } | null) => void;
@@ -283,6 +285,8 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         if (playback.currentTrack && deletedSet.has(playback.currentTrack.id)) {
           playback.handleStop();
         }
+        library.loadLibrary();
+        library.loadTracks();
       }
       if (result.failures.length === trackIds.length) {
         setDeleteError({ message: `Failed to delete ${title}`, failures: result.failures });

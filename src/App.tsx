@@ -517,6 +517,8 @@ function App() {
       artists: library.artists,
       albums: library.albums,
       setTracks: library.setTracks,
+      loadLibrary: library.loadLibrary,
+      loadTracks: library.loadTracks,
     },
     queueHook: {
       playTracks: queueHook.playTracks,
