@@ -28,11 +28,16 @@ CREATE TABLE plugin_schedules (
 
 `AppState` holds a `PluginScheduler` with the schedule data. On app startup, after the frontend is ready, Rust loads all schedules from the DB and checks which are due (`now - last_run >= interval_ms` or `last_run IS NULL`). For each due task, it emits a Tauri event `plugin-scheduler-due` with `{ pluginId, taskId }`. A background thread re-checks periodically (every 60 seconds) for long-running app sessions.
 
+**Concurrency guard:** The Rust scheduler tracks a `dispatched: HashSet<(plugin_id, task_id)>` in memory. When emitting `plugin-scheduler-due`, it adds the task to the set and skips it on subsequent ticks. The entry is removed when `complete` is called. This prevents duplicate dispatches for long-running tasks.
+
+**Orphan cleanup:** When a plugin is uninstalled (`delete_user_plugin`), all its rows in `plugin_schedules` are deleted via `plugin_scheduler_unregister_all(pluginId)`. This prevents the scheduler from emitting events for plugins that no longer exist.
+
 ### Commands
 
 - `plugin_scheduler_register(pluginId, taskId, intervalMs)` — upsert into `plugin_schedules`
 - `plugin_scheduler_unregister(pluginId, taskId)` — delete from `plugin_schedules`
-- `plugin_scheduler_complete(pluginId, taskId)` — update `last_run` to current timestamp
+- `plugin_scheduler_unregister_all(pluginId)` — delete all schedules for a plugin (called on plugin uninstall)
+- `plugin_scheduler_complete(pluginId, taskId)` — update `last_run` to current timestamp, returns `bool` indicating whether the schedule existed
 
 ### Frontend API
 
@@ -47,7 +52,7 @@ interface PluginSchedulerAPI {
 
 Added to `ViboplrPluginAPI` as `api.scheduler`.
 
-`usePlugins` listens for `plugin-scheduler-due` events and dispatches to the matching plugin's registered `onDue` handler. Handlers are cleared on plugin deactivation. Schedule rows persist in the DB across restarts.
+`usePlugins` listens for `plugin-scheduler-due` events and dispatches to the matching plugin's registered `onDue` handler. Each plugin may register one handler per `taskId`; subsequent calls for the same `taskId` replace the previous handler. Handlers are cleared on plugin deactivation. Schedule rows persist in the DB across restarts.
 
 ## 2. Plugin Badge API
 
@@ -81,7 +86,7 @@ setBadge(viewId: string, badge: PluginBadge): void;
 
 ### On Plugin Activation
 
-1. Restore saved state from `api.storage.get("spotify_browse_state")`
+1. Restore saved state: try `api.storage.get("spotify_browse_state")`. If not found, check for legacy key `api.storage.get("spotify_browse_playlists")` and migrate its `{ playlists, tracks, savedAt }` into the new format `{ playlists, playlistTracks: tracks, savedAt, archivedIds: [] }`, then delete the legacy key.
 2. Register scheduler: `api.scheduler.register("auto-refresh", 86400000)` (24h)
 3. Register handler: `api.scheduler.onDue("auto-refresh", silentRefresh)`
 
@@ -97,6 +102,8 @@ setBadge(viewId: string, badge: PluginBadge): void;
 8. Close browse window
 
 No visible UI changes during auto-refresh. Errors are silent except for the badge.
+
+**Cookie persistence note:** The hidden browse window relies on Spotify session cookies to skip login. Tauri's webview shares a persistent cookie store across all browse windows, so a previous manual login persists. However, Spotify sessions expire over time — if the session has expired, the auto-refresh will fail and show an error badge, prompting the user to re-login via manual refresh.
 
 ### Manual Refresh
 
@@ -179,7 +186,7 @@ spotify_browse_archive_index → [
   ...
 ]
 
-spotify_browse_archive:{uuid} → {
+spotify_browse_archive:{id} → {
   name: string,               // e.g. "Discover Weekly — Apr 14, 2026"
   playlistId: string,
   date: string,               // ISO date
@@ -187,11 +194,16 @@ spotify_browse_archive:{uuid} → {
 }
 ```
 
-Index is a flat list for cheap rendering. Individual snapshots stored separately so loading the list doesn't pull all track data.
+Index is a flat list for cheap rendering. Individual snapshots stored separately so loading the list doesn't pull all track data. Archive IDs are generated as `Date.now().toString(36) + Math.random().toString(36).slice(2)` (sufficient for local uniqueness).
+
+### Plugin Local State
+
+The plugin maintains session-only state for UI indicators:
+- `updatedPlaylistIds: Set<string>` — playlist IDs whose tracks changed in the last refresh. Populated during change detection, cleared per-playlist when the user navigates to that playlist's detail view. Not persisted.
 
 ### Deleting Archived Playlists
 
-Remove the entry from `spotify_browse_archive_index` and delete the corresponding `spotify_browse_archive:{uuid}` storage key.
+Remove the entry from `spotify_browse_archive_index` and delete the corresponding `spotify_browse_archive:{id}` storage key.
 
 ## 6. UI Changes
 
@@ -215,7 +227,9 @@ Remove the entry from `spotify_browse_archive_index` and delete the correspondin
 |---|---|
 | `src-tauri/src/db.rs` | `plugin_schedules` table, CRUD functions, migration |
 | `src-tauri/src/commands.rs` | `plugin_scheduler_register`, `plugin_scheduler_unregister`, `plugin_scheduler_complete` commands |
+| `src-tauri/src/models.rs` | `PluginSchedulerDue` event payload struct |
 | `src-tauri/src/lib.rs` | Register commands, spawn scheduler background thread, emit events |
+| `src-tauri/src/plugins.rs` | Call `plugin_scheduler_unregister_all` in `delete_user_plugin` |
 | `src/types/plugin.ts` | `PluginBadge` type, `PluginSchedulerAPI` interface, add to `ViboplrPluginAPI` |
 | `src/hooks/usePlugins.ts` | Implement `setBadge` + badge state map, implement scheduler API in `buildAPI`, listen for `plugin-scheduler-due` |
 | `src/components/Sidebar.tsx` | Read badge state from usePlugins, render dot/pill |
