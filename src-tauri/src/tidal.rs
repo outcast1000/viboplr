@@ -5,9 +5,7 @@ use std::fmt;
 use std::sync::Mutex;
 use std::time::Instant;
 
-use crate::models::{
-    TidalAlbumDetail, TidalSearchTrack,
-};
+use crate::models::TidalSearchTrack;
 
 // --- Global access for image providers (which lack AppState) ---
 
@@ -298,54 +296,6 @@ impl TidalClient {
         }
     }
 
-    /// Get album detail with full track listing.
-    pub fn get_album(&self, id: &str) -> Result<TidalAlbumDetail, TidalError> {
-        let json = self.get_json(&format!("/album/?id={}", id))?;
-        let data = &json["data"];
-        let album_data = if data["album"].is_object() {
-            &data["album"]
-        } else {
-            data
-        };
-
-        let tracks = data["items"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|item| {
-                        let t = &item["item"];
-                        if t.is_null() {
-                            None
-                        } else {
-                            Some(parse_track(t))
-                        }
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        Ok(TidalAlbumDetail {
-            tidal_id: album_data["id"]
-                .as_i64()
-                .map(|n| n.to_string())
-                .unwrap_or_default(),
-            title: album_data["title"]
-                .as_str()
-                .unwrap_or("Unknown")
-                .to_string(),
-            artist_name: album_data["artists"]
-                .as_array()
-                .and_then(|arr| arr.first())
-                .and_then(|a| a["name"].as_str())
-                .map(|s| s.to_string()),
-            cover_id: album_data["cover"].as_str().map(|s| s.to_string()),
-            year: album_data["releaseDate"]
-                .as_str()
-                .and_then(|d| d.split('-').next())
-                .and_then(|y| y.parse().ok()),
-            tracks,
-        })
-    }
 
 }
 
