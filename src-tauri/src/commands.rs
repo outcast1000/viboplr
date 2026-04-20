@@ -1600,9 +1600,26 @@ pub async fn tidal_get_stream_url(
     quality: Option<String>,
 ) -> Result<String, String> {
     let client = state.tidal_client.clone();
+    let db = state.db.clone();
     tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let resolved_quality = match quality {
+            Some(q) => q,
+            None => {
+                let stored = db.plugin_storage_get("tidal-browse", "streaming_quality")
+                    .ok()
+                    .flatten()
+                    .map(|v| v.trim_matches('"').to_string());
+                match stored.as_deref() {
+                    Some("LOW") => "LOW".to_string(),
+                    Some("HIGH") => "HIGH".to_string(),
+                    Some("LOSSLESS") => "LOSSLESS".to_string(),
+                    Some("HI_RES_LOSSLESS") => "HI_RES_LOSSLESS".to_string(),
+                    _ => "HIGH".to_string(),
+                }
+            }
+        };
         let info = client
-            .get_stream_url(&tidal_track_id, quality.as_deref().unwrap_or("LOSSLESS"))
+            .get_stream_url(&tidal_track_id, &resolved_quality)
             .map_err(|e| e.to_string())?;
         Ok(info.url)
     }).await.map_err(|e| e.to_string())?
