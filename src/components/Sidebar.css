@@ -54,6 +54,7 @@
 }
 
 .nav-btn {
+  position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -127,5 +128,34 @@
   opacity: 0;
   transition: opacity 0.15s;
   font-size: var(--fs-base);
+}
+
+.plugin-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+.plugin-badge-count {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 1px 5px;
+  border-radius: 8px;
+  color: white;
+}
+
+.plugin-badge--accent {
+  background: var(--accent);
+}
+
+.plugin-badge--error {
+  background: var(--error);
 }
 

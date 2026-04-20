@@ -1,6 +1,6 @@
 import { useRef, useEffect, type ReactNode } from "react";
 import type { View } from "../types";
-import type { PluginSidebarItem } from "../types/plugin";
+import type { PluginSidebarItem, PluginBadge } from "../types/plugin";
 import "./Sidebar.css";
 
 const iconProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
@@ -57,6 +57,7 @@ interface SidebarProps {
   updateAvailable: boolean;
   pluginNavItems?: PluginSidebarItem[];
   onPluginView?: (pluginId: string, viewId: string) => void;
+  badgeMap?: Map<string, PluginBadge>;
 }
 
 export function Sidebar({
@@ -68,6 +69,7 @@ export function Sidebar({
   updateAvailable,
   pluginNavItems,
   onPluginView,
+  badgeMap,
 }: SidebarProps) {
   const navRef = useRef<HTMLElement>(null);
   const indicatorRef = useRef<HTMLDivElement>(null);
@@ -120,6 +122,21 @@ export function Sidebar({
                   <span className="nav-btn-label">
                     <PluginIcon name={item.icon} /> {!collapsed && item.label}
                   </span>
+                  {(() => {
+                    const badge = badgeMap?.get(`${item.pluginId}:${item.id}`);
+                    if (!badge) return null;
+                    if (badge.type === "dot") {
+                      return <span className={`plugin-badge-dot plugin-badge--${badge.variant}`} />;
+                    }
+                    if (badge.type === "count") {
+                      return (
+                        <span className={`plugin-badge-count plugin-badge--${badge.variant}`}>
+                          {badge.value > 99 ? "99+" : badge.value}
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
                 </button>
               );
             })}

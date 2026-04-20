@@ -294,12 +294,18 @@ export interface PluginContextMenuAPI {
   ): void;
 }
 
+export type PluginBadge =
+  | null
+  | { type: "dot"; variant: "accent" | "error" }
+  | { type: "count"; value: number; variant: "accent" | "error" };
+
 export interface PluginUIAPI {
   setViewData(viewId: string, data: PluginViewData): void;
   showNotification(message: string): void;
   onAction(actionId: string, handler: (data: unknown) => void): void;
   navigateToView(viewId: string): void;
   requestAction(action: string, payload: Record<string, unknown>): void;
+  setBadge(viewId: string, badge: PluginBadge): void;
 }
 
 export interface PluginStorageAPI {
@@ -399,6 +405,13 @@ export interface PluginPlaylistsAPI {
   }>>;
 }
 
+export interface PluginSchedulerAPI {
+  register(taskId: string, intervalMs: number): Promise<void>;
+  unregister(taskId: string): Promise<void>;
+  complete(taskId: string): Promise<boolean>;
+  onDue(taskId: string, handler: () => void): () => void;
+}
+
 export interface ViboplrPluginAPI {
   library: PluginLibraryAPI;
   playback: PluginPlaybackAPI;
@@ -411,6 +424,7 @@ export interface ViboplrPluginAPI {
   playlists: PluginPlaylistsAPI;
   informationTypes: PluginInformationTypesAPI;
   imageProviders: PluginImageProvidersAPI;
+  scheduler: PluginSchedulerAPI;
 }
 
 // -- Gallery types --

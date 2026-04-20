@@ -15,6 +15,7 @@ import type {
   PluginSettingsPanel,
   PluginViewData,
   PluginContextMenuTarget,
+  PluginBadge,
   ViboplrPluginAPI,
   PluginEventName,
   TidalSearchTrackLike,
@@ -55,6 +56,7 @@ interface LoadedPlugin {
   infoFetchHandlers: Map<string, (entity: InfoEntity) => Promise<InfoFetchResult>>;
   imageFetchHandlers: Map<string, (name: string, artistName?: string) => Promise<ImageFetchResult>>;
   fallbackResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>>;
+  schedulerHandlers: Map<string, () => void>;
 }
 
 type EventHandlers = {
@@ -115,6 +117,8 @@ export function usePlugins(
   });
   const enabledPluginsRef = useRef<Set<string>>(new Set());
   const viewDataRef = useRef<Map<string, PluginViewData>>(new Map());
+  const badgeMapRef = useRef<Map<string, PluginBadge>>(new Map());
+  const [badgeMap, setBadgeMap] = useState<Map<string, PluginBadge>>(new Map());
 
   // Build the curated API for a specific plugin
   const buildAPI = useCallback(
@@ -262,6 +266,15 @@ export function usePlugins(
           },
           onAction: (actionId, handler) => {
             loaded.uiActionHandlers.set(actionId, handler);
+          },
+          setBadge: (viewId: string, badge: PluginBadge) => {
+            const key = `${pluginId}:${viewId}`;
+            if (badge === null) {
+              badgeMapRef.current.delete(key);
+            } else {
+              badgeMapRef.current.set(key, badge);
+            }
+            setBadgeMap(new Map(badgeMapRef.current));
           },
         },
 
@@ -586,6 +599,22 @@ export function usePlugins(
             return unsub;
           },
         },
+
+        scheduler: {
+          async register(taskId: string, intervalMs: number): Promise<void> {
+            await invoke("plugin_scheduler_register", { pluginId, taskId, intervalMs });
+          },
+          async unregister(taskId: string): Promise<void> {
+            await invoke("plugin_scheduler_unregister", { pluginId, taskId });
+          },
+          async complete(taskId: string): Promise<boolean> {
+            return await invoke<boolean>("plugin_scheduler_complete", { pluginId, taskId });
+          },
+          onDue(taskId: string, handler: () => void): () => void {
+            loaded.schedulerHandlers.set(taskId, handler);
+            return () => { loaded.schedulerHandlers.delete(taskId); };
+          },
+        },
       };
     },
     [currentTrackRef, playingRef, positionRef],
@@ -605,6 +634,23 @@ export function usePlugins(
       }
     });
     return () => { unlisten.then(f => f()); };
+  }, []);
+
+  // Listen for scheduler due events from the Rust backend
+  useEffect(() => {
+    const unlisten = listen<{ pluginId: string; taskId: string }>(
+      "plugin-scheduler-due",
+      (event) => {
+        const { pluginId, taskId } = event.payload;
+        const loaded = loadedPluginsRef.current.get(pluginId);
+        if (!loaded) return;
+        const handler = loaded.schedulerHandlers.get(taskId);
+        if (handler) {
+          try { handler(); } catch (e) { console.error(`Scheduler handler error [${pluginId}:${taskId}]:`, e); }
+        }
+      }
+    );
+    return () => { unlisten.then(fn => fn()); };
   }, []);
 
   // Deactivate and clean up a single plugin
@@ -632,6 +678,7 @@ export function usePlugins(
     loaded.infoFetchHandlers.clear();
     loaded.imageFetchHandlers.clear();
     loaded.fallbackResolveHandlers.clear();
+    loaded.schedulerHandlers.clear();
 
     // Clear view data for this plugin
     for (const key of viewDataRef.current.keys()) {
@@ -640,6 +687,14 @@ export function usePlugins(
       }
     }
     setViewData(new Map(viewDataRef.current));
+
+    // Clear badges for this plugin
+    for (const key of badgeMapRef.current.keys()) {
+      if (key.startsWith(`${pluginId}:`)) {
+        badgeMapRef.current.delete(key);
+      }
+    }
+    setBadgeMap(new Map(badgeMapRef.current));
 
     loadedPluginsRef.current.delete(pluginId);
   }, []);
@@ -660,6 +715,7 @@ export function usePlugins(
         infoFetchHandlers: new Map(),
         imageFetchHandlers: new Map(),
         fallbackResolveHandlers: new Map(),
+        schedulerHandlers: new Map(),
       };
 
       try {
@@ -1106,6 +1162,7 @@ export function usePlugins(
     settingsPanels,
     viewData,
     getViewData,
+    badgeMap,
     dispatchEvent,
     dispatchContextMenuAction,
     dispatchUIAction,

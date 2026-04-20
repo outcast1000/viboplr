@@ -1665,6 +1665,7 @@ function App() {
         updateAvailable={updater.updateState.available !== null}
         extensionUpdateCount={extensionsHook.updateCount}
         pluginNavItems={plugins.sidebarItems}
+        badgeMap={plugins.badgeMap}
         onPluginView={(pluginId, viewId) => {
           library.setView(`plugin:${pluginId}:${viewId}`);
           library.setSelectedArtist(null);
