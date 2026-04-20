@@ -17,11 +17,12 @@ function activate(api) {
     errorMessage: "",
     browserVisible: false,
     debugLog: [],
-    showDebugLog: false,
+    activeTab: "home",
     lastLoginCheck: null,
     archivedIds: [],
     updatedPlaylistIds: {},
     refreshing: false,
+    showBrowserOnRefresh: false,
     savedAt: null,
     archiveIndex: [],
     refreshSummary: "",
@@ -39,7 +40,6 @@ function activate(api) {
   function dbg(tag, msg, data) {
     var ts = new Date().toLocaleTimeString();
     state.debugLog.push({ ts: ts, tag: tag, msg: msg, data: data });
-    if (state.debugLog.length > 200) state.debugLog.shift();
     console.log("[spotify-dbg]", tag, msg, data !== undefined ? data : "");
   }
 
@@ -105,6 +105,13 @@ function activate(api) {
 
   // ---- Render ----
 
+  function render() {
+    if (state.currentView === "playlist") { renderPlaylist(); return; }
+    if (state.currentView === "archive-detail") { renderArchiveDetail(); return; }
+    if (state.activeTab === "debug") { renderDebugLog(); return; }
+    renderHome();
+  }
+
   function renderHome() {
     api.ui.setBadge("spotify", null);
     var ch = [];
@@ -169,7 +176,7 @@ function activate(api) {
           { type: "text", content: "<h3 style='margin:0'>Made for You</h3>" },
           { type: "text", content: "<span style='opacity:0.5;font-size:var(--fs-xs)'>" + state.playlists.length + " playlists</span>" },
           { type: "button", label: state.refreshing ? "Refreshing\u2026" : "Refresh", action: "manual-refresh", disabled: state.refreshing, variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
-          { type: "button", label: "Refresh", action: "open-spotify", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
+          { type: "toggle", label: "Show browser", checked: state.showBrowserOnRefresh, action: "toggle-show-browser" },
         ]
       });
       if (state.refreshSummary) {
@@ -236,53 +243,15 @@ function activate(api) {
       });
     }
 
-    ch.push({ type: "spacer" });
-    ch.push({
-      type: "layout", direction: "horizontal", children: [
-        { type: "button", label: state.showDebugLog ? "Hide Debug Log" : "Debug Log" + (state.debugLog.length > 0 ? " (" + state.debugLog.length + ")" : ""), action: "toggle-debug-log", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
-        state.showDebugLog && state.debugLog.length > 0 ? { type: "button", label: "Copy Log", action: "copy-debug-log", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } } : { type: "spacer" },
-        state.showDebugLog && state.debugLog.length > 0 ? { type: "button", label: "Clear", action: "clear-debug-log", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } } : { type: "spacer" },
+    api.ui.setViewData("spotify", {
+      type: "layout", direction: "vertical", children: [
+        { type: "tabs", activeTab: "home", action: "switch-tab", tabs: [
+          { id: "home", label: "Playlists" },
+          { id: "debug", label: "Debug Log", count: state.debugLog.length || undefined },
+        ]},
+        { type: "layout", direction: "vertical", children: ch },
       ]
     });
-
-    if (state.showDebugLog && state.debugLog.length > 0) {
-      var tagBg = {
-        flow: "#2a4a6a", login: "#2a5a2a", m4y: "#5a4a1a", playlists: "#4a2a5a",
-        tracks: "#1a4a4a", error: "#5a1a1a", msg: "#3a3a3a"
-      };
-      var logHtml = "";
-      for (var li = 0; li < state.debugLog.length; li++) {
-        var e = state.debugLog[li];
-        var bg = tagBg[e.tag] || "#333";
-        logHtml += "<div style='padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.06);" +
-          (e.tag === "error" ? "background:rgba(255,50,50,0.1);" : "") + "'>";
-        logHtml += "<span style='opacity:0.4;font-size:10px'>" + escapeHtml(e.ts) + "</span> ";
-        logHtml += "<span style='background:" + bg + ";padding:1px 6px;border-radius:3px;font-size:10px;font-weight:bold'>" +
-          escapeHtml(e.tag.toUpperCase()) + "</span> ";
-        logHtml += escapeHtml(e.msg);
-        if (e.data !== undefined) {
-          var raw = formatDebugData(e.data);
-          if (raw.length > 80) {
-            logHtml += "<pre style='margin:4px 0 2px 0;padding:6px 8px;background:rgba(0,0,0,0.3);" +
-              "border-radius:4px;font-size:10px;white-space:pre-wrap;word-break:break-all;" +
-              "user-select:text;-webkit-user-select:text;cursor:text;max-height:200px;overflow:auto'>" +
-              escapeHtml(raw) + "</pre>";
-          } else {
-            logHtml += " <span style='opacity:0.6'>" + escapeHtml(raw) + "</span>";
-          }
-        }
-        logHtml += "</div>";
-      }
-      ch.push({ type: "text", content:
-        "<div style='font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.4;" +
-        "max-height:500px;overflow:auto;background:rgba(0,0,0,0.25);border-radius:6px;" +
-        "user-select:text;-webkit-user-select:text;cursor:text;border:1px solid rgba(255,255,255,0.08)'>" +
-        logHtml +
-        "</div>"
-      });
-    }
-
-    api.ui.setViewData("spotify", { type: "layout", direction: "vertical", children: ch });
   }
 
   function renderPlaylist() {
@@ -353,6 +322,66 @@ function activate(api) {
     }
 
     api.ui.setViewData("spotify", { type: "layout", direction: "vertical", children: ch });
+  }
+
+  function renderDebugLog() {
+    var ch = [];
+
+    if (state.debugLog.length > 0) {
+      ch.push({
+        type: "layout", direction: "horizontal", children: [
+          { type: "button", label: "Copy Log", action: "copy-debug-log", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
+          { type: "button", label: "Clear", action: "clear-debug-log", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
+        ]
+      });
+
+      var tagBg = {
+        flow: "#2a4a6a", login: "#2a5a2a", m4y: "#5a4a1a", playlists: "#4a2a5a",
+        tracks: "#1a4a4a", error: "#5a1a1a", msg: "#3a3a3a"
+      };
+      var logHtml = "";
+      for (var li = 0; li < state.debugLog.length; li++) {
+        var e = state.debugLog[li];
+        var bg = tagBg[e.tag] || "#333";
+        logHtml += "<div style='padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.06);" +
+          (e.tag === "error" ? "background:rgba(255,50,50,0.1);" : "") + "'>";
+        logHtml += "<span style='opacity:0.4;font-size:10px'>" + escapeHtml(e.ts) + "</span> ";
+        logHtml += "<span style='background:" + bg + ";padding:1px 6px;border-radius:3px;font-size:10px;font-weight:bold'>" +
+          escapeHtml(e.tag.toUpperCase()) + "</span> ";
+        logHtml += escapeHtml(e.msg);
+        if (e.data !== undefined) {
+          var raw = formatDebugData(e.data);
+          if (raw.length > 80) {
+            logHtml += "<pre style='margin:4px 0 2px 0;padding:6px 8px;background:rgba(0,0,0,0.3);" +
+              "border-radius:4px;font-size:10px;white-space:pre-wrap;word-break:break-all;" +
+              "user-select:text;-webkit-user-select:text;cursor:text;max-height:200px;overflow:auto'>" +
+              escapeHtml(raw) + "</pre>";
+          } else {
+            logHtml += " <span style='opacity:0.6'>" + escapeHtml(raw) + "</span>";
+          }
+        }
+        logHtml += "</div>";
+      }
+      ch.push({ type: "text", content:
+        "<div style='font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.4;" +
+        "max-height:500px;overflow:auto;background:rgba(0,0,0,0.25);border-radius:6px;" +
+        "user-select:text;-webkit-user-select:text;cursor:text;border:1px solid rgba(255,255,255,0.08)'>" +
+        logHtml +
+        "</div>"
+      });
+    } else {
+      ch.push({ type: "text", content: "<p style='opacity:0.5'>No debug log entries yet.</p>" });
+    }
+
+    api.ui.setViewData("spotify", {
+      type: "layout", direction: "vertical", children: [
+        { type: "tabs", activeTab: "debug", action: "switch-tab", tabs: [
+          { id: "home", label: "Playlists" },
+          { id: "debug", label: "Debug Log", count: state.debugLog.length || undefined },
+        ]},
+        { type: "layout", direction: "vertical", children: ch },
+      ]
+    });
   }
 
   // ---- Injected scripts (plain strings for eval) ----
@@ -648,13 +677,13 @@ function activate(api) {
         state.status = "error";
         state.errorMessage = "Browser window was closed. Click Try Again to restart.";
       }
-      renderHome();
+      render();
       return;
     }
 
     if (t === "debug" && d) {
       dbg(d.tag || "browse", d.msg || "", d.data);
-      renderHome();
+      render();
       return;
     }
 
@@ -666,11 +695,11 @@ function activate(api) {
         if (loginPoll) { clearInterval(loginPoll); loginPoll = null; }
         dbg("flow", "login detected, finding Made for You in 2s");
         state.status = "finding-made-for-you";
-        renderHome();
+        render();
         madeForYouRetries = 0;
         setTimeout(findMadeForYouLink, 2000);
       } else {
-        renderHome();
+        render();
       }
     }
 
@@ -679,7 +708,7 @@ function activate(api) {
       if (madeForYouTimer) { clearTimeout(madeForYouTimer); madeForYouTimer = null; }
       setTimeout(function() {
         state.status = "scraping-playlists";
-        renderHome();
+        render();
         beginPlaylistScrape();
       }, 4000);
     }
@@ -693,7 +722,7 @@ function activate(api) {
         dbg("flow", "playlists received", { count: d.length, names: d.map(function(p) { return p.name; }) });
         state.playlists = d;
         if (playlistRetryTimer) { clearTimeout(playlistRetryTimer); playlistRetryTimer = null; }
-        renderHome();
+        render();
         beginTrackScrape();
       } else {
         dbg("flow", "no playlists found, retrying", { retry: playlistRetries + 1 });
@@ -713,7 +742,7 @@ function activate(api) {
         dbg("flow", "WARNING: 0 tracks scraped for " + d.playlistId);
       }
       state.playlistTracks[d.playlistId] = d.tracks || [];
-      renderHome();
+      render();
       trackBusy = false;
       scrapeNextTrackPage();
     }
@@ -736,7 +765,7 @@ function activate(api) {
       dbg("flow", "GAVE UP finding Made for You");
       state.status = "error";
       state.errorMessage = "Could not find a \u201cMade for You\u201d link on the Spotify home page. Try scrolling the browse window and clicking Refresh.";
-      renderHome();
+      render();
       return;
     }
     madeForYouTimer = setTimeout(findMadeForYouLink, 2000);
@@ -760,7 +789,7 @@ function activate(api) {
       dbg("flow", "GAVE UP scraping playlists", { hadPlaylists: state.playlists.length });
       state.status = state.playlists.length > 0 ? "done" : "error";
       state.errorMessage = "Could not find any playlists on the Made for You page.";
-      renderHome();
+      render();
       cleanup();
       return;
     }
@@ -772,7 +801,7 @@ function activate(api) {
     state.scrapeProgress = { current: 0, total: trackQueue.length, name: "" };
     state.status = "scraping-tracks";
     trackBusy = false;
-    renderHome();
+    render();
     scrapeNextTrackPage();
   }
 
@@ -780,7 +809,7 @@ function activate(api) {
     if (trackQueue.length === 0) {
       dbg("flow", "=== ALL PLAYLISTS DONE ===", { playlistCount: state.playlists.length, trackCounts: Object.keys(state.playlistTracks).map(function(k) { return k + ": " + (state.playlistTracks[k] || []).length; }) });
       state.status = "done";
-      renderHome();
+      render();
       saveState();
       cleanup();
       return;
@@ -794,7 +823,7 @@ function activate(api) {
     state.scrapeProgress.current++;
     state.scrapeProgress.name = pl.name;
     dbg("flow", "navigating to playlist " + state.scrapeProgress.current + "/" + state.scrapeProgress.total, { id: pl.id, name: pl.name, remaining: trackQueue.length, gen: gen });
-    renderHome();
+    render();
 
     if (browseHandle) {
       browseHandle.eval(scriptNavigatePlaylist(pl.id));
@@ -819,7 +848,7 @@ function activate(api) {
 
   // ---- Standalone scrape (for refresh) ----
 
-  function performScrape(showProgress) {
+  function performScrape(showProgress, visible) {
     return new Promise(function(resolve, reject) {
       var result = { playlists: [], tracks: {} };
       var handle = null;
@@ -850,7 +879,7 @@ function activate(api) {
         title: "Spotify",
         width: 1200,
         height: 800,
-        visible: false,
+        visible: !!visible,
       }).then(function(h) {
         handle = h;
         var loginRetries = 0;
@@ -866,10 +895,19 @@ function activate(api) {
             return;
           }
 
+          if (t === "debug" && d) {
+            dbg(d.tag || "browse", d.msg || "", d.data);
+            render();
+            return;
+          }
+
+          dbg("msg", t, d);
+          render();
+
           if (t === "login-check" && d) {
             if (d.loggedIn) {
               if (timer) { clearInterval(timer); timer = null; }
-              if (showProgress) { state.status = "finding-made-for-you"; renderHome(); }
+              if (showProgress) { state.status = "finding-made-for-you"; render(); }
               m4yRetries = 0;
               setTimeout(function tryM4Y() {
                 m4yRetries++;
@@ -887,7 +925,7 @@ function activate(api) {
           }
 
           if (t === "made-for-you-found") {
-            if (showProgress) { state.status = "scraping-playlists"; renderHome(); }
+            if (showProgress) { state.status = "scraping-playlists"; render(); }
             setTimeout(function tryPl() {
               plRetries++;
               h.eval(SCRIPT_SCRAPE_PLAYLISTS);
@@ -910,7 +948,7 @@ function activate(api) {
             if (showProgress) {
               state.status = "scraping-tracks";
               state.scrapeProgress = { current: 0, total: trackList.length, name: "" };
-              renderHome();
+              render();
             }
             scrapeNext();
             return;
@@ -934,7 +972,7 @@ function activate(api) {
           trackIdx++;
           if (showProgress) {
             state.scrapeProgress = { current: trackIdx, total: trackList.length, name: pl.name };
-            renderHome();
+            render();
           }
           h.eval(scriptNavigatePlaylist(pl.id));
           setTimeout(function() {
@@ -947,7 +985,7 @@ function activate(api) {
         }
 
         // Phase 1: poll login
-        if (showProgress) { state.status = "waiting-login"; renderHome(); }
+        if (showProgress) { state.status = "waiting-login"; render(); }
         timer = setInterval(function() {
           loginRetries++;
           if (loginRetries > 10) {
@@ -1038,7 +1076,7 @@ function activate(api) {
       }
       api.scheduler.complete("auto-refresh").catch(console.error);
       state.status = "done";
-      renderHome();
+      render();
     }).catch(function(err) {
       state.refreshing = false;
       console.error("Silent refresh failed:", err);
@@ -1057,7 +1095,7 @@ function activate(api) {
     state.status = "waiting-login";
     state.errorMessage = "";
     dbg("flow", "opening Spotify browse window");
-    renderHome();
+    render();
 
     state.browserVisible = false;
     var loginPollCount = 0;
@@ -1093,7 +1131,7 @@ function activate(api) {
               '}' +
             '})()'
           );
-          renderHome();
+          render();
         }
       }, 2000);
 
@@ -1106,7 +1144,7 @@ function activate(api) {
           } catch(e) {
             dbg("error", "eval SCRIPT_CHECK_LOGIN threw", { error: "" + e });
           }
-          renderHome();
+          render();
         }
       }, 3000);
 
@@ -1118,14 +1156,14 @@ function activate(api) {
           } catch(e) {
             dbg("error", "first eval threw", { error: "" + e });
           }
-          renderHome();
+          render();
         }
       }, 3000);
     }).catch(function(err) {
       dbg("error", "openBrowseWindow failed", { error: "" + (err.message || err) });
       state.status = "error";
       state.errorMessage = "Failed to open browser: " + (err.message || err);
-      renderHome();
+      render();
     });
   });
 
@@ -1145,21 +1183,22 @@ function activate(api) {
         state.status = "error";
         state.errorMessage = "Browser window was closed. Click Try Again to restart.";
       }
-      renderHome();
+      render();
     });
-    renderHome();
+    render();
   });
 
   api.ui.onAction("cancel", function() {
     cleanup();
     resetTimers();
     state.status = "idle";
-    renderHome();
+    render();
   });
 
-  api.ui.onAction("toggle-debug-log", function() {
-    state.showDebugLog = !state.showDebugLog;
-    if (state.currentView === "home") renderHome(); else renderPlaylist();
+  api.ui.onAction("switch-tab", function(data) {
+    if (!data || !data.tabId) return;
+    state.activeTab = data.tabId;
+    render();
   });
 
   api.ui.onAction("copy-debug-log", function() {
@@ -1184,13 +1223,14 @@ function activate(api) {
 
   api.ui.onAction("clear-debug-log", function() {
     state.debugLog = [];
-    if (state.currentView === "home") renderHome(); else renderPlaylist();
+    renderDebugLog();
   });
 
   api.ui.onAction("go-home", function() {
     state.currentPlaylist = null;
     state.currentView = "home";
-    renderHome();
+    state.activeTab = "home";
+    render();
   });
 
   api.ui.onAction("view-playlist", function(data) {
@@ -1383,7 +1423,7 @@ function activate(api) {
       state.archiveIndex = filtered;
       return api.storage.set("spotify_browse_archive_index", filtered);
     }).then(function() {
-      renderHome();
+      render();
     }).catch(console.error);
   });
 
@@ -1400,20 +1440,25 @@ function activate(api) {
     renderPlaylist();
   });
 
+  api.ui.onAction("toggle-show-browser", function() {
+    state.showBrowserOnRefresh = !state.showBrowserOnRefresh;
+    render();
+  });
+
   api.ui.onAction("manual-refresh", function() {
     if (state.refreshing) return;
     state.refreshing = true;
     state.updatedPlaylistIds = {};
     state.refreshSummary = "";
     state.status = "waiting-login";
-    renderHome();
+    render();
 
-    performScrape(true).then(function(result) {
+    performScrape(true, state.showBrowserOnRefresh).then(function(result) {
       state.refreshing = false;
       if (!result) {
         state.status = "error";
         state.errorMessage = "Not logged in to Spotify. Click 'Open Spotify' to log in.";
-        renderHome();
+        render();
         return;
       }
       var outcome = processRefreshResults(result.playlists, result.tracks);
@@ -1425,12 +1470,12 @@ function activate(api) {
       } else {
         state.refreshSummary = "No changes detected.";
       }
-      renderHome();
+      render();
     }).catch(function(err) {
       state.refreshing = false;
       state.status = "error";
       state.errorMessage = "Refresh failed: " + (err.message || err);
-      renderHome();
+      render();
     });
   });
 
@@ -1444,7 +1489,7 @@ function activate(api) {
       state.archivedIds = saved.archivedIds || [];
       state.savedAt = saved.savedAt || null;
       state.status = "done";
-      renderHome();
+      render();
     } else {
       api.storage.get("spotify_browse_playlists").then(function(legacy) {
         if (legacy && legacy.playlists && legacy.playlists.length > 0) {
@@ -1455,10 +1500,10 @@ function activate(api) {
           saveState();
           api.storage.delete("spotify_browse_playlists").catch(console.error);
         }
-        renderHome();
-      }).catch(function(err) { console.error("Failed to load legacy state:", err); renderHome(); });
+        render();
+      }).catch(function(err) { console.error("Failed to load legacy state:", err); render(); });
     }
-  }).catch(function(err) { console.error("Failed to load state:", err); renderHome(); });
+  }).catch(function(err) { console.error("Failed to load state:", err); render(); });
 
   // Load archive index
   api.storage.get("spotify_browse_archive_index").then(function(index) {
