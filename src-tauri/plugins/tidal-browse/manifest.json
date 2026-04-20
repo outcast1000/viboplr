@@ -22,6 +22,11 @@
     ],
     "fallbackProviders": [
       { "id": "tidal-fallback", "name": "TIDAL", "priority": 200 }
-    ]
+    ],
+    "settingsPanel": {
+      "id": "tidal-settings",
+      "label": "TIDAL",
+      "order": 50
+    }
   }
 }

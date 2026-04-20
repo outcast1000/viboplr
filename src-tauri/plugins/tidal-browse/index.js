@@ -10,7 +10,180 @@ function activate(api) {
     lastQuery: "",
     albumDetail: null,
     artistDetail: null,
+    streamingQuality: "HIGH",
   };
+
+  // -- TIDAL HTTP client --
+
+  var UPTIME_URLS = [
+    "https://tidal-uptime.jiffy-puffs-1j.workers.dev/",
+    "https://tidal-uptime.props-76styles.workers.dev/",
+  ];
+  var CACHE_TTL_MS = 86400000; // 24 hours
+
+  var instanceCache = null; // { apiUrls: [], fetchedAt: number }
+
+  async function fetchInstances() {
+    for (var i = 0; i < UPTIME_URLS.length; i++) {
+      try {
+        var resp = await api.network.fetch(UPTIME_URLS[i]);
+        if (resp.status !== 200) continue;
+        var json = await resp.json();
+        var apiUrls = (json.api || []).map(function (item) {
+          return item.url.replace(/\/+$/, "");
+        });
+        if (apiUrls.length > 0) {
+          instanceCache = { apiUrls: apiUrls, fetchedAt: Date.now() };
+          return;
+        }
+      } catch (e) {
+        // try next uptime URL
+      }
+    }
+  }
+
+  async function getApiUrls() {
+    if (instanceCache && (Date.now() - instanceCache.fetchedAt) < CACHE_TTL_MS) {
+      return instanceCache.apiUrls;
+    }
+    await fetchInstances();
+    return instanceCache ? instanceCache.apiUrls : [];
+  }
+
+  async function tidalFetch(path) {
+    var urls = await getApiUrls();
+    if (urls.length === 0) {
+      throw new Error("No TIDAL instances available");
+    }
+    for (var i = 0; i < urls.length; i++) {
+      try {
+        var resp = await api.network.fetch(urls[i] + path);
+        if (resp.status >= 200 && resp.status < 300) {
+          return resp.json();
+        }
+      } catch (e) {
+        // try next instance
+      }
+    }
+    instanceCache = null;
+    throw new Error("All TIDAL instances failed");
+  }
+
+  function parseTrack(t) {
+    var artist = (t.artist && t.artist.name) ? t.artist.name
+      : (t.artists && t.artists[0] && t.artists[0].name) ? t.artists[0].name
+      : null;
+    var artistId = (t.artist && t.artist.id) ? String(t.artist.id)
+      : (t.artists && t.artists[0] && t.artists[0].id) ? String(t.artists[0].id)
+      : null;
+    return {
+      tidal_id: t.id ? String(t.id) : "",
+      title: t.title || "Unknown",
+      artist_name: artist,
+      artist_id: artistId,
+      album_title: t.album && t.album.title ? t.album.title : null,
+      album_id: t.album && t.album.id ? String(t.album.id) : null,
+      cover_id: t.album && t.album.cover ? t.album.cover : null,
+      duration_secs: t.duration || null,
+      track_number: t.trackNumber || null,
+    };
+  }
+
+  function parseAlbum(a) {
+    return {
+      tidal_id: a.id ? String(a.id) : "",
+      title: a.title || "Unknown",
+      artist_name: (a.artists && a.artists[0] && a.artists[0].name) ? a.artists[0].name : null,
+      cover_id: a.cover || null,
+      year: a.releaseDate ? parseInt(a.releaseDate.split("-")[0], 10) || null : null,
+    };
+  }
+
+  function parseArtist(a) {
+    return {
+      tidal_id: a.id ? String(a.id) : "",
+      name: a.name || "Unknown",
+      picture_id: a.picture || null,
+    };
+  }
+
+  async function tidalSearch(query, limit, offset) {
+    var encoded = encodeURIComponent(query);
+    var trackPath = "/search/?s=" + encoded + "&limit=" + limit + "&offset=" + (offset || 0);
+    var artistPath = "/search/?a=" + encoded + "&limit=" + limit + "&offset=" + (offset || 0);
+    var albumPath = "/search/?al=" + encoded + "&limit=" + limit + "&offset=" + (offset || 0);
+
+    var results = await Promise.all([
+      tidalFetch(trackPath).catch(function () { return null; }),
+      tidalFetch(artistPath).catch(function () { return null; }),
+      tidalFetch(albumPath).catch(function () { return null; }),
+    ]);
+
+    var tracks = [];
+    var artists = [];
+    var albums = [];
+
+    if (results[0] && results[0].data && results[0].data.items) {
+      tracks = results[0].data.items.map(parseTrack);
+    }
+    if (results[1] && results[1].data && results[1].data.artists && results[1].data.artists.items) {
+      artists = results[1].data.artists.items.map(parseArtist);
+    }
+    if (results[2] && results[2].data && results[2].data.albums && results[2].data.albums.items) {
+      albums = results[2].data.albums.items.map(parseAlbum);
+    }
+
+    return { tracks: tracks, albums: albums, artists: artists };
+  }
+
+  async function tidalGetAlbum(id) {
+    var json = await tidalFetch("/album/?id=" + id);
+    var data = json.data || json;
+    var albumData = (data.album && typeof data.album === "object") ? data.album : data;
+    var items = data.items || [];
+    var tracks = items
+      .filter(function (item) { return item.item && item.item !== null; })
+      .map(function (item) { return parseTrack(item.item); });
+
+    return {
+      tidal_id: albumData.id ? String(albumData.id) : "",
+      title: albumData.title || "Unknown",
+      artist_name: (albumData.artists && albumData.artists[0] && albumData.artists[0].name) ? albumData.artists[0].name : null,
+      cover_id: albumData.cover || null,
+      year: albumData.releaseDate ? parseInt(albumData.releaseDate.split("-")[0], 10) || null : null,
+      tracks: tracks,
+    };
+  }
+
+  async function tidalGetArtistAlbums(id) {
+    var json = await tidalFetch("/artist/?f=" + id + "&skip_tracks=true");
+    var items = (json.albums && json.albums.items) || (json.data && json.data.albums) || [];
+    if (!Array.isArray(items)) items = [];
+    return items.map(parseAlbum);
+  }
+
+  async function tidalGetArtist(id) {
+    var json = await tidalFetch("/artist/?id=" + id);
+    var artistData = (json.artist && typeof json.artist === "object") ? json.artist : (json.data || {});
+    var albums = [];
+    try { albums = await tidalGetArtistAlbums(id); } catch (e) { /* ignore */ }
+
+    return {
+      tidal_id: artistData.id ? String(artistData.id) : "",
+      name: artistData.name || "Unknown",
+      picture_id: artistData.picture || null,
+      albums: albums,
+    };
+  }
+
+  async function tidalCheckStatus() {
+    try {
+      var urls = await getApiUrls();
+      return { available: urls.length > 0, instance_count: urls.length };
+    } catch (e) {
+      return { available: false, instance_count: 0 };
+    }
+  }
 
   function coverUrl(coverId, size) {
     if (!coverId) return undefined;
@@ -28,7 +201,7 @@ function activate(api) {
   // -- Image providers --
 
   api.imageProviders.onFetch("artist", async function (name) {
-    var results = await api.tidal.search(name, 1);
+    var results = await tidalSearch(name, 1);
     var artist = results && results.artists && results.artists[0];
     if (!artist || !artist.picture_id) return { status: "not_found" };
     var url = coverUrl(artist.picture_id, 750);
@@ -37,7 +210,7 @@ function activate(api) {
 
   api.imageProviders.onFetch("album", async function (name, artistName) {
     var query = artistName ? artistName + " " + name : name;
-    var results = await api.tidal.search(query, 1);
+    var results = await tidalSearch(query, 1);
     var album = results && results.albums && results.albums[0];
     if (!album || !album.cover_id) return { status: "not_found" };
     var url = coverUrl(album.cover_id, 1280);
@@ -271,6 +444,34 @@ function activate(api) {
     });
   }
 
+  function renderSettings() {
+    api.ui.setViewData("tidal-settings", {
+      type: "layout",
+      direction: "vertical",
+      children: [
+        {
+          type: "section",
+          title: "Playback",
+          children: [
+            {
+              type: "select",
+              label: "Streaming Quality",
+              description: "Audio quality for TIDAL playback",
+              action: "set-quality",
+              value: state.streamingQuality,
+              options: [
+                { value: "LOW", label: "Low (AAC 96kbps)" },
+                { value: "HIGH", label: "High (AAC 320kbps)" },
+                { value: "LOSSLESS", label: "Lossless (FLAC 16-bit/44.1kHz)" },
+                { value: "HI_RES_LOSSLESS", label: "Hi-Res (FLAC 24-bit/96kHz)" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+  }
+
   function render() {
     if (state.currentView === "search") renderSearchView();
     else if (state.currentView === "album-detail") renderAlbumDetail();
@@ -305,7 +506,7 @@ function activate(api) {
     state.lastQuery = query;
     state.activeTab = "tracks";
     renderLoading("Searching TIDAL...");
-    api.tidal.search(query, 30).then(function (results) {
+    tidalSearch(query, 30).then(function (results) {
       state.searchResults = results;
       state.currentView = "search";
       render();
@@ -376,7 +577,7 @@ function activate(api) {
     if (parts[0] !== "album" || !parts[1]) return;
     var albumId = parts[1];
     api.ui.requestAction("show-loading", { message: "Fetching tracks from TIDAL" });
-    api.tidal.getAlbum(albumId).then(function (album) {
+    tidalGetAlbum(albumId).then(function (album) {
       api.ui.requestAction("hide-loading", {});
       if (album && album.tracks && album.tracks.length > 0) {
         api.playback.playTidalTracks(album.tracks, 0, {
@@ -395,7 +596,7 @@ function activate(api) {
     var parts = data.itemId.split(":");
     if (parts[0] !== "album" || !parts[1]) return;
     api.ui.requestAction("show-loading", { message: "Fetching album from TIDAL" });
-    api.tidal.getAlbum(parts[1]).then(function (album) {
+    tidalGetAlbum(parts[1]).then(function (album) {
       api.ui.requestAction("hide-loading", {});
       if (album) {
         api.ui.requestAction("tidal-download-album", {
@@ -434,7 +635,7 @@ function activate(api) {
     });
 
     renderLoading("Loading album...");
-    api.tidal.getAlbum(albumId).then(function (album) {
+    tidalGetAlbum(albumId).then(function (album) {
       state.albumDetail = album;
       state.currentView = "album-detail";
       render();
@@ -455,7 +656,7 @@ function activate(api) {
     });
 
     renderLoading("Loading artist...");
-    api.tidal.getArtist(artistId).then(function (artist) {
+    tidalGetArtist(artistId).then(function (artist) {
       state.artistDetail = artist;
       state.currentView = "artist-detail";
       render();
@@ -546,7 +747,7 @@ function activate(api) {
     renderLoading("Searching TIDAL...");
     api.ui.navigateToView("tidal");
 
-    api.tidal.search(query, 30).then(function (results) {
+    tidalSearch(query, 30).then(function (results) {
       state.searchResults = results;
       state.currentView = "search";
       render();
@@ -572,7 +773,7 @@ function activate(api) {
       var albumQuery = ((target.albumTitle || "") + " " + (target.artistName || "")).trim();
       if (!albumQuery) return;
       api.ui.showNotification("Searching TIDAL for album...");
-      api.tidal.search(albumQuery, 1).then(function (results) {
+      tidalSearch(albumQuery, 1).then(function (results) {
         var albums = (results && results.albums) || [];
         if (albums.length === 0) {
           api.ui.showNotification("No TIDAL match found for this album");
@@ -593,7 +794,7 @@ function activate(api) {
     if (target.kind === "track") {
       var query = ((target.title || "") + " " + (target.artistName || "")).trim();
       if (!query) return;
-      api.tidal.search(query, 1).then(function (results) {
+      tidalSearch(query, 1).then(function (results) {
         var tracks = results.tracks || [];
         if (tracks.length > 0) {
           api.playback.playTidalTrack(tracks[0]);
@@ -609,13 +810,13 @@ function activate(api) {
       var albumQ = ((target.albumTitle || "") + " " + (target.artistName || "")).trim();
       if (!albumQ) return;
       api.ui.showNotification("Searching TIDAL for album...");
-      api.tidal.search(albumQ, 1).then(function (results) {
+      tidalSearch(albumQ, 1).then(function (results) {
         var albums = (results && results.albums) || [];
         if (albums.length === 0) {
           api.ui.showNotification("No TIDAL match found for this album");
           return;
         }
-        return api.tidal.getAlbum(albums[0].tidal_id).then(function (album) {
+        return tidalGetAlbum(albums[0].tidal_id).then(function (album) {
           var albumTracks = (album && album.tracks) || [];
           if (albumTracks.length === 0) {
             api.ui.showNotification("TIDAL album has no tracks");
@@ -638,7 +839,7 @@ function activate(api) {
     tracks.forEach(function (t) {
       var query = ((t.title || "") + " " + (t.artistName || "")).trim();
       if (!query) return;
-      api.tidal.search(query, 1).then(function (results) {
+      tidalSearch(query, 1).then(function (results) {
         var matches = (results && results.tracks) || [];
         if (matches.length === 0) return;
         return api.tidal.downloadTrack(matches[0].tidal_id);
@@ -673,7 +874,7 @@ function activate(api) {
     var query = [title, artistName].filter(Boolean).join(" ");
     if (!query) return null;
     try {
-      var results = await api.tidal.search(query, 1);
+      var results = await tidalSearch(query, 1);
       var tracks = results && results.tracks;
       if (tracks && tracks.length > 0) {
         return { url: "tidal://" + tracks[0].tidal_id, label: "TIDAL" };
@@ -682,6 +883,32 @@ function activate(api) {
       // TIDAL unavailable — skip
     }
     return null;
+  });
+
+  // -- Download search action --
+
+  api.ui.onAction("tidal-search-for-download", function (data) {
+    if (!data || !data.query) return;
+    var limit = data.limit || 10;
+    tidalSearch(data.query, limit, 0).then(function (results) {
+      api.ui.requestAction("tidal-search-result", { tracks: results.tracks });
+    }).catch(function (err) {
+      api.ui.requestAction("tidal-search-result", { tracks: [], error: String(err.message || err) });
+    });
+  });
+
+  // Load saved quality setting
+  api.storage.get("streaming_quality").then(function (val) {
+    if (val) state.streamingQuality = val;
+    renderSettings();
+  });
+
+  api.ui.onAction("set-quality", function (data) {
+    if (data && data.value) {
+      state.streamingQuality = data.value;
+      api.storage.set("streaming_quality", data.value);
+      renderSettings();
+    }
   });
 
   // Initial render
