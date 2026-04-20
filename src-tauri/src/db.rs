@@ -364,6 +364,15 @@ impl Database {
                 UNIQUE (plugin_id, entity)
             );
 
+            CREATE TABLE IF NOT EXISTS download_providers (
+                plugin_id   TEXT NOT NULL,
+                provider_id TEXT NOT NULL,
+                name        TEXT NOT NULL,
+                priority    INTEGER NOT NULL DEFAULT 500,
+                active      INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (plugin_id, provider_id)
+            );
+
             CREATE TABLE IF NOT EXISTS playlists (
                 id         INTEGER PRIMARY KEY,
                 name       TEXT NOT NULL,
@@ -396,7 +405,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
-            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 27);
+            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 28);
 
             CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id);
             CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);
@@ -436,6 +445,20 @@ impl Database {
                     PRIMARY KEY (plugin_id, task_id)
                 );
                 UPDATE db_version SET version = 27 WHERE rowid = 1;"
+            )?;
+        }
+
+        if version < 28 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS download_providers (
+                    plugin_id   TEXT NOT NULL,
+                    provider_id TEXT NOT NULL,
+                    name        TEXT NOT NULL,
+                    priority    INTEGER NOT NULL DEFAULT 500,
+                    active      INTEGER NOT NULL DEFAULT 1,
+                    PRIMARY KEY (plugin_id, provider_id)
+                );
+                UPDATE db_version SET version = 28 WHERE rowid = 1;"
             )?;
         }
 
@@ -3101,6 +3124,129 @@ impl Database {
         conn.execute_batch("COMMIT")?;
         Ok(())
     }
+
+    // ── Download Providers ──────────────────────────────────────
+
+    /// Sync the download_providers table from plugin manifests.
+    /// Takes vec of (plugin_id, provider_id, name, priority).
+    /// Deactivates all rows, upserts current providers (preserving user-customized priorities),
+    /// reactivates current providers, then deletes orphaned rows.
+    pub fn sync_download_providers(&self, providers: &[(String, String, String, i64)]) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch("BEGIN")?;
+        // Deactivate all
+        conn.execute("UPDATE download_providers SET active = 0", [])?;
+        // Insert new providers (OR IGNORE preserves existing rows with user-customized priorities)
+        {
+            let mut insert_stmt = conn.prepare(
+                "INSERT OR IGNORE INTO download_providers (plugin_id, provider_id, name, priority) VALUES (?1, ?2, ?3, ?4)"
+            )?;
+            for p in providers {
+                insert_stmt.execute(rusqlite::params![p.0, p.1, p.2, p.3])?;
+            }
+        }
+        // Update name for existing rows (in case the plugin renamed the provider)
+        {
+            let mut update_stmt = conn.prepare(
+                "UPDATE download_providers SET name = ?1, active = 1 WHERE plugin_id = ?2 AND provider_id = ?3"
+            )?;
+            for p in providers {
+                update_stmt.execute(rusqlite::params![p.2, p.0, p.1])?;
+            }
+        }
+        // Delete orphaned rows (plugin_id not in the provided set)
+        if providers.is_empty() {
+            conn.execute("DELETE FROM download_providers", [])?;
+        } else {
+            let placeholders: Vec<String> = providers.iter().map(|_| "?".to_string()).collect();
+            let sql = format!(
+                "DELETE FROM download_providers WHERE plugin_id NOT IN ({})",
+                placeholders.join(", ")
+            );
+            let params: Vec<&dyn rusqlite::types::ToSql> = providers.iter().map(|p| &p.0 as &dyn rusqlite::types::ToSql).collect();
+            conn.execute(&sql, params.as_slice())?;
+        }
+        conn.execute_batch("COMMIT")?;
+        Ok(())
+    }
+
+    /// Get all download providers ordered by priority ASC.
+    /// Returns vec of (plugin_id, provider_id, name, priority, active).
+    pub fn get_download_providers(&self) -> SqlResult<Vec<(String, String, String, i64, bool)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT plugin_id, provider_id, name, priority, active FROM download_providers
+             ORDER BY priority ASC"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, bool>(4)?,
+            ))
+        })?.collect::<SqlResult<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Get active download providers ordered by priority ASC.
+    /// Returns vec of (plugin_id, provider_id, name, priority).
+    pub fn get_active_download_providers(&self) -> SqlResult<Vec<(String, String, String, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT plugin_id, provider_id, name, priority FROM download_providers
+             WHERE active = 1
+             ORDER BY priority ASC"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?.collect::<SqlResult<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Update the priority of a download provider.
+    pub fn update_download_provider_priority(&self, plugin_id: &str, provider_id: &str, priority: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE download_providers SET priority = ?1 WHERE plugin_id = ?2 AND provider_id = ?3",
+            rusqlite::params![priority, plugin_id, provider_id],
+        )?;
+        Ok(())
+    }
+
+    /// Update the active state of a download provider.
+    pub fn update_download_provider_active(&self, plugin_id: &str, provider_id: &str, active: bool) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE download_providers SET active = ?1 WHERE plugin_id = ?2 AND provider_id = ?3",
+            rusqlite::params![active, plugin_id, provider_id],
+        )?;
+        Ok(())
+    }
+
+    /// Reset download provider priorities to defaults.
+    /// Takes vec of (plugin_id, provider_id, name, priority). Deletes all existing rows and reinserts with active=1.
+    pub fn reset_download_provider_priorities(&self, defaults: &[(String, String, String, i64)]) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch("BEGIN")?;
+        conn.execute("DELETE FROM download_providers", [])?;
+        {
+            let mut stmt = conn.prepare(
+                "INSERT INTO download_providers (plugin_id, provider_id, name, priority, active) VALUES (?1, ?2, ?3, ?4, 1)"
+            )?;
+            for d in defaults {
+                stmt.execute(rusqlite::params![d.0, d.1, d.2, d.3])?;
+            }
+        }
+        conn.execute_batch("COMMIT")?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -4689,6 +4835,37 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].0, "other");
         assert_eq!(all[0].1, "check-updates");
+    }
+
+    #[test]
+    fn test_download_providers_crud() {
+        let db = test_db();
+        db.sync_download_providers(&[
+            ("tidal-browse".to_string(), "tidal-download".to_string(), "TIDAL".to_string(), 100),
+        ]).unwrap();
+
+        let providers = db.get_download_providers().unwrap();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].0, "tidal-browse");
+        assert_eq!(providers[0].1, "tidal-download");
+        assert_eq!(providers[0].2, "TIDAL");
+        assert_eq!(providers[0].3, 100);
+        assert_eq!(providers[0].4, true);
+
+        db.update_download_provider_priority("tidal-browse", "tidal-download", 200).unwrap();
+        let providers = db.get_download_providers().unwrap();
+        assert_eq!(providers[0].3, 200);
+
+        db.update_download_provider_active("tidal-browse", "tidal-download", false).unwrap();
+        let active = db.get_active_download_providers().unwrap();
+        assert_eq!(active.len(), 0);
+
+        db.reset_download_provider_priorities(&[
+            ("tidal-browse".to_string(), "tidal-download".to_string(), "TIDAL".to_string(), 100),
+        ]).unwrap();
+        let providers = db.get_download_providers().unwrap();
+        assert_eq!(providers[0].3, 100);
+        assert_eq!(providers[0].4, true);
     }
 
     #[test]
