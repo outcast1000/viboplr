@@ -871,12 +871,87 @@ pub fn run() {
             let dl_worker_manager = dl_manager.clone();
             let dl_worker_db = db.clone();
             let dl_app_handle = app.handle().clone();
+            let dl_resolve_registry = Arc::new(DownloadResolveRegistry::new());
+            let dl_resolve_registry_for_state = dl_resolve_registry.clone();
             timer.time("spawn_download_worker", || { std::thread::spawn(move || {
                 loop {
                     let request = dl_worker_manager.wait_for_next();
                     let track_title = request.title.clone();
                     let artist_name = request.artist_name.clone().unwrap_or_default();
+
+                    // Set active status to "resolving"
                     let status = crate::downloader::DownloadStatus {
+                        id: request.id,
+                        track_title: track_title.clone(),
+                        artist_name: artist_name.clone(),
+                        status: "resolving".to_string(),
+                        progress_pct: 0,
+                        error: None,
+                    };
+                    dl_worker_manager.set_active(Some(status.clone()));
+                    let _ = dl_app_handle.emit("download-progress", &status);
+
+                    // Register a channel and emit resolve request to the frontend
+                    let rx = dl_resolve_registry.register(request.id);
+                    let _ = dl_app_handle.emit("download-resolve-request", serde_json::json!({
+                        "id": request.id,
+                        "title": request.title,
+                        "artist_name": request.artist_name,
+                        "album_title": request.album_title,
+                        "source_provider_id": request.source_provider_id,
+                        "source_track_id": request.source_track_id,
+                        "source_collection_id": request.source_collection_id,
+                        "format": request.format.to_string(),
+                    }));
+
+                    // Wait for the frontend to resolve the stream URL (30s timeout)
+                    let resolved = match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+                        Ok(Some(response)) => response,
+                        Ok(None) => {
+                            // Frontend responded with None (provider could not resolve)
+                            log::error!("Download resolve failed for {}: provider returned no URL", track_title);
+                            let error_status = crate::downloader::DownloadStatus {
+                                id: request.id,
+                                track_title: track_title.clone(),
+                                artist_name: artist_name.clone(),
+                                status: "error".to_string(),
+                                progress_pct: 0,
+                                error: Some("No download provider could resolve this track".to_string()),
+                            };
+                            dl_worker_manager.set_active(None);
+                            dl_worker_manager.push_completed(error_status);
+                            let _ = dl_app_handle.emit("download-error", serde_json::json!({
+                                "id": request.id,
+                                "trackTitle": track_title,
+                                "error": "No download provider could resolve this track",
+                            }));
+                            continue;
+                        }
+                        Err(_) => {
+                            // Timeout or channel closed
+                            dl_resolve_registry.cancel(request.id);
+                            log::error!("Download resolve timeout for {}", track_title);
+                            let error_status = crate::downloader::DownloadStatus {
+                                id: request.id,
+                                track_title: track_title.clone(),
+                                artist_name: artist_name.clone(),
+                                status: "error".to_string(),
+                                progress_pct: 0,
+                                error: Some("Download resolve timed out".to_string()),
+                            };
+                            dl_worker_manager.set_active(None);
+                            dl_worker_manager.push_completed(error_status);
+                            let _ = dl_app_handle.emit("download-error", serde_json::json!({
+                                "id": request.id,
+                                "trackTitle": track_title,
+                                "error": "Download resolve timed out",
+                            }));
+                            continue;
+                        }
+                    };
+
+                    // Update status to "downloading"
+                    let downloading_status = crate::downloader::DownloadStatus {
                         id: request.id,
                         track_title: track_title.clone(),
                         artist_name: artist_name.clone(),
@@ -884,10 +959,10 @@ pub fn run() {
                         progress_pct: 0,
                         error: None,
                     };
-                    dl_worker_manager.set_active(Some(status.clone()));
-                    let _ = dl_app_handle.emit("download-progress", &status);
+                    dl_worker_manager.set_active(Some(downloading_status.clone()));
+                    let _ = dl_app_handle.emit("download-progress", &downloading_status);
 
-                    match crate::downloader::process_download(&request, &dl_worker_db, &dl_app_handle, &dl_worker_manager) {
+                    match crate::downloader::process_download(&request, &resolved, &dl_worker_db, &dl_app_handle, &dl_worker_manager) {
                         Ok(dest_path) => {
                             let complete = crate::downloader::DownloadStatus {
                                 id: request.id,
@@ -909,6 +984,16 @@ pub fn run() {
                             let _ = dl_app_handle.emit("scan-complete", serde_json::json!({
                                 "folder": request.dest_collection_path,
                             }));
+
+                            // Only rebuild FTS and recompute counts for the last track in a batch
+                            if request.is_batch_last {
+                                if let Err(e) = dl_worker_db.rebuild_fts() {
+                                    log::error!("Failed to rebuild FTS after batch download: {}", e);
+                                }
+                                if let Err(e) = dl_worker_db.recompute_counts() {
+                                    log::error!("Failed to recompute counts after batch download: {}", e);
+                                }
+                            }
                         }
                         Err(e) => {
                             log::error!("Download failed for {}: {}", track_title, e);
@@ -1145,7 +1230,7 @@ pub fn run() {
                     tidal_client,
                     native_plugins_dir,
                     image_resolve_registry: worker_registry_for_state,
-                    download_resolve_registry: Arc::new(DownloadResolveRegistry::new()),
+                    download_resolve_registry: dl_resolve_registry_for_state,
                     tidal_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     update_checker_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),

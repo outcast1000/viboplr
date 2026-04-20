@@ -289,15 +289,159 @@ pub fn build_dest_path(
 
 // --- Download pipeline ---
 
-/// Run a single download: resolve stream URL via plugin bridge -> download -> tag -> register.
-/// This will be fully rewritten in Task 3 to use the DownloadResolveRegistry bridge.
+/// Run a single download: download from resolved URL -> tag -> index in library.
 pub fn process_download(
-    _request: &DownloadRequest,
-    _db: &Arc<Database>,
-    _app: &AppHandle,
-    _manager: &Arc<DownloadManager>,
+    request: &DownloadRequest,
+    resolved: &DownloadResolveResponse,
+    db: &Arc<Database>,
+    app: &AppHandle,
+    manager: &Arc<DownloadManager>,
 ) -> Result<PathBuf, String> {
-    todo!("rewritten in Task 3")
+    use std::io::{Read, Write};
+    use tauri::Emitter;
+
+    // Merge metadata: resolved overrides request
+    let metadata = resolved.metadata.as_ref();
+    let title = metadata
+        .and_then(|m| m.title.as_deref())
+        .unwrap_or(&request.title);
+    let artist = metadata
+        .and_then(|m| m.artist.as_deref())
+        .or(request.artist_name.as_deref())
+        .unwrap_or("");
+    let album = metadata
+        .and_then(|m| m.album.as_deref())
+        .or(request.album_title.as_deref())
+        .unwrap_or("");
+    let track_number = metadata.and_then(|m| m.track_number);
+    let year = metadata.and_then(|m| m.year).map(|y| y as i32);
+    let genre = metadata.and_then(|m| m.genre.as_deref());
+    let cover_url = metadata.and_then(|m| m.cover_url.as_deref());
+
+    let ext = request.format.extension();
+
+    // Build destination path
+    let dest_path = build_dest_path(
+        &request.dest_collection_path,
+        title,
+        artist,
+        album,
+        track_number,
+        ext,
+        request.path_pattern.as_deref(),
+    );
+
+    // Create parent directories
+    if let Some(parent) = dest_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directories: {}", e))?;
+    }
+
+    // Download to temp file
+    let temp_filename = format!(".viboplr-download-{}.{}", request.id, ext);
+    let temp_path = dest_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join(&temp_filename);
+
+    let http_client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let mut req_builder = http_client.get(&resolved.url);
+    if let Some(headers) = &resolved.headers {
+        for (k, v) in headers {
+            req_builder = req_builder.header(k.as_str(), v.as_str());
+        }
+    }
+
+    let mut response = req_builder
+        .send()
+        .map_err(|e| format!("HTTP request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP {} from stream URL", response.status()));
+    }
+
+    let content_length = response.content_length();
+    let mut file = std::fs::File::create(&temp_path)
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+
+    let mut downloaded: u64 = 0;
+    let mut buf = [0u8; 32768];
+    let mut last_progress_emit = std::time::Instant::now();
+
+    loop {
+        let n = response
+            .read(&mut buf)
+            .map_err(|e| format!("Read error: {}", e))?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n])
+            .map_err(|e| format!("Write error: {}", e))?;
+        downloaded += n as u64;
+
+        // Emit progress every 500ms
+        if last_progress_emit.elapsed() >= std::time::Duration::from_millis(500) {
+            let pct = if let Some(total) = content_length {
+                if total > 0 {
+                    ((downloaded as f64 / total as f64) * 100.0).min(99.0) as u8
+                } else {
+                    0
+                }
+            } else {
+                0
+            };
+            let progress_status = DownloadStatus {
+                id: request.id,
+                track_title: request.title.clone(),
+                artist_name: request.artist_name.clone().unwrap_or_default(),
+                status: "downloading".to_string(),
+                progress_pct: pct,
+                error: None,
+            };
+            manager.set_active(Some(progress_status.clone()));
+            let _ = app.emit("download-progress", &progress_status);
+            last_progress_emit = std::time::Instant::now();
+        }
+    }
+
+    drop(file);
+
+    // Write tags to the downloaded file
+    if let Err(e) = write_tags(
+        &temp_path,
+        title,
+        artist,
+        album,
+        track_number,
+        year,
+        genre,
+        cover_url,
+        &request.format,
+    ) {
+        log::warn!("Failed to write tags for {}: {}", title, e);
+        // Continue even if tagging fails — the file is still valid
+    }
+
+    // Rename temp to final path
+    std::fs::rename(&temp_path, &dest_path).map_err(|e| {
+        // Clean up temp file on rename failure
+        let _ = std::fs::remove_file(&temp_path);
+        format!("Failed to rename temp file: {}", e)
+    })?;
+
+    // Index the new file in the library
+    crate::scanner::process_media_file(
+        db,
+        &dest_path,
+        Some(request.dest_collection_id),
+        Some(&request.dest_collection_path),
+    );
+
+    Ok(dest_path)
 }
 
 pub fn write_tags(
