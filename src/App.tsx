@@ -9,7 +9,7 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir } from "./types";
+import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, TidalSearchTrack } from "./types";
 import { isVideoTrack, parseSubsonicUrl, tidalCoverUrl } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
@@ -93,6 +93,8 @@ function App() {
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
   const [tidalAlbumDownload, setTidalAlbumDownload] = useState<TidalAlbumDownloadInput | null>(null);
+  const [tidalSearchResults, setTidalSearchResults] = useState<TidalSearchTrack[] | null>(null);
+  const [tidalSearchError, setTidalSearchError] = useState<string | null>(null);
   const pendingRestoreTrackRef = useRef<Track | null>(null);
   const pendingRestoreQueueRef = useRef<{ tracks: Track[]; index: number } | null>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -569,6 +571,11 @@ function App() {
         return;
       } else if (action === "tidal-download") {
         contextMenuActions.setTidalDownload(payload as { trackId: number | null; title: string; artistName: string | null });
+      } else if (action === "tidal-search-result") {
+        const tracks = (payload.tracks ?? []) as TidalSearchTrack[];
+        const error = (payload.error as string) ?? null;
+        setTidalSearchResults(tracks);
+        setTidalSearchError(error);
       } else if (action === "play-tracks") {
         const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string; image_url?: string }>);
         const startIndex = (payload.startIndex as number) ?? 0;
@@ -2498,8 +2505,15 @@ function App() {
           collections={localCollections}
           store={store}
           lastDest={lastTidalDownloadDest}
-          onClose={() => contextMenuActions.setTidalDownload(null)}
-          onComplete={(msg) => { contextMenuActions.setTidalDownload(null); library.loadLibrary(); library.loadTracks(); addLog(msg); }}
+          onSearch={(query, limit) => {
+            setTidalSearchResults(null);
+            setTidalSearchError(null);
+            plugins.dispatchUIAction("tidal-browse", "tidal-search-for-download", { query, limit });
+          }}
+          searchResults={tidalSearchResults}
+          searchError={tidalSearchError}
+          onClose={() => { contextMenuActions.setTidalDownload(null); setTidalSearchResults(null); setTidalSearchError(null); }}
+          onComplete={(msg) => { contextMenuActions.setTidalDownload(null); setTidalSearchResults(null); setTidalSearchError(null); library.loadLibrary(); library.loadTracks(); addLog(msg); }}
         />
       )}
 

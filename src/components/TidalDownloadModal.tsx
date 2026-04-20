@@ -18,6 +18,9 @@ interface TidalDownloadModalProps {
   collections: { id: number; name: string; path: string }[];
   store: AppStore;
   lastDest: string | null;
+  onSearch: (query: string, limit: number) => void;
+  searchResults: TidalSearchTrack[] | null;
+  searchError: string | null;
   onClose: () => void;
   onComplete: (message: string) => void;
 }
@@ -60,6 +63,9 @@ export function TidalDownloadModal({
   collections,
   store,
   lastDest,
+  onSearch,
+  searchResults,
+  searchError,
   onClose,
   onComplete,
 }: TidalDownloadModalProps) {
@@ -110,18 +116,25 @@ export function TidalDownloadModal({
     doSearch(searchQuery);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (searchResults !== null) {
+      setResults(searchResults);
+      setLoading(false);
+    }
+  }, [searchResults]);
+
+  useEffect(() => {
+    if (searchError !== null) {
+      setError(searchError);
+      setLoading(false);
+    }
+  }, [searchError]);
+
   function doSearch(query: string) {
     setLoading(true);
     setError(null);
     setResults([]);
-    invoke<{ tracks: TidalSearchTrack[] }>("tidal_search", {
-      query,
-      limit: 10,
-      offset: 0,
-    })
-      .then((res) => setResults(res.tracks))
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
+    onSearch(query, 10);
   }
 
   function handleSelectMatch(match: TidalSearchTrack) {
