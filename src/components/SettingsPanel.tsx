@@ -7,8 +7,7 @@ import { IconGoogle, IconX, IconYoutube, IconGenius } from "./Icons";
 import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { SkinInfo, GallerySkinEntry } from "../types/skin";
-import type { PluginState, PluginSettingsPanel, PluginViewData, GalleryPluginEntry } from "../types/plugin";
-import { PluginViewRenderer } from "./PluginViewRenderer";
+import type { PluginState } from "../types/plugin";
 import { store } from "../store";
 import "./SettingsPanel.css";
 
@@ -695,22 +694,8 @@ interface SettingsPanelProps {
   galleryError: string | null;
   onFetchGallery: () => void;
   onInstallFromGallery: (entry: GallerySkinEntry) => void;
-  // Plugins
+  // Plugins (for provider priority section)
   pluginStates?: PluginState[];
-  onTogglePlugin?: (pluginId: string, enabled: boolean) => void;
-  onReloadPlugin?: (pluginId: string) => void;
-  onReloadAllPlugins?: () => void;
-  onOpenPluginsFolder?: () => void;
-  onDeletePlugin?: (pluginId: string) => void;
-  galleryPlugins?: GalleryPluginEntry[];
-  galleryPluginsLoading?: boolean;
-  galleryPluginsError?: string | null;
-  onFetchPluginGallery?: () => void;
-  onInstallPluginFromGallery?: (entry: GalleryPluginEntry) => Promise<{ ok: boolean; error?: string }>;
-  // Plugin settings panels
-  pluginSettingsPanels?: PluginSettingsPanel[];
-  getPluginViewData?: (pluginId: string, viewId: string) => PluginViewData | undefined;
-  onPluginAction?: (pluginId: string, actionId: string, data?: unknown) => void;
   // Logging
   loggingEnabled: boolean;
   onLoggingEnabledChange: (enabled: boolean) => void;
@@ -725,7 +710,7 @@ interface ProviderFormData {
   trackUrl: string;
 }
 
-type SettingsTab = "general" | "skins" | "plugins" | "providers" | "debug" | `plugin:${string}`;
+type SettingsTab = "general" | "skins" | "providers" | "debug";
 
 export function SettingsPanel({
   searchProviders,
@@ -755,19 +740,6 @@ export function SettingsPanel({
   onFetchGallery,
   onInstallFromGallery,
   pluginStates,
-  onTogglePlugin,
-  onReloadPlugin,
-  onReloadAllPlugins,
-  onOpenPluginsFolder,
-  onDeletePlugin,
-  galleryPlugins,
-  galleryPluginsLoading,
-  galleryPluginsError,
-  onFetchPluginGallery,
-  onInstallPluginFromGallery,
-  pluginSettingsPanels,
-  getPluginViewData,
-  onPluginAction,
   loggingEnabled,
   onLoggingEnabledChange,
   onFallbackOrderChanged,
@@ -865,18 +837,9 @@ export function SettingsPanel({
 
   const skinsIcon = <svg {...iconProps}><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12" r="1.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.7 1.5-1.5 0-.4-.1-.7-.4-1-.2-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H16c3.3 0 6-2.7 6-6 0-5.5-4.5-9.5-10-9.5z"/></svg>;
 
-  const pluginIcon = <svg {...iconProps}><path d="M20 8h-2.81a5.45 5.45 0 0 1-.19-1.57A3.44 3.44 0 0 0 13.56 3 3.44 3.44 0 0 0 10 6.43c0 .55.07 1.07.19 1.57H8a2 2 0 0 0-2 2v2.81c-.5-.12-1.02-.19-1.57-.19A3.44 3.44 0 0 0 1 16.06 3.44 3.44 0 0 0 4.43 19.5c.55 0 1.07-.07 1.57-.19V22a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2.69c.5.12 1.02.19 1.57.19A3.44 3.44 0 0 0 23 15.94a3.44 3.44 0 0 0-3.43-3.44c-.55 0-1.07.07-1.57.19V10a2 2 0 0 0-2-2z"/></svg>;
-
   const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
     { key: "general", label: "General", icon: navIcons.general },
     { key: "skins", label: "Skins", icon: skinsIcon },
-    { key: "plugins", label: "Plugins", icon: pluginIcon },
-    // Plugin-contributed settings panels
-    ...(pluginSettingsPanels ?? []).map(sp => ({
-      key: `plugin:${sp.pluginId}:${sp.id}` as SettingsTab,
-      label: sp.label,
-      icon: pluginIcon,
-    })),
     { key: "providers", label: "Providers", icon: navIcons.providers },
     { key: "debug", label: "Debug", icon: navIcons.debug },
   ];
@@ -1135,151 +1098,6 @@ export function SettingsPanel({
               );
             })()}
 
-            {settingsTab === "plugins" && (
-              <div className="settings-group">
-                <div className="settings-group-title">Installed Plugins</div>
-                {(!pluginStates || pluginStates.length === 0) ? (
-                  <div className="settings-row" style={{ color: "var(--text-secondary)" }}>
-                    No plugins installed. Add plugin folders to your plugins directory.
-                  </div>
-                ) : (
-                  pluginStates.map(plugin => (
-                    <div key={plugin.id} className="settings-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0" }}>
-                      <button
-                        className={`ds-toggle${plugin.enabled ? " on" : ""}`}
-                        onClick={() => onTogglePlugin?.(plugin.id, !plugin.enabled)}
-                      >
-                        <span className="ds-toggle-thumb" />
-                      </button>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 500 }}>
-                          {plugin.manifest.name}
-                          <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)", marginLeft: 6 }}>
-                            v{plugin.manifest.version}
-                          </span>
-                          {plugin.builtin && (
-                            <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)", marginLeft: 6, opacity: 0.7 }}>
-                              Built-in
-                            </span>
-                          )}
-                        </div>
-                        {plugin.manifest.description && (
-                          <div style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)" }}>
-                            {plugin.manifest.description}
-                          </div>
-                        )}
-                        {plugin.status === "error" && plugin.error && (
-                          <div style={{ fontSize: "var(--fs-2xs)", color: "var(--error, #e55)" }}>
-                            Error: {plugin.error}
-                          </div>
-                        )}
-                        {plugin.status === "incompatible" && (
-                          <div style={{ fontSize: "var(--fs-2xs)", color: "var(--warning, #ea5)" }}>
-                            Incompatible with this version
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        className="skin-install-btn"
-                        onClick={() => onReloadPlugin?.(plugin.id)}
-                        title="Reload plugin"
-                      >
-                        Reload
-                      </button>
-                      {!plugin.builtin && onDeletePlugin && (
-                        <button
-                          className="skin-install-btn"
-                          onClick={() => onDeletePlugin(plugin.id)}
-                          title="Delete plugin"
-                          style={{ color: "var(--error, #e55)" }}
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                  ))
-                )}
-                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                  {onOpenPluginsFolder && (
-                    <button className="skin-install-btn" onClick={onOpenPluginsFolder}>
-                      Open Plugins Folder
-                    </button>
-                  )}
-                  {onReloadAllPlugins && (
-                    <button className="skin-install-btn" onClick={onReloadAllPlugins}>
-                      Reload All
-                    </button>
-                  )}
-                  {onFetchPluginGallery && (
-                    <button className="skin-install-btn" onClick={onFetchPluginGallery}>
-                      Browse Gallery
-                    </button>
-                  )}
-                </div>
-
-                {((galleryPlugins && galleryPlugins.length > 0) || galleryPluginsLoading || galleryPluginsError) && (
-                  <div style={{ marginTop: 16 }}>
-                    <div className="settings-group-title" style={{ marginTop: 0 }}>Gallery</div>
-                    {galleryPluginsLoading && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-secondary)", fontSize: "var(--fs-xs)", padding: "12px 0" }}>
-                        <svg width="16" height="16" viewBox="0 0 16 16" style={{ animation: "status-spin 1s linear infinite" }}>
-                          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="8" strokeLinecap="round" />
-                        </svg>
-                        Loading gallery...
-                      </div>
-                    )}
-                    {galleryPluginsError && (
-                      <div style={{ color: "var(--error)", fontSize: "var(--fs-xs)" }}>
-                        {galleryPluginsError}
-                        <button className="ds-btn ds-btn--secondary" style={{ marginLeft: 10 }} onClick={onFetchPluginGallery}>Retry</button>
-                      </div>
-                    )}
-                    {!galleryPluginsLoading && !galleryPluginsError && galleryPlugins && galleryPlugins.length > 0 && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {galleryPlugins.map(entry => {
-                          const installed = pluginStates?.find(p => p.id === entry.id);
-                          return (
-                            <div key={entry.id} className="settings-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0" }}>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 500 }}>
-                                  {entry.name}
-                                  <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)", marginLeft: 6 }}>
-                                    v{entry.version}
-                                  </span>
-                                  {entry.author && (
-                                    <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)", marginLeft: 6 }}>
-                                      by {entry.author}
-                                    </span>
-                                  )}
-                                </div>
-                                {entry.description && (
-                                  <div style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)" }}>
-                                    {entry.description}
-                                  </div>
-                                )}
-                              </div>
-                              {installed ? (
-                                <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)", padding: "4px 8px" }}>
-                                  Installed
-                                </span>
-                              ) : (
-                                <button
-                                  className="skin-install-btn"
-                                  onClick={() => onInstallPluginFromGallery?.(entry)}
-                                >
-                                  Install
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
             {settingsTab === "providers" && (
                 <>
                   <div className="settings-group">
@@ -1450,23 +1268,6 @@ export function SettingsPanel({
               </div>
             )}
 
-            {/* Plugin-contributed settings panels */}
-            {settingsTab.startsWith("plugin:") && (() => {
-              const parts = settingsTab.split(":");
-              const pluginId = parts[1];
-              const viewId = parts.slice(2).join(":");
-              const data = getPluginViewData?.(pluginId, viewId);
-              return (
-                <div className="plugin-settings-panel">
-                  <PluginViewRenderer
-                    pluginName=""
-                    data={data}
-                    currentTrack={null}
-                    onAction={(actionId, actionData) => onPluginAction?.(pluginId, actionId, actionData)}
-                  />
-                </div>
-              );
-            })()}
       </div>
     </div>
   );

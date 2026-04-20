@@ -3,8 +3,10 @@ import type {
   ExtensionItem,
   ExtensionUpdate,
   GalleryPluginEntry,
+  PluginViewData,
 } from "../types/plugin";
 import type { GallerySkinEntry } from "../types/skin";
+import { PluginViewRenderer } from "./PluginViewRenderer";
 
 type ExtTab = "skins" | "plugins";
 
@@ -29,6 +31,8 @@ interface ExtensionsViewProps {
   onInstallFromUrl: (url: string) => Promise<void>;
   galleryPlugins: GalleryPluginEntry[];
   gallerySkins: GallerySkinEntry[];
+  getPluginViewData?: (pluginId: string, viewId: string) => PluginViewData | undefined;
+  onPluginAction?: (pluginId: string, actionId: string, data?: unknown) => void;
 }
 
 function SkinIcon({ colors }: { colors: [string, string, string, string] }) {
@@ -108,12 +112,17 @@ function SectionHeader({ title, count }: { title: string; count: number }) {
 
 function ExtensionDetail({
   ext, installing, onUpdate, onUninstall, onToggleEnabled, onInstallFromGallery, galleryPlugins, gallerySkins,
+  getPluginViewData, onPluginAction,
 }: {
   ext: ExtensionItem; installing: boolean; onUpdate: () => void; onUninstall: () => void;
   onToggleEnabled: () => void; onInstallFromGallery: (entry: GalleryPluginEntry | GallerySkinEntry) => void;
   galleryPlugins: GalleryPluginEntry[]; gallerySkins: GallerySkinEntry[];
+  getPluginViewData?: (pluginId: string, viewId: string) => PluginViewData | undefined;
+  onPluginAction?: (pluginId: string, actionId: string, data?: unknown) => void;
 }) {
   const isInstalled = ext.status !== "not_installed";
+  const [showSettings, setShowSettings] = useState(false);
+  const settingsPanelId = ext.kind === "plugin" && ext.status === "active" && ext.contributes?.settingsPanel?.id;
 
   return (
     <div className="ext-detail">
@@ -170,7 +179,29 @@ function ExtensionDetail({
             {installing ? "Installing..." : "Install"}
           </button>
         )}
+        {settingsPanelId && (
+          <button
+            className={`ds-btn ds-btn--secondary ds-btn--sm${showSettings ? " active" : ""}`}
+            onClick={() => setShowSettings(!showSettings)}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 4 }}>
+              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            Configure
+          </button>
+        )}
       </div>
+
+      {showSettings && settingsPanelId && (
+        <div className="ext-detail-settings">
+          <PluginViewRenderer
+            pluginName=""
+            data={getPluginViewData?.(ext.id, settingsPanelId)}
+            currentTrack={null}
+            onAction={(actionId, actionData) => onPluginAction?.(ext.id, actionId, actionData)}
+          />
+        </div>
+      )}
 
       {ext.updateAvailable && (
         <div className="ext-detail-update-box">
@@ -285,6 +316,8 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     onInstallFromUrl,
     galleryPlugins,
     gallerySkins,
+    getPluginViewData,
+    onPluginAction,
   } = props;
 
   const [tab, setTab] = useState<ExtTab>("plugins");
@@ -430,6 +463,8 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
               onInstallFromGallery={onInstallFromGallery}
               galleryPlugins={galleryPlugins}
               gallerySkins={gallerySkins}
+              getPluginViewData={getPluginViewData}
+              onPluginAction={onPluginAction}
             />
           ) : (
             <div className="ext-detail-empty">Select an extension to view details</div>

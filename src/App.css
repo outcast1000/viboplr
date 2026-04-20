@@ -2357,6 +2357,14 @@
   display: flex;
   gap: 8px;
   margin-top: 20px;
+  flex-wrap: wrap;
+}
+.ext-detail-settings {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--ds-radius);
+  border: 1px solid var(--border);
 }
 .ext-detail-update-box {
   margin-top: 20px;

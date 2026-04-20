@@ -2240,6 +2240,8 @@ function App() {
               onInstallFromUrl={extensionsHook.installFromUrl}
               galleryPlugins={plugins.galleryPlugins || []}
               gallerySkins={skins.gallerySkins || []}
+              getPluginViewData={plugins.getViewData}
+              onPluginAction={plugins.dispatchUIAction}
             />
           )}
           {/* Settings view */}
@@ -2275,22 +2277,6 @@ function App() {
               onFetchGallery={skins.fetchGallery}
               onInstallFromGallery={skins.installFromGallery}
               pluginStates={plugins.pluginStates}
-              onTogglePlugin={plugins.togglePlugin}
-              onReloadPlugin={plugins.reloadPlugin}
-              onReloadAllPlugins={plugins.reloadAllPlugins}
-              onOpenPluginsFolder={async () => {
-                const dir = await invoke<string>("plugin_get_dir");
-                await invoke("open_folder", { folderPath: dir });
-              }}
-              onDeletePlugin={plugins.deletePlugin}
-              galleryPlugins={plugins.galleryPlugins}
-              galleryPluginsLoading={plugins.galleryLoading}
-              galleryPluginsError={plugins.galleryError}
-              onFetchPluginGallery={plugins.fetchPluginGallery}
-              onInstallPluginFromGallery={plugins.installFromGallery}
-              pluginSettingsPanels={plugins.settingsPanels}
-              getPluginViewData={plugins.getViewData}
-              onPluginAction={plugins.dispatchUIAction}
               loggingEnabled={loggingEnabled}
               onLoggingEnabledChange={handleLoggingEnabledChange}
               onFallbackOrderChanged={() => setFallbackOrderVersion(v => v + 1)}
