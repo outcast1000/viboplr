@@ -1489,17 +1489,59 @@ pub fn subsonic_test_connection(
     Ok("Connected successfully".to_string())
 }
 
+/// Resolve destination collection: use provided values or find first enabled local collection.
+fn resolve_dest_collection(
+    state: &AppState,
+    dest_collection_id: Option<i64>,
+    custom_dest_path: Option<String>,
+) -> Result<(i64, String), String> {
+    if let (Some(cid), Some(path)) = (dest_collection_id, custom_dest_path.as_ref()) {
+        return Ok((cid, path.clone()));
+    }
+    // Fall back to first enabled local collection
+    let collections = state.db.get_collections().map_err(|e| e.to_string())?;
+    let local = collections
+        .iter()
+        .find(|c| c.kind == "local" && c.enabled && c.path.is_some())
+        .ok_or("No enabled local collection found for download destination")?;
+    Ok((local.id, local.path.clone().unwrap()))
+}
+
 // --- TIDAL commands ---
 
 #[tauri::command]
 pub fn tidal_save_track(
-    _state: State<'_, AppState>,
-    _tidal_track_id: String,
-    _dest_collection_id: Option<i64>,
-    _custom_dest_path: Option<String>,
-    _format: Option<String>,
+    state: State<'_, AppState>,
+    tidal_track_id: String,
+    dest_collection_id: Option<i64>,
+    custom_dest_path: Option<String>,
+    format: Option<String>,
 ) -> Result<u64, String> {
-    todo!("rewritten in Task 4")
+    // Resolve destination collection
+    let (dest_cid, dest_path) = resolve_dest_collection(&state, dest_collection_id, custom_dest_path)?;
+
+    let fmt = format
+        .as_deref()
+        .map(|s| DownloadFormat::from_str(s).unwrap_or(DownloadFormat::Flac))
+        .unwrap_or(DownloadFormat::Flac);
+
+    let id = state.track_download_manager.next_id();
+    let request = crate::downloader::DownloadRequest {
+        id,
+        title: tidal_track_id.clone(),
+        artist_name: None,
+        album_title: None,
+        dest_collection_id: dest_cid,
+        dest_collection_path: dest_path,
+        format: fmt,
+        path_pattern: None,
+        is_batch_last: true,
+        source_provider_id: Some("tidal-browse:tidal-download".to_string()),
+        source_track_id: Some(tidal_track_id),
+        source_collection_id: None,
+    };
+    state.track_download_manager.enqueue(request);
+    Ok(id)
 }
 
 #[tauri::command]
@@ -1719,25 +1761,119 @@ pub fn replace_track_tags(state: State<'_, AppState>, track_id: i64, tag_names: 
 
 #[tauri::command]
 pub fn download_track(
-    _state: State<'_, AppState>,
-    _source_collection_id: i64,
-    _remote_track_id: String,
-    _dest_collection_id: i64,
-    _format: String,
+    state: State<'_, AppState>,
+    source_collection_id: i64,
+    remote_track_id: String,
+    dest_collection_id: i64,
+    format: String,
 ) -> Result<u64, String> {
-    todo!("rewritten in Task 4")
+    let fmt = DownloadFormat::from_str(&format).unwrap_or(DownloadFormat::Flac);
+
+    // Determine source_provider_id from the collection kind
+    let source_collection = state.db.get_collection_by_id(source_collection_id)
+        .map_err(|e| format!("Failed to get source collection: {}", e))?;
+    let source_provider_id = match source_collection.kind.as_str() {
+        "tidal" => "tidal-browse:tidal-download".to_string(),
+        "subsonic" => "__builtin:subsonic".to_string(),
+        other => return Err(format!("Download not supported for '{}' collections", other)),
+    };
+
+    // Get destination collection path
+    let dest_collection = state.db.get_collection_by_id(dest_collection_id)
+        .map_err(|e| format!("Failed to get dest collection: {}", e))?;
+    let dest_path = dest_collection.path
+        .ok_or("Destination collection has no path")?;
+
+    // Try to get track metadata from the DB for display purposes
+    // The remote_track_id might be a subsonic or tidal ID embedded in a path
+    let (title, artist_name, album_title) = {
+        // Try to find the track by its path pattern
+        let path_pattern = match source_collection.kind.as_str() {
+            "tidal" => format!("tidal://%/{}", remote_track_id),
+            "subsonic" => format!("subsonic://%/{}", remote_track_id),
+            _ => remote_track_id.clone(),
+        };
+        match state.db.get_tracks_by_paths(&[path_pattern]) {
+            Ok(tracks) if !tracks.is_empty() => {
+                let t = &tracks[0];
+                (t.title.clone(), t.artist_name.clone(), t.album_title.clone())
+            }
+            _ => (remote_track_id.clone(), None, None),
+        }
+    };
+
+    let id = state.track_download_manager.next_id();
+    let request = crate::downloader::DownloadRequest {
+        id,
+        title,
+        artist_name,
+        album_title,
+        dest_collection_id,
+        dest_collection_path: dest_path,
+        format: fmt,
+        path_pattern: None,
+        is_batch_last: true,
+        source_provider_id: Some(source_provider_id),
+        source_track_id: Some(remote_track_id),
+        source_collection_id: Some(source_collection_id),
+    };
+    state.track_download_manager.enqueue(request);
+    Ok(id)
 }
 
 #[tauri::command]
 pub async fn download_album(
-    _state: State<'_, AppState>,
-    _album_id: String,
-    _dest_collection_id: Option<i64>,
-    _custom_dest_path: Option<String>,
-    _format: String,
-    _path_pattern: Option<String>,
+    state: State<'_, AppState>,
+    album_id: String,
+    dest_collection_id: Option<i64>,
+    custom_dest_path: Option<String>,
+    format: String,
+    path_pattern: Option<String>,
 ) -> Result<Vec<u64>, String> {
-    todo!("rewritten in Task 4")
+    let tidal_client = state.tidal_client.clone();
+    let manager = state.track_download_manager.clone();
+
+    // Resolve destination collection
+    let (dest_cid, dest_path) = resolve_dest_collection(&state, dest_collection_id, custom_dest_path)?;
+    let fmt = DownloadFormat::from_str(&format).unwrap_or(DownloadFormat::Flac);
+
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u64>, String> {
+        // Fetch album details from TIDAL
+        let album_detail = tidal_client.get_album(&album_id)
+            .map_err(|e| format!("Failed to fetch TIDAL album: {}", e))?;
+
+        if album_detail.tracks.is_empty() {
+            return Err("Album has no tracks".to_string());
+        }
+
+        let total = album_detail.tracks.len();
+
+        let mut ids = Vec::with_capacity(total);
+
+        for (i, track) in album_detail.tracks.iter().enumerate() {
+            let is_last = i == total - 1;
+            let id = manager.next_id();
+
+            let request = crate::downloader::DownloadRequest {
+                id,
+                title: track.title.clone(),
+                artist_name: track.artist_name.clone(),
+                album_title: Some(album_detail.title.clone()),
+                dest_collection_id: dest_cid,
+                dest_collection_path: dest_path.clone(),
+                format: fmt,
+                path_pattern: path_pattern.clone(),
+                is_batch_last: is_last,
+                source_provider_id: Some("tidal-browse:tidal-download".to_string()),
+                source_track_id: Some(track.tidal_id.clone()),
+                source_collection_id: None,
+            };
+            manager.enqueue(request);
+            ids.push(id);
+        }
+
+        Ok(ids)
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1750,6 +1886,136 @@ pub fn get_download_status(
 #[tauri::command]
 pub fn cancel_download(state: State<'_, AppState>, download_id: u64) -> Result<bool, String> {
     Ok(state.track_download_manager.cancel(download_id))
+}
+
+// --- Generic download commands ---
+
+#[tauri::command]
+pub fn enqueue_download(
+    state: State<'_, AppState>,
+    title: String,
+    artist_name: Option<String>,
+    album_title: Option<String>,
+    source_provider_id: Option<String>,
+    source_track_id: Option<String>,
+    source_collection_id: Option<i64>,
+    dest_collection_id: Option<i64>,
+    dest_collection_path: Option<String>,
+    format: Option<String>,
+    path_pattern: Option<String>,
+    is_batch_last: Option<bool>,
+) -> Result<u64, String> {
+    let (dest_cid, dest_path) = resolve_dest_collection(&state, dest_collection_id, dest_collection_path)?;
+
+    let fmt = format
+        .as_deref()
+        .map(|s| DownloadFormat::from_str(s).unwrap_or(DownloadFormat::Flac))
+        .unwrap_or(DownloadFormat::Flac);
+
+    let id = state.track_download_manager.next_id();
+    let request = crate::downloader::DownloadRequest {
+        id,
+        title,
+        artist_name,
+        album_title,
+        dest_collection_id: dest_cid,
+        dest_collection_path: dest_path,
+        format: fmt,
+        path_pattern,
+        is_batch_last: is_batch_last.unwrap_or(true),
+        source_provider_id,
+        source_track_id,
+        source_collection_id,
+    };
+    state.track_download_manager.enqueue(request);
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn download_resolve_response(
+    state: State<'_, AppState>,
+    id: u64,
+    result: Option<crate::downloader::DownloadResolveResponse>,
+) -> Result<(), String> {
+    state.download_resolve_registry.respond(id, result);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn resolve_subsonic_download_url(
+    state: State<'_, AppState>,
+    collection_id: i64,
+    remote_track_id: String,
+    format: Option<String>,
+) -> Result<String, String> {
+    let creds = state.db.get_collection_credentials(collection_id)
+        .map_err(|e| format!("Failed to get collection credentials: {}", e))?;
+    let client = SubsonicClient::from_stored(
+        &creds.url,
+        &creds.username,
+        &creds.password_token,
+        creds.salt.as_deref(),
+        &creds.auth_method,
+    );
+    let format_param = format
+        .as_deref()
+        .and_then(|f| DownloadFormat::from_str(f).ok())
+        .and_then(|f| f.subsonic_format_param());
+    Ok(client.stream_url_with_format(&remote_track_id, format_param))
+}
+
+// --- Download provider CRUD commands ---
+
+#[tauri::command]
+pub fn sync_download_providers(
+    state: State<'_, AppState>,
+    providers: Vec<(String, String, String, i64)>,
+) -> Result<(), String> {
+    state.db.sync_download_providers(&providers).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_download_providers(
+    state: State<'_, AppState>,
+) -> Result<Vec<(String, String, String, i64, bool)>, String> {
+    state.db.get_download_providers().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_active_download_providers(
+    state: State<'_, AppState>,
+) -> Result<Vec<(String, String, String, i64)>, String> {
+    state.db.get_active_download_providers().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_download_provider_priority(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    provider_id: String,
+    priority: i64,
+) -> Result<(), String> {
+    state.db.update_download_provider_priority(&plugin_id, &provider_id, priority)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_download_provider_active(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    provider_id: String,
+    active: bool,
+) -> Result<(), String> {
+    state.db.update_download_provider_active(&plugin_id, &provider_id, active)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reset_download_provider_priorities(
+    state: State<'_, AppState>,
+    defaults: Vec<(String, String, String, i64)>,
+) -> Result<(), String> {
+    state.db.reset_download_provider_priorities(&defaults).map_err(|e| e.to_string())
 }
 
 #[derive(Debug, Clone, Serialize)]
