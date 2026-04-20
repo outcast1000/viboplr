@@ -710,6 +710,7 @@ function App() {
       );
       if (!result) throw new Error(`No playback source found for: ${track.title}`);
       addLog(`Playing from ${result.label} (original unavailable)`);
+      if (result.url.startsWith("http://") || result.url.startsWith("https://")) return result.url;
       const fallbackParsed = parseUrlScheme(result.url);
       if (fallbackParsed.scheme === "file") return convertFileSrc(fallbackParsed.path);
       if (fallbackParsed.scheme === "tidal") return resolveTidalStreamUrlRef.current(fallbackParsed.id, null);
