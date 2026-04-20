@@ -2,10 +2,6 @@ import type {
   Track,
   HistoryEntry,
   HistoryMostPlayed,
-  TidalSearchResult,
-  TidalAlbumDetail,
-  TidalArtistDetail,
-  TidalSearchAlbum,
 } from "../types";
 
 // -- Manifest types --
@@ -272,14 +268,9 @@ export interface TidalSearchTrackLike {
 }
 
 export interface PluginTidalAPI {
-  search(query: string, limit?: number, offset?: number): Promise<TidalSearchResult>;
-  getAlbum(albumId: string): Promise<TidalAlbumDetail>;
-  getArtist(artistId: string): Promise<TidalArtistDetail>;
-  getArtistAlbums(artistId: string): Promise<TidalSearchAlbum[]>;
   getStreamUrl(trackId: string, quality?: string): Promise<string>;
   downloadTrack(trackId: string, opts?: { collectionId?: number; format?: string }): Promise<void>;
   downloadAlbum(albumId: string, opts?: { collectionId?: number; format?: string }): Promise<void>;
-  checkStatus(): Promise<{ available: boolean; instance_count: number }>;
 }
 
 export interface PluginCollectionsAPI {

@@ -426,22 +426,6 @@ export function usePlugins(
         },
 
         tidal: {
-          async search(query, limit, offset) {
-            return invoke("tidal_search", {
-              query,
-              limit: limit ?? 20,
-              offset: offset ?? 0,
-            });
-          },
-          async getAlbum(albumId) {
-            return invoke("tidal_get_album", { albumId });
-          },
-          async getArtist(artistId) {
-            return invoke("tidal_get_artist", { artistId });
-          },
-          async getArtistAlbums(artistId) {
-            return invoke("tidal_get_artist_albums", { artistId });
-          },
           async getStreamUrl(trackId, quality) {
             return invoke("tidal_get_stream_url", {
               trackId,
@@ -482,9 +466,6 @@ export function usePlugins(
               format: opts?.format ?? playbackCallbacksRef.current?.getDownloadFormat() ?? "flac",
               pathPattern: null,
             });
-          },
-          async checkStatus() {
-            return invoke("tidal_check_status");
           },
         },
 
