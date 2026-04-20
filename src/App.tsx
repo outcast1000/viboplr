@@ -43,7 +43,7 @@ import { useLikeActions } from "./hooks/useLikeActions";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useArtistInfo } from "./hooks/useArtistInfo";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
-import type { TidalSearchTrackLike } from "./types/plugin";
+import type { TidalSearchTrackLike, DownloadProvider } from "./types/plugin";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
 import { CaptionBar } from "./components/CaptionBar";
@@ -301,6 +301,48 @@ function App() {
     buildProviders();
   }, [plugins.pluginStates, plugins.invokeFallbackResolve, fallbackOrderVersion]);
 
+  // Build ordered download provider list from active plugins
+  const downloadProviders = useMemo(() => {
+    const providers: DownloadProvider[] = [];
+    for (const ps of plugins.pluginStates) {
+      if (ps.status !== "active") continue;
+      const dps = ps.manifest.contributes?.downloadProviders;
+      if (!dps) continue;
+      for (const dp of dps) {
+        providers.push({
+          id: `${ps.id}:${dp.id}`,
+          name: dp.name,
+          source: ps.id,
+          resolve: (title, artistName, albumName, sourceTrackId, format) =>
+            plugins.invokeDownloadResolve(ps.id, dp.id, title, artistName, albumName, sourceTrackId, format),
+        });
+      }
+    }
+    return providers;
+  }, [plugins.pluginStates, plugins.invokeDownloadResolve]);
+
+  const downloadProvidersRef = useRef<DownloadProvider[]>([]);
+  downloadProvidersRef.current = downloadProviders;
+
+  // Sync download providers to DB for backend ordering
+  useEffect(() => {
+    const providerData: [string, string, string, number][] = [];
+    for (const ps of plugins.pluginStates) {
+      if (ps.status !== "active") continue;
+      const dps = ps.manifest.contributes?.downloadProviders;
+      if (!dps) continue;
+      for (const dp of dps) {
+        providerData.push([ps.id, dp.id, dp.name, dp.priority]);
+      }
+    }
+    if (providerData.length > 0) {
+      invoke("sync_download_providers", { providers: providerData }).catch(console.error);
+    }
+  }, [plugins.pluginStates]);
+
+  const invokeDownloadResolveRef = useRef(plugins.invokeDownloadResolve);
+  invokeDownloadResolveRef.current = plugins.invokeDownloadResolve;
+
   const artistInfo = useArtistInfo({
     selectedArtist: library.selectedArtist,
     selectedAlbum: library.selectedAlbum,
@@ -463,7 +505,7 @@ function App() {
   });
 
   // Downloads
-  const downloads = useDownloads(downloadFormatRef, addLog);
+  const downloads = useDownloads(downloadFormatRef, addLog, downloadProvidersRef, invokeDownloadResolveRef);
 
   // Like actions
   const likeActions = useLikeActions({

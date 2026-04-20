@@ -23,6 +23,7 @@ import type {
   PluginGalleryIndex,
   ImageFetchResult,
   DownloadResolveHandler,
+  DownloadResolveResult,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 
@@ -1145,6 +1146,30 @@ export function usePlugins(
     [],
   );
 
+  const invokeDownloadResolve = useCallback(
+    async (
+      pluginId: string,
+      providerId: string,
+      title: string,
+      artistName: string | null,
+      albumName: string | null,
+      sourceTrackId: string | null,
+      format: string,
+    ): Promise<DownloadResolveResult | null> => {
+      const loaded = loadedPluginsRef.current.get(pluginId);
+      if (!loaded) return null;
+      const handler = loaded.downloadResolveHandlers.get(providerId);
+      if (!handler) return null;
+      try {
+        return await handler(title, artistName, albumName, sourceTrackId, format);
+      } catch (e) {
+        console.error(`[plugin:${pluginId}] download resolve error for ${providerId}:`, e);
+        return null;
+      }
+    },
+    [],
+  );
+
   const pluginNames = useMemo(
     () => new Map(pluginStates.map((s) => [s.id, s.manifest.name])),
     [pluginStates],
@@ -1175,5 +1200,6 @@ export function usePlugins(
     invokeInfoFetch,
     invokeImageFetch,
     invokeFallbackResolve,
+    invokeDownloadResolve,
   };
 }
