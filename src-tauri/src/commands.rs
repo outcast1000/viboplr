@@ -3605,3 +3605,42 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod plugin_cache_tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_plugin_cache_path_valid() {
+        assert!(validate_plugin_cache_path("spotify-browse", "abc123", Some("cover.jpg")).is_ok());
+        assert!(validate_plugin_cache_path("my-plugin", "subdir", Some("file.png")).is_ok());
+    }
+
+    #[test]
+    fn test_validate_plugin_cache_path_rejects_traversal() {
+        assert!(validate_plugin_cache_path("..", "sub", Some("f.jpg")).is_err());
+        assert!(validate_plugin_cache_path("ok", "..", Some("f.jpg")).is_err());
+        assert!(validate_plugin_cache_path("ok", "sub", Some("../f.jpg")).is_err());
+    }
+
+    #[test]
+    fn test_validate_plugin_cache_path_rejects_slashes() {
+        assert!(validate_plugin_cache_path("a/b", "sub", Some("f.jpg")).is_err());
+        assert!(validate_plugin_cache_path("ok", "a/b", Some("f.jpg")).is_err());
+        assert!(validate_plugin_cache_path("ok", "sub", Some("a/b.jpg")).is_err());
+        assert!(validate_plugin_cache_path("a\\b", "sub", Some("f.jpg")).is_err());
+        assert!(validate_plugin_cache_path("ok", "a\\b", Some("f.jpg")).is_err());
+    }
+
+    #[test]
+    fn test_validate_plugin_cache_path_rejects_empty() {
+        assert!(validate_plugin_cache_path("", "sub", Some("f.jpg")).is_err());
+        assert!(validate_plugin_cache_path("ok", "", Some("f.jpg")).is_err());
+        assert!(validate_plugin_cache_path("ok", "sub", Some("")).is_err());
+    }
+
+    #[test]
+    fn test_validate_plugin_cache_path_filename_optional() {
+        assert!(validate_plugin_cache_path("ok", "sub", None).is_ok());
+    }
+}
+
