@@ -2818,6 +2818,149 @@ pub async fn oauth_listen(app: tauri::AppHandle) -> Result<u16, String> {
     Ok(port)
 }
 
+// ── Plugin caching ───────────────────────────────────────────────
+
+fn validate_plugin_cache_path(plugin_id: &str, subdir: &str, filename: Option<&str>) -> Result<(), String> {
+    if plugin_id.is_empty() || plugin_id.contains("..") || plugin_id.contains('/') || plugin_id.contains('\\') {
+        return Err("Invalid plugin ID".to_string());
+    }
+    if subdir.is_empty() || subdir.contains("..") || subdir.contains('/') || subdir.contains('\\') {
+        return Err("Invalid subdir".to_string());
+    }
+    if let Some(f) = filename {
+        if f.is_empty() || f.contains("..") || f.contains('/') || f.contains('\\') {
+            return Err("Invalid filename".to_string());
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn plugin_cache_image(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    subdir: String,
+    filename: String,
+    url: String,
+) -> Result<String, String> {
+    validate_plugin_cache_path(&plugin_id, &subdir, Some(&filename))?;
+
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("URL must start with http:// or https://".to_string());
+    }
+
+    let cache_dir = state.app_dir.join("plugin-cache").join(&plugin_id).join(&subdir);
+    std::fs::create_dir_all(&cache_dir).map_err(|e| format!("Failed to create cache dir: {}", e))?;
+
+    let file_path = cache_dir.join(&filename);
+
+    // Verify canonical path is within expected directory
+    let canonical_parent = cache_dir.canonicalize().map_err(|e| format!("Path error: {}", e))?;
+    let expected_root = state.app_dir.join("plugin-cache").join(&plugin_id);
+    std::fs::create_dir_all(&expected_root).ok();
+    let canonical_root = expected_root.canonicalize().map_err(|e| format!("Path error: {}", e))?;
+    if !canonical_parent.starts_with(&canonical_root) {
+        return Err("Invalid path".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent("Viboplr/0.1.0 (https://github.com/viboplr)")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client.get(&url).send().await.map_err(|e| format!("Download failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+
+    let content_length = resp.content_length().unwrap_or(0);
+    if content_length > 10 * 1024 * 1024 {
+        return Err("Image too large (>10MB)".to_string());
+    }
+
+    let bytes = resp.bytes().await.map_err(|e| format!("Download failed: {}", e))?;
+    if bytes.len() > 10 * 1024 * 1024 {
+        return Err("Image too large (>10MB)".to_string());
+    }
+
+    std::fs::write(&file_path, &bytes).map_err(|e| format!("Failed to write file: {}", e))?;
+
+    Ok(file_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn plugin_cache_get_path(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    subdir: String,
+    filename: String,
+) -> Result<Option<String>, String> {
+    validate_plugin_cache_path(&plugin_id, &subdir, Some(&filename))?;
+
+    let file_path = state.app_dir.join("plugin-cache").join(&plugin_id).join(&subdir).join(&filename);
+    if file_path.exists() {
+        Ok(Some(file_path.to_string_lossy().to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub fn plugin_cache_delete_dir(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    subdir: String,
+) -> Result<(), String> {
+    validate_plugin_cache_path(&plugin_id, &subdir, None)?;
+
+    let dir_path = state.app_dir.join("plugin-cache").join(&plugin_id).join(&subdir);
+    if !dir_path.exists() {
+        return Ok(());
+    }
+
+    // Verify canonical path is within expected root
+    let canonical = dir_path.canonicalize().map_err(|e| format!("Path error: {}", e))?;
+    let expected_root = state.app_dir.join("plugin-cache").join(&plugin_id);
+    if !expected_root.exists() {
+        return Ok(());
+    }
+    let canonical_root = expected_root.canonicalize().map_err(|e| format!("Path error: {}", e))?;
+    if !canonical.starts_with(&canonical_root) {
+        return Err("Invalid path".to_string());
+    }
+
+    std::fs::remove_dir_all(&dir_path).map_err(|e| format!("Failed to delete: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn plugin_cache_list_dirs(
+    state: State<'_, AppState>,
+    plugin_id: String,
+) -> Result<Vec<String>, String> {
+    if plugin_id.is_empty() || plugin_id.contains("..") || plugin_id.contains('/') || plugin_id.contains('\\') {
+        return Err("Invalid plugin ID".to_string());
+    }
+
+    let dir = state.app_dir.join("plugin-cache").join(&plugin_id);
+    if !dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut dirs = Vec::new();
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("Failed to read dir: {}", e))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Read error: {}", e))?;
+        if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+            if let Some(name) = entry.file_name().to_str() {
+                dirs.push(name.to_string());
+            }
+        }
+    }
+    Ok(dirs)
+}
+
 // ── Mixtape operations ───────────────────────────────────────────
 
 #[tauri::command]
