@@ -385,10 +385,18 @@ impl Database {
                 UNIQUE(playlist_id, position)
             );
 
+            CREATE TABLE IF NOT EXISTS plugin_schedules (
+                plugin_id  TEXT NOT NULL,
+                task_id    TEXT NOT NULL,
+                interval_ms INTEGER NOT NULL,
+                last_run   INTEGER,
+                PRIMARY KEY (plugin_id, task_id)
+            );
+
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
-            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 26);
+            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 27);
 
             CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id);
             CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);
@@ -416,6 +424,19 @@ impl Database {
                 conn.execute_batch("ALTER TABLE tracks DROP COLUMN path_normalized")?;
             }
             conn.execute("UPDATE db_version SET version = 26 WHERE rowid = 1", [])?;
+        }
+
+        if version < 27 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS plugin_schedules (
+                    plugin_id  TEXT NOT NULL,
+                    task_id    TEXT NOT NULL,
+                    interval_ms INTEGER NOT NULL,
+                    last_run   INTEGER,
+                    PRIMARY KEY (plugin_id, task_id)
+                );
+                UPDATE db_version SET version = 27 WHERE rowid = 1;"
+            )?;
         }
 
         let needs_fts_rebuild = version < 26;
@@ -2702,6 +2723,69 @@ impl Database {
         Ok(())
     }
 
+    // ── Plugin Scheduler ─────────────────────────────────────────
+
+    pub fn plugin_scheduler_register(&self, plugin_id: &str, task_id: &str, interval_ms: i64) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO plugin_schedules (plugin_id, task_id, interval_ms) VALUES (?1, ?2, ?3)
+             ON CONFLICT(plugin_id, task_id) DO UPDATE SET interval_ms = excluded.interval_ms",
+            params![plugin_id, task_id, interval_ms],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn plugin_scheduler_unregister(&self, plugin_id: &str, task_id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM plugin_schedules WHERE plugin_id = ?1 AND task_id = ?2",
+            params![plugin_id, task_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn plugin_scheduler_unregister_all(&self, plugin_id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM plugin_schedules WHERE plugin_id = ?1",
+            params![plugin_id],
+        ).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn plugin_scheduler_complete(&self, plugin_id: &str, task_id: &str) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_millis() as i64;
+        let rows = conn.execute(
+            "UPDATE plugin_schedules SET last_run = ?3 WHERE plugin_id = ?1 AND task_id = ?2",
+            params![plugin_id, task_id, now],
+        ).map_err(|e| e.to_string())?;
+        Ok(rows > 0)
+    }
+
+    pub fn plugin_scheduler_get_all(&self) -> Result<Vec<(String, String, i64, Option<i64>)>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(
+            "SELECT plugin_id, task_id, interval_ms, last_run FROM plugin_schedules"
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+            ))
+        }).map_err(|e| e.to_string())?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(result)
+    }
+
     // ── Information Types ────────────────────────────────────────
 
     /// Sync the information_types table from plugin manifests.
@@ -4553,6 +4637,58 @@ mod tests {
         let last_page = db.search_entity("rock", "tracks", &TrackQuery { limit: Some(3), offset: Some(9), ..Default::default() }).unwrap();
         assert_eq!(last_page.total, 10);
         assert_eq!(last_page.tracks.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_plugin_scheduler_register_and_get() {
+        let db = test_db();
+        db.plugin_scheduler_register("spotify", "refresh-token", 3600000).unwrap();
+        let all = db.plugin_scheduler_get_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].0, "spotify");
+        assert_eq!(all[0].1, "refresh-token");
+        assert_eq!(all[0].2, 3600000);
+        assert_eq!(all[0].3, None);
+    }
+
+    #[test]
+    fn test_plugin_scheduler_complete() {
+        let db = test_db();
+        db.plugin_scheduler_register("spotify", "refresh-token", 3600000).unwrap();
+        let updated = db.plugin_scheduler_complete("spotify", "refresh-token").unwrap();
+        assert!(updated);
+        let all = db.plugin_scheduler_get_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert!(all[0].3.is_some());
+    }
+
+    #[test]
+    fn test_plugin_scheduler_complete_nonexistent() {
+        let db = test_db();
+        let updated = db.plugin_scheduler_complete("nonexistent", "task").unwrap();
+        assert!(!updated);
+    }
+
+    #[test]
+    fn test_plugin_scheduler_unregister() {
+        let db = test_db();
+        db.plugin_scheduler_register("spotify", "refresh-token", 3600000).unwrap();
+        db.plugin_scheduler_unregister("spotify", "refresh-token").unwrap();
+        let all = db.plugin_scheduler_get_all().unwrap();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn test_plugin_scheduler_unregister_all() {
+        let db = test_db();
+        db.plugin_scheduler_register("spotify", "refresh-token", 3600000).unwrap();
+        db.plugin_scheduler_register("spotify", "sync-library", 7200000).unwrap();
+        db.plugin_scheduler_register("other", "check-updates", 86400000).unwrap();
+        db.plugin_scheduler_unregister_all("spotify").unwrap();
+        let all = db.plugin_scheduler_get_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].0, "other");
+        assert_eq!(all[0].1, "check-updates");
     }
 
     #[test]
