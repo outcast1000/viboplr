@@ -5,7 +5,7 @@ use std::thread;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::db::Database;
-use crate::downloader::{DownloadFormat, DownloadManager, DownloadRequest};
+use crate::downloader::{DownloadFormat, DownloadManager, DownloadResolveRegistry};
 use crate::models::*;
 use crate::tidal::{self, TidalClient};
 use crate::scanner;
@@ -59,6 +59,7 @@ pub struct AppState {
     pub tidal_client: Arc<TidalClient>,
     pub native_plugins_dir: Option<std::path::PathBuf>,
     pub image_resolve_registry: Arc<ImageResolveRegistry>,
+    pub download_resolve_registry: Arc<DownloadResolveRegistry>,
     pub tidal_download_cancel: Arc<AtomicBool>,
     pub mixtape_cancel: Arc<AtomicBool>,
     pub update_checker_cancel: Arc<AtomicBool>,
@@ -1492,65 +1493,13 @@ pub fn subsonic_test_connection(
 
 #[tauri::command]
 pub fn tidal_save_track(
-    state: State<'_, AppState>,
-    tidal_track_id: String,
-    dest_collection_id: Option<i64>,
-    custom_dest_path: Option<String>,
-    format: Option<String>,
+    _state: State<'_, AppState>,
+    _tidal_track_id: String,
+    _dest_collection_id: Option<i64>,
+    _custom_dest_path: Option<String>,
+    _format: Option<String>,
 ) -> Result<u64, String> {
-    let fmt = DownloadFormat::from_str(format.as_deref().unwrap_or("flac"))?;
-    let client = state.tidal_client.clone();
-
-    let info = client
-        .get_track_info(&tidal_track_id)
-        .map_err(|e| e.to_string())?;
-
-    let (collection_id, dest_path) = if let Some(custom) = custom_dest_path {
-        (0, custom)
-    } else {
-        let cid = dest_collection_id.ok_or("Either dest_collection_id or custom_dest_path is required")?;
-        let dest_collection = state
-            .db
-            .get_collection_by_id(cid)
-            .map_err(|e| e.to_string())?;
-        let path = dest_collection
-            .path
-            .ok_or("Destination collection has no path")?;
-        (cid, path)
-    };
-
-    let cover_url = info
-        .cover_id
-        .as_deref()
-        .map(|id| tidal::cover_url(id, 1280));
-
-    let id = state.track_download_manager.next_id();
-    let request = DownloadRequest {
-        id,
-        track_title: info.title,
-        artist_name: info
-            .artist_name
-            .unwrap_or_else(|| "Unknown Artist".to_string()),
-        album_title: info
-            .album_title
-            .unwrap_or_else(|| "Unknown Album".to_string()),
-        track_number: info.track_number.map(|n| n as u32),
-        genre: None,
-        year: None,
-        cover_url,
-        source_kind: "tidal".to_string(),
-        source_collection_id: None,
-        source_override_url: None,
-        remote_track_id: tidal_track_id,
-        dest_collection_id: collection_id,
-        dest_collection_path: dest_path,
-        format: fmt,
-        is_batch_last: true,
-        path_pattern: None,
-    };
-
-    state.track_download_manager.enqueue(request);
-    Ok(id)
+    todo!("rewritten in Task 4")
 }
 
 #[tauri::command]
@@ -1770,135 +1719,25 @@ pub fn replace_track_tags(state: State<'_, AppState>, track_id: i64, tag_names: 
 
 #[tauri::command]
 pub fn download_track(
-    state: State<'_, AppState>,
-    source_collection_id: i64,
-    remote_track_id: String,
-    dest_collection_id: i64,
-    format: String,
+    _state: State<'_, AppState>,
+    _source_collection_id: i64,
+    _remote_track_id: String,
+    _dest_collection_id: i64,
+    _format: String,
 ) -> Result<u64, String> {
-    let fmt = DownloadFormat::from_str(&format)?;
-
-    // Look up track metadata from DB
-    let track = state
-        .db
-        .get_track_by_remote_id(&remote_track_id, source_collection_id)
-        .map_err(|e| e.to_string())?
-        .ok_or("Track not found in database")?;
-
-    // Look up destination collection path
-    let dest_collection = state
-        .db
-        .get_collection_by_id(dest_collection_id)
-        .map_err(|e| e.to_string())?;
-    let dest_path = dest_collection
-        .path
-        .ok_or("Destination collection has no path")?;
-
-    // Resolve cover URL
-    let cover_url = resolve_cover_url(&state.db, &track, source_collection_id);
-
-    let collection = state
-        .db
-        .get_collection_by_id(source_collection_id)
-        .map_err(|e| e.to_string())?;
-
-    let id = state.track_download_manager.next_id();
-    let request = DownloadRequest {
-        id,
-        track_title: track.title.clone(),
-        artist_name: track
-            .artist_name
-            .clone()
-            .unwrap_or_else(|| "Unknown Artist".to_string()),
-        album_title: track
-            .album_title
-            .clone()
-            .unwrap_or_else(|| "Unknown Album".to_string()),
-        track_number: track.track_number.map(|n| n as u32),
-        genre: None,
-        year: track.year,
-        cover_url,
-        source_kind: collection.kind.clone(),
-        source_collection_id: Some(source_collection_id),
-        source_override_url: collection.url.clone(),
-        remote_track_id,
-        dest_collection_id,
-        dest_collection_path: dest_path,
-        format: fmt,
-        is_batch_last: true,
-        path_pattern: None,
-    };
-
-    state.track_download_manager.enqueue(request);
-    Ok(id)
+    todo!("rewritten in Task 4")
 }
 
 #[tauri::command]
 pub async fn download_album(
-    state: State<'_, AppState>,
-    album_id: String,
-    dest_collection_id: Option<i64>,
-    custom_dest_path: Option<String>,
-    format: String,
-    path_pattern: Option<String>,
+    _state: State<'_, AppState>,
+    _album_id: String,
+    _dest_collection_id: Option<i64>,
+    _custom_dest_path: Option<String>,
+    _format: String,
+    _path_pattern: Option<String>,
 ) -> Result<Vec<u64>, String> {
-    let fmt = DownloadFormat::from_str(&format)?;
-
-    let (collection_id, dest_path) = if let Some(custom) = custom_dest_path {
-        (0, custom)
-    } else {
-        let cid = dest_collection_id.ok_or("Either dest_collection_id or custom_dest_path is required")?;
-        let dest_collection = state
-            .db
-            .get_collection_by_id(cid)
-            .map_err(|e| e.to_string())?;
-        let path = dest_collection
-            .path
-            .ok_or("Destination collection has no path")?;
-        (cid, path)
-    };
-
-    let client = state.tidal_client.clone();
-    let dl_manager = state.track_download_manager.clone();
-    let pattern = path_pattern;
-
-    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u64>, String> {
-        let album = client.get_album(&album_id).map_err(|e| e.to_string())?;
-        let cover_url = album
-            .cover_id
-            .as_deref()
-            .map(|id| tidal::cover_url(id, 1280));
-
-        let count = album.tracks.len();
-        let mut ids = Vec::with_capacity(count);
-
-        for (i, t) in album.tracks.into_iter().enumerate() {
-            let id = dl_manager.next_id();
-            let request = DownloadRequest {
-                id,
-                track_title: t.title,
-                artist_name: t.artist_name.unwrap_or_default(),
-                album_title: album.title.clone(),
-                track_number: t.track_number.map(|n| n as u32),
-                genre: None,
-                year: album.year,
-                cover_url: cover_url.clone(),
-                source_kind: "tidal".to_string(),
-                source_collection_id: None,
-                source_override_url: None,
-                remote_track_id: t.tidal_id,
-                dest_collection_id: collection_id,
-                dest_collection_path: dest_path.clone(),
-                format: fmt,
-                is_batch_last: i == count - 1,
-                path_pattern: pattern.clone(),
-            };
-            dl_manager.enqueue(request);
-            ids.push(id);
-        }
-
-        Ok(ids)
-    }).await.map_err(|e| e.to_string())?
+    todo!("rewritten in Task 4")
 }
 
 #[tauri::command]
@@ -2085,26 +1924,17 @@ pub async fn tidal_download_to_path(
             let cover_url: Option<String> = info.cover_id.as_deref().map(|id|
                 format!("https://resources.tidal.com/images/{}/640x640.jpg", id.replace('-', "/"))
             );
-            let tag_request = DownloadRequest {
-                id: 0,
-                track_title: info.title.clone(),
-                artist_name: info.artist_name.clone().unwrap_or_default(),
-                album_title: info.album_title.clone().unwrap_or_default(),
-                track_number: info.track_number.map(|n| n as u32),
-                genre: None,
-                year: None,
-                cover_url,
-                source_kind: "tidal".to_string(),
-                source_collection_id: None,
-                source_override_url: None,
-                remote_track_id: tidal_track_id.clone(),
-                dest_collection_id: 0,
-                dest_collection_path: String::new(),
-                format: fmt,
-                is_batch_last: false,
-                path_pattern: None,
-            };
-            let _ = crate::downloader::write_tags(&temp_path, &tag_request, &http_client);
+            let _ = crate::downloader::write_tags(
+                &temp_path,
+                &info.title,
+                &info.artist_name.as_deref().unwrap_or("Unknown Artist"),
+                &info.album_title.as_deref().unwrap_or("Unknown Album"),
+                info.track_number.map(|n| n as u32),
+                None, // year
+                None, // genre
+                cover_url.as_deref(),
+                &fmt,
+            );
         }
 
         // Move temp to final destination
@@ -2243,26 +2073,17 @@ pub async fn tidal_download_preview(
             .cover_id
             .as_deref()
             .map(|id| tidal::cover_url(id, 1280));
-        let request = DownloadRequest {
-            id: 0,
-            track_title: info.title,
-            artist_name: info.artist_name.unwrap_or_else(|| "Unknown Artist".to_string()),
-            album_title: info.album_title.unwrap_or_else(|| "Unknown Album".to_string()),
-            track_number: info.track_number.map(|n| n as u32),
-            genre: None,
-            year: None,
-            cover_url,
-            source_kind: "tidal".to_string(),
-            source_collection_id: None,
-            source_override_url: None,
-            remote_track_id: tidal_track_id,
-            dest_collection_id: 0,
-            dest_collection_path: String::new(),
-            format: fmt,
-            is_batch_last: true,
-            path_pattern: None,
-        };
-        if let Err(e) = crate::downloader::write_tags(&new_path, &request, &http_client) {
+        if let Err(e) = crate::downloader::write_tags(
+            &new_path,
+            &info.title,
+            info.artist_name.as_deref().unwrap_or("Unknown Artist"),
+            info.album_title.as_deref().unwrap_or("Unknown Album"),
+            info.track_number.map(|n| n as u32),
+            None, // year
+            None, // genre
+            cover_url.as_deref(),
+            &fmt,
+        ) {
             log::warn!("Failed to write tags to upgrade preview: {}", e);
         }
 
@@ -3386,6 +3207,7 @@ mod tests {
             image_resolve_registry: Arc::new(ImageResolveRegistry {
                 pending: Mutex::new(std::collections::HashMap::new()),
             }),
+            download_resolve_registry: Arc::new(DownloadResolveRegistry::new()),
             tidal_download_cancel: Arc::new(AtomicBool::new(false)),
             mixtape_cancel: Arc::new(AtomicBool::new(false)),
             update_checker_cancel: Arc::new(AtomicBool::new(false)),

@@ -21,7 +21,7 @@ mod downloader;
 mod update_checker;
 use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry};
 use db::Database;
-use downloader::DownloadManager;
+use downloader::{DownloadManager, DownloadResolveRegistry};
 use image_provider::AlbumImageProvider;
 use std::sync::{Arc, Condvar, Mutex};
 use tauri::{Emitter, Manager};
@@ -874,10 +874,12 @@ pub fn run() {
             timer.time("spawn_download_worker", || { std::thread::spawn(move || {
                 loop {
                     let request = dl_worker_manager.wait_for_next();
+                    let track_title = request.title.clone();
+                    let artist_name = request.artist_name.clone().unwrap_or_default();
                     let status = crate::downloader::DownloadStatus {
                         id: request.id,
-                        track_title: request.track_title.clone(),
-                        artist_name: request.artist_name.clone(),
+                        track_title: track_title.clone(),
+                        artist_name: artist_name.clone(),
                         status: "downloading".to_string(),
                         progress_pct: 0,
                         error: None,
@@ -889,8 +891,8 @@ pub fn run() {
                         Ok(dest_path) => {
                             let complete = crate::downloader::DownloadStatus {
                                 id: request.id,
-                                track_title: request.track_title.clone(),
-                                artist_name: request.artist_name.clone(),
+                                track_title: track_title.clone(),
+                                artist_name: artist_name.clone(),
                                 status: "complete".to_string(),
                                 progress_pct: 100,
                                 error: None,
@@ -899,7 +901,7 @@ pub fn run() {
                             dl_worker_manager.push_completed(complete.clone());
                             let _ = dl_app_handle.emit("download-complete", serde_json::json!({
                                 "id": request.id,
-                                "trackTitle": request.track_title,
+                                "trackTitle": track_title,
                                 "destPath": dest_path.to_string_lossy(),
                             }));
 
@@ -909,11 +911,11 @@ pub fn run() {
                             }));
                         }
                         Err(e) => {
-                            log::error!("Download failed for {}: {}", request.track_title, e);
+                            log::error!("Download failed for {}: {}", track_title, e);
                             let error_status = crate::downloader::DownloadStatus {
                                 id: request.id,
-                                track_title: request.track_title.clone(),
-                                artist_name: request.artist_name.clone(),
+                                track_title: track_title.clone(),
+                                artist_name: artist_name.clone(),
                                 status: "error".to_string(),
                                 progress_pct: 0,
                                 error: Some(e.clone()),
@@ -922,7 +924,7 @@ pub fn run() {
                             dl_worker_manager.push_completed(error_status);
                             let _ = dl_app_handle.emit("download-error", serde_json::json!({
                                 "id": request.id,
-                                "trackTitle": request.track_title,
+                                "trackTitle": track_title,
                                 "error": e,
                             }));
                         }
@@ -1143,6 +1145,7 @@ pub fn run() {
                     tidal_client,
                     native_plugins_dir,
                     image_resolve_registry: worker_registry_for_state,
+                    download_resolve_registry: Arc::new(DownloadResolveRegistry::new()),
                     tidal_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     update_checker_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),

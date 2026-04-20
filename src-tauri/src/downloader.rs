@@ -1,17 +1,15 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::db::Database;
-use crate::scanner;
-use crate::subsonic::SubsonicClient;
-use crate::tidal;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum DownloadFormat {
     Flac,
     Aac,
@@ -52,27 +50,79 @@ impl DownloadFormat {
     }
 }
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
+impl std::fmt::Display for DownloadFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DownloadFormat::Flac => write!(f, "flac"),
+            DownloadFormat::Aac => write!(f, "aac"),
+            DownloadFormat::Mp3 => write!(f, "mp3"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct DownloadRequest {
     pub id: u64,
-    pub track_title: String,
-    pub artist_name: String,
-    pub album_title: String,
-    pub track_number: Option<u32>,
-    pub genre: Option<String>,
-    pub year: Option<i32>,
-    pub cover_url: Option<String>,
-    pub source_kind: String,                  // "tidal" or "subsonic"
-    pub source_collection_id: Option<i64>,    // needed for subsonic credentials
-    pub source_override_url: Option<String>,  // MusicGateAway URL (tidal) or collection URL (subsonic)
-    pub remote_track_id: String,
+    pub title: String,
+    pub artist_name: Option<String>,
+    pub album_title: Option<String>,
     pub dest_collection_id: i64,
     pub dest_collection_path: String,
     pub format: DownloadFormat,
+    pub path_pattern: Option<String>,
     /// If true, this is the last track in a batch (album download). FTS rebuild happens after this one.
     pub is_batch_last: bool,
-    pub path_pattern: Option<String>,
+    /// Plugin ID of the source provider (e.g., "tidal-browse")
+    pub source_provider_id: Option<String>,
+    /// Track ID within the source provider (e.g., TIDAL track ID)
+    pub source_track_id: Option<String>,
+    /// Collection ID for the source (e.g., subsonic collection)
+    pub source_collection_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DownloadResolveResponse {
+    pub url: String,
+    pub headers: Option<HashMap<String, String>>,
+    pub metadata: Option<DownloadMetadata>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DownloadMetadata {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub track_number: Option<u32>,
+    pub year: Option<u32>,
+    pub genre: Option<String>,
+    pub cover_url: Option<String>,
+}
+
+pub struct DownloadResolveRegistry {
+    pub pending: Mutex<HashMap<u64, mpsc::Sender<Option<DownloadResolveResponse>>>>,
+}
+
+impl DownloadResolveRegistry {
+    pub fn new() -> Self {
+        Self {
+            pending: Mutex::new(HashMap::new()),
+        }
+    }
+    pub fn register(&self, id: u64) -> mpsc::Receiver<Option<DownloadResolveResponse>> {
+        let (tx, rx) = mpsc::channel();
+        self.pending.lock().unwrap().insert(id, tx);
+        rx
+    }
+    pub fn respond(&self, id: u64, response: Option<DownloadResolveResponse>) -> bool {
+        if let Some(tx) = self.pending.lock().unwrap().remove(&id) {
+            tx.send(response).is_ok()
+        } else {
+            false
+        }
+    }
+    pub fn cancel(&self, id: u64) {
+        self.pending.lock().unwrap().remove(&id);
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -137,8 +187,8 @@ impl DownloadManager {
             .iter()
             .map(|r| DownloadStatus {
                 id: r.id,
-                track_title: r.track_title.clone(),
-                artist_name: r.artist_name.clone(),
+                track_title: r.title.clone(),
+                artist_name: r.artist_name.clone().unwrap_or_default(),
                 status: "queued".to_string(),
                 progress_pct: 0,
                 error: None,
@@ -197,19 +247,25 @@ pub fn sanitize_filename(name: &str) -> String {
 /// Build the destination path from a pattern or default `{Artist}/{Album}/{TrackNum} - {Title}.{ext}`.
 /// Pattern tokens: `[artist]`, `[album]`, `[track_number]`, `[title]`.
 /// Use `/` or `\` in the pattern to create subdirectories.
-/// If `ext_override` is provided, it is used instead of the request's format extension.
-pub fn build_dest_path(request: &DownloadRequest, ext_override: Option<&str>) -> PathBuf {
-    let ext = ext_override.unwrap_or_else(|| request.format.extension());
-    let track_num = request.track_number.map(|n| format!("{:02}", n)).unwrap_or_default();
+pub fn build_dest_path(
+    collection_path: &str,
+    title: &str,
+    artist: &str,
+    album: &str,
+    track_number: Option<u32>,
+    ext: &str,
+    path_pattern: Option<&str>,
+) -> PathBuf {
+    let track_num = track_number.map(|n| format!("{:02}", n)).unwrap_or_default();
 
-    if let Some(ref pattern) = request.path_pattern {
+    if let Some(pattern) = path_pattern {
         let expanded = pattern
-            .replace("[artist]", &sanitize_filename(&request.artist_name))
-            .replace("[album]", &sanitize_filename(&request.album_title))
+            .replace("[artist]", &sanitize_filename(artist))
+            .replace("[album]", &sanitize_filename(album))
             .replace("[track_number]", &track_num)
-            .replace("[title]", &sanitize_filename(&request.track_title));
+            .replace("[title]", &sanitize_filename(title));
         let full = format!("{}.{}", expanded, ext);
-        let mut path = PathBuf::from(&request.dest_collection_path);
+        let mut path = PathBuf::from(collection_path);
         for component in full.split(['/', '\\']) {
             if !component.is_empty() {
                 path.push(component);
@@ -218,14 +274,14 @@ pub fn build_dest_path(request: &DownloadRequest, ext_override: Option<&str>) ->
         return path;
     }
 
-    let artist_dir = sanitize_filename(&request.artist_name);
-    let album_dir = sanitize_filename(&request.album_title);
+    let artist_dir = sanitize_filename(artist);
+    let album_dir = sanitize_filename(album);
     let filename = if track_num.is_empty() {
-        format!("{}.{}", sanitize_filename(&request.track_title), ext)
+        format!("{}.{}", sanitize_filename(title), ext)
     } else {
-        format!("{} - {}.{}", track_num, sanitize_filename(&request.track_title), ext)
+        format!("{} - {}.{}", track_num, sanitize_filename(title), ext)
     };
-    Path::new(&request.dest_collection_path)
+    Path::new(collection_path)
         .join(artist_dir)
         .join(album_dir)
         .join(filename)
@@ -233,272 +289,27 @@ pub fn build_dest_path(request: &DownloadRequest, ext_override: Option<&str>) ->
 
 // --- Download pipeline ---
 
-/// Run a single download: fetch stream -> write to file -> tag -> move -> register
+/// Run a single download: resolve stream URL via plugin bridge -> download -> tag -> register.
+/// This will be fully rewritten in Task 3 to use the DownloadResolveRegistry bridge.
 pub fn process_download(
-    request: &DownloadRequest,
-    db: &Arc<Database>,
-    app: &AppHandle,
-    manager: &Arc<DownloadManager>,
+    _request: &DownloadRequest,
+    _db: &Arc<Database>,
+    _app: &AppHandle,
+    _manager: &Arc<DownloadManager>,
 ) -> Result<PathBuf, String> {
-    // Step 1: Resolve stream URL
-    // For TIDAL, use the native TidalClient (direct download + tagging)
-    if request.source_kind == "tidal" {
-        let tidal_client = tidal::get_global_client()
-            .ok_or("TIDAL client not available")?;
-
-        // Get stream URL
-        let stream_info = tidal_client
-            .get_stream_url(&request.remote_track_id, request.format.tidal_quality())
-            .map_err(|e| e.to_string())?;
-
-        let actual_ext = stream_info.extension();
-        let dest_path = build_dest_path(request, Some(actual_ext));
-
-        if dest_path.exists() {
-            return Err(format!("File already exists: {}", dest_path.display()));
-        }
-
-        if let Some(parent) = dest_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create directories: {}", e))?;
-        }
-
-        // Download from CDN URL with progress
-        let dest_ext = dest_path.extension().and_then(|e| e.to_str()).unwrap_or("tmp");
-        let temp_path = dest_path
-            .parent()
-            .unwrap_or(Path::new("."))
-            .join(format!(".viboplr-download-{}.{}", request.id, dest_ext));
-
-        let http_client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(300))
-            .build()
-            .map_err(|e| format!("HTTP client error: {}", e))?;
-
-        let resp = http_client
-            .get(&stream_info.url)
-            .send()
-            .map_err(|e| format!("Download failed: {}", e))?;
-
-        let total_bytes = resp.content_length().unwrap_or(0);
-        let mut downloaded: u64 = 0;
-        let mut last_emit = std::time::Instant::now();
-
-        let mut file = std::fs::File::create(&temp_path)
-            .map_err(|e| format!("Failed to create temp file: {}", e))?;
-
-        let mut reader = std::io::BufReader::new(resp);
-        let mut buf = [0u8; 8192];
-        loop {
-            use std::io::Read;
-            let n = reader.read(&mut buf).map_err(|e| {
-                let _ = std::fs::remove_file(&temp_path);
-                format!("Read error: {}", e)
-            })?;
-            if n == 0 {
-                break;
-            }
-            file.write_all(&buf[..n]).map_err(|e| {
-                let _ = std::fs::remove_file(&temp_path);
-                format!("Write error: {}", e)
-            })?;
-            downloaded += n as u64;
-
-            if last_emit.elapsed() >= std::time::Duration::from_millis(500) {
-                let pct = if total_bytes > 0 {
-                    ((downloaded as f64 / total_bytes as f64) * 100.0) as u8
-                } else {
-                    0
-                };
-                let status = DownloadStatus {
-                    id: request.id,
-                    track_title: request.track_title.clone(),
-                    artist_name: request.artist_name.clone(),
-                    status: "downloading".to_string(),
-                    progress_pct: pct,
-                    error: None,
-                };
-                manager.set_active(Some(status.clone()));
-                let _ = app.emit("download-progress", &status);
-                last_emit = std::time::Instant::now();
-            }
-        }
-        file.flush().map_err(|e| format!("Flush error: {}", e))?;
-        drop(file);
-
-        // Write tags + cover art
-        let tag_status = DownloadStatus {
-            id: request.id,
-            track_title: request.track_title.clone(),
-            artist_name: request.artist_name.clone(),
-            status: "writing_tags".to_string(),
-            progress_pct: 100,
-            error: None,
-        };
-        manager.set_active(Some(tag_status.clone()));
-        let _ = app.emit("download-progress", &tag_status);
-
-        if let Err(e) = write_tags(&temp_path, request, &http_client) {
-            log::warn!("Failed to write tags: {}", e);
-        }
-
-        // Move to final path
-        std::fs::rename(&temp_path, &dest_path).map_err(|e| {
-            let _ = std::fs::remove_file(&temp_path);
-            format!("Failed to move file: {}", e)
-        })?;
-
-        // Register in library
-        if request.dest_collection_id > 0 {
-            scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id), Some(&request.dest_collection_path));
-
-            if request.is_batch_last {
-                let _ = db.rebuild_fts();
-                let _ = db.recompute_counts();
-            }
-        }
-
-        return Ok(dest_path);
-    }
-
-    // Subsonic download path
-    let (stream_url, actual_ext) = match request.source_kind.as_str() {
-        "subsonic" => {
-            let collection_id = request.source_collection_id
-                .ok_or("Subsonic download requires source_collection_id")?;
-            let creds = db
-                .get_collection_credentials(collection_id)
-                .map_err(|e| e.to_string())?;
-            let client = SubsonicClient::from_stored(
-                &creds.url,
-                &creds.username,
-                &creds.password_token,
-                creds.salt.as_deref(),
-                &creds.auth_method,
-            );
-            (client.stream_url_with_format(
-                &request.remote_track_id,
-                request.format.subsonic_format_param(),
-            ), None::<String>)
-        }
-        _ => return Err(format!("Unsupported source kind: {}", request.source_kind)),
-    };
-
-    let dest_path = build_dest_path(request, actual_ext.as_deref());
-
-    // Check for duplicates
-    if dest_path.exists() {
-        return Err(format!("File already exists: {}", dest_path.display()));
-    }
-
-    // Create parent directories
-    if let Some(parent) = dest_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directories: {}", e))?;
-    }
-
-    // Step 2: Download to temp file (preserve extension so lofty can detect format for tagging)
-    let dest_ext = dest_path.extension().and_then(|e| e.to_str()).unwrap_or("tmp");
-    let temp_path = dest_path
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join(format!(".viboplr-download-{}.{}", request.id, dest_ext));
-
-    let http_client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .build()
-        .map_err(|e| format!("HTTP client error: {}", e))?;
-
-    let resp = http_client
-        .get(&stream_url)
-        .send()
-        .map_err(|e| format!("Download failed: {}", e))?;
-
-    let total_bytes = resp.content_length().unwrap_or(0);
-    let mut downloaded: u64 = 0;
-    let mut last_emit = std::time::Instant::now();
-
-    let mut file = std::fs::File::create(&temp_path)
-        .map_err(|e| format!("Failed to create temp file: {}", e))?;
-
-    let mut reader = std::io::BufReader::new(resp);
-    let mut buf = [0u8; 8192];
-    loop {
-        use std::io::Read;
-        let n = reader.read(&mut buf).map_err(|e| {
-            let _ = std::fs::remove_file(&temp_path);
-            format!("Read error: {}", e)
-        })?;
-        if n == 0 {
-            break;
-        }
-        file.write_all(&buf[..n]).map_err(|e| {
-            let _ = std::fs::remove_file(&temp_path);
-            format!("Write error: {}", e)
-        })?;
-        downloaded += n as u64;
-
-        // Emit progress every 500ms
-        if last_emit.elapsed() >= std::time::Duration::from_millis(500) {
-            let pct = if total_bytes > 0 {
-                ((downloaded as f64 / total_bytes as f64) * 100.0) as u8
-            } else {
-                0
-            };
-            let status = DownloadStatus {
-                id: request.id,
-                track_title: request.track_title.clone(),
-                artist_name: request.artist_name.clone(),
-                status: "downloading".to_string(),
-                progress_pct: pct,
-                error: None,
-            };
-            manager.set_active(Some(status.clone()));
-            let _ = app.emit("download-progress", &status);
-            last_emit = std::time::Instant::now();
-        }
-    }
-    file.flush().map_err(|e| format!("Flush error: {}", e))?;
-    drop(file);
-
-    // Step 3 & 4: Write tags + cover art
-    let tag_status = DownloadStatus {
-        id: request.id,
-        track_title: request.track_title.clone(),
-        artist_name: request.artist_name.clone(),
-        status: "writing_tags".to_string(),
-        progress_pct: 100,
-        error: None,
-    };
-    manager.set_active(Some(tag_status.clone()));
-    let _ = app.emit("download-progress", &tag_status);
-
-    if let Err(e) = write_tags(&temp_path, request, &http_client) {
-        log::warn!("Failed to write tags: {}", e);
-        // Non-fatal: continue even if tagging fails
-    }
-
-    // Step 5: Move to final path
-    std::fs::rename(&temp_path, &dest_path).map_err(|e| {
-        let _ = std::fs::remove_file(&temp_path);
-        format!("Failed to move file: {}", e)
-    })?;
-
-    // Step 6: Register in library
-    scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id), Some(&request.dest_collection_path));
-
-    if request.is_batch_last {
-        let _ = db.rebuild_fts();
-        let _ = db.recompute_counts();
-    }
-
-    Ok(dest_path)
+    todo!("rewritten in Task 3")
 }
 
 pub fn write_tags(
     path: &Path,
-    request: &DownloadRequest,
-    http_client: &reqwest::blocking::Client,
+    title: &str,
+    artist: &str,
+    album: &str,
+    track_number: Option<u32>,
+    year: Option<i32>,
+    genre: Option<&str>,
+    cover_url: Option<&str>,
+    _format: &DownloadFormat,
 ) -> Result<(), String> {
     use lofty::config::WriteOptions;
     use lofty::picture::{MimeType, Picture, PictureType};
@@ -519,21 +330,26 @@ pub fn write_tags(
         }
     };
 
-    tag.set_title(request.track_title.clone());
-    tag.set_artist(request.artist_name.clone());
-    tag.set_album(request.album_title.clone());
-    if let Some(num) = request.track_number {
+    tag.set_title(title.to_string());
+    tag.set_artist(artist.to_string());
+    tag.set_album(album.to_string());
+    if let Some(num) = track_number {
         tag.set_track(num);
     }
-    if let Some(genre) = &request.genre {
-        tag.set_genre(genre.clone());
+    if let Some(genre) = genre {
+        tag.set_genre(genre.to_string());
     }
-    if let Some(year) = request.year {
+    if let Some(year) = year {
         tag.set_year(year as u32);
     }
 
     // Embed cover art
-    if let Some(cover_url) = &request.cover_url {
+    if let Some(cover_url) = cover_url {
+        let http_client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|e| format!("HTTP client error: {}", e))?;
+
         match http_client.get(cover_url).send() {
             Ok(resp) => {
                 if let Ok(bytes) = resp.bytes() {
@@ -577,22 +393,17 @@ mod tests {
     fn test_request() -> DownloadRequest {
         DownloadRequest {
             id: 1,
-            track_title: "Test Song".to_string(),
-            artist_name: "Test Artist".to_string(),
-            album_title: "Test Album".to_string(),
-            track_number: Some(3),
-            genre: None,
-            year: None,
-            cover_url: None,
-            source_kind: "tidal".to_string(),
-            source_collection_id: None,
-            source_override_url: None,
-            remote_track_id: "123".to_string(),
+            title: "Test Song".to_string(),
+            artist_name: Some("Test Artist".to_string()),
+            album_title: Some("Test Album".to_string()),
             dest_collection_id: 1,
             dest_collection_path: "/music".to_string(),
             format: DownloadFormat::Flac,
             is_batch_last: false,
             path_pattern: None,
+            source_provider_id: None,
+            source_track_id: Some("123".to_string()),
+            source_collection_id: None,
         }
     }
 
@@ -681,12 +492,18 @@ mod tests {
         assert_eq!(DownloadFormat::Mp3.subsonic_format_param(), Some("mp3"));
     }
 
+    #[test]
+    fn test_download_format_display() {
+        assert_eq!(format!("{}", DownloadFormat::Flac), "flac");
+        assert_eq!(format!("{}", DownloadFormat::Aac), "aac");
+        assert_eq!(format!("{}", DownloadFormat::Mp3), "mp3");
+    }
+
     // --- build_dest_path tests ---
 
     #[test]
     fn test_build_dest_path_default_with_track_number() {
-        let request = test_request();
-        let path = build_dest_path(&request, None);
+        let path = build_dest_path("/music", "Test Song", "Test Artist", "Test Album", Some(3), "flac", None);
         assert_eq!(
             path,
             PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.flac")
@@ -695,9 +512,7 @@ mod tests {
 
     #[test]
     fn test_build_dest_path_default_without_track_number() {
-        let mut request = test_request();
-        request.track_number = None;
-        let path = build_dest_path(&request, None);
+        let path = build_dest_path("/music", "Test Song", "Test Artist", "Test Album", None, "flac", None);
         assert_eq!(
             path,
             PathBuf::from("/music/Test Artist/Test Album/Test Song.flac")
@@ -706,9 +521,10 @@ mod tests {
 
     #[test]
     fn test_build_dest_path_custom_pattern_all_tokens() {
-        let mut request = test_request();
-        request.path_pattern = Some("[artist]/[album]/[track_number] - [title]".to_string());
-        let path = build_dest_path(&request, None);
+        let path = build_dest_path(
+            "/music", "Test Song", "Test Artist", "Test Album", Some(3), "flac",
+            Some("[artist]/[album]/[track_number] - [title]"),
+        );
         assert_eq!(
             path,
             PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.flac")
@@ -717,9 +533,10 @@ mod tests {
 
     #[test]
     fn test_build_dest_path_custom_pattern_subdirectories() {
-        let mut request = test_request();
-        request.path_pattern = Some("Artists/[artist]/Albums/[album]/[track_number]-[title]".to_string());
-        let path = build_dest_path(&request, None);
+        let path = build_dest_path(
+            "/music", "Test Song", "Test Artist", "Test Album", Some(3), "flac",
+            Some("Artists/[artist]/Albums/[album]/[track_number]-[title]"),
+        );
         assert_eq!(
             path,
             PathBuf::from("/music/Artists/Test Artist/Albums/Test Album/03-Test Song.flac")
@@ -728,8 +545,7 @@ mod tests {
 
     #[test]
     fn test_build_dest_path_extension_override() {
-        let request = test_request();
-        let path = build_dest_path(&request, Some("m4a"));
+        let path = build_dest_path("/music", "Test Song", "Test Artist", "Test Album", Some(3), "m4a", None);
         assert_eq!(
             path,
             PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.m4a")
@@ -738,11 +554,7 @@ mod tests {
 
     #[test]
     fn test_build_dest_path_sanitizes_filenames() {
-        let mut request = test_request();
-        request.artist_name = "Artist/Name".to_string();
-        request.album_title = "Album:Title".to_string();
-        request.track_title = "Track?Name".to_string();
-        let path = build_dest_path(&request, None);
+        let path = build_dest_path("/music", "Track?Name", "Artist/Name", "Album:Title", Some(3), "flac", None);
         assert_eq!(
             path,
             PathBuf::from("/music/Artist_Name/Album_Title/03 - Track_Name.flac")
@@ -751,10 +563,10 @@ mod tests {
 
     #[test]
     fn test_build_dest_path_custom_pattern_no_track_number() {
-        let mut request = test_request();
-        request.track_number = None;
-        request.path_pattern = Some("[artist] - [title]".to_string());
-        let path = build_dest_path(&request, None);
+        let path = build_dest_path(
+            "/music", "Test Song", "Test Artist", "Test Album", None, "flac",
+            Some("[artist] - [title]"),
+        );
         assert_eq!(
             path,
             PathBuf::from("/music/Test Artist - Test Song.flac")
@@ -763,9 +575,7 @@ mod tests {
 
     #[test]
     fn test_build_dest_path_mp3_format() {
-        let mut request = test_request();
-        request.format = DownloadFormat::Mp3;
-        let path = build_dest_path(&request, None);
+        let path = build_dest_path("/music", "Test Song", "Test Artist", "Test Album", Some(3), "mp3", None);
         assert_eq!(
             path,
             PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.mp3")
@@ -774,9 +584,7 @@ mod tests {
 
     #[test]
     fn test_build_dest_path_aac_format() {
-        let mut request = test_request();
-        request.format = DownloadFormat::Aac;
-        let path = build_dest_path(&request, None);
+        let path = build_dest_path("/music", "Test Song", "Test Artist", "Test Album", Some(3), "m4a", None);
         assert_eq!(
             path,
             PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.m4a")
@@ -874,6 +682,51 @@ mod tests {
         assert!(active.is_some());
         assert_eq!(active.as_ref().unwrap().track_title, "Active Track");
         assert_eq!(active.as_ref().unwrap().progress_pct, 50);
+    }
+
+    // --- DownloadResolveRegistry tests ---
+
+    #[test]
+    fn test_resolve_registry_respond() {
+        let registry = DownloadResolveRegistry::new();
+        let rx = registry.register(42);
+
+        let response = DownloadResolveResponse {
+            url: "https://example.com/stream".to_string(),
+            headers: None,
+            metadata: None,
+        };
+        assert!(registry.respond(42, Some(response)));
+
+        let received = rx.recv().unwrap();
+        assert!(received.is_some());
+        assert_eq!(received.unwrap().url, "https://example.com/stream");
+    }
+
+    #[test]
+    fn test_resolve_registry_respond_none() {
+        let registry = DownloadResolveRegistry::new();
+        let rx = registry.register(42);
+
+        assert!(registry.respond(42, None));
+
+        let received = rx.recv().unwrap();
+        assert!(received.is_none());
+    }
+
+    #[test]
+    fn test_resolve_registry_respond_unknown_id() {
+        let registry = DownloadResolveRegistry::new();
+        assert!(!registry.respond(999, None));
+    }
+
+    #[test]
+    fn test_resolve_registry_cancel() {
+        let registry = DownloadResolveRegistry::new();
+        let _rx = registry.register(42);
+
+        registry.cancel(42);
+        assert!(registry.pending.lock().unwrap().is_empty());
     }
 }
 
