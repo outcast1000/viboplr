@@ -1644,6 +1644,49 @@ pub fn search_youtube(title: String, artist_name: Option<String>) -> Result<YouT
     })
 }
 
+// --- yt-dlp commands ---
+
+#[tauri::command]
+pub async fn yt_dlp_check() -> Option<String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        std::process::Command::new("yt-dlp")
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
+                } else {
+                    None
+                }
+            })
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+#[tauri::command]
+pub async fn yt_dlp_extract_audio_url(url: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let output = std::process::Command::new("yt-dlp")
+            .args(["-f", "bestaudio", "-g", &url])
+            .output()
+            .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("yt-dlp failed: {}", stderr));
+        }
+
+        String::from_utf8(output.stdout)
+            .map(|s| s.trim().to_string())
+            .map_err(|e| format!("Invalid yt-dlp output: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
 // --- Track audio properties command ---
 
 #[derive(serde::Serialize)]
