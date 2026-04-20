@@ -1302,7 +1302,7 @@ function App() {
           break;
         case "l":
           e.preventDefault();
-          if (s.currentTrack) handleToggleLikeRef.current(s.currentTrack);
+          if (s.currentTrack && s.currentTrack.id > 0) handleToggleLikeRef.current(s.currentTrack);
           break;
         case "p":
           e.preventDefault();
@@ -2370,8 +2370,8 @@ function App() {
             onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
             onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
             onAdjustAutoContinueWeight={autoContinue.adjustWeight}
-            onToggleLike={() => playback.currentTrack && likeActions.handleToggleLike(playback.currentTrack)}
-            onToggleDislike={() => playback.currentTrack && likeActions.handleToggleDislike(playback.currentTrack)}
+            onToggleLike={() => playback.currentTrack && playback.currentTrack.id > 0 && likeActions.handleToggleLike(playback.currentTrack)}
+            onToggleDislike={() => playback.currentTrack && playback.currentTrack.id > 0 && likeActions.handleToggleDislike(playback.currentTrack)}
             onToggleFullscreen={playback.toggleFullscreen}
             showQueue={!queueCollapsed}
             onToggleQueue={handleToggleQueueCollapsed}
@@ -2689,8 +2689,8 @@ function App() {
         onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
         onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
-        onToggleLike={() => playback.currentTrack && likeActions.handleToggleLike(playback.currentTrack)}
-        onToggleDislike={() => playback.currentTrack && likeActions.handleToggleDislike(playback.currentTrack)}
+        onToggleLike={() => playback.currentTrack && playback.currentTrack.id > 0 && likeActions.handleToggleLike(playback.currentTrack)}
+        onToggleDislike={() => playback.currentTrack && playback.currentTrack.id > 0 && likeActions.handleToggleDislike(playback.currentTrack)}
         onTrackClick={(trackId) => { library.handleTrackClick(trackId); }}
         onArtistClick={library.handleArtistClick}
         onAlbumClick={library.handleAlbumClick}

@@ -273,7 +273,7 @@ export function NowPlayingBar({
             )}
             <SourceBadge track={currentTrack} />
           </div>
-          {currentTrack && (
+          {currentTrack && currentTrack.id > 0 && (
             <div className="now-like-col">
               <button
                 ref={likeBtnRef}
