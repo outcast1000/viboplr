@@ -6,7 +6,6 @@ mod entity_image;
 mod image_provider;
 mod logging;
 mod models;
-mod tidal;
 mod scanner;
 #[cfg(debug_assertions)]
 mod seed;
@@ -101,7 +100,6 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_startup_timings,
         commands::test_collection_connection,
         commands::subsonic_test_connection,
-        commands::tidal_get_stream_url,
         commands::search_youtube,
         commands::set_track_youtube_url,
         commands::clear_track_youtube_url,
@@ -118,14 +116,14 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::update_download_provider_priority,
         commands::update_download_provider_active,
         commands::reset_download_provider_priorities,
-        commands::tidal_download_preview,
+        commands::download_preview,
         commands::confirm_track_upgrade,
         commands::cancel_track_upgrade,
         commands::save_track_as_copy,
-        commands::tidal_check_dest_conflict,
-        commands::tidal_cancel_download,
-        commands::tidal_download_to_path,
-        commands::tidal_add_downloaded_track,
+        commands::check_dest_conflict,
+        commands::cancel_direct_download,
+        commands::download_to_path,
+        commands::add_downloaded_track,
         commands::get_cached_waveform,
         commands::cache_waveform,
         commands::list_user_skins,
@@ -265,7 +263,6 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::get_startup_timings,
         commands::test_collection_connection,
         commands::subsonic_test_connection,
-        commands::tidal_get_stream_url,
         commands::search_youtube,
         commands::set_track_youtube_url,
         commands::clear_track_youtube_url,
@@ -282,14 +279,14 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::update_download_provider_priority,
         commands::update_download_provider_active,
         commands::reset_download_provider_priorities,
-        commands::tidal_download_preview,
+        commands::download_preview,
         commands::confirm_track_upgrade,
         commands::cancel_track_upgrade,
         commands::save_track_as_copy,
-        commands::tidal_check_dest_conflict,
-        commands::tidal_cancel_download,
-        commands::tidal_download_to_path,
-        commands::tidal_add_downloaded_track,
+        commands::check_dest_conflict,
+        commands::cancel_direct_download,
+        commands::download_to_path,
+        commands::add_downloaded_track,
         commands::get_cached_waveform,
         commands::cache_waveform,
         commands::list_user_skins,
@@ -1229,9 +1226,6 @@ pub fn run() {
             let checker_native_dir = native_plugins_dir.clone();
 
             timer.time("manage_app_state", || {
-                let tidal_client = Arc::new(tidal::TidalClient::new(None));
-                tidal::set_global_client(tidal_client.clone());
-
                 app.manage(AppState {
                     db,
                     app_dir,
@@ -1239,11 +1233,10 @@ pub fn run() {
                     profile_name,
                     download_queue,
                     track_download_manager: dl_manager,
-                    tidal_client,
                     native_plugins_dir,
                     image_resolve_registry: worker_registry_for_state,
                     download_resolve_registry: dl_resolve_registry_for_state,
-                    tidal_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    direct_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     update_checker_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 });

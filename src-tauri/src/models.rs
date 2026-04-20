@@ -212,22 +212,6 @@ pub struct PlaylistLoadResult {
     pub playlist_name: String,
 }
 
-// --- TIDAL search result types (ephemeral, not DB-backed) ---
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TidalSearchTrack {
-    pub tidal_id: String,
-    pub title: String,
-    pub artist_name: Option<String>,
-    pub artist_id: Option<String>,
-    pub album_title: Option<String>,
-    pub album_id: Option<String>,
-    pub cover_id: Option<String>,
-    pub duration_secs: Option<f64>,
-    pub track_number: Option<i32>,
-}
-
-
 #[derive(Debug, Clone, Serialize)]
 pub struct DeleteFailure {
     pub title: String,

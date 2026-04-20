@@ -21,7 +21,7 @@ function activate(api) {
   ];
   var CACHE_TTL_MS = 86400000; // 24 hours
 
-  var instanceCache = null; // { apiUrls: [], fetchedAt: number }
+  var instanceCache = null; // { apiUrls: [], streamingUrls: [], fetchedAt: number }
 
   async function fetchInstances() {
     for (var i = 0; i < UPTIME_URLS.length; i++) {
@@ -32,8 +32,11 @@ function activate(api) {
         var apiUrls = (json.api || []).map(function (item) {
           return item.url.replace(/\/+$/, "");
         });
-        if (apiUrls.length > 0) {
-          instanceCache = { apiUrls: apiUrls, fetchedAt: Date.now() };
+        var streamingUrls = (json.streaming || []).map(function (item) {
+          return item.url.replace(/\/+$/, "");
+        });
+        if (apiUrls.length > 0 || streamingUrls.length > 0) {
+          instanceCache = { apiUrls: apiUrls, streamingUrls: streamingUrls, fetchedAt: Date.now() };
           return;
         }
       } catch (e) {
@@ -50,8 +53,18 @@ function activate(api) {
     return instanceCache ? instanceCache.apiUrls : [];
   }
 
+  async function getStreamingUrls() {
+    if (instanceCache && (Date.now() - instanceCache.fetchedAt) < CACHE_TTL_MS) {
+      return instanceCache.streamingUrls.length > 0 ? instanceCache.streamingUrls : instanceCache.apiUrls;
+    }
+    await fetchInstances();
+    if (!instanceCache) return [];
+    return instanceCache.streamingUrls.length > 0 ? instanceCache.streamingUrls : instanceCache.apiUrls;
+  }
+
   async function tidalFetch(path) {
-    var urls = await getApiUrls();
+    var isStreaming = path.indexOf("/track") === 0 || path.indexOf("/stream") === 0;
+    var urls = isStreaming ? await getStreamingUrls() : await getApiUrls();
     if (urls.length === 0) {
       throw new Error("No TIDAL instances available");
     }
@@ -67,6 +80,29 @@ function activate(api) {
     }
     instanceCache = null;
     throw new Error("All TIDAL instances failed");
+  }
+
+  async function tidalGetStreamUrl(trackId, quality) {
+    var json = await tidalFetch("/track/?id=" + trackId + "&quality=" + (quality || "LOSSLESS"));
+    var data = json.data || json;
+    var manifest = data.manifest || "";
+    if (!manifest) return null;
+    var manifestType = data.manifestMimeType || "application/vnd.tidal.bts";
+    if (manifestType !== "application/vnd.tidal.bts") return null;
+    try {
+      var decoded = atob(manifest);
+      var parsed = JSON.parse(decoded);
+      var urls = parsed.urls || [];
+      return urls[0] || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function tidalGetTrackInfo(trackId) {
+    var json = await tidalFetch("/info/?id=" + trackId);
+    var data = json.data || json;
+    return parseTrack(data);
   }
 
   function parseTrack(t) {
@@ -850,7 +886,7 @@ function activate(api) {
     // Direct resolution if we already know the TIDAL track ID
     if (sourceTrackId) {
       try {
-        var streamUrl = await api.tidal.getStreamUrl(sourceTrackId, quality);
+        var streamUrl = await tidalGetStreamUrl(sourceTrackId, quality);
         if (streamUrl) {
           return { url: streamUrl, headers: null, metadata: null };
         }
@@ -869,7 +905,7 @@ function activate(api) {
       if (!tracks || !tracks.length) return null;
 
       var track = tracks[0];
-      var url = await api.tidal.getStreamUrl(track.tidal_id, quality);
+      var url = await tidalGetStreamUrl(track.tidal_id, quality);
       if (!url) return null;
 
       return {
@@ -916,6 +952,45 @@ function activate(api) {
       api.ui.requestAction("tidal-search-result", { tracks: results.tracks });
     }).catch(function (err) {
       api.ui.requestAction("tidal-search-result", { tracks: [], error: String(err.message || err) });
+    });
+  });
+
+  // -- Stream URL resolver for tidal:// playback --
+
+  api.tidal.onStreamUrlResolve(function (trackId, quality) {
+    return tidalGetStreamUrl(trackId, quality || state.streamingQuality);
+  });
+
+  // -- Resolve stream URL + metadata (for download modal) --
+
+  api.ui.onAction("tidal-resolve-stream", function (data) {
+    if (!data || !data.tidalTrackId) return;
+    var trackId = data.tidalTrackId;
+    var quality = data.quality || "LOSSLESS";
+    var requestId = data.requestId || "";
+    Promise.all([
+      tidalGetStreamUrl(trackId, quality),
+      tidalGetTrackInfo(trackId).catch(function () { return null; }),
+    ]).then(function (results) {
+      var streamUrl = results[0];
+      var trackInfo = results[1];
+      var trackCoverUrl = null;
+      if (trackInfo && trackInfo.cover_id) {
+        trackCoverUrl = coverUrl(trackInfo.cover_id, 1280);
+      }
+      api.ui.requestAction("tidal-stream-resolved", {
+        requestId: requestId,
+        streamUrl: streamUrl,
+        trackInfo: trackInfo,
+        coverUrl: trackCoverUrl,
+      });
+    }).catch(function (err) {
+      api.ui.requestAction("tidal-stream-resolved", {
+        requestId: requestId,
+        streamUrl: null,
+        trackInfo: null,
+        error: String(err.message || err),
+      });
     });
   });
 

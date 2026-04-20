@@ -7,7 +7,6 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::db::Database;
 use crate::downloader::{DownloadFormat, DownloadManager, DownloadResolveRegistry};
 use crate::models::*;
-use crate::tidal::{self, TidalClient};
 use crate::scanner;
 use crate::skins;
 use crate::subsonic::SubsonicClient;
@@ -56,11 +55,10 @@ pub struct AppState {
     pub profile_name: String,
     pub download_queue: Arc<DownloadQueue>,
     pub track_download_manager: Arc<DownloadManager>,
-    pub tidal_client: Arc<TidalClient>,
     pub native_plugins_dir: Option<std::path::PathBuf>,
     pub image_resolve_registry: Arc<ImageResolveRegistry>,
     pub download_resolve_registry: Arc<DownloadResolveRegistry>,
-    pub tidal_download_cancel: Arc<AtomicBool>,
+    pub direct_download_cancel: Arc<AtomicBool>,
     pub mixtape_cancel: Arc<AtomicBool>,
     pub update_checker_cancel: Arc<AtomicBool>,
 }
@@ -1507,39 +1505,7 @@ fn resolve_dest_collection(
     Ok((local.id, local.path.clone().unwrap()))
 }
 
-// --- TIDAL commands ---
-
-#[tauri::command]
-pub async fn tidal_get_stream_url(
-    state: State<'_, AppState>,
-    tidal_track_id: String,
-    quality: Option<String>,
-) -> Result<String, String> {
-    let client = state.tidal_client.clone();
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
-        let resolved_quality = match quality {
-            Some(q) => q,
-            None => {
-                let stored = db.plugin_storage_get("tidal-browse", "streaming_quality")
-                    .ok()
-                    .flatten()
-                    .map(|v| v.trim_matches('"').to_string());
-                match stored.as_deref() {
-                    Some("LOW") => "LOW".to_string(),
-                    Some("HIGH") => "HIGH".to_string(),
-                    Some("LOSSLESS") => "LOSSLESS".to_string(),
-                    Some("HI_RES_LOSSLESS") => "HI_RES_LOSSLESS".to_string(),
-                    _ => "HIGH".to_string(),
-                }
-            }
-        };
-        let info = client
-            .get_stream_url(&tidal_track_id, &resolved_quality)
-            .map_err(|e| e.to_string())?;
-        Ok(info.url)
-    }).await.map_err(|e| e.to_string())?
-}
+// --- Direct download commands ---
 
 #[cfg(debug_assertions)]
 #[tauri::command]
@@ -1877,7 +1843,7 @@ pub struct UpgradePreviewInfo {
 }
 
 #[derive(Serialize)]
-pub struct TidalConflictCheck {
+pub struct ConflictCheck {
     pub has_conflict: bool,
     pub dest_path: String,
     pub existing_size: Option<u64>,
@@ -1885,19 +1851,19 @@ pub struct TidalConflictCheck {
 }
 
 #[derive(Serialize)]
-pub struct TidalDownloadPathResult {
+pub struct DownloadPathResult {
     pub path: String,
     pub format: String,
     pub file_size: u64,
 }
 
 #[tauri::command]
-pub async fn tidal_check_dest_conflict(
+pub async fn check_dest_conflict(
     artist_name: String,
     track_title: String,
     dest_dir: String,
     format: String,
-) -> Result<TidalConflictCheck, String> {
+) -> Result<ConflictCheck, String> {
     let fmt = DownloadFormat::from_str(&format)?;
     let filename = format!(
         "{} - {}.{}",
@@ -1910,7 +1876,7 @@ pub async fn tidal_check_dest_conflict(
 
     if dest_path.exists() {
         let meta = std::fs::metadata(&dest_path).ok();
-        Ok(TidalConflictCheck {
+        Ok(ConflictCheck {
             has_conflict: true,
             dest_path: dest_str,
             existing_size: meta.as_ref().map(|m| m.len()),
@@ -1920,7 +1886,7 @@ pub async fn tidal_check_dest_conflict(
                 .map(|s| s.to_uppercase()),
         })
     } else {
-        Ok(TidalConflictCheck {
+        Ok(ConflictCheck {
             has_conflict: false,
             dest_path: dest_str,
             existing_size: None,
@@ -1930,22 +1896,27 @@ pub async fn tidal_check_dest_conflict(
 }
 
 #[tauri::command]
-pub async fn tidal_cancel_download(
+pub async fn cancel_direct_download(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    state.tidal_download_cancel.store(true, Ordering::SeqCst);
+    state.direct_download_cancel.store(true, Ordering::SeqCst);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn tidal_download_to_path(
-    tidal_track_id: String,
+pub async fn download_to_path(
+    stream_url: String,
     dest_path: String,
     format: String,
     overwrite: bool,
+    title: Option<String>,
+    artist_name: Option<String>,
+    album_title: Option<String>,
+    track_number: Option<u32>,
+    cover_url: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
-) -> Result<TidalDownloadPathResult, String> {
+) -> Result<DownloadPathResult, String> {
     let fmt = DownloadFormat::from_str(&format)?;
     let dest = std::path::PathBuf::from(&dest_path);
 
@@ -1955,23 +1926,11 @@ pub async fn tidal_download_to_path(
     }
 
     // Reset cancel flag
-    state.tidal_download_cancel.store(false, Ordering::SeqCst);
-    let cancel_flag = state.tidal_download_cancel.clone();
-    let tidal = state.tidal_client.clone();
+    state.direct_download_cancel.store(false, Ordering::SeqCst);
+    let cancel_flag = state.direct_download_cancel.clone();
 
-    tauri::async_runtime::spawn_blocking(move || -> Result<TidalDownloadPathResult, String> {
-        // Get stream URL from TIDAL
-        let stream_info = tidal
-            .get_stream_url(&tidal_track_id, fmt.tidal_quality())
-            .map_err(|e| e.to_string())?;
-
-        // Determine actual extension from TIDAL response
-        let actual_ext = stream_info.extension();
-        let final_dest = if actual_ext != fmt.extension() {
-            dest.with_extension(actual_ext)
-        } else {
-            dest.clone()
-        };
+    tauri::async_runtime::spawn_blocking(move || -> Result<DownloadPathResult, String> {
+        let final_dest = dest.clone();
 
         // Ensure parent directory exists
         if let Some(parent) = final_dest.parent() {
@@ -1980,7 +1939,8 @@ pub async fn tidal_download_to_path(
         }
 
         // Download to temp file first
-        let temp_path = final_dest.with_extension(format!("viboplr-tidal-dl.{}", actual_ext));
+        let ext = final_dest.extension().and_then(|e| e.to_str()).unwrap_or(fmt.extension());
+        let temp_path = final_dest.with_extension(format!("viboplr-dl.{}", ext));
 
         let http_client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(300))
@@ -1988,7 +1948,7 @@ pub async fn tidal_download_to_path(
             .map_err(|e| format!("HTTP client error: {}", e))?;
 
         let resp = http_client
-            .get(&stream_info.url)
+            .get(&stream_url)
             .send()
             .map_err(|e| format!("Download failed: {}", e))?;
 
@@ -2027,23 +1987,20 @@ pub async fn tidal_download_to_path(
                 } else {
                     0
                 };
-                let _ = app.emit("tidal-download-progress", pct);
+                let _ = app.emit("direct-download-progress", pct);
                 last_emit = std::time::Instant::now();
             }
         }
-        let _ = app.emit("tidal-download-progress", 100u8);
+        let _ = app.emit("direct-download-progress", 100u8);
 
-        // Write tags — fetch TIDAL track info for metadata
-        if let Ok(info) = tidal.get_track_info(&tidal_track_id) {
-            let cover_url: Option<String> = info.cover_id.as_deref().map(|id|
-                format!("https://resources.tidal.com/images/{}/640x640.jpg", id.replace('-', "/"))
-            );
+        // Write tags if metadata was provided
+        if title.is_some() || artist_name.is_some() {
             let _ = crate::downloader::write_tags(
                 &temp_path,
-                &info.title,
-                &info.artist_name.as_deref().unwrap_or("Unknown Artist"),
-                &info.album_title.as_deref().unwrap_or("Unknown Album"),
-                info.track_number.map(|n| n as u32),
+                title.as_deref().unwrap_or("Unknown"),
+                artist_name.as_deref().unwrap_or("Unknown Artist"),
+                album_title.as_deref().unwrap_or("Unknown Album"),
+                track_number,
                 None, // year
                 None, // genre
                 cover_url.as_deref(),
@@ -2063,9 +2020,14 @@ pub async fn tidal_download_to_path(
             .map(|m| m.len())
             .unwrap_or(0);
 
-        Ok(TidalDownloadPathResult {
+        let actual_format = final_dest.extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or(fmt.extension())
+            .to_uppercase();
+
+        Ok(DownloadPathResult {
             path: final_dest.to_string_lossy().to_string(),
-            format: actual_ext.to_uppercase(),
+            format: actual_format,
             file_size,
         })
     })
@@ -2074,7 +2036,7 @@ pub async fn tidal_download_to_path(
 }
 
 #[tauri::command]
-pub async fn tidal_add_downloaded_track(
+pub async fn add_downloaded_track(
     path: String,
     collection_id: i64,
     state: State<'_, AppState>,
@@ -2098,23 +2060,24 @@ pub async fn tidal_add_downloaded_track(
 }
 
 #[tauri::command]
-pub async fn tidal_download_preview(
+pub async fn download_preview(
     state: State<'_, AppState>,
     app: AppHandle,
     track_id: i64,
-    tidal_track_id: String,
+    stream_url: String,
     format: String,
+    title: Option<String>,
+    artist_name: Option<String>,
+    album_title: Option<String>,
+    track_number: Option<u32>,
+    cover_url: Option<String>,
 ) -> Result<UpgradePreviewInfo, String> {
     let fmt = DownloadFormat::from_str(&format)?;
     let db = state.db.clone();
     let track = db.get_track_by_id(track_id).map_err(|e| e.to_string())?;
-    let tidal_client = state.tidal_client.clone();
 
     tauri::async_runtime::spawn_blocking(move || -> Result<UpgradePreviewInfo, String> {
-        let stream_info = tidal_client
-            .get_stream_url(&tidal_track_id, fmt.tidal_quality())
-            .map_err(|e| e.to_string())?;
-        let actual_ext = stream_info.extension();
+        let actual_ext = fmt.extension();
 
         // Build temp path next to original file
         let bare = track.filesystem_path()
@@ -2138,7 +2101,7 @@ pub async fn tidal_download_preview(
             .map_err(|e| format!("HTTP client error: {}", e))?;
 
         let resp = http_client
-            .get(&stream_info.url)
+            .get(&stream_url)
             .send()
             .map_err(|e| format!("Download failed: {}", e))?;
 
@@ -2179,26 +2142,21 @@ pub async fn tidal_download_preview(
         std::io::Write::flush(&mut file).map_err(|e| format!("Flush error: {}", e))?;
         drop(file);
 
-        // Write tags to the new file
-        let info = tidal_client
-            .get_track_info(&tidal_track_id)
-            .map_err(|e| e.to_string())?;
-        let cover_url = info
-            .cover_id
-            .as_deref()
-            .map(|id| tidal::cover_url(id, 1280));
-        if let Err(e) = crate::downloader::write_tags(
-            &new_path,
-            &info.title,
-            info.artist_name.as_deref().unwrap_or("Unknown Artist"),
-            info.album_title.as_deref().unwrap_or("Unknown Album"),
-            info.track_number.map(|n| n as u32),
-            None, // year
-            None, // genre
-            cover_url.as_deref(),
-            &fmt,
-        ) {
-            log::warn!("Failed to write tags to upgrade preview: {}", e);
+        // Write tags if metadata was provided
+        if title.is_some() || artist_name.is_some() {
+            if let Err(e) = crate::downloader::write_tags(
+                &new_path,
+                title.as_deref().unwrap_or("Unknown"),
+                artist_name.as_deref().unwrap_or("Unknown Artist"),
+                album_title.as_deref().unwrap_or("Unknown Album"),
+                track_number,
+                None, // year
+                None, // genre
+                cover_url.as_deref(),
+                &fmt,
+            ) {
+                log::warn!("Failed to write tags to upgrade preview: {}", e);
+            }
         }
 
         let new_file_size = std::fs::metadata(&new_path).ok().map(|m| m.len() as i64);
@@ -3317,13 +3275,12 @@ mod tests {
                 condvar: Condvar::new(),
             }),
             track_download_manager: Arc::new(DownloadManager::new()),
-            tidal_client: Arc::new(TidalClient::new(None)),
             native_plugins_dir: None,
             image_resolve_registry: Arc::new(ImageResolveRegistry {
                 pending: Mutex::new(std::collections::HashMap::new()),
             }),
             download_resolve_registry: Arc::new(DownloadResolveRegistry::new()),
-            tidal_download_cancel: Arc::new(AtomicBool::new(false)),
+            direct_download_cancel: Arc::new(AtomicBool::new(false)),
             mixtape_cancel: Arc::new(AtomicBool::new(false)),
             update_checker_cancel: Arc::new(AtomicBool::new(false)),
         }

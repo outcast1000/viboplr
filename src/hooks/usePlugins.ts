@@ -59,6 +59,7 @@ interface LoadedPlugin {
   imageFetchHandlers: Map<string, (name: string, artistName?: string) => Promise<ImageFetchResult>>;
   downloadResolveHandlers: Map<string, DownloadResolveHandler>;
   fallbackResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>>;
+  streamUrlResolver: ((trackId: string, quality?: string | null) => Promise<string | null>) | null;
   schedulerHandlers: Map<string, () => void>;
 }
 
@@ -430,10 +431,17 @@ export function usePlugins(
 
         tidal: {
           async getStreamUrl(trackId, quality) {
-            return invoke("tidal_get_stream_url", {
-              trackId,
-              quality: quality ?? null,
-            });
+            // Delegate to the plugin-registered stream URL resolver
+            for (const [, lp] of loadedPluginsRef.current) {
+              if (lp.streamUrlResolver) {
+                const url = await lp.streamUrlResolver(trackId, quality);
+                if (url) return url;
+              }
+            }
+            throw new Error("No TIDAL stream URL resolver available");
+          },
+          onStreamUrlResolve(handler: (trackId: string, quality?: string | null) => Promise<string | null>) {
+            loaded.streamUrlResolver = handler;
           },
           async downloadTrack(trackId, opts) {
             const format = opts?.format || (playbackCallbacksRef.current?.getDownloadFormat() ?? "flac");
@@ -710,6 +718,7 @@ export function usePlugins(
         imageFetchHandlers: new Map(),
         downloadResolveHandlers: new Map(),
         fallbackResolveHandlers: new Map(),
+        streamUrlResolver: null,
         schedulerHandlers: new Map(),
       };
 
@@ -1168,6 +1177,19 @@ export function usePlugins(
     [],
   );
 
+  const resolveTidalStreamUrl = useCallback(
+    async (trackId: string, quality?: string | null): Promise<string> => {
+      for (const [, lp] of loadedPluginsRef.current) {
+        if (lp.streamUrlResolver) {
+          const url = await lp.streamUrlResolver(trackId, quality);
+          if (url) return url;
+        }
+      }
+      throw new Error("No TIDAL stream URL resolver available");
+    },
+    [],
+  );
+
   const pluginNames = useMemo(
     () => new Map(pluginStates.map((s) => [s.id, s.manifest.name])),
     [pluginStates],
@@ -1199,5 +1221,6 @@ export function usePlugins(
     invokeImageFetch,
     invokeFallbackResolve,
     invokeDownloadResolve,
+    resolveTidalStreamUrl,
   };
 }

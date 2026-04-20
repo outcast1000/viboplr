@@ -119,12 +119,15 @@ function App() {
   const [lastTidalDownloadDest, setLastTidalDownloadDest] = useState<string | null>(null);
   trackVideoHistoryRef.current = trackVideoHistory;
   const advanceIndexRef = useRef<() => void>(() => {});
+  const resolveTidalStreamUrlRef = useRef<(trackId: string, quality?: string | null) => Promise<string>>(
+    async () => { throw new Error("TIDAL stream resolver not ready"); }
+  );
   const resolveTrackSrcRef = useRef<(track: Track) => Promise<string>>(async (track) => {
     const url = track.url ?? track.path;
     if (!url) throw new Error("Track has no URL");
     const parsed = parseUrlScheme(url);
     if (parsed.scheme === "file") return convertFileSrc(parsed.path);
-    if (parsed.scheme === "tidal") return invoke<string>("tidal_get_stream_url", { tidalTrackId: parsed.id, quality: null });
+    if (parsed.scheme === "tidal") return resolveTidalStreamUrlRef.current(parsed.id, null);
     if (parsed.scheme === "unknown") throw new Error(`Cannot play unknown URL scheme: ${parsed.url}`);
     return invoke<string>("resolve_subsonic_location", { location: parsed.url });
   });
@@ -691,6 +694,11 @@ function App() {
     setResyncComplete,
   });
 
+  // Keep the tidal stream URL resolver ref in sync with the plugin system
+  useEffect(() => {
+    resolveTidalStreamUrlRef.current = plugins.resolveTidalStreamUrl;
+  }, [plugins.resolveTidalStreamUrl]);
+
   // Resolve a queue track's url to a playable source
   useEffect(() => {
     const resolveViaFallback = async (track: Track): Promise<string> => {
@@ -704,7 +712,7 @@ function App() {
       addLog(`Playing from ${result.label} (original unavailable)`);
       const fallbackParsed = parseUrlScheme(result.url);
       if (fallbackParsed.scheme === "file") return convertFileSrc(fallbackParsed.path);
-      if (fallbackParsed.scheme === "tidal") return invoke<string>("tidal_get_stream_url", { tidalTrackId: fallbackParsed.id, quality: null });
+      if (fallbackParsed.scheme === "tidal") return resolveTidalStreamUrlRef.current(fallbackParsed.id, null);
       if (fallbackParsed.scheme === "subsonic") return invoke<string>("resolve_subsonic_location", { location: result.url });
       throw new Error(`Fallback returned unplayable URL: ${result.url}`);
     };
@@ -717,7 +725,7 @@ function App() {
       if (parsed.scheme === "file") {
         return convertFileSrc(parsed.path);
       } else if (parsed.scheme === "tidal") {
-        return invoke<string>("tidal_get_stream_url", { tidalTrackId: parsed.id, quality: null });
+        return resolveTidalStreamUrlRef.current(parsed.id, null);
       } else if (parsed.scheme === "subsonic") {
         return invoke<string>("resolve_subsonic_location", { location: url });
       } else if (parsed.scheme === "unknown") {
@@ -2557,6 +2565,7 @@ function App() {
           }}
           searchResults={tidalSearchResults}
           searchError={tidalSearchError}
+          resolveStreamUrl={plugins.resolveTidalStreamUrl}
           onClose={() => { contextMenuActions.setTidalDownload(null); setTidalSearchResults(null); setTidalSearchError(null); }}
           onComplete={(msg) => { contextMenuActions.setTidalDownload(null); setTidalSearchResults(null); setTidalSearchError(null); library.loadLibrary(); library.loadTracks(); addLog(msg); }}
         />

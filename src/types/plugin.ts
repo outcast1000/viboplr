@@ -276,6 +276,7 @@ export interface TidalSearchTrackLike {
 
 export interface PluginTidalAPI {
   getStreamUrl(trackId: string, quality?: string): Promise<string>;
+  onStreamUrlResolve(handler: (trackId: string, quality?: string | null) => Promise<string | null>): void;
   downloadTrack(trackId: string, opts?: { collectionId?: number; format?: string }): Promise<void>;
   downloadAlbum(albumId: string, opts?: { collectionId?: number; format?: string }): Promise<void>;
 }

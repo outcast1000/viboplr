@@ -21,6 +21,7 @@ interface TidalDownloadModalProps {
   onSearch: (query: string, limit: number) => void;
   searchResults: TidalSearchTrack[] | null;
   searchError: string | null;
+  resolveStreamUrl: (trackId: string, quality?: string | null) => Promise<string>;
   onClose: () => void;
   onComplete: (message: string) => void;
 }
@@ -66,6 +67,7 @@ export function TidalDownloadModal({
   onSearch,
   searchResults,
   searchError,
+  resolveStreamUrl,
   onClose,
   onComplete,
 }: TidalDownloadModalProps) {
@@ -96,6 +98,8 @@ export function TidalDownloadModal({
 
   // Conflict state
   const [conflict, setConflict] = useState<ConflictCheck | null>(null);
+  const [resolvedStreamUrl, setResolvedStreamUrl] = useState<string | null>(null);
+  const [resolvedCoverUrl, setResolvedCoverUrl] = useState<string | undefined>(undefined);
 
   // Download state
   const [downloadProgress, setDownloadProgress] = useState(0);
@@ -147,14 +151,33 @@ export function TidalDownloadModal({
     if (!selectedMatch) return;
     setError(null);
 
+    // Resolve stream URL and metadata from the plugin
+    const tidalQuality = quality === "flac" ? "LOSSLESS" : "HIGH";
+    let streamUrl: string;
+    try {
+      streamUrl = await resolveStreamUrl(selectedMatch.tidal_id, tidalQuality);
+    } catch (e) {
+      setError(`Failed to resolve stream URL: ${String(e)}`);
+      return;
+    }
+
+    const coverUrl = tidalCoverUrl(selectedMatch.cover_id, 1280) ?? undefined;
+    setResolvedStreamUrl(streamUrl);
+    setResolvedCoverUrl(coverUrl);
+
     if (isUpgrade && !showDestPicker) {
-      // Upgrade path: use existing tidal_download_preview
+      // Upgrade path: download preview next to original file
       setStep("downloading");
       try {
-        const info = await invoke<UpgradePreviewInfo>("tidal_download_preview", {
+        const info = await invoke<UpgradePreviewInfo>("download_preview", {
           trackId: input.trackId,
-          tidalTrackId: selectedMatch.tidal_id,
+          streamUrl,
           format: quality,
+          title: selectedMatch.title,
+          artistName: selectedMatch.artist_name ?? null,
+          albumTitle: selectedMatch.album_title ?? null,
+          trackNumber: selectedMatch.track_number ?? null,
+          coverUrl: coverUrl ?? null,
         });
         setUpgradePreview(info);
         setStep("result");
@@ -173,7 +196,7 @@ export function TidalDownloadModal({
     }
 
     try {
-      const check = await invoke<ConflictCheck>("tidal_check_dest_conflict", {
+      const check = await invoke<ConflictCheck>("check_dest_conflict", {
         artistName: selectedMatch.artist_name ?? "Unknown",
         trackTitle: selectedMatch.title,
         destDir,
@@ -184,18 +207,23 @@ export function TidalDownloadModal({
         setConflict(check);
         setStep("conflict");
       } else {
-        await doFreshDownload(check.dest_path, false);
+        await doFreshDownload(check.dest_path, false, streamUrl, coverUrl);
       }
     } catch {
       // Treat conflict check errors as no conflict
       const ext = quality === "flac" ? "flac" : "m4a";
       const fallbackPath = `${destDir}/${selectedMatch.artist_name ?? "Unknown"} - ${selectedMatch.title}.${ext}`;
-      await doFreshDownload(fallbackPath, false);
+      await doFreshDownload(fallbackPath, false, streamUrl, coverUrl);
     }
   }
 
-  async function doFreshDownload(dp: string, overwrite: boolean) {
+  async function doFreshDownload(dp: string, overwrite: boolean, streamUrlArg?: string, coverUrlArg?: string) {
     if (!selectedMatch) return;
+    const url = streamUrlArg || resolvedStreamUrl;
+    if (!url) {
+      setError("No stream URL available");
+      return;
+    }
     setStep("downloading");
     setDownloadProgress(0);
 
@@ -203,19 +231,26 @@ export function TidalDownloadModal({
     const collId = destType === "collection" ? destCollectionId : null;
     store.set("lastTidalDownloadDest", collId != null ? String(collId) : null);
 
+    const cover = coverUrlArg || resolvedCoverUrl;
+
     try {
-      const result = await invoke<DownloadResult>("tidal_download_to_path", {
-        tidalTrackId: selectedMatch.tidal_id,
+      const result = await invoke<DownloadResult>("download_to_path", {
+        streamUrl: url,
         destPath: dp,
         format: quality,
         overwrite,
+        title: selectedMatch.title,
+        artistName: selectedMatch.artist_name ?? null,
+        albumTitle: selectedMatch.album_title ?? null,
+        trackNumber: selectedMatch.track_number ?? null,
+        coverUrl: cover ?? null,
       });
       setDownloadResult(result);
 
       // If downloaded to a collection, index it
       if (destType === "collection" && destCollectionId != null) {
         try {
-          await invoke("tidal_add_downloaded_track", {
+          await invoke("add_downloaded_track", {
             path: result.path,
             collectionId: destCollectionId,
           });
@@ -265,7 +300,7 @@ export function TidalDownloadModal({
 
   async function handleCancel() {
     if (step === "downloading") {
-      await invoke("tidal_cancel_download").catch(() => {});
+      await invoke("cancel_direct_download").catch(() => {});
     }
     if (upgradePreview) {
       await invoke("cancel_track_upgrade", { newPath: upgradePreview.new_path }).catch(() => {});
@@ -318,7 +353,7 @@ export function TidalDownloadModal({
     setDownloadProgress(0);
     const eventName = isUpgrade && !showDestPicker
       ? "upgrade-download-progress"
-      : "tidal-download-progress";
+      : "direct-download-progress";
     const unlisten = listen<number>(eventName, (event) => {
       setDownloadProgress(event.payload);
     });
