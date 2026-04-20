@@ -335,39 +335,34 @@ function activate(api) {
         ]
       });
 
-      var tagBg = {
-        flow: "#2a4a6a", login: "#2a5a2a", m4y: "#5a4a1a", playlists: "#4a2a5a",
-        tracks: "#1a4a4a", error: "#5a1a1a", msg: "#3a3a3a"
-      };
-      var logHtml = "";
+      var logLines = [];
       for (var li = 0; li < state.debugLog.length; li++) {
         var e = state.debugLog[li];
-        var bg = tagBg[e.tag] || "#333";
-        logHtml += "<div style='padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.06);" +
-          (e.tag === "error" ? "background:rgba(255,50,50,0.1);" : "") + "'>";
-        logHtml += "<span style='opacity:0.4;font-size:10px'>" + escapeHtml(e.ts) + "</span> ";
-        logHtml += "<span style='background:" + bg + ";padding:1px 6px;border-radius:3px;font-size:10px;font-weight:bold'>" +
-          escapeHtml(e.tag.toUpperCase()) + "</span> ";
-        logHtml += escapeHtml(e.msg);
+        var line = e.ts + " [" + e.tag.toUpperCase() + "] " + e.msg;
         if (e.data !== undefined) {
-          var raw = formatDebugData(e.data);
-          if (raw.length > 80) {
-            logHtml += "<pre style='margin:4px 0 2px 0;padding:6px 8px;background:rgba(0,0,0,0.3);" +
-              "border-radius:4px;font-size:10px;white-space:pre-wrap;word-break:break-all;" +
-              "user-select:text;-webkit-user-select:text;cursor:text;max-height:200px;overflow:auto'>" +
-              escapeHtml(raw) + "</pre>";
-          } else {
-            logHtml += " <span style='opacity:0.6'>" + escapeHtml(raw) + "</span>";
-          }
+          line += "\n" + formatDebugData(e.data);
         }
-        logHtml += "</div>";
+        logLines.push(line);
       }
+      var logText = logLines.join("\n\n");
       ch.push({ type: "text", content:
-        "<div style='font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.4;" +
-        "max-height:500px;overflow:auto;background:rgba(0,0,0,0.25);border-radius:6px;" +
-        "user-select:text;-webkit-user-select:text;cursor:text;border:1px solid rgba(255,255,255,0.08)'>" +
-        logHtml +
-        "</div>"
+        "<pre style='" +
+        "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;" +
+        "font-size:11px;" +
+        "line-height:1.6;" +
+        "white-space:pre-wrap;" +
+        "word-break:break-all;" +
+        "padding:12px 16px;" +
+        "margin:0;" +
+        "overflow:auto;" +
+        "background:rgba(0,0,0,0.25);" +
+        "border-radius:6px;" +
+        "border:1px solid rgba(255,255,255,0.08);" +
+        "user-select:text;" +
+        "-webkit-user-select:text;" +
+        "cursor:text;" +
+        "color:var(--text-primary);" +
+        "'>" + escapeHtml(logText) + "</pre>"
       });
     } else {
       ch.push({ type: "text", content: "<p style='opacity:0.5'>No debug log entries yet.</p>" });

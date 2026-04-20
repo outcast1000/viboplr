@@ -555,6 +555,7 @@ const ALLOWED_TAGS = new Set([
   "h2",
   "h3",
   "p",
+  "pre",
   "br",
   "a",
   "ul",
