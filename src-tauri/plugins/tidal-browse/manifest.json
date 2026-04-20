@@ -20,6 +20,9 @@
       { "id": "download-from-tidal", "label": "TIDAL: Download", "targets": ["track", "album"] },
       { "id": "download-playlist-from-tidal", "label": "TIDAL: Download", "targets": ["playlist"] }
     ],
+    "downloadProviders": [
+      { "id": "tidal-download", "name": "TIDAL", "priority": 100 }
+    ],
     "fallbackProviders": [
       { "id": "tidal-fallback", "name": "TIDAL", "priority": 200 }
     ],

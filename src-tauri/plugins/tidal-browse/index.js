@@ -868,6 +868,54 @@ function activate(api) {
     api.ui.showNotification("No tracks available for this playlist");
   });
 
+  // -- Download provider --
+
+  api.downloads.onResolve("tidal-download", async function(title, artistName, albumName, sourceTrackId, format) {
+    var quality = format === "flac" ? "LOSSLESS" : "HIGH";
+
+    // Direct resolution if we already know the TIDAL track ID
+    if (sourceTrackId) {
+      try {
+        var streamUrl = await api.tidal.getStreamUrl(sourceTrackId, quality);
+        if (streamUrl) {
+          return { url: streamUrl, headers: null, metadata: null };
+        }
+      } catch (e) {
+        // Fall through to search
+      }
+    }
+
+    // Fallback: search by metadata
+    var query = [title, artistName].filter(Boolean).join(" ");
+    if (!query) return null;
+
+    try {
+      var results = await tidalSearch(query, 1);
+      var tracks = results && results.tracks;
+      if (!tracks || !tracks.length) return null;
+
+      var track = tracks[0];
+      var url = await api.tidal.getStreamUrl(track.tidal_id, quality);
+      if (!url) return null;
+
+      return {
+        url: url,
+        headers: null,
+        metadata: {
+          title: track.title,
+          artist: track.artist_name,
+          album: track.album_title,
+          trackNumber: track.track_number,
+          year: track.year,
+          genre: track.genre,
+          coverUrl: track.cover_url
+        }
+      };
+    } catch (e) {
+      return null;
+    }
+  });
+
   // -- Fallback provider --
 
   api.playback.onFallbackResolve("tidal-fallback", async function (title, artistName, albumName) {
