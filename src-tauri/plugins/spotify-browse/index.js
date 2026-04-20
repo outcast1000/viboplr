@@ -93,6 +93,70 @@ function activate(api) {
     return Date.now().toString(36) + Math.random().toString(36).slice(2);
   }
 
+  function djb2Hash(str) {
+    var hash = 5381;
+    for (var i = 0; i < str.length; i++) {
+      hash = ((hash << 5) + hash) + str.charCodeAt(i);
+      hash = hash & 0xFFFFFFFF;
+    }
+    var hex = (hash >>> 0).toString(16);
+    while (hex.length < 8) hex = "0" + hex;
+    return hex;
+  }
+
+  function cacheAllImages() {
+    var promises = [];
+    var playlists = state.playlists;
+
+    for (var pi = 0; pi < playlists.length; pi++) {
+      (function(pl) {
+        if (pl.imageUrl && pl.imageUrl.indexOf("http") === 0) {
+          promises.push(
+            api.informationTypes.invoke("plugin_cache_image", {
+              pluginId: "spotify-browse",
+              subdir: pl.id,
+              filename: "cover.jpg",
+              url: pl.imageUrl,
+            }).then(function(path) {
+              pl.imageUrl = path;
+            }).catch(function(e) {
+              console.error("Failed to cache playlist cover:", e);
+            })
+          );
+        }
+        var tracks = state.playlistTracks[pl.id] || [];
+        for (var ti = 0; ti < tracks.length; ti++) {
+          (function(track) {
+            if (track.imageUrl && track.imageUrl.indexOf("http") === 0) {
+              var hash = djb2Hash(track.name + " - " + track.artist);
+              promises.push(
+                api.informationTypes.invoke("plugin_cache_image", {
+                  pluginId: "spotify-browse",
+                  subdir: pl.id,
+                  filename: hash + ".jpg",
+                  url: track.imageUrl,
+                }).then(function(path) {
+                  track.imageUrl = path;
+                }).catch(function(e) {
+                  console.error("Failed to cache track image:", e);
+                })
+              );
+            }
+          })(tracks[ti]);
+        }
+      })(playlists[pi]);
+    }
+
+    if (promises.length > 0) {
+      Promise.all(promises).then(function() {
+        saveState();
+        render();
+      }).catch(function() {
+        saveState();
+      });
+    }
+  }
+
   function saveState() {
     state.savedAt = Date.now();
     api.storage.set("spotify_browse_state", {
@@ -812,6 +876,7 @@ function activate(api) {
       state.status = "done";
       render();
       saveState();
+      cacheAllImages();
       cleanup();
       return;
     }
@@ -1073,6 +1138,7 @@ function activate(api) {
         return;
       }
       var outcome = processRefreshResults(result.playlists, result.tracks);
+      cacheAllImages();
       if (outcome.hasChanges) {
         api.ui.setBadge("spotify", { type: "dot", variant: "accent" });
       }
@@ -1464,6 +1530,7 @@ function activate(api) {
         return;
       }
       var outcome = processRefreshResults(result.playlists, result.tracks);
+      cacheAllImages();
       state.status = "done";
       var updatedCount = Object.keys(state.updatedPlaylistIds).length;
       if (updatedCount > 0) {
