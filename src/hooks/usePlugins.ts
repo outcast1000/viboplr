@@ -454,21 +454,19 @@ export function usePlugins(
               } catch { return; }
             }
             if (!destCollectionId && !customDestPath) return;
-            await invoke("tidal_save_track", {
-              tidalTrackId: trackId,
+            await invoke("enqueue_download", {
+              title: "TIDAL track",
+              sourceProviderId: "tidal-browse:tidal-download",
+              sourceTrackId: trackId,
               destCollectionId,
-              customDestPath,
+              destCollectionPath: customDestPath,
               format,
             });
           },
-          async downloadAlbum(albumId, opts) {
-            await invoke("download_album", {
-              albumId,
-              destCollectionId: opts?.collectionId ?? null,
-              customDestPath: null,
-              format: opts?.format ?? playbackCallbacksRef.current?.getDownloadFormat() ?? "flac",
-              pathPattern: null,
-            });
+          async downloadAlbum(_albumId, _opts) {
+            // Album downloads should be done by fetching album tracks then calling downloadTrack() per track.
+            // The tidal-download-album requestAction (handled by TidalAlbumDownloadModal) is the preferred flow.
+            throw new Error("downloadAlbum is deprecated. Use tidal-download-album requestAction or download tracks individually.");
           },
         },
 

@@ -12,6 +12,7 @@ export interface TidalAlbumDownloadInput {
   artistName: string | null;
   coverId: string | null;
   trackCount: number;
+  tracks?: Array<{ tidal_id: string; title: string; artist_name: string | null }>;
 }
 
 interface TidalAlbumDownloadModalProps {
@@ -143,16 +144,32 @@ export function TidalAlbumDownloadModal({
       return;
     }
 
+    if (!input.tracks || input.tracks.length === 0) {
+      setError("No tracks available for this album");
+      return;
+    }
+
     store.set("lastTidalDownloadDest", collId != null ? String(collId) : null);
 
     try {
-      const ids = await invoke<number[]>("download_album", {
-        albumId: input.albumId,
-        destCollectionId: collId,
-        customDestPath: customPath,
-        format: quality,
-        pathPattern: pathPattern,
-      });
+      const ids: number[] = [];
+      const total = input.tracks.length;
+      for (let i = 0; i < total; i++) {
+        const track = input.tracks[i];
+        const id = await invoke<number>("enqueue_download", {
+          title: track.title,
+          artistName: track.artist_name ?? null,
+          albumTitle: input.title,
+          sourceProviderId: "tidal-browse:tidal-download",
+          sourceTrackId: track.tidal_id,
+          destCollectionId: collId,
+          destCollectionPath: customPath,
+          format: quality,
+          pathPattern: pathPattern,
+          isBatchLast: i === total - 1,
+        });
+        ids.push(id);
+      }
 
       const idSet = new Set(ids);
       trackIdsRef.current = idSet;

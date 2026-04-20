@@ -599,12 +599,16 @@ function activate(api) {
     tidalGetAlbum(parts[1]).then(function (album) {
       api.ui.requestAction("hide-loading", {});
       if (album) {
+        var tracks = (album.tracks || []).map(function (t) {
+          return { tidal_id: t.tidal_id, title: t.title, artist_name: t.artist_name || null };
+        });
         api.ui.requestAction("tidal-download-album", {
           albumId: album.tidal_id,
           title: album.title,
           artistName: album.artist_name || null,
           coverId: album.cover_id || null,
-          trackCount: (album.tracks || []).length,
+          trackCount: tracks.length,
+          tracks: tracks,
         });
       }
     }).catch(function (err) {
@@ -704,12 +708,16 @@ function activate(api) {
   api.ui.onAction("download-album", function () {
     var album = state.albumDetail;
     if (album) {
+      var tracks = (album.tracks || []).map(function (t) {
+        return { tidal_id: t.tidal_id, title: t.title, artist_name: t.artist_name || null };
+      });
       api.ui.requestAction("tidal-download-album", {
         albumId: album.tidal_id,
         title: album.title,
         artistName: album.artist_name || null,
         coverId: album.cover_id || null,
-        trackCount: (album.tracks || []).length,
+        trackCount: tracks.length,
+        tracks: tracks,
       });
     }
   });
@@ -779,11 +787,19 @@ function activate(api) {
           api.ui.showNotification("No TIDAL match found for this album");
           return;
         }
-        var albumId = albums[0].tidal_id;
-        api.tidal.downloadAlbum(albumId).catch(function (err) {
-          api.ui.showNotification("Album download failed: " + (err.message || err));
+        return tidalGetAlbum(albums[0].tidal_id).then(function (album) {
+          var tracks = (album && album.tracks) || [];
+          if (tracks.length === 0) {
+            api.ui.showNotification("TIDAL album has no tracks");
+            return;
+          }
+          for (var i = 0; i < tracks.length; i++) {
+            api.tidal.downloadTrack(tracks[i].tidal_id).catch(function (err) {
+              console.error("Album track download failed:", err);
+            });
+          }
+          api.ui.showNotification("Downloading " + tracks.length + " tracks from album");
         });
-        api.ui.showNotification("Album download started");
       }).catch(function (err) {
         api.ui.showNotification("TIDAL search failed: " + (err.message || err));
       });

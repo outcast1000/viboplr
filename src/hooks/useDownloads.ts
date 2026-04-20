@@ -138,10 +138,27 @@ export function useDownloads(
     const track = tracks.find(t => t.id === trackId);
     const rid = track ? remoteId(track) : null;
     if (!rid || !track?.collection_id) return;
+
+    // Determine source provider from the track path scheme
+    const path = track.path ?? "";
+    let sourceProviderId: string;
+    if (path.startsWith("tidal://")) {
+      sourceProviderId = "tidal-browse:tidal-download";
+    } else if (path.startsWith("subsonic://")) {
+      sourceProviderId = "__builtin:subsonic";
+    } else {
+      addLog(`Download not supported for this track type`);
+      return;
+    }
+
     try {
-      await invoke("download_track", {
+      await invoke("enqueue_download", {
+        title: track.title,
+        artistName: track.artist_name ?? null,
+        albumTitle: track.album_title ?? null,
+        sourceProviderId,
+        sourceTrackId: rid,
         sourceCollectionId: track.collection_id,
-        remoteTrackId: rid,
         destCollectionId,
         format: downloadFormat,
       });
