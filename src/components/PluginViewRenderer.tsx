@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import type { Track } from "../types";
 import type { PluginViewData, CardGridItem, StatItem, TrackRowItem, PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
+import { ViewSearchBar } from "./ViewSearchBar";
 import "./PluginViewRenderer.css";
 
 interface PluginViewRendererProps {
@@ -33,21 +34,39 @@ export function PluginViewRenderer({
     );
   }
 
+  // Hoist top-level search-input out of the scrollable area
+  let searchNode: PluginViewData | null = null;
+  let contentData = data;
+  if (data.type === "layout" && data.direction === "vertical" && data.children.length > 0 && data.children[0].type === "search-input") {
+    searchNode = data.children[0];
+    contentData = { ...data, children: data.children.slice(1) };
+  }
+
   return (
-    <div className="plugin-view">
-      <div className="plugin-view-content">
-        <PluginViewNode
-          node={data}
-          currentTrack={currentTrack}
-          onPlayTrack={onPlayTrack}
+    <>
+      {searchNode && searchNode.type === "search-input" && (
+        <PluginSearchInput
+          placeholder={searchNode.placeholder}
+          action={searchNode.action}
+          value={searchNode.value}
           onAction={onAction}
-          onTrackContextMenu={onTrackContextMenu}
-          onTrackRowContextMenu={onTrackRowContextMenu}
-          pluginMenuItems={pluginMenuItems}
-          onPluginAction={onPluginAction}
         />
+      )}
+      <div className="plugin-view">
+        <div className="plugin-view-content">
+          <PluginViewNode
+            node={contentData}
+            currentTrack={currentTrack}
+            onPlayTrack={onPlayTrack}
+            onAction={onAction}
+            onTrackContextMenu={onTrackContextMenu}
+            onTrackRowContextMenu={onTrackRowContextMenu}
+            pluginMenuItems={pluginMenuItems}
+            onPluginAction={onPluginAction}
+          />
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -581,54 +600,15 @@ function PluginSearchInput({
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
   const [query, setQuery] = useState(value ?? "");
-  const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <div className="plugin-search-input">
-      <svg
-        className="plugin-search-icon"
-        width="18"
-        height="18"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <circle cx="11" cy="11" r="8" />
-        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-      </svg>
-      <input
-        ref={inputRef}
-        type="text"
-        placeholder={placeholder ?? "Search..."}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && query.trim()) {
-            onAction?.(action, { query: query.trim() });
-          } else if (e.key === "Escape") {
-            setQuery("");
-            inputRef.current?.blur();
-          }
-        }}
-      />
-      {query && (
-        <button
-          className="plugin-search-clear"
-          onClick={() => {
-            setQuery("");
-            inputRef.current?.focus();
-          }}
-          tabIndex={-1}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
-      )}
-    </div>
+    <ViewSearchBar
+      query={query}
+      onQueryChange={setQuery}
+      placeholder={placeholder ?? "Search..."}
+      onEnter={() => {
+        if (query.trim()) onAction?.(action, { query: query.trim() });
+      }}
+    />
   );
 }
 

@@ -340,54 +340,6 @@
   font-size: var(--fs-sm);
 }
 
-/* Plugin search input */
-.plugin-search-input {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.plugin-search-icon {
-  position: absolute;
-  left: 10px;
-  color: var(--text-secondary);
-  pointer-events: none;
-}
-
-.plugin-search-input input {
-  flex: 1;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 8px 36px;
-  color: var(--text-primary);
-  font-size: var(--fs-sm);
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.plugin-search-input input:focus {
-  border-color: var(--accent);
-}
-
-.plugin-search-clear {
-  position: absolute;
-  right: 10px;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 2px;
-  display: flex;
-  align-items: center;
-  border-radius: 4px;
-  opacity: 0.6;
-  transition: opacity 0.15s;
-}
-
-.plugin-search-clear:hover {
-  opacity: 1;
-}
 
 /* Plugin tabs */
 .plugin-tabs {
