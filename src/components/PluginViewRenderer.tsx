@@ -1,8 +1,15 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import type { PluginViewData, CardGridItem, StatItem, TrackRowItem, PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import { ViewSearchBar } from "./ViewSearchBar";
 import "./PluginViewRenderer.css";
+
+function resolveImageUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return convertFileSrc(url);
+}
 
 interface PluginViewRendererProps {
   pluginName: string;
@@ -291,12 +298,12 @@ function PluginDetailHeader({
       )}
       <div
         className="album-detail-top"
-        style={imageUrl ? { '--artist-bg': `url(${imageUrl})` } as React.CSSProperties : undefined}
+        style={imageUrl ? { '--artist-bg': `url(${resolveImageUrl(imageUrl)})` } as React.CSSProperties : undefined}
       >
         <div className="album-detail-header">
           <div className="album-detail-art">
             {imageUrl ? (
-              <img className="album-detail-art-img" src={imageUrl} alt={title} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              <img className="album-detail-art-img" src={resolveImageUrl(imageUrl)} alt={title} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
             ) : (
               <svg className="album-detail-art-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" />
@@ -462,7 +469,7 @@ function PluginCardGrid({
         >
           <div className="plugin-card-art">
             {item.imageUrl ? (
-              <img src={item.imageUrl} alt={item.title} />
+              <img src={resolveImageUrl(item.imageUrl)} alt={item.title} />
             ) : (
               <div style={{ width: "100%", height: "100%", background: "var(--bg-surface)" }} />
             )}
@@ -736,7 +743,7 @@ function PluginTrackRowList({
             )}
             {item.imageUrl && (
               <div className="ptr-art">
-                <img src={item.imageUrl} alt="" />
+                <img src={resolveImageUrl(item.imageUrl)} alt="" />
               </div>
             )}
             <div className="ptr-info">
