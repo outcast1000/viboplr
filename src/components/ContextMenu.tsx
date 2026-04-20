@@ -2,13 +2,13 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { DockSide, FitMode } from "../hooks/useVideoLayout";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext, buildSearchUrl, getDomainFromUrl } from "../searchProviders";
-import { IconPlay, IconEnqueue, IconFolder, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius, IconInfo, IconTrash, IconRefresh } from "./Icons";
+import { IconPlay, IconEnqueue, IconFolder, IconGoogle, IconLastfm, IconX, IconYoutube, IconGenius, IconInfo, IconTrash, IconRefresh, IconDownload } from "./Icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import "./ContextMenu.css";
 
 export type ContextMenuTarget =
-  | { kind: "track"; trackId?: number; subsonic?: boolean; title: string; artistName: string | null; external?: boolean }
+  | { kind: "track"; trackId?: number; subsonic?: boolean; tidal?: boolean; title: string; artistName: string | null; external?: boolean }
   | { kind: "album"; albumId?: number; title: string; artistName: string | null }
   | { kind: "artist"; artistId?: number; name: string }
   | { kind: "multi-track"; trackIds: number[] }
@@ -36,8 +36,8 @@ interface ContextMenuProps {
   onMoveToTop?: () => void;
   onMoveToBottom?: () => void;
   onLocateTrack?: () => void;
-  onDownload?: (destCollectionId: number) => void;
-  localCollections?: { id: number; name: string }[];
+  onDownloadTrack?: () => void;
+  onDownloadMulti?: () => void;
   onBulkEdit?: () => void;
   onExportAsMixtape?: (trackIds: number[]) => void;
   onClose: () => void;
@@ -119,7 +119,7 @@ function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarget {
 
 export function ContextMenu({
   menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onViewDetails,
-  onDelete, onRefreshImage, onRemoveFromQueue, onKeepOnly, onMoveToTop, onMoveToBottom, onLocateTrack, onDownload, localCollections,
+  onDelete, onRefreshImage, onRemoveFromQueue, onKeepOnly, onMoveToTop, onMoveToBottom, onLocateTrack, onDownloadTrack, onDownloadMulti,
   onBulkEdit, onExportAsMixtape, onClose,
   pluginMenuItems, onPluginAction,
   onSetDockSide, onSetFitMode,
@@ -268,7 +268,7 @@ export function ContextMenu({
           <IconInfo size={14} /><span>Edit Properties</span>
         </div>
       )}
-      {target.kind === "track" && target.trackId && !target.subsonic && !target.external && (
+      {target.kind === "track" && target.trackId && !target.subsonic && !target.tidal && !target.external && (
         <div className="context-menu-item" onClick={onShowInFolder}>
           <IconFolder size={14} /><span>Open Containing Folder</span>
         </div>
@@ -283,7 +283,7 @@ export function ContextMenu({
           <IconInfo size={14} /><span>View Details</span>
         </div>
       )}
-      {onDelete && (target.kind === "track" && target.trackId && !target.subsonic && !target.external || target.kind === "multi-track") && (
+      {onDelete && (target.kind === "track" && target.trackId && !target.subsonic && !target.tidal && !target.external || target.kind === "multi-track") && (
         <>
           <div className="context-menu-separator" />
           <div className="context-menu-item context-menu-item-danger" onClick={() => { onDelete(); onClose(); }}>
@@ -291,27 +291,20 @@ export function ContextMenu({
           </div>
         </>
       )}
-      {target.kind === "track" && target.trackId && target.subsonic && onDownload && localCollections && localCollections.length > 0 && (
+      {target.kind === "track" && target.trackId && (target.subsonic || target.tidal) && onDownloadTrack && (
         <>
           <div className="context-menu-separator" />
-          {localCollections.length === 1 ? (
-            <div className="context-menu-item" onClick={() => { onDownload(localCollections[0].id); onClose(); }}>
-              <IconFolder size={14} /><span>Download to {localCollections[0].name}</span>
-            </div>
-          ) : (
-            <div className="context-menu-submenu">
-              <div className="context-menu-item">
-                <IconFolder size={14} /><span>Download to...</span>
-              </div>
-              <div className="context-menu-submenu-list">
-                {localCollections.map(c => (
-                  <div key={c.id} className="context-menu-item" onClick={() => { onDownload(c.id); onClose(); }}>
-                    <span>{c.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <div className="context-menu-item" onClick={() => { onDownloadTrack(); onClose(); }}>
+            <IconDownload size={14} /><span>Download</span>
+          </div>
+        </>
+      )}
+      {isMulti && onDownloadMulti && (
+        <>
+          <div className="context-menu-separator" />
+          <div className="context-menu-item" onClick={() => { onDownloadMulti(); onClose(); }}>
+            <IconDownload size={14} /><span>Download {target.trackIds.length} tracks</span>
+          </div>
         </>
       )}
       {contextProviders.length > 0 && (

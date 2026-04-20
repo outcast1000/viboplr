@@ -2518,8 +2518,8 @@ function App() {
               });
             }
           } : undefined}
-          onDownload={contextMenuActions.contextMenu.target.kind === "track" && contextMenuActions.contextMenu.target.trackId ? (destId: number) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track" && t.trackId) downloads.downloadTrack(t.trackId, destId, library.tracks); } : undefined}
-          localCollections={localCollections}
+          onDownloadTrack={contextMenuActions.contextMenu.target.kind === "track" && contextMenuActions.contextMenu.target.trackId ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track" && t.trackId) { const track = library.tracks.find(tr => tr.id === t.trackId); if (track) contextMenuActions.handleDownloadTrack(track); } } : undefined}
+          onDownloadMulti={contextMenuActions.contextMenu.target.kind === "multi-track" ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "multi-track") { const idSet = new Set(t.trackIds); const selected = library.tracks.filter(tr => idSet.has(tr.id)); contextMenuActions.handleDownloadMulti(selected); } } : undefined}
           onExportAsMixtape={handleExportAsMixtape}
           onClose={() => contextMenuActions.setContextMenu(null)}
           pluginMenuItems={plugins.menuItems}

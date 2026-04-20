@@ -3012,12 +3012,14 @@ impl Database {
     }
 
     /// Get all provider configuration for the Settings UI.
-    /// Returns (info_types, image_providers) where:
+    /// Returns (info_types, image_providers, download_providers) where:
     /// - info_types: vec of (type_id, name, entity, display_kind, sort_order, plugin_id, priority, active)
     /// - image_providers: vec of (plugin_id, entity, priority, active, id)
+    /// - download_providers: vec of (plugin_id, provider_id, name, priority, active)
     pub fn get_all_provider_config(&self) -> SqlResult<(
         Vec<(String, String, String, String, i64, String, i64, bool)>,
         Vec<(String, String, i64, bool, i64)>,
+        Vec<(String, String, String, i64, bool)>,
     )> {
         let conn = self.conn.lock().unwrap();
 
@@ -3056,7 +3058,22 @@ impl Database {
             ))
         })?.collect::<SqlResult<Vec<_>>>()?;
 
-        Ok((info_types, image_providers))
+        // All download providers
+        let mut dl_stmt = conn.prepare(
+            "SELECT plugin_id, provider_id, name, priority, active
+             FROM download_providers ORDER BY priority ASC"
+        )?;
+        let download_providers = dl_stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, bool>(4)?,
+            ))
+        })?.collect::<SqlResult<Vec<_>>>()?;
+
+        Ok((info_types, image_providers, download_providers))
     }
 
     /// Update the priority of an image provider.

@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Artist, Album } from "../types";
 import type { ContextMenuState, ContextMenuTarget } from "../components/ContextMenu";
 import { store } from "../store";
+import { parseUrlScheme } from "../queueEntry";
 
 interface UseContextMenuActionsDeps {
   library: {
@@ -55,7 +56,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     if (selectedTrackIds.size > 1) {
       setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-track", trackIds: [...selectedTrackIds] } });
     } else {
-      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: track.path.startsWith("subsonic://"), title: track.title, artistName: track.artist_name } });
+      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: track.path.startsWith("subsonic://"), tidal: track.path.startsWith("tidal://"), title: track.title, artistName: track.artist_name } });
     }
   }
 
@@ -350,6 +351,95 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } });
   }
 
+  const handleDownloadTrack = useCallback(async (track: Track) => {
+    const url = track.url ?? track.path;
+    if (!url) return;
+    const parsed = parseUrlScheme(url);
+
+    let sourceProviderId: string | null = null;
+    let sourceTrackId: string | null = null;
+    let sourceCollectionId: number | null = null;
+
+    if (parsed.scheme === "tidal") {
+      sourceProviderId = "tidal-browse:tidal-download";
+      sourceTrackId = parsed.id;
+      sourceCollectionId = track.collection_id;
+    } else if (parsed.scheme === "subsonic") {
+      sourceProviderId = "__builtin:subsonic";
+      sourceTrackId = parsed.id;
+      sourceCollectionId = track.collection_id;
+    }
+
+    try {
+      await invoke("enqueue_download", {
+        title: track.title,
+        artistName: track.artist_name,
+        albumTitle: track.album_title,
+        sourceProviderId,
+        sourceTrackId,
+        sourceCollectionId,
+        destCollectionId: null,
+        destCollectionPath: null,
+        format: null,
+        pathPattern: null,
+        isBatchLast: false,
+      });
+      addLog(`Downloading: ${track.title}`);
+    } catch (e) {
+      console.error("Failed to enqueue download:", e);
+      addLog(`Download failed: ${e}`);
+    }
+  }, [addLog]);
+
+  const handleDownloadMulti = useCallback(async (tracks: Track[]) => {
+    const nonLocal = tracks.filter(t => {
+      const parsed = parseUrlScheme(t.url ?? t.path);
+      return parsed.scheme !== "file";
+    });
+    if (nonLocal.length === 0) return;
+
+    for (let i = 0; i < nonLocal.length; i++) {
+      const track = nonLocal[i];
+      const url = track.url ?? track.path;
+      const parsed = parseUrlScheme(url);
+      const isLast = i === nonLocal.length - 1;
+
+      let sourceProviderId: string | null = null;
+      let sourceTrackId: string | null = null;
+      let sourceCollectionId: number | null = null;
+
+      if (parsed.scheme === "tidal") {
+        sourceProviderId = "tidal-browse:tidal-download";
+        sourceTrackId = parsed.id;
+        sourceCollectionId = track.collection_id;
+      } else if (parsed.scheme === "subsonic") {
+        sourceProviderId = "__builtin:subsonic";
+        sourceTrackId = parsed.id;
+        sourceCollectionId = track.collection_id;
+      }
+
+      try {
+        await invoke("enqueue_download", {
+          title: track.title,
+          artistName: track.artist_name,
+          albumTitle: track.album_title,
+          sourceProviderId,
+          sourceTrackId,
+          sourceCollectionId,
+          destCollectionId: null,
+          destCollectionPath: null,
+          format: null,
+          pathPattern: null,
+          isBatchLast: isLast,
+        });
+      } catch (e) {
+        console.error("Failed to enqueue download:", e);
+        addLog(`Download failed: ${track.title} - ${e}`);
+      }
+    }
+    addLog(`Downloading ${nonLocal.length} track${nonLocal.length > 1 ? "s" : ""}`);
+  }, [addLog]);
+
   function handleEntityContextMenu(e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) {
     e.preventDefault();
     const target: ContextMenuTarget = info.kind === "artist"
@@ -397,5 +487,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleTrackDragStart,
     handleInfoTrackContextMenu,
     handleEntityContextMenu,
+    handleDownloadTrack,
+    handleDownloadMulti,
   };
 }

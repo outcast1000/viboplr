@@ -33,14 +33,15 @@ interface ImageProviderRow {
 
 interface ProviderPillData {
   pluginId: string;
+  providerId?: string;
   priority: number;
   active: boolean;
   displayName: string;
 }
 
 interface ProviderRow {
-  kind: "images" | "info";
-  typeId: string;  // "images" for image rows, or the info type_id
+  kind: "images" | "info" | "download";
+  typeId: string;  // "images" for image rows, "download" for download rows, or the info type_id
   label: string;
   entity: string;
   sortOrder: number;
@@ -51,6 +52,7 @@ interface ProviderRow {
 function parseProviderConfig(
   infoTypes: [string, string, string, string, number, string, number, boolean][],
   imageProviders: [string, string, number, boolean, number][],
+  downloadProviders: [string, string, string, number, boolean][],
   pluginStates?: PluginState[],
 ): Map<string, ProviderRow[]> {
   const entityMap = new Map<string, ProviderRow[]>();
@@ -140,6 +142,27 @@ function parseProviderConfig(
     entityMap.set(entity, rows);
   }
 
+  // Download providers as a separate "download" entity group
+  if (downloadProviders.length > 0) {
+    const sorted = [...downloadProviders].sort((a, b) => a[3] - b[3]);
+    const dlRow: ProviderRow = {
+      kind: "download",
+      typeId: "download",
+      label: "Source priority",
+      entity: "download",
+      sortOrder: 0,
+      providers: sorted.map(([pluginId, providerId, name, priority, active]) => ({
+        pluginId,
+        providerId,
+        priority,
+        active,
+        displayName: name,
+      })),
+      hasLockedFirst: false,
+    };
+    entityMap.set("download", [dlRow]);
+  }
+
   return entityMap;
 }
 
@@ -167,11 +190,12 @@ function ProviderPrioritySection({
 
   const fetchConfig = useCallback(async () => {
     try {
-      const [infoTypes, imageProviders] = await invoke<[
+      const [infoTypes, imageProviders, downloadProviders] = await invoke<[
         [string, string, string, string, number, string, number, boolean][],
         [string, string, number, boolean, number][],
+        [string, string, string, number, boolean][],
       ]>("get_all_provider_config");
-      setEntityData(parseProviderConfig(infoTypes, imageProviders, pluginStates));
+      setEntityData(parseProviderConfig(infoTypes, imageProviders, downloadProviders, pluginStates));
     } catch (e) {
       console.error("Failed to fetch provider config:", e);
     } finally {
@@ -245,6 +269,12 @@ function ProviderPrioritySection({
           entity: row.entity,
           active: newActive,
         });
+      } else if (row.kind === "download") {
+        await invoke("update_download_provider_active", {
+          pluginId: provider.pluginId,
+          providerId: provider.providerId,
+          active: newActive,
+        });
       } else {
         await invoke("update_info_type_active", {
           typeId: row.typeId,
@@ -273,6 +303,14 @@ function ProviderPrioritySection({
             invoke("update_image_provider_priority", {
               pluginId: providers[i].pluginId,
               entity: row.entity,
+              priority: newPriority,
+            }) as Promise<void>,
+          );
+        } else if (row.kind === "download") {
+          updates.push(
+            invoke("update_download_provider_priority", {
+              pluginId: providers[i].pluginId,
+              providerId: providers[i].providerId,
               priority: newPriority,
             }) as Promise<void>,
           );
@@ -393,6 +431,7 @@ function ProviderPrioritySection({
     // Build defaults from plugin manifests
     const imageDefaults: [string, string, number][] = [];
     const infoDefaults: [string, string, number][] = [];
+    const downloadDefaults: [string, string, string, number][] = [];
 
     if (pluginStates) {
       for (const plugin of pluginStates) {
@@ -408,6 +447,11 @@ function ProviderPrioritySection({
             infoDefaults.push([it.id, plugin.id, it.priority]);
           }
         }
+        if (contributes.downloadProviders) {
+          for (const dp of contributes.downloadProviders) {
+            downloadDefaults.push([plugin.id, dp.id, dp.name, dp.priority]);
+          }
+        }
       }
     }
 
@@ -416,6 +460,11 @@ function ProviderPrioritySection({
         imageDefaults,
         infoDefaults,
       });
+      if (downloadDefaults.length > 0) {
+        await invoke("reset_download_provider_priorities", {
+          defaults: downloadDefaults,
+        });
+      }
       await fetchConfig();
     } catch (e) {
       console.error("Failed to reset priorities:", e);
@@ -427,6 +476,7 @@ function ProviderPrioritySection({
     album: "Album",
     track: "Track",
     tag: "Tag",
+    download: "Download",
   };
 
   if (loading) {

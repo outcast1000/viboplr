@@ -2816,6 +2816,7 @@ pub fn get_all_provider_config(
 ) -> Result<(
     Vec<(String, String, String, String, i64, String, i64, bool)>,
     Vec<(String, String, i64, bool, i64)>,
+    Vec<(String, String, String, i64, bool)>,
 ), String> {
     state.db.get_all_provider_config().map_err(|e| e.to_string())
 }
