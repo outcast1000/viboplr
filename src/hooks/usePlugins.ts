@@ -22,6 +22,7 @@ import type {
   GalleryPluginEntry,
   PluginGalleryIndex,
   ImageFetchResult,
+  DownloadResolveHandler,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 
@@ -55,6 +56,7 @@ interface LoadedPlugin {
   oauthCallbackHandlers: Array<(queryString: string) => void>;
   infoFetchHandlers: Map<string, (entity: InfoEntity) => Promise<InfoFetchResult>>;
   imageFetchHandlers: Map<string, (name: string, artistName?: string) => Promise<ImageFetchResult>>;
+  downloadResolveHandlers: Map<string, DownloadResolveHandler>;
   fallbackResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>>;
   schedulerHandlers: Map<string, () => void>;
 }
@@ -581,6 +583,17 @@ export function usePlugins(
           },
         },
 
+        downloads: {
+          onResolve(providerId: string, handler: DownloadResolveHandler): () => void {
+            loaded.downloadResolveHandlers.set(providerId, handler);
+            const unsub = () => {
+              loaded.downloadResolveHandlers.delete(providerId);
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+        },
+
         scheduler: {
           async register(taskId: string, intervalMs: number): Promise<void> {
             await invoke("plugin_scheduler_register", { pluginId, taskId, intervalMs });
@@ -658,6 +671,7 @@ export function usePlugins(
     loaded.uiActionHandlers.clear();
     loaded.infoFetchHandlers.clear();
     loaded.imageFetchHandlers.clear();
+    loaded.downloadResolveHandlers.clear();
     loaded.fallbackResolveHandlers.clear();
     loaded.schedulerHandlers.clear();
 
@@ -695,6 +709,7 @@ export function usePlugins(
         oauthCallbackHandlers: [],
         infoFetchHandlers: new Map(),
         imageFetchHandlers: new Map(),
+        downloadResolveHandlers: new Map(),
         fallbackResolveHandlers: new Map(),
         schedulerHandlers: new Map(),
       };

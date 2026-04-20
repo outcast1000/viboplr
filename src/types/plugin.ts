@@ -48,6 +48,12 @@ export interface PluginManifestFallbackProvider {
   priority: number;
 }
 
+export interface PluginManifestDownloadProvider {
+  id: string;
+  name: string;
+  priority: number;
+}
+
 export interface PluginManifestSettingsPanel {
   id: string;
   label: string;
@@ -62,6 +68,7 @@ export interface PluginManifestContributes {
   informationTypes?: PluginManifestInfoType[];
   imageProviders?: PluginManifestImageProvider[];
   fallbackProviders?: PluginManifestFallbackProvider[];
+  downloadProviders?: PluginManifestDownloadProvider[];
   settingsPanel?: PluginManifestSettingsPanel;
 }
 
@@ -360,6 +367,46 @@ export interface PluginImageProvidersAPI {
   ): () => void;
 }
 
+export interface DownloadResolveResult {
+  url: string;
+  headers?: Record<string, string> | null;
+  metadata?: {
+    title?: string;
+    artist?: string;
+    album?: string;
+    trackNumber?: number;
+    year?: number;
+    genre?: string;
+    coverUrl?: string;
+  } | null;
+}
+
+export type DownloadResolveHandler = (
+  title: string,
+  artistName: string | null,
+  albumName: string | null,
+  sourceTrackId: string | null,
+  format: string,
+) => Promise<DownloadResolveResult | null>;
+
+export interface PluginDownloadsAPI {
+  onResolve(providerId: string, handler: DownloadResolveHandler): () => void;
+}
+
+export interface DownloadProvider {
+  id: string;
+  name: string;
+  source: string;
+  resolve: (
+    title: string,
+    artistName: string | null,
+    albumName: string | null,
+    sourceTrackId: string | null,
+    format: string,
+    sourceCollectionId?: number | null,
+  ) => Promise<DownloadResolveResult | null>;
+}
+
 export interface PluginPlaylistsAPI {
   save(data: {
     name: string;
@@ -415,6 +462,7 @@ export interface ViboplrPluginAPI {
   playlists: PluginPlaylistsAPI;
   informationTypes: PluginInformationTypesAPI;
   imageProviders: PluginImageProvidersAPI;
+  downloads: PluginDownloadsAPI;
   scheduler: PluginSchedulerAPI;
 }
 
