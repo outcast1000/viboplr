@@ -1,0 +1,21 @@
+{
+  "id": "youtube",
+  "name": "YouTube",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Play and download tracks from YouTube via yt-dlp",
+  "minAppVersion": "0.9.4",
+  "contributes": {
+    "fallbackProviders": [
+      { "id": "youtube-fallback", "name": "YouTube", "priority": 300 }
+    ],
+    "downloadProviders": [
+      { "id": "youtube-download", "name": "YouTube", "priority": 300 }
+    ],
+    "settingsPanel": {
+      "id": "youtube-settings",
+      "label": "YouTube",
+      "order": 50
+    }
+  }
+}
