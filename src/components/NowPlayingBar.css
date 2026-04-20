@@ -487,6 +487,10 @@
   text-overflow: ellipsis;
 }
 
+.now-mini-error {
+  color: var(--error);
+}
+
 .now-playing-mini .mini-right {
   display: flex;
   flex-direction: row;

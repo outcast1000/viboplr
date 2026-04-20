@@ -117,6 +117,8 @@ interface NowPlayingBarProps {
   onToggleSync: () => void;
   showHelp: boolean;
   onToggleHelp: () => void;
+  playbackError?: string | null;
+  onSkipError?: () => void;
 }
 
 export function NowPlayingBar({
@@ -134,6 +136,7 @@ export function NowPlayingBar({
   onNavigateToArtistByName, onNavigateToAlbumByName,
   syncWithPlaying, onToggleSync,
   showHelp, onToggleHelp,
+  playbackError, onSkipError,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const likeBtnRef = useRef<HTMLButtonElement>(null);
@@ -143,6 +146,13 @@ export function NowPlayingBar({
   useEffect(() => {
     if (miniMode) (document.activeElement as HTMLElement)?.blur();
   }, [miniMode]);
+
+  // Auto-skip on error in mini mode (5s)
+  useEffect(() => {
+    if (!miniMode || !playbackError || !onSkipError) return;
+    const timer = setTimeout(onSkipError, 5000);
+    return () => clearTimeout(timer);
+  }, [miniMode, playbackError, onSkipError]);
 
   if (miniMode) {
     const handleDrag = isMac
@@ -183,7 +193,12 @@ export function NowPlayingBar({
             <SourceBadge track={currentTrack} size={10} />
           </div>
           <div className="now-mini-info-text">
-            {currentTrack ? (
+            {playbackError ? (
+              <>
+                <span className="now-title now-mini-error">Playback failed</span>
+                <span className="now-artist">{currentTrack?.title || "Unknown"}</span>
+              </>
+            ) : currentTrack ? (
               <>
                 <span className="now-title">
                   {currentTrack.title}

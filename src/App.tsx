@@ -678,6 +678,14 @@ function App() {
     };
   }, [addLog]);
 
+  useEffect(() => {
+    if (playback.playbackError && playback.failedTrack) {
+      const t = playback.failedTrack;
+      const src = t.path.startsWith("tidal://") ? "TIDAL" : t.path.startsWith("subsonic://") ? "Subsonic" : "local";
+      addLog(`Playback failed (${src}): ${t.artist_name ? t.artist_name + " — " : ""}${t.title}: ${playback.playbackError}`);
+    }
+  }, [playback.playbackError, playback.failedTrack, addLog]);
+
   const statusActivity = scanning
     ? (scanProgress.total > 0 ? `Scanning... ${scanProgress.scanned}/${scanProgress.total}` : "Scanning... preparing")
 
@@ -2582,7 +2590,7 @@ function App() {
         </div>
       )}
 
-      {playback.playbackError && (
+      {playback.playbackError && !mini.miniMode && (
         <PlaybackErrorModal
           error={playback.playbackError}
           trackTitle={playback.failedTrack?.title ?? null}
@@ -2700,6 +2708,8 @@ function App() {
         onToggleSync={handleToggleSync}
         showHelp={showHelp}
         onToggleHelp={() => setShowHelp(h => !h)}
+        playbackError={playback.playbackError}
+        onSkipError={() => { playback.clearPlaybackError(); handleNext(); }}
       />
 
       {contextMenuActions.youtubeFeedback && (
