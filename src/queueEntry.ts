@@ -141,3 +141,32 @@ export function parseUrlScheme(url: string): ParsedUrl {
   // Plain path (no scheme) — treat as local file
   return { scheme: "file", path: url };
 }
+
+/**
+ * Returns true if the URL uses a remote app-specific scheme (tidal://, subsonic://).
+ * Returns false for file://, http(s)://, and plain paths.
+ */
+export function isRemoteScheme(url: string): boolean {
+  if (!url.includes("://")) return false;
+  if (url.startsWith("file://")) return false;
+  if (url.startsWith("http://") || url.startsWith("https://")) return false;
+  return true;
+}
+
+/**
+ * Determines whether a track should be auto-saved to the downloads collection
+ * after playback resolution.
+ *
+ * Returns true when auto-save is enabled, the track uses a remote scheme,
+ * and it was NOT resolved from a local Library copy.
+ */
+export function shouldAutoSave(
+  autoSaveEnabled: boolean,
+  trackPath: string,
+  resolvedSourceName: string | null,
+): boolean {
+  if (!autoSaveEnabled) return false;
+  if (!isRemoteScheme(trackPath)) return false;
+  if (resolvedSourceName === "Library") return false;
+  return true;
+}

@@ -12,7 +12,7 @@ import "./App.css";
 import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, TidalSearchTrack, Collection } from "./types";
 import { isVideoTrack, parseSubsonicUrl, tidalCoverUrl } from "./utils";
 import { store } from "./store";
-import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
+import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, isRemoteScheme, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
 import { type StreamResolver } from "./streamResolvers";
@@ -736,6 +736,26 @@ function App() {
 
       interface ResolverEntry { name: string; resolve: () => Promise<string> }
       const chain: ResolverEntry[] = [];
+
+      // Pre-resolution: check if a local copy exists for remote tracks
+      if (url && isRemoteScheme(url)) {
+        try {
+          const localMatch = await invoke<Track | null>("find_track_by_metadata", {
+            title: track.title,
+            artistName: track.artist_name ?? null,
+            albumName: track.album_title ?? null,
+          });
+          if (localMatch && localMatch.path.startsWith("file://")) {
+            const localPath = localMatch.path.substring(7);
+            chain.push({
+              name: "Library",
+              resolve: () => Promise.resolve(convertFileSrc(localPath)),
+            });
+          }
+        } catch (e) {
+          console.error("Pre-resolution local copy check failed:", e);
+        }
+      }
 
       // Native resolver first (if track has a known URL)
       if (url) {
