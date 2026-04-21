@@ -753,7 +753,11 @@ pub fn write_frontend_log(level: String, message: String, section: Option<String
 }
 
 #[tauri::command]
-pub fn delete_tracks(state: State<'_, AppState>, track_ids: Vec<i64>) -> Result<DeleteTracksResult, String> {
+pub fn delete_tracks(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    track_ids: Vec<i64>,
+) -> Result<DeleteTracksResult, String> {
     let tracks = state.db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())?;
     let mut deleted_ids = Vec::new();
     let mut failures = Vec::new();
@@ -782,6 +786,14 @@ pub fn delete_tracks(state: State<'_, AppState>, track_ids: Vec<i64>) -> Result<
     if !deleted_ids.is_empty() {
         state.db.delete_tracks_by_ids(&deleted_ids).map_err(|e| e.to_string())?;
         state.db.recompute_counts().map_err(|e| e.to_string())?;
+        for track in &tracks {
+            if deleted_ids.contains(&track.id) {
+                let _ = app.emit("track-removed", serde_json::json!({
+                    "trackId": track.id,
+                    "path": track.path,
+                }));
+            }
+        }
     }
     Ok(DeleteTracksResult { deleted_ids, failures })
 }
