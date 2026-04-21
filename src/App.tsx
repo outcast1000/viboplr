@@ -702,6 +702,7 @@ function App() {
   // Resolve a queue track's url to a playable source
   useEffect(() => {
     const resolveViaFallback = async (track: Track): Promise<string> => {
+      addLog(`Trying fallback providers for: ${track.title}...`);
       const result = await resolveFallback(
         fallbackProvidersRef.current,
         track.title,
@@ -718,6 +719,16 @@ function App() {
       throw new Error(`Fallback returned unplayable URL: ${result.url}`);
     };
 
+    const resolveWithFallback = async (track: Track, primaryResolve: () => Promise<string>): Promise<string> => {
+      try {
+        return await primaryResolve();
+      } catch (e) {
+        console.error("Primary resolution failed, trying fallbacks:", e);
+        addLog(`Primary source failed, trying fallback providers...`);
+        return resolveViaFallback(track);
+      }
+    };
+
     resolveTrackSrcRef.current = async (track: Track) => {
       const url = track.url ?? track.path;
       if (!url) return resolveViaFallback(track);
@@ -726,9 +737,9 @@ function App() {
       if (parsed.scheme === "file") {
         return convertFileSrc(parsed.path);
       } else if (parsed.scheme === "tidal") {
-        return resolveTidalStreamUrlRef.current(parsed.id, null);
+        return resolveWithFallback(track, () => resolveTidalStreamUrlRef.current(parsed.id, null));
       } else if (parsed.scheme === "subsonic") {
-        return invoke<string>("resolve_subsonic_location", { location: url });
+        return resolveWithFallback(track, () => invoke<string>("resolve_subsonic_location", { location: url }));
       } else if (parsed.scheme === "unknown") {
         return resolveViaFallback(track);
       } else {

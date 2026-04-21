@@ -9,7 +9,7 @@ export interface FallbackProvider {
   ) => Promise<{ url: string; label: string } | null>;
 }
 
-const DEFAULT_TIMEOUT_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 15000;
 
 /**
  * Iterate providers in order. First non-null result wins.
