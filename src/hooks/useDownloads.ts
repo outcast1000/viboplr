@@ -17,6 +17,7 @@ export interface UseDownloadsReturn {
   downloadStatus: DownloadStatus | null;
   setFormat: (format: string, store: AppStore) => void;
   downloadTrack: (trackId: number, destCollectionId: number, tracks: Track[]) => Promise<void>;
+  autoSaveTrack: (track: Track, downloadsCollectionId: number, format: string) => Promise<void>;
   cancelDownload: (id: number) => Promise<void>;
 }
 
@@ -168,6 +169,51 @@ export function useDownloads(
     }
   }
 
+  async function autoSaveTrack(
+    track: Track,
+    downloadsCollectionId: number,
+    format: string,
+  ) {
+    try {
+      const existing = await invoke<Track | null>("find_track_in_collection", {
+        collectionId: downloadsCollectionId,
+        title: track.title,
+        artistName: track.artist_name ?? "",
+      });
+      if (existing) return;
+
+      const path = track.path ?? "";
+      let sourceProviderId: string | null = null;
+      let sourceTrackId: string | null = null;
+      const sourceCollectionId: number | null = track.collection_id ?? null;
+
+      if (path.startsWith("tidal://")) {
+        sourceProviderId = "tidal-browse:tidal-download";
+        sourceTrackId = path.substring(8);
+      } else if (path.startsWith("subsonic://")) {
+        sourceProviderId = "__builtin:subsonic";
+        const rest = path.substring(11);
+        const lastSlash = rest.lastIndexOf("/");
+        sourceTrackId = lastSlash >= 0 ? rest.substring(lastSlash + 1) : null;
+      }
+
+      await invoke("enqueue_download", {
+        title: track.title,
+        artistName: track.artist_name ?? null,
+        albumTitle: track.album_title ?? null,
+        sourceProviderId,
+        sourceTrackId,
+        sourceCollectionId,
+        destCollectionId: downloadsCollectionId,
+        format,
+      });
+      addLog(`Auto-saving: ${track.artist_name ? track.artist_name + " - " : ""}${track.title}`, "downloads");
+    } catch (e) {
+      console.error("Auto-save failed:", e);
+      addLog(`Failed to auto-save: ${track.title}`, "downloads");
+    }
+  }
+
   async function cancelDownload(id: number) {
     await invoke("cancel_download", { downloadId: id });
     invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus);
@@ -178,6 +224,7 @@ export function useDownloads(
     downloadStatus,
     setFormat,
     downloadTrack,
+    autoSaveTrack,
     cancelDownload,
   };
 }

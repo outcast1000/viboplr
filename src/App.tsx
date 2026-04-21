@@ -12,7 +12,7 @@ import "./App.css";
 import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, TidalSearchTrack, Collection } from "./types";
 import { isVideoTrack, parseSubsonicUrl, tidalCoverUrl } from "./utils";
 import { store } from "./store";
-import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, isRemoteScheme, type QueueEntry } from "./queueEntry";
+import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, isRemoteScheme, shouldAutoSave, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
 import { type StreamResolver } from "./streamResolvers";
@@ -799,6 +799,13 @@ function App() {
           if (resolveGenerationRef.current !== generation) return "";
           setResolvingStatus(null);
           setResolvedSource({ name: entry.name, url: src });
+          // Auto-save trigger
+          if (shouldAutoSave(autoSaveStreamsRef.current, track.path, entry.name)) {
+            const dlCol = downloadsCollectionRef.current;
+            if (dlCol) {
+              downloads.autoSaveTrack(track, dlCol.id, downloadFormatRef.current).catch(console.error);
+            }
+          }
           if (lastError) {
             addLog(`Playing from ${entry.name} (original unavailable)`, "playback");
           }
