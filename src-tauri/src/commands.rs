@@ -742,11 +742,12 @@ pub fn get_app_paths(state: State<'_, AppState>) -> Result<(String, String), Str
 }
 
 #[tauri::command]
-pub fn write_frontend_log(level: String, message: String) -> Result<(), String> {
+pub fn write_frontend_log(level: String, message: String, section: Option<String>) -> Result<(), String> {
+    let target = section.unwrap_or_else(|| "frontend".to_string());
     match level.as_str() {
-        "error" => log::error!("[frontend] {}", message),
-        "warn" => log::warn!("[frontend] {}", message),
-        _ => log::info!("[frontend] {}", message),
+        "error" => log::log!(target: &target, log::Level::Error, "{}", message),
+        "warn" => log::log!(target: &target, log::Level::Warn, "{}", message),
+        _ => log::log!(target: &target, log::Level::Info, "{}", message),
     }
     Ok(())
 }

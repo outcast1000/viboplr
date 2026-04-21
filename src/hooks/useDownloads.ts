@@ -44,7 +44,7 @@ export async function resolveDownload(
 
 export function useDownloads(
   downloadFormatRef: React.MutableRefObject<string>,
-  addLog: (msg: string) => void,
+  addLog: (msg: string, module?: string) => void,
   downloadProvidersRef: React.MutableRefObject<DownloadProvider[]>,
   invokeDownloadResolveRef: React.MutableRefObject<(pluginId: string, providerId: string, title: string, artistName: string | null, albumName: string | null, sourceTrackId: string | null, format: string) => Promise<DownloadResolveResult | null>>,
 ): UseDownloadsReturn {
@@ -59,14 +59,14 @@ export function useDownloads(
     const unlisten2 = listen<{ id: number; trackTitle: string; destPath: string }>(
       "download-complete",
       (event) => {
-        addLog(`Downloaded: ${event.payload.trackTitle}`);
+        addLog(`Downloaded: ${event.payload.trackTitle}`, "downloads");
         invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus);
       }
     );
     const unlisten3 = listen<{ id: number; trackTitle: string; error: string }>(
       "download-error",
       (event) => {
-        addLog(`Download error: ${event.payload.trackTitle} - ${event.payload.error}`);
+        addLog(`Download error: ${event.payload.trackTitle} - ${event.payload.error}`, "downloads");
         invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus);
       }
     );
@@ -147,7 +147,7 @@ export function useDownloads(
     } else if (path.startsWith("subsonic://")) {
       sourceProviderId = "__builtin:subsonic";
     } else {
-      addLog(`Download not supported for this track type`);
+      addLog(`Download not supported for this track type`, "downloads");
       return;
     }
 
@@ -162,9 +162,9 @@ export function useDownloads(
         destCollectionId,
         format: downloadFormat,
       });
-      addLog(`Downloading: ${track.title}`);
+      addLog(`Downloading: ${track.title}`, "downloads");
     } catch (e) {
-      addLog(`Download failed: ${e}`);
+      addLog(`Download failed: ${e}`, "downloads");
     }
   }
 

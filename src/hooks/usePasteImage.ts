@@ -27,7 +27,7 @@ export function usePasteImage({
   setArtistImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
   setAlbumImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
   setTagImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
-  addLog: (text: string) => void;
+  addLog: (text: string, module?: string) => void;
 }) {
   useEffect(() => {
     const handler = async (e: ClipboardEvent) => {
@@ -74,9 +74,9 @@ export function usePasteImage({
           : isAlbumDetail
           ? "Album image set from clipboard: " + (albums.find(a => a.id === selectedAlbum)?.title ?? "unknown")
           : "Tag image set from clipboard: " + (tags.find(t => t.id === selectedTag)?.name ?? "unknown");
-        addLog(label);
+        addLog(label, "images");
       } catch (err) {
-        addLog(`Failed to paste image: ${err}`);
+        addLog(`Failed to paste image: ${err}`, "images");
       }
     };
 

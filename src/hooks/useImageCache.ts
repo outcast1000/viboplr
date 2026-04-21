@@ -14,7 +14,7 @@ export interface UseImageCacheReturn {
 
 export function useImageCache(
   kind: "artist" | "album" | "tag",
-  addLog?: (msg: string) => void,
+  addLog?: (msg: string, module?: string) => void,
 ): UseImageCacheReturn {
   const [images, setImages] = useState<Record<number, string | null>>({});
   const fetched = useRef(new Set<number>());

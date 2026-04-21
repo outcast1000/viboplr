@@ -18,7 +18,7 @@ interface HistoryViewProps {
   highlightedIndex: number;
   onPlayTrack: (tracks: Track[], index: number) => void;
   onEnqueueTrack: (tracks: Track[]) => void;
-  addLog: (message: string) => void;
+  addLog: (message: string, module?: string) => void;
   onArtistClick: (artistId: number) => void;
 }
 
@@ -162,11 +162,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
       if (track) {
         onPlayTrack([track], 0);
       } else {
-        addLog("Track not found in library \u2014 it may have been removed");
+        addLog("Track not found in library \u2014 it may have been removed", "history");
       }
     } catch (e) {
       console.error("Failed to reconnect track:", e);
-      addLog("Track not found in library \u2014 it may have been removed");
+      addLog("Track not found in library \u2014 it may have been removed", "history");
     }
   }
 
@@ -185,11 +185,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
       if (track) {
         onEnqueueTrack([track]);
       } else {
-        addLog("Track not found in library \u2014 it may have been removed");
+        addLog("Track not found in library \u2014 it may have been removed", "history");
       }
     } catch (e) {
       console.error("Failed to reconnect track:", e);
-      addLog("Track not found in library \u2014 it may have been removed");
+      addLog("Track not found in library \u2014 it may have been removed", "history");
     }
   }
 
@@ -203,11 +203,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
       if (artistId) {
         onArtistClick(artistId);
       } else {
-        addLog("Artist not found in library \u2014 they may have been removed");
+        addLog("Artist not found in library \u2014 they may have been removed", "history");
       }
     } catch (e) {
       console.error("Failed to reconnect artist:", e);
-      addLog("Artist not found in library \u2014 they may have been removed");
+      addLog("Artist not found in library \u2014 they may have been removed", "history");
     }
   }
 

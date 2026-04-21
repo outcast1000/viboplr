@@ -82,7 +82,7 @@ interface TrackDetailViewProps {
   onImageSet: (entityType: "artist" | "album", id: number, path: string) => void;
   onImageRemoved: (entityType: "artist" | "album", id: number) => void;
   onImageRefresh: (entityType: "artist" | "album", id: number, name: string) => void;
-  addLog: (msg: string) => void;
+  addLog: (msg: string, module?: string) => void;
   onUpdateTrack: (update: Partial<Track>) => void;
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
   pluginNames?: Map<string, string>;
@@ -182,7 +182,7 @@ export function TrackDetailView({
       if (result.length > 0) {
         setTrackTags(prev => [...prev, ...result.map(([id, name]) => ({ id, name }))]);
         setCommunityTags(prev => prev.filter(t => t.name.toLowerCase() !== tagName.toLowerCase()));
-        addLog(`Applied tag "${tagName}"`);
+        addLog(`Applied tag "${tagName}"`, "tags");
       }
     } catch (e) { console.error("Failed to apply tag:", e); }
   }, [trackId, addLog]);
@@ -192,7 +192,7 @@ export function TrackDetailView({
     try {
       const result = await invoke<Array<[number, string]>>("replace_track_tags", { trackId, tagNames: remaining });
       setTrackTags(result.map(([id, name]) => ({ id, name })));
-      addLog(`Removed tag "${tagToRemove.name}"`);
+      addLog(`Removed tag "${tagToRemove.name}"`, "tags");
     } catch (e) { console.error("Failed to remove tag:", e); }
   }, [trackId, trackTags, addLog]);
 
@@ -207,7 +207,7 @@ export function TrackDetailView({
       const result = await invoke<Array<[number, string]>>("replace_track_tags", { trackId, tagNames });
       setTrackTags(result.map(([id, name]) => ({ id, name })));
       setEditingTags(false);
-      addLog(`Updated tags`);
+      addLog(`Updated tags`, "tags");
     } catch (e) { console.error("Failed to save tags:", e); }
   }, [trackId, tagInput, addLog]);
 
@@ -344,7 +344,7 @@ export function TrackDetailView({
                   <button className="track-detail-youtube-action" onClick={async () => {
                     await invoke("clear_track_youtube_url", { trackId });
                     onUpdateTrack({ youtube_url: null });
-                    addLog("Cleared YouTube URL");
+                    addLog("Cleared YouTube URL", "youtube");
                   }}>Remove</button>
                 </>
               ) : (
@@ -419,7 +419,7 @@ export function TrackDetailView({
                             <IconFolder size={12} />
                           </button>
                         )}
-                        <button className="track-detail-path-btn" onClick={() => { navigator.clipboard.writeText(track.path); addLog("Copied path"); }} title="Copy path">
+                        <button className="track-detail-path-btn" onClick={() => { navigator.clipboard.writeText(track.path); addLog("Copied path", "library"); }} title="Copy path">
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
                         </button>
                       </span>
@@ -526,11 +526,11 @@ export function TrackDetailView({
                   if (url) {
                     invoke("set_track_youtube_url", { trackId, url });
                     onUpdateTrack({ youtube_url: url });
-                    addLog("Saved YouTube URL");
+                    addLog("Saved YouTube URL", "youtube");
                   } else {
                     invoke("clear_track_youtube_url", { trackId });
                     onUpdateTrack({ youtube_url: null });
-                    addLog("Cleared YouTube URL");
+                    addLog("Cleared YouTube URL", "youtube");
                   }
                   setYoutubeUrlEdit(null);
                 }
@@ -545,7 +545,7 @@ export function TrackDetailView({
                 <button className="youtube-modal-btn" onClick={async () => {
                   await invoke("clear_track_youtube_url", { trackId });
                   onUpdateTrack({ youtube_url: null });
-                  addLog("Cleared YouTube URL");
+                  addLog("Cleared YouTube URL", "youtube");
                   setYoutubeUrlEdit(null);
                 }}>Clear</button>
               )}
@@ -554,7 +554,7 @@ export function TrackDetailView({
                 if (url) {
                   await invoke("set_track_youtube_url", { trackId, url });
                   onUpdateTrack({ youtube_url: url });
-                  addLog("Saved YouTube URL");
+                  addLog("Saved YouTube URL", "youtube");
                 }
                 setYoutubeUrlEdit(null);
               }}>Save</button>

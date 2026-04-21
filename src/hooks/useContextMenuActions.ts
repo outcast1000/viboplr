@@ -28,7 +28,7 @@ interface UseContextMenuActionsDeps {
     addToQueue: (track: Track) => void;
   };
   playback: { currentTrack: Track | null; handleStop: () => void };
-  addLog: (msg: string) => void;
+  addLog: (msg: string, module?: string) => void;
   albumImages: Record<number, string | null>;
   artistImages: Record<number, string | null>;
   queueCollapsed: boolean;
@@ -292,10 +292,10 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       if (result.failures.length === trackIds.length) {
         setDeleteError({ message: `Failed to delete ${title}`, failures: result.failures });
       } else if (result.failures.length > 0) {
-        addLog(`Deleted ${result.deletedIds.length} of ${trackIds.length} tracks`);
+        addLog(`Deleted ${result.deletedIds.length} of ${trackIds.length} tracks`, "library");
         setDeleteError({ message: `${result.failures.length} of ${trackIds.length} tracks could not be deleted`, failures: result.failures });
       } else {
-        addLog(`Deleted ${title}`);
+        addLog(`Deleted ${title}`, "library");
       }
     } catch (e) {
       console.error("Failed to delete tracks:", e);
@@ -306,22 +306,22 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   async function watchOnYoutube(trackId: number, title: string, artistName: string | null, youtubeUrl: string | null) {
     if (youtubeUrl) {
       await openUrl(youtubeUrl);
-      addLog(`Opened YouTube: ${title}`);
+      addLog(`Opened YouTube: ${title}`, "youtube");
       return;
     }
 
-    addLog("Searching YouTube...");
+    addLog("Searching YouTube...", "youtube");
     try {
       const result = await invoke<{ url: string; video_title: string | null }>(
         "search_youtube", { title, artistName }
       );
       await openUrl(result.url);
-      addLog(`Opened YouTube: ${result.video_title ?? title}`);
+      addLog(`Opened YouTube: ${result.video_title ?? title}`, "youtube");
       setYoutubeFeedback({ trackId, url: result.url, videoTitle: result.video_title ?? title });
     } catch {
       const q = encodeURIComponent(`${title} ${artistName ?? ""}`);
       await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-      addLog("YouTube search failed, opened search results");
+      addLog("YouTube search failed, opened search results", "youtube");
     }
   }
 
@@ -340,7 +340,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         url: youtubeFeedback.url,
       });
       library.setTracks(prev => prev.map(t => t.id === youtubeFeedback.trackId ? { ...t, youtube_url: youtubeFeedback.url } : t));
-      addLog("Saved YouTube link for future use");
+      addLog("Saved YouTube link for future use", "youtube");
     }
     setYoutubeFeedback(null);
   }
@@ -391,10 +391,10 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         pathPattern: null,
         isBatchLast: false,
       });
-      addLog(`Downloading: ${track.title}`);
+      addLog(`Downloading: ${track.title}`, "downloads");
     } catch (e) {
       console.error("Failed to enqueue download:", e);
-      addLog(`Download failed: ${e}`);
+      addLog(`Download failed: ${e}`, "downloads");
     }
   }, [addLog]);
 
@@ -443,10 +443,10 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         });
       } catch (e) {
         console.error("Failed to enqueue download:", e);
-        addLog(`Download failed: ${track.title} - ${e}`);
+        addLog(`Download failed: ${track.title} - ${e}`, "downloads");
       }
     }
-    addLog(`Downloading ${tracks.length} track${tracks.length > 1 ? "s" : ""}`);
+    addLog(`Downloading ${tracks.length} track${tracks.length > 1 ? "s" : ""}`, "downloads");
   }, [addLog]);
 
   function handleEntityContextMenu(e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) {

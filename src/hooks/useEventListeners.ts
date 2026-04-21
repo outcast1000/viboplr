@@ -20,7 +20,7 @@ interface ResyncComplete {
 interface EventListenerOptions {
   loadLibrary: () => Promise<void>;
   loadTracks: () => Promise<void>;
-  addLog: (message: string) => void;
+  addLog: (message: string, module?: string) => void;
   setScanning: (v: boolean) => void;
   setScanProgress: (v: { scanned: number; total: number }) => void;
   setSyncing: (v: boolean) => void;
@@ -53,7 +53,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       (event) => {
         if (!scanStarted) {
           scanStarted = true;
-          addLog("Scan started: " + event.payload.folder);
+          addLog("Scan started: " + event.payload.folder, "scanner");
         }
         setScanning(true);
         setScanProgress({ scanned: event.payload.scanned, total: event.payload.total });
@@ -72,7 +72,7 @@ export function useEventListeners(opts: EventListenerOptions) {
     const unlisten2 = listen<{ folder?: string; collectionId?: number; newTracks?: number; removedTracks?: number }>("scan-complete", (event) => {
       scanStarted = false;
       setScanning(false);
-      addLog("Scan complete");
+      addLog("Scan complete", "scanner");
       onResyncDone?.();
       if (event.payload.collectionId != null) {
         setResyncProgress(null);
@@ -102,7 +102,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       (event) => {
         if (!syncStarted) {
           syncStarted = true;
-          addLog("Sync started: " + event.payload.collection);
+          addLog("Sync started: " + event.payload.collection, "sync");
         }
         setSyncing(true);
         setSyncProgress({
@@ -125,7 +125,7 @@ export function useEventListeners(opts: EventListenerOptions) {
     const unlisten2 = listen<{ collectionId: number; newTracks?: number; removedTracks?: number }>("sync-complete", (event) => {
       syncStarted = false;
       setSyncing(false);
-      addLog("Sync complete");
+      addLog("Sync complete", "sync");
       onResyncDone?.();
       setResyncProgress(null);
       setResyncComplete({
@@ -141,7 +141,7 @@ export function useEventListeners(opts: EventListenerOptions) {
     const unlisten3 = listen<{ collectionId: number; error: string }>("sync-error", (event) => {
       syncStarted = false;
       setSyncing(false);
-      addLog("Sync error: " + event.payload.error);
+      addLog("Sync error: " + event.payload.error, "sync");
       console.error("Sync error:", event.payload.error);
       onResyncDone?.();
       setResyncProgress(null);

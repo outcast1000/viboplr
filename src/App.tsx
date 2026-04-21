@@ -116,6 +116,7 @@ function App() {
   const trackVideoHistoryRef = useRef(false);
   const [trackVideoHistory, setTrackVideoHistory] = useState(false);
   const [loggingEnabled, setLoggingEnabled] = useState(false);
+  const [debugLogging, setDebugLogging] = useState(false);
   const [lastTidalDownloadDest, setLastTidalDownloadDest] = useState<string | null>(null);
   trackVideoHistoryRef.current = trackVideoHistory;
   const advanceIndexRef = useRef<() => void>(() => {});
@@ -183,7 +184,7 @@ function App() {
   const beforeNavRef = useRef<() => void>(() => {});
   const viewSearch = useViewSearchState();
 
-  const { sessionLog, addLog } = useSessionLog();
+  const { sessionLog, addLog, setDebugLogging: setDebugLoggingRef } = useSessionLog();
   const albumImageCache = useImageCache("album", addLog);
 
   // Need to initialize library first to get selection state, then artistInfo will compute popularity
@@ -666,7 +667,7 @@ function App() {
       }
     },
     showNotification: (message) => {
-      addLog(message);
+      addLog(message, "plugins");
     },
   };
 
@@ -772,7 +773,7 @@ function App() {
           setResolvingStatus(null);
           setResolvedSource({ name: entry.name, url: src });
           if (lastError) {
-            addLog(`Playing from ${entry.name} (original unavailable)`);
+            addLog(`Playing from ${entry.name} (original unavailable)`, "playback");
           }
           return src;
         } catch (e) {
@@ -793,7 +794,7 @@ function App() {
     if (playback.playbackError && playback.failedTrack) {
       const t = playback.failedTrack;
       const src = t.path.startsWith("tidal://") ? "TIDAL" : t.path.startsWith("subsonic://") ? "Subsonic" : "local";
-      addLog(`Playback failed (${src}): ${t.artist_name ? t.artist_name + " — " : ""}${t.title}: ${playback.playbackError}`);
+      addLog(`Playback failed (${src}): ${t.artist_name ? t.artist_name + " — " : ""}${t.title}: ${playback.playbackError}`, "playback");
     }
   }, [playback.playbackError, playback.failedTrack, addLog]);
 
@@ -1169,6 +1170,8 @@ function App() {
         }
         const savedLoggingEnabled = await store.get<boolean>("loggingEnabled");
         if (savedLoggingEnabled) setLoggingEnabled(true);
+        const savedDebugLogging = await store.get<boolean>("debugLogging");
+        if (savedDebugLogging) { setDebugLogging(true); setDebugLoggingRef(true); }
         const savedArtistSections = await store.get<Record<string, boolean>>("artistSections");
         if (savedArtistSections) setArtistSections(savedArtistSections);
         const savedSyncWithPlaying = await store.get<boolean>("syncWithPlaying");
@@ -1225,10 +1228,10 @@ function App() {
   // Forward frontend errors to backend log file
   useEffect(() => {
     const onError = (e: ErrorEvent) => {
-      invoke("write_frontend_log", { level: "error", message: `${e.message} at ${e.filename}:${e.lineno}` }).catch(() => {}); // Fire-and-forget: avoid infinite loop if the error logger itself fails
+      invoke("write_frontend_log", { level: "error", message: `${e.message} at ${e.filename}:${e.lineno}`, section: "fr-error" }).catch(() => {}); // Fire-and-forget: avoid infinite loop if the error logger itself fails
     };
     const onRejection = (e: PromiseRejectionEvent) => {
-      invoke("write_frontend_log", { level: "error", message: `Unhandled rejection: ${e.reason}` }).catch(() => {}); // Fire-and-forget: avoid infinite loop if the error logger itself fails
+      invoke("write_frontend_log", { level: "error", message: `Unhandled rejection: ${e.reason}`, section: "fr-error" }).catch(() => {}); // Fire-and-forget: avoid infinite loop if the error logger itself fails
     };
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onRejection);
@@ -1538,7 +1541,7 @@ function App() {
       const folderName = selected.split("/").pop() || selected.split("\\").pop() || selected;
       setScanning(true);
       setScanProgress({ scanned: 0, total: 0 });
-      addLog("Adding folder: " + folderName);
+      addLog("Adding folder: " + folderName, "library");
       await invoke("add_collection", { kind: "local", name: folderName, path: selected });
       library.loadLibrary();
     }
@@ -1573,7 +1576,7 @@ function App() {
       await invoke("clear_image_failures");
       artistImageCache.clearAllFailures();
       albumImageCache.clearAllFailures();
-      addLog("Cleared image fetch failures");
+      addLog("Cleared image fetch failures", "images");
     } catch (e) {
       console.error("Failed to clear image failures:", e);
     }
@@ -1597,6 +1600,12 @@ function App() {
   function handleLoggingEnabledChange(enabled: boolean) {
     setLoggingEnabled(enabled);
     store.set("loggingEnabled", enabled);
+  }
+
+  function handleDebugLoggingChange(enabled: boolean) {
+    setDebugLogging(enabled);
+    setDebugLoggingRef(enabled);
+    store.set("debugLogging", enabled);
   }
 
   function handleToggleSidebar() {
@@ -1649,10 +1658,10 @@ function App() {
       if (imagePath) {
         await invoke("update_playlist_image", { playlistId, imagePath });
       }
-      addLog("Playlist saved: " + name);
+      addLog("Playlist saved: " + name, "playlist");
     } catch (err) {
       console.error("Failed to save playlist:", err);
-      addLog(`Failed to save playlist: ${err}`);
+      addLog(`Failed to save playlist: ${err}`, "playlist");
     }
   }
 
@@ -1838,10 +1847,10 @@ function App() {
                 } else {
                   try {
                     const id = await invoke<string>("install_gallery_skin", { url });
-                    addLog(`Installed skin ${id} from URL`);
+                    addLog(`Installed skin ${id} from URL`, "extensions");
                   } catch (e) {
                     console.error("Failed to install skin from URL:", e);
-                    addLog(`Failed to install skin: ${String(e)}`);
+                    addLog(`Failed to install skin: ${String(e)}`, "extensions");
                   }
                 }
               }}>Install</button>
@@ -2390,6 +2399,8 @@ function App() {
               pluginStates={plugins.pluginStates}
               loggingEnabled={loggingEnabled}
               onLoggingEnabledChange={handleLoggingEnabledChange}
+              debugLogging={debugLogging}
+              onDebugLoggingChange={handleDebugLoggingChange}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
             />
           )}
@@ -2598,7 +2609,7 @@ function App() {
           store={store}
           lastDest={lastTidalDownloadDest}
           onClose={() => setTidalAlbumDownload(null)}
-          onComplete={(msg) => { setTidalAlbumDownload(null); addLog(msg); }}
+          onComplete={(msg) => { setTidalAlbumDownload(null); addLog(msg, "downloads"); }}
         />
       )}
 
@@ -2619,7 +2630,7 @@ function App() {
           searchError={tidalSearchError}
           resolveStreamUrl={plugins.resolveTidalStreamUrl}
           onClose={() => { contextMenuActions.setTidalDownload(null); setTidalSearchResults(null); setTidalSearchError(null); }}
-          onComplete={(msg) => { contextMenuActions.setTidalDownload(null); setTidalSearchResults(null); setTidalSearchError(null); library.loadLibrary(); library.loadTracks(); addLog(msg); }}
+          onComplete={(msg) => { contextMenuActions.setTidalDownload(null); setTidalSearchResults(null); setTidalSearchError(null); library.loadLibrary(); library.loadTracks(); addLog(msg, "downloads"); }}
         />
       )}
 

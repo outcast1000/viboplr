@@ -30,7 +30,7 @@ interface UseExtensionsProps {
   onFetchPluginGallery: () => void;
   onFetchSkinGallery: () => void;
   onReloadAllPlugins: () => void;
-  addLog: (msg: string) => void;
+  addLog: (msg: string, module?: string) => void;
 }
 
 export function useExtensions(props: UseExtensionsProps) {
@@ -89,7 +89,7 @@ export function useExtensions(props: UseExtensionsProps) {
       setLastChecked(Date.now());
     } catch (e) {
       console.error("Failed to check for updates:", e);
-      addLog("Failed to check for updates: " + String(e));
+      addLog("Failed to check for updates: " + String(e), "extensions");
     } finally {
       setChecking(false);
     }
@@ -108,18 +108,18 @@ export function useExtensions(props: UseExtensionsProps) {
             downloadUrl: update.downloadUrl,
           });
           onReloadPlugin(id);
-          addLog(`Updated ${update.name} to v${update.latestVersion}`);
+          addLog(`Updated ${update.name} to v${update.latestVersion}`, "extensions");
         } else {
           await invoke("download_and_install_skin_update", {
             skinId: id,
             downloadUrl: update.downloadUrl,
           });
-          addLog(`Updated ${update.name} to v${update.latestVersion}`);
+          addLog(`Updated ${update.name} to v${update.latestVersion}`, "extensions");
         }
         setUpdates((prev) => prev.filter((u) => u.id !== id));
       } catch (e) {
         console.error("Failed to update extension:", e);
-        addLog(`Failed to update ${update.name}: ${String(e)}`);
+        addLog(`Failed to update ${update.name}: ${String(e)}`, "extensions");
       } finally {
         setInstalling((prev) => {
           const next = new Set(prev);
@@ -147,18 +147,18 @@ export function useExtensions(props: UseExtensionsProps) {
             entry as GalleryPluginEntry,
           );
           if (result.ok) {
-            addLog(`Installed plugin ${entry.name}`);
+            addLog(`Installed plugin ${entry.name}`, "extensions");
           } else {
-            addLog(`Failed to install ${entry.name}: ${result.error}`);
+            addLog(`Failed to install ${entry.name}: ${result.error}`, "extensions");
           }
         } else {
           const result = await onInstallSkinFromGallery(
             entry as GallerySkinEntry,
           );
           if (result.ok) {
-            addLog(`Installed skin ${entry.name}`);
+            addLog(`Installed skin ${entry.name}`, "extensions");
           } else {
-            addLog(`Failed to install ${entry.name}: ${result.error}`);
+            addLog(`Failed to install ${entry.name}: ${result.error}`, "extensions");
           }
         }
       } finally {
@@ -177,14 +177,14 @@ export function useExtensions(props: UseExtensionsProps) {
       try {
         if (kind === "plugin") {
           await onDeletePlugin(id);
-          addLog(`Uninstalled plugin ${id}`);
+          addLog(`Uninstalled plugin ${id}`, "extensions");
         } else {
           onDeleteSkin(id);
-          addLog(`Uninstalled skin ${id}`);
+          addLog(`Uninstalled skin ${id}`, "extensions");
         }
       } catch (e) {
         console.error("Failed to uninstall:", e);
-        addLog(`Failed to uninstall ${id}: ${String(e)}`);
+        addLog(`Failed to uninstall ${id}: ${String(e)}`, "extensions");
       }
     },
     [onDeletePlugin, onDeleteSkin, addLog],
@@ -205,11 +205,11 @@ export function useExtensions(props: UseExtensionsProps) {
     async (url: string) => {
       try {
         const pluginId = await invoke<string>("install_plugin_from_url", { url });
-        addLog(`Installed plugin ${pluginId} from URL`);
+        addLog(`Installed plugin ${pluginId} from URL`, "extensions");
         onReloadAllPlugins();
       } catch (e) {
         console.error("Failed to install from URL:", e);
-        addLog(`Failed to install from URL: ${String(e)}`);
+        addLog(`Failed to install from URL: ${String(e)}`, "extensions");
       }
     },
     [addLog, onReloadAllPlugins],

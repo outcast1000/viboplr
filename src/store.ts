@@ -55,6 +55,7 @@ const STORE_DEFAULTS = {
   lastTidalDownloadDest: null,
   skin: "default",
   loggingEnabled: false,
+  debugLogging: false,
   artistSections: { topSongs: true, about: true, albums: true, similarArtists: true },
   albumSections: { review: true, unmatchedTracks: true },
   syncWithPlaying: false,

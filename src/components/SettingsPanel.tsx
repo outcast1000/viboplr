@@ -749,6 +749,8 @@ interface SettingsPanelProps {
   // Logging
   loggingEnabled: boolean;
   onLoggingEnabledChange: (enabled: boolean) => void;
+  debugLogging: boolean;
+  onDebugLoggingChange: (enabled: boolean) => void;
   // Stream resolver ordering
   onStreamResolverOrderChanged?: () => void;
 }
@@ -792,6 +794,8 @@ export function SettingsPanel({
   pluginStates,
   loggingEnabled,
   onLoggingEnabledChange,
+  debugLogging,
+  onDebugLoggingChange,
   onStreamResolverOrderChanged,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
@@ -1282,6 +1286,13 @@ export function SettingsPanel({
                       <span className="settings-description">Write exceptions, web requests, and performance data to a log file (requires restart)</span>
                     </div>
                     <ToggleSwitch checked={loggingEnabled} onChange={onLoggingEnabledChange} />
+                  </div>
+                  <div className="settings-row">
+                    <div className="settings-row-info">
+                      <span className="settings-label">Debug logging</span>
+                      <span className="settings-description">Also log frontend activity (playback, downloads, plugins, etc.) to the log file</span>
+                    </div>
+                    <ToggleSwitch checked={debugLogging} onChange={onDebugLoggingChange} />
                   </div>
                   <div className="settings-row">
                     <div className="settings-row-info">

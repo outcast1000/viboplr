@@ -11,7 +11,7 @@ export interface UpdateState {
   upToDate: boolean;
 }
 
-export function useAppUpdater(addLog: (msg: string) => void) {
+export function useAppUpdater(addLog: (msg: string, module?: string) => void) {
   const [appVersion, setAppVersion] = useState("");
   const [updateState, setUpdateState] = useState<UpdateState>({
     available: null,
@@ -73,7 +73,7 @@ export function useAppUpdater(addLog: (msg: string) => void) {
       await relaunch();
     } catch {
       setUpdateState(s => ({ ...s, downloading: false, progress: null }));
-      addLog("Failed to install update.");
+      addLog("Failed to install update.", "updater");
     }
   }
 
