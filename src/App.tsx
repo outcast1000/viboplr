@@ -134,6 +134,7 @@ function App() {
   const streamResolversRef = useRef<StreamResolver[]>([]);
   const [streamResolverOrderVersion, setStreamResolverOrderVersion] = useState(0);
   const [resolvingStatus, setResolvingStatus] = useState<{ error: string | null; trying: string | null } | null>(null);
+  const [resolvedSource, setResolvedSource] = useState<{ name: string; url: string } | null>(null);
   const resolveGenerationRef = useRef(0);
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef);
   const waveformPeaks = useWaveform(
@@ -722,6 +723,7 @@ function App() {
 
     resolveTrackSrcRef.current = async (track: Track) => {
       const generation = ++resolveGenerationRef.current;
+      setResolvedSource(null);
       const url = track.url ?? track.path;
 
       interface ResolverEntry { name: string; resolve: () => Promise<string> }
@@ -768,6 +770,7 @@ function App() {
           const src = await entry.resolve();
           if (resolveGenerationRef.current !== generation) return "";
           setResolvingStatus(null);
+          setResolvedSource({ name: entry.name, url: src });
           if (lastError) {
             addLog(`Playing from ${entry.name} (original unavailable)`);
           }
@@ -2812,6 +2815,7 @@ function App() {
         showHelp={showHelp}
         onToggleHelp={() => setShowHelp(h => !h)}
         resolvingStatus={resolvingStatus}
+        resolvedSource={resolvedSource}
         playbackError={playback.playbackError}
         onSkipError={() => { playback.clearPlaybackError(); handleNext(); }}
       />

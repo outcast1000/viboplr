@@ -188,6 +188,18 @@
   white-space: nowrap;
 }
 
+.now-subtitle[data-tooltip] {
+  overflow: visible;
+}
+
+.now-subtitle[data-tooltip]::after {
+  max-width: 350px;
+  white-space: pre-line;
+  word-break: break-all;
+  text-align: left;
+  line-height: 1.4;
+}
+
 .now-sep {
   color: var(--text-secondary);
 }

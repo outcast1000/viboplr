@@ -119,6 +119,7 @@ interface NowPlayingBarProps {
   onToggleHelp: () => void;
   playbackError?: string | null;
   resolvingStatus?: { error: string | null; trying: string | null } | null;
+  resolvedSource?: { name: string; url: string } | null;
   onSkipError?: () => void;
 }
 
@@ -137,7 +138,7 @@ export function NowPlayingBar({
   onNavigateToArtistByName, onNavigateToAlbumByName,
   syncWithPlaying, onToggleSync,
   showHelp, onToggleHelp,
-  playbackError, resolvingStatus, onSkipError,
+  playbackError, resolvingStatus, resolvedSource, onSkipError,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const likeBtnRef = useRef<HTMLButtonElement>(null);
@@ -337,7 +338,19 @@ export function NowPlayingBar({
                   <SlideText text={currentTrack.title} />
                   {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                 </span>
-                <span className="now-subtitle">
+                <span className="now-subtitle" data-tooltip={currentTrack && !resolvingStatus ? (() => {
+                    const source = resolvedSource?.name || (currentTrack.path.startsWith("tidal://") ? "TIDAL" : currentTrack.path.startsWith("subsonic://") ? "Subsonic" : "Local");
+                    const isLocal = currentTrack.path.startsWith("file://") || !currentTrack.path.includes("://");
+                    const lines = [
+                      `Source: ${source}`,
+                      currentTrack.format ? `Format: ${currentTrack.format.toUpperCase()}` : null,
+                      currentTrack.file_size ? `Size: ${(currentTrack.file_size / 1048576).toFixed(1)} MB` : null,
+                      currentTrack.collection_name ? `Collection: ${currentTrack.collection_name}` : null,
+                      isLocal ? `Path: ${currentTrack.path.replace(/^file:\/\//, "")}` : null,
+                      !isLocal && resolvedSource ? `URL: ${(() => { try { return new URL(resolvedSource.url).hostname; } catch { return resolvedSource.url.slice(0, 50); } })()}` : null,
+                    ];
+                    return lines.filter(Boolean).join("\n") || undefined;
+                  })() : undefined}>
                   {resolvingStatus ? (
                     <>
                       {resolvingStatus.error && (
