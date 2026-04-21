@@ -36,6 +36,13 @@ export function SourceBadge({ track, size = 14 }: { track: Track | null; size?: 
   );
 }
 
+function SourceIcon({ s = 11, isLocal }: { s?: number; isLocal: boolean }) {
+  if (isLocal) {
+    return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>;
+  }
+  return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>;
+}
+
 const shortcuts = [
   { keys: "Space", action: "Play / Pause" },
   { keys: "\u2190", action: "Seek Back 15s" },
@@ -143,6 +150,7 @@ export function NowPlayingBar({
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const likeBtnRef = useRef<HTMLButtonElement>(null);
   const dislikeBtnRef = useRef<HTMLButtonElement>(null);
+  const [sourceTooltip, setSourceTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
 
   // Blur any focused element when entering mini mode so no button appears selected
   useEffect(() => {
@@ -338,19 +346,27 @@ export function NowPlayingBar({
                   <SlideText text={currentTrack.title} />
                   {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                 </span>
-                <span className="now-subtitle" data-tooltip={currentTrack && !resolvingStatus ? (() => {
+                <span className="now-subtitle">
+                  {!resolvingStatus && (() => {
                     const source = resolvedSource?.name || (currentTrack.path.startsWith("tidal://") ? "TIDAL" : currentTrack.path.startsWith("subsonic://") ? "Subsonic" : "Local");
                     const isLocal = currentTrack.path.startsWith("file://") || !currentTrack.path.includes("://");
-                    const lines = [
+                    const tip = [
                       `Source: ${source}`,
                       currentTrack.format ? `Format: ${currentTrack.format.toUpperCase()}` : null,
                       currentTrack.file_size ? `Size: ${(currentTrack.file_size / 1048576).toFixed(1)} MB` : null,
                       currentTrack.collection_name ? `Collection: ${currentTrack.collection_name}` : null,
                       isLocal ? `Path: ${currentTrack.path.replace(/^file:\/\//, "")}` : null,
                       !isLocal && resolvedSource ? `URL: ${(() => { try { return new URL(resolvedSource.url).hostname; } catch { return resolvedSource.url.slice(0, 50); } })()}` : null,
-                    ];
-                    return lines.filter(Boolean).join("\n") || undefined;
-                  })() : undefined}>
+                    ].filter(Boolean).join("\n");
+                    return <span
+                      className="now-source-icon"
+                      onMouseEnter={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setSourceTooltip({ text: tip, x: rect.left, y: rect.top - 8 });
+                      }}
+                      onMouseLeave={() => setSourceTooltip(null)}
+                    ><SourceIcon isLocal={isLocal} /></span>;
+                  })()}
                   {resolvingStatus ? (
                     <>
                       {resolvingStatus.error && (
@@ -466,6 +482,12 @@ export function NowPlayingBar({
             </div>
           </div>
         </div>
+      )}
+      {sourceTooltip && (
+        <div
+          className="ds-tooltip visible"
+          style={{ left: sourceTooltip.x, top: sourceTooltip.y, transform: "translateY(-100%)" }}
+        >{sourceTooltip.text}</div>
       )}
     </footer>
   );

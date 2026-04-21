@@ -570,3 +570,28 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Tooltip ── */
+
+.ds-tooltip {
+  position: fixed;
+  z-index: 10000;
+  padding: 6px 10px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
+  white-space: pre-line;
+  word-break: break-all;
+  width: max-content;
+  max-width: 350px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.ds-tooltip.visible {
+  opacity: 1;
+}
