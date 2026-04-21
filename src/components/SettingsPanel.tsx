@@ -168,15 +168,15 @@ function parseProviderConfig(
 
 function ProviderPrioritySection({
   pluginStates,
-  onFallbackOrderChanged,
+  onStreamResolverOrderChanged,
 }: {
   pluginStates?: PluginState[];
-  onFallbackOrderChanged?: () => void;
+  onStreamResolverOrderChanged?: () => void;
 }) {
   const [entityData, setEntityData] = useState<Map<string, ProviderRow[]>>(new Map());
   const [collapsedEntities, setCollapsedEntities] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [fallbackProviders, setFallbackProviders] = useState<Array<{ id: string; name: string; source: string; enabled: boolean }>>([]);
+  const [streamResolvers, setStreamResolvers] = useState<Array<{ id: string; name: string; source: string; enabled: boolean }>>([]);
 
   // Manual mouse-event drag (HTML5 DnD is unreliable in WKWebView with user-select:none)
   const dragRef = useRef<{
@@ -209,8 +209,8 @@ function ProviderPrioritySection({
   }, [fetchConfig]);
 
   useEffect(() => {
-    const loadFallback = async () => {
-      const storedOrder = await store.get<Array<{ id: string; enabled: boolean }>>("fallbackProviderOrder");
+    const loadStreamResolvers = async () => {
+      const storedOrder = await store.get<Array<{ id: string; enabled: boolean }>>("streamResolverOrder");
 
       // Build provider list: built-in Library + plugin providers
       const allProviders: Array<{ id: string; name: string; source: string }> = [
@@ -219,7 +219,7 @@ function ProviderPrioritySection({
       if (pluginStates) {
         for (const ps of pluginStates) {
           if (ps.status !== "active") continue;
-          const fps = ps.manifest.contributes?.fallbackProviders;
+          const fps = ps.manifest.contributes?.streamResolvers;
           if (!fps) continue;
           for (const fp of fps) {
             allProviders.push({
@@ -232,7 +232,7 @@ function ProviderPrioritySection({
       }
 
       if (storedOrder) {
-        const ordered: typeof fallbackProviders = [];
+        const ordered: typeof streamResolvers = [];
         for (const entry of storedOrder) {
           const provider = allProviders.find((p) => p.id === entry.id);
           if (provider) ordered.push({ ...provider, enabled: entry.enabled });
@@ -243,12 +243,12 @@ function ProviderPrioritySection({
             ordered.push({ ...provider, enabled: true });
           }
         }
-        setFallbackProviders(ordered);
+        setStreamResolvers(ordered);
       } else {
-        setFallbackProviders(allProviders.map((p) => ({ ...p, enabled: true })));
+        setStreamResolvers(allProviders.map((p) => ({ ...p, enabled: true })));
       }
     };
-    loadFallback();
+    loadStreamResolvers();
   }, [pluginStates]);
 
   const toggleEntity = (entity: string) => {
@@ -403,28 +403,28 @@ function ProviderPrioritySection({
     window.addEventListener("mouseup", onMouseUp);
   };
 
-  const saveFallbackOrder = async (providers: typeof fallbackProviders) => {
-    setFallbackProviders(providers);
+  const saveStreamResolverOrder = async (providers: typeof streamResolvers) => {
+    setStreamResolvers(providers);
     await store.set(
-      "fallbackProviderOrder",
+      "streamResolverOrder",
       providers.map((p) => ({ id: p.id, enabled: p.enabled })),
     );
-    onFallbackOrderChanged?.();
+    onStreamResolverOrderChanged?.();
   };
 
-  const handleFallbackToggle = (id: string) => {
-    const updated = fallbackProviders.map((p) =>
+  const handleStreamResolverToggle = (id: string) => {
+    const updated = streamResolvers.map((p) =>
       p.id === id ? { ...p, enabled: !p.enabled } : p,
     );
-    saveFallbackOrder(updated);
+    saveStreamResolverOrder(updated);
   };
 
-  const handleFallbackReorder = (sourceIndex: number, targetIndex: number) => {
+  const handleStreamResolverReorder = (sourceIndex: number, targetIndex: number) => {
     if (sourceIndex === targetIndex) return;
-    const updated = [...fallbackProviders];
+    const updated = [...streamResolvers];
     const [moved] = updated.splice(sourceIndex, 1);
     updated.splice(targetIndex, 0, moved);
-    saveFallbackOrder(updated);
+    saveStreamResolverOrder(updated);
   };
 
   const handleReset = async () => {
@@ -555,33 +555,33 @@ function ProviderPrioritySection({
             )}
           </div>
         ))}
-        {fallbackProviders.length > 0 && (
+        {streamResolvers.length > 0 && (
           <div className="provider-entity-group">
             <button
               className="provider-entity-header"
-              onClick={() => toggleEntity("__fallback")}
+              onClick={() => toggleEntity("__streamResolver")}
             >
-              <span className={`provider-entity-chevron${collapsedEntities.has("__fallback") ? "" : " open"}`}>
+              <span className={`provider-entity-chevron${collapsedEntities.has("__streamResolver") ? "" : " open"}`}>
                 {"\u25B8"}
               </span>
-              <span className="provider-entity-label">Playback Fallback</span>
+              <span className="provider-entity-label">Stream Resolvers</span>
             </button>
-            {!collapsedEntities.has("__fallback") && (
+            {!collapsedEntities.has("__streamResolver") && (
               <div className="provider-entity-rows">
                 <div className="provider-priority-row">
                   <span className="provider-priority-label">Source priority</span>
                   <div className="provider-priority-pills">
-                    {fallbackProviders.map((fp, idx) => (
+                    {streamResolvers.map((fp, idx) => (
                       <React.Fragment key={fp.id}>
                         {idx > 0 && (
                           <span className="provider-pill-arrow">{"\u2192"}</span>
                         )}
                         <span
-                          className={`provider-pill${fp.enabled ? "" : " provider-pill-disabled"}${fallbackProviders.length > 1 ? " provider-pill-draggable" : ""}`}
+                          className={`provider-pill${fp.enabled ? "" : " provider-pill-disabled"}${streamResolvers.length > 1 ? " provider-pill-draggable" : ""}`}
                           data-pill-index={idx}
-                          onMouseDown={fallbackProviders.length > 1 ? (e) => {
+                          onMouseDown={streamResolvers.length > 1 ? (e) => {
                             if (e.button !== 0) return;
-                            dragRef.current = { entity: "__fallback", row: { kind: "info", typeId: "__fallback", label: "Playback Fallback", entity: "__fallback", sortOrder: 0, providers: [], hasLockedFirst: false }, sourceIndex: idx };
+                            dragRef.current = { entity: "__streamResolver", row: { kind: "info", typeId: "__streamResolver", label: "Stream Resolvers", entity: "__streamResolver", sortOrder: 0, providers: [], hasLockedFirst: false }, sourceIndex: idx };
                             dragOverIndexRef.current = null;
                             didDragRef.current = false;
 
@@ -616,8 +616,8 @@ function ProviderPrioritySection({
                               if (ghostRef.current) { ghostRef.current.remove(); ghostRef.current = null; }
                               const drag = dragRef.current;
                               const targetIdx = dragOverIndexRef.current;
-                              if (didDragRef.current && drag && drag.entity === "__fallback" && targetIdx !== null && targetIdx !== drag.sourceIndex) {
-                                handleFallbackReorder(drag.sourceIndex, targetIdx);
+                              if (didDragRef.current && drag && drag.entity === "__streamResolver" && targetIdx !== null && targetIdx !== drag.sourceIndex) {
+                                handleStreamResolverReorder(drag.sourceIndex, targetIdx);
                               }
                               dragRef.current = null;
                               dragOverIndexRef.current = null;
@@ -628,11 +628,11 @@ function ProviderPrioritySection({
                             window.addEventListener("mouseup", onMouseUp);
                           } : undefined}
                           onClick={() => {
-                            if (!didDragRef.current) handleFallbackToggle(fp.id);
+                            if (!didDragRef.current) handleStreamResolverToggle(fp.id);
                           }}
                           title={`${fp.name} (${fp.source})${fp.enabled ? "" : " — disabled"}`}
                         >
-                          {fallbackProviders.length > 1 && (
+                          {streamResolvers.length > 1 && (
                             <span className="provider-pill-handle">{"\u2630"}</span>
                           )}
                           {fp.name}
@@ -694,7 +694,7 @@ function SettingsProviderIcon({ provider }: { provider: SearchProviderConfig }) 
   }
 
   return (
-    <span className="provider-icon-fallback">
+    <span className="provider-icon-stream-resolver">
       {provider.name[0]?.toUpperCase() ?? "?"}
     </span>
   );
@@ -749,8 +749,8 @@ interface SettingsPanelProps {
   // Logging
   loggingEnabled: boolean;
   onLoggingEnabledChange: (enabled: boolean) => void;
-  // Fallback provider ordering
-  onFallbackOrderChanged?: () => void;
+  // Stream resolver ordering
+  onStreamResolverOrderChanged?: () => void;
 }
 
 interface ProviderFormData {
@@ -792,7 +792,7 @@ export function SettingsPanel({
   pluginStates,
   loggingEnabled,
   onLoggingEnabledChange,
-  onFallbackOrderChanged,
+  onStreamResolverOrderChanged,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1268,7 +1268,7 @@ export function SettingsPanel({
                     )}
                   </div>
 
-                  <ProviderPrioritySection pluginStates={pluginStates} onFallbackOrderChanged={onFallbackOrderChanged} />
+                  <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} />
                 </>
             )}
 

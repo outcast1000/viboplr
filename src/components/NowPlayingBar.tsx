@@ -118,6 +118,7 @@ interface NowPlayingBarProps {
   showHelp: boolean;
   onToggleHelp: () => void;
   playbackError?: string | null;
+  resolvingStatus?: { error: string | null; trying: string | null } | null;
   onSkipError?: () => void;
 }
 
@@ -136,7 +137,7 @@ export function NowPlayingBar({
   onNavigateToArtistByName, onNavigateToAlbumByName,
   syncWithPlaying, onToggleSync,
   showHelp, onToggleHelp,
-  playbackError, onSkipError,
+  playbackError, resolvingStatus, onSkipError,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const likeBtnRef = useRef<HTMLButtonElement>(null);
@@ -205,8 +206,19 @@ export function NowPlayingBar({
                   {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                 </span>
                 <span className="now-artist">
-                  {currentTrack.artist_name || "Unknown"}
-                  {currentTrack.album_title && ` · ${currentTrack.album_title}`}
+                  {resolvingStatus ? (
+                    <>
+                      {resolvingStatus.error && (
+                        <><span className="now-resolving-error">{resolvingStatus.error}</span><span className="now-resolving-sep"> · </span></>
+                      )}
+                      <span className="now-resolving-trying">Trying {resolvingStatus.trying}...</span>
+                    </>
+                  ) : (
+                    <>
+                      {currentTrack.artist_name || "Unknown"}
+                      {currentTrack.album_title && ` · ${currentTrack.album_title}`}
+                    </>
+                  )}
                 </span>
               </>
             ) : (
@@ -326,10 +338,21 @@ export function NowPlayingBar({
                   {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                 </span>
                 <span className="now-subtitle">
-                  <span className="now-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : (currentTrack.artist_name && onNavigateToArtistByName ? () => onNavigateToArtistByName(currentTrack.artist_name!) : undefined)}><SlideText text={currentTrack.artist_name || "Unknown"} /></span>
-                  {artistRank != null && artistRank <= 100 && <span className="now-rank-badge" title={`Artist rank #${artistRank}`}>#{artistRank}</span>}
-                  {currentTrack.album_title && (
-                    <><span className="now-sep"> — </span><span className="now-link" onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id) : (onNavigateToAlbumByName ? () => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name ?? undefined) : undefined)}>{currentTrack.album_title}</span></>
+                  {resolvingStatus ? (
+                    <>
+                      {resolvingStatus.error && (
+                        <><span className="now-resolving-error">{resolvingStatus.error}</span><span className="now-resolving-sep"> · </span></>
+                      )}
+                      <span className="now-resolving-trying">Trying {resolvingStatus.trying}...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="now-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : (currentTrack.artist_name && onNavigateToArtistByName ? () => onNavigateToArtistByName(currentTrack.artist_name!) : undefined)}><SlideText text={currentTrack.artist_name || "Unknown"} /></span>
+                      {artistRank != null && artistRank <= 100 && <span className="now-rank-badge" title={`Artist rank #${artistRank}`}>#{artistRank}</span>}
+                      {currentTrack.album_title && (
+                        <><span className="now-sep"> — </span><span className="now-link" onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id) : (onNavigateToAlbumByName ? () => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name ?? undefined) : undefined)}>{currentTrack.album_title}</span></>
+                      )}
+                    </>
                   )}
                 </span>
               </>

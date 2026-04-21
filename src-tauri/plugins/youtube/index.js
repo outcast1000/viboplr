@@ -3,7 +3,7 @@ var ytDlpVersion = null;
 async function activate(api) {
   ytDlpVersion = await api.informationTypes.invoke("yt_dlp_check", {});
 
-  api.playback.onFallbackResolve("youtube-fallback", async function(title, artistName, albumName) {
+  api.playback.onStreamResolve("youtube-fallback", async function(title, artistName, albumName) {
     if (!ytDlpVersion) return null;
 
     try {
@@ -20,7 +20,7 @@ async function activate(api) {
 
       return { url: streamUrl, label: "YouTube" };
     } catch (e) {
-      console.error("YouTube fallback failed:", e);
+      console.error("YouTube stream resolve failed:", e);
       return null;
     }
   });

@@ -22,7 +22,7 @@
     "downloadProviders": [
       { "id": "tidal-download", "name": "TIDAL", "priority": 100 }
     ],
-    "fallbackProviders": [
+    "streamResolvers": [
       { "id": "tidal-fallback", "name": "TIDAL", "priority": 200 }
     ],
     "settingsPanel": {

@@ -263,8 +263,8 @@ function ExtensionDetail({
               items.push({ category: "Sidebar", names: ext.contributes.sidebarItems.map(s => s.label) });
             if (ext.contributes.eventHooks?.length)
               items.push({ category: "Event Hooks", names: ext.contributes.eventHooks });
-            if (ext.contributes.fallbackProviders?.length)
-              items.push({ category: "Fallback Playback Providers", names: ext.contributes.fallbackProviders.map(f => f.name) });
+            if (ext.contributes.streamResolvers?.length)
+              items.push({ category: "Stream Resolvers", names: ext.contributes.streamResolvers.map(f => f.name) });
             if (ext.contributes.settingsPanel)
               items.push({ category: "Settings", names: [ext.contributes.settingsPanel.label] });
             if (!items.length) return null;

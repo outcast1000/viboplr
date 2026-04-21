@@ -42,7 +42,7 @@ export interface PluginManifestImageProvider {
   priority: number;
 }
 
-export interface PluginManifestFallbackProvider {
+export interface PluginManifestStreamResolver {
   id: string;
   name: string;
   priority: number;
@@ -67,7 +67,7 @@ export interface PluginManifestContributes {
   eventHooks?: PluginEventName[];
   informationTypes?: PluginManifestInfoType[];
   imageProviders?: PluginManifestImageProvider[];
-  fallbackProviders?: PluginManifestFallbackProvider[];
+  streamResolvers?: PluginManifestStreamResolver[];
   downloadProviders?: PluginManifestDownloadProvider[];
   settingsPanel?: PluginManifestSettingsPanel;
 }
@@ -255,7 +255,7 @@ export interface PluginPlaybackAPI {
   onTrackPlayed(handler: (track: Track) => void): () => void;
   onTrackScrobbled(handler: (track: Track) => void): () => void;
   onTrackLiked(handler: (track: Track, liked: boolean) => void): () => void;
-  onFallbackResolve(
+  onStreamResolve(
     providerId: string,
     handler: (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>,
   ): () => void;

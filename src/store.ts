@@ -59,7 +59,7 @@ const STORE_DEFAULTS = {
   albumSections: { review: true, unmatchedTracks: true },
   syncWithPlaying: false,
   trackDetailTabOrder: null,
-  fallbackProviderOrder: null,
+  streamResolverOrder: null,
 };
 
 export interface AppStore {

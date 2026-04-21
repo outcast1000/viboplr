@@ -133,7 +133,7 @@ export function parseUrlScheme(url: string): ParsedUrl {
     return { scheme: "subsonic", url, id };
   }
 
-  // Unknown scheme — enters fallback chain
+  // Unknown scheme — enters stream resolver chain
   if (url.includes("://")) {
     return { scheme: "unknown", url };
   }

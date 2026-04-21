@@ -97,7 +97,7 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
   }
 
   return (
-    <span className="provider-icon-fallback">
+    <span className="provider-icon-stream-resolver">
       {provider.name[0]?.toUpperCase() ?? "?"}
     </span>
   );

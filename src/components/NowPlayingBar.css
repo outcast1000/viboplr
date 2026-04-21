@@ -192,6 +192,24 @@
   color: var(--text-secondary);
 }
 
+.now-resolving-error {
+  color: var(--error);
+}
+
+.now-resolving-sep {
+  color: var(--text-tertiary);
+}
+
+.now-resolving-trying {
+  color: var(--accent);
+  animation: resolver-pulse 1s ease-in-out infinite;
+}
+
+@keyframes resolver-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 .now-rank-badge {
   display: inline;
   font-size: var(--fs-2xs);

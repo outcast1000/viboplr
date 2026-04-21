@@ -928,7 +928,7 @@ function activate(api) {
 
   // -- Fallback provider --
 
-  api.playback.onFallbackResolve("tidal-fallback", async function (title, artistName, albumName) {
+  api.playback.onStreamResolve("tidal-fallback", async function (title, artistName, albumName) {
     var query = [title, artistName].filter(Boolean).join(" ");
     if (!query) return null;
     try {

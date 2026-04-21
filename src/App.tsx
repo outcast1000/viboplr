@@ -15,7 +15,7 @@ import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
-import { resolveFallback, type FallbackProvider } from "./fallbackProviders";
+import { type StreamResolver } from "./streamResolvers";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
@@ -131,8 +131,10 @@ function App() {
     if (parsed.scheme === "unknown") throw new Error(`Cannot play unknown URL scheme: ${parsed.url}`);
     return invoke<string>("resolve_subsonic_location", { location: parsed.url });
   });
-  const fallbackProvidersRef = useRef<FallbackProvider[]>([]);
-  const [fallbackOrderVersion, setFallbackOrderVersion] = useState(0);
+  const streamResolversRef = useRef<StreamResolver[]>([]);
+  const [streamResolverOrderVersion, setStreamResolverOrderVersion] = useState(0);
+  const [resolvingStatus, setResolvingStatus] = useState<{ error: string | null; trying: string | null } | null>(null);
+  const resolveGenerationRef = useRef(0);
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef);
   const waveformPeaks = useWaveform(
     playback.currentTrack?.path ?? null,
@@ -244,10 +246,10 @@ function App() {
   // Wire up image resolver to handle image-resolve-request events
   useImageResolver(plugins.invokeImageFetch);
 
-  // Build ordered fallback provider list from built-in + plugins + user ordering
+  // Build ordered stream resolver list from built-in + plugins + user ordering
   useEffect(() => {
-    const buildProviders = async () => {
-      const builtinLibrary: FallbackProvider = {
+    const buildResolvers = async () => {
+      const builtinLibrary: StreamResolver = {
         id: "built-in:library",
         name: "Library",
         source: "built-in",
@@ -262,47 +264,46 @@ function App() {
         },
       };
 
-      // Collect plugin fallback providers from manifests
-      const pluginProviders: FallbackProvider[] = [];
+      // Collect plugin stream resolvers from manifests
+      const pluginResolvers: StreamResolver[] = [];
       for (const ps of plugins.pluginStates) {
         if (ps.status !== "active") continue;
-        const fps = ps.manifest.contributes?.fallbackProviders;
-        if (!fps) continue;
-        for (const fp of fps) {
-          pluginProviders.push({
-            id: `${ps.id}:${fp.id}`,
-            name: fp.name,
+        const srs = ps.manifest.contributes?.streamResolvers;
+        if (!srs) continue;
+        for (const sr of srs) {
+          pluginResolvers.push({
+            id: `${ps.id}:${sr.id}`,
+            name: sr.name,
             source: ps.id,
             resolve: (title, artistName, albumName) =>
-              plugins.invokeFallbackResolve(ps.id, fp.id, title, artistName, albumName),
+              plugins.invokeStreamResolve(ps.id, sr.id, title, artistName, albumName),
           });
         }
       }
 
       // Apply user ordering from store
-      const storedOrder = await store.get<Array<{ id: string; enabled: boolean }>>("fallbackProviderOrder");
-      const allProviders = [builtinLibrary, ...pluginProviders];
+      const storedOrder = await store.get<Array<{ id: string; enabled: boolean }>>("streamResolverOrder");
+      const allResolvers = [builtinLibrary, ...pluginResolvers];
 
       if (storedOrder) {
-        const ordered: FallbackProvider[] = [];
+        const ordered: StreamResolver[] = [];
         for (const entry of storedOrder) {
           if (!entry.enabled) continue;
-          const provider = allProviders.find((p) => p.id === entry.id);
-          if (provider) ordered.push(provider);
+          const resolver = allResolvers.find((r) => r.id === entry.id);
+          if (resolver) ordered.push(resolver);
         }
-        // Append any new providers not in stored order
-        for (const provider of allProviders) {
-          if (!ordered.some((p) => p.id === provider.id)) {
-            ordered.push(provider);
+        for (const resolver of allResolvers) {
+          if (!ordered.some((r) => r.id === resolver.id)) {
+            ordered.push(resolver);
           }
         }
-        fallbackProvidersRef.current = ordered;
+        streamResolversRef.current = ordered;
       } else {
-        fallbackProvidersRef.current = allProviders;
+        streamResolversRef.current = allResolvers;
       }
     };
-    buildProviders();
-  }, [plugins.pluginStates, plugins.invokeFallbackResolve, fallbackOrderVersion]);
+    buildResolvers();
+  }, [plugins.pluginStates, plugins.invokeStreamResolve, streamResolverOrderVersion]);
 
   // Build ordered download provider list from active plugins
   const downloadProviders = useMemo(() => {
@@ -701,51 +702,87 @@ function App() {
 
   // Resolve a queue track's url to a playable source
   useEffect(() => {
-    const resolveViaFallback = async (track: Track): Promise<string> => {
-      addLog(`Trying fallback providers for: ${track.title}...`);
-      const result = await resolveFallback(
-        fallbackProvidersRef.current,
-        track.title,
-        track.artist_name,
-        track.album_title,
-      );
-      if (!result) throw new Error(`No playback source found for: ${track.title}`);
-      addLog(`Playing from ${result.label} (original unavailable)`);
-      if (result.url.startsWith("http://") || result.url.startsWith("https://")) return result.url;
-      const fallbackParsed = parseUrlScheme(result.url);
-      if (fallbackParsed.scheme === "file") return convertFileSrc(fallbackParsed.path);
-      if (fallbackParsed.scheme === "tidal") return resolveTidalStreamUrlRef.current(fallbackParsed.id, null);
-      if (fallbackParsed.scheme === "subsonic") return invoke<string>("resolve_subsonic_location", { location: result.url });
-      throw new Error(`Fallback returned unplayable URL: ${result.url}`);
+    const resolveUrl = (url: string): Promise<string> => {
+      if (url.startsWith("http://") || url.startsWith("https://")) return Promise.resolve(url);
+      const parsed = parseUrlScheme(url);
+      if (parsed.scheme === "file") return Promise.resolve(convertFileSrc(parsed.path));
+      if (parsed.scheme === "tidal") return resolveTidalStreamUrlRef.current(parsed.id, null);
+      if (parsed.scheme === "subsonic") return invoke<string>("resolve_subsonic_location", { location: url });
+      return Promise.reject(new Error(`Unplayable URL scheme: ${url}`));
     };
 
-    const resolveWithFallback = async (track: Track, primaryResolve: () => Promise<string>): Promise<string> => {
-      try {
-        return await primaryResolve();
-      } catch (e) {
-        console.error("Primary resolution failed, trying fallbacks:", e);
-        addLog(`Primary source failed, trying fallback providers...`);
-        return resolveViaFallback(track);
-      }
+    const nativeResolverName = (url: string): string => {
+      if (url.startsWith("http://") || url.startsWith("https://")) return "Direct URL";
+      const parsed = parseUrlScheme(url);
+      if (parsed.scheme === "file") return "Local";
+      if (parsed.scheme === "tidal") return "TIDAL";
+      if (parsed.scheme === "subsonic") return "Subsonic";
+      return "Unknown";
     };
 
     resolveTrackSrcRef.current = async (track: Track) => {
+      const generation = ++resolveGenerationRef.current;
       const url = track.url ?? track.path;
-      if (!url) return resolveViaFallback(track);
-      const parsed = parseUrlScheme(url);
 
-      if (parsed.scheme === "file") {
-        return convertFileSrc(parsed.path);
-      } else if (parsed.scheme === "tidal") {
-        return resolveWithFallback(track, () => resolveTidalStreamUrlRef.current(parsed.id, null));
-      } else if (parsed.scheme === "subsonic") {
-        return resolveWithFallback(track, () => invoke<string>("resolve_subsonic_location", { location: url }));
-      } else if (parsed.scheme === "unknown") {
-        return resolveViaFallback(track);
-      } else {
-        const _exhaustive: never = parsed;
-        throw new Error(`Unhandled scheme: ${(_exhaustive as any).scheme}`);
+      interface ResolverEntry { name: string; resolve: () => Promise<string> }
+      const chain: ResolverEntry[] = [];
+
+      // Native resolver first (if track has a known URL)
+      if (url) {
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+          chain.push({ name: "Direct URL", resolve: () => Promise.resolve(url) });
+        } else {
+          const parsed = parseUrlScheme(url);
+          if (parsed.scheme !== "unknown") {
+            chain.push({ name: nativeResolverName(url), resolve: () => resolveUrl(url) });
+          }
+        }
       }
+
+      // Append user-configured stream resolvers
+      for (const sr of streamResolversRef.current) {
+        chain.push({
+          name: sr.name,
+          resolve: async () => {
+            const result = await Promise.race([
+              sr.resolve(track.title, track.artist_name, track.album_title),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+            ]);
+            if (!result) throw new Error("No result");
+            return resolveUrl(result.url);
+          },
+        });
+      }
+
+      if (chain.length === 0) {
+        throw new Error(`No playback source for: ${track.title}`);
+      }
+
+      let lastError: string | null = null;
+      for (const entry of chain) {
+        if (resolveGenerationRef.current !== generation) return "";
+        if (lastError || chain.length > 1) {
+          setResolvingStatus({ error: lastError, trying: entry.name });
+        }
+        try {
+          const src = await entry.resolve();
+          if (resolveGenerationRef.current !== generation) return "";
+          setResolvingStatus(null);
+          if (lastError) {
+            addLog(`Playing from ${entry.name} (original unavailable)`);
+          }
+          return src;
+        } catch (e) {
+          console.error(`Stream resolver "${entry.name}" failed:`, e);
+          lastError = `${entry.name} failed`;
+          continue;
+        }
+      }
+
+      if (resolveGenerationRef.current === generation) {
+        setResolvingStatus(null);
+      }
+      throw new Error(`No playback source found for: ${track.title}`);
     };
   }, [addLog]);
 
@@ -2350,7 +2387,7 @@ function App() {
               pluginStates={plugins.pluginStates}
               loggingEnabled={loggingEnabled}
               onLoggingEnabledChange={handleLoggingEnabledChange}
-              onFallbackOrderChanged={() => setFallbackOrderVersion(v => v + 1)}
+              onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
             />
           )}
           </>}
@@ -2774,6 +2811,7 @@ function App() {
         onToggleSync={handleToggleSync}
         showHelp={showHelp}
         onToggleHelp={() => setShowHelp(h => !h)}
+        resolvingStatus={resolvingStatus}
         playbackError={playback.playbackError}
         onSkipError={() => { playback.clearPlaybackError(); handleNext(); }}
       />

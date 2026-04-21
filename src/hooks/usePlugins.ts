@@ -58,7 +58,7 @@ interface LoadedPlugin {
   infoFetchHandlers: Map<string, (entity: InfoEntity) => Promise<InfoFetchResult>>;
   imageFetchHandlers: Map<string, (name: string, artistName?: string) => Promise<ImageFetchResult>>;
   downloadResolveHandlers: Map<string, DownloadResolveHandler>;
-  fallbackResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>>;
+  streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>>;
   streamUrlResolver: ((trackId: string, quality?: string | null) => Promise<string | null>) | null;
   schedulerHandlers: Map<string, () => void>;
 }
@@ -233,13 +233,13 @@ export function usePlugins(
               "track:liked",
               handler as (...args: unknown[]) => void,
             ),
-          onFallbackResolve(
+          onStreamResolve(
             providerId: string,
             handler: (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>,
           ): () => void {
-            loaded.fallbackResolveHandlers.set(providerId, handler);
+            loaded.streamResolveHandlers.set(providerId, handler);
             const unsub = () => {
-              loaded.fallbackResolveHandlers.delete(providerId);
+              loaded.streamResolveHandlers.delete(providerId);
             };
             trackUnsubscribe(unsub);
             return unsub;
@@ -679,7 +679,7 @@ export function usePlugins(
     loaded.infoFetchHandlers.clear();
     loaded.imageFetchHandlers.clear();
     loaded.downloadResolveHandlers.clear();
-    loaded.fallbackResolveHandlers.clear();
+    loaded.streamResolveHandlers.clear();
     loaded.schedulerHandlers.clear();
 
     // Clear view data for this plugin
@@ -717,7 +717,7 @@ export function usePlugins(
         infoFetchHandlers: new Map(),
         imageFetchHandlers: new Map(),
         downloadResolveHandlers: new Map(),
-        fallbackResolveHandlers: new Map(),
+        streamResolveHandlers: new Map(),
         streamUrlResolver: null,
         schedulerHandlers: new Map(),
       };
@@ -1131,7 +1131,7 @@ export function usePlugins(
     [],
   );
 
-  const invokeFallbackResolve = useCallback(
+  const invokeStreamResolve = useCallback(
     async (
       pluginId: string,
       providerId: string,
@@ -1141,12 +1141,12 @@ export function usePlugins(
     ): Promise<{ url: string; label: string } | null> => {
       const loaded = loadedPluginsRef.current.get(pluginId);
       if (!loaded) return null;
-      const handler = loaded.fallbackResolveHandlers.get(providerId);
+      const handler = loaded.streamResolveHandlers.get(providerId);
       if (!handler) return null;
       try {
         return await handler(title, artistName, albumName);
       } catch (e) {
-        console.error(`[plugin:${pluginId}] fallback resolve error for ${providerId}:`, e);
+        console.error(`[plugin:${pluginId}] stream resolve error for ${providerId}:`, e);
         return null;
       }
     },
@@ -1219,7 +1219,7 @@ export function usePlugins(
     deletePlugin,
     invokeInfoFetch,
     invokeImageFetch,
-    invokeFallbackResolve,
+    invokeStreamResolve,
     invokeDownloadResolve,
     resolveTidalStreamUrl,
   };

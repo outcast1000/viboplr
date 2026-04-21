@@ -117,7 +117,7 @@ export function useDownloads(
         }
       }
 
-      // Chain fallback: iterate all providers in priority order
+      // Chain stream resolvers: iterate all providers in priority order
       if (!result) {
         result = await resolveDownload(downloadProvidersRef.current, title, artist_name, album_title, format);
       }

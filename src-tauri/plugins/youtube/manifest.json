@@ -6,7 +6,7 @@
   "description": "Play and download tracks from YouTube via yt-dlp",
   "minAppVersion": "0.9.4",
   "contributes": {
-    "fallbackProviders": [
+    "streamResolvers": [
       { "id": "youtube-fallback", "name": "YouTube", "priority": 300 }
     ],
     "downloadProviders": [
