@@ -56,6 +56,7 @@ const TEST_TRACKS = [
   { id: 1, path: 'file:///music/Artist A/Album X/01 First Song.flac', title: 'First Song', artist_id: 1, artist_name: 'Artist A', album_id: 1, album_title: 'Album X', year: 2020, track_number: 1, duration_secs: 210, format: 'flac', file_size: 30000000, collection_id: 1, collection_name: 'Music', liked: 0, youtube_url: null, added_at: 1700000000, modified_at: 1700000000 },
   { id: 2, path: 'file:///music/Artist A/Album X/02 Second Song.mp3', title: 'Second Song', artist_id: 1, artist_name: 'Artist A', album_id: 1, album_title: 'Album X', year: 2020, track_number: 2, duration_secs: 185, format: 'mp3', file_size: 8000000, collection_id: 1, collection_name: 'Music', liked: 1, youtube_url: null, added_at: 1700000000, modified_at: 1700000000 },
   { id: 3, path: 'file:///music/Artist B/Album Y/01 Third Song.mp3', title: 'Third Song', artist_id: 2, artist_name: 'Artist B', album_id: 2, album_title: 'Album Y', year: 2022, track_number: 1, duration_secs: 240, format: 'mp3', file_size: 10000000, collection_id: 1, collection_name: 'Music', liked: 0, youtube_url: null, added_at: 1700000000, modified_at: 1700000000 },
+  { id: 4, path: 'tidal://col1/12345', title: 'TIDAL Song', artist_id: 1, artist_name: 'Artist A', album_id: null, album_title: 'TIDAL Album', year: 2023, track_number: 1, duration_secs: 200, format: null, file_size: null, collection_id: 2, collection_name: 'TIDAL', liked: 0, youtube_url: null, added_at: 1700000000, modified_at: 1700000000 },
 ];
 
 const TEST_ARTISTS = [
@@ -76,10 +77,16 @@ const TEST_COLLECTIONS = [
 window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
   // Plugin commands (store, shortcuts, etc.) — return safe defaults
   if (cmd.startsWith('plugin:')) {
-    // plugin:store — LazyStore operations
-    if (cmd === 'plugin:store|get') return null;
+    // plugin:store — LazyStore / Store operations
+    if (cmd === 'plugin:store|get_store') return 1;
+    if (cmd === 'plugin:store|get') {
+      const storeDefaults = { queueCollapsed: false, sidebarCollapsed: false, view: 'search' };
+      const key = args && args.key;
+      if (key && key in storeDefaults) return [storeDefaults[key], true];
+      return [null, false];
+    }
     if (cmd === 'plugin:store|set') return null;
-    if (cmd === 'plugin:store|load') return null;
+    if (cmd === 'plugin:store|load') return 1;
     if (cmd === 'plugin:store|save') return null;
     if (cmd === 'plugin:store|clear') return null;
     if (cmd === 'plugin:store|keys') return [];
@@ -87,6 +94,7 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     if (cmd === 'plugin:store|entries') return [];
     if (cmd === 'plugin:store|length') return 0;
     if (cmd === 'plugin:store|has') return false;
+    if (cmd === 'plugin:store|delete') return false;
 
     // plugin:event — event system
     if (cmd === 'plugin:event|listen') {
@@ -99,6 +107,12 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     }
     if (cmd === 'plugin:event|emit') return null;
     if (cmd === 'plugin:event|unlisten') return null;
+
+    // plugin:app — version, name, etc.
+    if (cmd === 'plugin:app|version') return '0.9.99';
+    if (cmd === 'plugin:app|name') return 'Viboplr';
+    if (cmd === 'plugin:app|tauri_version') return '2.0.0';
+    if (cmd.startsWith('plugin:app')) return null;
 
     // plugin:global-shortcut
     if (cmd.startsWith('plugin:global-shortcut')) return null;
@@ -138,8 +152,20 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return TEST_ALBUMS.length;
     case 'get_tracks':
       return TEST_TRACKS;
+    case 'get_tracks_by_ids':
+      return TEST_TRACKS.filter(t => (args.trackIds || []).includes(t.id));
     case 'get_tracks_by_paths':
       return TEST_TRACKS.filter(t => (args.paths || []).includes(t.path));
+    case 'search_entity': {
+      const entity = args.entity;
+      if (entity === 'tracks') return { tracks: TEST_TRACKS, albums: null, artists: null, tags: null, total: TEST_TRACKS.length };
+      if (entity === 'albums') return { tracks: null, albums: TEST_ALBUMS, artists: null, tags: null, total: TEST_ALBUMS.length };
+      if (entity === 'artists') return { tracks: null, albums: null, artists: TEST_ARTISTS, tags: null, total: TEST_ARTISTS.length };
+      if (entity === 'tags') return { tracks: null, albums: null, artists: null, tags: [], total: 0 };
+      return { tracks: null, albums: null, artists: null, tags: null, total: 0 };
+    }
+    case 'search_all':
+      return { artists: TEST_ARTISTS, albums: TEST_ALBUMS, tracks: TEST_TRACKS };
     case 'get_tracks_by_tag':
       return [];
     case 'get_tracks_by_artist':
@@ -174,6 +200,37 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return null;
     case 'tidal_check_status':
       return null;
+    case 'get_track_by_id':
+      return TEST_TRACKS.find(t => t.id === args.trackId) || null;
+    case 'get_track_rank':
+      return null;
+    case 'get_artist_rank':
+      return null;
+    case 'get_track_play_stats':
+      return null;
+    case 'get_track_play_history':
+      return [];
+    case 'get_auto_continue_track':
+      return null;
+    case 'record_play':
+      return null;
+    case 'get_entity_image':
+      return null;
+    case 'get_entity_image_by_name':
+      return null;
+    case 'find_track_by_metadata': {
+      const delay = window.__TEST_FIND_TRACK_DELAY__ || 0;
+      if (delay > 0) await new Promise(r => setTimeout(r, delay));
+      const match = window.__TEST_FIND_TRACK_RESULT__;
+      if (match === undefined) return null;
+      return match;
+    }
+    case 'search_youtube':
+      return { url: 'https://www.youtube.com/watch?v=mock123', video_title: args.title };
+    case 'yt_dlp_check':
+      return '2025.12.08';
+    case 'yt_dlp_extract_audio_url':
+      return SILENT_WAV;
     default:
       console.warn('[tauri-mock] unhandled invoke:', cmd, args);
       return null;

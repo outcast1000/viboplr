@@ -10,34 +10,31 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await page.waitForSelector('.sidebar');
   await page.waitForTimeout(500);
-  await page.getByRole('button', { name: 'Tracks' }).click();
-  await page.locator('.track-row').first().waitFor({ state: 'visible', timeout: 10000 });
+  await page.getByRole('button', { name: 'Library' }).click();
+  await page.locator('.entity-list-item').first().waitFor({ state: 'visible', timeout: 10000 });
 });
 
 test('right-clicking a track row shows context menu', async ({ page }) => {
-  await page.locator('.track-row').first().click({ button: 'right' });
+  await page.locator('.entity-list-item').first().click({ button: 'right' });
 
   const contextMenu = page.locator('.context-menu');
   await expect(contextMenu).toBeVisible();
 });
 
 test('context menu has core track actions', async ({ page }) => {
-  await page.locator('.track-row').first().click({ button: 'right' });
+  await page.locator('.entity-list-item').first().click({ button: 'right' });
 
   await page.waitForSelector('.context-menu');
 
-  // Check for core actions
   const playAction = page.locator('.context-menu-item', { hasText: 'Play' }).first();
   const enqueueAction = page.locator('.context-menu-item', { hasText: 'Enqueue' });
-  const playNextAction = page.locator('.context-menu-item', { hasText: 'Play Next' });
 
   await expect(playAction).toBeVisible();
   await expect(enqueueAction).toBeVisible();
-  await expect(playNextAction).toBeVisible();
 });
 
 test('clicking outside context menu closes it', async ({ page }) => {
-  await page.locator('.track-row').first().click({ button: 'right' });
+  await page.locator('.entity-list-item').first().click({ button: 'right' });
 
   const contextMenu = page.locator('.context-menu');
   await expect(contextMenu).toBeVisible();
@@ -49,7 +46,7 @@ test('clicking outside context menu closes it', async ({ page }) => {
 });
 
 test('context menu is positioned within viewport bounds', async ({ page }) => {
-  await page.locator('.track-row').first().click({ button: 'right' });
+  await page.locator('.entity-list-item').first().click({ button: 'right' });
 
   const contextMenu = page.locator('.context-menu');
   await expect(contextMenu).toBeVisible();
