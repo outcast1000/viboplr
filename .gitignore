@@ -36,4 +36,5 @@ src/components/Issues.md
 ISSUES.md
 benchmarks/report.html
 test-results/
+src-tauri/Cargo.lock
 
