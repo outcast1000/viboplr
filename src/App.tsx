@@ -695,6 +695,7 @@ function App() {
     resyncingCollectionName: collectionActions.resyncingCollection?.name ?? null,
     setResyncProgress,
     setResyncComplete,
+    dispatchPluginEvent: plugins.dispatchEvent as (event: string, ...args: unknown[]) => void,
   });
 
   // Keep the tidal stream URL resolver ref in sync with the plugin system

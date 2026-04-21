@@ -29,6 +29,7 @@ interface EventListenerOptions {
   resyncingCollectionName: string | null;
   setResyncProgress: (v: ResyncProgress | null) => void;
   setResyncComplete: (v: ResyncComplete | null) => void;
+  dispatchPluginEvent?: (event: string, ...args: unknown[]) => void;
 }
 
 export type { ResyncProgress, ResyncComplete };
@@ -86,6 +87,11 @@ export function useEventListeners(opts: EventListenerOptions) {
       }
       loadLibrary();
       loadTracks();
+      opts.dispatchPluginEvent?.("scan:complete" as any, {
+        collectionId: event.payload.collectionId,
+        newTracks: event.payload.newTracks ?? 0,
+        removedTracks: event.payload.removedTracks ?? 0,
+      });
     });
 
     return () => {
@@ -137,6 +143,11 @@ export function useEventListeners(opts: EventListenerOptions) {
       setTimeout(() => setResyncComplete(null), 3000);
       loadLibrary();
       loadTracks();
+      opts.dispatchPluginEvent?.("scan:complete" as any, {
+        collectionId: event.payload.collectionId,
+        newTracks: event.payload.newTracks ?? 0,
+        removedTracks: event.payload.removedTracks ?? 0,
+      });
     });
     const unlisten3 = listen<{ collectionId: number; error: string }>("sync-error", (event) => {
       syncStarted = false;
@@ -188,4 +199,25 @@ export function useEventListeners(opts: EventListenerOptions) {
       unlisten.then((f) => f());
     };
   }, [loadLibrary, loadTracks]);
+
+  // Library change events — bridged to plugin event system
+  useEffect(() => {
+    const unlisten1 = listen<{ trackId: number; path: string; title: string; artistName: string | null; albumTitle: string | null; collectionId: number }>(
+      "track-added",
+      (event) => {
+        opts.dispatchPluginEvent?.("track:added" as any, event.payload);
+      }
+    );
+    const unlisten2 = listen<{ trackId: number; path: string }>(
+      "track-removed",
+      (event) => {
+        opts.dispatchPluginEvent?.("track:removed" as any, event.payload);
+      }
+    );
+
+    return () => {
+      unlisten1.then((f) => f());
+      unlisten2.then((f) => f());
+    };
+  }, []);
 }
