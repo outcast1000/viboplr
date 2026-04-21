@@ -24,7 +24,10 @@ export type PluginEventName =
   | "track:started"
   | "track:played"
   | "track:scrobbled"
-  | "track:liked";
+  | "track:liked"
+  | "track:added"
+  | "track:removed"
+  | "scan:complete";
 
 export interface PluginManifestInfoType {
   id: string;
@@ -242,6 +245,9 @@ export interface PluginLibraryAPI {
   }): Promise<HistoryMostPlayed[]>;
   recordHistoryPlaysBatch(plays: { artist: string; track: string; playedAt: number }[]): Promise<{ imported: number; skipped: number }>;
   applyTags(trackId: number, tagNames: string[]): Promise<Array<{ id: number; name: string }>>;
+  onTrackAdded(handler: (track: { trackId: number; path: string; title: string; artistName: string | null; albumTitle: string | null; collectionId: number }) => void): () => void;
+  onTrackRemoved(handler: (track: { trackId: number; path: string }) => void): () => void;
+  onScanComplete(handler: (result: { collectionId: number; newTracks: number; removedTracks: number }) => void): () => void;
 }
 
 export interface PluginPlaybackAPI {

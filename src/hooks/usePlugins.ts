@@ -118,6 +118,9 @@ export function usePlugins(
     "track:played": [],
     "track:scrobbled": [],
     "track:liked": [],
+    "track:added": [],
+    "track:removed": [],
+    "scan:complete": [],
   });
   const enabledPluginsRef = useRef<Set<string>>(new Set());
   const viewDataRef = useRef<Map<string, PluginViewData>>(new Map());
@@ -198,6 +201,21 @@ export function usePlugins(
           async applyTags(trackId, tagNames) {
             return invoke<Array<{ id: number; name: string }>>("plugin_apply_tags", { trackId, tagNames });
           },
+          onTrackAdded: (handler) =>
+            subscribeEvent(
+              "track:added",
+              handler as (...args: unknown[]) => void,
+            ),
+          onTrackRemoved: (handler) =>
+            subscribeEvent(
+              "track:removed",
+              handler as (...args: unknown[]) => void,
+            ),
+          onScanComplete: (handler) =>
+            subscribeEvent(
+              "scan:complete",
+              handler as (...args: unknown[]) => void,
+            ),
         },
 
         playback: {
