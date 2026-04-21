@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-// Usage: node scripts/bump.mjs [0.2.0] [--autocommit]
+// Usage: node scripts/bump.mjs [0.2.0] [--autocommit] [--screenshots]
 //
 // Full release orchestrator:
 //   1. Bumps version in package.json, Cargo.toml, tauri.conf.json
 //   2. Updates static version badge + download URLs across docs/ pages
 //   3. Generates changelog and prepends a new entry to docs/history.html
-//   4. Regenerates screenshots (requires Vite dev server)
+//   4. Regenerates screenshots (only with --screenshots, requires Vite dev server)
 //   5. Regenerates docs/features.html from docs/features.json
 //   6. Commits, tags, and pushes (with --autocommit)
 
@@ -19,6 +19,7 @@ import { generateChangelog } from "./lib/changelog.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const autocommit = args.includes("--autocommit");
+const withScreenshots = args.includes("--screenshots");
 let version = args.find((a) => !a.startsWith("--"));
 
 if (!version) {
@@ -255,16 +256,20 @@ const timelineEntry = `<div class="timeline-entry reveal">
 }
 
 // ---------------------------------------------------------------------------
-// Step 4 — Regenerate screenshots (if dev server available)
+// Step 4 — Regenerate screenshots (only with --screenshots flag)
 // ---------------------------------------------------------------------------
 
-console.log("\nRegenerating screenshots...\n");
+if (withScreenshots) {
+  console.log("\nRegenerating screenshots...\n");
 
-try {
-  execSync("npm run screenshots", { cwd: root, encoding: "utf-8", stdio: "inherit", timeout: 120_000 });
-  console.log("✓ Screenshots regenerated");
-} catch {
-  console.log("⚠ Screenshot generation skipped (requires dev server on localhost:1420)");
+  try {
+    execSync("npm run screenshots", { cwd: root, encoding: "utf-8", stdio: "inherit", timeout: 120_000 });
+    console.log("✓ Screenshots regenerated");
+  } catch {
+    console.log("⚠ Screenshot generation failed (requires dev server on localhost:1420)");
+  }
+} else {
+  console.log("\n⏭ Screenshots skipped (pass --screenshots to regenerate)");
 }
 
 // ---------------------------------------------------------------------------

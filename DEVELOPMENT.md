@@ -87,11 +87,14 @@ npx tsc --noEmit
 
 ## Releasing
 
-To do a release you should increase the release number and add the proper tags in the git. Bump script can help with that
+To do a release, bump the version and tag it. The bump script handles version numbers, changelog, docs, and optionally screenshots:
 
 ```bash
-npm run bump --autocommit
-npm run bump v0.4.0 --autocommit
+npm run bump                                    # patch bump (e.g. 0.9.23 → 0.9.24)
+npm run bump -- 0.10.0                          # explicit version
+npm run bump -- --autocommit                    # auto-commit, tag, and push
+npm run bump -- --screenshots                   # regenerate site screenshots
+npm run bump -- 0.10.0 --autocommit --screenshots  # full release
 ```
 
 Releases are automated via GitHub Actions. Pushing a version tag triggers builds for macOS (ARM) and Windows, then creates a draft GitHub Release with the installer artifacts attached.
