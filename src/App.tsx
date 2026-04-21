@@ -9,7 +9,7 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, TidalSearchTrack } from "./types";
+import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, TidalSearchTrack, Collection } from "./types";
 import { isVideoTrack, parseSubsonicUrl, tidalCoverUrl } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, type QueueEntry } from "./queueEntry";
@@ -118,7 +118,13 @@ function App() {
   const [loggingEnabled, setLoggingEnabled] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
   const [lastTidalDownloadDest, setLastTidalDownloadDest] = useState<string | null>(null);
+  const [autoSaveStreams, setAutoSaveStreams] = useState(false);
+  const [downloadsCollection, setDownloadsCollection] = useState<Collection | null>(null);
+  const autoSaveStreamsRef = useRef(false);
+  const downloadsCollectionRef = useRef<Collection | null>(null);
   trackVideoHistoryRef.current = trackVideoHistory;
+  autoSaveStreamsRef.current = autoSaveStreams;
+  downloadsCollectionRef.current = downloadsCollection;
   const advanceIndexRef = useRef<() => void>(() => {});
   const resolveTidalStreamUrlRef = useRef<(trackId: string, quality?: string | null) => Promise<string>>(
     async () => { throw new Error("TIDAL stream resolver not ready"); }
@@ -962,7 +968,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastTidalDownloadDest, savedSearchViewModes] = await timeAsync("store.restore", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastTidalDownloadDest, savedSearchViewModes, savedAutoSaveStreams] = await timeAsync("store.restore", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -1010,6 +1016,7 @@ function App() {
           store.get<boolean>("trackLikedFirst"),
           store.get<string | null>("lastTidalDownloadDest"),
           store.get<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
+          store.get<boolean>("autoSaveStreams"),
         ]));
         if (v && ["search", "artists", "albums", "tags", "history"].includes(v)) library.setView(v as View);
         if (sa !== undefined && sa !== null) {
@@ -1020,6 +1027,7 @@ function App() {
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory) setTrackVideoHistory(true);
+        if (savedAutoSaveStreams) setAutoSaveStreams(true);
 
         // One-time migration: move Last.fm session from app store to plugin storage
         const [migrateSessionKey, migrateUsername, migrateAutoEnabled, migrateAutoInterval, migrateLastImportAt] = await Promise.all([
@@ -1193,6 +1201,9 @@ function App() {
         await getCurrentWindow().show();
       }
       await timeAsync("loadProviders", () => loadProviders(store).then(setSearchProviders));
+      invoke<Collection | null>("get_downloads_collection").then(col => {
+        if (col) setDownloadsCollection(col);
+      }).catch(console.error);
       restoredRef.current = true;
       setAppRestoring(false);
       await timeAsync("loadLibrary", () => library.loadLibrary());
@@ -1607,6 +1618,35 @@ function App() {
     setDebugLogging(enabled);
     setDebugLoggingRef(enabled);
     store.set("debugLogging", enabled);
+  }
+
+  const handleSetDownloadsFolder = async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({ directory: true, title: "Select Downloads Folder" });
+    if (!selected) return;
+    try {
+      const col = await invoke<Collection>("create_downloads_collection", { path: selected });
+      setDownloadsCollection(col);
+      addLog(`Downloads folder set: ${selected}`, "settings");
+    } catch (e) {
+      console.error("Failed to set downloads collection:", e);
+    }
+  };
+
+  const handleUnsetDownloadsCollection = async () => {
+    try {
+      await invoke("unset_downloads_collection");
+      setDownloadsCollection(null);
+      setAutoSaveStreams(false);
+      store.set("autoSaveStreams", false);
+    } catch (e) {
+      console.error("Failed to unset downloads collection:", e);
+    }
+  };
+
+  function handleAutoSaveStreamsChange(enabled: boolean) {
+    setAutoSaveStreams(enabled);
+    store.set("autoSaveStreams", enabled);
   }
 
   function handleToggleSidebar() {
@@ -2403,6 +2443,11 @@ function App() {
               debugLogging={debugLogging}
               onDebugLoggingChange={handleDebugLoggingChange}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
+              downloadsCollection={downloadsCollection}
+              autoSaveStreams={autoSaveStreams}
+              onSetDownloadsFolder={handleSetDownloadsFolder}
+              onUnsetDownloadsCollection={handleUnsetDownloadsCollection}
+              onAutoSaveStreamsChange={handleAutoSaveStreamsChange}
             />
           )}
           </>}

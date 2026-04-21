@@ -8,6 +8,7 @@ import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { SkinInfo, GallerySkinEntry } from "../types/skin";
 import type { PluginState } from "../types/plugin";
+import type { Collection } from "../types";
 import { store } from "../store";
 import "./SettingsPanel.css";
 
@@ -753,6 +754,12 @@ interface SettingsPanelProps {
   onDebugLoggingChange: (enabled: boolean) => void;
   // Stream resolver ordering
   onStreamResolverOrderChanged?: () => void;
+  // Downloads collection
+  downloadsCollection: Collection | null;
+  autoSaveStreams: boolean;
+  onSetDownloadsFolder: () => void;
+  onUnsetDownloadsCollection: () => void;
+  onAutoSaveStreamsChange: (enabled: boolean) => void;
 }
 
 interface ProviderFormData {
@@ -797,6 +804,11 @@ export function SettingsPanel({
   debugLogging,
   onDebugLoggingChange,
   onStreamResolverOrderChanged,
+  downloadsCollection,
+  autoSaveStreams,
+  onSetDownloadsFolder,
+  onUnsetDownloadsCollection,
+  onAutoSaveStreamsChange,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -958,6 +970,43 @@ export function SettingsPanel({
                 <div className="settings-group">
                   <div className="settings-group-title">Downloads</div>
                   <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Downloads folder</span>
+                        <span className="settings-description">
+                          {downloadsCollection
+                            ? downloadsCollection.path
+                            : "Select a folder to save streamed tracks"}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onSetDownloadsFolder}>
+                          {downloadsCollection ? "Change" : "Choose Folder"}
+                        </button>
+                        {downloadsCollection && (
+                          <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={onUnsetDownloadsCollection}>
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Save streamed tracks</span>
+                        <span className="settings-description">
+                          {downloadsCollection
+                            ? "Automatically save tracks to your Downloads folder as they play"
+                            : "Configure a Downloads folder first"}
+                        </span>
+                      </div>
+                      <button
+                        className={`ds-toggle ${autoSaveStreams && downloadsCollection ? "on" : ""}`}
+                        onClick={() => downloadsCollection && onAutoSaveStreamsChange(!autoSaveStreams)}
+                        disabled={!downloadsCollection}
+                      >
+                        <span className="ds-toggle-thumb" />
+                      </button>
+                    </div>
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">Download format</span>
