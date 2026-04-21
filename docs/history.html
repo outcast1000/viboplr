@@ -67,6 +67,67 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.24</span>
+          <span class="timeline-date">April 21, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>make screenshots opt-in in bump script via --screenshots flag</li>
+          <li>add ds-tooltip to design system, source icon in now playing bar</li>
+          <li>add track source tooltip to now playing bar subtitle</li>
+          <li>add YouTube plugin with fallback playback and download via yt-dlp</li>
+          <li>support direct HTTPS URLs from fallback providers</li>
+          <li>add yt_dlp_check and yt_dlp_extract_audio_url commands</li>
+          <li>clean up cached images on archive delete and plugin load</li>
+          <li>cache Spotify playlist images locally on scrape</li>
+          <li>add plugin_cache_* commands for plugin image caching</li>
+          <li>support local image paths in PluginViewRenderer</li>
+          <li>universal Download submenu with provider selection</li>
+          <li>add Download provider settings UI and context menu action</li>
+          <li><strong>downloads</strong>: add resolve bridge listener, provider wiring, and resolution tests</li>
+          <li><strong>types</strong>: add download provider types to plugin type system</li>
+          <li><strong>tidal-browse</strong>: register as download provider with onResolve handler</li>
+          <li><strong>commands</strong>: add enqueue_download, download_resolve_response, and provider CRUD commands</li>
+          <li><strong>downloader</strong>: implement resolve bridge in worker thread and process_download</li>
+          <li><strong>downloader</strong>: refactor DownloadRequest, build_dest_path, write_tags, add DownloadResolveRegistry</li>
+          <li><strong>db</strong>: add download_providers table with CRUD and migration v28</li>
+          <li>add GitHub Sponsors links to website and in-app settings</li>
+          <li>read TIDAL streaming quality from plugin storage</li>
+          <li><strong>tidal-browse</strong>: implement native HTTP client, API functions, settings panel, and download search action</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>update E2E tests and Tauri mock for current app UI</li>
+          <li>fallback to YouTube when TIDAL/Subsonic resolution fails</li>
+          <li>handle missing artist image in TIDAL plugin detail view</li>
+          <li>refresh library after track deletion</li>
+          <li>reorder Extensions tabs and section groups</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li>rename fallbackProviders to streamResolvers with cascading resolution</li>
+          <li>move TIDAL stream resolution to plugin, remove tidal.rs</li>
+          <li>remove dead TIDAL types and get_album method</li>
+          <li>remove obsolete tidal_save_track, download_track, download_album commands</li>
+          <li>remove dead TIDAL API surface from TypeScript</li>
+          <li>remove TIDAL search/metadata commands from Rust backend</li>
+          <li>route TidalDownloadModal search through tidal-browse plugin</li>
+          <li>move plugin settings from Settings tab to Extensions view</li>
+          </ul>
+          <h4>Tests</h4>
+          <ul>
+          <li>add unit tests for plugin cache path validation</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.24/Viboplr_0.9.24_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.24_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.24/Viboplr_0.9.24_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.24_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.23</span>
           <span class="timeline-date">April 20, 2026</span>
         </div>
