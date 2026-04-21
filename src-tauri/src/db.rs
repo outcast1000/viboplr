@@ -87,6 +87,7 @@ fn collection_from_row(row: &rusqlite::Row) -> rusqlite::Result<Collection> {
         enabled: row.get::<_, i32>(9).unwrap_or(1) != 0,
         last_sync_duration_secs: row.get(10)?,
         last_sync_error: row.get(11)?,
+        is_downloads: row.get::<_, i32>(12).unwrap_or(0) != 0,
     })
 }
 
@@ -247,7 +248,8 @@ impl Database {
                 auto_update_interval_mins INTEGER NOT NULL DEFAULT 60,
                 enabled                   INTEGER NOT NULL DEFAULT 1,
                 last_sync_duration_secs   REAL,
-                last_sync_error           TEXT
+                last_sync_error           TEXT,
+                is_downloads              INTEGER DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS tracks (
@@ -405,7 +407,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
-            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 28);
+            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 29);
 
             CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id);
             CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);
@@ -459,6 +461,13 @@ impl Database {
                     PRIMARY KEY (plugin_id, provider_id)
                 );
                 UPDATE db_version SET version = 28 WHERE rowid = 1;"
+            )?;
+        }
+
+        if version < 29 {
+            conn.execute_batch(
+                "ALTER TABLE collections ADD COLUMN is_downloads INTEGER DEFAULT 0;
+                 UPDATE db_version SET version = 29 WHERE rowid = 1;"
             )?;
         }
 
@@ -1430,6 +1439,7 @@ impl Database {
             enabled: true,
             last_sync_duration_secs: None,
             last_sync_error: None,
+            is_downloads: false,
         })
     }
 
@@ -1449,7 +1459,7 @@ impl Database {
     pub fn get_collections(&self) -> SqlResult<Vec<Collection>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error FROM collections ORDER BY name"
+            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error, is_downloads FROM collections ORDER BY name"
         )?;
         let rows = stmt.query_map([], |row| collection_from_row(row))?;
         rows.collect()
@@ -1482,7 +1492,7 @@ impl Database {
     pub fn get_collection_by_id(&self, collection_id: i64) -> SqlResult<Collection> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error FROM collections WHERE id = ?1",
+            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error, is_downloads FROM collections WHERE id = ?1",
             params![collection_id],
             |row| collection_from_row(row),
         )

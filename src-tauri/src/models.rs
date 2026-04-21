@@ -119,6 +119,7 @@ pub struct Collection {
     pub enabled: bool,
     pub last_sync_duration_secs: Option<f64>,
     pub last_sync_error: Option<String>,
+    pub is_downloads: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
