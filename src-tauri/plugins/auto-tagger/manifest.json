@@ -1,0 +1,14 @@
+{
+  "id": "auto-tagger",
+  "name": "Auto Tagger",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Analyzes file paths and metadata to suggest and auto-assign tags based on frequent patterns",
+  "minAppVersion": "0.9.25",
+  "contributes": {
+    "sidebarItems": [
+      { "id": "auto-tagger-view", "label": "Auto Tagger", "icon": "tag" }
+    ],
+    "eventHooks": ["track:added", "scan:complete"]
+  }
+}
