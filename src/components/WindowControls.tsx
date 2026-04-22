@@ -5,9 +5,11 @@ const isMac = navigator.platform.includes("Mac");
 
 interface WindowControlsProps {
   position: "left" | "right";
+  minimizeToMiniPlayer?: boolean;
+  onMinimizeToMini?: () => void;
 }
 
-export function WindowControls({ position }: WindowControlsProps) {
+export function WindowControls({ position, minimizeToMiniPlayer, onMinimizeToMini }: WindowControlsProps) {
   const shouldRender = (isMac && position === "left") || (!isMac && position === "right");
 
   if (!shouldRender) return null;
@@ -18,7 +20,7 @@ export function WindowControls({ position }: WindowControlsProps) {
     return (
       <div className="traffic-lights">
         <button className="traffic-light traffic-close" onClick={() => win.close()} title="Close" />
-        <button className="traffic-light traffic-minimize" onClick={() => win.minimize()} title="Minimize" />
+        <button className="traffic-light traffic-minimize" onClick={() => minimizeToMiniPlayer && onMinimizeToMini ? onMinimizeToMini() : win.minimize()} title="Minimize" />
         <button className="traffic-light traffic-maximize" onClick={() => win.toggleMaximize()} title="Maximize" />
       </div>
     );
@@ -27,7 +29,7 @@ export function WindowControls({ position }: WindowControlsProps) {
   if (!isMac && position === "right") {
     return (
       <div className="window-controls">
-        <button className="window-control-btn window-control-minimize" onClick={() => win.minimize()} title="Minimize">
+        <button className="window-control-btn window-control-minimize" onClick={() => minimizeToMiniPlayer && onMinimizeToMini ? onMinimizeToMini() : win.minimize()} title="Minimize">
           <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0" y="4" width="10" height="1" fill="currentColor" /></svg>
         </button>
         <button className="window-control-btn window-control-maximize" onClick={() => win.toggleMaximize()} title="Maximize">

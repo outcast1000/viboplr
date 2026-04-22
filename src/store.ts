@@ -61,6 +61,7 @@ const STORE_DEFAULTS = {
   syncWithPlaying: false,
   trackDetailTabOrder: null,
   streamResolverOrder: null,
+  minimizeToMiniPlayer: false,
 };
 
 export interface AppStore {

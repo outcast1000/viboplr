@@ -116,6 +116,7 @@ function App() {
   const trackVideoHistoryRef = useRef(false);
   const [trackVideoHistory, setTrackVideoHistory] = useState(false);
   const [loggingEnabled, setLoggingEnabled] = useState(false);
+  const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
   const [lastTidalDownloadDest, setLastTidalDownloadDest] = useState<string | null>(null);
   const [autoSaveStreams, setAutoSaveStreams] = useState(false);
@@ -995,7 +996,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastTidalDownloadDest, savedSearchViewModes, savedAutoSaveStreams, savedDownloadsCollectionId] = await timeAsync("store.restore", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastTidalDownloadDest, savedSearchViewModes, savedAutoSaveStreams, savedDownloadsCollectionId, savedMinimizeToMiniPlayer] = await timeAsync("store.restore", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -1045,6 +1046,7 @@ function App() {
           store.get<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
           store.get<boolean>("autoSaveStreams"),
           store.get<number | null>("downloadsCollectionId"),
+          store.get<boolean>("minimizeToMiniPlayer"),
         ]));
         if (v && ["search", "artists", "albums", "tags", "history"].includes(v)) library.setView(v as View);
         if (sa !== undefined && sa !== null) {
@@ -1057,6 +1059,7 @@ function App() {
         if (savedTrackVideoHistory) setTrackVideoHistory(true);
         if (savedAutoSaveStreams) setAutoSaveStreams(true);
         if (savedDownloadsCollectionId != null) setDownloadsCollectionId(savedDownloadsCollectionId);
+        if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
 
         // One-time migration: move Last.fm session from app store to plugin storage
         const [migrateSessionKey, migrateUsername, migrateAutoEnabled, migrateAutoInterval, migrateLastImportAt] = await Promise.all([
@@ -1635,6 +1638,11 @@ function App() {
     store.set("trackVideoHistory", enabled);
   }
 
+  function handleMinimizeToMiniPlayerChange(enabled: boolean) {
+    setMinimizeToMiniPlayer(enabled);
+    store.set("minimizeToMiniPlayer", enabled);
+  }
+
   function handleLoggingEnabledChange(enabled: boolean) {
     setLoggingEnabled(enabled);
     store.set("loggingEnabled", enabled);
@@ -1946,6 +1954,7 @@ function App() {
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
         }}
+        minimizeToMiniPlayer={minimizeToMiniPlayer}
       />
 
       {/* Main content */}
@@ -2443,6 +2452,8 @@ function App() {
               onCrossfadeChange={handleCrossfadeChange}
               trackVideoHistory={trackVideoHistory}
               onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
+              minimizeToMiniPlayer={minimizeToMiniPlayer}
+              onMinimizeToMiniPlayerChange={handleMinimizeToMiniPlayerChange}
               appVersion={updater.appVersion}
               updateState={updater.updateState}
               onCheckForUpdates={updater.handleCheckForUpdates}

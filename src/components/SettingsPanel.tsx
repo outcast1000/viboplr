@@ -724,6 +724,8 @@ interface SettingsPanelProps {
   onCrossfadeChange: (secs: number) => void;
   trackVideoHistory: boolean;
   onTrackVideoHistoryChange: (enabled: boolean) => void;
+  minimizeToMiniPlayer: boolean;
+  onMinimizeToMiniPlayerChange: (enabled: boolean) => void;
   onSaveProviders: (providers: SearchProviderConfig[]) => void;
   appVersion: string;
   updateState: UpdateState;
@@ -779,6 +781,8 @@ export function SettingsPanel({
   onCrossfadeChange,
   trackVideoHistory,
   onTrackVideoHistoryChange,
+  minimizeToMiniPlayer,
+  onMinimizeToMiniPlayerChange,
   appVersion,
   updateState,
   onCheckForUpdates,
@@ -950,6 +954,19 @@ export function SettingsPanel({
                         />
                         <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="settings-group">
+                  <div className="settings-group-title">Window</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Minimize to mini player</span>
+                        <span className="settings-description">Switch to mini player when minimizing the window</span>
+                      </div>
+                      <ToggleSwitch checked={minimizeToMiniPlayer} onChange={onMinimizeToMiniPlayerChange} />
                     </div>
                   </div>
                 </div>

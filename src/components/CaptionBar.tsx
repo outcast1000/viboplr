@@ -26,6 +26,7 @@ interface CaptionBarProps {
   onFetchArtistImage: (artist: any) => void;
   onToggleMiniMode: () => void;
   onToggleHelp: () => void;
+  minimizeToMiniPlayer: boolean;
   resyncProgress: ResyncProgress | null;
   resyncComplete: ResyncComplete | null;
   onNavigateToCollections: () => void;
@@ -44,6 +45,7 @@ export function CaptionBar({
   onFetchArtistImage,
   onToggleMiniMode,
   onToggleHelp,
+  minimizeToMiniPlayer,
   resyncProgress,
   resyncComplete,
   onNavigateToCollections,
@@ -56,7 +58,7 @@ export function CaptionBar({
 
   return (
     <div className="search-bar" data-tauri-drag-region onDoubleClick={handleCaptionDoubleClick}>
-      <WindowControls position="left" />
+      <WindowControls position="left" minimizeToMiniPlayer={minimizeToMiniPlayer} onMinimizeToMini={onToggleMiniMode} />
         <div className="caption-brand" data-tauri-drag-region>
           <svg width="34" height="34" viewBox="0 0 512 512" fill="none" style={{ marginRight: "-6px" }}>
             <defs>
@@ -153,7 +155,7 @@ export function CaptionBar({
           </svg>
           <span>Mini Player</span>
         </button>
-        <WindowControls position="right" />
+        <WindowControls position="right" minimizeToMiniPlayer={minimizeToMiniPlayer} onMinimizeToMini={onToggleMiniMode} />
       </div>
   );
 }
