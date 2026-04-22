@@ -386,6 +386,12 @@ function App() {
     if (!track) return;
     plugins.dispatchEvent("track:played", track);
     plugins.dispatchEvent("track:scrobbled", track);
+    if (shouldAutoSave(autoSaveStreamsRef.current, track.path, resolvedSource?.name ?? null)) {
+      const dlCol = downloadsCollectionRef.current;
+      if (dlCol) {
+        downloads.autoSaveTrack(track, dlCol.id, downloadFormatRef.current).catch(console.error);
+      }
+    }
   }, [playback.scrobbled, playback.currentTrack, plugins.dispatchEvent]);
 
   // Reset scroll position when view or selections change
@@ -799,13 +805,6 @@ function App() {
           if (resolveGenerationRef.current !== generation) return "";
           setResolvingStatus(null);
           setResolvedSource({ name: entry.name, url: src });
-          // Auto-save trigger
-          if (shouldAutoSave(autoSaveStreamsRef.current, track.path, entry.name)) {
-            const dlCol = downloadsCollectionRef.current;
-            if (dlCol) {
-              downloads.autoSaveTrack(track, dlCol.id, downloadFormatRef.current).catch(console.error);
-            }
-          }
           if (lastError) {
             addLog(`Playing from ${entry.name} (original unavailable)`, "playback");
           }
