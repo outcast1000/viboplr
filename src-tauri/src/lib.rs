@@ -501,7 +501,7 @@ pub fn run() {
 
     timer.time("logging::init", || {
         let log_dir = if logging_enabled {
-            Some(pre_app_data_dir.join("logs"))
+            Some(pre_app_data_dir.join("profiles").join(&profile_name).join("logs"))
         } else {
             None
         };
