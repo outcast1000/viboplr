@@ -268,14 +268,6 @@
   display: none;
 }
 
-.queue-item-art-wrapper .source-badge {
-  width: 13px;
-  height: 13px;
-  border-radius: 2px;
-  bottom: 0;
-  right: 0;
-}
-
 .queue-item-thumb {
   width: 32px;
   height: 32px;

@@ -12,30 +12,6 @@ import "./NowPlayingBar.css";
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
 const isMac = navigator.platform.includes("Mac");
 
-type TrackSource = "tidal" | "subsonic" | null;
-
-function getTrackSource(track: Track | null): TrackSource {
-  if (!track) return null;
-  if (track.path.startsWith("tidal://")) return "tidal";
-  if (track.path.startsWith("subsonic://")) return "subsonic";
-  return null;
-}
-
-export function SourceBadge({ track, size = 14 }: { track: Track | null; size?: number }) {
-  const source = getTrackSource(track);
-  if (!source) return null;
-  const s = size;
-  return (
-    <span className="source-badge" title={source === "tidal" ? "TIDAL" : "Subsonic"}>
-      {source === "tidal" ? (
-        <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M12 4c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-7 4c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm14 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-7 4c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-7 4c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm14 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
-      ) : (
-        <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="2"/><path d="M12 8v8m-4-6v4m8-6v4"/></svg>
-      )}
-    </span>
-  );
-}
-
 function SourceIcon({ s = 11, isLocal }: { s?: number; isLocal: boolean }) {
   if (isLocal) {
     return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>;
@@ -200,7 +176,6 @@ export function NowPlayingBar({
             {!imagePath && currentTrack && (
               <span className="now-mini-art-fallback">{(currentTrack.title[0] ?? "?").toUpperCase()}</span>
             )}
-            <SourceBadge track={currentTrack} size={10} />
           </div>
           <div className="now-mini-info-text">
             {playbackError ? (
@@ -307,7 +282,6 @@ export function NowPlayingBar({
                 </svg>
               </div>
             )}
-            <SourceBadge track={currentTrack} />
           </div>
           {currentTrack && currentTrack.id > 0 && (
             <div className="now-like-col">

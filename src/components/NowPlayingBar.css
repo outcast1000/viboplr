@@ -104,32 +104,9 @@
   flex-shrink: 0;
 }
 
-.source-badge {
-  position: absolute;
-  bottom: 1px;
-  right: 1px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
-  background: rgba(var(--overlay-inverse), 0.65);
-  color: rgba(var(--overlay-base), 0.85);
-  pointer-events: none;
-}
-
 .now-mini-art-wrapper {
   position: relative;
   flex-shrink: 0;
-}
-
-.now-mini-art-wrapper .source-badge {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  bottom: 0;
-  right: 0;
 }
 
 .now-art-placeholder {
