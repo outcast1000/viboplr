@@ -377,7 +377,7 @@ export function useQueue(
   }
 
   function playNextInQueue(track: Track) {
-    const stamped = stampUrl(track, collections);
+    const [stamped] = stamp([track]);
     const idx = queueIndexRef.current;
     setQueue(prev => {
       const next = [...prev];
@@ -387,11 +387,12 @@ export function useQueue(
   }
 
   function addToQueue(track: Track) {
-    setQueue(prev => [...prev, stampUrl(track, collections)]);
+    const [stamped] = stamp([track]);
+    setQueue(prev => [...prev, stamped]);
   }
 
   function addToQueueAndPlay(track: Track, source: "user" | "auto" = "user") {
-    const stamped = stampUrl(track, collections);
+    const [stamped] = stamp([track]);
     const newIndex = queueRef.current.length;
     setQueue(prev => [...prev, stamped]);
     setQueueIndex(newIndex);
