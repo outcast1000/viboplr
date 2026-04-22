@@ -72,7 +72,6 @@ export interface Collection {
   enabled: boolean;
   last_sync_duration_secs: number | null;
   last_sync_error: string | null;
-  is_downloads: boolean;
 }
 
 export interface CollectionStats {

@@ -48,6 +48,7 @@ function getConnectionStatus(c: Collection): "connected" | "error" | "unknown" |
 
 interface CollectionsViewProps {
   collections: Collection[];
+  downloadsCollectionId: number | null;
   onToggleEnabled: (collection: Collection) => void;
   onCheckConnection: (collectionId: number) => void;
   onResync: (collectionId: number) => void;
@@ -64,6 +65,7 @@ interface CollectionsViewProps {
 
 export function CollectionsView({
   collections,
+  downloadsCollectionId,
   onToggleEnabled,
   onCheckConnection,
   onResync,
@@ -88,19 +90,26 @@ export function CollectionsView({
           {collections.map((c) => {
             const status = getConnectionStatus(c);
             const stats = statsMap.get(c.id);
+            const isDownloads = c.id === downloadsCollectionId;
             return (
-              <div key={c.id} className={`collections-view-card${!c.enabled ? " collections-view-card-disabled" : ""}`}>
+              <div key={c.id} className={`collections-view-card${!c.enabled ? " collections-view-card-disabled" : ""}${isDownloads ? " collections-view-card-system" : ""}`}>
                 <div className="collections-view-card-header">
-                  <button
-                    className={`collection-enable-toggle ${c.enabled ? "collection-enable-toggle-on" : ""}`}
-                    onClick={() => onToggleEnabled(c)}
-                    title={c.enabled ? "Disable" : "Enable"}
-                  >
-                    {c.enabled ? "On" : "Off"}
-                  </button>
-                  <span className={`collection-kind collection-kind-${c.kind}`}>
-                    {collectionKindLabel(c.kind)}
-                  </span>
+                  {isDownloads ? (
+                    <span className="collection-kind collection-kind-system">System</span>
+                  ) : (
+                    <>
+                      <button
+                        className={`collection-enable-toggle ${c.enabled ? "collection-enable-toggle-on" : ""}`}
+                        onClick={() => onToggleEnabled(c)}
+                        title={c.enabled ? "Disable" : "Enable"}
+                      >
+                        {c.enabled ? "On" : "Off"}
+                      </button>
+                      <span className={`collection-kind collection-kind-${c.kind}`}>
+                        {collectionKindLabel(c.kind)}
+                      </span>
+                    </>
+                  )}
                   <span className="collections-view-card-name" title={c.path || c.url || c.name}>
                     {c.name}
                   </span>
@@ -155,42 +164,44 @@ export function CollectionsView({
                     </span>
                   </div>
                 )}
-                <div className="collections-view-card-actions">
-                  {(c.kind === "local" || c.kind === "subsonic") && (
+                {!isDownloads && (
+                  <div className="collections-view-card-actions">
+                    {(c.kind === "local" || c.kind === "subsonic") && (
+                      <button
+                        className={`collections-view-action-btn ${resyncProgress?.collectionId === c.id || resyncComplete?.collectionId === c.id ? "collections-view-action-checking" : ""}`}
+                        onClick={() => onResync(c.id)}
+                        disabled={resyncProgress != null || (resyncComplete != null && !resyncComplete.error)}
+                        title="Resync"
+                      >
+                        {resyncProgress?.collectionId === c.id ? "Resyncing..." : "Resync"}
+                      </button>
+                    )}
+                    {c.kind === "subsonic" && (
+                      <button
+                        className={`collections-view-action-btn ${checkingConnectionId === c.id ? "collections-view-action-checking" : ""}`}
+                        onClick={() => onCheckConnection(c.id)}
+                        disabled={checkingConnectionId === c.id}
+                        title="Check connection"
+                      >
+                        {checkingConnectionId === c.id ? "Checking..." : "Check Connection"}
+                      </button>
+                    )}
                     <button
-                      className={`collections-view-action-btn ${resyncProgress?.collectionId === c.id || resyncComplete?.collectionId === c.id ? "collections-view-action-checking" : ""}`}
-                      onClick={() => onResync(c.id)}
-                      disabled={resyncProgress != null || (resyncComplete != null && !resyncComplete.error)}
-                      title="Resync"
+                      className="collections-view-action-btn"
+                      onClick={() => onEdit(c)}
+                      title="Edit"
                     >
-                      {resyncProgress?.collectionId === c.id ? "Resyncing..." : "Resync"}
+                      Edit
                     </button>
-                  )}
-                  {c.kind === "subsonic" && (
                     <button
-                      className={`collections-view-action-btn ${checkingConnectionId === c.id ? "collections-view-action-checking" : ""}`}
-                      onClick={() => onCheckConnection(c.id)}
-                      disabled={checkingConnectionId === c.id}
-                      title="Check connection"
+                      className="collections-view-action-btn collections-view-action-btn-danger"
+                      onClick={() => onRemove(c)}
+                      title="Remove"
                     >
-                      {checkingConnectionId === c.id ? "Checking..." : "Check Connection"}
+                      Remove
                     </button>
-                  )}
-                  <button
-                    className="collections-view-action-btn"
-                    onClick={() => onEdit(c)}
-                    title="Edit"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="collections-view-action-btn collections-view-action-btn-danger"
-                    onClick={() => onRemove(c)}
-                    title="Remove"
-                  >
-                    Remove
-                  </button>
-                </div>
+                  </div>
+                )}
                 {connectionResult && connectionResult.collectionId === c.id && (
                   <div className={`collections-view-feedback ${connectionResult.ok ? "collections-view-feedback-ok" : "collections-view-feedback-err"}`}>
                     {connectionResult.message}

@@ -119,12 +119,12 @@ function App() {
   const [debugLogging, setDebugLogging] = useState(false);
   const [lastTidalDownloadDest, setLastTidalDownloadDest] = useState<string | null>(null);
   const [autoSaveStreams, setAutoSaveStreams] = useState(false);
-  const [downloadsCollection, setDownloadsCollection] = useState<Collection | null>(null);
+  const [downloadsCollectionId, setDownloadsCollectionId] = useState<number | null>(null);
   const autoSaveStreamsRef = useRef(false);
-  const downloadsCollectionRef = useRef<Collection | null>(null);
+  const downloadsCollectionIdRef = useRef<number | null>(null);
   trackVideoHistoryRef.current = trackVideoHistory;
   autoSaveStreamsRef.current = autoSaveStreams;
-  downloadsCollectionRef.current = downloadsCollection;
+  downloadsCollectionIdRef.current = downloadsCollectionId;
   const advanceIndexRef = useRef<() => void>(() => {});
   const resolveTidalStreamUrlRef = useRef<(trackId: string, quality?: string | null) => Promise<string>>(
     async () => { throw new Error("TIDAL stream resolver not ready"); }
@@ -196,6 +196,7 @@ function App() {
   // Need to initialize library first to get selection state, then artistInfo will compute popularity
   const [trackPopularityState, setTrackPopularityState] = useState<Record<number, number>>({});
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, trackPopularityState, setNavError);
+  const downloadsCollection = useMemo(() => downloadsCollectionId != null ? library.collections.find(c => c.id === downloadsCollectionId) ?? null : null, [downloadsCollectionId, library.collections]);
 
   const queueHook = useQueue(restoredRef, playback.handlePlay, library.collections, albumImageCache.images);
   const autoContinue = useAutoContinue(restoredRef);
@@ -387,9 +388,9 @@ function App() {
     plugins.dispatchEvent("track:played", track);
     plugins.dispatchEvent("track:scrobbled", track);
     if (shouldAutoSave(autoSaveStreamsRef.current, track.path, resolvedSource?.name ?? null)) {
-      const dlCol = downloadsCollectionRef.current;
-      if (dlCol) {
-        downloads.autoSaveTrack(track, dlCol.id, downloadFormatRef.current).catch(console.error);
+      const dlColId = downloadsCollectionIdRef.current;
+      if (dlColId != null) {
+        downloads.autoSaveTrack(track, dlColId, downloadFormatRef.current).catch(console.error);
       }
     }
   }, [playback.scrobbled, playback.currentTrack, plugins.dispatchEvent]);
@@ -994,7 +995,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastTidalDownloadDest, savedSearchViewModes, savedAutoSaveStreams] = await timeAsync("store.restore", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastTidalDownloadDest, savedSearchViewModes, savedAutoSaveStreams, savedDownloadsCollectionId] = await timeAsync("store.restore", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -1043,6 +1044,7 @@ function App() {
           store.get<string | null>("lastTidalDownloadDest"),
           store.get<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
           store.get<boolean>("autoSaveStreams"),
+          store.get<number | null>("downloadsCollectionId"),
         ]));
         if (v && ["search", "artists", "albums", "tags", "history"].includes(v)) library.setView(v as View);
         if (sa !== undefined && sa !== null) {
@@ -1054,6 +1056,7 @@ function App() {
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory) setTrackVideoHistory(true);
         if (savedAutoSaveStreams) setAutoSaveStreams(true);
+        if (savedDownloadsCollectionId != null) setDownloadsCollectionId(savedDownloadsCollectionId);
 
         // One-time migration: move Last.fm session from app store to plugin storage
         const [migrateSessionKey, migrateUsername, migrateAutoEnabled, migrateAutoInterval, migrateLastImportAt] = await Promise.all([
@@ -1227,9 +1230,6 @@ function App() {
         await getCurrentWindow().show();
       }
       await timeAsync("loadProviders", () => loadProviders(store).then(setSearchProviders));
-      invoke<Collection | null>("get_downloads_collection").then(col => {
-        if (col) setDownloadsCollection(col);
-      }).catch(console.error);
       restoredRef.current = true;
       setAppRestoring(false);
       await timeAsync("loadLibrary", () => library.loadLibrary());
@@ -1651,8 +1651,10 @@ function App() {
     const selected = await open({ directory: true, title: "Select Downloads Folder" });
     if (!selected) return;
     try {
-      const col = await invoke<Collection>("create_downloads_collection", { path: selected });
-      setDownloadsCollection(col);
+      const col = await invoke<Collection>("add_collection", { kind: "local", name: "Downloads", path: selected });
+      setDownloadsCollectionId(col.id);
+      store.set("downloadsCollectionId", col.id);
+      library.loadLibrary();
       addLog(`Downloads folder set: ${selected}`, "settings");
     } catch (e) {
       console.error("Failed to set downloads collection:", e);
@@ -1660,14 +1662,10 @@ function App() {
   };
 
   const handleUnsetDownloadsCollection = async () => {
-    try {
-      await invoke("unset_downloads_collection");
-      setDownloadsCollection(null);
-      setAutoSaveStreams(false);
-      store.set("autoSaveStreams", false);
-    } catch (e) {
-      console.error("Failed to unset downloads collection:", e);
-    }
+    setDownloadsCollectionId(null);
+    setAutoSaveStreams(false);
+    store.set("downloadsCollectionId", null);
+    store.set("autoSaveStreams", false);
   };
 
   function handleAutoSaveStreamsChange(enabled: boolean) {
@@ -2362,6 +2360,7 @@ function App() {
           {view === "collections" && (
             <CollectionsView
               collections={library.collections.filter(c => c.kind !== "tidal")}
+              downloadsCollectionId={downloadsCollectionId}
               onToggleEnabled={collectionActions.handleToggleCollectionEnabled}
               onCheckConnection={collectionActions.handleCheckConnection}
               onResync={collectionActions.handleResyncCollection}

@@ -87,7 +87,6 @@ fn collection_from_row(row: &rusqlite::Row) -> rusqlite::Result<Collection> {
         enabled: row.get::<_, i32>(9).unwrap_or(1) != 0,
         last_sync_duration_secs: row.get(10)?,
         last_sync_error: row.get(11)?,
-        is_downloads: row.get::<_, i32>(12).unwrap_or(0) != 0,
     })
 }
 
@@ -248,8 +247,7 @@ impl Database {
                 auto_update_interval_mins INTEGER NOT NULL DEFAULT 60,
                 enabled                   INTEGER NOT NULL DEFAULT 1,
                 last_sync_duration_secs   REAL,
-                last_sync_error           TEXT,
-                is_downloads              INTEGER DEFAULT 0
+                last_sync_error           TEXT
             );
 
             CREATE TABLE IF NOT EXISTS tracks (
@@ -466,8 +464,7 @@ impl Database {
 
         if version < 29 {
             conn.execute_batch(
-                "ALTER TABLE collections ADD COLUMN is_downloads INTEGER DEFAULT 0;
-                 UPDATE db_version SET version = 29 WHERE rowid = 1;"
+                "UPDATE db_version SET version = 29 WHERE rowid = 1;"
             )?;
         }
 
@@ -1439,7 +1436,6 @@ impl Database {
             enabled: true,
             last_sync_duration_secs: None,
             last_sync_error: None,
-            is_downloads: false,
         })
     }
 
@@ -1459,7 +1455,7 @@ impl Database {
     pub fn get_collections(&self) -> SqlResult<Vec<Collection>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error, is_downloads FROM collections ORDER BY name"
+            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error FROM collections ORDER BY name"
         )?;
         let rows = stmt.query_map([], |row| collection_from_row(row))?;
         rows.collect()
@@ -1492,7 +1488,7 @@ impl Database {
     pub fn get_collection_by_id(&self, collection_id: i64) -> SqlResult<Collection> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error, is_downloads FROM collections WHERE id = ?1",
+            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error FROM collections WHERE id = ?1",
             params![collection_id],
             |row| collection_from_row(row),
         )
@@ -3274,53 +3270,6 @@ impl Database {
         conn.execute_batch("COMMIT")?;
         Ok(())
     }
-    pub fn get_downloads_collection(&self) -> SqlResult<Option<Collection>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error, is_downloads FROM collections WHERE is_downloads = 1 LIMIT 1"
-        )?;
-        let mut rows = stmt.query_map([], |row| collection_from_row(row))?;
-        match rows.next() {
-            Some(r) => Ok(Some(r?)),
-            None => Ok(None),
-        }
-    }
-
-    pub fn create_downloads_collection(&self, path: &str) -> SqlResult<Collection> {
-        let conn = self.conn.lock().unwrap();
-        let name = "Downloads";
-        conn.execute(
-            "UPDATE collections SET is_downloads = 0 WHERE is_downloads = 1",
-            [],
-        )?;
-        conn.execute(
-            "INSERT INTO collections (kind, name, path, is_downloads) VALUES ('local', ?1, ?2, 1)",
-            params![name, path],
-        )?;
-        let id = conn.last_insert_rowid();
-        Ok(Collection {
-            id,
-            kind: "local".to_string(),
-            name: name.to_string(),
-            path: Some(path.to_string()),
-            url: None,
-            username: None,
-            last_synced_at: None,
-            auto_update: false,
-            auto_update_interval_mins: 60,
-            enabled: true,
-            last_sync_duration_secs: None,
-            last_sync_error: None,
-            is_downloads: true,
-        })
-    }
-
-    pub fn unset_downloads_collection(&self) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute("UPDATE collections SET is_downloads = 0 WHERE is_downloads = 1", [])?;
-        Ok(())
-    }
-
     pub fn find_track_in_collection(
         &self,
         collection_id: i64,
@@ -4957,29 +4906,6 @@ mod tests {
         let providers = db.get_download_providers().unwrap();
         assert_eq!(providers[0].3, 100);
         assert_eq!(providers[0].4, true);
-    }
-
-    #[test]
-    fn test_downloads_collection_lifecycle() {
-        let db = test_db();
-
-        assert!(db.get_downloads_collection().unwrap().is_none());
-
-        let col = db.create_downloads_collection("/tmp/downloads").unwrap();
-        assert!(col.is_downloads);
-        assert_eq!(col.path.as_deref(), Some("/tmp/downloads"));
-        assert_eq!(col.kind, "local");
-
-        let found = db.get_downloads_collection().unwrap().unwrap();
-        assert_eq!(found.id, col.id);
-
-        let col2 = db.create_downloads_collection("/tmp/downloads2").unwrap();
-        assert!(col2.is_downloads);
-        let old = db.get_collection_by_id(col.id).unwrap();
-        assert!(!old.is_downloads);
-
-        db.unset_downloads_collection().unwrap();
-        assert!(db.get_downloads_collection().unwrap().is_none());
     }
 
     #[test]

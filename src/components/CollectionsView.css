@@ -56,6 +56,15 @@
   text-decoration: line-through;
 }
 
+.collection-kind-system {
+  background: rgba(var(--accent-rgb), 0.15);
+  color: var(--accent);
+}
+
+.collections-view-card-system {
+  border-left: 3px solid var(--accent);
+}
+
 .collections-view-status {
   width: 8px;
   height: 8px;

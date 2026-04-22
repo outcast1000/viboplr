@@ -286,28 +286,6 @@ pub fn get_collection_stats(state: State<'_, AppState>) -> Result<Vec<Collection
 }
 
 #[tauri::command]
-pub fn get_downloads_collection(
-    state: State<'_, AppState>,
-) -> Result<Option<Collection>, String> {
-    state.db.get_downloads_collection().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn create_downloads_collection(
-    state: State<'_, AppState>,
-    path: String,
-) -> Result<Collection, String> {
-    state.db.create_downloads_collection(&path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn unset_downloads_collection(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    state.db.unset_downloads_collection().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub fn find_track_in_collection(
     state: State<'_, AppState>,
     collection_id: i64,
