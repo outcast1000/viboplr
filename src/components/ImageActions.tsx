@@ -32,6 +32,7 @@ interface ImageActionsProps {
   entityId: number;
   entityType: "artist" | "album" | "tag";
   entityName?: string;
+  artistName?: string;
   imagePath: string | null | undefined;
   providers?: SearchProviderConfig[];
   onImageSet: (id: number, path: string) => void;
@@ -39,7 +40,7 @@ interface ImageActionsProps {
   onRefresh?: () => void;
 }
 
-export function ImageActions({ entityId, entityType, entityName, imagePath, providers, onImageSet, onImageRemoved, onRefresh }: ImageActionsProps) {
+export function ImageActions({ entityId, entityType, entityName, artistName, imagePath, providers, onImageSet, onImageRemoved, onRefresh }: ImageActionsProps) {
   const [open_menu, setOpenMenu] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -126,7 +127,7 @@ export function ImageActions({ entityId, entityType, entityName, imagePath, prov
             <button
               onClick={() => {
                 setOpenMenu(false);
-                const q = encodeURIComponent(entityName);
+                const q = encodeURIComponent(artistName && entityType === "album" ? `${artistName} ${entityName}` : entityName);
                 openUrl(`https://www.google.com/search?tbm=isch&q=${q}`);
               }}
             >
@@ -143,7 +144,7 @@ export function ImageActions({ entityId, entityType, entityName, imagePath, prov
                 <div className="artist-image-menu-submenu-list">
                   {activeProviders.map((provider) => {
                     const template = provider[urlKey!]!;
-                    const params = entityType === "artist" ? { artist: entityName } : { title: entityName };
+                    const params = entityType === "artist" ? { artist: entityName } : { title: entityName, artist: artistName };
                     const url = buildSearchUrl(template, params);
                     return (
                       <button

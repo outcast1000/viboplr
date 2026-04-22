@@ -273,6 +273,7 @@ export function TrackDetailView({
                 entityId={track.album_id}
                 entityType="album"
                 entityName={track.album_title ?? undefined}
+                artistName={track.artist_name ?? undefined}
                 imagePath={albumImagePath}
                 providers={getProvidersForContext(searchProviders, "album")}
                 onImageSet={(id, path) => onImageSet("album", id, path)}
