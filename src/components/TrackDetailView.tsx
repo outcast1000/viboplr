@@ -251,7 +251,10 @@ export function TrackDetailView({
         <div className="track-detail-header">
           <div className="track-detail-art">
             {(albumImagePath || artistImagePath) ? (
-              <img className="track-detail-art-img" src={convertFileSrc((albumImagePath ?? artistImagePath)!)} alt={track.album_title ?? track.artist_name ?? ""} />
+              <>
+                <img className="track-detail-art-img" src={convertFileSrc((albumImagePath ?? artistImagePath)!)} alt={track.album_title ?? track.artist_name ?? ""} />
+                <span className="track-detail-art-label">{albumImagePath ? "Album" : "Artist"}</span>
+              </>
             ) : (
               <svg className="track-detail-art-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" />

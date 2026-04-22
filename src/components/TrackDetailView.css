@@ -399,6 +399,27 @@
   opacity: 1;
 }
 
+.track-detail-art-label {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(0, 0, 0, 0.5);
+  padding: 2px 6px;
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.track-detail-art:hover .track-detail-art-label {
+  opacity: 1;
+}
+
 .track-detail-art-placeholder {
   width: 48px;
   height: 48px;
