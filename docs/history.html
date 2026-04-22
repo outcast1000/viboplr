@@ -67,6 +67,52 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.25</span>
+          <span class="timeline-date">April 22, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>add auto-save trigger for remote tracks during playback</li>
+          <li>add pre-resolution local copy check for remote tracks</li>
+          <li>add Downloads section in Settings with folder picker and auto-save toggle</li>
+          <li>add backend commands for downloads collection management</li>
+          <li>add is_downloads column to collections (migration v29)</li>
+          <li>implement auto-tagger plugin with tokenization, analysis, and auto-assign</li>
+          <li>add auto-tagger plugin manifest</li>
+          <li>emit track-removed Tauri event from delete_tracks</li>
+          <li>bridge Tauri scan/sync/track events to plugin dispatchEvent</li>
+          <li>add track:added, track:removed, scan:complete to PluginEventName</li>
+          <li><strong>spotify</strong>: rework plugin — remove archives, add diff tracking, configurable sections, settings panel</li>
+          <li>add debug logging to forward frontend activity to backend log file</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>write logs inside each profile directory instead of shared location</li>
+          <li>trigger auto-save on scrobble instead of playback start</li>
+          <li>unify sidebar nav button font size to --fs-sm</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li>replace is_downloads column with store-based setting</li>
+          </ul>
+          <h4>Tests</h4>
+          <ul>
+          <li>add tokenization pipeline tests for auto-tagger plugin</li>
+          </ul>
+          <h4>Chores</h4>
+          <ul>
+          <li>remove Cargo.lock from repo and gitignore it</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.25/Viboplr_0.9.25_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.25_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.25/Viboplr_0.9.25_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.25_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.24</span>
           <span class="timeline-date">April 21, 2026</span>
         </div>
