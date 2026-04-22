@@ -453,18 +453,12 @@
   flex-shrink: 0;
 }
 
-.now-mini-art-fallback {
-  width: 36px;
-  height: 36px;
-  border-radius: 4px;
-  flex-shrink: 0;
+.now-mini-art-placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-surface);
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
 }
 
 .now-mini-info-text {

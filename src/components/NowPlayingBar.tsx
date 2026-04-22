@@ -172,9 +172,15 @@ export function NowPlayingBar({
         } : undefined}>
         <div className="now-info">
           <div className="now-mini-art-wrapper">
-            {imagePath && <img className="now-mini-art" src={imagePath.startsWith("http") ? imagePath : convertFileSrc(imagePath)} alt="" />}
-            {!imagePath && currentTrack && (
-              <span className="now-mini-art-fallback">{(currentTrack.title[0] ?? "?").toUpperCase()}</span>
+            {imagePath ? (
+              <img className="now-mini-art" src={imagePath.startsWith("http") ? imagePath : convertFileSrc(imagePath)} alt="" />
+            ) : (
+              <div className="now-mini-art now-mini-art-placeholder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                  <circle cx="12" cy="12" r="10" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </div>
             )}
           </div>
           <div className="now-mini-info-text">

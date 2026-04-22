@@ -352,13 +352,18 @@ export function QueuePanel({
             onDoubleClick={() => handleDoubleClick(t, i)}
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
-            {(t.image_url || !t.path.startsWith("file://")) && (
-              <div className="queue-item-art-wrapper">
-                {t.image_url && (
-                  <img className="queue-item-thumb" src={t.image_url.startsWith("http") ? t.image_url : convertFileSrc(t.image_url)} alt="" />
-                )}
-              </div>
-            )}
+            <div className="queue-item-art-wrapper">
+              {t.image_url ? (
+                <img className="queue-item-thumb" src={t.image_url.startsWith("http") ? t.image_url : convertFileSrc(t.image_url)} alt="" />
+              ) : (
+                <div className="queue-item-thumb queue-item-thumb-placeholder">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+                    <circle cx="12" cy="12" r="10" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                </div>
+              )}
+            </div>
             <div className="queue-item-info" title={t.url || t.path || ""}>
               <div className="queue-item-line1">
                 <span className="queue-item-title">{t.title}</span>

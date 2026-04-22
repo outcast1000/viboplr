@@ -276,6 +276,14 @@
   flex-shrink: 0;
 }
 
+.queue-item-thumb-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+}
+
 .queue-item-locate {
   background: none;
   border: none;
