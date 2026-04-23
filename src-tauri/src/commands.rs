@@ -1716,8 +1716,9 @@ pub async fn yt_dlp_stream_audio(
 
         log::info!("yt-dlp downloading {} -> {}", youtube_url, dest.display());
 
+        let dest_str = dest.to_string_lossy().to_string();
         let output = std::process::Command::new("yt-dlp")
-            .args(["-f", "bestaudio", "--no-warnings", "-o", &dest.to_string_lossy(), &youtube_url])
+            .args(["-f", "bestaudio", "--no-warnings", "-o", &dest_str, &youtube_url])
             .output()
             .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
 
@@ -1733,7 +1734,68 @@ pub async fn yt_dlp_stream_audio(
         log::info!("yt-dlp download complete: {} ({} bytes)", dest.display(),
             std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0));
 
-        Ok(dest.to_string_lossy().to_string())
+        Ok(dest_str)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Convert a local audio file to a different format using ffmpeg.
+/// Returns the path to the converted file. If ffmpeg is unavailable, returns the original path.
+#[tauri::command]
+pub async fn ffmpeg_convert_audio(
+    source_path: String,
+    audio_format: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ext = match audio_format.as_str() {
+            "aac" | "m4a" => "m4a",
+            "mp3" => "mp3",
+            "flac" => "flac",
+            _ => return Ok(source_path),
+        };
+
+        let has_ffmpeg = std::process::Command::new("ffmpeg")
+            .arg("-version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if !has_ffmpeg {
+            return Ok(source_path);
+        }
+
+        let src = std::path::Path::new(&source_path);
+        let dest = src.with_extension(ext);
+        if dest == src {
+            return Ok(source_path);
+        }
+
+        let dest_str = dest.to_string_lossy().to_string();
+        log::info!("ffmpeg converting {} -> {}", source_path, dest_str);
+
+        let codec = match audio_format.as_str() {
+            "aac" | "m4a" => "aac",
+            "mp3" => "libmp3lame",
+            "flac" => "flac",
+            _ => "copy",
+        };
+
+        let output = std::process::Command::new("ffmpeg")
+            .args(["-i", &source_path, "-vn", "-c:a", codec, "-y", &dest_str])
+            .output()
+            .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            log::warn!("ffmpeg conversion failed, using original: {}", stderr);
+            return Ok(source_path);
+        }
+
+        log::info!("ffmpeg conversion complete: {} ({} bytes)", dest_str,
+            std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0));
+
+        Ok(dest_str)
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?

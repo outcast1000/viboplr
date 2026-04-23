@@ -49,11 +49,16 @@ async function activate(api) {
     if (!ytDlpVersion) return null;
 
     try {
-      var filePath = await searchAndDownload(api, title, artistName);
-      if (!filePath) return null;
+      var webmPath = await searchAndDownload(api, title, artistName);
+      if (!webmPath) return null;
+
+      var finalPath = await api.informationTypes.invoke("ffmpeg_convert_audio", {
+        sourcePath: webmPath,
+        audioFormat: format || "aac"
+      });
 
       return {
-        url: "file://" + filePath,
+        url: "file://" + finalPath,
         headers: null,
         metadata: {
           title: title,
@@ -62,7 +67,7 @@ async function activate(api) {
         }
       };
     } catch (e) {
-      console.error("YouTube download resolve failed:", e);
+      console.error("[youtube] download resolve failed:", e);
       return null;
     }
   });
@@ -85,7 +90,7 @@ function renderSettings(api) {
         label: "yt-dlp status",
         description: ytDlpVersion
           ? "Installed (v" + ytDlpVersion + ")"
-          : "Not found \u2014 install yt-dlp to enable YouTube playback and downloads",
+          : "Not found — install yt-dlp to enable YouTube playback and downloads",
         child: {
           type: "button",
           label: "Check again",
