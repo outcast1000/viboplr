@@ -195,6 +195,8 @@ export function useDownloads(
         const rest = path.substring(11);
         const lastSlash = rest.lastIndexOf("/");
         sourceTrackId = lastSlash >= 0 ? rest.substring(lastSlash + 1) : null;
+      } else if (path.startsWith("external://")) {
+        sourceProviderId = "youtube:youtube-download";
       }
 
       await invoke("enqueue_download", {

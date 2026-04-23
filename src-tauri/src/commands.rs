@@ -1519,8 +1519,14 @@ fn resolve_dest_collection(
     if let (Some(cid), Some(path)) = (dest_collection_id, custom_dest_path.as_ref()) {
         return Ok((cid, path.clone()));
     }
-    // Fall back to first enabled local collection
     let collections = state.db.get_collections().map_err(|e| e.to_string())?;
+    // Look up by ID if provided
+    if let Some(cid) = dest_collection_id {
+        if let Some(c) = collections.iter().find(|c| c.id == cid && c.path.is_some()) {
+            return Ok((c.id, c.path.clone().unwrap()));
+        }
+    }
+    // Fall back to first enabled local collection
     let local = collections
         .iter()
         .find(|c| c.kind == "local" && c.enabled && c.path.is_some())
