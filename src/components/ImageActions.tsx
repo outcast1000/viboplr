@@ -78,7 +78,7 @@ export function ImageActions({ entityId, entityType, entityName, artistName, ima
                   id: entityId,
                 });
                 onImageSet(entityId, path);
-              } catch { /* clipboard empty or no image */ }
+              } catch (err) { console.error("Failed to paste image from clipboard:", err); }
             }}
           >
             <IconPaste size={14} /><span>Paste Image</span>
