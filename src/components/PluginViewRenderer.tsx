@@ -148,7 +148,7 @@ function PluginViewNode({
       return (
         <button
           className={node.variant === "accent" ? "ds-btn ds-btn--primary" : "plugin-button"}
-          onClick={() => onAction?.(node.action)}
+          onClick={() => onAction?.(node.action, node.data)}
           disabled={node.disabled}
           style={node.style as React.CSSProperties | undefined}
         >

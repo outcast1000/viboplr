@@ -393,12 +393,18 @@ function activate(api) {
     } else if (state.activeTab.indexOf("section:") === 0) {
       var sectionName = state.activeTab.substring(8);
       var secPlaylists = getPlaylistsForSection(sectionName);
-      if (!isActive && state.status !== "idle") {
+      if (!isActive) {
+        var sectionActions = [
+          { type: "button", label: "Remove Section", action: "remove-section-tab", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" }, data: { section: sectionName } },
+        ];
+        if (state.status !== "idle") {
+          sectionActions.unshift(
+            { type: "button", label: "Refresh " + sectionName, action: "refresh-section", variant: "secondary", disabled: state.refreshing, style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" }, data: { section: sectionName } }
+          );
+        }
         ch.push({
-          type: "layout", direction: "horizontal", style: { "margin-bottom": "8px" },
-          children: [
-            { type: "button", label: "Refresh " + sectionName, action: "refresh-section", variant: "secondary", disabled: state.refreshing, style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" }, data: { section: sectionName } },
-          ],
+          type: "layout", direction: "horizontal", style: { "margin-bottom": "8px", "gap": "8px" },
+          children: sectionActions,
         });
       }
       if (secPlaylists.length === 0 && state.status === "idle") {
@@ -1202,6 +1208,21 @@ function activate(api) {
       recordCheckResult(0, 1);
       render();
     });
+  });
+
+  api.ui.onAction("remove-section-tab", function(data) {
+    if (!data || !data.section) return;
+    var name = data.section;
+    var idx = -1;
+    for (var i = 0; i < state.sections.length; i++) {
+      if (state.sections[i] === name) { idx = i; break; }
+    }
+    if (idx === -1) return;
+    state.sections.splice(idx, 1);
+    api.storage.set("spotify_browse_sections", state.sections).catch(console.error);
+    state.activeTab = "saved";
+    renderSettings();
+    render();
   });
 
   api.ui.onAction("switch-tab", function(data) {
