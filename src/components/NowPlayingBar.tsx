@@ -351,7 +351,7 @@ export function NowPlayingBar({
                       currentTrack.file_size ? `Size: ${(currentTrack.file_size / 1048576).toFixed(1)} MB` : null,
                       currentTrack.collection_name ? `Collection: ${currentTrack.collection_name}` : null,
                       isLocal ? `Path: ${currentTrack.path.replace(/^file:\/\//, "")}` : null,
-                      !isLocal && resolvedSource ? `URL: ${(() => { try { return new URL(resolvedSource.url).hostname; } catch { return resolvedSource.url.slice(0, 50); } })()}` : null,
+                      !isLocal && resolvedSource ? `URL: ${(() => { try { const u = new URL(resolvedSource.url); return u.protocol === "asset:" ? decodeURIComponent(u.pathname) : u.hostname; } catch { return resolvedSource.url.slice(0, 50); } })()}` : null,
                     ].filter(Boolean).join("\n");
                     return <span
                       className="now-source-icon"
