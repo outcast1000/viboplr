@@ -186,6 +186,15 @@ function PluginViewNode({
           onAction={onAction}
         />
       );
+    case "text-input":
+      return (
+        <PluginTextInput
+          placeholder={node.placeholder}
+          action={node.action}
+          value={node.value}
+          onAction={onAction}
+        />
+      );
     case "tabs":
       return (
         <PluginTabs
@@ -627,6 +636,38 @@ function PluginSearchInput({
       onEnter={() => {
         if (query.trim()) onAction?.(action, { query: query.trim() });
       }}
+    />
+  );
+}
+
+function PluginTextInput({
+  placeholder,
+  action,
+  value,
+  onAction,
+}: {
+  placeholder?: string;
+  action: string;
+  value?: string;
+  onAction?: (actionId: string, data?: unknown) => void;
+}) {
+  const [text, setText] = useState(value ?? "");
+  return (
+    <input
+      className="ds-input"
+      type="text"
+      placeholder={placeholder ?? ""}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        onAction?.(action, { value: e.target.value });
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && text.trim()) {
+          onAction?.(action + ":submit", { value: text.trim() });
+        }
+      }}
+      style={{ flex: 1 }}
     />
   );
 }

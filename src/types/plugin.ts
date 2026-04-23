@@ -195,6 +195,12 @@ export type PluginViewData =
       value?: string;
     }
   | {
+      type: "text-input";
+      placeholder?: string;
+      action: string;
+      value?: string;
+    }
+  | {
       type: "tabs";
       tabs: { id: string; label: string; count?: number }[];
       activeTab: string;
