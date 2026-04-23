@@ -4,23 +4,31 @@ async function activate(api) {
   ytDlpVersion = await api.informationTypes.invoke("yt_dlp_check", {});
 
   api.playback.onStreamResolve("youtube-fallback", async function(title, artistName, albumName) {
-    if (!ytDlpVersion) return null;
+    console.log("[youtube] stream resolve called:", title, "by", artistName);
+    if (!ytDlpVersion) {
+      console.log("[youtube] skipping — yt-dlp not available");
+      return null;
+    }
 
     try {
+      console.log("[youtube] searching YouTube...");
       var result = await api.informationTypes.invoke("search_youtube", {
         title: title,
         artistName: artistName || null
       });
+      console.log("[youtube] search result:", result);
       if (!result || !result.url) return null;
 
-      var streamUrl = await api.informationTypes.invoke("yt_dlp_extract_audio_url", {
-        url: result.url
+      console.log("[youtube] downloading audio via yt-dlp...");
+      var filePath = await api.informationTypes.invoke("yt_dlp_stream_audio", {
+        youtubeUrl: result.url
       });
-      if (!streamUrl) return null;
+      console.log("[youtube] downloaded to:", filePath);
+      if (!filePath) return null;
 
-      return { url: streamUrl, label: "YouTube" };
+      return { url: "file://" + filePath, label: "YouTube" };
     } catch (e) {
-      console.error("YouTube stream resolve failed:", e);
+      console.error("[youtube] stream resolve failed:", e);
       return null;
     }
   });
@@ -35,13 +43,13 @@ async function activate(api) {
       });
       if (!result || !result.url) return null;
 
-      var streamUrl = await api.informationTypes.invoke("yt_dlp_extract_audio_url", {
-        url: result.url
+      var filePath = await api.informationTypes.invoke("yt_dlp_stream_audio", {
+        youtubeUrl: result.url
       });
-      if (!streamUrl) return null;
+      if (!filePath) return null;
 
       return {
-        url: streamUrl,
+        url: "file://" + filePath,
         headers: null,
         metadata: {
           title: title,
@@ -87,3 +95,5 @@ function renderSettings(api) {
 function deactivate() {
   ytDlpVersion = null;
 }
+
+return { activate: activate, deactivate: deactivate };

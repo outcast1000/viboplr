@@ -1689,11 +1689,29 @@ pub async fn yt_dlp_check() -> Option<String> {
     .flatten()
 }
 
+
+
 #[tauri::command]
-pub async fn yt_dlp_extract_audio_url(url: String) -> Result<String, String> {
+pub async fn yt_dlp_stream_audio(
+    state: State<'_, AppState>,
+    youtube_url: String,
+) -> Result<String, String> {
+    let app_dir = state.app_dir.clone();
+
     tauri::async_runtime::spawn_blocking(move || {
+        let temp_dir = app_dir.join("yt_cache");
+        std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create yt_cache: {}", e))?;
+
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let dest = temp_dir.join(format!("{}.webm", ts));
+
+        log::info!("yt-dlp downloading {} -> {}", youtube_url, dest.display());
+
         let output = std::process::Command::new("yt-dlp")
-            .args(["-f", "bestaudio", "-g", &url])
+            .args(["-f", "bestaudio", "--no-warnings", "-o", &dest.to_string_lossy(), &youtube_url])
             .output()
             .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
 
@@ -1702,9 +1720,14 @@ pub async fn yt_dlp_extract_audio_url(url: String) -> Result<String, String> {
             return Err(format!("yt-dlp failed: {}", stderr));
         }
 
-        String::from_utf8(output.stdout)
-            .map(|s| s.trim().to_string())
-            .map_err(|e| format!("Invalid yt-dlp output: {}", e))
+        if !dest.exists() {
+            return Err("yt-dlp produced no output file".to_string());
+        }
+
+        log::info!("yt-dlp download complete: {} ({} bytes)", dest.display(),
+            std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0));
+
+        Ok(dest.to_string_lossy().to_string())
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
@@ -3492,6 +3515,7 @@ mod tests {
             direct_download_cancel: Arc::new(AtomicBool::new(false)),
             mixtape_cancel: Arc::new(AtomicBool::new(false)),
             update_checker_cancel: Arc::new(AtomicBool::new(false)),
+
         }
     }
 
