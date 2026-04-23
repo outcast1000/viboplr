@@ -212,6 +212,7 @@ export type PluginViewData =
   | { type: "progress-bar"; value: number; max: number; label?: string }
   | {
       type: "toolbar";
+      title?: string;
       buttons: { label: string; action: string; variant?: "accent" | "secondary"; disabled?: boolean; data?: unknown }[];
       status?: string;
       statusVariant?: "default" | "error" | "success";

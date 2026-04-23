@@ -207,6 +207,7 @@ function PluginViewNode({
     case "toolbar":
       return (
         <div className="plugin-toolbar">
+          {node.title && <span className="plugin-toolbar-title">{node.title}</span>}
           <div className="plugin-toolbar-buttons">
             {node.buttons.map((btn, i) => (
               <button

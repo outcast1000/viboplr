@@ -260,6 +260,12 @@
   min-height: 36px;
 }
 
+.plugin-toolbar-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .plugin-toolbar-buttons {
   display: flex;
   align-items: center;

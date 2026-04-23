@@ -299,6 +299,7 @@ function activate(api) {
 
     return {
       type: "toolbar",
+      title: "Spotify",
       buttons: buttons,
       status: statusText || undefined,
       statusVariant: statusVariant,
