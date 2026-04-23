@@ -67,6 +67,53 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.27</span>
+          <span class="timeline-date">April 24, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li>separate playback (webm) from download (transcoded) for YouTube</li>
+          <li>add YouTube stream resolver via yt-dlp download</li>
+          <li>show volume slider in mini player on scroll</li>
+          <li>add toolbar plugin view type, redesign Spotify plugin header</li>
+          <li>add last check info, auto-refresh interval, open browser, per-section refresh</li>
+          <li>add plugin-storage archive and restore Save to Playlists</li>
+          <li>redesign Spotify plugin with section-based tabs and archived playlists</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li>remove download progress UI from status bar</li>
+          <li>update currentAssetUrl on crossfade and gapless track advance</li>
+          <li>show file path instead of localhost in source tooltip</li>
+          <li>route auto-save downloads to correct collection</li>
+          <li>cache yt-dlp downloads and support file:// in downloader</li>
+          <li>remove sections to monitor from settings, managed via tabs instead</li>
+          <li>add title to toolbar plugin view type, show Spotify heading</li>
+          <li>restore keyboard paste image for album detail views</li>
+          <li>forward button data to plugin actions, add remove section tab</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li>simplify playlist scraper to single link strategy</li>
+          </ul>
+          <h4>Documentation</h4>
+          <ul>
+          <li>add spec for Spotify browse plugin</li>
+          </ul>
+          <h4>Chores</h4>
+          <ul>
+          <li>clean up yt_cache directory on app startup</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.27/Viboplr_0.9.27_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.27_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.27/Viboplr_0.9.27_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.27_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.26</span>
           <span class="timeline-date">April 22, 2026</span>
         </div>
