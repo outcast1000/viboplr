@@ -663,41 +663,6 @@ function activate(api) {
     IMG_HELPER +
     'var out=[];var seen={};' +
     '_dbg("playlists","starting scrape",{url:location.href});' +
-    // Strategy 1: card-based layout (data-testid="card")
-    'var cards=document.querySelectorAll("div[data-testid=\\"card\\"]");' +
-    '_dbg("playlists","strategy1: cards",{count:cards.length});' +
-    'for(var i=0;i<cards.length;i++){' +
-      'var c=cards[i];' +
-      'var a=c.querySelector("a[href*=\\"/playlist/\\"]");' +
-      'if(!a){continue}' +
-      'var m=(a.getAttribute("href")||"").match(/\\/playlist\\/([a-zA-Z0-9]+)/);' +
-      'if(!m||seen[m[1]])continue;seen[m[1]]=1;' +
-      'var ne=c.querySelector("[data-testid=\\"card-title\\"]")||c.querySelector("p")||c.querySelector("span");' +
-      'var nm=ne?ne.textContent.trim():"";' +
-      'var de=c.querySelector("[data-testid=\\"card-subtitle\\"]");' +
-      'var ds=de?de.textContent.trim():"";' +
-      'var imgUrl=bestImg(c);' +
-      '_dbg("playlists","card["+i+"] found",{id:m[1],name:nm,desc:ds,hasImg:!!imgUrl});' +
-      'if(nm)out.push({id:m[1],name:nm,description:ds,imageUrl:imgUrl,uri:"spotify:playlist:"+m[1]});' +
-    '}' +
-    // Strategy 2: row-based layout (role="row" containing playlist links)
-    'var rows=document.querySelectorAll("[role=\\"row\\"]");' +
-    '_dbg("playlists","strategy2: rows",{count:rows.length});' +
-    'for(var ri=0;ri<rows.length;ri++){' +
-      'var rw=rows[ri];' +
-      'var ra=rw.querySelector("a[href*=\\"/playlist/\\"]");' +
-      'if(!ra)continue;' +
-      'var rm=(ra.getAttribute("href")||"").match(/\\/playlist\\/([a-zA-Z0-9]+)/);' +
-      'if(!rm||seen[rm[1]])continue;seen[rm[1]]=1;' +
-      'var rne=ra.querySelector("div")||ra.querySelector("span")||ra;' +
-      'var rnm=rne?rne.textContent.trim():"";' +
-      'var rds="";var rsub=rw.querySelector("span:not(:first-child)");' +
-      'if(rsub)rds=rsub.textContent.trim();' +
-      'var rimg=bestImg(rw);' +
-      '_dbg("playlists","row["+ri+"] found",{id:rm[1],name:rnm,desc:rds,hasImg:!!rimg});' +
-      'if(rnm)out.push({id:rm[1],name:rnm,description:rds,imageUrl:rimg,uri:"spotify:playlist:"+rm[1]});' +
-    '}' +
-    // Strategy 3: any remaining playlist links not caught above
     'function findImgContainer(el){' +
       'var node=el;' +
       'for(var up=0;up<6&&node;up++){' +
@@ -707,15 +672,15 @@ function activate(api) {
       '}' +
       'return null;' +
     '}' +
-    'var allLinks=document.querySelectorAll("a[href*=\\"/playlist/\\"]");' +
-    '_dbg("playlists","strategy3: remaining links",{count:allLinks.length,alreadySeen:Object.keys(seen).length});' +
-    'for(var li=0;li<allLinks.length;li++){' +
-      'var la=allLinks[li];' +
+    'var allLinks=document.querySelectorAll("a[class][draggable=\\"false\\"][href*=\\"/playlist/\\"]");' +
+    '_dbg("playlists","draggable=false playlist links",{count:allLinks.length});' +
+    'for(var i=0;i<allLinks.length;i++){' +
+      'var la=allLinks[i];' +
       'var lm=(la.getAttribute("href")||"").match(/\\/playlist\\/([a-zA-Z0-9]+)/);' +
       'if(!lm||seen[lm[1]])continue;seen[lm[1]]=1;' +
       'var lnm=la.textContent.trim();' +
       'var limg=findImgContainer(la);' +
-      '_dbg("playlists","link["+li+"] found",{id:lm[1],name:lnm,href:la.getAttribute("href"),hasImg:!!limg});' +
+      '_dbg("playlists","link["+i+"] found",{id:lm[1],name:lnm,href:la.getAttribute("href"),hasImg:!!limg});' +
       'if(lnm)out.push({id:lm[1],name:lnm,description:"",imageUrl:limg,uri:"spotify:playlist:"+lm[1]});' +
     '}' +
     '_dbg("playlists","DONE",{total:out.length,names:out.map(function(p){return p.name})});' +
