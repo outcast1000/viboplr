@@ -237,6 +237,7 @@ export function usePlayback(
     // Update track state for incoming
     trackChangeSourceRef.current = "auto";
     setCurrentTrack(nextTrack);
+    setCurrentAssetUrl(incoming.src);
     setPositionSecs(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
     scrobbledRef.current = false;
@@ -303,6 +304,7 @@ export function usePlayback(
 
     trackChangeSourceRef.current = "auto";
     setCurrentTrack(nextTrack);
+    setCurrentAssetUrl(inactiveEl.src);
     setPositionSecs(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
     scrobbledRef.current = false;
