@@ -1013,6 +1013,9 @@ impl Database {
             sql.push_str(&format!(" AND tt.tag_id = ?{}", param_idx));
             param_idx += 1;
         }
+        if opts.liked_only {
+            sql.push_str(" AND t.liked = 1");
+        }
         if opts.has_youtube_url {
             sql.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''");
         }
