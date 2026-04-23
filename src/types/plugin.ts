@@ -210,6 +210,12 @@ export type PluginViewData =
   | { type: "toggle"; label: string; description?: string; action: string; checked: boolean; disabled?: boolean }
   | { type: "select"; label: string; description?: string; action: string; value: string; options: { value: string; label: string }[] }
   | { type: "progress-bar"; value: number; max: number; label?: string }
+  | {
+      type: "toolbar";
+      buttons: { label: string; action: string; variant?: "accent" | "secondary"; disabled?: boolean; data?: unknown }[];
+      status?: string;
+      statusVariant?: "default" | "error" | "success";
+    }
   | { type: "settings-row"; label: string; description?: string; control: PluginViewData }
   | { type: "section"; title: string; children: PluginViewData[] }
   | {

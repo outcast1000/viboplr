@@ -18,7 +18,7 @@ function activate(api) {
     currentPlaylist: null,
     scrapeProgress: { current: 0, total: 0, name: "" },
     errorMessage: "",
-    activeTab: "saved",
+    activeTab: "section:Made for You",
     archivedPlaylists: [],
     viewingArchived: false,
     lastLoginCheck: null,
@@ -264,51 +264,56 @@ function activate(api) {
     return "";
   }
 
-  function buildHeader() {
-    var headerChildren = [
-      { type: "text", content: "<b style='font-size:var(--fs-sm)'>Spotify</b>" },
-    ];
+  function isActiveStatus() {
+    return state.status === "waiting-login" || state.status === "finding-section" || state.status === "scraping-playlists" || state.status === "scraping-tracks";
+  }
 
-    var isActive = state.status === "waiting-login" || state.status === "finding-section" || state.status === "scraping-playlists" || state.status === "scraping-tracks";
+  function buildToolbar() {
+    var buttons = [];
+    var isActive = isActiveStatus();
 
     if (state.status === "idle") {
-      headerChildren.push({ type: "button", label: "Open Spotify", action: "open-spotify", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } });
+      buttons.push({ label: "Open Spotify", action: "open-spotify" });
     } else if (isActive) {
-      headerChildren.push({ type: "button", label: "Cancel", action: "cancel", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } });
+      buttons.push({ label: "Cancel", action: "cancel" });
     } else {
-      headerChildren.push({ type: "button", label: "Refresh", action: "manual-refresh", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } });
-      headerChildren.push({ type: "button", label: "Open Browser", action: "open-browser", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } });
+      buttons.push({ label: "Refresh All", action: "manual-refresh" });
+      buttons.push({ label: "Open Browser", action: "open-browser" });
     }
 
-    if (state.lastCheckAt && !isActive) {
+    var statusText = "";
+    var statusVariant = "default";
+
+    if (isActive) {
+      statusText = getStatusText();
+    } else if (state.status === "error") {
+      statusText = state.errorMessage;
+      statusVariant = "error";
+    } else if (state.refreshSummary) {
+      statusText = state.refreshSummary;
+    } else if (state.lastCheckAt) {
       var relTime = formatRelativeTime(state.lastCheckAt);
-      var checkInfo = relTime;
-      if (state.lastCheckResult) checkInfo += " — " + state.lastCheckResult;
-      headerChildren.push({ type: "text", content: "<span style='font-size:var(--fs-2xs);color:var(--text-tertiary);white-space:nowrap'>" + escapeHtml(checkInfo) + "</span>" });
+      statusText = "Last check " + relTime;
+      if (state.lastCheckResult) statusText += " — " + state.lastCheckResult;
     }
 
-    var header = [
-      { type: "layout", direction: "horizontal", children: headerChildren },
-    ];
-
-    var statusText = getStatusText();
-    if (statusText) {
-      var color = state.status === "error" ? "var(--error)" : "var(--text-secondary)";
-      header.push({ type: "text", content: "<p style='margin:0;font-size:var(--fs-xs);color:" + color + "'>" + escapeHtml(statusText) + "</p>" });
-    }
-
-    return header;
+    return {
+      type: "toolbar",
+      buttons: buttons,
+      status: statusText || undefined,
+      statusVariant: statusVariant,
+    };
   }
 
   function buildTabs() {
     var tabs = [];
-    tabs.push({ id: "saved", label: "Archived Playlists", count: state.archivedPlaylists.length || undefined });
     for (var i = 0; i < state.sections.length; i++) {
       var sec = state.sections[i];
       var secPlaylists = getPlaylistsForSection(sec);
       tabs.push({ id: "section:" + sec, label: sec, count: secPlaylists.length || undefined });
     }
     tabs.push({ id: "__add__", label: "+" });
+    tabs.push({ id: "saved", label: "Archived Playlists", count: state.archivedPlaylists.length || undefined });
     return tabs;
   }
 
@@ -360,7 +365,7 @@ function activate(api) {
   function renderHome() {
     api.ui.setBadge("spotify", null);
     var ch = [];
-    var isActive = state.status === "waiting-login" || state.status === "finding-section" || state.status === "scraping-playlists" || state.status === "scraping-tracks";
+    var isActive = isActiveStatus();
 
     if (state.activeTab === "saved") {
       if (state.archivedPlaylists.length === 0) {
@@ -414,25 +419,26 @@ function activate(api) {
       }
     }
 
-    var body = [
+    var view = [
+      buildToolbar(),
       { type: "tabs", activeTab: state.activeTab, action: "switch-tab", tabs: buildTabs() },
     ];
 
     if (state.addingSectionViaTab) {
-      body.push({
-        type: "layout", direction: "horizontal", style: { "gap": "8px", "margin": "8px 0", "align-items": "center" },
+      ch.unshift({
+        type: "layout", direction: "horizontal", style: { "gap": "8px", "margin": "0 0 8px 0", "align-items": "center" },
         children: [
           { type: "text-input", placeholder: "Section name (e.g. Your Top Mixes)", action: "section-tab-input" },
-          { type: "button", label: "Add", action: "add-section-tab", variant: "primary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
+          { type: "button", label: "Add", action: "add-section-tab", variant: "accent", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
           { type: "button", label: "Cancel", action: "cancel-add-section", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
         ],
       });
     }
 
-    body.push({ type: "layout", direction: "vertical", children: ch });
+    view.push({ type: "layout", direction: "vertical", children: ch });
 
     api.ui.setViewData("spotify", {
-      type: "layout", direction: "vertical", children: buildHeader().concat(body)
+      type: "layout", direction: "vertical", children: view
     });
   }
 

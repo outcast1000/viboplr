@@ -46,7 +46,7 @@ export function PluginViewRenderer({
   let contentData = data;
   if (data.type === "layout" && data.direction === "vertical") {
     let i = 0;
-    while (i < data.children.length && (data.children[i].type === "search-input" || data.children[i].type === "tabs")) {
+    while (i < data.children.length && (data.children[i].type === "search-input" || data.children[i].type === "tabs" || data.children[i].type === "toolbar")) {
       hoisted.push(data.children[i]);
       i++;
     }
@@ -203,6 +203,28 @@ function PluginViewNode({
           action={node.action}
           onAction={onAction}
         />
+      );
+    case "toolbar":
+      return (
+        <div className="plugin-toolbar">
+          <div className="plugin-toolbar-buttons">
+            {node.buttons.map((btn, i) => (
+              <button
+                key={i}
+                className={btn.variant === "accent" ? "ds-btn ds-btn--primary ds-btn--sm" : "plugin-toolbar-btn"}
+                onClick={() => onAction?.(btn.action, btn.data)}
+                disabled={btn.disabled}
+              >
+                {btn.label}
+              </button>
+            ))}
+          </div>
+          {node.status && (
+            <span className={`plugin-toolbar-status${node.statusVariant === "error" ? " plugin-toolbar-status--error" : node.statusVariant === "success" ? " plugin-toolbar-status--success" : ""}`}>
+              {node.status}
+            </span>
+          )}
+        </div>
       );
     case "loading":
       return <PluginLoading message={node.message} />;

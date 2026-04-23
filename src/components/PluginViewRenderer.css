@@ -248,6 +248,63 @@
   margin-top: 2px;
 }
 
+/* Plugin toolbar */
+.plugin-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  min-height: 36px;
+}
+
+.plugin-toolbar-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.plugin-toolbar-btn {
+  font-size: var(--fs-xs);
+  padding: 3px 10px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.plugin-toolbar-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.plugin-toolbar-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.plugin-toolbar-status {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.plugin-toolbar-status--error {
+  color: var(--error);
+}
+
+.plugin-toolbar-status--success {
+  color: var(--success);
+}
+
 /* Plugin button */
 .plugin-button {
   font-size: var(--fs-sm);
