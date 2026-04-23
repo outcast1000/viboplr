@@ -25,6 +25,9 @@ function activate(api) {
     updatedPlaylistIds: {},
     refreshing: false,
     showBrowserOnRefresh: false,
+    autoRefreshHours: 24,
+    lastCheckAt: null,
+    lastCheckResult: null,
     savedAt: null,
     refreshSummary: "",
     sections: ["Made for You"],
@@ -214,7 +217,29 @@ function activate(api) {
   function savePreferences() {
     api.storage.set("spotify_browse_preferences", {
       showBrowserOnRefresh: state.showBrowserOnRefresh,
+      autoRefreshHours: state.autoRefreshHours,
+      lastCheckAt: state.lastCheckAt,
+      lastCheckResult: state.lastCheckResult,
     }).catch(console.error);
+  }
+
+  function formatRelativeTime(isoStr) {
+    if (!isoStr) return "";
+    var diff = Date.now() - new Date(isoStr).getTime();
+    var mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return mins + "m ago";
+    var hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + "h ago";
+    var days = Math.floor(hrs / 24);
+    return days + "d ago";
+  }
+
+  function recordCheckResult(playlists, errors) {
+    state.lastCheckAt = new Date().toISOString();
+    state.lastCheckResult = playlists + " playlists";
+    if (errors > 0) state.lastCheckResult += ", " + errors + " error" + (errors > 1 ? "s" : "");
+    savePreferences();
   }
 
   // ---- Render ----
@@ -244,12 +269,22 @@ function activate(api) {
       { type: "text", content: "<b style='font-size:var(--fs-sm)'>Spotify</b>" },
     ];
 
+    var isActive = state.status === "waiting-login" || state.status === "finding-section" || state.status === "scraping-playlists" || state.status === "scraping-tracks";
+
     if (state.status === "idle") {
       headerChildren.push({ type: "button", label: "Open Spotify", action: "open-spotify", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } });
-    } else if (state.status === "waiting-login" || state.status === "finding-section" || state.status === "scraping-playlists" || state.status === "scraping-tracks") {
+    } else if (isActive) {
       headerChildren.push({ type: "button", label: "Cancel", action: "cancel", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } });
     } else {
-      headerChildren.push({ type: "button", label: state.refreshing ? "Refreshing…" : "Refresh", action: "manual-refresh", disabled: state.refreshing, variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } });
+      headerChildren.push({ type: "button", label: "Refresh", action: "manual-refresh", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } });
+      headerChildren.push({ type: "button", label: "Open Browser", action: "open-browser", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } });
+    }
+
+    if (state.lastCheckAt && !isActive) {
+      var relTime = formatRelativeTime(state.lastCheckAt);
+      var checkInfo = relTime;
+      if (state.lastCheckResult) checkInfo += " — " + state.lastCheckResult;
+      headerChildren.push({ type: "text", content: "<span style='font-size:var(--fs-2xs);color:var(--text-tertiary);white-space:nowrap'>" + escapeHtml(checkInfo) + "</span>" });
     }
 
     var header = [
@@ -325,6 +360,7 @@ function activate(api) {
   function renderHome() {
     api.ui.setBadge("spotify", null);
     var ch = [];
+    var isActive = state.status === "waiting-login" || state.status === "finding-section" || state.status === "scraping-playlists" || state.status === "scraping-tracks";
 
     if (state.activeTab === "saved") {
       if (state.archivedPlaylists.length === 0) {
@@ -357,6 +393,14 @@ function activate(api) {
     } else if (state.activeTab.indexOf("section:") === 0) {
       var sectionName = state.activeTab.substring(8);
       var secPlaylists = getPlaylistsForSection(sectionName);
+      if (!isActive && state.status !== "idle") {
+        ch.push({
+          type: "layout", direction: "horizontal", style: { "margin-bottom": "8px" },
+          children: [
+            { type: "button", label: "Refresh " + sectionName, action: "refresh-section", variant: "secondary", disabled: state.refreshing, style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" }, data: { section: sectionName } },
+          ],
+        });
+      }
       if (secPlaylists.length === 0 && state.status === "idle") {
         ch.push({ type: "text", content: "<p style='opacity:0.5'>No playlists found for this section. Click <b>Open Spotify</b> or <b>Refresh</b> to scrape.</p>" });
       } else if (secPlaylists.length > 0) {
@@ -456,9 +500,8 @@ function activate(api) {
   function renderSettings() {
     var ch = [];
 
-    // Section: Sections to Monitor
     ch.push({ type: "text", content: "<p style='font-size:var(--fs-sm);font-weight:600;margin:0 0 8px 0'>Sections to Monitor</p>" });
-    ch.push({ type: "text", content: "<p style='font-size:var(--fs-xs);color:var(--text-secondary);margin:0 0 8px 0'>Add Spotify browse sections to scrape for playlists (e.g. \"Made for You\", \"Your Top Mixes\")</p>" });
+    ch.push({ type: "text", content: "<p style='font-size:var(--fs-xs);color:var(--text-secondary);margin:0 0 8px 0'>Spotify browse sections to scrape for playlists (e.g. \"Made for You\", \"Your Top Mixes\")</p>" });
 
     for (var i = 0; i < state.sections.length; i++) {
       ch.push({
@@ -480,8 +523,19 @@ function activate(api) {
 
     ch.push({ type: "spacer" });
 
-    // Section: Preferences
-    ch.push({ type: "text", content: "<p style='font-size:var(--fs-sm);font-weight:600;margin:0 0 8px 0'>Preferences</p>" });
+    ch.push({
+      type: "select", label: "Auto-refresh interval", action: "set-auto-refresh",
+      value: "" + state.autoRefreshHours,
+      options: [
+        { value: "0", label: "Off" },
+        { value: "6", label: "Every 6 hours" },
+        { value: "12", label: "Every 12 hours" },
+        { value: "24", label: "Every 24 hours" },
+        { value: "48", label: "Every 2 days" },
+        { value: "168", label: "Every week" },
+      ],
+    });
+
     ch.push({ type: "toggle", label: "Show browser window during refresh", checked: state.showBrowserOnRefresh, action: "toggle-show-browser-pref" });
 
     api.ui.setViewData("spotify-settings", {
@@ -754,7 +808,8 @@ function activate(api) {
 
   // ---- Consolidated scrape function ----
 
-  function performScrape(showProgress, visible) {
+  function performScrape(showProgress, visible, sectionsOverride) {
+    var sectionsToScrape = sectionsOverride || state.sections;
     return new Promise(function(resolve, reject) {
       var allPlaylists = [];
       var allTracks = {};
@@ -825,12 +880,11 @@ function activate(api) {
 
           function nextSection() {
             if (gen !== scrapeGeneration) { done(null); return; }
-            if (sectionIdx >= state.sections.length) {
-              // Phase 3: Scrape tracks for all playlists
+            if (sectionIdx >= sectionsToScrape.length) {
               scrapeAllTracks();
               return;
             }
-            var sectionName = state.sections[sectionIdx];
+            var sectionName = sectionsToScrape[sectionIdx];
             sectionIdx++;
 
             if (showProgress) {
@@ -1008,15 +1062,18 @@ function activate(api) {
     performScrape(false).then(function(result) {
       state.refreshing = false;
       if (!result) {
+        recordCheckResult(0, 1);
         api.ui.setBadge("spotify", { type: "dot", variant: "error" });
         return;
       }
       var outcome = processRefreshResults(result.playlists, result.tracks);
+      var errCount = result.failedSections ? result.failedSections.length : 0;
+      recordCheckResult(result.playlists.length, errCount);
       cacheAllImages();
       if (outcome.hasChanges) {
         api.ui.setBadge("spotify", { type: "dot", variant: "accent" });
       }
-      if (result.failedSections && result.failedSections.length > 0) {
+      if (errCount > 0) {
         dbg("flow", "Silent refresh: could not find sections: " + result.failedSections.join(", "));
       }
       api.scheduler.complete("auto-refresh").catch(console.error);
@@ -1024,6 +1081,7 @@ function activate(api) {
       render();
     }).catch(function(err) {
       state.refreshing = false;
+      recordCheckResult(0, 1);
       console.error("Silent refresh failed:", err);
       api.ui.setBadge("spotify", { type: "dot", variant: "error" });
     });
@@ -1051,7 +1109,9 @@ function activate(api) {
       state.playlists = result.playlists;
       state.playlistTracks = result.tracks;
       state.status = "done";
-      if (result.failedSections && result.failedSections.length > 0) {
+      var errCount = result.failedSections ? result.failedSections.length : 0;
+      recordCheckResult(result.playlists.length, errCount);
+      if (errCount > 0) {
         state.refreshSummary = "Could not find: " + result.failedSections.join(", ");
       }
       if (state.sections.length > 0) {
@@ -1063,12 +1123,13 @@ function activate(api) {
     }).catch(function(err) {
       state.status = "error";
       state.errorMessage = "Scrape failed: " + (err.message || err);
+      recordCheckResult(0, 1);
       render();
     });
   });
 
   api.ui.onAction("cancel", function() {
-    scrapeGeneration++;  // Invalidate in-flight scrape
+    scrapeGeneration++;
     if (activeScrapeHandle) {
       activeScrapeHandle.close().catch(console.error);
       activeScrapeHandle = null;
@@ -1076,6 +1137,71 @@ function activate(api) {
     state.status = "idle";
     state.refreshing = false;
     render();
+  });
+
+  api.ui.onAction("open-browser", function() {
+    api.network.openBrowseWindow("https://open.spotify.com", {
+      title: "Spotify",
+      width: 1200,
+      height: 800,
+      visible: true,
+    }).catch(console.error);
+  });
+
+  api.ui.onAction("refresh-section", function(data) {
+    if (!data || !data.section) return;
+    if (state.refreshing) return;
+    var sectionName = data.section;
+    state.refreshing = true;
+    state.refreshSummary = "";
+    state.status = "waiting-login";
+    render();
+
+    performScrape(true, state.showBrowserOnRefresh, [sectionName]).then(function(result) {
+      state.refreshing = false;
+      if (!result) {
+        state.status = "error";
+        state.errorMessage = "Not logged in to Spotify.";
+        render();
+        return;
+      }
+      // Merge: remove old playlists from this section, add new ones
+      var kept = [];
+      for (var i = 0; i < state.playlists.length; i++) {
+        if ((state.playlists[i].section || "Playlists") !== sectionName) {
+          kept.push(state.playlists[i]);
+        }
+      }
+      for (var j = 0; j < result.playlists.length; j++) {
+        kept.push(result.playlists[j]);
+      }
+      // Merge tracks
+      var newTracks = {};
+      var oldKeys = Object.keys(state.playlistTracks);
+      for (var k = 0; k < oldKeys.length; k++) {
+        newTracks[oldKeys[k]] = state.playlistTracks[oldKeys[k]];
+      }
+      var resKeys = Object.keys(result.tracks);
+      for (var m = 0; m < resKeys.length; m++) {
+        newTracks[resKeys[m]] = result.tracks[resKeys[m]];
+      }
+      state.playlists = kept;
+      state.playlistTracks = newTracks;
+      var errCount = result.failedSections ? result.failedSections.length : 0;
+      recordCheckResult(result.playlists.length, errCount);
+      saveState();
+      cacheAllImages();
+      state.status = "done";
+      state.refreshSummary = "Refreshed " + sectionName + ": " + result.playlists.length + " playlists";
+      if (errCount > 0) state.refreshSummary += " (" + errCount + " error" + (errCount > 1 ? "s" : "") + ")";
+      render();
+    }).catch(function(err) {
+      state.refreshing = false;
+      state.status = "error";
+      state.errorMessage = "Refresh failed: " + (err.message || err);
+      recordCheckResult(0, 1);
+      render();
+    });
   });
 
   api.ui.onAction("switch-tab", function(data) {
@@ -1358,6 +1484,8 @@ function activate(api) {
         return;
       }
       var outcome = processRefreshResults(result.playlists, result.tracks);
+      var errCount = result.failedSections ? result.failedSections.length : 0;
+      recordCheckResult(result.playlists.length, errCount);
       cacheAllImages();
       state.status = "done";
       var updatedCount = Object.keys(state.updatedPlaylistIds).length;
@@ -1367,7 +1495,7 @@ function activate(api) {
       } else {
         summaryParts.push("No changes detected");
       }
-      if (result.failedSections && result.failedSections.length > 0) {
+      if (errCount > 0) {
         summaryParts.push("Could not find: " + result.failedSections.join(", "));
       }
       state.refreshSummary = summaryParts.join(". ");
@@ -1376,6 +1504,7 @@ function activate(api) {
       state.refreshing = false;
       state.status = "error";
       state.errorMessage = "Refresh failed: " + (err.message || err);
+      recordCheckResult(0, 1);
       render();
     });
   });
@@ -1436,6 +1565,15 @@ function activate(api) {
     renderSettings();
   });
 
+  api.ui.onAction("set-auto-refresh", function(data) {
+    if (!data || data.value === undefined) return;
+    var hrs = parseInt(data.value, 10);
+    state.autoRefreshHours = hrs;
+    savePreferences();
+    registerAutoRefresh();
+    renderSettings();
+  });
+
   // ---- Init: restore previous data ----
 
   // Restore state (with legacy migration)
@@ -1472,6 +1610,12 @@ function activate(api) {
   api.storage.get("spotify_browse_preferences").then(function(prefs) {
     if (prefs) {
       state.showBrowserOnRefresh = !!prefs.showBrowserOnRefresh;
+      if (prefs.autoRefreshHours !== undefined) state.autoRefreshHours = prefs.autoRefreshHours;
+      if (prefs.lastCheckAt) state.lastCheckAt = prefs.lastCheckAt;
+      if (prefs.lastCheckResult) state.lastCheckResult = prefs.lastCheckResult;
+      registerAutoRefresh();
+      renderSettings();
+      render();
     }
   }).catch(console.error);
 
@@ -1505,11 +1649,18 @@ function activate(api) {
     }
   }).catch(console.error);
 
-  // Register 24h auto-refresh scheduler
-  api.scheduler.register("auto-refresh", 24 * 60 * 60 * 1000).catch(console.error);
+  function registerAutoRefresh() {
+    if (state.autoRefreshHours > 0) {
+      api.scheduler.register("auto-refresh", state.autoRefreshHours * 60 * 60 * 1000).catch(console.error);
+    } else {
+      api.scheduler.unregister("auto-refresh").catch(console.error);
+    }
+  }
+
   api.scheduler.onDue("auto-refresh", function() {
     silentRefresh();
   });
+  registerAutoRefresh();
 
   // Load archived playlists
   loadArchives();
