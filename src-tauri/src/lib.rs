@@ -608,6 +608,17 @@ pub fn run() {
                 }
             });
 
+            timer.time("clean_yt_cache", || {
+                let yt_cache = app_dir.join("yt_cache");
+                if yt_cache.is_dir() {
+                    if let Ok(entries) = std::fs::read_dir(&yt_cache) {
+                        for entry in entries.flatten() {
+                            let _ = std::fs::remove_file(entry.path());
+                        }
+                    }
+                }
+            });
+
             let download_queue = timer.time("setup_download_queue", || Arc::new(DownloadQueue {
                 queue: Mutex::new(Vec::new()),
                 condvar: Condvar::new(),
