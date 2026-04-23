@@ -124,9 +124,11 @@ export function NowPlayingBar({
   playbackError, resolvingStatus, resolvedSource, onSkipError,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const likeBtnRef = useRef<HTMLButtonElement>(null);
   const dislikeBtnRef = useRef<HTMLButtonElement>(null);
   const [sourceTooltip, setSourceTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const [showMiniVolume, setShowMiniVolume] = useState(false);
 
   // Blur any focused element when entering mini mode so no button appears selected
   useEffect(() => {
@@ -167,6 +169,9 @@ export function NowPlayingBar({
       <footer className="now-playing now-playing-mini" onMouseDown={handleDrag} onWheel={(e) => {
           e.preventDefault();
           onVolume(Math.min(1, Math.max(0, volume + (e.deltaY < 0 ? 0.05 : -0.05))));
+          setShowMiniVolume(true);
+          if (miniVolumeTimerRef.current) clearTimeout(miniVolumeTimerRef.current);
+          miniVolumeTimerRef.current = setTimeout(() => setShowMiniVolume(false), 1000);
         }} onDoubleClick={isMac ? (e) => {
           if (!(e.target as HTMLElement).closest("button")) onToggleMiniMode();
         } : undefined}>
@@ -195,21 +200,31 @@ export function NowPlayingBar({
                   {currentTrack.title}
                   {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                 </span>
-                <span className="now-artist">
-                  {resolvingStatus ? (
-                    <>
-                      {resolvingStatus.error && (
-                        <><span className="now-resolving-error">{resolvingStatus.error}</span><span className="now-resolving-sep"> · </span></>
-                      )}
-                      <span className="now-resolving-trying">Trying {resolvingStatus.trying}...</span>
-                    </>
-                  ) : (
-                    <>
-                      {currentTrack.artist_name || "Unknown"}
-                      {currentTrack.album_title && ` · ${currentTrack.album_title}`}
-                    </>
-                  )}
-                </span>
+                {showMiniVolume ? (
+                  <div className="mini-volume-row">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/>{volume > 0 && <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>}{volume > 0.5 && <path d="M19 12c0 3.53-2.04 6.58-5 8.05v2.08c4.12-1.57 7-5.47 7-10.13s-2.88-8.56-7-10.13V3.95c2.96 1.47 5 4.52 5 8.05z"/>}</svg>
+                    <div className="mini-volume-track">
+                      <div className="mini-volume-fill" style={{ width: `${Math.round(volume * 100)}%` }} />
+                    </div>
+                    <span className="mini-volume-pct">{Math.round(volume * 100)}%</span>
+                  </div>
+                ) : (
+                  <span className="now-artist">
+                    {resolvingStatus ? (
+                      <>
+                        {resolvingStatus.error && (
+                          <><span className="now-resolving-error">{resolvingStatus.error}</span><span className="now-resolving-sep"> · </span></>
+                        )}
+                        <span className="now-resolving-trying">Trying {resolvingStatus.trying}...</span>
+                      </>
+                    ) : (
+                      <>
+                        {currentTrack.artist_name || "Unknown"}
+                        {currentTrack.album_title && ` · ${currentTrack.album_title}`}
+                      </>
+                    )}
+                  </span>
+                )}
               </>
             ) : (
               <span className="now-title">No track playing</span>

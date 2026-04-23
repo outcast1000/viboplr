@@ -489,6 +489,43 @@
   color: var(--error);
 }
 
+.mini-volume-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 14px;
+  color: var(--text-secondary);
+  animation: mini-volume-in 0.15s ease-out;
+}
+
+@keyframes mini-volume-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.mini-volume-track {
+  flex: 1;
+  height: 3px;
+  background: rgba(var(--overlay-base), 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.mini-volume-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.1s ease-out;
+}
+
+.mini-volume-pct {
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  min-width: 24px;
+  text-align: right;
+  color: var(--text-tertiary);
+}
+
 .now-playing-mini .mini-right {
   display: flex;
   flex-direction: row;
