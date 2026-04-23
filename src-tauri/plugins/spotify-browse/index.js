@@ -513,29 +513,6 @@ function activate(api) {
   function renderSettings() {
     var ch = [];
 
-    ch.push({ type: "text", content: "<p style='font-size:var(--fs-sm);font-weight:600;margin:0 0 8px 0'>Sections to Monitor</p>" });
-    ch.push({ type: "text", content: "<p style='font-size:var(--fs-xs);color:var(--text-secondary);margin:0 0 8px 0'>Spotify browse sections to scrape for playlists (e.g. \"Made for You\", \"Your Top Mixes\")</p>" });
-
-    for (var i = 0; i < state.sections.length; i++) {
-      ch.push({
-        type: "layout", direction: "horizontal", style: { "align-items": "center", "gap": "8px", "margin-bottom": "4px" },
-        children: [
-          { type: "text", content: "<span style='font-size:var(--fs-xs)'>" + escapeHtml(state.sections[i]) + "</span>" },
-          { type: "button", label: "×", action: "remove-section", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "2px 8px", "min-width": "auto" }, data: { index: i } },
-        ],
-      });
-    }
-
-    ch.push({
-      type: "layout", direction: "horizontal", style: { "gap": "8px", "margin-top": "8px" },
-      children: [
-        { type: "text-input", placeholder: "Section name...", action: "section-input" },
-        { type: "button", label: "Add", action: "add-section", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
-      ],
-    });
-
-    ch.push({ type: "spacer" });
-
     ch.push({
       type: "select", label: "Auto-refresh interval", action: "set-auto-refresh",
       value: "" + state.autoRefreshHours,
