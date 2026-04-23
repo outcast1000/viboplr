@@ -2933,8 +2933,6 @@ function App() {
       <StatusBar
         sessionLog={sessionLog}
         activity={statusActivity}
-        downloadStatus={downloads.downloadStatus}
-        onCancelDownload={downloads.cancelDownload}
       />
 
     </div>

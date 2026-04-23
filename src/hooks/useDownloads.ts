@@ -6,19 +6,11 @@ import { remoteId } from "../queueEntry";
 import type { AppStore } from "../store";
 import type { DownloadProvider, DownloadResolveResult } from "../types/plugin";
 
-export interface DownloadStatus {
-  active: { id: number; track_title: string; artist_name: string; progress_pct: number } | null;
-  queued: { id: number; track_title: string; artist_name: string }[];
-  completed: { id: number; track_title: string; status: string; error?: string }[];
-}
-
 export interface UseDownloadsReturn {
   downloadFormat: string;
-  downloadStatus: DownloadStatus | null;
   setFormat: (format: string, store: AppStore) => void;
   downloadTrack: (trackId: number, destCollectionId: number, tracks: Track[]) => Promise<void>;
   autoSaveTrack: (track: Track, downloadsCollectionId: number, format: string) => Promise<void>;
-  cancelDownload: (id: number) => Promise<void>;
 }
 
 export async function resolveDownload(
@@ -50,31 +42,23 @@ export function useDownloads(
   invokeDownloadResolveRef: React.MutableRefObject<(pluginId: string, providerId: string, title: string, artistName: string | null, albumName: string | null, sourceTrackId: string | null, format: string) => Promise<DownloadResolveResult | null>>,
 ): UseDownloadsReturn {
   const [downloadFormat, setDownloadFormat] = useState("flac");
-  const [downloadStatus, setDownloadStatus] = useState<DownloadStatus | null>(null);
 
   useEffect(() => {
-    const unlisten1 = listen<{ id: number; track_title: string; artist_name: string; progress_pct: number }>(
-      "download-progress",
-      () => { invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus); }
-    );
-    const unlisten2 = listen<{ id: number; trackTitle: string; destPath: string }>(
+    const unlisten1 = listen<{ id: number; trackTitle: string; destPath: string }>(
       "download-complete",
       (event) => {
         addLog(`Downloaded: ${event.payload.trackTitle}`, "downloads");
-        invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus);
       }
     );
-    const unlisten3 = listen<{ id: number; trackTitle: string; error: string }>(
+    const unlisten2 = listen<{ id: number; trackTitle: string; error: string }>(
       "download-error",
       (event) => {
-        addLog(`Download error: ${event.payload.trackTitle} - ${event.payload.error}`, "downloads");
-        invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus);
+        addLog(`Download failed: ${event.payload.trackTitle}`, "downloads");
       }
     );
     return () => {
       unlisten1.then((f) => f());
       unlisten2.then((f) => f());
-      unlisten3.then((f) => f());
     };
   }, [addLog]);
 
@@ -216,17 +200,10 @@ export function useDownloads(
     }
   }
 
-  async function cancelDownload(id: number) {
-    await invoke("cancel_download", { downloadId: id });
-    invoke<typeof downloadStatus>("get_download_status").then(setDownloadStatus);
-  }
-
   return {
     downloadFormat,
-    downloadStatus,
     setFormat,
     downloadTrack,
     autoSaveTrack,
-    cancelDownload,
   };
 }
