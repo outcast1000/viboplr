@@ -1,4 +1,29 @@
 var ytDlpVersion = null;
+var downloadCache = {};
+
+async function searchAndDownload(api, title, artistName) {
+  var result = await api.informationTypes.invoke("search_youtube", {
+    title: title,
+    artistName: artistName || null
+  });
+  if (!result || !result.url) return null;
+
+  var cached = downloadCache[result.url];
+  if (cached) {
+    console.log("[youtube] using cached file:", cached);
+    return cached;
+  }
+
+  console.log("[youtube] downloading audio via yt-dlp...");
+  var filePath = await api.informationTypes.invoke("yt_dlp_stream_audio", {
+    youtubeUrl: result.url
+  });
+  if (!filePath) return null;
+
+  console.log("[youtube] downloaded to:", filePath);
+  downloadCache[result.url] = filePath;
+  return filePath;
+}
 
 async function activate(api) {
   ytDlpVersion = await api.informationTypes.invoke("yt_dlp_check", {});
@@ -11,21 +36,8 @@ async function activate(api) {
     }
 
     try {
-      console.log("[youtube] searching YouTube...");
-      var result = await api.informationTypes.invoke("search_youtube", {
-        title: title,
-        artistName: artistName || null
-      });
-      console.log("[youtube] search result:", result);
-      if (!result || !result.url) return null;
-
-      console.log("[youtube] downloading audio via yt-dlp...");
-      var filePath = await api.informationTypes.invoke("yt_dlp_stream_audio", {
-        youtubeUrl: result.url
-      });
-      console.log("[youtube] downloaded to:", filePath);
+      var filePath = await searchAndDownload(api, title, artistName);
       if (!filePath) return null;
-
       return { url: "file://" + filePath, label: "YouTube" };
     } catch (e) {
       console.error("[youtube] stream resolve failed:", e);
@@ -37,15 +49,7 @@ async function activate(api) {
     if (!ytDlpVersion) return null;
 
     try {
-      var result = await api.informationTypes.invoke("search_youtube", {
-        title: title,
-        artistName: artistName || null
-      });
-      if (!result || !result.url) return null;
-
-      var filePath = await api.informationTypes.invoke("yt_dlp_stream_audio", {
-        youtubeUrl: result.url
-      });
+      var filePath = await searchAndDownload(api, title, artistName);
       if (!filePath) return null;
 
       return {
@@ -94,6 +98,7 @@ function renderSettings(api) {
 
 function deactivate() {
   ytDlpVersion = null;
+  downloadCache = {};
 }
 
 return { activate: activate, deactivate: deactivate };

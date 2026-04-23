@@ -344,6 +344,11 @@ pub fn process_download(
         .unwrap_or(Path::new("."))
         .join(&temp_filename);
 
+    if resolved.url.starts_with("file://") {
+        let src_path = &resolved.url[7..];
+        std::fs::copy(src_path, &temp_path)
+            .map_err(|e| format!("Failed to copy local file: {}", e))?;
+    } else {
     let http_client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
         .build()
@@ -409,6 +414,7 @@ pub fn process_download(
     }
 
     drop(file);
+    } // else (remote URL)
 
     // Write tags to the downloaded file
     if let Err(e) = write_tags(
