@@ -11,6 +11,7 @@ export function usePlayback(
   advanceIndexRef: React.RefObject<() => void>,
   trackVideoHistoryRef: React.RefObject<boolean>,
   resolveTrackSrcRef: React.RefObject<(track: Track) => Promise<string>>,
+  prefetchNextRef: React.RefObject<() => void>,
 ) {
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -40,6 +41,7 @@ export function usePlayback(
   const preloadedTrackRef = useRef<Track | null>(null);
   const preloadReadyRef = useRef(false);
   const isPreloadingRef = useRef(false);
+  const prefetchRequestedRef = useRef(false);
 
   // Crossfade state
   const isCrossfadingRef = useRef(false);
@@ -237,6 +239,7 @@ export function usePlayback(
     // Update track state for incoming
     trackChangeSourceRef.current = "auto";
     setCurrentTrack(nextTrack);
+    prefetchRequestedRef.current = false;
     setCurrentAssetUrl(incoming.src);
     setPositionSecs(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
@@ -304,6 +307,7 @@ export function usePlayback(
 
     trackChangeSourceRef.current = "auto";
     setCurrentTrack(nextTrack);
+    prefetchRequestedRef.current = false;
     setCurrentAssetUrl(inactiveEl.src);
     setPositionSecs(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
@@ -360,6 +364,7 @@ export function usePlayback(
 
     trackChangeSourceRef.current = source;
     setCurrentTrack(track);
+    prefetchRequestedRef.current = false;
     setCurrentAssetUrl(src);
     setPositionSecs(0);
     setDurationSecs(track.duration_secs ?? 0);
@@ -477,6 +482,15 @@ export function usePlayback(
       const remaining = el.duration - el.currentTime;
       const cfSecs = crossfadeSecsRef.current;
       const preloadAt = Math.max(5, cfSecs + 2);
+      const prefetchAt = Math.max(10, preloadAt + 5);
+
+      // Auto-continue prefetch: append next track to queue early
+      if (remaining <= prefetchAt && !prefetchRequestedRef.current) {
+        if (!peekNextRef.current()) {
+          prefetchRequestedRef.current = true;
+          prefetchNextRef.current();
+        }
+      }
 
       // Preload trigger
       if (remaining <= preloadAt) {

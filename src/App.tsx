@@ -110,6 +110,7 @@ function App() {
 
   // Core hooks
   const peekNextRef = useRef<() => Track | null>(() => null);
+  const prefetchNextRef = useRef<() => void>(() => {});
   const crossfadeSecsRef = useRef(3);
   const [crossfadeSecs, setCrossfadeSecs] = useState(3);
   crossfadeSecsRef.current = crossfadeSecs;
@@ -144,7 +145,7 @@ function App() {
   const [resolvingStatus, setResolvingStatus] = useState<{ error: string | null; trying: string | null } | null>(null);
   const [resolvedSource, setResolvedSource] = useState<{ name: string; url: string } | null>(null);
   const resolveGenerationRef = useRef(0);
-  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef);
+  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef);
   const waveformPeaks = useWaveform(
     playback.currentTrack?.path ?? null,
     playback.currentTrack?.file_size ?? null,
@@ -1579,8 +1580,20 @@ function App() {
   playNextRef.current = queueHook.playNext;
   const addToQueueAndPlayRef = useRef(queueHook.addToQueueAndPlay);
   addToQueueAndPlayRef.current = queueHook.addToQueueAndPlay;
+  const addToQueueRef = useRef(queueHook.addToQueue);
+  addToQueueRef.current = queueHook.addToQueue;
   const queueRef = useRef(queueHook.queue);
   queueRef.current = queueHook.queue;
+
+  prefetchNextRef.current = () => {
+    const ac = autoContinueRef.current;
+    const track = currentTrackRef.current;
+    if (!ac.enabled || !track) return;
+    const excludeIds = queueRef.current.map(t => t.id);
+    ac.fetchTrack(track, excludeIds).then(next => {
+      if (next) addToQueueRef.current(next);
+    });
+  };
 
   const handleNext = useCallback(async (source: "user" | "auto" = "user") => {
     if (!playNextRef.current(source)) {
