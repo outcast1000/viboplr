@@ -1272,34 +1272,42 @@ pub fn save_playlist_record(
         let _ = std::fs::create_dir_all(&img_dir);
         let client = reqwest::blocking::Client::new();
 
-        // Download playlist cover
+        // Download/copy playlist cover
         if let Some(url) = image_url_clone {
-            if let Ok(resp) = client.get(&url).send() {
-                if resp.status().is_success() {
-                    if let Ok(bytes) = resp.bytes() {
-                        let path = img_dir.join(format!("{}.jpg", playlist_id));
-                        if std::fs::write(&path, &bytes).is_ok() {
-                            let abs = path.to_string_lossy().to_string();
-                            let _ = db_arc.update_playlist_image(playlist_id, &abs);
-                        }
-                    }
-                }
+            let dest = img_dir.join(format!("{}.jpg", playlist_id));
+            let ok = if url.starts_with("http://") || url.starts_with("https://") {
+                client.get(&url).send().ok()
+                    .filter(|r| r.status().is_success())
+                    .and_then(|r| r.bytes().ok())
+                    .and_then(|bytes| std::fs::write(&dest, &bytes).ok())
+                    .is_some()
+            } else {
+                let src = std::path::Path::new(&url);
+                src.exists() && std::fs::copy(src, &dest).is_ok()
+            };
+            if ok {
+                let abs = dest.to_string_lossy().to_string();
+                let _ = db_arc.update_playlist_image(playlist_id, &abs);
             }
         }
 
-        // Download track images
+        // Download/copy track images
         for (track_id, maybe_url) in track_image_urls {
             if let Some(url) = maybe_url {
-                if let Ok(resp) = client.get(&url).send() {
-                    if resp.status().is_success() {
-                        if let Ok(bytes) = resp.bytes() {
-                            let path = img_dir.join(format!("{}_{}.jpg", playlist_id, track_id));
-                            if std::fs::write(&path, &bytes).is_ok() {
-                                let abs = path.to_string_lossy().to_string();
-                                let _ = db_arc.update_playlist_track_image(track_id, &abs);
-                            }
-                        }
-                    }
+                let dest = img_dir.join(format!("{}_{}.jpg", playlist_id, track_id));
+                let ok = if url.starts_with("http://") || url.starts_with("https://") {
+                    client.get(&url).send().ok()
+                        .filter(|r| r.status().is_success())
+                        .and_then(|r| r.bytes().ok())
+                        .and_then(|bytes| std::fs::write(&dest, &bytes).ok())
+                        .is_some()
+                } else {
+                    let src = std::path::Path::new(&url);
+                    src.exists() && std::fs::copy(src, &dest).is_ok()
+                };
+                if ok {
+                    let abs = dest.to_string_lossy().to_string();
+                    let _ = db_arc.update_playlist_track_image(track_id, &abs);
                 }
             }
         }

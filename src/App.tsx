@@ -1223,7 +1223,7 @@ function App() {
           restoredTracks = minimalTracks.map((t, i) => {
             const entry = entries[i];
             const dbTrack = dbByPath.get(t.path);
-            if (dbTrack) return { ...dbTrack, url: entry.url };
+            if (dbTrack) return { ...dbTrack, url: entry.url, image_url: entry.image_url ?? dbTrack.image_url };
             return t; // tidal or not in library
           });
         }
@@ -1812,7 +1812,7 @@ function App() {
       album_name: t.album_title ?? null,
       duration_secs: t.duration_secs ?? null,
       source: t.url ?? t.path,
-      image_url: null,
+      image_url: t.image_url ?? null,
     }));
     try {
       const playlistId = await invoke<number>("save_playlist_record", {

@@ -320,7 +320,7 @@ export function QueuePanel({
               {playlistContext.coverPath ? (
                 <img src={convertFileSrc(playlistContext.coverPath)} alt="" />
               ) : playlistContext.coverUrl ? (
-                <img src={playlistContext.coverUrl} alt="" />
+                <img src={playlistContext.coverUrl.startsWith("/") ? convertFileSrc(playlistContext.coverUrl) : playlistContext.coverUrl} alt="" />
               ) : (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 18V5l12-2v13"/>
