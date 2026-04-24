@@ -1705,9 +1705,14 @@ pub fn search_youtube(title: String, artist_name: Option<String>, duration_secs:
 #[tauri::command]
 pub async fn yt_dlp_check() -> Option<String> {
     tauri::async_runtime::spawn_blocking(|| {
-        std::process::Command::new("yt-dlp")
-            .arg("--version")
-            .output()
+        let mut cmd = std::process::Command::new("yt-dlp");
+        cmd.arg("--version");
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        cmd.output()
             .ok()
             .and_then(|o| {
                 if o.status.success() {
@@ -1725,9 +1730,14 @@ pub async fn yt_dlp_check() -> Option<String> {
 #[tauri::command]
 pub async fn ffmpeg_check() -> Option<String> {
     tauri::async_runtime::spawn_blocking(|| {
-        std::process::Command::new("ffmpeg")
-            .arg("-version")
-            .output()
+        let mut cmd = std::process::Command::new("ffmpeg");
+        cmd.arg("-version");
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        cmd.output()
             .ok()
             .and_then(|o| {
                 if o.status.success() {
@@ -1770,9 +1780,14 @@ pub async fn yt_dlp_stream_audio(
         log::info!("yt-dlp downloading {} -> {}", youtube_url, dest.display());
 
         let dest_str = dest.to_string_lossy().to_string();
-        let output = std::process::Command::new("yt-dlp")
-            .args(["-f", "bestaudio", "--no-warnings", "-o", &dest_str, &youtube_url])
-            .output()
+        let mut cmd = std::process::Command::new("yt-dlp");
+        cmd.args(["-f", "bestaudio", "--no-warnings", "-o", &dest_str, &youtube_url]);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        let output = cmd.output()
             .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
 
         if !output.status.success() {
@@ -1808,11 +1823,18 @@ pub async fn ffmpeg_convert_audio(
             _ => return Ok(source_path),
         };
 
-        let has_ffmpeg = std::process::Command::new("ffmpeg")
-            .arg("-version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+        let has_ffmpeg = {
+            let mut cmd = std::process::Command::new("ffmpeg");
+            cmd.arg("-version");
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            }
+            cmd.output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        };
 
         if !has_ffmpeg {
             return Ok(source_path);
@@ -1834,9 +1856,14 @@ pub async fn ffmpeg_convert_audio(
             _ => "copy",
         };
 
-        let output = std::process::Command::new("ffmpeg")
-            .args(["-i", &source_path, "-vn", "-c:a", codec, "-y", &dest_str])
-            .output()
+        let mut cmd = std::process::Command::new("ffmpeg");
+        cmd.args(["-i", &source_path, "-vn", "-c:a", codec, "-y", &dest_str]);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        let output = cmd.output()
             .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
 
         if !output.status.success() {
