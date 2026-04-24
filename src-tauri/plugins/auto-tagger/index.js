@@ -367,6 +367,21 @@ function activate(api) {
     }
   }
 
+  function buildToolbar() {
+    return {
+      type: "toolbar",
+      title: "Auto-Tagger",
+      buttons: [
+        {
+          label: "Apply Tags In Database",
+          action: "run-now",
+          disabled: state.approvedTags.length === 0,
+          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>',
+        },
+      ],
+    };
+  }
+
   function buildTabs() {
     return {
       type: "tabs",
@@ -381,7 +396,7 @@ function activate(api) {
   }
 
   function renderAnalyze() {
-    var children = [buildTabs()];
+    var children = [buildToolbar(), buildTabs()];
 
     var collectionOptions = [{ value: "all", label: "All Collections" }];
     for (var i = 0; i < state.collections.length; i++) {
@@ -479,7 +494,7 @@ function activate(api) {
   }
 
   function renderApproved() {
-    var children = [buildTabs()];
+    var children = [buildToolbar(), buildTabs()];
 
     if (state.approvedTags.length === 0) {
       children.push({ type: "text", content: "No approved tags yet. Use the Analyze tab to discover and approve tag candidates." });
@@ -501,13 +516,6 @@ function activate(api) {
       });
     }
 
-    children.push({
-      type: "button",
-      label: "Run Now",
-      action: "run-now",
-      disabled: state.approvedTags.length === 0,
-    });
-
     api.ui.setViewData("auto-tagger-view", {
       type: "layout",
       direction: "vertical",
@@ -516,7 +524,7 @@ function activate(api) {
   }
 
   function renderSettings() {
-    var children = [buildTabs()];
+    var children = [buildToolbar(), buildTabs()];
 
     children.push({
       type: "settings-row",

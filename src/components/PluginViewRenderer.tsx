@@ -216,6 +216,7 @@ function PluginViewNode({
                 onClick={() => onAction?.(btn.action, btn.data)}
                 disabled={btn.disabled}
               >
+                {btn.icon && <span className="plugin-toolbar-btn-icon" dangerouslySetInnerHTML={{ __html: btn.icon }} />}
                 {btn.label}
               </button>
             ))}

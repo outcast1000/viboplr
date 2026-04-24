@@ -214,7 +214,7 @@ export type PluginViewData =
   | {
       type: "toolbar";
       title?: string;
-      buttons: { label: string; action: string; variant?: "accent" | "secondary"; disabled?: boolean; data?: unknown }[];
+      buttons: { label: string; action: string; variant?: "accent" | "secondary"; disabled?: boolean; data?: unknown; icon?: string }[];
       status?: string;
       statusVariant?: "default" | "error" | "success";
     }

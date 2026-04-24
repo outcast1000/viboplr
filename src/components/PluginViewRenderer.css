@@ -294,6 +294,18 @@
   cursor: default;
 }
 
+.plugin-toolbar-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.plugin-toolbar-btn-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
 .plugin-toolbar-status {
   font-size: var(--fs-2xs);
   color: var(--text-tertiary);
