@@ -6,6 +6,10 @@ on:
       - 'v*'
   workflow_dispatch:
 
+concurrency:
+  group: release
+  cancel-in-progress: true
+
 jobs:
   create-release:
     permissions:
@@ -97,8 +101,8 @@ jobs:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
         with:
-          tagName: v__VERSION__
-          releaseName: 'Viboplr v__VERSION__'
+          tagName: ${{ needs.create-release.outputs.tag }}
+          releaseName: 'Viboplr ${{ needs.create-release.outputs.tag }}'
           releaseBody: ''
           releaseDraft: false
           prerelease: false
