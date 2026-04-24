@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  create-release:
+  ci-and-release:
     permissions:
       contents: write
     runs-on: ubuntu-latest
@@ -25,6 +25,30 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          cache: npm
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm install
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+
+      - name: Cargo test
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: TypeScript tests
+        run: npm test
 
       - name: Get tag
         id: get-tag
@@ -62,7 +86,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
-    needs: create-release
+    needs: ci-and-release
     permissions:
       contents: write
     strategy:
@@ -101,8 +125,8 @@ jobs:
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
         with:
-          tagName: ${{ needs.create-release.outputs.tag }}
-          releaseName: 'Viboplr ${{ needs.create-release.outputs.tag }}'
+          tagName: ${{ needs.ci-and-release.outputs.tag }}
+          releaseName: 'Viboplr ${{ needs.ci-and-release.outputs.tag }}'
           releaseBody: ''
           releaseDraft: false
           prerelease: false

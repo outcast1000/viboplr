@@ -3,12 +3,13 @@
 // Usage: node scripts/bump.mjs [0.2.0] [--autocommit] [--screenshots]
 //
 // Full release orchestrator:
-//   1. Bumps version in package.json, Cargo.toml, tauri.conf.json
-//   2. Updates static version badge + download URLs across docs/ pages
-//   3. Generates changelog and prepends a new entry to docs/history.html
-//   4. Regenerates screenshots (only with --screenshots, requires Vite dev server)
-//   5. Regenerates docs/features.html from docs/features.json
-//   6. Commits, tags, and pushes (with --autocommit)
+//   1. Runs CI checks (typecheck, Rust tests, TS tests) — aborts on failure
+//   2. Bumps version in package.json, Cargo.toml, tauri.conf.json
+//   3. Updates static version badge + download URLs across docs/ pages
+//   4. Generates changelog and prepends a new entry to docs/history.html
+//   5. Regenerates screenshots (only with --screenshots, requires Vite dev server)
+//   6. Regenerates docs/features.html from docs/features.json
+//   7. Commits, tags, and pushes (with --autocommit)
 
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
 import { execSync } from "child_process";
@@ -36,6 +37,32 @@ if (!/^\d+\.\d+\.\d+$/.test(version)) {
   console.error("Usage: node scripts/bump.mjs [version]  (e.g. 0.2.0)");
   process.exit(1);
 }
+
+// ---------------------------------------------------------------------------
+// Step 1 — Run CI checks
+// ---------------------------------------------------------------------------
+
+console.log("Running CI checks...\n");
+
+const checks = [
+  { label: "TypeScript typecheck", cmd: "npx tsc --noEmit" },
+  { label: "Rust tests", cmd: "cargo test", cwd: resolve(root, "src-tauri") },
+  { label: "TypeScript tests", cmd: "npm test" },
+];
+
+for (const check of checks) {
+  console.log(`  ${check.label}...`);
+  try {
+    execSync(check.cmd, { cwd: check.cwd || root, encoding: "utf-8", stdio: "pipe" });
+    console.log(`  ✓ ${check.label} passed`);
+  } catch (e) {
+    console.error(`\n✗ ${check.label} failed:\n`);
+    console.error(e.stdout || e.stderr || e.message);
+    process.exit(1);
+  }
+}
+
+console.log("\n✓ All checks passed\n");
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -100,7 +127,7 @@ function markdownToHtml(body) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1 — Bump version in source files
+// Step 2 — Bump version in source files
 // ---------------------------------------------------------------------------
 
 const versionFiles = [
@@ -122,7 +149,7 @@ for (const { path, replace } of versionFiles) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 2 — Update static version badge + download URLs in docs/ pages
+// Step 3 — Update static version badge + download URLs in docs/ pages
 // ---------------------------------------------------------------------------
 
 console.log("\nUpdating docs pages...\n");
@@ -188,7 +215,7 @@ function updateDownloadUrls(html) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 3 — Generate changelog and prepend entry to docs/history.html
+// Step 4 — Generate changelog and prepend entry to docs/history.html
 // ---------------------------------------------------------------------------
 
 console.log("\nGenerating changelog...\n");
@@ -256,7 +283,7 @@ const timelineEntry = `<div class="timeline-entry reveal">
 }
 
 // ---------------------------------------------------------------------------
-// Step 4 — Regenerate screenshots (only with --screenshots flag)
+// Step 5 — Regenerate screenshots (only with --screenshots flag)
 // ---------------------------------------------------------------------------
 
 if (withScreenshots) {
@@ -273,7 +300,7 @@ if (withScreenshots) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 5 — Regenerate docs/features.html from docs/features.json
+// Step 6 — Regenerate docs/features.html from docs/features.json
 // ---------------------------------------------------------------------------
 
 console.log("\nRegenerating features page...\n");
@@ -443,7 +470,7 @@ ${featureSectionsWithGallery}
 }
 
 // ---------------------------------------------------------------------------
-// Step 6 — Git operations
+// Step 7 — Git operations
 // ---------------------------------------------------------------------------
 
 if (autocommit) {
