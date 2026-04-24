@@ -2538,6 +2538,8 @@ function App() {
               onRemove={(c) => collectionActions.setRemoveCollectionConfirm(c)}
               onAddFolder={handleAddFolder}
               onShowAddServer={() => setShowAddServer(true)}
+              onOpenFolder={(path) => invoke("open_folder", { folderPath: path }).catch(console.error)}
+              onOpenUrl={(url) => openUrl(url)}
               statsMap={new Map(library.collectionStats.map(s => [s.collection_id, s]))}
             />
           )}

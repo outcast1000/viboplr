@@ -60,6 +60,8 @@ interface CollectionsViewProps {
   onRemove: (collection: Collection) => void;
   onAddFolder: () => void;
   onShowAddServer: () => void;
+  onOpenFolder: (path: string) => void;
+  onOpenUrl: (url: string) => void;
   statsMap: Map<number, CollectionStats>;
 }
 
@@ -77,6 +79,8 @@ export function CollectionsView({
   onRemove,
   onAddFolder,
   onShowAddServer,
+  onOpenFolder,
+  onOpenUrl,
   statsMap,
 }: CollectionsViewProps) {
   return (
@@ -165,6 +169,24 @@ export function CollectionsView({
                   </div>
                 )}
                 <div className="collections-view-card-actions">
+                  {c.kind === "local" && c.path && (
+                    <button
+                      className="collections-view-action-btn"
+                      onClick={() => onOpenFolder(c.path!)}
+                      title="Open folder in file manager"
+                    >
+                      Open Folder
+                    </button>
+                  )}
+                  {c.kind === "subsonic" && c.url && (
+                    <button
+                      className="collections-view-action-btn"
+                      onClick={() => onOpenUrl(c.url!)}
+                      title="Open server in browser"
+                    >
+                      Go to Server
+                    </button>
+                  )}
                   {(c.kind === "local" || c.kind === "subsonic") && (
                     <button
                       className={`collections-view-action-btn ${resyncProgress?.collectionId === c.id || resyncComplete?.collectionId === c.id ? "collections-view-action-checking" : ""}`}
