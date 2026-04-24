@@ -541,6 +541,8 @@ pub fn get_track_path(state: State<'_, AppState>, track_id: i64) -> Result<Strin
         .get_track_by_id(track_id)
         .map_err(|e| e.to_string())?;
 
+    log::info!("Playing: {} — {} (id={})", track.artist_name.as_deref().unwrap_or("?"), track.title, track_id);
+
     if let Some(remote_id) = track.remote_id() {
         let collection_id = track
             .collection_id
@@ -2485,19 +2487,24 @@ fn resolve_cover_url(db: &Arc<Database>, track: &Track, collection_id: i64) -> O
 }
 
 #[tauri::command]
-pub fn get_cached_waveform(state: State<'_, AppState>, path: String) -> Option<serde_json::Value> {
-    let key = format!("{:x}", md5::compute(&path));
-    let cache_path = state.app_dir.join("waveforms").join(format!("{}.json", key));
+pub fn get_cached_waveform(state: State<'_, AppState>, key: String) -> Option<serde_json::Value> {
+    let hash = format!("{:x}", md5::compute(&key));
+    let cache_path = state.app_dir.join("waveforms").join(format!("{}.json", hash));
+    log::info!("Waveform lookup: key={} hash={}", key, hash);
     let data = std::fs::read_to_string(&cache_path).ok()?;
-    serde_json::from_str(&data).ok()
+    let value: serde_json::Value = serde_json::from_str(&data).ok()?;
+    let name = value.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+    let duration = value.get("duration").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    log::info!("Waveform hit: \"{}\" ({}s)", name, duration);
+    Some(value)
 }
 
 #[tauri::command]
-pub fn cache_waveform(state: State<'_, AppState>, path: String, waveform: serde_json::Value) -> Result<(), String> {
+pub fn cache_waveform(state: State<'_, AppState>, key: String, waveform: serde_json::Value) -> Result<(), String> {
     let dir = state.app_dir.join("waveforms");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let key = format!("{:x}", md5::compute(&path));
-    let cache_path = dir.join(format!("{}.json", key));
+    let hash = format!("{:x}", md5::compute(&key));
+    let cache_path = dir.join(format!("{}.json", hash));
     let json = serde_json::to_string(&waveform).map_err(|e| e.to_string())?;
     std::fs::write(&cache_path, json).map_err(|e| e.to_string())?;
     Ok(())
@@ -2769,6 +2776,7 @@ pub fn info_upsert_value(
     value: String,
     status: String,
 ) -> Result<(), String> {
+    log::info!("Info upsert: type_id={} key={} status={}", information_type_id, entity_key, status);
     state.db.info_upsert_value(information_type_id, &entity_key, &value, &status).map_err(|e| e.to_string())
 }
 
