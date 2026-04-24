@@ -1,9 +1,15 @@
 function activate(api) {
   var DEFAULT_STOPWORDS = [
     "the", "a", "an", "and", "or", "of", "in", "to", "for", "by", "with",
-    "from", "at", "on", "vol", "volume", "disc", "cd", "various", "artists",
+    "from", "at", "on", "is", "are", "was", "were", "be", "been", "am",
+    "do", "does", "did", "has", "have", "had", "not", "no", "but", "so",
+    "if", "it", "its", "he", "she", "we", "they", "i", "me", "my", "your",
+    "his", "her", "our", "their", "you", "us", "them", "this", "that",
+    "vol", "volume", "disc", "cd", "various", "artists",
     "various artists", "unknown", "misc", "other", "music", "feat", "ft", "featuring"
   ];
+
+  var STRIP_CHARS_RE = /[()[\]{}<>!?@#$%^&*+=~`|;:'",]/g;
 
   var state = {
     activeTab: "analyze",
@@ -99,14 +105,19 @@ function activate(api) {
     for (var i = 0; i < segments.length; i++) {
       var subSegments = splitSegmentOnDelimiters(segments[i]);
       for (var j = 0; j < subSegments.length; j++) {
-        var words = subSegments[j].split(/\s+/).filter(function (w) { return w.length > 0; });
+        var cleaned = subSegments[j].replace(STRIP_CHARS_RE, " ");
+        var words = cleaned.split(/\s+/).filter(function (w) {
+          if (w.length === 0) return false;
+          var norm = normalizeStr(w);
+          if (norm.length <= 1) return false;
+          if (/^\d+$/.test(norm)) return false;
+          if (stopwordsSet[norm]) return false;
+          return true;
+        });
         var ngrams = generateNgrams(words);
         for (var k = 0; k < ngrams.length; k++) {
           var norm = normalizeStr(ngrams[k]);
-          var wordCount = norm.split(/\s+/).length;
           if (norm.length <= 1) continue;
-          if (/^\d+$/.test(norm)) continue;
-          if (wordCount === 1 && stopwordsSet[norm]) continue;
           allNgrams.push(norm);
         }
       }
