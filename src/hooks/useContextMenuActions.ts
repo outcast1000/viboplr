@@ -305,7 +305,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }
 
-  async function watchOnYoutube(trackId: number, title: string, artistName: string | null, youtubeUrl: string | null) {
+  async function watchOnYoutube(trackId: number, title: string, artistName: string | null, youtubeUrl: string | null, durationSecs: number | null = null) {
     if (youtubeUrl) {
       await openUrl(youtubeUrl);
       addLog(`Opened YouTube: ${title}`, "youtube");
@@ -315,7 +315,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     addLog("Searching YouTube...", "youtube");
     try {
       const result = await invoke<{ url: string; video_title: string | null }>(
-        "search_youtube", { title, artistName }
+        "search_youtube", { title, artistName, durationSecs }
       );
       await openUrl(result.url);
       addLog(`Opened YouTube: ${result.video_title ?? title}`, "youtube");
@@ -331,7 +331,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     if (!contextMenu || contextMenu.target.kind !== "track" || !contextMenu.target.trackId) return;
     const { trackId, title, artistName } = contextMenu.target;
     const track = library.tracks.find(t => t.id === trackId);
-    await watchOnYoutube(trackId, title, artistName, track?.youtube_url ?? null);
+    await watchOnYoutube(trackId, title, artistName, track?.youtube_url ?? null, track?.duration_secs ?? null);
   }
 
   async function handleYoutubeFeedback(correct: boolean) {

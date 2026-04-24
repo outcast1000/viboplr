@@ -1578,58 +1578,67 @@ pub struct YouTubeResult {
     pub video_title: Option<String>,
 }
 
-fn extract_first_video_id(data: &serde_json::Value) -> Option<String> {
-    data.get("contents")?
-        .get("twoColumnSearchResultsRenderer")?
-        .get("primaryContents")?
-        .get("sectionListRenderer")?
-        .get("contents")?
-        .as_array()?
-        .iter()
-        .filter_map(|section| {
-            section
-                .get("itemSectionRenderer")?
-                .get("contents")?
-                .as_array()
-        })
-        .flatten()
-        .find_map(|item| {
-            item.get("videoRenderer")?
-                .get("videoId")?
-                .as_str()
-                .map(String::from)
-        })
+struct VideoCandidate {
+    video_id: String,
+    title: Option<String>,
+    duration_secs: Option<f64>,
 }
 
-fn extract_video_title(data: &serde_json::Value) -> Option<String> {
-    data.get("contents")?
-        .get("twoColumnSearchResultsRenderer")?
-        .get("primaryContents")?
-        .get("sectionListRenderer")?
-        .get("contents")?
-        .as_array()?
-        .iter()
+fn parse_duration_text(text: &str) -> Option<f64> {
+    let parts: Vec<&str> = text.split(':').collect();
+    match parts.len() {
+        2 => {
+            let mins = parts[0].parse::<f64>().ok()?;
+            let secs = parts[1].parse::<f64>().ok()?;
+            Some(mins * 60.0 + secs)
+        }
+        3 => {
+            let hrs = parts[0].parse::<f64>().ok()?;
+            let mins = parts[1].parse::<f64>().ok()?;
+            let secs = parts[2].parse::<f64>().ok()?;
+            Some(hrs * 3600.0 + mins * 60.0 + secs)
+        }
+        _ => None,
+    }
+}
+
+fn extract_video_candidates(data: &serde_json::Value, max: usize) -> Vec<VideoCandidate> {
+    let items = data.get("contents")
+        .and_then(|v| v.get("twoColumnSearchResultsRenderer"))
+        .and_then(|v| v.get("primaryContents"))
+        .and_then(|v| v.get("sectionListRenderer"))
+        .and_then(|v| v.get("contents"))
+        .and_then(|v| v.as_array());
+
+    let Some(sections) = items else { return vec![] };
+
+    sections.iter()
         .filter_map(|section| {
-            section
-                .get("itemSectionRenderer")?
-                .get("contents")?
-                .as_array()
+            section.get("itemSectionRenderer")?.get("contents")?.as_array()
         })
         .flatten()
-        .find_map(|item| {
-            item.get("videoRenderer")?
-                .get("title")?
-                .get("runs")?
-                .as_array()?
-                .first()?
-                .get("text")?
-                .as_str()
-                .map(String::from)
+        .filter_map(|item| {
+            let renderer = item.get("videoRenderer")?;
+            let video_id = renderer.get("videoId")?.as_str()?.to_string();
+            let title = renderer.get("title")
+                .and_then(|t| t.get("runs"))
+                .and_then(|r| r.as_array())
+                .and_then(|a| a.first())
+                .and_then(|r| r.get("text"))
+                .and_then(|t| t.as_str())
+                .map(String::from);
+            let duration_secs = renderer.get("lengthText")
+                .and_then(|lt| lt.get("simpleText"))
+                .and_then(|t| t.as_str())
+                .and_then(parse_duration_text);
+            Some(VideoCandidate { video_id, title, duration_secs })
         })
+        .take(max)
+        .collect()
 }
 
 #[tauri::command]
-pub fn search_youtube(title: String, artist_name: Option<String>) -> Result<YouTubeResult, String> {
+pub fn search_youtube(title: String, artist_name: Option<String>, duration_secs: Option<f64>) -> Result<YouTubeResult, String> {
     let query = match &artist_name {
         Some(artist) => format!("{} {}", title, artist),
         None => title,
@@ -1664,14 +1673,22 @@ pub fn search_youtube(title: String, artist_name: Option<String>) -> Result<YouT
     let data: serde_json::Value =
         serde_json::from_str(json_str).map_err(|e| format!("Failed to parse ytInitialData: {}", e))?;
 
-    let video_id = extract_first_video_id(&data)
-        .ok_or("No video found in search results")?;
+    let candidates = extract_video_candidates(&data, 7);
+    if candidates.is_empty() {
+        return Err("No video found in search results".into());
+    }
 
-    let video_title = extract_video_title(&data);
+    let best = if let Some(target) = duration_secs {
+        candidates.iter()
+            .find(|c| c.duration_secs.map_or(false, |d| (d - target).abs() <= 3.0))
+            .unwrap_or(&candidates[0])
+    } else {
+        &candidates[0]
+    };
 
     Ok(YouTubeResult {
-        url: format!("https://www.youtube.com/watch?v={}", video_id),
-        video_title,
+        url: format!("https://www.youtube.com/watch?v={}", best.video_id),
+        video_title: best.title.clone(),
     })
 }
 
@@ -3731,7 +3748,17 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_first_video_id() {
+    fn test_parse_duration_text() {
+        assert_eq!(parse_duration_text("3:33"), Some(213.0));
+        assert_eq!(parse_duration_text("0:30"), Some(30.0));
+        assert_eq!(parse_duration_text("1:00:00"), Some(3600.0));
+        assert_eq!(parse_duration_text("1:02:03"), Some(3723.0));
+        assert_eq!(parse_duration_text("bad"), None);
+        assert_eq!(parse_duration_text(""), None);
+    }
+
+    #[test]
+    fn test_extract_video_candidates() {
         let data: serde_json::Value = serde_json::json!({
             "contents": {
                 "twoColumnSearchResultsRenderer": {
@@ -3743,13 +3770,15 @@ mod tests {
                                         {
                                             "videoRenderer": {
                                                 "videoId": "dQw4w9WgXcQ",
-                                                "title": { "runs": [{ "text": "Rick Astley - Never Gonna Give You Up" }] }
+                                                "title": { "runs": [{ "text": "Rick Astley - Never Gonna Give You Up" }] },
+                                                "lengthText": { "simpleText": "3:33" }
                                             }
                                         },
                                         {
                                             "videoRenderer": {
                                                 "videoId": "second_id",
-                                                "title": { "runs": [{ "text": "Second Video" }] }
+                                                "title": { "runs": [{ "text": "Second Video" }] },
+                                                "lengthText": { "simpleText": "5:00" }
                                             }
                                         }
                                     ]
@@ -3761,12 +3790,101 @@ mod tests {
             }
         });
 
-        assert_eq!(extract_first_video_id(&data), Some("dQw4w9WgXcQ".to_string()));
-        assert_eq!(extract_video_title(&data), Some("Rick Astley - Never Gonna Give You Up".to_string()));
+        let candidates = extract_video_candidates(&data, 7);
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].video_id, "dQw4w9WgXcQ");
+        assert_eq!(candidates[0].title, Some("Rick Astley - Never Gonna Give You Up".to_string()));
+        assert_eq!(candidates[0].duration_secs, Some(213.0));
+        assert_eq!(candidates[1].video_id, "second_id");
+        assert_eq!(candidates[1].duration_secs, Some(300.0));
     }
 
     #[test]
-    fn test_extract_video_id_missing() {
+    fn test_extract_video_candidates_duration_matching() {
+        let data: serde_json::Value = serde_json::json!({
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [{
+                                "itemSectionRenderer": {
+                                    "contents": [
+                                        {
+                                            "videoRenderer": {
+                                                "videoId": "wrong_duration",
+                                                "title": { "runs": [{ "text": "Extended Mix" }] },
+                                                "lengthText": { "simpleText": "7:00" }
+                                            }
+                                        },
+                                        {
+                                            "videoRenderer": {
+                                                "videoId": "right_duration",
+                                                "title": { "runs": [{ "text": "Original" }] },
+                                                "lengthText": { "simpleText": "3:32" }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
+        });
+
+        let candidates = extract_video_candidates(&data, 7);
+        // With duration_secs=213 (3:33), should match "right_duration" (3:32 = 212s, within ±3s)
+        let target = 213.0;
+        let best = candidates.iter()
+            .find(|c| c.duration_secs.map_or(false, |d| (d - target).abs() <= 3.0))
+            .unwrap_or(&candidates[0]);
+        assert_eq!(best.video_id, "right_duration");
+    }
+
+    #[test]
+    fn test_extract_video_candidates_no_duration_match_falls_back() {
+        let data: serde_json::Value = serde_json::json!({
+            "contents": {
+                "twoColumnSearchResultsRenderer": {
+                    "primaryContents": {
+                        "sectionListRenderer": {
+                            "contents": [{
+                                "itemSectionRenderer": {
+                                    "contents": [
+                                        {
+                                            "videoRenderer": {
+                                                "videoId": "first",
+                                                "title": { "runs": [{ "text": "First" }] },
+                                                "lengthText": { "simpleText": "7:00" }
+                                            }
+                                        },
+                                        {
+                                            "videoRenderer": {
+                                                "videoId": "second",
+                                                "title": { "runs": [{ "text": "Second" }] },
+                                                "lengthText": { "simpleText": "8:00" }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }]
+                        }
+                    }
+                }
+            }
+        });
+
+        let candidates = extract_video_candidates(&data, 7);
+        // With duration_secs=213 (3:33), no match within ±3s, should fall back to first
+        let target = 213.0;
+        let best = candidates.iter()
+            .find(|c| c.duration_secs.map_or(false, |d| (d - target).abs() <= 3.0))
+            .unwrap_or(&candidates[0]);
+        assert_eq!(best.video_id, "first");
+    }
+
+    #[test]
+    fn test_extract_video_candidates_missing() {
         let data: serde_json::Value = serde_json::json!({
             "contents": {
                 "twoColumnSearchResultsRenderer": {
@@ -3785,15 +3903,13 @@ mod tests {
             }
         });
 
-        assert_eq!(extract_first_video_id(&data), None);
-        assert_eq!(extract_video_title(&data), None);
+        assert!(extract_video_candidates(&data, 7).is_empty());
     }
 
     #[test]
-    fn test_extract_video_id_empty() {
+    fn test_extract_video_candidates_empty() {
         let data: serde_json::Value = serde_json::json!({});
-        assert_eq!(extract_first_video_id(&data), None);
-        assert_eq!(extract_video_title(&data), None);
+        assert!(extract_video_candidates(&data, 7).is_empty());
     }
 }
 

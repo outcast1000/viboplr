@@ -67,7 +67,7 @@ describe("resolveStreamChain", () => {
       }),
     ];
 
-    const result = await resolveStreamChain(resolvers, "Title", "Artist", null, 50);
+    const result = await resolveStreamChain(resolvers, "Title", "Artist", null, null, 50);
     expect(result).toEqual({ url: "tidal://1", label: "TIDAL" });
   });
 

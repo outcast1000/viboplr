@@ -276,7 +276,7 @@ export interface PluginPlaybackAPI {
   onTrackLiked(handler: (track: Track, liked: boolean) => void): () => void;
   onStreamResolve(
     providerId: string,
-    handler: (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>,
+    handler: (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string } | null>,
   ): () => void;
 }
 

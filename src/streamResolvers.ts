@@ -6,6 +6,7 @@ export interface StreamResolver {
     title: string,
     artistName: string | null,
     albumName: string | null,
+    durationSecs: number | null,
   ) => Promise<{ url: string; label: string } | null>;
 }
 
@@ -20,12 +21,13 @@ export async function resolveStreamChain(
   title: string,
   artistName: string | null,
   albumName: string | null,
+  durationSecs: number | null = null,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<{ url: string; label: string } | null> {
   for (const resolver of resolvers) {
     try {
       const result = await Promise.race([
-        resolver.resolve(title, artistName, albumName),
+        resolver.resolve(title, artistName, albumName, durationSecs),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
       ]);
       if (result) return result;

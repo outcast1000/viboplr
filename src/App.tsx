@@ -288,8 +288,8 @@ function App() {
             id: `${ps.id}:${sr.id}`,
             name: sr.name,
             source: ps.id,
-            resolve: (title, artistName, albumName) =>
-              plugins.invokeStreamResolve(ps.id, sr.id, title, artistName, albumName),
+            resolve: (title, artistName, albumName, durationSecs) =>
+              plugins.invokeStreamResolve(ps.id, sr.id, title, artistName, albumName, durationSecs),
           });
         }
       }
@@ -833,7 +833,7 @@ function App() {
           name: sr.name,
           resolve: async () => {
             const result = await Promise.race([
-              sr.resolve(track.title, track.artist_name, track.album_title),
+              sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null),
               new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
             ]);
             if (!result) throw new Error("No result");

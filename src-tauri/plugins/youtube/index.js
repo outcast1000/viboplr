@@ -45,10 +45,11 @@ async function checkTools(api) {
   renderSettings(api);
 }
 
-async function searchAndDownload(api, title, artistName) {
+async function searchAndDownload(api, title, artistName, durationSecs) {
   var result = await api.informationTypes.invoke("search_youtube", {
     title: title,
-    artistName: artistName || null
+    artistName: artistName || null,
+    durationSecs: durationSecs || null
   });
   if (!result || !result.url) return null;
 
@@ -73,7 +74,7 @@ async function activate(api) {
   ytDlpVersion = await api.informationTypes.invoke("yt_dlp_check", {});
   ffmpegVersion = await api.informationTypes.invoke("ffmpeg_check", {});
 
-  api.playback.onStreamResolve("youtube-fallback", async function(title, artistName, albumName) {
+  api.playback.onStreamResolve("youtube-fallback", async function(title, artistName, albumName, durationSecs) {
     console.log("[youtube] stream resolve called:", title, "by", artistName);
     if (!ytDlpVersion) {
       console.log("[youtube] skipping — yt-dlp not available");
@@ -81,7 +82,7 @@ async function activate(api) {
     }
 
     try {
-      var filePath = await searchAndDownload(api, title, artistName);
+      var filePath = await searchAndDownload(api, title, artistName, durationSecs);
       if (!filePath) return null;
       return { url: "file://" + filePath, label: "YouTube" };
     } catch (e) {

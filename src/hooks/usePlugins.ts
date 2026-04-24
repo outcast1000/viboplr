@@ -58,7 +58,7 @@ interface LoadedPlugin {
   infoFetchHandlers: Map<string, (entity: InfoEntity) => Promise<InfoFetchResult>>;
   imageFetchHandlers: Map<string, (name: string, artistName?: string) => Promise<ImageFetchResult>>;
   downloadResolveHandlers: Map<string, DownloadResolveHandler>;
-  streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>>;
+  streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string } | null>>;
   streamUrlResolver: ((trackId: string, quality?: string | null) => Promise<string | null>) | null;
   schedulerHandlers: Map<string, () => void>;
 }
@@ -253,7 +253,7 @@ export function usePlugins(
             ),
           onStreamResolve(
             providerId: string,
-            handler: (title: string, artistName: string | null, albumName: string | null) => Promise<{ url: string; label: string } | null>,
+            handler: (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string } | null>,
           ): () => void {
             loaded.streamResolveHandlers.set(providerId, handler);
             const unsub = () => {
@@ -1156,13 +1156,14 @@ export function usePlugins(
       title: string,
       artistName: string | null,
       albumName: string | null,
+      durationSecs: number | null,
     ): Promise<{ url: string; label: string } | null> => {
       const loaded = loadedPluginsRef.current.get(pluginId);
       if (!loaded) return null;
       const handler = loaded.streamResolveHandlers.get(providerId);
       if (!handler) return null;
       try {
-        return await handler(title, artistName, albumName);
+        return await handler(title, artistName, albumName, durationSecs);
       } catch (e) {
         console.error(`[plugin:${pluginId}] stream resolve error for ${providerId}:`, e);
         return null;
