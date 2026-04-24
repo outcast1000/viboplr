@@ -33,10 +33,11 @@ interface UseContextMenuActionsDeps {
   artistImages: Record<number, string | null>;
   queueCollapsed: boolean;
   setQueueCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
+  onTracksDeleted?: () => void;
 }
 
 export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
-  const { library, queueHook, playback, addLog, albumImages, artistImages, queueCollapsed, setQueueCollapsed } = deps;
+  const { library, queueHook, playback, addLog, albumImages, artistImages, queueCollapsed, setQueueCollapsed, onTracksDeleted } = deps;
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [youtubeFeedback, setYoutubeFeedback] = useState<{
@@ -288,6 +289,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         }
         library.loadLibrary();
         library.loadTracks();
+        onTracksDeleted?.();
       }
       if (result.failures.length === trackIds.length) {
         setDeleteError({ message: `Failed to delete ${title}`, failures: result.failures });
