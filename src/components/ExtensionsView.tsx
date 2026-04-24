@@ -121,7 +121,6 @@ function ExtensionDetail({
   onPluginAction?: (pluginId: string, actionId: string, data?: unknown) => void;
 }) {
   const isInstalled = ext.status !== "not_installed";
-  const [showSettings, setShowSettings] = useState(false);
   const settingsPanelId = ext.kind === "plugin" && ext.status === "active" && ext.contributes?.settingsPanel?.id;
 
   return (
@@ -179,29 +178,7 @@ function ExtensionDetail({
             {installing ? "Installing..." : "Install"}
           </button>
         )}
-        {settingsPanelId && (
-          <button
-            className={`ds-btn ds-btn--secondary ds-btn--sm${showSettings ? " active" : ""}`}
-            onClick={() => setShowSettings(!showSettings)}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 4 }}>
-              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-            </svg>
-            Configure
-          </button>
-        )}
       </div>
-
-      {showSettings && settingsPanelId && (
-        <div className="ext-detail-settings">
-          <PluginViewRenderer
-            pluginName=""
-            data={getPluginViewData?.(ext.id, settingsPanelId)}
-            currentTrack={null}
-            onAction={(actionId, actionData) => onPluginAction?.(ext.id, actionId, actionData)}
-          />
-        </div>
-      )}
 
       {ext.updateAvailable && (
         <div className="ext-detail-update-box">
@@ -212,85 +189,102 @@ function ExtensionDetail({
         </div>
       )}
 
-      <div className="ext-detail-info">
-        <div className="ext-detail-info-grid">
-          <span className="ext-detail-info-label">Version</span>
-          <span>{ext.version}</span>
-          <span className="ext-detail-info-label">Author</span>
-          <span>{ext.author}</span>
-          {ext.homepage && (
-            <>
-              <span className="ext-detail-info-label">Homepage</span>
-              <span><a className="ext-detail-link" href={ext.homepage} target="_blank" rel="noopener noreferrer">{ext.homepage.replace(/^https?:\/\//, "")}</a></span>
-            </>
-          )}
-          <span className="ext-detail-info-label">Type</span>
-          <span>{ext.kind === "plugin" ? "Plugin" : "Skin"}</span>
-          {ext.minAppVersion && (
-            <>
-              <span className="ext-detail-info-label">Min App Version</span>
-              <span>{ext.minAppVersion}</span>
-            </>
-          )}
-          <span className="ext-detail-info-label">Source</span>
-          <span>{ext.source}</span>
-          {ext.kind === "skin" && ext.skinType && (
-            <>
-              <span className="ext-detail-info-label">Theme</span>
-              <span>{ext.skinType === "dark" ? "Dark" : "Light"}</span>
-            </>
-          )}
-          {ext.contributes && (() => {
-            const items: { category: string; names: string[] }[] = [];
-            if (ext.contributes.informationTypes?.length)
-              items.push({ category: "Info Types", names: ext.contributes.informationTypes.map(t => t.name) });
-            if (ext.contributes.imageProviders?.length)
-              items.push({ category: "Image Providers", names: ext.contributes.imageProviders.map(p => `${p.entity} images`) });
-            if (ext.contributes.contextMenuItems?.length) {
-              const byTarget = new Map<string, string[]>();
-              for (const m of ext.contributes.contextMenuItems) {
-                for (const t of m.targets) {
-                  const list = byTarget.get(t) || [];
-                  list.push(m.label);
-                  byTarget.set(t, list);
-                }
-              }
-              for (const [target, labels] of byTarget) {
-                items.push({ category: `Menu (${target})`, names: labels });
-              }
-            }
-            if (ext.contributes.sidebarItems?.length)
-              items.push({ category: "Sidebar", names: ext.contributes.sidebarItems.map(s => s.label) });
-            if (ext.contributes.eventHooks?.length)
-              items.push({ category: "Event Hooks", names: ext.contributes.eventHooks });
-            if (ext.contributes.streamResolvers?.length)
-              items.push({ category: "Stream Resolvers", names: ext.contributes.streamResolvers.map(f => f.name) });
-            if (ext.contributes.settingsPanel)
-              items.push({ category: "Settings", names: [ext.contributes.settingsPanel.label] });
-            if (!items.length) return null;
-            return items.map(({ category, names }) => (
-              <React.Fragment key={category}>
-                <span className="ext-detail-info-label">{category}</span>
-                <span>{names.join(", ")}</span>
-              </React.Fragment>
-            ));
-          })()}
-        </div>
-      </div>
-
-      {ext.apiUsage && ext.apiUsage.length > 0 && (
-        <div className="ext-detail-api-usage">
-          <div className="ext-detail-api-usage-title">API Usage</div>
-          <div className="ext-detail-api-usage-list">
-            {ext.apiUsage.map((usage, i) => (
-              <div key={i} className="ext-detail-api-usage-item">
-                <code className="ext-detail-api-usage-api">{usage.api}</code>
-                <span className="ext-detail-api-usage-reason">{usage.reason}</span>
-              </div>
-            ))}
+      {settingsPanelId && (
+        <div className="ext-detail-section">
+          <div className="ext-detail-section-title">Configuration</div>
+          <div className="ext-detail-settings">
+            <PluginViewRenderer
+              pluginName=""
+              data={getPluginViewData?.(ext.id, settingsPanelId)}
+              currentTrack={null}
+              onAction={(actionId, actionData) => onPluginAction?.(ext.id, actionId, actionData)}
+            />
           </div>
         </div>
       )}
+
+      <div className="ext-detail-section">
+        <div className="ext-detail-section-title">Information</div>
+        <div className="ext-detail-info">
+          <div className="ext-detail-info-grid">
+            <span className="ext-detail-info-label">Version</span>
+            <span>{ext.version}</span>
+            <span className="ext-detail-info-label">Author</span>
+            <span>{ext.author}</span>
+            {ext.homepage && (
+              <>
+                <span className="ext-detail-info-label">Homepage</span>
+                <span><a className="ext-detail-link" href={ext.homepage} target="_blank" rel="noopener noreferrer">{ext.homepage.replace(/^https?:\/\//, "")}</a></span>
+              </>
+            )}
+            <span className="ext-detail-info-label">Type</span>
+            <span>{ext.kind === "plugin" ? "Plugin" : "Skin"}</span>
+            {ext.minAppVersion && (
+              <>
+                <span className="ext-detail-info-label">Min App Version</span>
+                <span>{ext.minAppVersion}</span>
+              </>
+            )}
+            <span className="ext-detail-info-label">Source</span>
+            <span>{ext.source}</span>
+            {ext.kind === "skin" && ext.skinType && (
+              <>
+                <span className="ext-detail-info-label">Theme</span>
+                <span>{ext.skinType === "dark" ? "Dark" : "Light"}</span>
+              </>
+            )}
+            {ext.contributes && (() => {
+              const items: { category: string; names: string[] }[] = [];
+              if (ext.contributes.informationTypes?.length)
+                items.push({ category: "Info Types", names: ext.contributes.informationTypes.map(t => t.name) });
+              if (ext.contributes.imageProviders?.length)
+                items.push({ category: "Image Providers", names: ext.contributes.imageProviders.map(p => `${p.entity} images`) });
+              if (ext.contributes.contextMenuItems?.length) {
+                const byTarget = new Map<string, string[]>();
+                for (const m of ext.contributes.contextMenuItems) {
+                  for (const t of m.targets) {
+                    const list = byTarget.get(t) || [];
+                    list.push(m.label);
+                    byTarget.set(t, list);
+                  }
+                }
+                for (const [target, labels] of byTarget) {
+                  items.push({ category: `Menu (${target})`, names: labels });
+                }
+              }
+              if (ext.contributes.sidebarItems?.length)
+                items.push({ category: "Sidebar", names: ext.contributes.sidebarItems.map(s => s.label) });
+              if (ext.contributes.eventHooks?.length)
+                items.push({ category: "Event Hooks", names: ext.contributes.eventHooks });
+              if (ext.contributes.streamResolvers?.length)
+                items.push({ category: "Stream Resolvers", names: ext.contributes.streamResolvers.map(f => f.name) });
+              if (ext.contributes.settingsPanel)
+                items.push({ category: "Settings", names: [ext.contributes.settingsPanel.label] });
+              if (!items.length) return null;
+              return items.map(({ category, names }) => (
+                <React.Fragment key={category}>
+                  <span className="ext-detail-info-label">{category}</span>
+                  <span>{names.join(", ")}</span>
+                </React.Fragment>
+              ));
+            })()}
+          </div>
+        </div>
+
+        {ext.apiUsage && ext.apiUsage.length > 0 && (
+          <div className="ext-detail-api-usage">
+            <div className="ext-detail-api-usage-title">API Usage</div>
+            <div className="ext-detail-api-usage-list">
+              {ext.apiUsage.map((usage, i) => (
+                <div key={i} className="ext-detail-api-usage-item">
+                  <code className="ext-detail-api-usage-api">{usage.api}</code>
+                  <span className="ext-detail-api-usage-reason">{usage.reason}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -217,7 +217,7 @@ export type PluginViewData =
       status?: string;
       statusVariant?: "default" | "error" | "success";
     }
-  | { type: "settings-row"; label: string; description?: string; control: PluginViewData }
+  | { type: "settings-row"; label: string; description?: string; control?: PluginViewData; child?: PluginViewData }
   | { type: "section"; title: string; children: PluginViewData[] }
   | {
       type: "detail-header";

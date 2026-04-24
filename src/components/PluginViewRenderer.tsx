@@ -253,19 +253,23 @@ function PluginViewNode({
       );
     case "progress-bar":
       return <PluginProgressBar value={node.value} max={node.max} label={node.label} />;
-    case "settings-row":
+    case "settings-row": {
+      const control = node.control || node.child;
       return (
         <PluginSettingsRow label={node.label} description={node.description}>
-          <PluginViewNode
-            node={node.control}
-            currentTrack={currentTrack}
-            onPlayTrack={onPlayTrack}
-            onAction={onAction}
-            onTrackContextMenu={onTrackContextMenu}
-            onTrackRowContextMenu={onTrackRowContextMenu}
-          />
+          {control && (
+            <PluginViewNode
+              node={control}
+              currentTrack={currentTrack}
+              onPlayTrack={onPlayTrack}
+              onAction={onAction}
+              onTrackContextMenu={onTrackContextMenu}
+              onTrackRowContextMenu={onTrackRowContextMenu}
+            />
+          )}
         </PluginSettingsRow>
       );
+    }
     case "section":
       return (
         <div className="settings-group">

@@ -555,17 +555,18 @@
 /* Plugin settings row */
 .plugin-settings-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   padding: 10px 0;
-  gap: 16px;
+  gap: 8px 16px;
 }
 
 .plugin-settings-row-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 0;
+  min-width: 120px;
   flex: 1;
 }
 
@@ -589,6 +590,13 @@
   font-size: var(--fs-sm);
   cursor: pointer;
   flex-shrink: 0;
+  min-width: 0;
+}
+.plugin-settings-row > .plugin-select,
+.plugin-settings-row > .ds-input,
+.plugin-settings-row > .ds-select {
+  flex: 0 1 auto;
+  max-width: 100%;
 }
 
 .plugin-select:focus {

@@ -1,5 +1,49 @@
 var ytDlpVersion = null;
+var ffmpegVersion = null;
+var latestYtDlp = null;
+var latestFfmpeg = null;
+var checking = false;
 var downloadCache = {};
+
+var YTDLP_INSTALL_URL = "https://github.com/yt-dlp/yt-dlp#installation";
+var FFMPEG_INSTALL_URL = "https://ffmpeg.org/download.html";
+
+async function fetchLatestVersions(api) {
+  try {
+    var ytRes = await api.network.fetch(
+      "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
+      { headers: { "Accept": "application/vnd.github.v3+json" } }
+    );
+    var ytData = await ytRes.json();
+    if (ytData && ytData.tag_name) {
+      latestYtDlp = ytData.tag_name;
+    }
+  } catch (e) {
+    console.error("[youtube] failed to fetch yt-dlp latest version:", e);
+  }
+  try {
+    var ffRes = await api.network.fetch(
+      "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest",
+      { headers: { "Accept": "application/vnd.github.v3+json" } }
+    );
+    var ffData = await ffRes.json();
+    if (ffData && ffData.tag_name) {
+      latestFfmpeg = ffData.tag_name;
+    }
+  } catch (e) {
+    console.error("[youtube] failed to fetch ffmpeg latest version:", e);
+  }
+}
+
+async function checkTools(api) {
+  checking = true;
+  renderSettings(api);
+  ytDlpVersion = await api.informationTypes.invoke("yt_dlp_check", {});
+  ffmpegVersion = await api.informationTypes.invoke("ffmpeg_check", {});
+  await fetchLatestVersions(api);
+  checking = false;
+  renderSettings(api);
+}
 
 async function searchAndDownload(api, title, artistName) {
   var result = await api.informationTypes.invoke("search_youtube", {
@@ -27,6 +71,7 @@ async function searchAndDownload(api, title, artistName) {
 
 async function activate(api) {
   ytDlpVersion = await api.informationTypes.invoke("yt_dlp_check", {});
+  ffmpegVersion = await api.informationTypes.invoke("ffmpeg_check", {});
 
   api.playback.onStreamResolve("youtube-fallback", async function(title, artistName, albumName) {
     console.log("[youtube] stream resolve called:", title, "by", artistName);
@@ -72,12 +117,49 @@ async function activate(api) {
     }
   });
 
-  api.ui.onAction("youtube-check-ytdlp", async function() {
-    ytDlpVersion = await api.informationTypes.invoke("yt_dlp_check", {});
+  api.ui.onAction("youtube-refresh", async function() {
+    await checkTools(api);
+  });
+
+  api.ui.onAction("youtube-install-ytdlp", function() {
+    api.network.openUrl(YTDLP_INSTALL_URL);
+  });
+
+  api.ui.onAction("youtube-install-ffmpeg", function() {
+    api.network.openUrl(FFMPEG_INSTALL_URL);
+  });
+
+  fetchLatestVersions(api).then(function() {
     renderSettings(api);
   });
 
   renderSettings(api);
+}
+
+function makeToolRow(name, localVersion, latestVersion, installAction) {
+  var installed = !!localVersion;
+  var desc;
+  if (!installed) {
+    desc = "Not installed";
+  } else if (latestVersion && localVersion !== latestVersion) {
+    desc = "Installed: " + localVersion + "  →  Latest: " + latestVersion;
+  } else if (latestVersion) {
+    desc = "Installed: " + localVersion + " (up to date)";
+  } else {
+    desc = "Installed: " + localVersion;
+  }
+
+  return {
+    type: "settings-row",
+    label: name,
+    description: desc,
+    control: {
+      type: "button",
+      label: installed ? "Installation Page" : "Install",
+      action: installAction,
+      variant: installed ? undefined : "accent"
+    }
+  };
 }
 
 function renderSettings(api) {
@@ -86,16 +168,25 @@ function renderSettings(api) {
     direction: "vertical",
     children: [
       {
-        type: "settings-row",
-        label: "yt-dlp status",
-        description: ytDlpVersion
-          ? "Installed (v" + ytDlpVersion + ")"
-          : "Not found — install yt-dlp to enable YouTube playback and downloads",
-        child: {
-          type: "button",
-          label: "Check again",
-          actionId: "youtube-check-ytdlp"
-        }
+        type: "section",
+        title: "Dependencies",
+        children: [
+          makeToolRow("yt-dlp", ytDlpVersion, latestYtDlp, "youtube-install-ytdlp"),
+          makeToolRow("ffmpeg", ffmpegVersion, latestFfmpeg, "youtube-install-ffmpeg"),
+        ]
+      },
+      { type: "spacer" },
+      {
+        type: "layout",
+        direction: "horizontal",
+        children: [
+          {
+            type: "button",
+            label: checking ? "Checking..." : "Refresh",
+            action: "youtube-refresh",
+            disabled: checking
+          }
+        ]
       }
     ]
   });
@@ -103,6 +194,10 @@ function renderSettings(api) {
 
 function deactivate() {
   ytDlpVersion = null;
+  ffmpegVersion = null;
+  latestYtDlp = null;
+  latestFfmpeg = null;
+  checking = false;
   downloadCache = {};
 }
 

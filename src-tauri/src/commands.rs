@@ -1695,7 +1695,33 @@ pub async fn yt_dlp_check() -> Option<String> {
     .flatten()
 }
 
-
+#[tauri::command]
+pub async fn ffmpeg_check() -> Option<String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        std::process::Command::new("ffmpeg")
+            .arg("-version")
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    String::from_utf8(o.stdout).ok().and_then(|s| {
+                        s.lines()
+                            .next()
+                            .and_then(|line| {
+                                // "ffmpeg version 7.1 Copyright ..." or "ffmpeg version N-..."
+                                line.strip_prefix("ffmpeg version ")
+                                    .map(|rest| rest.split_whitespace().next().unwrap_or("unknown").to_string())
+                            })
+                    })
+                } else {
+                    None
+                }
+            })
+    })
+    .await
+    .ok()
+    .flatten()
+}
 
 #[tauri::command]
 pub async fn yt_dlp_stream_audio(
