@@ -381,6 +381,18 @@ function App() {
     }
   }, [playback.currentTrack, plugins.dispatchEvent]);
 
+  useEffect(() => {
+    const track = playback.currentTrack;
+    if (track) {
+      const parts = [track.artist_name, track.title].filter(Boolean);
+      document.title = parts.length ? parts.join(" — ") : "Viboplr";
+    } else {
+      document.title = "Viboplr";
+    }
+  }, [playback.currentTrack]);
+
+  const mediaSessionNextRef = useRef<() => void>(() => {});
+
   // Plugin event: track played (scrobble threshold) and scrobbled
   useEffect(() => {
     if (!playback.scrobbled) return;
@@ -571,6 +583,39 @@ function App() {
   // Image caches (albumImageCache moved above useQueue for image_url stamping)
   const artistImageCache = useImageCache("artist", addLog);
   const tagImageCache = useImageCache("tag", addLog);
+
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    const track = playback.currentTrack;
+    if (!track) {
+      navigator.mediaSession.metadata = null;
+      return;
+    }
+    const artSrc = (track.album_id != null && albumImageCache.images[track.album_id])
+      || (track.artist_id != null && artistImageCache.images[track.artist_id])
+      || track.image_url
+      || null;
+    const artwork: MediaImage[] = artSrc
+      ? [{ src: artSrc.startsWith("http") ? artSrc : convertFileSrc(artSrc) }]
+      : [];
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: track.title,
+      artist: track.artist_name ?? undefined,
+      album: track.album_title ?? undefined,
+      artwork,
+    });
+  }, [playback.currentTrack, albumImageCache.images, artistImageCache.images]);
+
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.setActionHandler("play", () => {
+      playback.getMediaElement()?.play().catch(console.error);
+    });
+    navigator.mediaSession.setActionHandler("pause", () => playback.handlePause());
+    navigator.mediaSession.setActionHandler("previoustrack", () => queueHook.playPrevious());
+    navigator.mediaSession.setActionHandler("nexttrack", () => mediaSessionNextRef.current());
+    navigator.mediaSession.setActionHandler("stop", () => playback.handleStop());
+  }, [playback.handlePause, playback.handleStop, queueHook.playPrevious]);
 
   // Context menu actions
   const contextMenuActions = useContextMenuActions({
@@ -1552,6 +1597,8 @@ function App() {
       handleStopRef.current();
     }
   }, []);
+
+  mediaSessionNextRef.current = () => handleNext();
 
   useGlobalShortcuts({
     togglePlayPause: playback.handlePause,
