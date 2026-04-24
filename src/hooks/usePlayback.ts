@@ -39,6 +39,7 @@ export function usePlayback(
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [failedTrack, setFailedTrack] = useState<Track | null>(null);
   const [currentAssetUrl, setCurrentAssetUrl] = useState<string | null>(null);
+  const [loadingTrack, setLoadingTrack] = useState<Track | null>(null);
   const playStartedAtRef = useRef(0);
 
   // Preload state (refs for use in event handlers without stale closures)
@@ -335,6 +336,7 @@ export function usePlayback(
     cancelCrossfade();
     invalidatePreload();
     setPlaybackError(null);
+    setLoadingTrack(track);
 
     try {
       const src = await resolveTrackSrcRef.current(track);
@@ -343,6 +345,8 @@ export function usePlayback(
       console.error("Playback error:", e);
       setPlaybackError(e instanceof Error ? e.message : String(e));
       setFailedTrack(track);
+    } finally {
+      setLoadingTrack(null);
     }
   }
 
@@ -350,6 +354,7 @@ export function usePlayback(
     cancelCrossfade();
     invalidatePreload();
     setPlaybackError(null);
+    setLoadingTrack(track);
 
     try {
       await playWithSrc(track, url);
@@ -357,6 +362,8 @@ export function usePlayback(
       console.error("Playback error:", e);
       setPlaybackError(e instanceof Error ? e.message : String(e));
       setFailedTrack(track);
+    } finally {
+      setLoadingTrack(null);
     }
   }
 
@@ -585,5 +592,6 @@ export function usePlayback(
     onPauseSlotA, onPauseSlotB,
     toggleFullscreen,
     playbackError, failedTrack, clearPlaybackError,
+    loadingTrack,
   };
 }

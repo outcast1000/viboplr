@@ -895,7 +895,7 @@ function App() {
           return src;
         } catch (e) {
           console.error(`Stream resolver "${entry.name}" failed:`, e);
-          lastError = `${entry.name} failed`;
+          lastError = entry.name === "Library" ? "Not in library" : `${entry.name} failed`;
           continue;
         }
       }
@@ -3069,6 +3069,7 @@ function App() {
         onToggleHelp={() => setShowHelp(h => !h)}
         resolvingStatus={resolvingStatus}
         resolvedSource={resolvedSource}
+        loadingTrack={playback.loadingTrack}
         playbackError={playback.playbackError}
         onSkipError={() => { playback.clearPlaybackError(); handleNext(); }}
       />
