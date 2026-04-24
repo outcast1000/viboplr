@@ -157,16 +157,15 @@ export function isRemoteScheme(url: string): boolean {
  * Determines whether a track should be auto-saved to the downloads collection
  * after playback resolution.
  *
- * Returns true when auto-save is enabled, the track uses a remote scheme,
- * and it was NOT resolved from a local Library copy.
+ * Returns true when the resolver that played the track is enabled in the
+ * per-resolver auto-save map and the track uses a remote scheme.
  */
 export function shouldAutoSave(
-  autoSaveEnabled: boolean,
+  autoSaveMap: Record<string, boolean>,
   trackPath: string,
-  resolvedSourceName: string | null,
+  resolvedSourceId: string | null,
 ): boolean {
-  if (!autoSaveEnabled) return false;
+  if (!resolvedSourceId) return false;
   if (!isRemoteScheme(trackPath)) return false;
-  if (resolvedSourceName === "Library") return false;
-  return true;
+  return !!autoSaveMap[resolvedSourceId];
 }

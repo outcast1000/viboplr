@@ -120,9 +120,9 @@ function App() {
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
   const [lastTidalDownloadDest, setLastTidalDownloadDest] = useState<string | null>(null);
-  const [autoSaveStreams, setAutoSaveStreams] = useState(false);
+  const [autoSaveStreams, setAutoSaveStreams] = useState<Record<string, boolean>>({});
   const [downloadsCollectionId, setDownloadsCollectionId] = useState<number | null>(null);
-  const autoSaveStreamsRef = useRef(false);
+  const autoSaveStreamsRef = useRef<Record<string, boolean>>({});
   const downloadsCollectionIdRef = useRef<number | null>(null);
   trackVideoHistoryRef.current = trackVideoHistory;
   autoSaveStreamsRef.current = autoSaveStreams;
@@ -143,7 +143,7 @@ function App() {
   const streamResolversRef = useRef<StreamResolver[]>([]);
   const [streamResolverOrderVersion, setStreamResolverOrderVersion] = useState(0);
   const [resolvingStatus, setResolvingStatus] = useState<{ error: string | null; trying: string | null } | null>(null);
-  const [resolvedSource, setResolvedSource] = useState<{ name: string; url: string } | null>(null);
+  const [resolvedSource, setResolvedSource] = useState<{ name: string; url: string; id: string | null } | null>(null);
   const resolveGenerationRef = useRef(0);
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef);
   const waveformPeaks = useWaveform(
@@ -314,6 +314,22 @@ function App() {
       } else {
         streamResolversRef.current = allResolvers;
       }
+
+      // Migrate old boolean autoSaveStreams to per-resolver map
+      const stored = await store.get<Record<string, boolean> | boolean>("autoSaveStreams");
+      if (typeof stored === "boolean") {
+        if (stored) {
+          const migrated: Record<string, boolean> = {};
+          for (const r of pluginResolvers) {
+            migrated[r.id] = true;
+          }
+          setAutoSaveStreams(migrated);
+          store.set("autoSaveStreams", migrated);
+        } else {
+          setAutoSaveStreams({});
+          store.set("autoSaveStreams", {});
+        }
+      }
     };
     buildResolvers();
   }, [plugins.pluginStates, plugins.invokeStreamResolve, streamResolverOrderVersion]);
@@ -403,7 +419,7 @@ function App() {
     if (!track) return;
     plugins.dispatchEvent("track:played", track);
     plugins.dispatchEvent("track:scrobbled", track);
-    if (shouldAutoSave(autoSaveStreamsRef.current, track.path, resolvedSource?.name ?? null)) {
+    if (shouldAutoSave(autoSaveStreamsRef.current, track.path, resolvedSource?.id ?? null)) {
       const dlColId = downloadsCollectionIdRef.current;
       if (dlColId != null) {
         downloads.autoSaveTrack(track, dlColId, downloadFormatRef.current).catch(console.error);
@@ -792,7 +808,7 @@ function App() {
       setResolvedSource(null);
       const url = track.url ?? track.path;
 
-      interface ResolverEntry { name: string; resolve: () => Promise<string> }
+      interface ResolverEntry { name: string; id: string | null; resolve: () => Promise<string> }
       const chain: ResolverEntry[] = [];
 
       // Pre-resolution: check if a local copy exists for remote tracks
@@ -807,6 +823,7 @@ function App() {
             const localPath = localMatch.path.substring(7);
             chain.push({
               name: "Library",
+              id: null,
               resolve: () => Promise.resolve(convertFileSrc(localPath)),
             });
           }
@@ -818,11 +835,11 @@ function App() {
       // Native resolver first (if track has a known URL)
       if (url) {
         if (url.startsWith("http://") || url.startsWith("https://")) {
-          chain.push({ name: "Direct URL", resolve: () => Promise.resolve(url) });
+          chain.push({ name: "Direct URL", id: null, resolve: () => Promise.resolve(url) });
         } else {
           const parsed = parseUrlScheme(url);
           if (parsed.scheme !== "unknown") {
-            chain.push({ name: nativeResolverName(url), resolve: () => resolveUrl(url) });
+            chain.push({ name: nativeResolverName(url), id: null, resolve: () => resolveUrl(url) });
           }
         }
       }
@@ -831,6 +848,7 @@ function App() {
       for (const sr of streamResolversRef.current) {
         chain.push({
           name: sr.name,
+          id: sr.id,
           resolve: async () => {
             const result = await Promise.race([
               sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null),
@@ -856,7 +874,7 @@ function App() {
           const src = await entry.resolve();
           if (resolveGenerationRef.current !== generation) return "";
           setResolvingStatus(null);
-          setResolvedSource({ name: entry.name, url: src });
+          setResolvedSource({ name: entry.name, url: src, id: entry.id });
           if (lastError) {
             addLog(`Playing from ${entry.name} (original unavailable)`, "playback");
           }
@@ -1094,7 +1112,7 @@ function App() {
           store.get<boolean>("trackLikedFirst"),
           store.get<string | null>("lastTidalDownloadDest"),
           store.get<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
-          store.get<boolean>("autoSaveStreams"),
+          store.get<Record<string, boolean> | boolean>("autoSaveStreams"),
           store.get<number | null>("downloadsCollectionId"),
           store.get<boolean>("minimizeToMiniPlayer"),
         ]));
@@ -1107,7 +1125,9 @@ function App() {
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory) setTrackVideoHistory(true);
-        if (savedAutoSaveStreams) setAutoSaveStreams(true);
+        if (savedAutoSaveStreams && typeof savedAutoSaveStreams === "object") {
+          setAutoSaveStreams(savedAutoSaveStreams);
+        }
         if (savedDownloadsCollectionId != null) setDownloadsCollectionId(savedDownloadsCollectionId);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
 
@@ -1741,14 +1761,17 @@ function App() {
 
   const handleUnsetDownloadsCollection = async () => {
     setDownloadsCollectionId(null);
-    setAutoSaveStreams(false);
+    setAutoSaveStreams({});
     store.set("downloadsCollectionId", null);
-    store.set("autoSaveStreams", false);
+    store.set("autoSaveStreams", {});
   };
 
-  function handleAutoSaveStreamsChange(enabled: boolean) {
-    setAutoSaveStreams(enabled);
-    store.set("autoSaveStreams", enabled);
+  function handleAutoSaveStreamsChange(resolverId: string, enabled: boolean) {
+    setAutoSaveStreams(prev => {
+      const next = { ...prev, [resolverId]: enabled };
+      store.set("autoSaveStreams", next);
+      return next;
+    });
   }
 
   function handleToggleSidebar() {
@@ -2551,6 +2574,7 @@ function App() {
               onDebugLoggingChange={handleDebugLoggingChange}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
               downloadsCollection={downloadsCollection}
+              streamResolvers={streamResolversRef.current.map(r => ({ id: r.id, name: r.name, source: r.source }))}
               autoSaveStreams={autoSaveStreams}
               onSetDownloadsFolder={handleSetDownloadsFolder}
               onUnsetDownloadsCollection={handleUnsetDownloadsCollection}

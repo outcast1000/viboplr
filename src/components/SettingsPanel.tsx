@@ -758,10 +758,11 @@ interface SettingsPanelProps {
   onStreamResolverOrderChanged?: () => void;
   // Downloads collection
   downloadsCollection: Collection | null;
-  autoSaveStreams: boolean;
+  streamResolvers: Array<{ id: string; name: string; source: string }>;
+  autoSaveStreams: Record<string, boolean>;
   onSetDownloadsFolder: () => void;
   onUnsetDownloadsCollection: () => void;
-  onAutoSaveStreamsChange: (enabled: boolean) => void;
+  onAutoSaveStreamsChange: (resolverId: string, enabled: boolean) => void;
 }
 
 interface ProviderFormData {
@@ -809,6 +810,7 @@ export function SettingsPanel({
   onDebugLoggingChange,
   onStreamResolverOrderChanged,
   downloadsCollection,
+  streamResolvers: streamResolversList,
   autoSaveStreams,
   onSetDownloadsFolder,
   onUnsetDownloadsCollection,
@@ -1007,23 +1009,43 @@ export function SettingsPanel({
                         )}
                       </div>
                     </div>
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Save streamed tracks</span>
-                        <span className="settings-description">
-                          {downloadsCollection
-                            ? "Automatically save tracks to your Downloads folder as they play"
-                            : "Configure a Downloads folder first"}
-                        </span>
+                    {streamResolversList.filter(sr => sr.source !== "built-in").length > 0 ? (
+                      <>
+                        <div className="settings-row">
+                          <div className="settings-row-info">
+                            <span className="settings-label">Auto-save streams</span>
+                            <span className="settings-description">
+                              {downloadsCollection
+                                ? "Choose which sources auto-save tracks to your Downloads folder"
+                                : "Configure a Downloads folder first"}
+                            </span>
+                          </div>
+                        </div>
+                        {downloadsCollection && streamResolversList
+                          .filter(sr => sr.source !== "built-in")
+                          .map(sr => (
+                            <div className="settings-row settings-row--nested" key={sr.id}>
+                              <div className="settings-row-info">
+                                <span className="settings-label">{sr.name}</span>
+                              </div>
+                              <button
+                                className={`ds-toggle ${autoSaveStreams[sr.id] ? "on" : ""}`}
+                                onClick={() => onAutoSaveStreamsChange(sr.id, !autoSaveStreams[sr.id])}
+                              >
+                                <span className="ds-toggle-thumb" />
+                              </button>
+                            </div>
+                          ))
+                        }
+                      </>
+                    ) : (
+                      <div className="settings-row">
+                        <div className="settings-row-info">
+                          <span className="settings-label">Auto-save streams</span>
+                          <span className="settings-description">No stream resolvers available</span>
+                        </div>
                       </div>
-                      <button
-                        className={`ds-toggle ${autoSaveStreams && downloadsCollection ? "on" : ""}`}
-                        onClick={() => downloadsCollection && onAutoSaveStreamsChange(!autoSaveStreams)}
-                        disabled={!downloadsCollection}
-                      >
-                        <span className="ds-toggle-thumb" />
-                      </button>
-                    </div>
+                    )}
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">Download format</span>
