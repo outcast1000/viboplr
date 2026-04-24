@@ -240,12 +240,12 @@ function activate(api) {
     }
     saveApprovedTags();
     if (newTags.length > 0) {
-      applyTagsToMatchingTracks(newTags);
+      applyTagsToMatchingTracks(newTags, true);
     }
     render();
   }
 
-  function applyTagsToMatchingTracks(tagsToCheck) {
+  function applyTagsToMatchingTracks(tagsToCheck, refreshAfter) {
     var collectionRoots = {};
     for (var i = 0; i < state.collections.length; i++) {
       collectionRoots[state.collections[i].id] = state.collections[i].path || "";
@@ -256,6 +256,7 @@ function activate(api) {
     }
 
     fetchAllTracks().then(function (tracks) {
+      var promises = [];
       for (var i = 0; i < tracks.length; i++) {
         var ngrams = tokenizeTrack(tracks[i], collectionRoots);
         var matchedTags = [];
@@ -266,11 +267,16 @@ function activate(api) {
           }
         }
         if (matchedTags.length > 0) {
-          api.library.applyTags(tracks[i].id, matchedTags).catch(function (err) {
+          promises.push(api.library.applyTags(tracks[i].id, matchedTags).catch(function (err) {
             console.error("Failed to apply tags:", err);
-          });
+          }));
         }
         state.processedTrackIds[tracks[i].id] = true;
+      }
+      return Promise.all(promises);
+    }).then(function () {
+      if (refreshAfter) {
+        api.ui.requestAction("refresh-library", {});
       }
     }).catch(function (err) {
       console.error("Failed to apply tags to matching tracks:", err);
@@ -278,7 +284,7 @@ function activate(api) {
   }
 
   function runNow() {
-    applyTagsToMatchingTracks(state.approvedTags);
+    applyTagsToMatchingTracks(state.approvedTags, true);
   }
 
   function autoAssignTrack(trackData) {

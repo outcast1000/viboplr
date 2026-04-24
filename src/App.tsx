@@ -742,6 +742,9 @@ function App() {
       } else if (action === "navigate-to-track") {
         pushStateRef.current();
         library.navigateToTrackByName(payload.name as string, payload.artistName as string | undefined, payload.albumTitle as string | undefined);
+      } else if (action === "refresh-library") {
+        library.loadLibrary();
+        library.loadTracks();
       } else if (action === "enqueue-tracks") {
         const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string; image_url?: string }>);
         if (tracks?.length) {
