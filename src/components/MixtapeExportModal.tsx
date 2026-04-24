@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { useState, useEffect, useCallback } from "react";
@@ -239,7 +239,7 @@ export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExp
             <div className="mixtape-export-form">
               <div className="mixtape-export-cover-section">
                 {coverPath ? (
-                  <img className="mixtape-export-cover-preview" src={`asset://localhost/${coverPath}`} alt="Cover" />
+                  <img className="mixtape-export-cover-preview" src={convertFileSrc(coverPath)} alt="Cover" />
                 ) : (
                   <div className="mixtape-export-cover-placeholder" onClick={handleCoverChoose}>No cover</div>
                 )}
