@@ -503,6 +503,17 @@ function App() {
     setAlbumBelowTabOrder(order);
     store.set("albumDetailBelowTabOrder", order);
   }, []);
+  const [tagDetailColumns, setTagDetailColumns] = useState(ALBUM_DETAIL_COLUMNS);
+  const [tagBelowTabOrder, setTagBelowTabOrder] = useState<string[]>([]);
+  useEffect(() => {
+    store.get<string[]>("tagDetailBelowTabOrder").then(saved => {
+      if (saved && saved.length > 0) setTagBelowTabOrder(saved);
+    });
+  }, []);
+  const handleTagBelowTabOrderChange = useCallback((order: string[]) => {
+    setTagBelowTabOrder(order);
+    store.set("tagDetailBelowTabOrder", order);
+  }, []);
   const [detailTrack, setDetailTrack] = useState<Track | null>(null);
   const [syncWithPlaying, setSyncWithPlaying] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
@@ -2187,67 +2198,116 @@ function App() {
             );
           })()}
 
-          {/* Tag detail header */}
+          {/* Tag detail — header + track list + information sections */}
           {view === "tags" && selectedTag !== null && (() => {
             const tag = tags.find(t => t.id === selectedTag);
             const tagImagePath = tagImageCache.images[selectedTag] ?? null;
+            const tagEntity = tag ? {
+              kind: "tag" as const,
+              name: tag.name,
+              id: tag.id,
+            } : null;
             return (
-              <div
-                className="album-detail-top"
-                style={tagImagePath ? { '--artist-bg': `url(${convertFileSrc(tagImagePath)})` } as React.CSSProperties : undefined}
-              >
-                <div className="album-detail-header">
-                  <div className="album-detail-art">
-                    {tagImagePath ? (
-                      <img className="album-detail-art-img" src={convertFileSrc(tagImagePath)} alt={tag?.name} />
-                    ) : (
-                      tag?.name[0]?.toUpperCase() ?? "#"
-                    )}
-                    {sortedTracks.length > 0 && (
-                      <button
-                        className="detail-art-play"
-                        title="Play All"
-                        onClick={() => {
-                          const tagImgPath = tagImageCache.images[selectedTag] ?? null;
-                          queueHook.playTracks(sortedTracks.filter(t => t.liked !== -1), 0, tag ? { name: tag.name, coverPath: tagImgPath } : null);
+              <div className="album-detail">
+                <div
+                  className="album-detail-top"
+                  style={tagImagePath ? { '--artist-bg': `url(${convertFileSrc(tagImagePath)})` } as React.CSSProperties : undefined}
+                >
+                  <div className="album-detail-header">
+                    <div className="album-detail-art">
+                      {tagImagePath ? (
+                        <img className="album-detail-art-img" src={convertFileSrc(tagImagePath)} alt={tag?.name} />
+                      ) : (
+                        tag?.name[0]?.toUpperCase() ?? "#"
+                      )}
+                      {sortedTracks.length > 0 && (
+                        <button
+                          className="detail-art-play"
+                          title="Play All"
+                          onClick={() => {
+                            const tagImgPath = tagImageCache.images[selectedTag] ?? null;
+                            queueHook.playTracks(sortedTracks.filter(t => t.liked !== -1), 0, tag ? { name: tag.name, coverPath: tagImgPath } : null);
+                          }}
+                        >
+                          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                        </button>
+                      )}
+                    </div>
+                    <div className="album-detail-info">
+                      <h2>
+                        {tag?.name ?? "Unknown"}
+                        <button
+                          className={`detail-love-btn${tag?.liked === 1 ? " liked" : ""}`}
+                          onClick={() => likeActions.handleToggleTagLike(selectedTag)}
+                          title={tag?.liked === 1 ? "Unlike tag" : "Love tag"}
+                        >
+                          {tag?.liked === 1
+                            ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                            : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>}
+                        </button>
+                        <button
+                          className={`detail-hate-btn${tag?.liked === -1 ? " hated" : ""}`}
+                          onClick={() => likeActions.handleToggleTagHate(selectedTag)}
+                          title={tag?.liked === -1 ? "Remove hate" : "Hate tag"}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
+                        </button>
+                      </h2>
+                      <span className="artist-meta">{tag?.track_count ?? 0} tracks</span>
+                      <ImageActions
+                        entityId={selectedTag}
+                        entityType="tag"
+                        imagePath={tagImagePath}
+                        onImageSet={(id, path) => tagImageCache.setImages(prev => ({ ...prev, [id]: path }))}
+                        onImageRemoved={(id) => {
+                          tagImageCache.setImages(prev => ({ ...prev, [id]: null }));
                         }}
-                      >
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                      </button>
-                    )}
-                  </div>
-                  <div className="album-detail-info">
-                    <h2>
-                      {tag?.name ?? "Unknown"}
-                      <button
-                        className={`detail-love-btn${tag?.liked === 1 ? " liked" : ""}`}
-                        onClick={() => likeActions.handleToggleTagLike(selectedTag)}
-                        title={tag?.liked === 1 ? "Unlike tag" : "Love tag"}
-                      >
-                        {tag?.liked === 1
-                          ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                          : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>}
-                      </button>
-                      <button
-                        className={`detail-hate-btn${tag?.liked === -1 ? " hated" : ""}`}
-                        onClick={() => likeActions.handleToggleTagHate(selectedTag)}
-                        title={tag?.liked === -1 ? "Remove hate" : "Hate tag"}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
-                      </button>
-                    </h2>
-                    <span className="artist-meta">{tag?.track_count ?? 0} tracks</span>
-                    <ImageActions
-                      entityId={selectedTag}
-                      entityType="tag"
-                      imagePath={tagImagePath}
-                      onImageSet={(id, path) => tagImageCache.setImages(prev => ({ ...prev, [id]: path }))}
-                      onImageRemoved={(id) => {
-                        tagImageCache.setImages(prev => ({ ...prev, [id]: null }));
-                      }}
-                    />
+                      />
+                    </div>
                   </div>
                 </div>
+                <TrackList
+                  tracks={sortedTracks}
+                  currentTrack={playback.currentTrack}
+                  playing={playback.playing}
+                  highlightedIndex={highlightedIndex}
+                  sortField={sortField}
+                  trackListRef={trackListRef}
+                  columns={tagDetailColumns}
+                  onColumnsChange={setTagDetailColumns}
+                  onDoubleClick={queueHook.playTracks}
+                  onContextMenu={contextMenuActions.handleTrackContextMenu}
+                  onArtistClick={library.handleArtistClick}
+                  onAlbumClick={library.handleAlbumClick}
+                  onSort={library.handleSort}
+                  sortIndicator={library.sortIndicator}
+                  onToggleLike={likeActions.handleToggleLike}
+                  onToggleDislike={likeActions.handleToggleDislike}
+                  onTrackDragStart={contextMenuActions.handleTrackDragStart}
+                  onDeleteTracks={handleDeleteTracks}
+                  emptyMessage="No tracks found."
+                />
+                {tagEntity && (
+                  <div className="section-wide">
+                    <InformationSections
+                      entity={tagEntity}
+                      exclude={[]}
+                      placement="below"
+                      invokeInfoFetch={plugins.invokeInfoFetch}
+                      pluginNames={plugins.pluginNames}
+                      tabOrder={tagBelowTabOrder}
+                      onTabOrderChange={handleTagBelowTabOrderChange}
+                      onAction={(actionId, payload) => {
+                        if (actionId === "play-track") {
+                          const t = payload as Track | undefined;
+                          if (t) queueHook.playTracks([t], 0);
+                        }
+                      }}
+                      onTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
+                      onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
+                    />
+                  </div>
+                )}
               </div>
             );
           })()}
