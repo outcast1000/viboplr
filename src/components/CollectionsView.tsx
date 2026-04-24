@@ -164,44 +164,46 @@ export function CollectionsView({
                     </span>
                   </div>
                 )}
-                {!isDownloads && (
-                  <div className="collections-view-card-actions">
-                    {(c.kind === "local" || c.kind === "subsonic") && (
-                      <button
-                        className={`collections-view-action-btn ${resyncProgress?.collectionId === c.id || resyncComplete?.collectionId === c.id ? "collections-view-action-checking" : ""}`}
-                        onClick={() => onResync(c.id)}
-                        disabled={resyncProgress != null || (resyncComplete != null && !resyncComplete.error)}
-                        title="Resync"
-                      >
-                        {resyncProgress?.collectionId === c.id ? "Resyncing..." : "Resync"}
-                      </button>
-                    )}
-                    {c.kind === "subsonic" && (
-                      <button
-                        className={`collections-view-action-btn ${checkingConnectionId === c.id ? "collections-view-action-checking" : ""}`}
-                        onClick={() => onCheckConnection(c.id)}
-                        disabled={checkingConnectionId === c.id}
-                        title="Check connection"
-                      >
-                        {checkingConnectionId === c.id ? "Checking..." : "Check Connection"}
-                      </button>
-                    )}
+                <div className="collections-view-card-actions">
+                  {(c.kind === "local" || c.kind === "subsonic") && (
                     <button
-                      className="collections-view-action-btn"
-                      onClick={() => onEdit(c)}
-                      title="Edit"
+                      className={`collections-view-action-btn ${resyncProgress?.collectionId === c.id || resyncComplete?.collectionId === c.id ? "collections-view-action-checking" : ""}`}
+                      onClick={() => onResync(c.id)}
+                      disabled={resyncProgress != null || (resyncComplete != null && !resyncComplete.error)}
+                      title="Resync"
                     >
-                      Edit
+                      {resyncProgress?.collectionId === c.id ? "Resyncing..." : "Resync"}
                     </button>
+                  )}
+                  {c.kind === "subsonic" && (
                     <button
-                      className="collections-view-action-btn collections-view-action-btn-danger"
-                      onClick={() => onRemove(c)}
-                      title="Remove"
+                      className={`collections-view-action-btn ${checkingConnectionId === c.id ? "collections-view-action-checking" : ""}`}
+                      onClick={() => onCheckConnection(c.id)}
+                      disabled={checkingConnectionId === c.id}
+                      title="Check connection"
                     >
-                      Remove
+                      {checkingConnectionId === c.id ? "Checking..." : "Check Connection"}
                     </button>
-                  </div>
-                )}
+                  )}
+                  {!isDownloads && (
+                    <>
+                      <button
+                        className="collections-view-action-btn"
+                        onClick={() => onEdit(c)}
+                        title="Edit"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="collections-view-action-btn collections-view-action-btn-danger"
+                        onClick={() => onRemove(c)}
+                        title="Remove"
+                      >
+                        Remove
+                      </button>
+                    </>
+                  )}
+                </div>
                 {connectionResult && connectionResult.collectionId === c.id && (
                   <div className={`collections-view-feedback ${connectionResult.ok ? "collections-view-feedback-ok" : "collections-view-feedback-err"}`}>
                     {connectionResult.message}
