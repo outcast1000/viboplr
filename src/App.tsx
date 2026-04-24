@@ -1591,9 +1591,15 @@ function App() {
     const ac = autoContinueRef.current;
     const track = currentTrackRef.current;
     if (!ac.enabled || !track) return;
+    console.log(`[prefetch] Fetching auto-continue track (current: "${track.title}")`);
     const excludeIds = queueRef.current.map(t => t.id);
     ac.fetchTrack(track, excludeIds).then(next => {
-      if (next) addToQueueRef.current(next);
+      if (next) {
+        console.log(`[prefetch] Queued "${next.title}" by ${next.artist_name}`);
+        addToQueueRef.current(next);
+      } else {
+        console.log("[prefetch] Auto-continue returned no track");
+      }
     });
   };
 

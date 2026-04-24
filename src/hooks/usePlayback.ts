@@ -146,8 +146,10 @@ export function usePlayback(
     }
 
     isPreloadingRef.current = true;
+    console.log(`[preload] Resolving URL for "${nextTrack.title}"`);
     try {
       const src = await resolveTrackSrcRef.current(nextTrack);
+      console.log(`[preload] URL resolved for "${nextTrack.title}"`);
 
       const inactiveEl = getInactiveAudioElement();
       if (!inactiveEl) return;
@@ -160,12 +162,13 @@ export function usePlayback(
       preloadReadyRef.current = false;
 
       const onCanPlay = () => {
+        console.log(`[preload] Audio ready for "${nextTrack.title}"`);
         preloadReadyRef.current = true;
         inactiveEl.removeEventListener("canplay", onCanPlay);
       };
       inactiveEl.addEventListener("canplay", onCanPlay);
     } catch (e) {
-      console.error("Preload error:", e);
+      console.error("[preload] Error:", e);
       preloadedTrackRef.current = null;
     } finally {
       isPreloadingRef.current = false;
@@ -220,6 +223,7 @@ export function usePlayback(
     if (!preloadedTrackRef.current || !preloadReadyRef.current) return;
 
     const nextTrack = preloadedTrackRef.current;
+    console.log(`[crossfade] Starting crossfade into "${nextTrack.title}"`);
     const outgoingEl = getActiveAudioElement();
     const incomingEl = getInactiveAudioElement();
 
@@ -487,6 +491,7 @@ export function usePlayback(
       // Auto-continue prefetch: append next track to queue early
       if (remaining <= prefetchAt && !prefetchRequestedRef.current) {
         if (!peekNextRef.current()) {
+          console.log(`[prefetch] No next track in queue, requesting auto-continue (${remaining.toFixed(1)}s remaining)`);
           prefetchRequestedRef.current = true;
           prefetchNextRef.current();
         }
