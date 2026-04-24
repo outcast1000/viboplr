@@ -176,7 +176,12 @@ function activate(api) {
           candidateList.push({ ngram: keys[k], count: globalFreq[keys[k]] });
         }
       }
-      candidateList.sort(function (a, b) { return b.count - a.count; });
+      candidateList.sort(function (a, b) {
+        var aWords = a.ngram.split(/\s+/).length;
+        var bWords = b.ngram.split(/\s+/).length;
+        if (bWords !== aWords) return bWords - aWords;
+        return b.count - a.count;
+      });
 
       state.candidates = candidateList;
       state.analyzing = false;
@@ -621,4 +626,4 @@ function activate(api) {
 
 function deactivate() {}
 
-module.exports = { activate: activate, deactivate: deactivate };
+return { activate: activate, deactivate: deactivate };
