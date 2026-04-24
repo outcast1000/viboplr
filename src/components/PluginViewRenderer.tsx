@@ -147,7 +147,7 @@ function PluginViewNode({
     case "button":
       return (
         <button
-          className={node.variant === "accent" ? "ds-btn ds-btn--primary" : "plugin-button"}
+          className={node.className || (node.variant === "accent" ? "ds-btn ds-btn--primary" : "plugin-button")}
           onClick={() => onAction?.(node.action, node.data)}
           disabled={node.disabled}
           style={node.style as React.CSSProperties | undefined}
@@ -158,7 +158,7 @@ function PluginViewNode({
     case "layout":
       return (
         <div
-          className={`plugin-layout plugin-layout-${node.direction}`}
+          className={`plugin-layout plugin-layout-${node.direction}${node.className ? " " + node.className : ""}`}
         >
           {node.children.map((child, i) => (
             <PluginViewNode

@@ -595,3 +595,27 @@
 .ds-tooltip.visible {
   opacity: 1;
 }
+
+/* ── Banners ── */
+
+.ds-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: var(--ds-radius);
+  font-size: var(--fs-xs);
+}
+
+.ds-banner--error {
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  color: var(--error);
+  border: 1px solid color-mix(in srgb, var(--error) 25%, transparent);
+}
+
+.ds-banner--warning {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+  border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
+}

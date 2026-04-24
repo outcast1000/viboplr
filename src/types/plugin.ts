@@ -181,11 +181,12 @@ export type PluginViewData =
     }
   | { type: "text"; content: string; className?: string }
   | { type: "stats-grid"; items: StatItem[] }
-  | { type: "button"; label: string; action: string; variant?: "accent" | "secondary"; disabled?: boolean; style?: Record<string, string>; data?: unknown }
+  | { type: "button"; label: string; action: string; variant?: "accent" | "secondary"; disabled?: boolean; style?: Record<string, string>; data?: unknown; className?: string }
   | {
       type: "layout";
       direction: "vertical" | "horizontal";
       children: PluginViewData[];
+      className?: string;
     }
   | { type: "spacer" }
   | {

@@ -1,6 +1,8 @@
 // TIDAL Browse Plugin for Viboplr
 // Provides TIDAL search, streaming, and download via plugin system
 
+var __healthCheckInterval = null;
+
 function activate(api) {
   var state = {
     currentView: "search",
@@ -11,6 +13,8 @@ function activate(api) {
     albumDetail: null,
     artistDetail: null,
     streamingQuality: "HIGH",
+    apiDown: true,
+    streamingDown: true,
   };
 
   // -- TIDAL HTTP client --
@@ -19,7 +23,7 @@ function activate(api) {
     "https://tidal-uptime.jiffy-puffs-1j.workers.dev/",
     "https://tidal-uptime.props-76styles.workers.dev/",
   ];
-  var CACHE_TTL_MS = 86400000; // 24 hours
+  var CACHE_TTL_MS = 1800000; // 30 minutes
 
   var instanceCache = null; // { apiUrls: [], streamingUrls: [], fetchedAt: number }
 
@@ -35,14 +39,28 @@ function activate(api) {
         var streamingUrls = (json.streaming || []).map(function (item) {
           return item.url.replace(/\/+$/, "");
         });
-        if (apiUrls.length > 0 || streamingUrls.length > 0) {
-          instanceCache = { apiUrls: apiUrls, streamingUrls: streamingUrls, fetchedAt: Date.now() };
-          return;
-        }
+        instanceCache = { apiUrls: apiUrls, streamingUrls: streamingUrls, fetchedAt: Date.now() };
+        updateHealthState(apiUrls.length > 0, streamingUrls.length > 0);
+        return;
       } catch (e) {
         // try next uptime URL
       }
     }
+    // all uptime URLs failed — mark everything down
+    updateHealthState(false, false);
+  }
+
+  function updateHealthState(apiUp, streamingUp) {
+    var changed = (state.apiDown !== !apiUp) || (state.streamingDown !== !streamingUp);
+    state.apiDown = !apiUp;
+    state.streamingDown = !streamingUp;
+    if (changed) {
+      var parts = [];
+      if (apiUp) parts.push("API: up"); else parts.push("API: down");
+      if (streamingUp) parts.push("streaming: up"); else parts.push("streaming: down");
+      rustLog(apiUp && streamingUp ? "info" : "warn", "TIDAL health check — " + parts.join(", "));
+    }
+    render();
   }
 
   async function getApiUrls() {
@@ -64,6 +82,12 @@ function activate(api) {
 
   async function tidalFetch(path) {
     var isStreaming = path.indexOf("/track") === 0 || path.indexOf("/stream") === 0;
+    if (isStreaming && state.streamingDown) {
+      throw new Error("TIDAL streaming servers are currently unavailable");
+    }
+    if (!isStreaming && state.apiDown) {
+      throw new Error("TIDAL API servers are currently unavailable");
+    }
     var urls = isStreaming ? await getStreamingUrls() : await getApiUrls();
     if (urls.length === 0) {
       throw new Error("No TIDAL instances available");
@@ -237,6 +261,7 @@ function activate(api) {
   // -- Image providers --
 
   api.imageProviders.onFetch("artist", async function (name) {
+    if (state.apiDown) return { status: "not_found" };
     var results = await tidalSearch(name, 1);
     var artist = results && results.artists && results.artists[0];
     if (!artist || !artist.picture_id) return { status: "not_found" };
@@ -245,6 +270,7 @@ function activate(api) {
   });
 
   api.imageProviders.onFetch("album", async function (name, artistName) {
+    if (state.apiDown) return { status: "not_found" };
     var query = artistName ? artistName + " " + name : name;
     var results = await tidalSearch(query, 1);
     var album = results && results.albums && results.albums[0];
@@ -256,14 +282,36 @@ function activate(api) {
   // -- View rendering --
 
   function renderSearchView() {
-    var children = [
-      {
-        type: "search-input",
-        placeholder: "Search TIDAL...",
-        action: "search",
-        value: state.lastQuery,
-      },
-    ];
+    var children = [];
+
+    if (state.apiDown && state.streamingDown) {
+      children.push({
+        type: "layout",
+        direction: "horizontal",
+        className: "ds-banner ds-banner--error",
+        children: [
+          { type: "text", content: "TIDAL servers are currently unavailable" },
+          { type: "button", label: "Check Now", action: "check-health", className: "ds-btn ds-btn--sm ds-btn--secondary" },
+        ],
+      });
+    } else if (state.streamingDown) {
+      children.push({
+        type: "layout",
+        direction: "horizontal",
+        className: "ds-banner ds-banner--warning",
+        children: [
+          { type: "text", content: "TIDAL streaming is unavailable — search may still work" },
+          { type: "button", label: "Check Now", action: "check-health", className: "ds-btn ds-btn--sm ds-btn--secondary" },
+        ],
+      });
+    }
+
+    children.push({
+      type: "search-input",
+      placeholder: "Search TIDAL...",
+      action: "search",
+      value: state.lastQuery,
+    });
 
     var trackCount = state.searchResults ? (state.searchResults.tracks || []).length : 0;
     var albumCount = state.searchResults ? (state.searchResults.albums || []).length : 0;
@@ -509,6 +557,8 @@ function activate(api) {
   }
 
   function render() {
+    var anyDown = state.apiDown || state.streamingDown;
+    api.ui.setBadge("tidal", anyDown ? { type: "dot", variant: "error" } : null);
     if (state.currentView === "search") renderSearchView();
     else if (state.currentView === "album-detail") renderAlbumDetail();
     else if (state.currentView === "artist-detail") renderArtistDetail();
@@ -881,6 +931,7 @@ function activate(api) {
   // -- Download provider --
 
   api.downloads.onResolve("tidal-download", async function(title, artistName, albumName, sourceTrackId, format) {
+    if (state.streamingDown) return null;
     var quality = format === "flac" ? "LOSSLESS" : "HIGH";
 
     // Direct resolution if we already know the TIDAL track ID
@@ -928,7 +979,15 @@ function activate(api) {
 
   // -- Fallback provider --
 
+  function rustLog(level, message) {
+    api.informationTypes.invoke("write_frontend_log", { level: level, message: message, section: "tidal" }).catch(function () {});
+  }
+
   api.playback.onStreamResolve("tidal-fallback", async function (title, artistName, albumName) {
+    if (state.streamingDown) {
+      rustLog("warn", "TIDAL streaming servers are down — skipping stream resolve for: " + [title, artistName].filter(Boolean).join(" — "));
+      return null;
+    }
     var query = [title, artistName].filter(Boolean).join(" ");
     if (!query) return null;
     try {
@@ -958,6 +1017,10 @@ function activate(api) {
   // -- Stream URL resolver for tidal:// playback --
 
   api.tidal.onStreamUrlResolve(function (trackId, quality) {
+    if (state.streamingDown) {
+      rustLog("warn", "TIDAL streaming servers are down — skipping stream URL resolve for track " + trackId);
+      return Promise.resolve(null);
+    }
     return tidalGetStreamUrl(trackId, quality || state.streamingQuality);
   });
 
@@ -1008,12 +1071,29 @@ function activate(api) {
     }
   });
 
+  api.ui.onAction("check-health", function () {
+    instanceCache = null;
+    fetchInstances().then(function () {
+      render();
+    });
+  });
+
+  // Health check: immediate + every 30 minutes
+  fetchInstances();
+  _healthCheckInterval = setInterval(function () {
+    instanceCache = null;
+    fetchInstances();
+  }, CACHE_TTL_MS);
+
   // Initial render
   render();
 }
 
 function deactivate() {
-  // Nothing to clean up
+  if (_healthCheckInterval) {
+    clearInterval(_healthCheckInterval);
+    _healthCheckInterval = null;
+  }
 }
 
 return { activate: activate, deactivate: deactivate };
