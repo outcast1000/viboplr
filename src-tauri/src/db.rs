@@ -835,6 +835,8 @@ impl Database {
             "DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL);
              DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM tracks WHERE artist_id IS NOT NULL)
                                    AND id NOT IN (SELECT DISTINCT artist_id FROM albums WHERE artist_id IS NOT NULL);
+             DELETE FROM track_tags WHERE tag_id NOT IN (SELECT id FROM tags);
+             DELETE FROM track_tags WHERE track_id NOT IN (SELECT id FROM tracks);
              DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM track_tags);"
         )?;
         conn.execute_batch(

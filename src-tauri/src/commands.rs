@@ -1895,7 +1895,9 @@ pub fn get_track_audio_properties(
 
 #[tauri::command]
 pub fn replace_track_tags(state: State<'_, AppState>, track_id: i64, tag_names: Vec<String>) -> Result<Vec<(i64, String)>, String> {
-    state.db.replace_track_tags(track_id, &tag_names).map_err(|e| e.to_string())
+    let result = state.db.replace_track_tags(track_id, &tag_names).map_err(|e| e.to_string())?;
+    let _ = state.db.rebuild_fts();
+    Ok(result)
 }
 
 // --- Download commands ---
@@ -2744,6 +2746,7 @@ pub fn plugin_apply_tags(
         state.db.add_track_tag(track_id, tag_id).map_err(|e| e.to_string())?;
         result.push((tag_id, name.clone()));
     }
+    let _ = state.db.rebuild_fts();
     Ok(result)
 }
 

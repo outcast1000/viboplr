@@ -9,7 +9,7 @@ function activate(api) {
     "various artists", "unknown", "misc", "other", "music", "feat", "ft", "featuring"
   ];
 
-  var STRIP_CHARS_RE = /[()[\]{}<>!?@#$%^&*+=~`|;:'",]/g;
+  var STRIP_CHARS_RE = /[()[\]{}<>!?@#$%^&*+=~`|;:'",\-]/g;
 
   var state = {
     activeTab: "analyze",
@@ -17,6 +17,7 @@ function activate(api) {
     selectedCollectionId: null,
     analyzing: false,
     candidates: [],
+    analyzeSearch: "",
     threshold: 3,
     approvedTags: [],
     stopwords: DEFAULT_STOPWORDS.slice(),
@@ -431,7 +432,24 @@ function activate(api) {
         },
       });
 
-      var filtered = state.candidates.filter(function (c) { return c.count >= state.threshold; });
+      children.push({
+        type: "search-input",
+        value: state.analyzeSearch,
+        placeholder: "Filter candidates...",
+        action: "analyze-search",
+      });
+
+      var approvedSet = {};
+      for (var a = 0; a < state.approvedTags.length; a++) {
+        approvedSet[normalizeStr(state.approvedTags[a])] = true;
+      }
+      var searchTerm = normalizeStr(state.analyzeSearch);
+      var filtered = state.candidates.filter(function (c) {
+        if (c.count < state.threshold) return false;
+        if (approvedSet[normalizeStr(c.ngram)]) return false;
+        if (searchTerm && normalizeStr(c.ngram).indexOf(searchTerm) === -1) return false;
+        return true;
+      });
       var items = [];
       for (var j = 0; j < filtered.length; j++) {
         items.push({
@@ -561,6 +579,13 @@ function activate(api) {
   api.ui.onAction("select-collection", function (data) {
     if (data && data.value) {
       state.selectedCollectionId = data.value === "all" ? null : parseInt(data.value, 10);
+      render();
+    }
+  });
+
+  api.ui.onAction("analyze-search", function (data) {
+    if (data && typeof data.query === "string") {
+      state.analyzeSearch = data.query;
       render();
     }
   });
