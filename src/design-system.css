@@ -210,82 +210,134 @@
   margin: 12px;
 }
 
-/* Play overlay for detail page header images */
+/* Play button for detail page header images */
 .detail-art-play {
   position: absolute;
-  inset: 0;
+  bottom: 10px;
+  right: 10px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  color: #fff;
+  border: none;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(var(--overlay-inverse), 0.5);
-  border: none;
-  border-radius: inherit;
-  color: rgb(var(--overlay-base));
-  cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s;
+  transform: translateY(6px);
+  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 16px rgba(238, 90, 36, 0.5);
+  z-index: 1;
+}
+
+.album-detail-art:hover .detail-art-play,
+.artist-avatar:hover .detail-art-play,
+.track-detail-art:hover .detail-art-play {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .detail-art-play:hover {
-  opacity: 1;
+  background: linear-gradient(135deg, #ff8787, #f0731a);
+  box-shadow: 0 6px 24px rgba(238, 90, 36, 0.7);
+  transform: scale(1.08);
 }
 
 .detail-art-play svg {
-  width: 48px;
-  height: 48px;
-  filter: drop-shadow(0 1px 4px rgba(var(--overlay-inverse), 0.5));
+  width: 25px;
+  height: 25px;
+  fill: white;
+  margin-left: 2px;
 }
 
 .ds-card-play {
   position: absolute;
-  inset: 0;
+  bottom: 8px;
+  right: 8px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  color: #fff;
+  border: none;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
-  border: none;
-  color: var(--text-primary);
-  cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s;
+  transform: translateY(6px);
+  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 16px rgba(238, 90, 36, 0.5);
+  z-index: 1;
 }
 
 .ds-card:hover .ds-card-play {
   opacity: 1;
+  transform: translateY(0);
+}
+
+.ds-card-play:hover {
+  background: linear-gradient(135deg, #ff8787, #f0731a);
+  box-shadow: 0 6px 24px rgba(238, 90, 36, 0.7);
+  transform: scale(1.08);
 }
 
 .ds-card-play svg {
-  width: 40px;
-  height: 40px;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
+  width: 25px;
+  height: 25px;
+  fill: white;
+  margin-left: 2px;
 }
 
-/* Small accent circle variant (album cards) — bottom-right positioned */
-.ds-card-play--accent {
-  inset: auto;
-  bottom: 8px;
-  right: 8px;
+.ds-card-menu {
+  position: absolute;
+  bottom: 16px;
+  right: 68px;
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: var(--accent);
-  color: var(--accent-text, #fff);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  transform: translateY(4px);
-  transition: opacity 0.15s, transform 0.15s;
+  background: rgba(var(--overlay-inverse), 0.6);
+  color: rgb(var(--overlay-base));
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.2s, transform 0.2s 0.03s;
+  z-index: 1;
 }
 
-.ds-card:hover .ds-card-play--accent {
+.ds-card:hover .ds-card-menu {
   opacity: 1;
   transform: translateY(0);
+}
+
+.ds-card-menu:hover {
+  background: rgba(var(--overlay-inverse), 0.8);
 }
 
 .ds-card-like {
   position: absolute;
   top: 6px;
   right: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(var(--overlay-inverse), 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s, color 0.15s;
+  z-index: 1;
 }
 
 .ds-card:hover .ds-card-like {

@@ -576,6 +576,7 @@ export function SearchView({
                     onDoubleClick={() => onPlayTracks([t], 0)}
                     onContextMenu={(e) => onTrackContextMenu(e, t, new Set())}
                   >
+                    <div className="album-card-art-wrapper">
                     {t.album_id ? (
                       <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={onFetchAlbumImage} />
                     ) : (
@@ -590,6 +591,11 @@ export function SearchView({
                         className={`album-card-dislike${t.liked === -1 ? " disliked" : ""}`}
                         onClick={(e) => { e.stopPropagation(); handleTrackDislike(t); }}
                       >{t.liked === -1 ? "\u2716" : "\u2298"}</div>
+                    </div>
+                    <button className="album-card-menu-btn" onClick={(e) => { e.stopPropagation(); onTrackContextMenu(e, t, new Set()); }} title="More options">&#x22EF;</button>
+                    <button className="album-card-play-btn" onClick={(e) => { e.stopPropagation(); onPlayTracks([t], 0); }} title="Play">
+                      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                    </button>
                     </div>
                     <div className="album-card-body">
                       <div className="album-card-title" title={t.title}>{t.title}</div>
@@ -642,6 +648,7 @@ export function SearchView({
             onToggleLike={onToggleAlbumLike}
             onContextMenu={onAlbumContextMenu}
             onFetchImage={onFetchAlbumImage}
+            onPlayTracks={onPlayTracks}
             hasMore={hasMore.albums}
             loadingMore={loadingMore.albums}
             onLoadMore={handleLoadMore}
@@ -676,6 +683,7 @@ export function SearchView({
             onToggleLike={onToggleArtistLike}
             onContextMenu={onArtistContextMenu}
             onFetchImage={onFetchArtistImage}
+            onPlayTracks={onPlayTracks}
             hasMore={hasMore.artists}
             loadingMore={loadingMore.artists}
             onLoadMore={handleLoadMore}
@@ -709,6 +717,7 @@ export function SearchView({
             onTagClick={onTagClick}
             onToggleLike={onToggleTagLike}
             onFetchImage={onFetchTagImage}
+            onPlayTracks={onPlayTracks}
             hasMore={hasMore.tags}
             loadingMore={loadingMore.tags}
             onLoadMore={handleLoadMore}
@@ -724,7 +733,7 @@ export function SearchView({
 
 function SearchTagResults({
   tags, viewMode, tagImages, onTagClick, onToggleLike,
-  onFetchImage, hasMore, loadingMore, onLoadMore,
+  onFetchImage, onPlayTracks, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator,
 }: {
   tags: Tag[];
@@ -733,6 +742,7 @@ function SearchTagResults({
   onTagClick: (id: number) => void;
   onToggleLike: (id: number) => void;
   onFetchImage: (tag: { id: number }) => void;
+  onPlayTracks: (tracks: Track[], index: number) => void;
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
@@ -781,8 +791,13 @@ function SearchTagResults({
           <div className="album-grid">
             {tags.map(t => (
               <div key={t.id} className="tag-card" onClick={() => onTagClick(t.id)}>
-                <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={onFetchImage} />
-                <div className={`artist-card-like${t.liked === 1 ? " liked" : ""}`} onClick={e => { e.stopPropagation(); onToggleLike(t.id); }}>{t.liked === 1 ? "\u2665" : "\u2661"}</div>
+                <div className="album-card-art-wrapper">
+                  <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={onFetchImage} />
+                  <div className={`artist-card-like${t.liked === 1 ? " liked" : ""}`} onClick={e => { e.stopPropagation(); onToggleLike(t.id); }}>{t.liked === 1 ? "\u2665" : "\u2661"}</div>
+                  <button className="album-card-play-btn" onClick={async e => { e.stopPropagation(); const tracks = await invoke<Track[]>("get_tracks", { opts: { tagId: t.id } }); if (tracks.length > 0) onPlayTracks(tracks, 0); }} title="Play">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                  </button>
+                </div>
                 <div className="tag-card-body">
                   <div className="tag-card-name" title={t.name}>{t.name}</div>
                   <div className="tag-card-info">{t.track_count} tracks</div>
@@ -807,7 +822,7 @@ function SearchTagResults({
 
 function SearchAlbumResults({
   albums, viewMode, albumImages, onAlbumClick, onToggleLike,
-  onContextMenu, onFetchImage, hasMore, loadingMore, onLoadMore,
+  onContextMenu, onFetchImage, onPlayTracks, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator,
 }: {
   albums: Album[];
@@ -817,6 +832,7 @@ function SearchAlbumResults({
   onToggleLike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, id: number) => void;
   onFetchImage: (album: Album) => void;
+  onPlayTracks: (tracks: Track[], index: number) => void;
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
@@ -872,8 +888,14 @@ function SearchAlbumResults({
           <div className="album-grid">
             {albums.map(a => (
               <div key={a.id} className="album-card" onClick={() => onAlbumClick(a.id, a.artist_id)} onContextMenu={e => onContextMenu(e, a.id)}>
-                <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={onFetchImage} />
-                <div className={`album-card-like${a.liked === 1 ? " liked" : ""}`} onClick={e => { e.stopPropagation(); onToggleLike(a.id); }}>{a.liked === 1 ? "\u2665" : "\u2661"}</div>
+                <div className="album-card-art-wrapper">
+                  <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={onFetchImage} />
+                  <div className={`album-card-like${a.liked === 1 ? " liked" : ""}`} onClick={e => { e.stopPropagation(); onToggleLike(a.id); }}>{a.liked === 1 ? "\u2665" : "\u2661"}</div>
+                  <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); onContextMenu(e, a.id); }} title="More options">&#x22EF;</button>
+                  <button className="album-card-play-btn" onClick={async e => { e.stopPropagation(); const t = await invoke<Track[]>("get_tracks", { opts: { albumId: a.id } }); if (t.length > 0) onPlayTracks(t, 0); }} title="Play">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                  </button>
+                </div>
                 <div className="album-card-body">
                   <div className="album-card-title" title={a.title}>{a.title}</div>
                   <div className="album-card-info">
@@ -900,7 +922,7 @@ function SearchAlbumResults({
 
 function SearchArtistResults({
   artists, viewMode, artistImages, onArtistClick, onToggleLike,
-  onContextMenu, onFetchImage, hasMore, loadingMore, onLoadMore,
+  onContextMenu, onFetchImage, onPlayTracks, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator,
 }: {
   artists: Artist[];
@@ -910,6 +932,7 @@ function SearchArtistResults({
   onToggleLike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, id: number) => void;
   onFetchImage: (artist: Artist) => void;
+  onPlayTracks: (tracks: Track[], index: number) => void;
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
@@ -958,8 +981,14 @@ function SearchArtistResults({
           <div className="album-grid">
             {artists.map(a => (
               <div key={a.id} className="artist-card" onClick={() => onArtistClick(a.id)} onContextMenu={e => onContextMenu(e, a.id)}>
-                <ArtistCardArt artist={a} imagePath={artistImages[a.id]} onVisible={onFetchImage} />
-                <div className={`artist-card-like${a.liked === 1 ? " liked" : ""}`} onClick={e => { e.stopPropagation(); onToggleLike(a.id); }}>{a.liked === 1 ? "\u2665" : "\u2661"}</div>
+                <div className="album-card-art-wrapper">
+                  <ArtistCardArt artist={a} imagePath={artistImages[a.id]} onVisible={onFetchImage} />
+                  <div className={`artist-card-like${a.liked === 1 ? " liked" : ""}`} onClick={e => { e.stopPropagation(); onToggleLike(a.id); }}>{a.liked === 1 ? "\u2665" : "\u2661"}</div>
+                  <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); onContextMenu(e, a.id); }} title="More options">&#x22EF;</button>
+                  <button className="album-card-play-btn" onClick={async e => { e.stopPropagation(); const t = await invoke<Track[]>("get_tracks", { opts: { artistId: a.id } }); if (t.length > 0) onPlayTracks(t, 0); }} title="Play">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                  </button>
+                </div>
                 <div className="artist-card-body">
                   <div className="artist-card-name" title={a.name}>{a.name}</div>
                 </div>

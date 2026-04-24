@@ -386,17 +386,19 @@
 
 .track-detail-art > .artist-image-menu-wrapper {
   position: absolute;
-  bottom: 8px;
-  right: 8px;
+  bottom: 18px;
+  right: 70px;
 }
 
 .track-detail-art > .artist-image-menu-wrapper .artist-image-menu-trigger {
   opacity: 0;
-  transition: opacity 0.15s;
+  transform: translateY(6px);
+  transition: opacity 0.2s, transform 0.2s 0.03s;
 }
 
 .track-detail-art:hover > .artist-image-menu-wrapper .artist-image-menu-trigger {
   opacity: 1;
+  transform: translateY(0);
 }
 
 .track-detail-art-label {

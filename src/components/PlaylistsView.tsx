@@ -332,13 +332,13 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
             <div key={pl.id} className="playlist-card" onClick={() => openPlaylist(pl)} onContextMenu={(e) => handleContextMenu(e, pl)}>
               <div className="playlist-card-art">
                 <img src={pl.image_path ? imageUrl(pl.image_path) : playlistDefault} alt="" />
+                <button className="playlist-card-more" onClick={(e) => handleMoreClick(e, pl)} title="More options">&#x22EF;</button>
                 <button className="playlist-card-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                 </button>
               </div>
               <div className="playlist-card-info">
                 <div className="playlist-card-name">{pl.name}</div>
-                <button className="playlist-card-more" onClick={(e) => handleMoreClick(e, pl)} title="More options">&#x22EF;</button>
               </div>
               <div className="playlist-card-meta">
                 {pl.track_count} tracks &middot; {formatDate(pl.saved_at)}

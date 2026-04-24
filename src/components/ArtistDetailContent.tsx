@@ -159,7 +159,7 @@ export function ArtistDetailContent({
                 title="Play All"
                 onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0, { name: artist?.name ?? "Unknown", coverPath: artistImagePath })}
               >
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
               </button>
             )}
             <ImageActions
@@ -226,7 +226,7 @@ export function ArtistDetailContent({
                         e.stopPropagation();
                         const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: a.id } });
                         if (albumTracks.length > 0) onPlayTracks(albumTracks, 0, { name: a.title, coverPath: albumImages[a.id] ?? null });
-                      }}>&#9654;</button>
+                      }}><svg viewBox="0 0 24 24" width="25" height="25" fill="white" style={{marginLeft: 2}}><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg></button>
                     </div>
                     <div className="album-card-body">
                       <div className="album-card-title" title={a.title}>{a.title}</div>

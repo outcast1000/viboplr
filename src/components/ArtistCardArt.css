@@ -56,8 +56,8 @@
   position: absolute;
   top: 6px;
   right: 6px;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: rgba(var(--overlay-inverse), 0.5);
   display: flex;

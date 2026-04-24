@@ -131,28 +131,43 @@
 
 .plugin-card-play {
   position: absolute;
-  inset: 0;
+  bottom: 8px;
+  right: 8px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  color: #fff;
+  border: none;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  background: rgba(0, 0, 0, 0.4);
-  border: none;
-  color: var(--text-primary);
-  cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s;
+  transform: translateY(6px);
+  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 16px rgba(238, 90, 36, 0.5);
+  z-index: 1;
 }
 
 .plugin-card-art:hover .plugin-card-play {
   opacity: 1;
   pointer-events: auto;
+  transform: translateY(0);
+}
+
+.plugin-card-play:hover {
+  background: linear-gradient(135deg, #ff8787, #f0731a);
+  box-shadow: 0 6px 24px rgba(238, 90, 36, 0.7);
+  transform: scale(1.08);
 }
 
 .plugin-card-play svg {
-  width: 40px;
-  height: 40px;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
+  width: 25px;
+  height: 25px;
+  fill: white;
+  margin-left: 2px;
 }
 
 .plugin-card-info {
