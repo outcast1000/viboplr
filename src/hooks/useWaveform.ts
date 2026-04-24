@@ -2,10 +2,18 @@ import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 const MAX_BUCKETS = 400;
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
+
+interface WaveformCache {
+  name: string;
+  duration: number;
+  peaks: number[];
+}
 
 export function useWaveform(
   trackPath: string | null,
+  trackName: string | null,
+  trackDuration: number | null,
   fileSize: number | null,
   isRemote: boolean,
   isVideo: boolean,
@@ -30,10 +38,11 @@ export function useWaveform(
     (async () => {
       // Check cache first
       try {
-        const cached = await invoke<number[] | null>("get_cached_waveform", { path: trackPath });
+        const cached = await invoke<WaveformCache | null>("get_cached_waveform", { path: trackPath });
         if (cancelled) return;
-        if (cached && cached.length > 0) {
-          setPeaks(cached);
+        if (cached && cached.peaks && cached.peaks.length > 0) {
+          console.debug(`[waveform] loaded cached: "${cached.name}" (${cached.duration}s, ${cached.peaks.length} buckets)`);
+          setPeaks(cached.peaks);
           return;
         }
       } catch {
@@ -83,10 +92,15 @@ export function useWaveform(
         }
 
         if (cancelled) return;
+
+        const name = trackName || "unknown";
+        const duration = trackDuration || Math.round(audioBuffer.duration);
+        console.debug(`[waveform] created new: "${name}" (${duration}s, ${result.length} buckets)`);
         setPeaks(result);
 
+        const waveform: WaveformCache = { name, duration, peaks: result };
         // Fire-and-forget: caching waveform for next time — failure has no user impact
-        invoke("cache_waveform", { path: trackPath, peaks: result }).catch(() => {});
+        invoke("cache_waveform", { path: trackPath, waveform }).catch(() => {});
       } catch (e) {
         if (!cancelled) {
           console.debug("Waveform analysis failed:", e);
@@ -98,7 +112,7 @@ export function useWaveform(
       cancelled = true;
       controller.abort();
     };
-  }, [trackPath, fileSize, isRemote, isVideo, assetUrl]);
+  }, [trackPath, trackName, trackDuration, fileSize, isRemote, isVideo, assetUrl]);
 
   return peaks;
 }

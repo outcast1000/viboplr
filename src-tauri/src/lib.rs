@@ -596,20 +596,16 @@ pub fn run() {
                 let _ = std::fs::create_dir_all(app_dir.join("tag_images"));
             });
 
-            // Migrate waveform cache to v2 (new RMS-based algorithm)
-            timer.time("migrate_waveform_cache", || {
-                let waveform_v2 = app_dir.join("waveforms").join("v2");
-                if !waveform_v2.exists() {
-                    let _ = std::fs::create_dir_all(&waveform_v2);
-                    // Clean up old v1 cache files
-                    if let Ok(entries) = std::fs::read_dir(app_dir.join("waveforms")) {
-                        for entry in entries.flatten() {
-                            if entry.path().extension().map_or(false, |e| e == "json") {
-                                let _ = std::fs::remove_file(entry.path());
-                            }
-                        }
+            timer.time("clean_legacy_waveforms", || {
+                let waveforms_dir = app_dir.join("waveforms");
+                // Remove legacy versioned subdirectories (v2, v3, v4)
+                for sub in &["v2", "v3", "v4"] {
+                    let dir = waveforms_dir.join(sub);
+                    if dir.exists() {
+                        let _ = std::fs::remove_dir_all(&dir);
                     }
                 }
+                let _ = std::fs::create_dir_all(&waveforms_dir);
             });
 
             timer.time("clean_yt_cache", || {

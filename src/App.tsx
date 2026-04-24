@@ -148,6 +148,8 @@ function App() {
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef);
   const waveformPeaks = useWaveform(
     playback.currentTrack?.path ?? null,
+    playback.currentTrack?.title ?? null,
+    playback.currentTrack?.duration_secs ?? null,
     playback.currentTrack?.file_size ?? null,
     playback.currentTrack ? playback.currentTrack.path.startsWith("subsonic://") || playback.currentTrack.path.startsWith("tidal://") : false,
     playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
