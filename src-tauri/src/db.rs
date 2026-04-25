@@ -39,7 +39,7 @@ const TRACK_SELECT: &str =
      END, \
      t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
      t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.liked, t.youtube_url, \
-     t.added_at, t.modified_at, t.path \
+     t.added_at, t.modified_at \
      FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id \
      LEFT JOIN collections co ON t.collection_id = co.id";
 
@@ -50,8 +50,10 @@ const ENABLED_COLLECTION_FILTER_STANDALONE: &str =
     "AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1))";
 
 fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
+    let id: i64 = row.get(0)?;
     Ok(Track {
-        id: row.get(0)?,
+        id,
+        key: format!("lib:{}", id),
         path: row.get(1)?,
         title: row.get(2)?,
         artist_id: row.get(3)?,
@@ -69,7 +71,6 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
         youtube_url: row.get(15)?,
         added_at: row.get(16)?,
         modified_at: row.get(17)?,
-        relative_path: row.get(18)?,
     })
 }
 
@@ -2207,7 +2208,7 @@ impl Database {
         self.record_history_play(track_id)
     }
 
-    pub fn get_auto_continue_track(&self, strategy: &str, current_track_id: i64, format_filter: Option<&str>, exclude_ids: &[i64]) -> SqlResult<Option<Track>> {
+    pub fn get_auto_continue_track(&self, strategy: &str, current_title: &str, current_artist: Option<&str>, format_filter: Option<&str>, exclude_ids: &[i64]) -> SqlResult<Option<Track>> {
         let conn = self.conn.lock().unwrap();
 
         let format_clause = match format_filter {
@@ -2218,7 +2219,6 @@ impl Database {
 
         let dislike_clause = " AND t.liked != -1";
 
-        // Safe to inline i64 values directly — no injection risk from integer types
         let exclude_clause = if exclude_ids.is_empty() {
             String::new()
         } else {
@@ -2226,50 +2226,71 @@ impl Database {
             format!(" AND t.id NOT IN ({})", ids.join(","))
         };
 
+        let canonical_title = strip_diacritics(&current_title.to_lowercase());
+        let exclude_self = " AND strip_diacritics(unicode_lower(t.title)) != ?1";
+
         match strategy {
             "random" => {
-                let sql = format!("{} WHERE t.id != ?1 {}{}{}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, dislike_clause, exclude_clause);
-                conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
+                let sql = format!("{} WHERE 1=1 {}{}{}{}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, exclude_self, ENABLED_COLLECTION_FILTER, format_clause, dislike_clause, exclude_clause);
+                conn.query_row(&sql, params![canonical_title], |row| track_from_row(row)).optional()
             }
             "same_artist" => {
+                let artist = current_artist.unwrap_or("");
+                let canonical_artist = strip_diacritics(&artist.to_lowercase());
                 let artist_id: Option<i64> = conn.query_row(
-                    "SELECT artist_id FROM tracks WHERE id = ?1",
-                    params![current_track_id],
+                    "SELECT id FROM artists WHERE strip_diacritics(unicode_lower(name)) = ?1",
+                    params![canonical_artist],
                     |row| row.get(0),
-                ).optional()?.flatten();
+                ).optional()?;
                 match artist_id {
                     Some(aid) => {
-                        let sql = format!("{} WHERE t.id != ?1 AND t.artist_id = ?2 {}{}{}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, dislike_clause, exclude_clause);
-                        conn.query_row(&sql, params![current_track_id, aid], |row| track_from_row(row)).optional()
+                        let sql = format!("{} WHERE t.artist_id = ?2 {}{}{}{}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, exclude_self, ENABLED_COLLECTION_FILTER, format_clause, dislike_clause, exclude_clause);
+                        conn.query_row(&sql, params![canonical_title, aid], |row| track_from_row(row)).optional()
                     }
                     None => Ok(None),
                 }
             }
             "same_tag" => {
-                let sql = format!(
-                    "{} WHERE t.id != ?1 {}{}{}{} AND t.id IN (\
-                        SELECT tt2.track_id FROM track_tags tt1 \
-                        JOIN track_tags tt2 ON tt1.tag_id = tt2.tag_id \
-                        WHERE tt1.track_id = ?1 AND tt2.track_id != ?1\
-                    ) ORDER BY RANDOM() LIMIT 1",
-                    TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, dislike_clause, exclude_clause
-                );
-                conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
+                let artist = current_artist.unwrap_or("");
+                let canonical_artist = strip_diacritics(&artist.to_lowercase());
+                let track_id: Option<i64> = conn.query_row(
+                    "SELECT t.id FROM tracks t \
+                     LEFT JOIN artists ar ON t.artist_id = ar.id \
+                     WHERE strip_diacritics(unicode_lower(t.title)) = ?1 \
+                     AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ?2 \
+                     LIMIT 1",
+                    params![canonical_title, canonical_artist],
+                    |row| row.get(0),
+                ).optional()?;
+                match track_id {
+                    Some(tid) => {
+                        let sql = format!(
+                            "{} WHERE t.id != ?1 {}{}{}{} AND t.id IN (\
+                                SELECT tt2.track_id FROM track_tags tt1 \
+                                JOIN track_tags tt2 ON tt1.tag_id = tt2.tag_id \
+                                WHERE tt1.track_id = ?1 AND tt2.track_id != ?1\
+                            ) ORDER BY RANDOM() LIMIT 1",
+                            TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, dislike_clause, exclude_clause
+                        );
+                        conn.query_row(&sql, params![tid], |row| track_from_row(row)).optional()
+                    }
+                    None => Ok(None),
+                }
             }
             "most_played" => {
                 let sql = format!(
-                    "{} WHERE t.id != ?1 {}{}{}{} AND t.id IN (\
+                    "{} WHERE 1=1 {}{}{}{}{} AND t.id IN (\
                         SELECT ht.library_track_id FROM history_tracks ht \
                         WHERE ht.library_track_id IS NOT NULL \
                         ORDER BY ht.play_count DESC LIMIT 50\
                     ) ORDER BY RANDOM() LIMIT 1",
-                    TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, dislike_clause, exclude_clause
+                    TRACK_SELECT, exclude_self, ENABLED_COLLECTION_FILTER, format_clause, dislike_clause, exclude_clause
                 );
-                conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
+                conn.query_row(&sql, params![canonical_title], |row| track_from_row(row)).optional()
             }
             "liked" => {
-                let sql = format!("{} WHERE t.id != ?1 AND t.liked = 1 {}{}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, exclude_clause);
-                conn.query_row(&sql, params![current_track_id], |row| track_from_row(row)).optional()
+                let sql = format!("{} WHERE t.liked = 1 {}{}{}{} ORDER BY RANDOM() LIMIT 1", TRACK_SELECT, exclude_self, ENABLED_COLLECTION_FILTER, format_clause, exclude_clause);
+                conn.query_row(&sql, params![canonical_title], |row| track_from_row(row)).optional()
             }
             _ => Ok(None),
         }
@@ -2342,6 +2363,74 @@ impl Database {
         )?;
 
         // Update denormalized counts
+        conn.execute(
+            "UPDATE history_tracks SET play_count = play_count + 1, last_played_at = strftime('%s', 'now') WHERE id = ?1",
+            params![history_track_id],
+        )?;
+        conn.execute(
+            "UPDATE history_artists SET play_count = play_count + 1, last_played_at = strftime('%s', 'now') WHERE id = ?1",
+            params![history_artist_id],
+        )?;
+
+        Ok(())
+    }
+
+    pub fn record_play_by_metadata(&self, title: &str, artist_name: Option<&str>, library_track_id: Option<i64>) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+
+        let artist = artist_name.unwrap_or("");
+        let canonical_artist = strip_diacritics(&artist.to_lowercase());
+        let canonical_title = strip_diacritics(&title.to_lowercase());
+
+        let library_artist_id: Option<i64> = library_track_id.and_then(|tid| {
+            conn.query_row("SELECT artist_id FROM tracks WHERE id = ?1", params![tid], |row| row.get(0)).optional().ok().flatten()
+        });
+
+        conn.execute(
+            "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count, library_artist_id)
+             VALUES (?1, ?2, strftime('%s', 'now'), strftime('%s', 'now'), 0, ?3)
+             ON CONFLICT(canonical_name) DO UPDATE SET
+               display_name = excluded.display_name,
+               library_artist_id = COALESCE(excluded.library_artist_id, history_artists.library_artist_id)",
+            params![canonical_artist, artist, library_artist_id],
+        )?;
+        let history_artist_id: i64 = conn.query_row(
+            "SELECT id FROM history_artists WHERE canonical_name = ?1",
+            params![canonical_artist],
+            |row| row.get(0),
+        )?;
+
+        conn.execute(
+            "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count, library_track_id)
+             VALUES (?1, ?2, ?3, strftime('%s', 'now'), strftime('%s', 'now'), 0, ?4)
+             ON CONFLICT(history_artist_id, canonical_title) DO UPDATE SET
+               display_title = excluded.display_title,
+               library_track_id = COALESCE(excluded.library_track_id, history_tracks.library_track_id)",
+            params![history_artist_id, canonical_title, title, library_track_id],
+        )?;
+        let history_track_id: i64 = conn.query_row(
+            "SELECT id FROM history_tracks WHERE history_artist_id = ?1 AND canonical_title = ?2",
+            params![history_artist_id, canonical_title],
+            |row| row.get(0),
+        )?;
+
+        let dominated: bool = conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM history_plays hp
+                WHERE hp.history_track_id = ?1
+                AND hp.played_at > strftime('%s', 'now') - 30
+            )",
+            params![history_track_id],
+            |row| row.get(0),
+        )?;
+        if dominated {
+            return Ok(());
+        }
+
+        conn.execute(
+            "INSERT INTO history_plays (history_track_id) VALUES (?1)",
+            params![history_track_id],
+        )?;
         conn.execute(
             "UPDATE history_tracks SET play_count = play_count + 1, last_played_at = strftime('%s', 'now') WHERE id = ?1",
             params![history_track_id],
@@ -2585,14 +2674,19 @@ impl Database {
         rows.collect()
     }
 
-    pub fn get_track_rank(&self, track_id: i64) -> SqlResult<Option<i64>> {
+    pub fn get_track_rank(&self, title: &str, artist_name: Option<&str>) -> SqlResult<Option<i64>> {
+        let canonical_title = strip_diacritics(&title.to_lowercase());
+        let canonical_artist = strip_diacritics(&artist_name.unwrap_or("").to_lowercase());
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT rank FROM ( \
-               SELECT library_track_id, RANK() OVER (ORDER BY play_count DESC) as rank \
-               FROM history_tracks WHERE play_count > 0 \
-             ) WHERE library_track_id = ?1",
-            params![track_id],
+               SELECT ht.id, RANK() OVER (ORDER BY ht.play_count DESC) as rank \
+               FROM history_tracks ht WHERE ht.play_count > 0 \
+             ) ranked \
+             JOIN history_tracks ht2 ON ht2.id = ranked.id \
+             JOIN history_artists ha ON ha.id = ht2.history_artist_id \
+             WHERE ht2.canonical_title = ?1 AND ha.canonical_name = ?2",
+            params![canonical_title, canonical_artist],
             |row| row.get(0),
         ).optional()
     }

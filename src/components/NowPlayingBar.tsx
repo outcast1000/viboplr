@@ -91,7 +91,7 @@ interface NowPlayingBarProps {
   onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
   onToggleLike: () => void;
   onToggleDislike?: () => void;
-  onTrackClick: (trackId: number) => void;
+  onTrackClick: (trackKey: string) => void;
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
   onNavigateToArtistByName?: (name: string) => void;
@@ -211,7 +211,7 @@ export function NowPlayingBar({
                   </div>
                 ) : (
                   <span className="now-artist">
-                    {loadingTrack && loadingTrack.id !== currentTrack.id ? (
+                    {loadingTrack && loadingTrack.key !== currentTrack.key ? (
                       <span className="now-resolving-trying">
                         Loading {loadingTrack.title}
                         {resolvingStatus?.trying && ` · ${resolvingStatus.trying}`}...
@@ -317,7 +317,7 @@ export function NowPlayingBar({
               </div>
             )}
           </div>
-          {currentTrack && currentTrack.id > 0 && (
+          {currentTrack && currentTrack.id != null && (
             <div className="now-like-col">
               <button
                 ref={likeBtnRef}
@@ -350,12 +350,12 @@ export function NowPlayingBar({
           <div className="now-info-text">
             {currentTrack ? (
               <>
-                <span className="now-title now-link" onClick={() => onTrackClick(currentTrack.id)}>
+                <span className="now-title now-link" onClick={() => onTrackClick(currentTrack.key)}>
                   <SlideText text={currentTrack.title} />
                   {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                 </span>
                 <span className="now-subtitle">
-                  {loadingTrack && loadingTrack.id !== currentTrack.id ? (
+                  {loadingTrack && loadingTrack.key !== currentTrack.key ? (
                     <span className="now-resolving-trying">
                       Loading {loadingTrack.title}
                       {resolvingStatus?.trying && ` · ${resolvingStatus.trying}`}...
@@ -363,14 +363,14 @@ export function NowPlayingBar({
                   ) : (
                     <>
                       {!resolvingStatus && (() => {
-                        const source = resolvedSource?.name || (currentTrack.path.startsWith("tidal://") ? "TIDAL" : currentTrack.path.startsWith("subsonic://") ? "Subsonic" : "Local");
-                        const isLocal = currentTrack.path.startsWith("file://") || !currentTrack.path.includes("://");
+                        const source = resolvedSource?.name || (currentTrack.path?.startsWith("tidal://") ? "TIDAL" : currentTrack.path?.startsWith("subsonic://") ? "Subsonic" : "Local");
+                        const isLocal = currentTrack.path?.startsWith("file://") || !currentTrack.path?.includes("://");
                         const tip = [
                           `Source: ${source}`,
                           currentTrack.format ? `Format: ${currentTrack.format.toUpperCase()}` : null,
                           currentTrack.file_size ? `Size: ${(currentTrack.file_size / 1048576).toFixed(1)} MB` : null,
                           currentTrack.collection_name ? `Collection: ${currentTrack.collection_name}` : null,
-                          isLocal ? `Path: ${currentTrack.path.replace(/^file:\/\//, "")}` : null,
+                          isLocal ? `Path: ${currentTrack.path?.replace(/^file:\/\//, "")}` : null,
                           !isLocal && resolvedSource ? `URL: ${(() => { try { const u = new URL(resolvedSource.url); return u.protocol === "asset:" ? decodeURIComponent(u.pathname) : u.hostname; } catch { return resolvedSource.url.slice(0, 50); } })()}` : null,
                         ].filter(Boolean).join("\n");
                         return <span

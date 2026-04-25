@@ -75,16 +75,17 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
     try {
       const track = await invoke<Track | null>("get_auto_continue_track", {
         strategy,
-        currentTrackId: currentTrack.id,
+        currentTitle: currentTrack.title,
+        currentArtist: currentTrack.artist_name,
         formatFilter,
         excludeIds: excludeIds ?? null,
       });
       if (track) return track;
-      // Fallback to random if strategy returned nothing
       if (strategy !== "random") {
         return await invoke<Track | null>("get_auto_continue_track", {
           strategy: "random",
-          currentTrackId: currentTrack.id,
+          currentTitle: currentTrack.title,
+          currentArtist: currentTrack.artist_name,
           formatFilter,
           excludeIds: excludeIds ?? null,
         });

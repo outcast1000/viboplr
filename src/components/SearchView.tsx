@@ -41,7 +41,7 @@ interface SearchViewProps {
   onPlayTracks: (tracks: Track[], index: number) => void;
   onArtistClick: (id: number) => void;
   onAlbumClick: (id: number, artistId?: number | null) => void;
-  onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedIds: Set<number>) => void;
+  onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedIds: Set<string>) => void;
   onArtistContextMenu: (e: React.MouseEvent, id: number) => void;
   onAlbumContextMenu: (e: React.MouseEvent, id: number) => void;
   onToggleLike: (track: Track) => void;
@@ -384,13 +384,13 @@ export function SearchView({
 
   const handleTrackLike = useCallback((track: Track) => {
     const newLiked = track.liked === 1 ? 0 : 1;
-    setResults(prev => ({ ...prev, tracks: prev.tracks.map(t => t.id === track.id ? { ...t, liked: newLiked } : t) }));
+    setResults(prev => ({ ...prev, tracks: prev.tracks.map(t => t.key === track.key ? { ...t, liked: newLiked } : t) }));
     onToggleLike(track);
   }, [onToggleLike]);
 
   const handleTrackDislike = useCallback((track: Track) => {
     const newLiked = track.liked === -1 ? 0 : -1;
-    setResults(prev => ({ ...prev, tracks: prev.tracks.map(t => t.id === track.id ? { ...t, liked: newLiked } : t) }));
+    setResults(prev => ({ ...prev, tracks: prev.tracks.map(t => t.key === track.key ? { ...t, liked: newLiked } : t) }));
     onToggleDislike(track);
   }, [onToggleDislike]);
 
@@ -515,8 +515,8 @@ export function SearchView({
             <div className="entity-list">
               {results.tracks.map((t) => (
                 <div
-                  key={t.id}
-                  className={`entity-list-item${currentTrack?.id === t.id ? " playing" : ""}`}
+                  key={t.key}
+                  className={`entity-list-item${currentTrack?.key === t.key ? " playing" : ""}`}
                   onDoubleClick={() => onPlayTracks([t], 0)}
                   onContextMenu={(e) => onTrackContextMenu(e, t, new Set())}
                 >
@@ -571,8 +571,8 @@ export function SearchView({
               <div className="album-grid">
                 {results.tracks.map((t) => (
                   <div
-                    key={t.id}
-                    className={`album-card${currentTrack?.id === t.id ? " playing" : ""}`}
+                    key={t.key}
+                    className={`album-card${currentTrack?.key === t.key ? " playing" : ""}`}
                     onDoubleClick={() => onPlayTracks([t], 0)}
                     onContextMenu={(e) => onTrackContextMenu(e, t, new Set())}
                   >

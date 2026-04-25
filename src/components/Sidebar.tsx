@@ -48,7 +48,7 @@ function PluginIcon({ name }: { name: string }) {
 
 interface SidebarProps {
   view: View | `plugin:${string}`;
-  selectedTrack: number | null;
+  selectedTrack: string | null;
   collapsed: boolean;
   onShowSearch: () => void;
   onShowHistory: () => void;

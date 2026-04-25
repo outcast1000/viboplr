@@ -23,8 +23,9 @@ export interface Tag {
 }
 
 export interface Track {
-  id: number;
-  path: string;
+  id: number | null;
+  key: string;
+  path: string | null;
   title: string;
   artist_id: number | null;
   artist_name: string | null;
@@ -41,7 +42,6 @@ export interface Track {
   youtube_url: string | null;
   added_at: number | null;
   modified_at: number | null;
-  relative_path: string | null;
   /** Playback URL computed when the track enters the queue (e.g. file://, tidal://, subsonic://) */
   url?: string;
   /** Image URL for display in the queue (file path or HTTP URL, set by caller) */

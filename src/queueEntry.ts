@@ -1,7 +1,8 @@
-import type { Track, Collection } from "./types";
+import type { Track } from "./types";
 
 export interface QueueEntry {
   url: string;
+  key?: string;
   title: string;
   artist_name: string | null;
   album_title: string | null;
@@ -10,27 +11,44 @@ export interface QueueEntry {
   year: number | null;
   format: string | null;
   image_url?: string;
+  liked?: number;
 }
 
 export type ParsedUrl =
   | { scheme: "file"; path: string }
   | { scheme: "tidal"; id: string }
   | { scheme: "subsonic"; url: string; id: string }
+  | { scheme: "external" }
   | { scheme: "unknown"; url: string };
 
-let tidalIdCounter = -100000;
+let externalKeyCounter = 1;
+
+export function nextExternalKey(): string {
+  return `ext:${externalKeyCounter++}`;
+}
+
+export function parseLibraryId(key: string | null | undefined): number | null {
+  if (!key) return null;
+  if (key.startsWith("lib:")) return parseInt(key.substring(4), 10);
+  return null;
+}
+
+export function isLibraryTrack(track: Track): boolean {
+  return track.id != null;
+}
 
 /**
  * Returns true if this is a remote track (subsonic:// or tidal://).
  */
 export function isRemoteTrack(track: Track): boolean {
-  return track.path.startsWith("subsonic://") || track.path.startsWith("tidal://");
+  return !!track.path && (track.path.startsWith("subsonic://") || track.path.startsWith("tidal://"));
 }
 
 /**
  * Extracts the remote ID from a subsonic:// or tidal:// path.
  */
 export function remoteId(track: Track): string | null {
+  if (!track.path) return null;
   if (track.path.startsWith("tidal://")) return track.path.substring(8);
   if (track.path.startsWith("subsonic://")) {
     const rest = track.path.substring(11);
@@ -41,28 +59,12 @@ export function remoteId(track: Track): string | null {
 }
 
 /**
- * Returns the canonical URL for a track.
- * Since track.path is already a URI (file://, subsonic://, tidal://),
- * this just returns track.path (or track.url if already stamped).
- */
-export function computeUrl(track: Track, _collections: Collection[]): string {
-  return track.url ?? track.path;
-}
-
-/**
- * Stamps a url on a track for queue use. Since path is already a URI, just copies it.
- */
-export function stampUrl(track: Track, _collections: Collection[]): Track {
-  if (track.url) return track;
-  return { ...track, url: track.path };
-}
-
-/**
  * Converts a Track to a QueueEntry for serialization.
  */
-export function trackToQueueEntry(track: Track, _collections: Collection[]): QueueEntry {
+export function trackToQueueEntry(track: Track): QueueEntry {
   return {
-    url: track.url ?? track.path,
+    url: track.path ?? "",
+    key: track.key,
     title: track.title,
     artist_name: track.artist_name,
     album_title: track.album_title,
@@ -71,21 +73,20 @@ export function trackToQueueEntry(track: Track, _collections: Collection[]): Que
     year: track.year,
     format: track.format,
     image_url: track.image_url,
+    liked: track.liked,
   };
 }
 
 /**
  * Converts a QueueEntry back to a Track.
  *
- * path = url (the canonical URI) for all schemes.
- * TIDAL tracks get unique negative IDs since they aren't in the library.
+ * Non-library tracks get id: null. The key is preserved from the entry,
+ * or a new external key is generated for backward compatibility.
  */
 export function queueEntryToTrack(entry: QueueEntry): Track {
-  const parsed = parseUrlScheme(entry.url);
-  const id = parsed.scheme === "tidal" ? tidalIdCounter-- : 0;
-
   return {
-    id,
+    id: null,
+    key: entry.key ?? nextExternalKey(),
     path: entry.url,
     title: entry.title,
     artist_id: null,
@@ -99,12 +100,10 @@ export function queueEntryToTrack(entry: QueueEntry): Track {
     file_size: null,
     collection_id: null,
     collection_name: null,
-    liked: 0,
+    liked: entry.liked ?? 0,
     youtube_url: null,
     added_at: null,
     modified_at: null,
-    relative_path: null,
-    url: entry.url,
     image_url: entry.image_url,
   };
 }
@@ -131,6 +130,10 @@ export function parseUrlScheme(url: string): ParsedUrl {
     const lastSlash = rest.lastIndexOf("/");
     const id = lastSlash >= 0 ? rest.substring(lastSlash + 1) : "";
     return { scheme: "subsonic", url, id };
+  }
+
+  if (url.startsWith("external://")) {
+    return { scheme: "external" };
   }
 
   // Unknown scheme — enters stream resolver chain

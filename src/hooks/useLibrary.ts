@@ -45,7 +45,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<number | null>(null);
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
-  const [selectedTrack, setSelectedTrack] = useState<number | null>(null);
+  const [selectedTrack, setSelectedTrack] = useState<string | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [highlightedListIndex, setHighlightedListIndex] = useState(-1);
   const pendingLocateRef = useRef<{ title: string; artistName: string | null } | null>(null);
@@ -262,7 +262,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
           case "artist": return ((a.artist_name ?? "").localeCompare(b.artist_name ?? "")) * dir;
           case "album": return ((a.album_title ?? "").localeCompare(b.album_title ?? "")) * dir;
           case "duration": return ((a.duration_secs ?? 0) - (b.duration_secs ?? 0)) * dir;
-          case "path": return (a.path.localeCompare(b.path)) * dir;
+          case "path": return ((a.path ?? "").localeCompare(b.path ?? "")) * dir;
           case "year": return ((a.year ?? 0) - (b.year ?? 0)) * dir;
           case "quality": {
             const bitrateA = (a.duration_secs && a.file_size) ? a.file_size * 8 / a.duration_secs / 1000 : 0;
@@ -273,7 +273,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
           case "collection": return ((a.collection_name ?? "").localeCompare(b.collection_name ?? "")) * dir;
           case "added": return ((a.added_at ?? 0) - (b.added_at ?? 0)) * dir;
           case "modified": return ((a.modified_at ?? 0) - (b.modified_at ?? 0)) * dir;
-          case "popularity": return ((trackPopularity?.[a.id] ?? 0) - (trackPopularity?.[b.id] ?? 0)) * dir;
+          case "popularity": return ((trackPopularity?.[(a.id ?? 0)] ?? 0) - (trackPopularity?.[(b.id ?? 0)] ?? 0)) * dir;
           default: return 0;
         }
       });
@@ -297,17 +297,17 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     if (idx >= 0) {
       setHighlightedIndex(idx);
       requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-track-id="${sortedTracks[idx].id}"]`) ??
+        const el = document.querySelector(`[data-track-id="${sortedTracks[idx].key}"]`) ??
                    document.querySelector(`.track-row:nth-child(${idx + 1})`);
         el?.scrollIntoView({ block: "center", behavior: "smooth" });
       });
     }
   }, [sortedTracks]);
 
-  function handleTrackClick(trackId: number) {
+  function handleTrackClick(trackKey: string) {
     onBeforeNavigate?.();
     clearFallback();
-    setSelectedTrack(trackId);
+    setSelectedTrack(trackKey);
   }
 
   function handleArtistClick(artistId: number) {
@@ -391,7 +391,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   async function navigateToTrackByName(name: string, artistName?: string, albumTitle?: string) {
     const result = await invoke<Track | null>("find_track_by_metadata", { title: name, artistName: artistName ?? null, albumName: albumTitle ?? null });
     if (result) {
-      handleTrackClick(result.id);
+      handleTrackClick(result.key);
     } else {
       onBeforeNavigate?.();
       setSelectedArtist(null);

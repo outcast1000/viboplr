@@ -12,7 +12,7 @@ import "./App.css";
 import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, TidalSearchTrack, Collection } from "./types";
 import { isVideoTrack, parseSubsonicUrl, tidalCoverUrl } from "./utils";
 import { store } from "./store";
-import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, isRemoteScheme, shouldAutoSave, type QueueEntry } from "./queueEntry";
+import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
 import { type StreamResolver } from "./streamResolvers";
@@ -132,11 +132,12 @@ function App() {
     async () => { throw new Error("TIDAL stream resolver not ready"); }
   );
   const resolveTrackSrcRef = useRef<(track: Track) => Promise<string>>(async (track) => {
-    const url = track.url ?? track.path;
+    const url = track.path;
     if (!url) throw new Error("Track has no URL");
     const parsed = parseUrlScheme(url);
     if (parsed.scheme === "file") return convertFileSrc(parsed.path);
     if (parsed.scheme === "tidal") return resolveTidalStreamUrlRef.current(parsed.id, null);
+    if (parsed.scheme === "external") throw new Error("Cannot play external track directly — requires stream resolver");
     if (parsed.scheme === "unknown") throw new Error(`Cannot play unknown URL scheme: ${parsed.url}`);
     return invoke<string>("resolve_subsonic_location", { location: parsed.url });
   });
@@ -165,7 +166,7 @@ function App() {
     if (!track) return;
     let cancelled = false;
     Promise.all([
-      invoke<number | null>("get_track_rank", { trackId: track.id }),
+      invoke<number | null>("get_track_rank", { title: track.title, artistName: track.artist_name }),
       track.artist_id
         ? invoke<number | null>("get_artist_rank", { artistId: track.artist_id })
         : Promise.resolve(null),
@@ -181,7 +182,7 @@ function App() {
     if (!track) return;
     let cancelled = false;
     Promise.all([
-      invoke<number | null>("get_track_rank", { trackId: track.id }),
+      invoke<number | null>("get_track_rank", { title: track.title, artistName: track.artist_name }),
       track.artist_id
         ? invoke<number | null>("get_artist_rank", { artistId: track.artist_id })
         : Promise.resolve(null),
@@ -202,7 +203,7 @@ function App() {
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, trackPopularityState, setNavError);
   const downloadsCollection = useMemo(() => downloadsCollectionId != null ? library.collections.find(c => c.id === downloadsCollectionId) ?? null : null, [downloadsCollectionId, library.collections]);
 
-  const queueHook = useQueue(restoredRef, playback.handlePlay, library.collections, albumImageCache.images);
+  const queueHook = useQueue(restoredRef, playback.handlePlay, albumImageCache.images);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef, playback.currentTrack);
   const videoLayout = useVideoLayout(restoredRef);
@@ -214,11 +215,10 @@ function App() {
   pluginPlayingRef.current = playback.playing;
   const pluginPositionRef = useRef(0);
   pluginPositionRef.current = playback.positionSecs;
-  const tidalIdCounterRef = useRef(-1);
   const tidalTrackToTrackFn = useCallback((info: TidalSearchTrackLike): Track => {
-    const id = tidalIdCounterRef.current--;
     return {
-      id,
+      id: null,
+      key: nextExternalKey(),
       path: `tidal://${info.tidal_id}`,
       title: info.title,
       artist_id: null,
@@ -236,7 +236,6 @@ function App() {
       youtube_url: null,
       added_at: null,
       modified_at: null,
-      relative_path: null,
       image_url: tidalCoverUrl(info.cover_id ?? null, 160) ?? undefined,
     };
   }, []);
@@ -272,8 +271,8 @@ function App() {
             artistName,
             albumName,
           });
-          if (!track) return null;
-          return { url: track.url ?? track.path, label: "Library" };
+          if (!track || !track.path) return null;
+          return { url: track.path, label: "Library" };
         },
       };
 
@@ -391,11 +390,11 @@ function App() {
   }, [artistInfo.trackPopularity]);
 
   // Plugin event: track started
-  const prevTrackIdRef = useRef<number | null>(null);
+  const prevTrackKeyRef = useRef<string | null>(null);
   useEffect(() => {
     const track = playback.currentTrack;
-    if (track && track.id !== prevTrackIdRef.current) {
-      prevTrackIdRef.current = track.id;
+    if (track && track.key !== prevTrackKeyRef.current) {
+      prevTrackKeyRef.current = track.key;
       plugins.dispatchEvent("track:started", track);
     }
   }, [playback.currentTrack, plugins.dispatchEvent]);
@@ -419,7 +418,7 @@ function App() {
     if (!track) return;
     plugins.dispatchEvent("track:played", track);
     plugins.dispatchEvent("track:scrobbled", track);
-    if (shouldAutoSave(autoSaveStreamsRef.current, track.path, resolvedSource?.id ?? null)) {
+    if (shouldAutoSave(autoSaveStreamsRef.current, track.path ?? "", resolvedSource?.id ?? null)) {
       const dlColId = downloadsCollectionIdRef.current;
       if (dlColId != null) {
         downloads.autoSaveTrack(track, dlColId, downloadFormatRef.current).catch(console.error);
@@ -683,11 +682,11 @@ function App() {
 
   const handleDeleteTracks = useCallback((trackIds: number[]) => {
     const idSet = new Set(trackIds);
-    const selected = library.tracks.filter(t => idSet.has(t.id));
-    const localIds = selected.filter(t => !t.path.startsWith("subsonic://") && !t.path.startsWith("tidal://")).map(t => t.id);
+    const selected = library.tracks.filter(t => t.id != null && idSet.has(t.id));
+    const localIds = selected.filter(t => t.id != null && !t.path?.startsWith("subsonic://") && !t.path?.startsWith("tidal://")).map(t => t.id!);
     if (localIds.length === 0) return;
     const title = localIds.length === 1
-      ? (selected.find(t => t.id === localIds[0])?.title ?? "track")
+      ? (selected.find(t => t.id != null && t.id === localIds[0])?.title ?? "track")
       : `${localIds.length} tracks`;
     contextMenuActions.setDeleteConfirm({ trackIds: localIds, title });
   }, [library.tracks, contextMenuActions.setDeleteConfirm]);
@@ -724,13 +723,15 @@ function App() {
           const playlistName = payload.playlistName as string | undefined;
           const coverUrl = payload.coverUrl as string | undefined;
           queueHook.playTracks(tracks.map(t => ({
+            id: null,
+            key: nextExternalKey(),
             title: t.title,
             artist_name: t.artist_name ?? null,
             album_title: t.album_title ?? null,
             duration_secs: t.duration_secs ?? null,
-            url: t.url ?? null,
-            path: t.path ?? "external://",
+            path: t.path ?? t.url ?? null,
             image_url: t.image_url,
+            liked: 0,
           })) as Track[], startIndex, playlistName ? { name: playlistName, coverUrl: coverUrl ?? null } : null);
         }
       } else if (action === "navigate-to-artist") {
@@ -749,13 +750,15 @@ function App() {
         const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string; image_url?: string }>);
         if (tracks?.length) {
           queueHook.enqueueTracks(tracks.map(t => ({
+            id: null,
+            key: nextExternalKey(),
             title: t.title,
             artist_name: t.artist_name ?? null,
             album_title: t.album_title ?? null,
             duration_secs: t.duration_secs ?? null,
-            url: t.url ?? null,
-            path: t.path ?? "external://",
+            path: t.path ?? t.url ?? null,
             image_url: t.image_url,
+            liked: 0,
           })) as Track[]);
         }
       }
@@ -820,7 +823,7 @@ function App() {
     resolveTrackSrcRef.current = async (track: Track) => {
       const generation = ++resolveGenerationRef.current;
       setResolvedSource(null);
-      const url = track.url ?? track.path;
+      const url = track.path;
 
       interface ResolverEntry { name: string; id: string | null; resolve: () => Promise<string> }
       const chain: ResolverEntry[] = [];
@@ -833,7 +836,7 @@ function App() {
             artistName: track.artist_name ?? null,
             albumName: track.album_title ?? null,
           });
-          if (localMatch && localMatch.path.startsWith("file://")) {
+          if (localMatch && localMatch.path?.startsWith("file://")) {
             const localPath = localMatch.path.substring(7);
             chain.push({
               name: "Library",
@@ -910,7 +913,7 @@ function App() {
   useEffect(() => {
     if (playback.playbackError && playback.failedTrack) {
       const t = playback.failedTrack;
-      const src = t.path.startsWith("tidal://") ? "TIDAL" : t.path.startsWith("subsonic://") ? "Subsonic" : "local";
+      const src = t.path?.startsWith("tidal://") ? "TIDAL" : t.path?.startsWith("subsonic://") ? "Subsonic" : "local";
       addLog(`Playback failed (${src}): ${t.artist_name ? t.artist_name + " — " : ""}${t.title}: ${playback.playbackError}`, "playback");
     }
   }, [playback.playbackError, playback.failedTrack, addLog]);
@@ -1237,7 +1240,7 @@ function App() {
           restoredTracks = minimalTracks.map((t, i) => {
             const entry = entries[i];
             const dbTrack = dbByPath.get(t.path);
-            if (dbTrack) return { ...dbTrack, url: entry.url, image_url: entry.image_url ?? dbTrack.image_url };
+            if (dbTrack) return { ...dbTrack, image_url: entry.image_url ?? dbTrack.image_url };
             return t; // tidal or not in library
           });
         }
@@ -1301,8 +1304,11 @@ function App() {
         if (savedArtistSections) setArtistSections(savedArtistSections);
         const savedSyncWithPlaying = await store.get<boolean>("syncWithPlaying");
         if (savedSyncWithPlaying != null) setSyncWithPlaying(savedSyncWithPlaying);
-        const savedSelectedTrack = await store.get<number | null>("selectedTrack");
-        if (savedSelectedTrack != null) library.setSelectedTrack(savedSelectedTrack);
+        const savedSelectedTrack = await store.get<string | number | null>("selectedTrack");
+        if (savedSelectedTrack != null) {
+          const key = typeof savedSelectedTrack === "number" ? `lib:${savedSelectedTrack}` : savedSelectedTrack;
+          library.setSelectedTrack(key);
+        }
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
           if (wasMini) {
@@ -1344,7 +1350,7 @@ function App() {
   useEffect(() => {
     if (!restoredRef.current) return;
     if (playback.currentTrack) {
-      store.set("currentTrackEntry", trackToQueueEntry(playback.currentTrack, library.collections));
+      store.set("currentTrackEntry", trackToQueueEntry(playback.currentTrack));
     } else {
       store.set("currentTrackEntry", null);
     }
@@ -1387,8 +1393,8 @@ function App() {
   // Resolve track for the detail view — try local lookups (sync), fall back to backend (async)
   const detailTrackLocal = useMemo(() => {
     if (library.selectedTrack === null) return null;
-    return library.tracks.find(t => t.id === library.selectedTrack)
-      ?? (playback.currentTrack?.id === library.selectedTrack ? playback.currentTrack : null)
+    return library.tracks.find(t => t.key === library.selectedTrack)
+      ?? (playback.currentTrack?.key === library.selectedTrack ? playback.currentTrack : null)
       ?? null;
   }, [library.selectedTrack, library.tracks, playback.currentTrack]);
 
@@ -1397,7 +1403,9 @@ function App() {
     if (detailTrackLocal) { setDetailTrack(detailTrackLocal); return; }
     // Fetch from backend as last resort
     let cancelled = false;
-    invoke<Track>("get_track_by_id", { trackId: library.selectedTrack })
+    const libId = parseLibraryId(library.selectedTrack);
+    if (libId == null) { setDetailTrack(null); return; }
+    invoke<Track>("get_track_by_id", { trackId: libId })
       .then(t => { if (!cancelled) setDetailTrack(t); })
       .catch(() => { if (!cancelled) setDetailTrack(null); });
     return () => { cancelled = true; };
@@ -1410,20 +1418,17 @@ function App() {
     if (!syncRef.current || !playback.currentTrack) return;
     if (playback.trackChangeSourceRef.current !== "auto") return;
     const ct = playback.currentTrack;
-    if (ct.id && ct.id !== library.selectedTrack) {
-      library.handleTrackClick(ct.id);
+    if (ct.key && ct.key !== library.selectedTrack) {
+      library.handleTrackClick(ct.key);
     }
-  }, [playback.currentTrack?.id]);
+  }, [playback.currentTrack?.key]);
 
   const handleToggleSync = useCallback(() => {
     setSyncWithPlaying(prev => {
       const next = !prev;
       store.set("syncWithPlaying", next);
-      if (next && playback.currentTrack) {
-        const ct = playback.currentTrack;
-        if (ct.id) {
-          library.handleTrackClick(ct.id);
-        }
+      if (next && playback.currentTrack?.key) {
+        library.handleTrackClick(playback.currentTrack.key);
       }
       return next;
     });
@@ -1549,7 +1554,7 @@ function App() {
           break;
         case "l":
           e.preventDefault();
-          if (s.currentTrack && s.currentTrack.id > 0) handleToggleLikeRef.current(s.currentTrack);
+          if (s.currentTrack && s.currentTrack.id != null) handleToggleLikeRef.current(s.currentTrack);
           break;
         case "p":
           e.preventDefault();
@@ -1626,7 +1631,7 @@ function App() {
     const track = currentTrackRef.current;
     if (!ac.enabled || !track) return;
     console.log(`[prefetch] Fetching auto-continue track (current: "${track.title}")`);
-    const excludeIds = queueRef.current.map(t => t.id);
+    const excludeIds = queueRef.current.map(t => t.id).filter((id): id is number => id != null);
     ac.fetchTrack(track, excludeIds).then(next => {
       if (next) {
         console.log(`[prefetch] Queued "${next.title}" by ${next.artist_name}`);
@@ -1642,7 +1647,7 @@ function App() {
       const ac = autoContinueRef.current;
       const track = currentTrackRef.current;
       if (ac.enabled && track) {
-        const excludeIds = queueRef.current.map(t => t.id);
+        const excludeIds = queueRef.current.map(t => t.id).filter((id): id is number => id != null);
         const next = await ac.fetchTrack(track, excludeIds);
         if (next) {
           addToQueueAndPlayRef.current(next, source);
@@ -1825,7 +1830,7 @@ function App() {
       artist_name: t.artist_name ?? null,
       album_name: t.album_title ?? null,
       duration_secs: t.duration_secs ?? null,
-      source: t.url ?? t.path,
+      source: t.path,
       image_url: t.image_url ?? null,
     }));
     try {
@@ -1850,7 +1855,7 @@ function App() {
     try {
       const tracks = await invoke<Track[]>("get_tracks_by_ids", { ids: trackIds });
       setMixtapeExportTracks(tracks.map((t) => ({
-        id: t.id,
+        id: t.id!,
         title: t.title,
         artistName: t.artist_name || undefined,
         albumTitle: t.album_title || undefined,
@@ -2065,17 +2070,17 @@ function App() {
       />
 
       {/* Main content */}
-      <main className={`main${library.selectedTrack !== null && playback.currentTrack?.id === library.selectedTrack && isVideoTrack(playback.currentTrack) ? " video-detail" : ""}`} data-dock={playback.currentTrack && isVideoTrack(playback.currentTrack) ? videoLayout.dockSide : undefined}>
+      <main className={`main${library.selectedTrack !== null && playback.currentTrack?.key === library.selectedTrack && isVideoTrack(playback.currentTrack) ? " video-detail" : ""}`} data-dock={playback.currentTrack && isVideoTrack(playback.currentTrack) ? videoLayout.dockSide : undefined}>
         {/* Content area */}
         <div className="content" ref={contentRef} style={playback.currentTrack && isVideoTrack(playback.currentTrack) ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
           {/* Track detail view */}
           {library.selectedTrack !== null && (() => {
             const track = detailTrackLocal ?? detailTrack;
             if (!track) return null;
-            const isCurrentTrack = playback.currentTrack?.id === library.selectedTrack;
+            const isCurrentTrack = playback.currentTrack?.key === library.selectedTrack;
             return (
               <TrackDetailView
-                trackId={library.selectedTrack}
+                trackId={parseLibraryId(library.selectedTrack!) ?? 0}
                 track={track}
                 albumImagePath={track.album_id ? albumImageCache.images[track.album_id] ?? null : null}
                 artistImagePath={track.artist_id ? artistImageCache.images[track.artist_id] ?? null : null}
@@ -2086,10 +2091,10 @@ function App() {
                 onTagClick={(tagId) => { library.setSelectedTrack(null); library.setSelectedTag(tagId); library.setView("tags"); }}
                 onPlay={() => queueHook.playTracks([track], 0)}
                 onPlayTrack={(t: Track) => queueHook.playTracks([t], 0)}
-                onWatchOnYoutube={() => contextMenuActions.watchOnYoutube(track.id, track.title, track.artist_name, track.youtube_url)}
+                onWatchOnYoutube={track.id != null ? () => contextMenuActions.watchOnYoutube(track.id!, track.title, track.artist_name, track.youtube_url) : undefined}
                 onToggleLike={() => likeActions.handleToggleLike(track)}
                 onToggleHate={() => likeActions.handleToggleDislike(track)}
-                onShowInFolder={async () => { try { await invoke("show_in_folder", { trackId: library.selectedTrack }); } catch (e) { console.error("Failed to open containing folder:", e); contextMenuActions.setFolderError(String(e)); } }}
+                onShowInFolder={async () => { const libId = parseLibraryId(library.selectedTrack!); if (libId == null) return; try { await invoke("show_in_folder", { trackId: libId }); } catch (e) { console.error("Failed to open containing folder:", e); contextMenuActions.setFolderError(String(e)); } }}
                 collections={library.collections}
                 searchProviders={searchProviders}
                 onImageSet={(entityType, id, path) => {
@@ -2561,7 +2566,7 @@ function App() {
                   plugins.dispatchUIAction(pluginId, actionId, actionData);
                 }}
                 onTrackContextMenu={(e, track) => {
-                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: track.path.startsWith("subsonic://"), title: track.title, artistName: track.artist_name } });
+                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, subsonic: track.path?.startsWith("subsonic://"), tidal: track.path?.startsWith("tidal://"), external: track.id == null, title: track.title, artistName: track.artist_name } });
                 }}
                 onTrackRowContextMenu={(e, item) => {
                   contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: 0, subsonic: false, title: item.title, artistName: item.subtitle ?? null, external: true } });
@@ -2729,8 +2734,8 @@ function App() {
             onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
             onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
             onAdjustAutoContinueWeight={autoContinue.adjustWeight}
-            onToggleLike={() => playback.currentTrack && playback.currentTrack.id > 0 && likeActions.handleToggleLike(playback.currentTrack)}
-            onToggleDislike={() => playback.currentTrack && playback.currentTrack.id > 0 && likeActions.handleToggleDislike(playback.currentTrack)}
+            onToggleLike={() => playback.currentTrack && playback.currentTrack.id != null && likeActions.handleToggleLike(playback.currentTrack)}
+            onToggleDislike={() => playback.currentTrack && playback.currentTrack.id != null && likeActions.handleToggleDislike(playback.currentTrack)}
             onToggleFullscreen={playback.toggleFullscreen}
             showQueue={!queueCollapsed}
             onToggleQueue={handleToggleQueueCollapsed}
@@ -2764,8 +2769,8 @@ function App() {
           onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
           onRemove={queueHook.removeFromQueue}
           onLocateTrack={(track) => {
-            if (track.id) {
-              library.handleTrackClick(track.id);
+            if (track.id != null) {
+              library.handleTrackClick(track.key);
             }
           }}
           onMoveMultiple={queueHook.moveMultiple}
@@ -2778,8 +2783,8 @@ function App() {
             const first = tracks[0];
             contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: {
               kind: "queue-multi", indices,
-              trackIds: tracks.map(t => t.id),
-              firstTrack: first ? { title: first.title, artistName: first.artist_name, subsonic: first.path.startsWith("subsonic://"), hasLocalPath: !first.path.startsWith("subsonic://") && !first.path.startsWith("tidal://") } : { title: "", artistName: null, subsonic: false },
+              trackIds: tracks.map(t => t.id).filter((id): id is number => id != null),
+              firstTrack: first ? { title: first.title, artistName: first.artist_name, subsonic: !!first.path?.startsWith("subsonic://"), hasLocalPath: !!first.path && !first.path.startsWith("subsonic://") && !first.path.startsWith("tidal://") } : { title: "", artistName: null, subsonic: false },
             } });
           }}
           externalDropTarget={contextMenuActions.externalDropTarget}
@@ -2807,7 +2812,7 @@ function App() {
           onEnqueue={contextMenuActions.handleContextEnqueue}
           onShowInFolder={contextMenuActions.handleShowInFolder}
           onWatchOnYoutube={contextMenuActions.handleWatchOnYoutube}
-          onViewDetails={contextMenuActions.contextMenu.target.kind === "track" && contextMenuActions.contextMenu.target.trackId ? () => library.handleTrackClick(contextMenuActions.contextMenu!.target.kind === "track" && contextMenuActions.contextMenu!.target.trackId ? contextMenuActions.contextMenu!.target.trackId : 0) : undefined}
+          onViewDetails={contextMenuActions.contextMenu.target.kind === "track" && contextMenuActions.contextMenu.target.trackId != null ? () => library.handleTrackClick(`lib:${contextMenuActions.contextMenu!.target.kind === "track" && contextMenuActions.contextMenu!.target.trackId ? contextMenuActions.contextMenu!.target.trackId : 0}`) : undefined}
           onBulkEdit={contextMenuActions.handleBulkEdit}
           onDelete={contextMenuActions.handleDeleteRequest}
           onRefreshImage={contextMenuActions.contextMenu.target.kind === "artist" && contextMenuActions.contextMenu.target.artistId
@@ -2833,7 +2838,7 @@ function App() {
             }
           } : undefined}
           onDownloadTrack={(providerId) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track" && t.trackId) { const track = library.tracks.find(tr => tr.id === t.trackId); if (track) contextMenuActions.handleDownloadTrack(track, providerId); } else if (t.kind === "album" && t.albumId) { const albumTracks = library.tracks.filter(tr => tr.album_id === t.albumId); if (albumTracks.length) contextMenuActions.handleDownloadMulti(albumTracks, providerId); } }}
-          onDownloadMulti={(providerId) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "multi-track") { const idSet = new Set(t.trackIds); const selected = library.tracks.filter(tr => idSet.has(tr.id)); contextMenuActions.handleDownloadMulti(selected, providerId); } }}
+          onDownloadMulti={(providerId) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "multi-track") { const idSet = new Set(t.trackIds); const selected = library.tracks.filter(tr => tr.id != null && idSet.has(tr.id)); contextMenuActions.handleDownloadMulti(selected, providerId); } }}
           downloadProviders={downloadProviders.map(p => ({ id: p.id, name: p.name }))}
           onExportAsMixtape={handleExportAsMixtape}
           onClose={() => contextMenuActions.setContextMenu(null)}
@@ -3057,8 +3062,8 @@ function App() {
         onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
         onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
-        onToggleLike={() => playback.currentTrack && playback.currentTrack.id > 0 && likeActions.handleToggleLike(playback.currentTrack)}
-        onToggleDislike={() => playback.currentTrack && playback.currentTrack.id > 0 && likeActions.handleToggleDislike(playback.currentTrack)}
+        onToggleLike={() => playback.currentTrack && playback.currentTrack.id != null && likeActions.handleToggleLike(playback.currentTrack)}
+        onToggleDislike={() => playback.currentTrack && playback.currentTrack.id != null && likeActions.handleToggleDislike(playback.currentTrack)}
         onTrackClick={(trackId) => { library.handleTrackClick(trackId); }}
         onArtistClick={library.handleArtistClick}
         onAlbumClick={library.handleAlbumClick}

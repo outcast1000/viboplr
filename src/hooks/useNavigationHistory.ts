@@ -6,7 +6,7 @@ export interface NavState {
   selectedArtist: number | null;
   selectedAlbum: number | null;
   selectedTag: number | null;
-  selectedTrack?: number | null;
+  selectedTrack?: string | null;
   fallbackArtistName?: string | null;
   fallbackAlbumName?: { name: string; artistName?: string } | null;
   fallbackTrackName?: { name: string; artistName?: string } | null;

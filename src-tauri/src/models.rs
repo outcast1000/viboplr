@@ -65,6 +65,7 @@ pub struct Tag {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
     pub id: i64,
+    pub key: String,
     pub path: String,
     pub title: String,
     pub artist_id: Option<i64>,
@@ -82,7 +83,6 @@ pub struct Track {
     pub youtube_url: Option<String>,
     pub added_at: Option<i64>,
     pub modified_at: Option<i64>,
-    pub relative_path: Option<String>,
 }
 
 impl Track {

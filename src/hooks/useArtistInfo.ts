@@ -64,7 +64,7 @@ export function useArtistInfo(deps: {
           for (const item of items) {
             const norm = normalizeTitle(item.name);
             const match = deps.tracks.find(t => normalizeTitle(t.title) === norm);
-            if (match && item.value > 0) popMap[match.id] = item.value;
+            if (match && match.id != null && item.value > 0) popMap[match.id] = item.value;
           }
           setAlbumTrackPopularity(popMap);
           return; // Success — stop trying providers
@@ -102,7 +102,7 @@ export function useArtistInfo(deps: {
           for (const item of items) {
             const norm = normalizeTitle(item.name);
             const match = deps.tracks.find(t => normalizeTitle(t.title) === norm);
-            if (match && item.value > 0) popMap[match.id] = item.value;
+            if (match && match.id != null && item.value > 0) popMap[match.id] = item.value;
           }
           setArtistTrackPopularity(popMap);
           return;

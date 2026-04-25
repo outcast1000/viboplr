@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Artist, Album } from "../types";
+import { parseLibraryId } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../components/ContextMenu";
 import { store } from "../store";
 import { parseUrlScheme } from "../queueEntry";
@@ -52,12 +53,13 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
 
-  function handleTrackContextMenu(e: React.MouseEvent, track: Track, selectedTrackIds: Set<number>) {
+  function handleTrackContextMenu(e: React.MouseEvent, track: Track, selectedTrackKeys: Set<string>) {
     e.preventDefault();
-    if (selectedTrackIds.size > 1) {
-      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-track", trackIds: [...selectedTrackIds] } });
+    if (selectedTrackKeys.size > 1) {
+      const trackIds = [...selectedTrackKeys].map(k => parseLibraryId(k)).filter((id): id is number => id != null);
+      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-track", trackIds } });
     } else {
-      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id, subsonic: track.path.startsWith("subsonic://"), tidal: track.path.startsWith("tidal://"), title: track.title, artistName: track.artist_name } });
+      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, subsonic: track.path?.startsWith("subsonic://") ?? false, tidal: track.path?.startsWith("tidal://") ?? false, external: track.id == null, title: track.title, artistName: track.artist_name } });
     }
   }
 
@@ -93,7 +95,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       }
     } else if (target.kind === "multi-track") {
       const idSet = new Set(target.trackIds);
-      const selected = library.sortedTracks.filter(t => idSet.has(t.id));
+      const selected = library.sortedTracks.filter(t => t.id != null && idSet.has(t.id));
       if (selected.length > 0) queueHook.playTracks(selected, 0);
     } else if (target.kind === "queue-multi") {
       const selected = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
@@ -126,7 +128,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       handleEnqueue(artistTracks);
     } else if (target.kind === "multi-track") {
       const idSet = new Set(target.trackIds);
-      const selected = library.sortedTracks.filter(t => idSet.has(t.id));
+      const selected = library.sortedTracks.filter(t => t.id != null && idSet.has(t.id));
       handleEnqueue(selected);
     }
   }
@@ -225,7 +227,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   async function handleShowInFolder() {
-    if (contextMenu && contextMenu.target.kind === "track" && contextMenu.target.trackId) {
+    if (contextMenu && contextMenu.target.kind === "track" && contextMenu.target.trackId != null) {
       try {
         await invoke("show_in_folder", { trackId: contextMenu.target.trackId });
       } catch (e) {
@@ -236,7 +238,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } else if (contextMenu && contextMenu.target.kind === "queue-multi" && contextMenu.target.indices.length === 1) {
       const track = queueHook.queue[contextMenu.target.indices[0]];
       try {
-        if (track && track.id > 0) {
+        if (track && track.id != null) {
           await invoke("show_in_folder", { trackId: track.id });
         } else if (track && track.path) {
           await invoke("show_in_folder_path", { filePath: track.path });
@@ -252,7 +254,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   function handleBulkEdit() {
     if (!contextMenu || contextMenu.target.kind !== "multi-track") return;
     const { trackIds } = contextMenu.target;
-    const selected = library.tracks.filter(t => trackIds.includes(t.id));
+    const selected = library.tracks.filter(t => t.id != null && trackIds.includes(t.id));
     if (selected.length > 0) setBulkEditTracks(selected);
     setContextMenu(null);
   }
@@ -266,9 +268,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       setDeleteConfirm({ trackIds: target.trackIds, title: `${target.trackIds.length} tracks` });
     } else if (target.kind === "queue-multi") {
       const tracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
-      const localTracks = tracks.filter(t => !t.path.startsWith("subsonic://") && !t.path.startsWith("tidal://"));
+      const localTracks = tracks.filter(t => t.id != null && !t.path?.startsWith("subsonic://") && !t.path?.startsWith("tidal://"));
       if (localTracks.length > 0) {
-        const ids = localTracks.map(t => t.id);
+        const ids = localTracks.map(t => t.id!);
         setDeleteConfirm({ trackIds: ids, title: localTracks.length === 1 ? localTracks[0].title : `${localTracks.length} tracks` });
       }
     }
@@ -283,8 +285,8 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       const result: { deletedIds: number[]; failures: { title: string; reason: string }[] } = await invoke("delete_tracks", { trackIds });
       const deletedSet = new Set(result.deletedIds);
       if (deletedSet.size > 0) {
-        library.setTracks(prev => prev.filter(t => !deletedSet.has(t.id)));
-        if (playback.currentTrack && deletedSet.has(playback.currentTrack.id)) {
+        library.setTracks(prev => prev.filter(t => t.id == null || !deletedSet.has(t.id)));
+        if (playback.currentTrack && playback.currentTrack.id != null && deletedSet.has(playback.currentTrack.id)) {
           playback.handleStop();
         }
         library.loadLibrary();
@@ -328,7 +330,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   async function handleWatchOnYoutube() {
-    if (!contextMenu || contextMenu.target.kind !== "track" || !contextMenu.target.trackId) return;
+    if (!contextMenu || contextMenu.target.kind !== "track" || contextMenu.target.trackId == null) return;
     const { trackId, title, artistName } = contextMenu.target;
     const track = library.tracks.find(t => t.id === trackId);
     await watchOnYoutube(trackId, title, artistName, track?.youtube_url ?? null, track?.duration_secs ?? null);
@@ -354,7 +356,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   const handleDownloadTrack = useCallback(async (track: Track, providerId: string | null = null) => {
-    const url = track.url ?? track.path;
+    const url = track.path;
 
     let sourceProviderId: string | null = providerId;
     let sourceTrackId: string | null = null;
@@ -403,7 +405,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const handleDownloadMulti = useCallback(async (tracks: Track[], providerId: string | null = null) => {
     for (let i = 0; i < tracks.length; i++) {
       const track = tracks[i];
-      const url = track.url ?? track.path;
+      const url = track.path;
       const isLast = i === tracks.length - 1;
 
       let sourceProviderId: string | null = providerId;

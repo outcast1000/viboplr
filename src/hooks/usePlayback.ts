@@ -123,7 +123,7 @@ export function usePlayback(
 
   // positionSecs persisted by its own effect below; currentTrack persisted by App.tsx as QueueEntry
   useEffect(() => {
-    if (currentTrack) logPlayback(`Track changed: ${currentTrack.artist_name ?? "?"} — ${currentTrack.title} (id=${currentTrack.id})`);
+    if (currentTrack) logPlayback(`Track changed: ${currentTrack.artist_name ?? "?"} — ${currentTrack.title} (key=${currentTrack.key})`);
   }, [currentTrack]);
   useEffect(() => { if (restoredRef.current) store.set("positionSecs", positionSecs); }, [positionSecs]);
   useEffect(() => { if (restoredRef.current) store.set("volume", volume); }, [volume]);
@@ -490,7 +490,7 @@ export function usePlayback(
       if (shouldScrobble(el.currentTime, currentTrack.duration_secs)) {
         scrobbledRef.current = true;
         setScrobbled(true);
-        invoke("record_play", { trackId: currentTrack.id }).catch(console.error);
+        invoke("record_play", { trackId: currentTrack.id, title: currentTrack.title, artistName: currentTrack.artist_name }).catch(console.error);
       }
     }
 
@@ -510,7 +510,7 @@ export function usePlayback(
         // Preload the next track if available
         const next = peekNextRef.current();
         if (next) {
-          if (preloadedTrackRef.current?.id !== next.id) {
+          if (preloadedTrackRef.current?.key !== next.key) {
             if (preloadedTrackRef.current) invalidatePreload();
             if (!isPreloadingRef.current) preloadNext(next);
             return;

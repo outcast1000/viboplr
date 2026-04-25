@@ -32,7 +32,7 @@ interface ArtistDetailContentProps {
   sortField: SortField | null;
   trackListRef: React.RefObject<HTMLDivElement | null>;
   onPlayTracks: (tracks: Track[], index: number, context?: { name: string; coverPath?: string | null; coverUrl?: string | null } | null) => void;
-  onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<number>) => void;
+  onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<string>) => void;
   onArtistClick: (id: number) => void;
   onAlbumClick: (id: number) => void;
   onSort: (field: SortField) => void;
@@ -128,7 +128,7 @@ export function ArtistDetailContent({
         t.title.toLowerCase() === trackName.toLowerCase() &&
         (!artistName || (t.artist_name ?? "").toLowerCase() === artistName.toLowerCase())
       );
-      if (match) return { id: match.id };
+      if (match) return { id: match.id ?? undefined };
     }
     return undefined;
   };

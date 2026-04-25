@@ -1094,8 +1094,8 @@ pub fn clear_image_failures(state: State<'_, AppState>) -> Result<(), String> {
 // --- Play history commands ---
 
 #[tauri::command]
-pub fn record_play(state: State<'_, AppState>, track_id: i64) -> Result<(), String> {
-    state.db.record_play(track_id).map_err(|e| e.to_string())
+pub fn record_play(state: State<'_, AppState>, track_id: Option<i64>, title: String, artist_name: Option<String>) -> Result<(), String> {
+    state.db.record_play_by_metadata(&title, artist_name.as_deref(), track_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1139,8 +1139,8 @@ pub fn reconnect_history_artist(state: State<'_, AppState>, history_artist_id: i
 }
 
 #[tauri::command]
-pub fn get_track_rank(state: State<'_, AppState>, track_id: i64) -> Result<Option<i64>, String> {
-    state.db.get_track_rank(track_id).map_err(|e| e.to_string())
+pub fn get_track_rank(state: State<'_, AppState>, title: String, artist_name: Option<String>) -> Result<Option<i64>, String> {
+    state.db.get_track_rank(&title, artist_name.as_deref()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1162,13 +1162,14 @@ pub fn get_track_play_stats(state: State<'_, AppState>, track_id: i64) -> Result
 pub fn get_auto_continue_track(
     state: State<'_, AppState>,
     strategy: String,
-    current_track_id: i64,
+    current_title: String,
+    current_artist: Option<String>,
     format_filter: Option<String>,
     exclude_ids: Option<Vec<i64>>,
 ) -> Result<Option<Track>, String> {
     state
         .db
-        .get_auto_continue_track(&strategy, current_track_id, format_filter.as_deref(), exclude_ids.as_deref().unwrap_or(&[]))
+        .get_auto_continue_track(&strategy, &current_title, current_artist.as_deref(), format_filter.as_deref(), exclude_ids.as_deref().unwrap_or(&[]))
         .map_err(|e| e.to_string())
 }
 

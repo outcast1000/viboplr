@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Track, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration } from "../utils";
+import { parseLibraryId } from "../queueEntry";
 import { IconYoutube } from "./Icons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "./TrackList.css";
@@ -78,18 +79,18 @@ function formatDate(epochSecs: number | null): string {
 
 
 export function computeSelection(
-  current: Set<number>,
+  current: Set<string>,
   clickedIndex: number,
   tracks: Track[],
   lastIndex: number | null,
   meta: boolean,
   shift: boolean,
-): Set<number> {
+): Set<string> {
   if (shift) {
     const start = lastIndex ?? 0;
     const lo = Math.min(start, clickedIndex);
     const hi = Math.max(start, clickedIndex);
-    const range = new Set(tracks.slice(lo, hi + 1).map(t => t.id));
+    const range = new Set(tracks.slice(lo, hi + 1).map(t => t.key));
     if (meta) {
       const merged = new Set(current);
       for (const id of range) merged.add(id);
@@ -99,14 +100,14 @@ export function computeSelection(
   }
   if (meta) {
     const next = new Set(current);
-    if (next.has(tracks[clickedIndex].id)) {
-      next.delete(tracks[clickedIndex].id);
+    if (next.has(tracks[clickedIndex].key)) {
+      next.delete(tracks[clickedIndex].key);
     } else {
-      next.add(tracks[clickedIndex].id);
+      next.add(tracks[clickedIndex].key);
     }
     return next;
   }
-  return new Set([tracks[clickedIndex].id]);
+  return new Set([tracks[clickedIndex].key]);
 }
 
 interface TrackListProps {
@@ -119,7 +120,7 @@ interface TrackListProps {
   columns: ColumnConfig[];
   onColumnsChange: (columns: ColumnConfig[]) => void;
   onDoubleClick: (tracks: Track[], index: number) => void;
-  onContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<number>) => void;
+  onContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<string>) => void;
   onArtistClick: (artistId: number) => void;
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
   onSort: (field: SortField) => void;
@@ -157,7 +158,7 @@ export function TrackList({
   const didDragRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const didDragRowRef = useRef(false);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const lastClickedIndexRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -178,7 +179,7 @@ export function TrackList({
 
   const prevTrackIdsRef = useRef<string>("");
   useEffect(() => {
-    const currFirst = String(tracks[0]?.id ?? "");
+    const currFirst = tracks[0]?.key ?? "";
     const prevFirst = prevTrackIdsRef.current.split(":")[0];
     if (prevTrackIdsRef.current && prevFirst !== currFirst) {
       setSelectedIds(new Set());
@@ -200,11 +201,11 @@ export function TrackList({
       } else if (e.key === "a" && (e.metaKey || e.ctrlKey) && tracks.length > 0) {
         if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
         e.preventDefault();
-        setSelectedIds(new Set(tracks.map(t => t.id)));
+        setSelectedIds(new Set(tracks.map(t => t.key)));
       } else if ((e.key === "Delete" || e.key === "Backspace") && selectedIds.size > 0 && onDeleteTracks) {
         if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
         e.preventDefault();
-        onDeleteTracks([...selectedIds]);
+        onDeleteTracks([...selectedIds].map(k => parseLibraryId(k)).filter((id): id is number => id != null));
       }
     }
     window.addEventListener("keydown", handleKeyDown);
@@ -244,8 +245,8 @@ export function TrackList({
 
       // Determine which tracks to drag
       let dragTracks: Track[];
-      if (selectedIds.has(tracks[index].id) && selectedIds.size > 1) {
-        dragTracks = tracks.filter(t => selectedIds.has(t.id));
+      if (selectedIds.has(tracks[index].key) && selectedIds.size > 1) {
+        dragTracks = tracks.filter(t => selectedIds.has(t.key));
       } else {
         dragTracks = [tracks[index]];
       }
@@ -414,7 +415,7 @@ export function TrackList({
           </span>
         );
       case "num": {
-        const isCurrentTrack = currentTrack?.id === t.id;
+        const isCurrentTrack = currentTrack?.key === t.key;
         if (isCurrentTrack && playing != null) {
           return (
             <span key="num" className="col-num">
@@ -466,7 +467,7 @@ export function TrackList({
       case "duration":
         return <span key="duration" className="col-duration">{formatDuration(t.duration_secs)}</span>;
       case "path":
-        return <span key="path" className="col-path" title={t.path}>{t.relative_path ?? t.path}</span>;
+        return <span key="path" className="col-path" title={t.path ?? ""}>{(t.path ?? "").replace(/^file:\/\//, "")}</span>;
       case "year":
         return <span key="year" className="col-year">{t.year ?? ""}</span>;
       case "quality":
@@ -480,7 +481,7 @@ export function TrackList({
       case "modified":
         return <span key="modified" className="col-modified">{formatDate(t.modified_at)}</span>;
       case "popularity": {
-        const pop = trackPopularity?.[t.id];
+        const pop = t.id != null ? trackPopularity?.[t.id] : undefined;
         const pct = (pop != null && maxPopularity > 0) ? (pop / maxPopularity) * 100 : 0;
         return (
           <span key="popularity" className="col-popularity">
@@ -503,18 +504,18 @@ export function TrackList({
       </div>
       {tracks.map((t, i) => (
         <div
-          key={t.id}
-          className={`track-row ${currentTrack?.id === t.id ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""} ${selectedIds.has(t.id) ? "selected" : ""}`}
+          key={t.key}
+          className={`track-row ${currentTrack?.key === t.key ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""} ${selectedIds.has(t.key) ? "selected" : ""}`}
           onMouseDown={(e) => handleRowMouseDown(e, i)}
           onClick={(e) => handleRowClick(e, i)}
           onDoubleClick={() => { setSelectedIds(new Set()); onDoubleClick([tracks[i]], 0); }}
           onContextMenu={(e) => {
-            if (!selectedIds.has(t.id)) {
-              setSelectedIds(new Set([t.id]));
+            if (!selectedIds.has(t.key)) {
+              setSelectedIds(new Set([t.key]));
               lastClickedIndexRef.current = i;
-              onContextMenu(e, t, new Set([t.id]));
+              onContextMenu(e, t, new Set([t.key]));
             } else {
-              onContextMenu(e, t, selectedIds.size > 1 ? selectedIds : new Set([t.id]));
+              onContextMenu(e, t, selectedIds.size > 1 ? selectedIds : new Set([t.key]));
             }
           }}
         >

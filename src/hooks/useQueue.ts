@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import type { Track, PlaylistLoadResult, PlaylistEntry, Collection } from "../types";
-import { trackToQueueEntry, queueEntryToTrack, stampUrl } from "../queueEntry";
+import type { Track, PlaylistLoadResult, PlaylistEntry } from "../types";
+import { trackToQueueEntry, queueEntryToTrack } from "../queueEntry";
 import { store } from "../store";
 
 export interface PlaylistContext {
@@ -14,7 +14,6 @@ export interface PlaylistContext {
 export function useQueue(
   restoredRef: React.RefObject<boolean>,
   handlePlay: (track: Track, source?: "user" | "auto") => void,
-  collections: Collection[],
   albumImages: Record<number, string | null>,
 ) {
   const [queue, setQueue] = useState<Track[]>([]);
@@ -38,7 +37,7 @@ export function useQueue(
   const dragIndexRef = useRef<number | null>(null);
 
   // Persist state
-  useEffect(() => { if (restoredRef.current) store.set("queueEntries", queue.map(t => trackToQueueEntry(t, collections))); }, [queue, collections]);
+  useEffect(() => { if (restoredRef.current) store.set("queueEntries", queue.map(t => trackToQueueEntry(t))); }, [queue]);
   useEffect(() => { if (restoredRef.current) store.set("queueIndex", queueIndex); }, [queueIndex]);
   useEffect(() => { if (restoredRef.current) store.set("queueMode", queueMode); }, [queueMode]);
   useEffect(() => { if (restoredRef.current) store.set("playlistContext", playlistContext); }, [playlistContext]);
@@ -65,11 +64,10 @@ export function useQueue(
 
   function stamp(tracks: Track[]): Track[] {
     return tracks.map(t => {
-      const s = stampUrl(t, collections);
-      if (!s.image_url && s.album_id != null && albumImages[s.album_id]) {
-        return { ...s, image_url: albumImages[s.album_id]! };
+      if (!t.image_url && t.album_id != null && albumImages[t.album_id]) {
+        return { ...t, image_url: albumImages[t.album_id]! };
       }
-      return s;
+      return t;
     });
   }
 
@@ -88,9 +86,9 @@ export function useQueue(
 
   function findDuplicates(newTracks: Track[]): { duplicates: Track[]; unique: Track[] } {
     const stamped = stamp(newTracks);
-    const existing = new Set(queueRef.current.map(t => t.url!));
-    const duplicates = stamped.filter(t => existing.has(t.url!));
-    const unique = stamped.filter(t => !existing.has(t.url!));
+    const existing = new Set(queueRef.current.map(t => t.path));
+    const duplicates = stamped.filter(t => existing.has(t.path));
+    const unique = stamped.filter(t => !existing.has(t.path));
     return { duplicates, unique };
   }
 
@@ -405,7 +403,7 @@ export function useQueue(
       filters: [{ name: "M3U Playlist", extensions: ["m3u"] }],
     });
     if (!filePath) return;
-    const entries = queueRef.current.map(t => trackToQueueEntry(t, collections));
+    const entries = queueRef.current.map(t => trackToQueueEntry(t));
     await invoke("save_playlist_entries", { path: filePath, entries });
     const name = filePath.split(/[/\\]/).pop()?.replace(/\.m3u8?$/i, "") ?? "Playlist";
     setPlaylistContext(prev => prev ? { ...prev, name } : { name });

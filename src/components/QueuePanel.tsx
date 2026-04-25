@@ -364,7 +364,7 @@ export function QueuePanel({
                 </div>
               )}
             </div>
-            <div className="queue-item-info" title={t.url || t.path || ""}>
+            <div className="queue-item-info" title={`key: ${t.key}\nid: ${t.id}\npath: ${t.path}\ntitle: ${t.title}\nartist: ${t.artist_name}\nalbum: ${t.album_title}\nformat: ${t.format}\nliked: ${t.liked}\ncollection_id: ${t.collection_id}\nimage_url: ${t.image_url ?? "(none)"}`}>
               <div className="queue-item-line1">
                 <span className="queue-item-title">{t.title}</span>
                 <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
@@ -374,7 +374,7 @@ export function QueuePanel({
                 {t.album_title && <span className="queue-item-album">{t.album_title}</span>}
               </div>
             </div>
-            {onLocateTrack && (
+            {onLocateTrack && t.id != null && (
               <button
                 className="queue-item-locate"
                 onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}

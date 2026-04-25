@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  computeUrl,
   trackToQueueEntry,
   queueEntryToTrack,
   parseUrlScheme,
@@ -13,6 +12,7 @@ import type { Track } from "../types";
 function makeTrack(overrides: Partial<Track> = {}): Track {
   return {
     id: 1,
+    key: "lib:1",
     path: "file:///test.mp3",
     title: "Test",
     artist_id: null,
@@ -30,7 +30,6 @@ function makeTrack(overrides: Partial<Track> = {}): Track {
     youtube_url: null,
     added_at: null,
     modified_at: null,
-    relative_path: null,
     ...overrides,
   };
 }
@@ -67,28 +66,6 @@ describe("remoteId", () => {
   });
 });
 
-describe("computeUrl", () => {
-  it("returns file:// path as-is for local track", () => {
-    const track = makeTrack({ path: "file:///music/song.mp3" });
-    expect(computeUrl(track, [])).toBe("file:///music/song.mp3");
-  });
-
-  it("returns tidal:// path as-is for TIDAL track", () => {
-    const track = makeTrack({ path: "tidal://12345" });
-    expect(computeUrl(track, [])).toBe("tidal://12345");
-  });
-
-  it("returns subsonic:// path as-is for Subsonic track", () => {
-    const track = makeTrack({ path: "subsonic://demo.navidrome.org/abc123" });
-    expect(computeUrl(track, [])).toBe("subsonic://demo.navidrome.org/abc123");
-  });
-
-  it("returns pre-stamped url if present", () => {
-    const track = makeTrack({ path: "file:///music/song.mp3", url: "tidal://override" });
-    expect(computeUrl(track, [])).toBe("tidal://override");
-  });
-});
-
 describe("trackToQueueEntry", () => {
   it("converts track to QueueEntry with path as url", () => {
     const track = makeTrack({
@@ -101,9 +78,10 @@ describe("trackToQueueEntry", () => {
       year: 2020,
       format: "mp3",
     });
-    const entry = trackToQueueEntry(track, []);
+    const entry = trackToQueueEntry(track);
     expect(entry).toEqual({
       url: "file:///music/artist/album/track.mp3",
+      key: "lib:1",
       title: "My Song",
       artist_name: "Artist",
       album_title: "Album",
@@ -111,6 +89,8 @@ describe("trackToQueueEntry", () => {
       track_number: 3,
       year: 2020,
       format: "mp3",
+      image_url: undefined,
+      liked: 0,
     });
   });
 
@@ -119,9 +99,10 @@ describe("trackToQueueEntry", () => {
       path: "file:///unknown.mp3",
       title: "Unknown",
     });
-    const entry = trackToQueueEntry(track, []);
+    const entry = trackToQueueEntry(track);
     expect(entry).toEqual({
       url: "file:///unknown.mp3",
+      key: "lib:1",
       title: "Unknown",
       artist_name: null,
       album_title: null,
@@ -129,6 +110,8 @@ describe("trackToQueueEntry", () => {
       track_number: null,
       year: null,
       format: null,
+      image_url: undefined,
+      liked: 0,
     });
   });
 
@@ -137,7 +120,7 @@ describe("trackToQueueEntry", () => {
       path: "tidal://tidal-id",
       title: "TIDAL Song",
     });
-    const entry = trackToQueueEntry(track, []);
+    const entry = trackToQueueEntry(track);
     expect(entry.url).toBe("tidal://tidal-id");
   });
 
@@ -146,22 +129,19 @@ describe("trackToQueueEntry", () => {
       path: "subsonic://server.com/sub-id",
       title: "Server Song",
     });
-    const entry = trackToQueueEntry(track, []);
+    const entry = trackToQueueEntry(track);
     expect(entry.url).toBe("subsonic://server.com/sub-id");
   });
 
-  it("uses pre-stamped url from track if present", () => {
-    const track = makeTrack({
-      path: "file:///music/song.mp3",
-      url: "tidal://override",
-    });
-    const entry = trackToQueueEntry(track, []);
-    expect(entry.url).toBe("tidal://override");
+  it("includes liked state in QueueEntry", () => {
+    const track = makeTrack({ liked: 1 });
+    const entry = trackToQueueEntry(track);
+    expect(entry.liked).toBe(1);
   });
 });
 
 describe("queueEntryToTrack", () => {
-  it("converts file:// url to Track with path", () => {
+  it("converts file:// url to Track with null id and generated key", () => {
     const entry: QueueEntry = {
       url: "file:///music/song.mp3",
       title: "Song",
@@ -173,31 +153,17 @@ describe("queueEntryToTrack", () => {
       format: "mp3",
     };
     const track = queueEntryToTrack(entry);
-    expect(track).toEqual({
-      id: 0,
-      path: "file:///music/song.mp3",
-      title: "Song",
-      artist_id: null,
-      artist_name: "Artist",
-      album_id: null,
-      album_title: "Album",
-      year: 2021,
-      track_number: 1,
-      duration_secs: 200,
-      format: "mp3",
-      file_size: null,
-      collection_id: null,
-      collection_name: null,
-      liked: 0,
-      youtube_url: null,
-      added_at: null,
-      modified_at: null,
-      relative_path: null,
-      url: "file:///music/song.mp3",
-    });
+    expect(track.id).toBeNull();
+    expect(track.key).toMatch(/^ext:\d+$/);
+    expect(track.path).toBe("file:///music/song.mp3");
+    expect(track.title).toBe("Song");
+    expect(track.artist_name).toBe("Artist");
+    expect(track.album_title).toBe("Album");
+    expect(track.duration_secs).toBe(200);
+    expect(track.format).toBe("mp3");
   });
 
-  it("converts tidal:// url to Track with negative id and tidal path", () => {
+  it("converts tidal:// url to Track with null id and generated key", () => {
     const entry: QueueEntry = {
       url: "tidal://12345",
       title: "TIDAL Song",
@@ -209,14 +175,14 @@ describe("queueEntryToTrack", () => {
       format: null,
     };
     const track = queueEntryToTrack(entry);
-    expect(track.id).toBeLessThan(0);
+    expect(track.id).toBeNull();
+    expect(track.key).toMatch(/^ext:\d+$/);
     expect(track.path).toBe("tidal://12345");
     expect(track.title).toBe("TIDAL Song");
     expect(track.artist_name).toBe("TIDAL Artist");
-    expect(track.url).toBe("tidal://12345");
   });
 
-  it("assigns unique negative ids for multiple tidal:// entries", () => {
+  it("assigns unique keys for multiple entries", () => {
     const entry1: QueueEntry = {
       url: "tidal://111",
       title: "Song 1",
@@ -239,12 +205,12 @@ describe("queueEntryToTrack", () => {
     };
     const track1 = queueEntryToTrack(entry1);
     const track2 = queueEntryToTrack(entry2);
-    expect(track1.id).not.toBe(track2.id);
-    expect(track1.id).toBeLessThan(0);
-    expect(track2.id).toBeLessThan(0);
+    expect(track1.key).not.toBe(track2.key);
+    expect(track1.id).toBeNull();
+    expect(track2.id).toBeNull();
   });
 
-  it("converts subsonic:// url to Track with subsonic path", () => {
+  it("converts subsonic:// url to Track with null id", () => {
     const entry: QueueEntry = {
       url: "subsonic://server.com/abc123",
       title: "Server Song",
@@ -256,33 +222,17 @@ describe("queueEntryToTrack", () => {
       format: "flac",
     };
     const track = queueEntryToTrack(entry);
-    expect(track).toEqual({
-      id: 0,
-      path: "subsonic://server.com/abc123",
-      title: "Server Song",
-      artist_id: null,
-      artist_name: "Server Artist",
-      album_id: null,
-      album_title: "Server Album",
-      year: 2022,
-      track_number: 5,
-      duration_secs: 300,
-      format: "flac",
-      file_size: null,
-      collection_id: null,
-      collection_name: null,
-      liked: 0,
-      youtube_url: null,
-      added_at: null,
-      modified_at: null,
-      relative_path: null,
-      url: "subsonic://server.com/abc123",
-    });
+    expect(track.id).toBeNull();
+    expect(track.key).toMatch(/^ext:\d+$/);
+    expect(track.path).toBe("subsonic://server.com/abc123");
+    expect(track.title).toBe("Server Song");
+    expect(track.artist_name).toBe("Server Artist");
   });
 
-  it("handles subsonic:// URL with host only (no track id)", () => {
+  it("preserves key from QueueEntry when present", () => {
     const entry: QueueEntry = {
-      url: "subsonic://server.com",
+      url: "tidal://12345",
+      key: "ext:42",
       title: "Song",
       artist_name: null,
       album_title: null,
@@ -292,8 +242,39 @@ describe("queueEntryToTrack", () => {
       format: null,
     };
     const track = queueEntryToTrack(entry);
-    expect(track.id).toBe(0);
-    expect(track.path).toBe("subsonic://server.com");
+    expect(track.key).toBe("ext:42");
+  });
+
+  it("preserves liked state from QueueEntry", () => {
+    const entry: QueueEntry = {
+      url: "tidal://99999",
+      key: "ext:99",
+      title: "Liked TIDAL Song",
+      artist_name: null,
+      album_title: null,
+      duration_secs: null,
+      track_number: null,
+      year: null,
+      format: null,
+      liked: 1,
+    };
+    const track = queueEntryToTrack(entry);
+    expect(track.liked).toBe(1);
+  });
+
+  it("defaults liked to 0 when not present in QueueEntry", () => {
+    const entry: QueueEntry = {
+      url: "file:///music/song.mp3",
+      title: "Song",
+      artist_name: null,
+      album_title: null,
+      duration_secs: null,
+      track_number: null,
+      year: null,
+      format: null,
+    };
+    const track = queueEntryToTrack(entry);
+    expect(track.liked).toBe(0);
   });
 });
 
@@ -360,5 +341,15 @@ describe("parseUrlScheme", () => {
   it("handles plain path as file", () => {
     const result = parseUrlScheme("/music/song.mp3");
     expect(result).toEqual({ scheme: "file", path: "/music/song.mp3" });
+  });
+
+  it("parses external:// scheme", () => {
+    const result = parseUrlScheme("external://");
+    expect(result).toEqual({ scheme: "external" });
+  });
+
+  it("parses external:// with suffix", () => {
+    const result = parseUrlScheme("external://yt/abc");
+    expect(result).toEqual({ scheme: "external" });
   });
 });

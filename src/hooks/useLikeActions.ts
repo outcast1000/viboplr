@@ -37,14 +37,15 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   const { library, playback, queueHook, plugins } = deps;
 
   async function handleToggleLike(track: Track) {
+    if (track.id == null) return;
     const newLiked = track.liked === 1 ? 0 : 1;
     try {
       await invoke("toggle_liked", { kind: "track", id: track.id, liked: newLiked });
-      library.setTracks(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
-      if (playback.currentTrack?.id === track.id) {
+      library.setTracks(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
+      if (playback.currentTrack?.key === track.key) {
         playback.setCurrentTrack({ ...playback.currentTrack, liked: newLiked });
       }
-      queueHook.setQueue(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
+      queueHook.setQueue(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
       plugins.dispatchEvent("track:liked", track, newLiked === 1);
     } catch (e) {
       console.error("Failed to toggle like:", e);
@@ -52,14 +53,15 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   }
 
   async function handleToggleDislike(track: Track) {
+    if (track.id == null) return;
     const newLiked = track.liked === -1 ? 0 : -1;
     try {
       await invoke("toggle_liked", { kind: "track", id: track.id, liked: newLiked });
-      library.setTracks(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
-      if (playback.currentTrack?.id === track.id) {
+      library.setTracks(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
+      if (playback.currentTrack?.key === track.key) {
         playback.setCurrentTrack({ ...playback.currentTrack, liked: newLiked });
       }
-      queueHook.setQueue(prev => prev.map(t => t.id === track.id ? { ...t, liked: newLiked } : t));
+      queueHook.setQueue(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
     } catch (e) {
       console.error("Failed to toggle dislike:", e);
     }
