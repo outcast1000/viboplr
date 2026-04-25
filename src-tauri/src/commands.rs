@@ -314,6 +314,17 @@ pub fn update_collection(
     state.db.recompute_counts().map_err(|e| e.to_string())
 }
 
+struct ResyncGuard {
+    id: i64,
+    set: Arc<Mutex<HashSet<i64>>>,
+}
+
+impl Drop for ResyncGuard {
+    fn drop(&mut self) {
+        self.set.lock().unwrap().remove(&self.id);
+    }
+}
+
 pub fn run_collection_resync(
     db: Arc<Database>,
     app: AppHandle,
@@ -342,6 +353,7 @@ pub fn run_collection_resync(
             let scan_path = folder_path.clone();
             let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
             thread::spawn(move || {
+                let _guard = ResyncGuard { id: collection_id, set: resyncing };
                 let start = std::time::Instant::now();
                 let removed_tracks = scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
                     let _ = app.emit(
@@ -365,7 +377,6 @@ pub fn run_collection_resync(
                     "newTracks": new_tracks,
                     "removedTracks": removed_tracks,
                 }));
-                resyncing.lock().unwrap().remove(&collection_id);
             });
         }
         "subsonic" => {
@@ -380,6 +391,7 @@ pub fn run_collection_resync(
             let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
 
             thread::spawn(move || {
+                let _guard = ResyncGuard { id: collection_id, set: resyncing };
                 let client = SubsonicClient::from_stored(
                     &creds.url,
                     &creds.username,
@@ -419,7 +431,6 @@ pub fn run_collection_resync(
                         );
                     }
                 }
-                resyncing.lock().unwrap().remove(&collection_id);
             });
         }
         _ => {
