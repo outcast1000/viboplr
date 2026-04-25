@@ -3687,6 +3687,31 @@ pub fn install_plugin_from_url(
     crate::plugins::install_plugin_from_url(&state.app_dir, &url)
 }
 
+/// Determines if a collection is due for an auto-update based on its settings and last sync time.
+///
+/// Returns true if:
+/// - The collection is enabled and has auto_update enabled
+/// - The collection kind is "local" or "subsonic"
+/// - Either the collection has never been synced (last_synced_at is None)
+///   OR the configured interval has elapsed since the last sync
+///
+/// Note: Error backoff is handled naturally through last_synced_at updates.
+/// When a sync fails, update_collection_sync_error sets last_synced_at to the current time,
+/// so the full interval must elapse before the next retry.
+pub fn is_collection_due_for_auto_update(collection: &Collection, now_secs: i64) -> bool {
+    if !collection.enabled || !collection.auto_update {
+        return false;
+    }
+    if !matches!(collection.kind.as_str(), "local" | "subsonic") {
+        return false;
+    }
+    let interval_secs = collection.auto_update_interval_mins * 60;
+    match collection.last_synced_at {
+        None => true,
+        Some(last) => (now_secs - last) >= interval_secs,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3989,6 +4014,80 @@ mod tests {
     fn test_extract_video_candidates_empty() {
         let data: serde_json::Value = serde_json::json!({});
         assert!(extract_video_candidates(&data, 7).is_empty());
+    }
+
+    // Auto-update helper
+    fn make_collection(auto_update: bool, interval_mins: i64, last_synced_at: Option<i64>, last_sync_error: Option<String>) -> Collection {
+        Collection {
+            id: 1,
+            kind: "local".to_string(),
+            name: "Test".to_string(),
+            path: Some("/test".to_string()),
+            url: None,
+            username: None,
+            last_synced_at,
+            auto_update,
+            auto_update_interval_mins: interval_mins,
+            enabled: true,
+            last_sync_duration_secs: None,
+            last_sync_error,
+        }
+    }
+
+    #[test]
+    fn test_auto_update_due_never_synced() {
+        let col = make_collection(true, 60, None, None);
+        assert!(is_collection_due_for_auto_update(&col, 1000));
+    }
+
+    #[test]
+    fn test_auto_update_due_interval_elapsed() {
+        let col = make_collection(true, 60, Some(1000), None);
+        assert!(is_collection_due_for_auto_update(&col, 1000 + 3600));
+    }
+
+    #[test]
+    fn test_auto_update_not_due_interval_not_elapsed() {
+        let col = make_collection(true, 60, Some(1000), None);
+        assert!(!is_collection_due_for_auto_update(&col, 1000 + 1800));
+    }
+
+    #[test]
+    fn test_auto_update_not_due_disabled() {
+        let col = make_collection(false, 60, Some(0), None);
+        assert!(!is_collection_due_for_auto_update(&col, 99999));
+    }
+
+    #[test]
+    fn test_auto_update_not_due_tidal_kind() {
+        let mut col = make_collection(true, 60, Some(0), None);
+        col.kind = "tidal".to_string();
+        assert!(!is_collection_due_for_auto_update(&col, 99999));
+    }
+
+    #[test]
+    fn test_auto_update_subsonic_supported() {
+        let mut col = make_collection(true, 60, Some(0), None);
+        col.kind = "subsonic".to_string();
+        assert!(is_collection_due_for_auto_update(&col, 99999));
+    }
+
+    #[test]
+    fn test_auto_update_error_backoff() {
+        // Error with last_synced_at updated (by the fixed update_collection_sync_error):
+        // At time 1000 a sync failed. Interval is 60 min = 3600s.
+        let col = make_collection(true, 60, Some(1000), Some("connection refused".to_string()));
+        // At time 2800 (30 min later): not yet due
+        assert!(!is_collection_due_for_auto_update(&col, 2800));
+        // At time 4600 (60 min later): interval elapsed, should retry despite error
+        assert!(is_collection_due_for_auto_update(&col, 4600));
+    }
+
+    #[test]
+    fn test_auto_update_error_never_synced() {
+        // Error present but last_synced_at is None (edge case): treat as due
+        let col = make_collection(true, 60, None, Some("error".to_string()));
+        assert!(is_collection_due_for_auto_update(&col, 1000));
     }
 }
 
