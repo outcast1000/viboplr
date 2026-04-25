@@ -1112,6 +1112,47 @@ pub fn run() {
                 });
             }
 
+            // Collection auto-update scheduler thread
+            {
+                let app_handle = app.handle().clone();
+                let db = Arc::clone(&db);
+                let resyncing = Arc::clone(&resyncing_collections);
+
+                std::thread::spawn(move || {
+                    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+                    std::thread::sleep(Duration::from_secs(10));
+
+                    loop {
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64;
+
+                        if let Ok(collections) = db.get_collections() {
+                            for col in collections {
+                                if !commands::is_collection_due_for_auto_update(&col, now) {
+                                    continue;
+                                }
+                                if resyncing.lock().unwrap().contains(&col.id) {
+                                    log::debug!("Skipping auto-update for '{}': already resyncing", col.name);
+                                    continue;
+                                }
+                                log::info!("Auto-updating collection: {}", col.name);
+                                commands::run_collection_resync(
+                                    Arc::clone(&db),
+                                    app_handle.clone(),
+                                    col,
+                                    Arc::clone(&resyncing),
+                                );
+                            }
+                        }
+
+                        std::thread::sleep(Duration::from_secs(60));
+                    }
+                });
+            }
+
             // Restore window size/position from store before showing, to avoid IPC round-trips
             timer.time("restore_window", || {
                 let window = app.get_webview_window("main").unwrap();
