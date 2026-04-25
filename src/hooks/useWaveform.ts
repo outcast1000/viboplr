@@ -14,7 +14,7 @@ function waveformKey(artistName: string | null, title: string, durationSecs: num
   const artist = (artistName ?? "unknown").toLowerCase().trim();
   const t = title.toLowerCase().trim();
   const d = Math.round(durationSecs ?? 0);
-  return `${artist}::${t}::${d}`;
+  return `v2::${artist}::${t}::${d}`;
 }
 
 export function useWaveform(
@@ -83,14 +83,18 @@ export function useWaveform(
           result[i] = Math.sqrt(sumSq / (end - start));
         }
 
-        const sorted = [...result].sort((a, b) => a - b);
-        const p95 = sorted[Math.floor(sorted.length * 0.95)] || 1;
+        let maxRms = 0;
         for (let i = 0; i < numBuckets; i++) {
-          result[i] = Math.min(result[i] / p95, 1.0);
+          if (result[i] > maxRms) maxRms = result[i];
+        }
+        if (maxRms === 0) maxRms = 1;
+        for (let i = 0; i < numBuckets; i++) {
+          result[i] = Math.min(result[i] / maxRms, 1.0);
         }
 
+        const MIN_HEIGHT = 0.03;
         for (let i = 0; i < numBuckets; i++) {
-          result[i] = Math.pow(result[i], 0.6);
+          result[i] = MIN_HEIGHT + (1 - MIN_HEIGHT) * Math.pow(result[i], 1.8);
         }
 
         if (cancelled) return;
