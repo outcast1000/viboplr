@@ -1544,7 +1544,7 @@ impl Database {
     pub fn update_collection_sync_error(&self, collection_id: i64, error: &str) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE collections SET last_sync_error = ?2 WHERE id = ?1",
+            "UPDATE collections SET last_sync_error = ?2, last_synced_at = strftime('%s', 'now') WHERE id = ?1",
             params![collection_id, error],
         )?;
         Ok(())
@@ -4933,6 +4933,24 @@ mod tests {
         let col2 = db.add_collection("local", "Other", Some("/tmp/other"), None, None, None, None, None).unwrap();
         let not_found2 = db.find_track_in_collection(col2.id, "test song", "test artist").unwrap();
         assert!(not_found2.is_none());
+    }
+
+    #[test]
+    fn test_sync_error_updates_last_synced_at() {
+        let db = test_db();
+        let col = db.add_collection("subsonic", "Test", None, Some("http://example.com"), Some("user"), Some("pass"), None, None).unwrap();
+
+        // Initially last_synced_at is None
+        let before = db.get_collection_by_id(col.id).unwrap();
+        assert!(before.last_synced_at.is_none());
+
+        // Record an error
+        db.update_collection_sync_error(col.id, "connection refused").unwrap();
+
+        // last_synced_at should now be set (so auto-update backs off)
+        let after = db.get_collection_by_id(col.id).unwrap();
+        assert!(after.last_synced_at.is_some());
+        assert_eq!(after.last_sync_error.as_deref(), Some("connection refused"));
     }
 
     #[test]
