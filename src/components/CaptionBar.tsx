@@ -1,4 +1,3 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WindowControls } from "./WindowControls";
 import { CentralSearchDropdown } from "./CentralSearchDropdown";
 import type { ResyncProgress, ResyncComplete } from "../hooks/useEventListeners";
@@ -50,14 +49,8 @@ export function CaptionBar({
   resyncComplete,
   onNavigateToCollections,
 }: CaptionBarProps) {
-  function handleCaptionDoubleClick(e: React.MouseEvent) {
-    const target = e.target as HTMLElement;
-    if (target.closest("button") || target.closest("input")) return;
-    getCurrentWindow().toggleMaximize();
-  }
-
   return (
-    <div className="search-bar" data-tauri-drag-region onDoubleClick={handleCaptionDoubleClick}>
+    <div className="search-bar" data-tauri-drag-region>
       <WindowControls position="left" minimizeToMiniPlayer={minimizeToMiniPlayer} onMinimizeToMini={onToggleMiniMode} />
         <div className="caption-brand" data-tauri-drag-region>
           <svg width="34" height="34" viewBox="0 0 512 512" fill="none" style={{ marginRight: "-6px" }}>
