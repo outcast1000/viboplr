@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use std::collections::HashSet;
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -61,6 +62,7 @@ pub struct AppState {
     pub direct_download_cancel: Arc<AtomicBool>,
     pub mixtape_cancel: Arc<AtomicBool>,
     pub update_checker_cancel: Arc<AtomicBool>,
+    pub resyncing_collections: Arc<Mutex<HashSet<i64>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3672,6 +3674,7 @@ mod tests {
             direct_download_cancel: Arc::new(AtomicBool::new(false)),
             mixtape_cancel: Arc::new(AtomicBool::new(false)),
             update_checker_cancel: Arc::new(AtomicBool::new(false)),
+            resyncing_collections: Arc::new(Mutex::new(HashSet::new())),
 
         }
     }

@@ -1051,6 +1051,9 @@ pub fn run() {
                 }
             }); });
 
+            let resyncing_collections: Arc<Mutex<std::collections::HashSet<i64>>> =
+                Arc::new(Mutex::new(std::collections::HashSet::new()));
+
             // Plugin scheduler background thread
             {
                 let app_handle = app.handle().clone();
@@ -1264,6 +1267,7 @@ pub fn run() {
                     direct_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     update_checker_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    resyncing_collections: Arc::clone(&resyncing_collections),
                 });
             });
 
