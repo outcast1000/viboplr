@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use deunicode::deunicode;
 use unicode_normalization::UnicodeNormalization;
 
 static EXTENSIONS: &[&str] = &["jpg", "jpeg", "png"];
@@ -13,9 +14,10 @@ fn strip_diacritics(s: &str) -> String {
     s.nfd().filter(|c| !unicode_normalization::char::is_combining_mark(*c)).collect()
 }
 
-/// Convert a string into a canonical, filesystem-safe slug.
+/// Convert a string into a canonical, filesystem-safe ASCII slug.
 pub fn canonical_slug(s: &str) -> String {
     let s = strip_diacritics(s);
+    let s = deunicode(&s);
     let s = s.to_lowercase();
     let s: String = s.chars()
         .filter(|c| !matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') && !c.is_control())
@@ -95,10 +97,20 @@ mod tests {
 
     #[test]
     fn test_canonical_slug_greek_cyrillic() {
-        // Greek with tonos
-        assert_eq!(canonical_slug("Ελληνικά"), "ελληνικα");
-        // Cyrillic
-        assert_eq!(canonical_slug("Москва"), "москва");
+        // Greek must transliterate to ASCII
+        assert_eq!(canonical_slug("Ελληνικά"), "ellenika");
+        // Cyrillic must transliterate to ASCII
+        assert_eq!(canonical_slug("Москва"), "moskva");
+    }
+
+    #[test]
+    fn test_canonical_slug_non_latin_transliteration() {
+        // Japanese
+        assert_eq!(canonical_slug("東京"), "dong jing");
+        // Korean
+        assert_eq!(canonical_slug("서울"), "seoul");
+        // Mixed: Latin + Greek
+        assert_eq!(canonical_slug("The Ελληνικά Band"), "the ellenika band");
     }
 
     #[test]
@@ -145,13 +157,12 @@ mod tests {
     }
 
     #[test]
-    fn test_canonical_slug_truncation_multibyte() {
-        // Cyrillic chars are 2 bytes each in UTF-8
-        let long = "б".repeat(150); // 300 bytes
+    fn test_canonical_slug_truncation_after_transliteration() {
+        // After transliteration, "б" becomes "b" (1 byte each)
+        let long = "б".repeat(300);
         let slug = canonical_slug(&long);
         assert!(slug.len() <= 200);
-        assert!(slug.is_char_boundary(slug.len()));
-        assert_eq!(slug, "б".repeat(100)); // 100 chars = 200 bytes
+        assert_eq!(slug, "b".repeat(200));
     }
 
     #[test]
