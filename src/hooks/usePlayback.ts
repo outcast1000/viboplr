@@ -490,7 +490,7 @@ export function usePlayback(
       if (shouldScrobble(el.currentTime, currentTrack.duration_secs)) {
         scrobbledRef.current = true;
         setScrobbled(true);
-        invoke("record_play", { trackId: currentTrack.id, title: currentTrack.title, artistName: currentTrack.artist_name }).catch(console.error);
+        invoke("record_play", { title: currentTrack.title, artistName: currentTrack.artist_name }).catch(console.error);
       }
     }
 

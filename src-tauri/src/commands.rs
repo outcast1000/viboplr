@@ -1094,8 +1094,8 @@ pub fn clear_image_failures(state: State<'_, AppState>) -> Result<(), String> {
 // --- Play history commands ---
 
 #[tauri::command]
-pub fn record_play(state: State<'_, AppState>, track_id: Option<i64>, title: String, artist_name: Option<String>) -> Result<(), String> {
-    state.db.record_play_by_metadata(&title, artist_name.as_deref(), track_id).map_err(|e| e.to_string())
+pub fn record_play(state: State<'_, AppState>, title: String, artist_name: Option<String>) -> Result<(), String> {
+    state.db.record_play_by_metadata(&title, artist_name.as_deref()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1144,18 +1144,18 @@ pub fn get_track_rank(state: State<'_, AppState>, title: String, artist_name: Op
 }
 
 #[tauri::command]
-pub fn get_artist_rank(state: State<'_, AppState>, artist_id: i64) -> Result<Option<i64>, String> {
-    state.db.get_artist_rank(artist_id).map_err(|e| e.to_string())
+pub fn get_artist_rank(state: State<'_, AppState>, artist_name: String) -> Result<Option<i64>, String> {
+    state.db.get_artist_rank(&artist_name).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_track_play_history(state: State<'_, AppState>, track_id: i64, limit: i64) -> Result<Vec<TrackPlayEntry>, String> {
-    state.db.get_track_play_history(track_id, limit).map_err(|e| e.to_string())
+pub fn get_track_play_history(state: State<'_, AppState>, title: String, artist_name: Option<String>, limit: i64) -> Result<Vec<TrackPlayEntry>, String> {
+    state.db.get_track_play_history(&title, artist_name.as_deref(), limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_track_play_stats(state: State<'_, AppState>, track_id: i64) -> Result<Option<TrackPlayStats>, String> {
-    state.db.get_track_play_stats(track_id).map_err(|e| e.to_string())
+pub fn get_track_play_stats(state: State<'_, AppState>, title: String, artist_name: Option<String>) -> Result<Option<TrackPlayStats>, String> {
+    state.db.get_track_play_stats(&title, artist_name.as_deref()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

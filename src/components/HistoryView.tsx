@@ -137,26 +137,17 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
   })();
 
   const flatItems = useMemo(() => {
-    const items: { libraryTrackId: number | null; historyTrackId: number }[] = [];
+    const items: { historyTrackId: number }[] = [];
     if (visibleTracks) {
-      for (const t of visibleTracks) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
+      for (const t of visibleTracks) items.push({ historyTrackId: t.history_track_id });
     }
     if (visibleRecent) {
-      for (const t of visibleRecent) items.push({ libraryTrackId: t.library_track_id, historyTrackId: t.history_track_id });
+      for (const t of visibleRecent) items.push({ historyTrackId: t.history_track_id });
     }
     return items;
   }, [visibleTracks, visibleRecent]);
 
-  async function playTrackById(libraryTrackId: number | null, historyTrackId: number) {
-    if (libraryTrackId != null) {
-      try {
-        const track = await invoke<Track>("get_track_by_id", { trackId: libraryTrackId });
-        onPlayTrack([track], 0);
-      } catch (e) {
-        console.error("Failed to play track:", e);
-      }
-      return;
-    }
+  async function playTrackById(historyTrackId: number) {
     try {
       const track = await invoke<Track | null>("reconnect_history_track", { historyTrackId });
       if (track) {
@@ -170,16 +161,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     }
   }
 
-  async function enqueueTrackById(libraryTrackId: number | null, historyTrackId: number) {
-    if (libraryTrackId != null) {
-      try {
-        const track = await invoke<Track>("get_track_by_id", { trackId: libraryTrackId });
-        onEnqueueTrack([track]);
-      } catch (e) {
-        console.error("Failed to enqueue track:", e);
-      }
-      return;
-    }
+  async function enqueueTrackById(historyTrackId: number) {
     try {
       const track = await invoke<Track | null>("reconnect_history_track", { historyTrackId });
       if (track) {
@@ -193,11 +175,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     }
   }
 
-  async function handleArtistDoubleClick(libraryArtistId: number | null, historyArtistId: number) {
-    if (libraryArtistId != null) {
-      onArtistClick(libraryArtistId);
-      return;
-    }
+  async function handleArtistDoubleClick(historyArtistId: number) {
     try {
       const artistId = await invoke<number | null>("reconnect_history_artist", { historyArtistId });
       if (artistId) {
@@ -223,13 +201,13 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     playItem(index: number) {
       if (index >= 0 && index < flatItems.length) {
         const item = flatItems[index];
-        playTrackById(item.libraryTrackId, item.historyTrackId);
+        playTrackById(item.historyTrackId);
       }
     },
     enqueueItem(index: number) {
       if (index >= 0 && index < flatItems.length) {
         const item = flatItems[index];
-        enqueueTrackById(item.libraryTrackId, item.historyTrackId);
+        enqueueTrackById(item.historyTrackId);
       }
     },
     reload: loadData,
@@ -267,7 +245,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                 <div
                   key={`artist-${a.history_artist_id}`}
                   className="history-row"
-                  onDoubleClick={() => handleArtistDoubleClick(a.library_artist_id, a.history_artist_id)}
+                  onDoubleClick={() => handleArtistDoubleClick(a.history_artist_id)}
                 >
                   <span className="history-rank">{a.rank}</span>
                   <HistoryArt imagePath={artistImages[a.display_name]} />
@@ -293,7 +271,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     key={`search-${t.history_track_id}`}
                     className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
                     data-history-index={idx}
-                    onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
+                    onDoubleClick={() => playTrackById(t.history_track_id)}
                   >
                     <span className="history-rank">{t.rank}</span>
                     <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
@@ -316,7 +294,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                 <div
                   key={`artist-${a.history_artist_id}`}
                   className="history-row"
-                  onDoubleClick={() => handleArtistDoubleClick(a.library_artist_id, a.history_artist_id)}
+                  onDoubleClick={() => handleArtistDoubleClick(a.history_artist_id)}
                 >
                   <span className="history-rank">{a.rank}</span>
                   <HistoryArt imagePath={artistImages[a.display_name]} />
@@ -344,7 +322,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     key={`alltime-${t.history_track_id}`}
                     className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
                     data-history-index={idx}
-                    onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
+                    onDoubleClick={() => playTrackById(t.history_track_id)}
                   >
                     <span className="history-rank">{t.rank}</span>
                     <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
@@ -373,7 +351,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     key={`recent30-${t.history_track_id}`}
                     className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
                     data-history-index={idx}
-                    onDoubleClick={() => playTrackById(t.library_track_id, t.history_track_id)}
+                    onDoubleClick={() => playTrackById(t.history_track_id)}
                   >
                     <span className="history-rank">{t.rank}</span>
                     <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
@@ -402,7 +380,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     key={entry.id}
                     className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
                     data-history-index={idx}
-                    onDoubleClick={() => playTrackById(entry.library_track_id, entry.history_track_id)}
+                    onDoubleClick={() => playTrackById(entry.history_track_id)}
                   >
                     <HistoryArt imagePath={entry.display_artist ? artistImages[entry.display_artist] : null} />
                     <div className="history-info">

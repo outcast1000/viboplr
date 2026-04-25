@@ -163,7 +163,6 @@ pub struct HistoryEntry {
     pub display_title: String,
     pub display_artist: Option<String>,
     pub play_count: i64,
-    pub library_track_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,7 +171,6 @@ pub struct HistoryMostPlayed {
     pub play_count: i64,
     pub display_title: String,
     pub display_artist: Option<String>,
-    pub library_track_id: Option<i64>,
     pub rank: i64,
 }
 
@@ -182,7 +180,6 @@ pub struct HistoryArtistStats {
     pub play_count: i64,
     pub track_count: i64,
     pub display_name: String,
-    pub library_artist_id: Option<i64>,
     pub rank: i64,
 }
 

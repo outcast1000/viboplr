@@ -167,8 +167,8 @@ function App() {
     let cancelled = false;
     Promise.all([
       invoke<number | null>("get_track_rank", { title: track.title, artistName: track.artist_name }),
-      track.artist_id
-        ? invoke<number | null>("get_artist_rank", { artistId: track.artist_id })
+      track.artist_name
+        ? invoke<number | null>("get_artist_rank", { artistName: track.artist_name })
         : Promise.resolve(null),
     ]).then(([tRank, aRank]) => {
       if (!cancelled) { setTrackRank(tRank); setArtistRank(aRank); }
@@ -183,8 +183,8 @@ function App() {
     let cancelled = false;
     Promise.all([
       invoke<number | null>("get_track_rank", { title: track.title, artistName: track.artist_name }),
-      track.artist_id
-        ? invoke<number | null>("get_artist_rank", { artistId: track.artist_id })
+      track.artist_name
+        ? invoke<number | null>("get_artist_rank", { artistName: track.artist_name })
         : Promise.resolve(null),
     ]).then(([tRank, aRank]) => {
       if (!cancelled) { setTrackRank(tRank); setArtistRank(aRank); }
