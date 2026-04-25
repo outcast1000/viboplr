@@ -15,6 +15,7 @@ function activate(api) {
     streamingQuality: "HIGH",
     apiDown: true,
     streamingDown: true,
+    lastHealthCheck: null,
   };
 
   // -- TIDAL HTTP client --
@@ -40,6 +41,7 @@ function activate(api) {
           return item.url.replace(/\/+$/, "");
         });
         instanceCache = { apiUrls: apiUrls, streamingUrls: streamingUrls, fetchedAt: Date.now() };
+        state.lastHealthCheck = Date.now();
         updateHealthState(apiUrls.length > 0, streamingUrls.length > 0);
         return;
       } catch (e) {
@@ -47,6 +49,7 @@ function activate(api) {
       }
     }
     // all uptime URLs failed — mark everything down
+    state.lastHealthCheck = Date.now();
     updateHealthState(false, false);
   }
 
@@ -258,6 +261,16 @@ function activate(api) {
     return m + ":" + (s < 10 ? "0" : "") + s;
   }
 
+  function formatTime(timestamp) {
+    if (!timestamp) return "";
+    var d = new Date(timestamp);
+    var h = d.getHours();
+    var m = d.getMinutes();
+    var ampm = h >= 12 ? "PM" : "AM";
+    h = h % 12 || 12;
+    return h + ":" + (m < 10 ? "0" : "") + m + " " + ampm;
+  }
+
   // -- Image providers --
 
   api.imageProviders.onFetch("artist", async function (name) {
@@ -284,13 +297,14 @@ function activate(api) {
   function renderSearchView() {
     var children = [];
 
+    var checkedSuffix = state.lastHealthCheck ? " (last checked at " + formatTime(state.lastHealthCheck) + ")" : "";
     if (state.apiDown && state.streamingDown) {
       children.push({
         type: "layout",
         direction: "horizontal",
         className: "ds-banner ds-banner--error",
         children: [
-          { type: "text", content: "TIDAL servers are currently unavailable" },
+          { type: "text", content: "TIDAL servers are currently unavailable" + checkedSuffix },
           { type: "button", label: "Check Now", action: "check-health", className: "ds-btn ds-btn--sm ds-btn--secondary" },
         ],
       });
@@ -300,7 +314,7 @@ function activate(api) {
         direction: "horizontal",
         className: "ds-banner ds-banner--warning",
         children: [
-          { type: "text", content: "TIDAL streaming is unavailable — search may still work" },
+          { type: "text", content: "TIDAL streaming is unavailable — search may still work" + checkedSuffix },
           { type: "button", label: "Check Now", action: "check-health", className: "ds-btn ds-btn--sm ds-btn--secondary" },
         ],
       });
@@ -529,6 +543,21 @@ function activate(api) {
   }
 
   function renderSettings() {
+    var serverStatus = "";
+    if (!state.apiDown && !state.streamingDown) {
+      var count = instanceCache ? instanceCache.apiUrls.length : 0;
+      serverStatus = count + " server" + (count !== 1 ? "s" : "") + " online";
+    } else if (state.apiDown && state.streamingDown) {
+      serverStatus = "servers offline";
+    } else if (!state.apiDown) {
+      serverStatus = "API online, streaming down";
+    } else {
+      serverStatus = "API down, streaming online";
+    }
+    if (state.lastHealthCheck) {
+      serverStatus += " — last checked at " + formatTime(state.lastHealthCheck);
+    }
+
     api.ui.setViewData("tidal-settings", {
       type: "layout",
       direction: "vertical",
@@ -552,6 +581,23 @@ function activate(api) {
             },
           ],
         },
+        {
+          type: "section",
+          title: "Servers",
+          children: [
+            {
+              type: "settings-row",
+              label: "Server Status",
+              description: serverStatus,
+              control: {
+                type: "button",
+                label: "Open Status Page",
+                action: "open-status-page",
+                className: "ds-btn ds-btn--sm ds-btn--secondary",
+              },
+            },
+          ],
+        },
       ],
     });
   }
@@ -562,6 +608,7 @@ function activate(api) {
     if (state.currentView === "search") renderSearchView();
     else if (state.currentView === "album-detail") renderAlbumDetail();
     else if (state.currentView === "artist-detail") renderArtistDetail();
+    renderSettings();
   }
 
   function escapeHtml(str) {
@@ -1069,6 +1116,10 @@ function activate(api) {
       api.storage.set("streaming_quality", data.value);
       renderSettings();
     }
+  });
+
+  api.ui.onAction("open-status-page", function () {
+    api.network.openUrl(UPTIME_URLS[0]);
   });
 
   api.ui.onAction("check-health", function () {
