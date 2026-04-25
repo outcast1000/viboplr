@@ -314,21 +314,31 @@ pub fn update_collection(
     state.db.recompute_counts().map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn resync_collection(
+pub fn run_collection_resync(
+    db: Arc<Database>,
     app: AppHandle,
-    state: State<'_, AppState>,
-    collection_id: i64,
-) -> Result<(), String> {
-    let collection = state
-        .db
-        .get_collection_by_id(collection_id)
-        .map_err(|e| e.to_string())?;
+    collection: Collection,
+    resyncing: Arc<Mutex<HashSet<i64>>>,
+) {
+    let collection_id = collection.id;
+
+    {
+        let mut set = resyncing.lock().unwrap();
+        if set.contains(&collection_id) {
+            return;
+        }
+        set.insert(collection_id);
+    }
 
     match collection.kind.as_str() {
         "local" => {
-            let folder_path = collection.path.ok_or("Collection has no path")?;
-            let db = state.db.clone();
+            let folder_path = match collection.path {
+                Some(p) => p,
+                None => {
+                    resyncing.lock().unwrap().remove(&collection_id);
+                    return;
+                }
+            };
             let scan_path = folder_path.clone();
             let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
             thread::spawn(move || {
@@ -355,16 +365,18 @@ pub fn resync_collection(
                     "newTracks": new_tracks,
                     "removedTracks": removed_tracks,
                 }));
+                resyncing.lock().unwrap().remove(&collection_id);
             });
-            Ok(())
         }
         "subsonic" => {
-            let creds = state
-                .db
-                .get_collection_credentials(collection_id)
-                .map_err(|e| e.to_string())?;
+            let creds = match db.get_collection_credentials(collection_id) {
+                Ok(c) => c,
+                Err(_) => {
+                    resyncing.lock().unwrap().remove(&collection_id);
+                    return;
+                }
+            };
             let collection_name = collection.name.clone();
-            let db = state.db.clone();
             let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
 
             thread::spawn(move || {
@@ -407,11 +419,37 @@ pub fn resync_collection(
                         );
                     }
                 }
+                resyncing.lock().unwrap().remove(&collection_id);
             });
-            Ok(())
         }
-        _ => Err(format!("Resync not supported for '{}' collections", collection.kind)),
+        _ => {
+            resyncing.lock().unwrap().remove(&collection_id);
+        }
     }
+}
+
+#[tauri::command]
+pub fn resync_collection(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    collection_id: i64,
+) -> Result<(), String> {
+    let collection = state
+        .db
+        .get_collection_by_id(collection_id)
+        .map_err(|e| e.to_string())?;
+
+    if !matches!(collection.kind.as_str(), "local" | "subsonic") {
+        return Err(format!("Resync not supported for '{}' collections", collection.kind));
+    }
+
+    run_collection_resync(
+        state.db.clone(),
+        app,
+        collection,
+        state.resyncing_collections.clone(),
+    );
+    Ok(())
 }
 
 // --- Library commands ---
