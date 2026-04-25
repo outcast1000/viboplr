@@ -120,7 +120,7 @@ fn read_tags(path: &Path) -> ParsedTags {
             let artist = tag.artist().map(|s| fix_encoding(&s));
             let album = tag.album().map(|s| fix_encoding(&s));
             let genre = tag.genre().map(|s| fix_encoding(&s));
-            let year = tag.year().map(|y| y as i32);
+            let year = tag.date().map(|d| d.year as i32);
             let track_number = tag.track().map(|t| t as i32);
 
             if title.is_some() {

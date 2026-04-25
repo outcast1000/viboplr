@@ -465,6 +465,7 @@ pub fn write_tags(
     use lofty::picture::{MimeType, Picture, PictureType};
     use lofty::prelude::*;
     use lofty::probe::Probe;
+    use lofty::tag::items::Timestamp;
 
     let mut tagged_file = Probe::open(path)
         .map_err(|e| format!("Probe open: {}", e))?
@@ -490,7 +491,7 @@ pub fn write_tags(
         tag.set_genre(genre.to_string());
     }
     if let Some(year) = year {
-        tag.set_year(year as u32);
+        tag.set_date(Timestamp { year: year as u16, month: None, day: None, hour: None, minute: None, second: None });
     }
 
     // Embed cover art
@@ -508,12 +509,10 @@ pub fn write_tags(
                     } else {
                         MimeType::Jpeg
                     };
-                    let picture = Picture::new_unchecked(
-                        PictureType::CoverFront,
-                        Some(mime),
-                        None,
-                        bytes.to_vec(),
-                    );
+                    let picture = Picture::unchecked(bytes.to_vec())
+                        .pic_type(PictureType::CoverFront)
+                        .mime_type(mime)
+                        .build();
                     tag.push_picture(picture);
 
                     // Also save as cover.jpg alongside the file

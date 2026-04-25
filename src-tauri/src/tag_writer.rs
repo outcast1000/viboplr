@@ -1,6 +1,7 @@
 use lofty::config::WriteOptions;
 use lofty::prelude::*;
 use lofty::probe::Probe;
+use lofty::tag::items::Timestamp;
 use std::path::Path;
 
 /// Fields to write back to the audio file. Only `Some` fields are written.
@@ -35,7 +36,7 @@ pub fn write_tags(path: &Path, updates: &TagUpdates) -> Result<(), String> {
         tag.set_album(album.clone());
     }
     if let Some(year) = updates.year {
-        tag.set_year(year);
+        tag.set_date(Timestamp { year: year as u16, month: None, day: None, hour: None, minute: None, second: None });
     }
     if let Some(genre) = &updates.genre {
         tag.set_genre(genre.clone());

@@ -3963,18 +3963,18 @@ mod tests {
             }
         }
 
-        assert_eq!(db.get_track_rank(t1).unwrap(), Some(1));
-        assert_eq!(db.get_track_rank(t2).unwrap(), Some(2));
-        assert_eq!(db.get_track_rank(t3).unwrap(), Some(3));
+        assert_eq!(db.get_track_rank("Top Track", Some("Artist A")).unwrap(), Some(1));
+        assert_eq!(db.get_track_rank("Mid Track", Some("Artist A")).unwrap(), Some(2));
+        assert_eq!(db.get_track_rank("Low Track", Some("Artist A")).unwrap(), Some(3));
     }
 
     #[test]
     fn test_track_rank_no_history() {
         let db = test_db();
         let a1 = db.get_or_create_artist("Artist A").unwrap();
-        let t1 = insert_track(&db, "music/norank.mp3", "No History", Some(a1), None);
+        let _t1 = insert_track(&db, "music/norank.mp3", "No History", Some(a1), None);
 
-        assert_eq!(db.get_track_rank(t1).unwrap(), None);
+        assert_eq!(db.get_track_rank("No History", Some("Artist A")).unwrap(), None);
     }
 
     #[test]
@@ -4566,9 +4566,9 @@ mod tests {
         }
 
         // Tied tracks should have the same rank
-        assert_eq!(db.get_track_rank(t1).unwrap(), Some(1));
-        assert_eq!(db.get_track_rank(t2).unwrap(), Some(1));
-        assert_eq!(db.get_track_rank(t3).unwrap(), Some(3)); // RANK() skips to 3
+        assert_eq!(db.get_track_rank("Track A", Some("Artist")).unwrap(), Some(1));
+        assert_eq!(db.get_track_rank("Track B", Some("Artist")).unwrap(), Some(1));
+        assert_eq!(db.get_track_rank("Track C", Some("Artist")).unwrap(), Some(3)); // RANK() skips to 3
 
         let most = db.get_history_most_played(10).unwrap();
         assert_eq!(most.len(), 3);
@@ -5133,7 +5133,7 @@ mod tests {
         }));
 
         results.push(bench("get_track_rank", 50, || {
-            let _ = db.get_track_rank(1).unwrap();
+            let _ = db.get_track_rank("track_0", Some("artist_0")).unwrap();
         }));
 
         results.push(bench("get_artist_rank", 50, || {
