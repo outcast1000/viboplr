@@ -46,12 +46,23 @@ async function checkTools(api) {
 }
 
 async function searchAndDownload(api, title, artistName, durationSecs) {
-  var result = await api.informationTypes.invoke("search_youtube", {
-    title: title,
-    artistName: artistName || null,
-    durationSecs: durationSecs || null
-  });
-  if (!result || !result.url) return null;
+  console.log("[youtube] searchAndDownload:", JSON.stringify({ title: title, artist: artistName, duration: durationSecs }));
+  var result;
+  try {
+    result = await api.informationTypes.invoke("search_youtube", {
+      title: title,
+      artistName: artistName || null,
+      durationSecs: durationSecs || null
+    });
+  } catch (e) {
+    console.error("[youtube] search_youtube failed:", e);
+    return null;
+  }
+  if (!result || !result.url) {
+    console.warn("[youtube] search returned no result for:", title);
+    return null;
+  }
+  console.log("[youtube] search found:", result.url, result.video_title || "");
 
   var cached = downloadCache[result.url];
   if (cached) {
@@ -59,11 +70,20 @@ async function searchAndDownload(api, title, artistName, durationSecs) {
     return cached;
   }
 
-  console.log("[youtube] downloading audio via yt-dlp...");
-  var filePath = await api.informationTypes.invoke("yt_dlp_stream_audio", {
-    youtubeUrl: result.url
-  });
-  if (!filePath) return null;
+  console.log("[youtube] downloading audio via yt-dlp:", result.url);
+  var filePath;
+  try {
+    filePath = await api.informationTypes.invoke("yt_dlp_stream_audio", {
+      youtubeUrl: result.url
+    });
+  } catch (e) {
+    console.error("[youtube] yt_dlp_stream_audio failed:", e);
+    return null;
+  }
+  if (!filePath) {
+    console.warn("[youtube] yt-dlp returned no file path");
+    return null;
+  }
 
   console.log("[youtube] downloaded to:", filePath);
   downloadCache[result.url] = filePath;
@@ -75,34 +95,54 @@ async function activate(api) {
   ffmpegVersion = await api.informationTypes.invoke("ffmpeg_check", {});
 
   api.playback.onStreamResolve("youtube-fallback", async function(title, artistName, albumName, durationSecs) {
-    console.log("[youtube] stream resolve called:", title, "by", artistName);
+    console.log("[youtube] stream resolve called:", JSON.stringify({ title: title, artist: artistName, duration: durationSecs }));
     if (!ytDlpVersion) {
-      console.log("[youtube] skipping — yt-dlp not available");
+      console.log("[youtube] skipping stream resolve — yt-dlp not available");
       return null;
     }
 
     try {
       var filePath = await searchAndDownload(api, title, artistName, durationSecs);
-      if (!filePath) return null;
+      if (!filePath) {
+        console.warn("[youtube] stream resolve: no file returned for", title);
+        return null;
+      }
+      console.log("[youtube] stream resolve success:", filePath);
       return { url: "file://" + filePath, label: "YouTube" };
     } catch (e) {
-      console.error("[youtube] stream resolve failed:", e);
+      console.error("[youtube] stream resolve failed:", e, e.stack || "");
       return null;
     }
   });
 
   api.downloads.onResolve("youtube-download", async function(title, artistName, albumName, sourceTrackId, format) {
-    if (!ytDlpVersion) return null;
+    console.log("[youtube] download resolve called:", JSON.stringify({ title: title, artist: artistName, format: format, sourceTrackId: sourceTrackId }));
+    if (!ytDlpVersion) {
+      console.log("[youtube] skipping download resolve — yt-dlp not available");
+      return null;
+    }
 
     try {
       var webmPath = await searchAndDownload(api, title, artistName);
-      if (!webmPath) return null;
+      if (!webmPath) {
+        console.warn("[youtube] download resolve: no webm for", title);
+        return null;
+      }
 
-      var finalPath = await api.informationTypes.invoke("ffmpeg_convert_audio", {
-        sourcePath: webmPath,
-        audioFormat: format || "aac"
-      });
+      console.log("[youtube] converting", webmPath, "to format:", format || "aac");
+      var finalPath;
+      try {
+        finalPath = await api.informationTypes.invoke("ffmpeg_convert_audio", {
+          sourcePath: webmPath,
+          audioFormat: format || "aac"
+        });
+      } catch (convertErr) {
+        console.error("[youtube] ffmpeg_convert_audio failed:", convertErr);
+        console.log("[youtube] falling back to raw webm file");
+        finalPath = webmPath;
+      }
 
+      console.log("[youtube] download resolve success:", finalPath);
       return {
         url: "file://" + finalPath,
         headers: null,
@@ -113,7 +153,7 @@ async function activate(api) {
         }
       };
     } catch (e) {
-      console.error("[youtube] download resolve failed:", e);
+      console.error("[youtube] download resolve failed:", e, e.stack || "");
       return null;
     }
   });

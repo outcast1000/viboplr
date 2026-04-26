@@ -124,6 +124,7 @@ export function useDownloads(
     }>("mixtape-download-request", async (event) => {
       const { id, title, artist_name, album_title, path } = event.payload;
       const format = downloadFormatRef.current;
+      console.log(`[mixtape-resolve] request #${id}: "${title}" by ${artist_name}, path=${path}, format=${format}`);
 
       let result: DownloadResolveResult | null = null;
 
@@ -132,12 +133,14 @@ export function useDownloads(
         const scheme = parts[0];
         if (scheme === "tidal") {
           const trackId = parts[1] || null;
+          console.log(`[mixtape-resolve] #${id}: trying tidal-download, trackId=${trackId}`);
           result = await invokeDownloadResolveRef.current(
             "tidal-browse", "tidal-download", title, artist_name, album_title, trackId, format);
         } else if (scheme === "subsonic") {
           const rest = parts[1] || "";
           const lastSlash = rest.lastIndexOf("/");
           const trackId = lastSlash >= 0 ? rest.substring(lastSlash + 1) : null;
+          console.log(`[mixtape-resolve] #${id}: trying subsonic, trackId=${trackId}`);
           if (trackId) {
             try {
               const url = await invoke<string>("resolve_subsonic_download_url", {
@@ -147,17 +150,24 @@ export function useDownloads(
               });
               result = { url, headers: null, metadata: null };
             } catch (e) {
-              console.error("Subsonic mixtape resolve failed:", e);
+              console.error(`[mixtape-resolve] #${id}: subsonic resolve failed:`, e);
             }
           }
+        } else {
+          console.log(`[mixtape-resolve] #${id}: unknown scheme "${scheme}", falling through to chain`);
         }
+      } else {
+        console.log(`[mixtape-resolve] #${id}: no path, falling through to chain`);
       }
 
       if (!result) {
+        const providerCount = downloadProvidersRef.current.length;
+        console.log(`[mixtape-resolve] #${id}: trying ${providerCount} download providers`);
         result = await resolveDownload(
           downloadProvidersRef.current, title, artist_name, album_title, format);
       }
 
+      console.log(`[mixtape-resolve] #${id}: ${result ? "resolved -> " + result.url.substring(0, 80) : "FAILED (no provider resolved)"}`);
       await invoke("download_resolve_response", { id, result: result ?? null });
     });
 

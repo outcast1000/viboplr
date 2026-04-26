@@ -3693,6 +3693,8 @@ fn resolve_and_download_track(
     use tauri::Emitter;
 
     let resolve_id = (i as u64) + 10000;
+    log::info!("[mixtape-export] resolve #{}: \"{}\" by {:?}, path={:?}",
+        resolve_id, track.title, track.artist, track.path);
     let rx = resolve_registry.register(resolve_id);
     let _ = app.emit("mixtape-download-request", serde_json::json!({
         "id": resolve_id,
@@ -3704,6 +3706,9 @@ fn resolve_and_download_track(
 
     match rx.recv_timeout(std::time::Duration::from_secs(60)) {
         Ok(Some(response)) => {
+            log::info!("[mixtape-export] resolve #{}: got URL {} ({})",
+                resolve_id, &response.url[..response.url.len().min(80)],
+                if response.headers.is_some() { "with headers" } else { "no headers" });
             let ext = if response.url.contains(".flac") { "flac" }
                 else if response.url.contains(".m4a") { "m4a" }
                 else { "mp3" };
@@ -3718,15 +3723,25 @@ fn resolve_and_download_track(
                 track_title: track.title.clone(),
             });
 
+            log::info!("[mixtape-export] downloading to {}", temp_file.display());
             match mixtape_download_to_file(&response.url, response.headers.as_ref(), &temp_file) {
-                Ok(_) => Some(temp_file.to_string_lossy().to_string()),
+                Ok(_) => {
+                    let size = std::fs::metadata(&temp_file).map(|m| m.len()).unwrap_or(0);
+                    log::info!("[mixtape-export] download complete: {} ({} bytes)", temp_file.display(), size);
+                    Some(temp_file.to_string_lossy().to_string())
+                }
                 Err(e) => {
-                    log::error!("Failed to download {}: {}", track.title, e);
+                    log::error!("[mixtape-export] download failed for \"{}\": {}", track.title, e);
                     None
                 }
             }
         }
-        _ => {
+        Ok(None) => {
+            log::warn!("[mixtape-export] resolve #{}: provider returned None for \"{}\"", resolve_id, track.title);
+            None
+        }
+        Err(e) => {
+            log::warn!("[mixtape-export] resolve #{}: timeout/error for \"{}\": {}", resolve_id, track.title, e);
             resolve_registry.cancel(resolve_id);
             None
         }
