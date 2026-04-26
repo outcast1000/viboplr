@@ -1,12 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, Artist, Album, Tag, ViewMode, SortField } from "../types";
-import { formatDuration } from "../utils";
+import { formatDuration, isVideoTrack } from "../utils";
 import { TrackList } from "./TrackList";
 import { ArtistCardArt } from "./ArtistCardArt";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { TagCardArt } from "./TagCardArt";
 import { ViewModeToggle } from "./ViewModeToggle";
+import { VideoFrameCard } from "./VideoFrameCard";
+
+interface VideoFrameResult {
+  status: string;
+  paths?: string[];
+  timestamps?: number[];
+}
 
 type SortDir = "asc" | "desc";
 type MediaTypeFilter = "all" | "audio" | "video";
@@ -114,6 +121,7 @@ export function SearchView({
   const [tagSortDir, setTagSortDir] = useState<SortDir>("asc");
   const [tagLikedFirst, setTagLikedFirst] = useState(false);
   const [sortBarCollapsed, setSortBarCollapsed] = useState(true);
+  const [videoFrameCache, setVideoFrameCache] = useState<Record<number, string[]>>({});
   const inputRef = useRef<HTMLInputElement>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -197,6 +205,18 @@ export function SearchView({
   useEffect(() => {
     refetchTags();
   }, [tagSortField, tagSortDir, tagLikedFirst]);
+
+  useEffect(() => {
+    const videoTracks = results.tracks.filter(t => t.id != null && t.path != null && isVideoTrack(t) && !t.path.startsWith("subsonic://") && !t.path.startsWith("tidal://"));
+    for (const t of videoTracks) {
+      if (t.id == null || videoFrameCache[t.id]) continue;
+      invoke<VideoFrameResult | null>("get_video_frames", { trackId: t.id }).then(result => {
+        if (result && result.status === "ok" && result.paths && t.id != null) {
+          setVideoFrameCache(prev => ({ ...prev, [t.id!]: result.paths!.map(p => convertFileSrc(p)) }));
+        }
+      }).catch(console.error);
+    }
+  }, [results.tracks]);
 
   const refetchTracks = useCallback(async () => {
     if (!searched) return;
@@ -577,7 +597,9 @@ export function SearchView({
                     onContextMenu={(e) => onTrackContextMenu(e, t, new Set())}
                   >
                     <div className="album-card-art-wrapper">
-                    {t.album_id ? (
+                    {t.id != null && videoFrameCache[t.id] ? (
+                      <VideoFrameCard frames={videoFrameCache[t.id]} alt={t.title} className="album-card-art" />
+                    ) : t.album_id ? (
                       <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={onFetchAlbumImage} />
                     ) : (
                       <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
