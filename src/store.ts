@@ -56,6 +56,7 @@ const STORE_DEFAULTS = {
   skin: "default",
   loggingEnabled: false,
   debugLogging: false,
+  debugMode: false,
   artistSections: { topSongs: true, about: true, albums: true, similarArtists: true },
   albumSections: { review: true, unmatchedTracks: true },
   syncWithPlaying: false,

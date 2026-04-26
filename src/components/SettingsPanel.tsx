@@ -754,6 +754,8 @@ interface SettingsPanelProps {
   onLoggingEnabledChange: (enabled: boolean) => void;
   debugLogging: boolean;
   onDebugLoggingChange: (enabled: boolean) => void;
+  debugMode: boolean;
+  onDebugModeChange: (enabled: boolean) => void;
   // Stream resolver ordering
   onStreamResolverOrderChanged?: () => void;
   // Downloads collection
@@ -808,6 +810,8 @@ export function SettingsPanel({
   onLoggingEnabledChange,
   debugLogging,
   onDebugLoggingChange,
+  debugMode,
+  onDebugModeChange,
   onStreamResolverOrderChanged,
   downloadsCollection,
   streamResolvers: streamResolversList,
@@ -1391,6 +1395,16 @@ export function SettingsPanel({
                       <button className="ds-btn ds-btn--secondary" onClick={() => appPaths && navigator.clipboard.writeText(appPaths.logs).catch(console.error)} title="Copy path">Copy</button>
                       <button className="ds-btn ds-btn--secondary" onClick={() => invoke("open_logs_folder").catch(console.error)}>Open</button>
                     </div>
+                  </div>
+                </div>
+                <div className="settings-group-title" style={{ marginTop: 20 }}>Mode</div>
+                <div className="settings-card">
+                  <div className="settings-row">
+                    <div className="settings-row-info">
+                      <span className="settings-label">Debug mode</span>
+                      <span className="settings-description">Show extra diagnostic information in tooltips and UI elements</span>
+                    </div>
+                    <ToggleSwitch checked={debugMode} onChange={onDebugModeChange} />
                   </div>
                 </div>
                 <div className="settings-group-title" style={{ marginTop: 20 }}>Maintenance</div>

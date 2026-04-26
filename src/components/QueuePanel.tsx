@@ -71,6 +71,7 @@ interface QueuePanelProps {
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onResizeWidth: (width: number) => void;
+  debugMode?: boolean;
 }
 
 const AUTO_APPROVE_SECS = 10;
@@ -80,17 +81,35 @@ export function QueuePanel({
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
   onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSavePlaylist, onSaveAsPlaylist, onLoadPlaylist, onContextMenu,
   externalDropTarget,
-  collapsed, onToggleCollapsed, onResizeWidth,
+  collapsed, onToggleCollapsed, onResizeWidth, debugMode,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [countdown, setCountdown] = useState(AUTO_APPROVE_SECS);
+  const [tooltip, setTooltip] = useState<{ text: string; anchorX: number; anchorY: number } | null>(null);
   const lastClickedIndexRef = useRef<number | null>(null);
   const dragIndicesRef = useRef<number[] | null>(null);
   const dropTargetRef = useRef<number | null>(null);
   const didDragRef = useRef(false);
   const ghostRef = useRef<HTMLDivElement | null>(null);
+  const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ left: number; top: number } | null>(null);
+
+  useEffect(() => {
+    if (!tooltip || !tooltipRef.current) { setTooltipPos(null); return; }
+    const el = tooltipRef.current;
+    const rect = el.getBoundingClientRect();
+    const pad = 8;
+    let left = tooltip.anchorX;
+    let top = tooltip.anchorY - rect.height - 6;
+    if (top < pad) top = tooltip.anchorY + 30;
+    if (left + rect.width > window.innerWidth - pad) left = window.innerWidth - pad - rect.width;
+    if (left < pad) left = pad;
+    if (top + rect.height > window.innerHeight - pad) top = window.innerHeight - pad - rect.height;
+    setTooltipPos({ left, top });
+  }, [tooltip]);
 
   // Clear selection when queue changes (add/remove/reorder)
   useEffect(() => { setSelectedIndices(new Set()); }, [queue]);
@@ -194,6 +213,9 @@ export function QueuePanel({
       if (!didDragRef.current) {
         didDragRef.current = true;
         setIsDragging(true);
+        if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+        setTooltip(null);
+        setTooltipPos(null);
       }
 
       showGhost(ev.clientX, ev.clientY);
@@ -364,7 +386,22 @@ export function QueuePanel({
                 </div>
               )}
             </div>
-            <div className="queue-item-info" title={`key: ${t.key}\nid: ${t.id}\npath: ${t.path}\ntitle: ${t.title}\nartist: ${t.artist_name}\nalbum: ${t.album_title}\nformat: ${t.format}\nliked: ${t.liked}\ncollection_id: ${t.collection_id}\nimage_url: ${t.image_url ?? "(none)"}`}>
+            <div
+              className="queue-item-info"
+              onMouseEnter={(e) => {
+                const text = debugMode
+                  ? [
+                      `key: ${t.key}`, `id: ${t.id ?? "(none)"}`, `path: ${t.path ?? "(none)"}`,
+                      `title: ${t.title}`, `artist: ${t.artist_name ?? "(none)"}`, `album: ${t.album_title ?? "(none)"}`,
+                      `format: ${t.format ?? "(none)"}`, `liked: ${t.liked}`, `collection_id: ${t.collection_id ?? "(none)"}`,
+                      `image_url: ${t.image_url ?? "(none)"}`,
+                    ].join("\n")
+                  : [t.title, [t.artist_name, t.album_title].filter(Boolean).join(" — "), t.format?.toUpperCase()].filter(Boolean).join("\n");
+                const rect = e.currentTarget.getBoundingClientRect();
+                tooltipTimerRef.current = setTimeout(() => setTooltip({ text, anchorX: rect.left, anchorY: rect.top }), 400);
+              }}
+              onMouseLeave={() => { if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current); setTooltip(null); setTooltipPos(null); }}
+            >
               <div className="queue-item-line1">
                 <span className="queue-item-title">{t.title}</span>
                 <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
@@ -399,6 +436,15 @@ export function QueuePanel({
         </div>
       )}
       </>
+      )}
+      {tooltip && (
+        <div
+          ref={tooltipRef}
+          className={`ds-tooltip${tooltipPos ? " visible" : ""}`}
+          style={tooltipPos ?? { left: tooltip.anchorX, top: tooltip.anchorY, visibility: "hidden" }}
+        >
+          {tooltip.text}
+        </div>
       )}
     </aside>
   );

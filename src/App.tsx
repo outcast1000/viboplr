@@ -119,6 +119,7 @@ function App() {
   const [loggingEnabled, setLoggingEnabled] = useState(false);
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
   const [lastTidalDownloadDest, setLastTidalDownloadDest] = useState<string | null>(null);
   const [autoSaveStreams, setAutoSaveStreams] = useState<Record<string, boolean>>({});
   const [downloadsCollectionId, setDownloadsCollectionId] = useState<number | null>(null);
@@ -1313,6 +1314,8 @@ function App() {
         if (savedLoggingEnabled) setLoggingEnabled(true);
         const savedDebugLogging = await store.get<boolean>("debugLogging");
         if (savedDebugLogging) { setDebugLogging(true); setDebugLoggingRef(true); }
+        const savedDebugMode = await store.get<boolean>("debugMode");
+        if (savedDebugMode) setDebugMode(true);
         const savedArtistSections = await store.get<Record<string, boolean>>("artistSections");
         if (savedArtistSections) setArtistSections(savedArtistSections);
         const savedSyncWithPlaying = await store.get<boolean>("syncWithPlaying");
@@ -1774,6 +1777,11 @@ function App() {
     setDebugLogging(enabled);
     setDebugLoggingRef(enabled);
     store.set("debugLogging", enabled);
+  }
+
+  function handleDebugModeChange(enabled: boolean) {
+    setDebugMode(enabled);
+    store.set("debugMode", enabled);
   }
 
   const handleSetDownloadsFolder = async () => {
@@ -2655,6 +2663,8 @@ function App() {
               onLoggingEnabledChange={handleLoggingEnabledChange}
               debugLogging={debugLogging}
               onDebugLoggingChange={handleDebugLoggingChange}
+              debugMode={debugMode}
+              onDebugModeChange={handleDebugModeChange}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
               downloadsCollection={downloadsCollection}
               streamResolvers={streamResolversMeta}
@@ -2804,6 +2814,7 @@ function App() {
           collapsed={queueCollapsed}
           onToggleCollapsed={handleToggleQueueCollapsed}
           onResizeWidth={handleResizeQueueWidth}
+          debugMode={debugMode}
         />
       {!queueCollapsed && (
         <button
