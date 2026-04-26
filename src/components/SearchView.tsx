@@ -2,12 +2,32 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, Artist, Album, Tag, ViewMode, SortField } from "../types";
 import { formatDuration, isVideoTrack } from "../utils";
+import { store } from "../store";
 import { TrackList } from "./TrackList";
 import { ArtistCardArt } from "./ArtistCardArt";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { TagCardArt } from "./TagCardArt";
 import { ViewModeToggle } from "./ViewModeToggle";
 import { VideoFrameCard } from "./VideoFrameCard";
+
+interface SearchSettings {
+  activeTab: SearchTab;
+  sortField: SortField | null;
+  sortDir: SortDir;
+  mediaTypeFilter: MediaTypeFilter;
+  filterYoutubeOnly: boolean;
+  trackLikedFirst: boolean;
+  artistSortField: string | null;
+  artistSortDir: SortDir;
+  artistLikedFirst: boolean;
+  albumSortField: string | null;
+  albumSortDir: SortDir;
+  albumLikedFirst: boolean;
+  tagSortField: string | null;
+  tagSortDir: SortDir;
+  tagLikedFirst: boolean;
+  sortBarCollapsed: boolean;
+}
 
 interface VideoFrameResult {
   status: string;
@@ -175,9 +195,32 @@ export function SearchView({
     };
   }
 
+  const restoredRef = useRef(false);
+
   useEffect(() => {
     inputRef.current?.focus();
-    doSearch("");
+    store.get<SearchSettings>("searchSettings").then(saved => {
+      if (saved) {
+        setActiveTab(saved.activeTab ?? "tracks");
+        setSortField(saved.sortField ?? null);
+        setSortDir(saved.sortDir ?? "asc");
+        setMediaTypeFilter(saved.mediaTypeFilter ?? "all");
+        setFilterYoutubeOnly(saved.filterYoutubeOnly ?? false);
+        setTrackLikedFirst(saved.trackLikedFirst ?? false);
+        setArtistSortField(saved.artistSortField ?? null);
+        setArtistSortDir(saved.artistSortDir ?? "asc");
+        setArtistLikedFirst(saved.artistLikedFirst ?? false);
+        setAlbumSortField(saved.albumSortField ?? null);
+        setAlbumSortDir(saved.albumSortDir ?? "asc");
+        setAlbumLikedFirst(saved.albumLikedFirst ?? false);
+        setTagSortField(saved.tagSortField ?? null);
+        setTagSortDir(saved.tagSortDir ?? "asc");
+        setTagLikedFirst(saved.tagLikedFirst ?? false);
+        setSortBarCollapsed(saved.sortBarCollapsed ?? true);
+      }
+      restoredRef.current = true;
+      doSearch("");
+    });
   }, []);
 
   useEffect(() => {
@@ -203,20 +246,38 @@ export function SearchView({
   }, [deletedTrackKey]);
 
   useEffect(() => {
+    if (!restoredRef.current) return;
     refetchTracks();
   }, [sortField, sortDir, mediaTypeFilter, filterYoutubeOnly, trackLikedFirst]);
 
   useEffect(() => {
+    if (!restoredRef.current) return;
     refetchArtists();
   }, [artistSortField, artistSortDir, artistLikedFirst]);
 
   useEffect(() => {
+    if (!restoredRef.current) return;
     refetchAlbums();
   }, [albumSortField, albumSortDir, albumLikedFirst]);
 
   useEffect(() => {
+    if (!restoredRef.current) return;
     refetchTags();
   }, [tagSortField, tagSortDir, tagLikedFirst]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("searchSettings", {
+      activeTab, sortField, sortDir, mediaTypeFilter, filterYoutubeOnly, trackLikedFirst,
+      artistSortField, artistSortDir, artistLikedFirst,
+      albumSortField, albumSortDir, albumLikedFirst,
+      tagSortField, tagSortDir, tagLikedFirst,
+      sortBarCollapsed,
+    });
+  }, [activeTab, sortField, sortDir, mediaTypeFilter, filterYoutubeOnly, trackLikedFirst,
+      artistSortField, artistSortDir, artistLikedFirst,
+      albumSortField, albumSortDir, albumLikedFirst,
+      tagSortField, tagSortDir, tagLikedFirst, sortBarCollapsed]);
 
   useEffect(() => {
     const videoTracks = results.tracks.filter(t => t.id != null && t.path != null && isVideoTrack(t) && !t.path.startsWith("subsonic://") && !t.path.startsWith("tidal://"));
