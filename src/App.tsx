@@ -2810,6 +2810,8 @@ function App() {
               firstTrack: first ? { title: first.title, artistName: first.artist_name, subsonic: !!first.path?.startsWith("subsonic://"), hasLocalPath: !!first.path && !first.path.startsWith("subsonic://") && !first.path.startsWith("tidal://") } : { title: "", artistName: null, subsonic: false },
             } });
           }}
+          albumImages={albumImageCache.images}
+          artistImages={artistImageCache.images}
           externalDropTarget={contextMenuActions.externalDropTarget}
           collapsed={queueCollapsed}
           onToggleCollapsed={handleToggleQueueCollapsed}

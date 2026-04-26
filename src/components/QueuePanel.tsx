@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import { formatDuration } from "../utils";
@@ -68,6 +69,8 @@ interface QueuePanelProps {
   onLoadPlaylist: () => void;
   onContextMenu: (e: React.MouseEvent, indices: number[]) => void;
   externalDropTarget: number | null;
+  albumImages: Record<number, string | null>;
+  artistImages: Record<number, string | null>;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onResizeWidth: (width: number) => void;
@@ -80,6 +83,7 @@ export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
   onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSavePlaylist, onSaveAsPlaylist, onLoadPlaylist, onContextMenu,
+  albumImages, artistImages,
   externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth, debugMode,
 }: QueuePanelProps) {
@@ -113,6 +117,48 @@ export function QueuePanel({
 
   // Clear selection when queue changes (add/remove/reorder)
   useEffect(() => { setSelectedIndices(new Set()); }, [queue]);
+
+  // Fallback image resolution for tracks missing image_url
+  const [resolvedImages, setResolvedImages] = useState<Record<string, string | null>>({});
+  const resolvingRef = useRef<Set<string>>(new Set());
+
+  const getTrackImageKey = useCallback((t: Track) => `${t.artist_name ?? ""}::${t.title}`, []);
+
+  const getTrackImage = useCallback((t: Track): string | null => {
+    if (t.image_url) return t.image_url.startsWith("http") ? t.image_url : convertFileSrc(t.image_url);
+    if (t.album_id != null && albumImages[t.album_id]) return convertFileSrc(albumImages[t.album_id]!);
+    if (t.artist_id != null && artistImages[t.artist_id]) return convertFileSrc(artistImages[t.artist_id]!);
+    const resolved = resolvedImages[getTrackImageKey(t)];
+    if (resolved) return convertFileSrc(resolved);
+    return null;
+  }, [albumImages, artistImages, resolvedImages, getTrackImageKey]);
+
+  useEffect(() => {
+    for (const t of queue) {
+      if (t.image_url) continue;
+      if (t.album_id != null && albumImages[t.album_id]) continue;
+      if (t.artist_id != null && artistImages[t.artist_id]) continue;
+      const key = getTrackImageKey(t);
+      if (key in resolvedImages || resolvingRef.current.has(key)) continue;
+      resolvingRef.current.add(key);
+      (async () => {
+        try {
+          if (t.album_title) {
+            const albumPath = await invoke<string | null>("get_entity_image_by_name", { kind: "album", name: t.album_title, artistName: t.artist_name ?? null });
+            if (albumPath) { setResolvedImages(prev => ({ ...prev, [key]: albumPath })); return; }
+          }
+          if (t.artist_name) {
+            const artistPath = await invoke<string | null>("get_entity_image_by_name", { kind: "artist", name: t.artist_name, artistName: null });
+            if (artistPath) { setResolvedImages(prev => ({ ...prev, [key]: artistPath })); return; }
+          }
+          setResolvedImages(prev => ({ ...prev, [key]: null }));
+        } catch (e) {
+          console.error("Failed to resolve queue image:", e);
+          setResolvedImages(prev => ({ ...prev, [key]: null }));
+        }
+      })();
+    }
+  }, [queue, albumImages, artistImages, resolvedImages, getTrackImageKey]);
 
   // Scroll to currently playing track when panel opens or un-collapses
   useEffect(() => {
@@ -375,8 +421,8 @@ export function QueuePanel({
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
             <div className="queue-item-art-wrapper">
-              {t.image_url ? (
-                <img className="queue-item-thumb" src={t.image_url.startsWith("http") ? t.image_url : convertFileSrc(t.image_url)} alt="" />
+              {(() => { const src = getTrackImage(t); return src ? (
+                <img className="queue-item-thumb" src={src} alt="" />
               ) : (
                 <div className="queue-item-thumb queue-item-thumb-placeholder">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
@@ -384,7 +430,7 @@ export function QueuePanel({
                     <circle cx="12" cy="12" r="3" />
                   </svg>
                 </div>
-              )}
+              ); })()}
             </div>
             <div
               className="queue-item-info"
@@ -442,9 +488,15 @@ export function QueuePanel({
               <div className="ds-tooltip-rows">
                 {([
                   ["key", t.key], ["id", t.id], ["path", t.path],
-                  ["artist", t.artist_name], ["album", t.album_title],
-                  ["format", t.format], ["liked", t.liked],
-                  ["collection_id", t.collection_id], ["image_url", t.image_url],
+                  ["artist_id", t.artist_id], ["artist", t.artist_name],
+                  ["album_id", t.album_id], ["album", t.album_title],
+                  ["year", t.year], ["track_number", t.track_number],
+                  ["duration_secs", t.duration_secs], ["format", t.format],
+                  ["file_size", t.file_size], ["collection_id", t.collection_id],
+                  ["collection_name", t.collection_name], ["liked", t.liked],
+                  ["youtube_url", t.youtube_url], ["added_at", t.added_at],
+                  ["modified_at", t.modified_at], ["url", t.url],
+                  ["image_url", t.image_url],
                 ] as [string, unknown][]).map(([k, v]) => (
                   <div key={k} className="ds-tooltip-row">
                     <span className="ds-tooltip-key">{k}</span>
