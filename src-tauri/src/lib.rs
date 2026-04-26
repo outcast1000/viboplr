@@ -18,6 +18,7 @@ mod mixtape;
 mod timing;
 mod downloader;
 mod update_checker;
+mod video_frames;
 use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry};
 use db::Database;
 use downloader::{DownloadManager, DownloadResolveRegistry};
