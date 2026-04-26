@@ -447,20 +447,26 @@ function activate(api) {
     var pl = state.currentPlaylist;
     if (!pl) return;
     var tracks = state.playlistTracks[pl.id] || [];
-    var ch = [
-      { type: "button", label: "← Back", action: "go-home" },
+    var contextActions = [
+      { id: "play-current", label: "Play" },
+      { id: "enqueue-current", label: "Enqueue" },
     ];
     if (!state.viewingArchived) {
-      ch.push({ type: "button", label: "Archive", action: "archive-current", variant: "accent" });
-      ch.push({ type: "button", label: "Save to Playlists", action: "save-playlist", variant: "secondary" });
+      contextActions.push({ id: "sep1", label: "", separator: true });
+      contextActions.push({ id: "archive-current", label: "Archive" });
+      contextActions.push({ id: "save-playlist", label: "Save to Playlists" });
     }
-    ch.push({ type: "spacer" });
-    ch.push({ type: "text", content: "<h2>" + escapeHtml(pl.name) + "</h2>" });
-    ch.push({ type: "text", content: "<p style='opacity:0.6'>" + tracks.length + " tracks</p>" });
-    if (pl.imageUrl) {
-      ch.push({ type: "card-grid", columns: 3, items: [{ id: "cover", title: "", imageUrl: pl.imageUrl }] });
-      ch.push({ type: "spacer" });
-    }
+    var ch = [
+      {
+        type: "detail-header",
+        title: pl.name,
+        meta: tracks.length + " tracks",
+        imageUrl: pl.imageUrl || undefined,
+        backAction: "go-home",
+        playAction: tracks.length > 0 ? "play-current" : undefined,
+        contextMenuActions: contextActions,
+      },
+    ];
     if (tracks.length > 0) {
       var diff = getDiff(pl.id);
       var addedSet = {};
@@ -1248,6 +1254,27 @@ function activate(api) {
         return;
       }
     }
+  });
+
+  api.ui.onAction("play-current", function() {
+    var pl = state.currentPlaylist;
+    if (!pl) return;
+    var tracks = state.playlistTracks[pl.id] || [];
+    if (tracks.length === 0) return;
+    api.ui.requestAction("play-tracks", {
+      tracks: playlistTracksToPayload(tracks),
+      startIndex: 0,
+      playlistName: pl.name,
+      coverUrl: pl.imageUrl || undefined,
+    });
+  });
+
+  api.ui.onAction("enqueue-current", function() {
+    var pl = state.currentPlaylist;
+    if (!pl) return;
+    var tracks = state.playlistTracks[pl.id] || [];
+    if (tracks.length === 0) return;
+    api.ui.requestAction("enqueue-tracks", { tracks: playlistTracksToPayload(tracks) });
   });
 
   api.ui.onAction("archive-current", function() {

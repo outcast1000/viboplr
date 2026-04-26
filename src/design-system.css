@@ -273,7 +273,8 @@
   z-index: 1;
 }
 
-.ds-card:hover .ds-card-play {
+.ds-card:hover .ds-card-play,
+.album-detail-art:hover .ds-card-play {
   opacity: 1;
   transform: translateY(0);
 }
@@ -312,7 +313,8 @@
   z-index: 1;
 }
 
-.ds-card:hover .ds-card-menu {
+.ds-card:hover .ds-card-menu,
+.album-detail-art:hover .ds-card-menu {
   opacity: 1;
   transform: translateY(0);
 }

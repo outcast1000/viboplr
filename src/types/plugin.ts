@@ -228,6 +228,8 @@ export type PluginViewData =
       imageUrl?: string;
       actions?: { id: string; label: string; icon?: string }[];
       backAction?: string;
+      playAction?: string;
+      contextMenuActions?: { id: string; label: string; separator?: boolean }[];
     };
 
 // -- Plugin API (what plugins receive) --

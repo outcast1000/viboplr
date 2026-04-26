@@ -299,6 +299,8 @@ function PluginViewNode({
           imageUrl={node.imageUrl}
           actions={node.actions}
           backAction={node.backAction}
+          playAction={node.playAction}
+          contextMenuActions={node.contextMenuActions}
           onAction={onAction}
         />
       );
@@ -316,6 +318,8 @@ function PluginDetailHeader({
   imageUrl,
   actions,
   backAction,
+  playAction,
+  contextMenuActions,
   onAction,
 }: {
   title: string;
@@ -324,8 +328,37 @@ function PluginDetailHeader({
   imageUrl?: string;
   actions?: { id: string; label: string; icon?: string }[];
   backAction?: string;
+  playAction?: string;
+  contextMenuActions?: { id: string; label: string; separator?: boolean }[];
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuPos) return;
+    function onDown(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuPos(null);
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [menuPos]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    if (!contextMenuActions?.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuPos({ x: e.clientX, y: e.clientY });
+  }, [contextMenuActions]);
+
+  const handleMoreClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setMenuPos({ x: rect.right, y: rect.bottom + 4 });
+  }, []);
+
   return (
     <>
       {backAction && (
@@ -338,7 +371,7 @@ function PluginDetailHeader({
         style={imageUrl ? { '--artist-bg': `url(${resolveImageUrl(imageUrl)})` } as React.CSSProperties : undefined}
       >
         <div className="album-detail-header">
-          <div className="album-detail-art">
+          <div className="album-detail-art" onContextMenu={handleContextMenu}>
             {imageUrl ? (
               <img className="album-detail-art-img" src={resolveImageUrl(imageUrl)} alt={title} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
             ) : (
@@ -346,6 +379,24 @@ function PluginDetailHeader({
                 <circle cx="12" cy="12" r="10" />
                 <circle cx="12" cy="12" r="3" />
               </svg>
+            )}
+            {contextMenuActions?.length ? (
+              <button
+                className="ds-card-menu"
+                title="More options"
+                onClick={handleMoreClick}
+              >
+                &#x22EF;
+              </button>
+            ) : null}
+            {playAction && (
+              <button
+                className="ds-card-play"
+                title="Play"
+                onClick={(e) => { e.stopPropagation(); onAction?.(playAction); }}
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+              </button>
             )}
           </div>
           <div className="album-detail-info">
@@ -367,6 +418,30 @@ function PluginDetailHeader({
           </div>
         </div>
       </div>
+      {menuPos && contextMenuActions?.length ? (
+        <div
+          ref={menuRef}
+          className="context-menu"
+          style={{ left: menuPos.x, top: menuPos.y }}
+        >
+          {contextMenuActions.map((action) =>
+            action.separator ? (
+              <div key={action.id} className="context-menu-separator" />
+            ) : (
+              <div
+                key={action.id}
+                className="context-menu-item"
+                onClick={() => {
+                  onAction?.(action.id);
+                  setMenuPos(null);
+                }}
+              >
+                <span>{action.label}</span>
+              </div>
+            )
+          )}
+        </div>
+      ) : null}
     </>
   );
 }
