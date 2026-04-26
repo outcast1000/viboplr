@@ -11,6 +11,9 @@ import { ImageActions } from "./ImageActions";
 import { store } from "../store";
 
 import { InformationSections } from "./InformationSections";
+import { useVideoFrames } from "../hooks/useVideoFrames";
+import { isVideoTrack } from "../utils";
+import { VideoFilmstrip } from "./VideoFilmstrip";
 import "./TrackDetailView.css";
 
 const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "details", "play-history"];
@@ -113,6 +116,7 @@ export function TrackDetailView({
   const [youtubeUrlEdit, setYoutubeUrlEdit] = useState<string | null>(null);
   const [tabOrder, setTabOrder] = useState<string[]>(DEFAULT_TAB_ORDER);
   const trackIdRef = useRef(trackId);
+  const videoFrames = useVideoFrames(isVideoTrack(track) ? track : null);
 
   useEffect(() => { trackIdRef.current = trackId; }, [trackId]);
 
@@ -361,6 +365,11 @@ export function TrackDetailView({
           </div>
         </div>
       </div>
+      {isVideoTrack(track) && (
+        <div className="section-wide">
+          <VideoFilmstrip framesState={videoFrames} />
+        </div>
+      )}
       <div className="section-wide">
         <InformationSections
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
