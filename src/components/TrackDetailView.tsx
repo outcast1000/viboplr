@@ -76,6 +76,7 @@ interface TrackDetailViewProps {
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
   onTagClick: (tagId: number) => void;
   onPlay: () => void;
+  onPlayAt: (secs: number) => void;
   onShowInFolder: () => void;
   onPlayTrack: (track: Track) => void;
   onWatchOnYoutube?: () => void;
@@ -98,7 +99,7 @@ export function TrackDetailView({
   trackId, track, albumImagePath, artistImagePath,
   positionSecs, isCurrentTrack,
   onArtistClick, onAlbumClick, onTagClick,
-  onPlay, onShowInFolder, onPlayTrack, onWatchOnYoutube,
+  onPlay, onPlayAt, onShowInFolder, onPlayTrack, onWatchOnYoutube,
   onToggleLike, onToggleHate,
   collections: _collections, searchProviders, onImageSet, onImageRemoved, onImageRefresh,
   addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
@@ -256,7 +257,7 @@ export function TrackDetailView({
         <div className="track-detail-header">
           <div className="track-detail-art">
             {videoFrames.frames ? (
-              <VideoFrameCard frames={videoFrames.frames} alt={track.title} className="track-detail-art-frames" />
+              <VideoFrameCard frames={videoFrames.frames} alt={track.title} className="track-detail-art-frames" timestamps={videoFrames.timestamps} onFrameClick={onPlayAt} />
             ) : (albumImagePath || artistImagePath) ? (
               <>
                 <img className="track-detail-art-img" src={convertFileSrc((albumImagePath ?? artistImagePath)!)} alt={track.album_title ?? track.artist_name ?? ""} />
@@ -370,7 +371,7 @@ export function TrackDetailView({
       </div>
       {isVideoTrack(track) && (
         <div className="section-wide">
-          <VideoFilmstrip framesState={videoFrames} />
+          <VideoFilmstrip framesState={videoFrames} onFrameClick={onPlayAt} />
         </div>
       )}
       <div className="section-wide">

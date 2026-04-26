@@ -350,6 +350,10 @@ export function usePlayback(
     }
   }
 
+  function setPendingSeek(secs: number) {
+    pendingSeekRef.current = secs;
+  }
+
   async function handlePlayUrl(track: Track, url: string) {
     cancelCrossfade();
     invalidatePreload();
@@ -378,11 +382,13 @@ export function usePlayback(
       videoRef.current.load();
     }
 
+    const seekTo = pendingSeekRef.current;
+
     trackChangeSourceRef.current = source;
     setCurrentTrack(track);
     prefetchRequestedRef.current = false;
     setCurrentAssetUrl(src);
-    setPositionSecs(0);
+    setPositionSecs(seekTo > 0 ? seekTo : 0);
     setDurationSecs(track.duration_secs ?? 0);
     scrobbledRef.current = false;
     setScrobbled(false);
@@ -392,18 +398,23 @@ export function usePlayback(
     setActiveSlot("A");
     activeSlotRef.current = "A";
 
+    pendingSeekRef.current = 0;
+
     if (isVideoTrack(track)) {
       if (videoRef.current) {
         videoRef.current.src = src;
         videoRef.current.volume = volumeRef.current;
+        if (seekTo > 0) videoRef.current.currentTime = seekTo;
         await videoRef.current.play();
       } else {
         pendingSrcRef.current = src;
+        if (seekTo > 0) pendingSeekRef.current = seekTo;
       }
     } else {
       if (audioRefA.current) {
         audioRefA.current.src = src;
         audioRefA.current.volume = volumeRef.current;
+        if (seekTo > 0) audioRefA.current.currentTime = seekTo;
         await audioRefA.current.play();
       }
     }
@@ -582,7 +593,7 @@ export function usePlayback(
     activeSlot,
     audioRefA, audioRefB, videoRef,
     getMediaElement,
-    handlePlay, handlePlayUrl, handlePause, handleStop,
+    handlePlay, setPendingSeek, handlePlayUrl, handlePause, handleStop,
     handleVolume, handleSeek,
     handleGaplessNext, invalidatePreload,
     onTimeUpdate, onLoadedMetadata, onPlay, onPause, onMediaError,

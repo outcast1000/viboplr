@@ -24,6 +24,10 @@
   pointer-events: none;
 }
 
+.video-frame-card.clickable {
+  cursor: pointer;
+}
+
 .video-frame-card-dots {
   position: absolute;
   bottom: 4px;
@@ -34,12 +38,27 @@
   pointer-events: none;
 }
 
+.video-frame-card.clickable .video-frame-card-dots {
+  pointer-events: auto;
+}
+
 .video-frame-card-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.4);
-  transition: background 0.2s;
+  transition: background 0.2s, transform 0.15s;
+}
+
+.video-frame-card.clickable .video-frame-card-dot {
+  cursor: pointer;
+  width: 7px;
+  height: 7px;
+}
+
+.video-frame-card.clickable .video-frame-card-dot:hover {
+  transform: scale(1.4);
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .video-frame-card-dot.active {

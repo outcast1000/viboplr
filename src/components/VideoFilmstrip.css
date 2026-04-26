@@ -12,6 +12,16 @@
   border: 1px solid var(--border);
 }
 
+.video-filmstrip-frame.clickable {
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+}
+
+.video-filmstrip-frame.clickable:hover {
+  transform: scale(1.03);
+  border-color: var(--accent);
+}
+
 .video-filmstrip-frame img {
   width: 100%;
   display: block;
@@ -35,6 +45,36 @@
   background: var(--bg-tertiary);
   border-radius: var(--ds-radius);
   animation: glow-pulse 1.5s ease-in-out infinite;
+}
+
+.video-filmstrip-frame.clickable::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0);
+  transition: background 0.15s;
+}
+
+.video-filmstrip-frame.clickable:hover::after {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.video-filmstrip-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.8);
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+  pointer-events: none;
+  z-index: 1;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
+  color: #fff;
+}
+
+.video-filmstrip-frame.clickable:hover .video-filmstrip-play {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
 }
 
 .video-filmstrip-hint {

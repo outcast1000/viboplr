@@ -2175,6 +2175,14 @@ function App() {
                 onAlbumClick={library.handleAlbumClick}
                 onTagClick={(tagId) => { library.setSelectedTrack(null); library.setSelectedTag(tagId); library.setView("tags"); }}
                 onPlay={() => queueHook.playTracks([track], 0)}
+                onPlayAt={(secs: number) => {
+                  if (isCurrentTrack) {
+                    playback.handleSeek(secs);
+                  } else {
+                    playback.setPendingSeek(secs);
+                    queueHook.playTracks([track], 0);
+                  }
+                }}
                 onPlayTrack={(t: Track) => queueHook.playTracks([t], 0)}
                 onWatchOnYoutube={track.id != null ? () => contextMenuActions.watchOnYoutube(track.id!, track.title, track.artist_name, track.youtube_url) : undefined}
                 onToggleLike={() => likeActions.handleToggleLike(track)}
