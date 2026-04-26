@@ -36,7 +36,7 @@ function activate(api) {
     var text = brToNewline(html);
     text = stripTags(text);
     text = decodeEntities(text);
-    // Collapse multiple blank lines to max two newlines
+    text = text.replace(/^[ \t]+$/gm, "");
     text = text.replace(/\n{3,}/g, "\n\n");
     return text.trim();
   }
