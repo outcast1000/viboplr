@@ -559,7 +559,7 @@ function App() {
   const [searchViewModes, setSearchViewModes] = useState<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }>({ tracks: "list", albums: "tiles", artists: "tiles", tags: "tiles" });
   const [searchInitialQuery, setSearchInitialQuery] = useState<string | null>(null);
   const [searchQueryKey, setSearchQueryKey] = useState(0);
-  const [searchRefreshKey, setSearchRefreshKey] = useState(0);
+  const [searchDeletedBatch, setSearchDeletedBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
 
   // Updater
   const updater = useAppUpdater(addLog);
@@ -703,7 +703,7 @@ function App() {
     artistImages: artistImageCache.images,
     queueCollapsed,
     setQueueCollapsed,
-    onTracksDeleted: () => setSearchRefreshKey(k => k + 1),
+    onTracksDeleted: (deletedIds: number[]) => setSearchDeletedBatch(prev => ({ ids: deletedIds, key: prev.key + 1 })),
   });
 
   const handleDeleteTracks = useCallback((trackIds: number[]) => {
@@ -2443,7 +2443,8 @@ function App() {
             <SearchView
               initialQuery={searchInitialQuery}
               initialQueryKey={searchQueryKey}
-              refreshKey={searchRefreshKey}
+              deletedTrackIds={searchDeletedBatch.ids}
+              deletedTrackKey={searchDeletedBatch.key}
               currentTrack={playback.currentTrack}
               playing={playback.playing}
               viewModes={searchViewModes}

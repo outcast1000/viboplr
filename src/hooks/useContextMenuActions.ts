@@ -34,7 +34,7 @@ interface UseContextMenuActionsDeps {
   artistImages: Record<number, string | null>;
   queueCollapsed: boolean;
   setQueueCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
-  onTracksDeleted?: () => void;
+  onTracksDeleted?: (deletedIds: number[]) => void;
 }
 
 export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
@@ -290,8 +290,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
           playback.handleStop();
         }
         library.loadLibrary();
-        library.loadTracks();
-        onTracksDeleted?.();
+        onTracksDeleted?.(result.deletedIds);
       }
       if (result.failures.length === trackIds.length) {
         setDeleteError({ message: `Failed to delete ${title}`, failures: result.failures });

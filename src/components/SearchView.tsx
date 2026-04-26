@@ -38,7 +38,8 @@ interface SearchViewModes {
 interface SearchViewProps {
   initialQuery: string | null;
   initialQueryKey: number;
-  refreshKey: number;
+  deletedTrackIds: number[];
+  deletedTrackKey: number;
   currentTrack: Track | null;
   playing: boolean;
   viewModes: SearchViewModes;
@@ -72,7 +73,8 @@ const ENTITY_PAGE_SIZE = 40;
 export function SearchView({
   initialQuery,
   initialQueryKey,
-  refreshKey,
+  deletedTrackIds,
+  deletedTrackKey,
   currentTrack,
   playing,
   viewModes,
@@ -187,8 +189,18 @@ export function SearchView({
   }, [initialQueryKey]);
 
   useEffect(() => {
-    if (refreshKey > 0) doSearch(queryRef.current);
-  }, [refreshKey]);
+    if (deletedTrackKey === 0 || deletedTrackIds.length === 0) return;
+    const deleted = new Set(deletedTrackIds);
+    setResults(prev => {
+      const filtered = prev.tracks.filter(t => t.id == null || !deleted.has(t.id));
+      if (filtered.length === prev.tracks.length) return prev;
+      return { ...prev, tracks: filtered };
+    });
+    setCounts(prev => ({
+      ...prev,
+      tracks: Math.max(0, prev.tracks - deletedTrackIds.length),
+    }));
+  }, [deletedTrackKey]);
 
   useEffect(() => {
     refetchTracks();
