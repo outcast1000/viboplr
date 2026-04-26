@@ -1354,7 +1354,9 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             match &event {
-                tauri::RunEvent::Exit => {}
+                tauri::RunEvent::Exit => {
+                    std::process::exit(0);
+                }
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Opened { urls } => {
                     eprintln!("[RunEvent::Opened] urls: {:?}", urls);
