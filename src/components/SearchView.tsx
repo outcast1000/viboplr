@@ -216,6 +216,7 @@ export function SearchView({
         }
       }).catch(console.error);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally excludes videoFrameCache to prevent infinite loop
   }, [results.tracks]);
 
   const refetchTracks = useCallback(async () => {

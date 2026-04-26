@@ -14,6 +14,7 @@ import { InformationSections } from "./InformationSections";
 import { useVideoFrames } from "../hooks/useVideoFrames";
 import { isVideoTrack } from "../utils";
 import { VideoFilmstrip } from "./VideoFilmstrip";
+import { VideoFrameCard } from "./VideoFrameCard";
 import "./TrackDetailView.css";
 
 const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "details", "play-history"];
@@ -254,7 +255,9 @@ export function TrackDetailView({
       >
         <div className="track-detail-header">
           <div className="track-detail-art">
-            {(albumImagePath || artistImagePath) ? (
+            {videoFrames.frames ? (
+              <VideoFrameCard frames={videoFrames.frames} alt={track.title} className="track-detail-art-frames" />
+            ) : (albumImagePath || artistImagePath) ? (
               <>
                 <img className="track-detail-art-img" src={convertFileSrc((albumImagePath ?? artistImagePath)!)} alt={track.album_title ?? track.artist_name ?? ""} />
                 <span className="track-detail-art-label">{albumImagePath ? "Album" : "Artist"}</span>

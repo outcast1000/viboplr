@@ -46,8 +46,8 @@ export function useVideoFrames(track: Track | null): VideoFramesState {
           if (cached.timestamps) setTimestamps(cached.timestamps);
           return;
         }
-      } catch {
-        // Cache check failed, proceed to extraction
+      } catch (e) {
+        console.error("Failed to check video frame cache:", e);
       }
 
       if (cancelled) return;

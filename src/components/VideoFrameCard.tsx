@@ -20,6 +20,7 @@ export function VideoFrameCard({ frames, alt, className }: VideoFrameCardProps) 
 
   const handleMouseEnter = useCallback(() => {
     setHovering(true);
+    if (intervalRef.current) clearInterval(intervalRef.current);
     let idx = 0;
     intervalRef.current = setInterval(() => {
       idx = (idx + 1) % frames.length;

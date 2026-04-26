@@ -384,6 +384,17 @@
   border-radius: 6px;
 }
 
+.track-detail-art-frames {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.track-detail-art-frames .video-frame-card-img {
+  border-radius: 6px;
+}
+
 .track-detail-art > .artist-image-menu-wrapper {
   position: absolute;
   bottom: 18px;

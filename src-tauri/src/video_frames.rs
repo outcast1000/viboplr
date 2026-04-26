@@ -4,6 +4,7 @@ use std::process::Command;
 const FRAME_COUNT: usize = 4;
 const FRAME_POSITIONS: [f64; 4] = [0.10, 0.30, 0.60, 0.90];
 
+#[allow(unused_mut)]
 fn ffmpeg_command() -> Command {
     let mut cmd = Command::new("ffmpeg");
     #[cfg(target_os = "windows")]
