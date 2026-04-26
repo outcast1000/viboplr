@@ -628,24 +628,64 @@
 .ds-tooltip {
   position: fixed;
   z-index: 10000;
-  padding: 6px 10px;
-  background: var(--bg-surface);
+  padding: 0;
+  background: rgba(var(--bg-primary-rgb), 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: var(--text-primary);
-  border: 1px solid var(--border);
+  border: 1px solid rgba(var(--overlay-base), 0.1);
+  border-left: 2px solid var(--accent);
   border-radius: var(--ds-radius);
   font-size: var(--fs-2xs);
-  line-height: 1.4;
-  white-space: pre-line;
-  word-break: break-all;
+  line-height: 1.5;
   width: max-content;
   max-width: 350px;
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.15s;
+  box-shadow: 0 4px 16px rgba(var(--overlay-base), 0.15), 0 1px 3px rgba(var(--overlay-base), 0.1);
+  overflow: hidden;
 }
 
 .ds-tooltip.visible {
   opacity: 1;
+}
+
+.ds-tooltip-title {
+  padding: 6px 12px;
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  border-bottom: 1px solid rgba(var(--overlay-base), 0.1);
+}
+
+.ds-tooltip-body {
+  padding: 6px 12px;
+  color: var(--text-secondary);
+  white-space: pre-line;
+  word-break: break-all;
+}
+
+.ds-tooltip-rows {
+  padding: 4px 0;
+}
+
+.ds-tooltip-row {
+  display: flex;
+  padding: 2px 12px;
+  gap: 8px;
+}
+
+.ds-tooltip-key {
+  color: var(--accent);
+  min-width: 80px;
+  flex-shrink: 0;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+.ds-tooltip-val {
+  color: var(--text-secondary);
+  word-break: break-all;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
 /* ── Banners ── */

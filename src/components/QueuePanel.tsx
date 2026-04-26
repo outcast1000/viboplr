@@ -87,7 +87,7 @@ export function QueuePanel({
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [countdown, setCountdown] = useState(AUTO_APPROVE_SECS);
-  const [tooltip, setTooltip] = useState<{ text: string; anchorX: number; anchorY: number } | null>(null);
+  const [tooltip, setTooltip] = useState<{ track: Track; anchorX: number; anchorY: number } | null>(null);
   const lastClickedIndexRef = useRef<number | null>(null);
   const dragIndicesRef = useRef<number[] | null>(null);
   const dropTargetRef = useRef<number | null>(null);
@@ -389,16 +389,8 @@ export function QueuePanel({
             <div
               className="queue-item-info"
               onMouseEnter={(e) => {
-                const text = debugMode
-                  ? [
-                      `key: ${t.key}`, `id: ${t.id ?? "(none)"}`, `path: ${t.path ?? "(none)"}`,
-                      `title: ${t.title}`, `artist: ${t.artist_name ?? "(none)"}`, `album: ${t.album_title ?? "(none)"}`,
-                      `format: ${t.format ?? "(none)"}`, `liked: ${t.liked}`, `collection_id: ${t.collection_id ?? "(none)"}`,
-                      `image_url: ${t.image_url ?? "(none)"}`,
-                    ].join("\n")
-                  : [t.title, [t.artist_name, t.album_title].filter(Boolean).join(" — "), t.format?.toUpperCase()].filter(Boolean).join("\n");
                 const rect = e.currentTarget.getBoundingClientRect();
-                tooltipTimerRef.current = setTimeout(() => setTooltip({ text, anchorX: rect.left, anchorY: rect.top }), 400);
+                tooltipTimerRef.current = setTimeout(() => setTooltip({ track: t, anchorX: rect.left, anchorY: rect.top }), 400);
               }}
               onMouseLeave={() => { if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current); setTooltip(null); setTooltipPos(null); }}
             >
@@ -437,15 +429,40 @@ export function QueuePanel({
       )}
       </>
       )}
-      {tooltip && (
-        <div
-          ref={tooltipRef}
-          className={`ds-tooltip${tooltipPos ? " visible" : ""}`}
-          style={tooltipPos ?? { left: tooltip.anchorX, top: tooltip.anchorY, visibility: "hidden" }}
-        >
-          {tooltip.text}
-        </div>
-      )}
+      {tooltip && (() => {
+        const t = tooltip.track;
+        return (
+          <div
+            ref={tooltipRef}
+            className={`ds-tooltip${tooltipPos ? " visible" : ""}`}
+            style={tooltipPos ?? { left: tooltip.anchorX, top: tooltip.anchorY, visibility: "hidden" }}
+          >
+            <div className="ds-tooltip-title">{t.title}</div>
+            {debugMode ? (
+              <div className="ds-tooltip-rows">
+                {([
+                  ["key", t.key], ["id", t.id], ["path", t.path],
+                  ["artist", t.artist_name], ["album", t.album_title],
+                  ["format", t.format], ["liked", t.liked],
+                  ["collection_id", t.collection_id], ["image_url", t.image_url],
+                ] as [string, unknown][]).map(([k, v]) => (
+                  <div key={k} className="ds-tooltip-row">
+                    <span className="ds-tooltip-key">{k}</span>
+                    <span className="ds-tooltip-val">{v != null ? String(v) : "(none)"}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="ds-tooltip-body">
+                {[
+                  [t.artist_name, t.album_title].filter(Boolean).join(" — "),
+                  t.format?.toUpperCase(),
+                ].filter(Boolean).join("\n")}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </aside>
   );
 }
