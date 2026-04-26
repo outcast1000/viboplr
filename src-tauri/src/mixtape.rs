@@ -103,7 +103,8 @@ pub fn build_mixtape<F>(
 where
     F: FnMut(u32, u32, &str, u32),
 {
-    let file = File::create(dest_path).map_err(|e| format!("Failed to create mixtape file: {}", e))?;
+    let temp_path = dest_path.with_extension("mixtape.tmp");
+    let file = File::create(&temp_path).map_err(|e| format!("Failed to create mixtape file: {}", e))?;
     let mut zip = ZipWriter::new(BufWriter::new(file));
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
@@ -127,7 +128,7 @@ where
     for (i, source) in track_sources.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
             drop(zip);
-            let _ = std::fs::remove_file(dest_path);
+            let _ = std::fs::remove_file(&temp_path);
             return Err("Mixtape creation cancelled".to_string());
         }
 
@@ -165,7 +166,7 @@ where
             artist: source.artist.clone(),
             album: source.album.clone(),
             duration_secs: source.duration_secs,
-            file: archive_path,
+            file: Some(archive_path),
             thumb,
         });
     }
@@ -198,10 +199,78 @@ where
     let final_zip = zip.finish().map_err(|e| format!("Failed to finalize ZIP: {}", e))?;
     let size = final_zip
         .into_inner()
-        .map_err(|e| format!("Failed to get file size: {}", e))?
+        .map_err(|e| format!("Failed to flush ZIP: {}", e))?
         .metadata()
         .map_err(|e| format!("Failed to read metadata: {}", e))?
         .len();
+
+    std::fs::rename(&temp_path, dest_path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        format!("Failed to finalize mixtape file: {}", e)
+    })?;
+
+    Ok(size)
+}
+
+/// Build a playlist-only .mixtape ZIP (manifest + cover + optional thumbnails, no audio files).
+pub fn build_playlist_mixtape(
+    dest_path: &Path,
+    cover_path: Option<&Path>,
+    mut manifest: MixtapeManifest,
+    thumb_paths: &[Option<String>],
+    include_thumbs: bool,
+) -> Result<u64, String> {
+    let temp_path = dest_path.with_extension("mixtape.tmp");
+    let file = File::create(&temp_path)
+        .map_err(|e| format!("Failed to create mixtape file: {}", e))?;
+    let mut zip = ZipWriter::new(BufWriter::new(file));
+    let options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Stored);
+
+    if let Some(cp) = cover_path {
+        let cover_bytes = resize_image_to_jpeg(cp, 800)?;
+        zip.start_file("cover.jpg", options)
+            .map_err(|e| format!("Failed to start cover.jpg: {}", e))?;
+        zip.write_all(&cover_bytes)
+            .map_err(|e| format!("Failed to write cover.jpg: {}", e))?;
+        manifest.cover = Some("cover.jpg".to_string());
+    }
+
+    if include_thumbs {
+        for (i, thumb) in thumb_paths.iter().enumerate() {
+            if let Some(ref tp) = thumb {
+                if let Ok(thumb_bytes) = resize_image_to_jpeg(Path::new(tp), 150) {
+                    let archive_path = thumb_archive_path(i);
+                    if zip.start_file(&archive_path, options).is_ok() {
+                        let _ = zip.write_all(&thumb_bytes);
+                    }
+                    if let Some(track) = manifest.tracks.get_mut(i) {
+                        track.thumb = Some(archive_path);
+                    }
+                }
+            }
+        }
+    }
+
+    let manifest_json = serde_json::to_string_pretty(&manifest)
+        .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
+    zip.start_file("manifest.json", options)
+        .map_err(|e| format!("Failed to start manifest.json: {}", e))?;
+    zip.write_all(manifest_json.as_bytes())
+        .map_err(|e| format!("Failed to write manifest: {}", e))?;
+
+    let final_zip = zip.finish()
+        .map_err(|e| format!("Failed to finalize ZIP: {}", e))?;
+    let size = final_zip.into_inner()
+        .map_err(|e| format!("Failed to flush ZIP: {}", e))?
+        .metadata()
+        .map_err(|e| format!("Failed to read metadata: {}", e))?
+        .len();
+
+    std::fs::rename(&temp_path, dest_path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        format!("Failed to finalize mixtape file: {}", e)
+    })?;
 
     Ok(size)
 }
@@ -329,10 +398,11 @@ where
 
         // Extract audio
         if options.audio {
+            if let Some(ref file) = track.file {
             let mut track_file = archive
-                .by_name(&track.file)
-                .map_err(|_| format!("Track file not found: {}", track.file))?;
-            let track_dest = dest_dir.join(&track.file);
+                .by_name(file)
+                .map_err(|_| format!("Track file not found: {}", file))?;
+            let track_dest = dest_dir.join(file);
             if let Some(parent) = track_dest.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| format!("Failed to create tracks directory: {}", e))?;
@@ -341,6 +411,7 @@ where
                 .map_err(|e| format!("Failed to create track file: {}", e))?;
             std::io::copy(&mut track_file, &mut track_out)
                 .map_err(|e| format!("Failed to extract track: {}", e))?;
+            }
         }
 
         // Extract thumbnail
@@ -404,7 +475,7 @@ mod tests {
                 artist: "Artist".into(),
                 album: None,
                 duration_secs: Some(180.0),
-                file: "tracks/01-track-1.flac".into(),
+                file: Some("tracks/01-track-1.flac".into()),
                 thumb: None,
             }],
         );
@@ -539,7 +610,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(manifest.tracks.len(), 1);
-        assert!(extract_dir.join(&manifest.tracks[0].file).exists());
+        assert!(extract_dir.join(manifest.tracks[0].file.as_ref().unwrap()).exists());
         assert!(!extract_dir.join("cover.jpg").exists());
     }
 
@@ -561,7 +632,7 @@ mod tests {
         )
         .unwrap();
         assert!(extract_dir.join("cover.jpg").exists());
-        assert!(extract_dir.join(&manifest.tracks[0].file).exists());
+        assert!(extract_dir.join(manifest.tracks[0].file.as_ref().unwrap()).exists());
         if let Some(ref thumb) = manifest.tracks[0].thumb {
             assert!(extract_dir.join(thumb).exists());
         }

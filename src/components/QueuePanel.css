@@ -140,12 +140,20 @@
   gap: 2px;
 }
 
+.queue-context-name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .queue-context-name {
   font-weight: 600;
   font-size: var(--fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .queue-context-meta {
@@ -369,4 +377,68 @@
   .queue-context-info {
     align-items: center;
   }
+}
+
+.queue-save-wrapper {
+  position: relative;
+}
+
+.queue-save-btn {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.queue-save-caret {
+  font-size: 8px;
+  opacity: 0.6;
+  margin-left: -2px;
+}
+
+.queue-save-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius, 6px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  min-width: 160px;
+  padding: 4px 0;
+}
+
+.queue-save-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  padding: 6px 12px;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.queue-save-menu button:hover {
+  background: var(--bg-hover);
+}
+
+.queue-context-info-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.queue-context-info-btn:hover {
+  opacity: 1;
 }

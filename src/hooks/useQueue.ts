@@ -7,8 +7,9 @@ import { store } from "../store";
 
 export interface PlaylistContext {
   name: string;
-  coverPath?: string | null;
-  coverUrl?: string | null;
+  imagePath?: string | null;
+  source?: string | null;
+  metadata?: Record<string, string> | null;
 }
 
 export function useQueue(

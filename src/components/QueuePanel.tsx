@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
+import type { PlaylistContext } from "../hooks/useQueue";
 import { formatDuration } from "../utils";
 import "./QueuePanel.css";
 
@@ -54,7 +55,7 @@ interface QueuePanelProps {
   queue: Track[];
   queueIndex: number;
   queuePanelRef: React.RefObject<HTMLDivElement | null>;
-  playlistContext: { name: string; coverPath?: string | null; coverUrl?: string | null } | null;
+  playlistContext: PlaylistContext | null;
   pendingEnqueue: PendingEnqueue | null;
   onAllowAll: () => void;
   onSkipDuplicates: () => void;
@@ -64,8 +65,10 @@ interface QueuePanelProps {
   onLocateTrack?: (track: Track) => void;
   onMoveMultiple: (indices: number[], targetIndex: number) => void;
   onClear: () => void;
-  onSavePlaylist: () => void;
-  onSaveAsPlaylist: () => void;
+  onSaveAsM3U: () => void;
+  onSaveToPlaylists: () => void;
+  onExportAsMixtape: () => void;
+  onEditPlaylist: () => void;
   onLoadPlaylist: () => void;
   onContextMenu: (e: React.MouseEvent, indices: number[]) => void;
   externalDropTarget: number | null;
@@ -82,7 +85,7 @@ const AUTO_APPROVE_SECS = 10;
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
-  onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSavePlaylist, onSaveAsPlaylist, onLoadPlaylist, onContextMenu,
+  onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onEditPlaylist, onLoadPlaylist, onContextMenu,
   albumImages, artistImages,
   externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth, debugMode,
@@ -92,6 +95,11 @@ export function QueuePanel({
   const [isDragging, setIsDragging] = useState(false);
   const [countdown, setCountdown] = useState(AUTO_APPROVE_SECS);
   const [tooltip, setTooltip] = useState<{ track: Track; anchorX: number; anchorY: number } | null>(null);
+  const [saveMenuOpen, setSaveMenuOpen] = useState(false);
+  const saveMenuRef = useRef<HTMLDivElement>(null);
+  const [contextInfoAnchor, setContextInfoAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [contextInfoPos, setContextInfoPos] = useState<{ left: number; top: number } | null>(null);
+  const contextInfoRef = useRef<HTMLDivElement>(null);
   const lastClickedIndexRef = useRef<number | null>(null);
   const dragIndicesRef = useRef<number[] | null>(null);
   const dropTargetRef = useRef<number | null>(null);
@@ -114,6 +122,42 @@ export function QueuePanel({
     if (top + rect.height > window.innerHeight - pad) top = window.innerHeight - pad - rect.height;
     setTooltipPos({ left, top });
   }, [tooltip]);
+
+  useEffect(() => {
+    if (!saveMenuOpen) return;
+    const handle = (e: MouseEvent) => {
+      if (saveMenuRef.current && !saveMenuRef.current.contains(e.target as Node)) {
+        setSaveMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [saveMenuOpen]);
+
+  useEffect(() => {
+    if (!contextInfoAnchor || !contextInfoRef.current) { setContextInfoPos(null); return; }
+    const el = contextInfoRef.current;
+    const rect = el.getBoundingClientRect();
+    const pad = 8;
+    let left = contextInfoAnchor.x;
+    let top = contextInfoAnchor.y + 4;
+    if (left + rect.width > window.innerWidth - pad) left = window.innerWidth - pad - rect.width;
+    if (left < pad) left = pad;
+    if (top + rect.height > window.innerHeight - pad) top = contextInfoAnchor.y - rect.height - 4;
+    if (top < pad) top = pad;
+    setContextInfoPos({ left, top });
+  }, [contextInfoAnchor]);
+
+  useEffect(() => {
+    if (!contextInfoAnchor) return;
+    const handle = (e: MouseEvent) => {
+      if (contextInfoRef.current && !contextInfoRef.current.contains(e.target as Node)) {
+        setContextInfoAnchor(null);
+      }
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [contextInfoAnchor]);
 
   // Clear selection when queue changes (add/remove/reorder)
   useEffect(() => { setSelectedIndices(new Set()); }, [queue]);
@@ -358,8 +402,20 @@ export function QueuePanel({
         <span className="queue-title">Playlist</span>
         <div className="queue-header-actions">
           <button className="g-btn g-btn-sm" onClick={onLoadPlaylist} title="Load playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>' }} />
-          <button className="g-btn g-btn-sm" onClick={onSavePlaylist} title="Save playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>' }} />
-          <button className="g-btn g-btn-sm" onClick={onSaveAsPlaylist} title="Save as playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>' }} />
+          <div className="queue-save-wrapper" ref={saveMenuRef}>
+            <button className="g-btn g-btn-sm queue-save-btn" onClick={() => setSaveMenuOpen(v => !v)} title="Save playlist">
+              <span dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>' }} />
+              <span className="queue-save-caret">&#9662;</span>
+            </button>
+            {saveMenuOpen && (
+              <div className="queue-save-menu">
+                <button onClick={() => { setSaveMenuOpen(false); onSaveToPlaylists(); }}>Save as Playlist</button>
+                <button onClick={() => { setSaveMenuOpen(false); onSaveAsM3U(); }}>Export as M3U</button>
+                <button onClick={() => { setSaveMenuOpen(false); onExportAsMixtape(); }}>Export as Mixtape</button>
+              </div>
+            )}
+          </div>
+          <button className="g-btn g-btn-sm" onClick={onEditPlaylist} title="Edit playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>' }} />
           <button className="g-btn g-btn-sm" onClick={onClear} title="Clear playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' }} />
         </div>
       </div>
@@ -385,10 +441,8 @@ export function QueuePanel({
         {playlistContext && queue.length > 0 && (
           <div className="queue-context-banner">
             <div className="queue-context-cover">
-              {playlistContext.coverPath ? (
-                <img src={convertFileSrc(playlistContext.coverPath)} alt="" />
-              ) : playlistContext.coverUrl ? (
-                <img src={playlistContext.coverUrl.startsWith("http") ? playlistContext.coverUrl : convertFileSrc(playlistContext.coverUrl)} alt="" />
+              {playlistContext.imagePath ? (
+                <img src={convertFileSrc(playlistContext.imagePath)} alt="" />
               ) : (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 18V5l12-2v13"/>
@@ -398,7 +452,22 @@ export function QueuePanel({
               )}
             </div>
             <div className="queue-context-info">
-              <span className="queue-context-name">{playlistContext.name}</span>
+              <div className="queue-context-name-row">
+                <span className="queue-context-name">{playlistContext.name}</span>
+                {(playlistContext.source || (playlistContext.metadata && Object.keys(playlistContext.metadata).length > 0)) && (
+                  <button
+                    className="queue-context-info-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      setContextInfoAnchor(prev => prev ? null : { x: rect.left, y: rect.bottom });
+                    }}
+                    title="Playlist info"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  </button>
+                )}
+              </div>
               <span className="queue-context-meta">
                 {queue.length} track{queue.length !== 1 ? "s" : ""} &middot; {formatTotalDuration(queue)}
               </span>
@@ -515,6 +584,29 @@ export function QueuePanel({
           </div>
         );
       })()}
+      {contextInfoAnchor && playlistContext && (
+        <div
+          ref={contextInfoRef}
+          className={`ds-tooltip${contextInfoPos ? " visible" : ""}`}
+          style={{ ...(contextInfoPos ?? { left: contextInfoAnchor.x, top: contextInfoAnchor.y, visibility: "hidden" as const }), pointerEvents: "auto" }}
+        >
+          <div className="ds-tooltip-title">{playlistContext.name}</div>
+          <div className="ds-tooltip-rows">
+            {playlistContext.source && (
+              <div className="ds-tooltip-row">
+                <span className="ds-tooltip-key">source</span>
+                <span className="ds-tooltip-val">{playlistContext.source}</span>
+              </div>
+            )}
+            {playlistContext.metadata && Object.entries(playlistContext.metadata).map(([key, value]) => (
+              <div className="ds-tooltip-row" key={key}>
+                <span className="ds-tooltip-key">{key}</span>
+                <span className="ds-tooltip-val">{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

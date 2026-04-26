@@ -4,27 +4,38 @@ import { listen } from "@tauri-apps/api/event";
 import { useState, useEffect, useCallback } from "react";
 
 export interface ExportTrack {
-  id: number;
+  id?: number;
   title: string;
   artistName?: string;
   albumTitle?: string;
   durationSecs?: number;
   fileSize?: number;
+  path?: string;
+  imageUrl?: string;
 }
 
 interface MixtapeExportModalProps {
   tracks: ExportTrack[];
   defaultTitle?: string;
+  defaultCoverPath?: string | null;
+  defaultMetadata?: Record<string, string> | null;
   onClose: () => void;
 }
 
 type MixtapeType = "custom" | "album" | "best_of_artist";
-type Quality = "flac" | "mp3_320" | "mp3_128" | "aac";
+type ExportMode = "playlist" | "full";
 
 interface MixtapeExportProgress {
-  current_track: number;
-  total_tracks: number;
-  bytes_written: number;
+  currentTrack: number;
+  totalTracks: number;
+  phase: string;
+  trackTitle: string;
+}
+
+function trackStatus(t: ExportTrack): "local" | "remote" | "unknown" {
+  if (!t.path) return "unknown";
+  if (t.path.startsWith("file://")) return "local";
+  return "remote";
 }
 
 const formatDuration = (secs?: number): string => {
@@ -41,21 +52,29 @@ const formatFileSize = (bytes?: number): string => {
   return `${(mb / 1024).toFixed(2)} GB`;
 };
 
-export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExportModalProps) {
+export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, defaultMetadata, onClose }: MixtapeExportModalProps) {
   const [title, setTitle] = useState(defaultTitle || "");
   const [mixtapeType, setMixtapeType] = useState<MixtapeType>("custom");
-  const [quality, setQuality] = useState<Quality>("flac");
-  const [coverPath, setCoverPath] = useState<string | null>(null);
+  const [coverPath, setCoverPath] = useState<string | null>(defaultCoverPath ?? null);
   const [includeThumb, setIncludeThumb] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [exportResult, setExportResult] = useState<string | null>(null);
   const [progress, setProgress] = useState<MixtapeExportProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [trackList, setTrackList] = useState<ExportTrack[]>(tracks);
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [metadataEntries, setMetadataEntries] = useState<{ key: string; value: string }[]>([
-    { key: "quality", value: "flac" },
-    { key: "liner_notes", value: "" },
-  ]);
+  const trackList = tracks;
+  const [exportMode, setExportMode] = useState<ExportMode>("full");
+  const [metadataEntries, setMetadataEntries] = useState<{ key: string; value: string }[]>(() => {
+    const entries: { key: string; value: string }[] = [];
+    if (defaultMetadata) {
+      for (const [k, v] of Object.entries(defaultMetadata)) {
+        if (v) entries.push({ key: k, value: v });
+      }
+    }
+    if (!entries.some(e => e.key === "liner_notes")) {
+      entries.push({ key: "liner_notes", value: "" });
+    }
+    return entries;
+  });
 
   const estimatedSize = trackList.reduce((sum, t) => sum + (t.fileSize || 0), 0);
 
@@ -79,32 +98,6 @@ export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExp
 
   const handleCoverRemove = useCallback(() => {
     setCoverPath(null);
-  }, []);
-
-  const handleDragStart = useCallback((idx: number) => {
-    setDragIdx(idx);
-  }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent, idx: number) => {
-    e.preventDefault();
-    if (dragIdx === null || dragIdx === idx) return;
-
-    setTrackList((prev) => {
-      const next = [...prev];
-      const [item] = next.splice(dragIdx, 1);
-      next.splice(idx, 0, item);
-      return next;
-    });
-    setDragIdx(idx);
-  }, [dragIdx]);
-
-  const handleDragEnd = useCallback(() => {
-    setDragIdx(null);
-  }, []);
-
-  const handleQualityChange = useCallback((newQuality: Quality) => {
-    setQuality(newQuality);
-    setMetadataEntries(prev => prev.map(e => e.key === "quality" ? { ...e, value: newQuality } : e));
   }, []);
 
   const handleMetadataKeyChange = useCallback((idx: number, newKey: string) => {
@@ -166,22 +159,54 @@ export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExp
         }
       }
 
-      const options = {
-        title: title.trim(),
-        mixtapeType: mixtapeType,
-        metadata,
-        createdBy: null,
-        coverImagePath: coverPath,
-        includeThumbs: includeThumb,
-        trackIds: trackList.map((t) => t.id),
-      };
-
-      await invoke("export_mixtape", { destPath, options });
+      if (exportMode === "playlist") {
+        const trackMeta = trackList.map(t => ({
+          title: t.title,
+          artist: t.artistName || null,
+          album: t.albumTitle || null,
+          durationSecs: t.durationSecs || null,
+          imageUrl: t.imageUrl || null,
+        }));
+        await invoke("export_mixtape_playlist_only", {
+          destPath,
+          options: {
+            title: title.trim(),
+            mixtapeType,
+            metadata,
+            createdBy: null,
+            coverImagePath: coverPath,
+            includeThumbs: includeThumb,
+            tracks: trackMeta,
+          },
+        });
+      } else {
+        const trackInputs = trackList.map(t => ({
+          id: t.id || null,
+          title: t.title,
+          artist: t.artistName || null,
+          album: t.albumTitle || null,
+          durationSecs: t.durationSecs || null,
+          path: t.path || null,
+          imageUrl: t.imageUrl || null,
+        }));
+        await invoke("export_mixtape_full", {
+          destPath,
+          options: {
+            title: title.trim(),
+            mixtapeType,
+            metadata,
+            createdBy: null,
+            coverImagePath: coverPath,
+            includeThumbs: includeThumb,
+            tracks: trackInputs,
+          },
+        });
+      }
     } catch (err) {
       setError(`Export failed: ${err}`);
       setExporting(false);
     }
-  }, [title, metadataEntries, mixtapeType, quality, coverPath, includeThumb, trackList]);
+  }, [title, metadataEntries, mixtapeType, coverPath, includeThumb, trackList, exportMode]);
 
   const handleCancel = useCallback(() => {
     if (exporting) {
@@ -195,13 +220,20 @@ export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExp
       setProgress(event.payload);
     });
 
-    const unlistenComplete = listen("mixtape-export-complete", () => {
+    const unlistenComplete = listen<{ path: string; fileSize: number; skipped?: string[] }>("mixtape-export-complete", (event) => {
       setExporting(false);
-      onClose();
+      const { fileSize, skipped } = event.payload;
+      const sizeMb = (fileSize / (1024 * 1024)).toFixed(1);
+      let msg = `Mixtape exported (${sizeMb} MB)`;
+      if (skipped && skipped.length > 0) {
+        msg += ` — ${skipped.length} track${skipped.length > 1 ? "s" : ""} skipped`;
+      }
+      setExportResult(msg);
     });
 
-    const unlistenError = listen<string>("mixtape-export-error", (event) => {
-      setError(event.payload);
+    const unlistenError = listen<{ message: string } | string>("mixtape-export-error", (event) => {
+      const payload = event.payload;
+      setError(typeof payload === "string" ? payload : payload?.message ?? "Export failed");
       setExporting(false);
     });
 
@@ -220,21 +252,19 @@ export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExp
     }
   };
 
-  const qualityLabel = (q: Quality): string => {
-    switch (q) {
-      case "flac": return "FLAC (lossless)";
-      case "mp3_320": return "MP3 320kbps";
-      case "mp3_128": return "MP3 128kbps";
-      case "aac": return "AAC";
-    }
-  };
-
   return (
     <div className="ds-modal-overlay" onClick={handleCancel}>
       <div className="ds-modal mixtape-export-modal" onClick={(e) => e.stopPropagation()}>
         <h2 className="ds-modal-title">Export Mixtape</h2>
 
-        {!exporting ? (
+        {exportResult ? (
+          <div className="mixtape-progress">
+            <p style={{ textAlign: "center", color: "var(--success)", margin: "16px 0" }}>{exportResult}</p>
+            <div className="mixtape-preview-actions">
+              <button className="mixtape-action-btn primary" onClick={onClose}>Done</button>
+            </div>
+          </div>
+        ) : !exporting ? (
           <>
             <div className="mixtape-export-form">
               <div className="mixtape-export-cover-section">
@@ -261,6 +291,19 @@ export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExp
                     autoFocus
                   />
                 </label>
+                <div className="mixtape-export-mode">
+                  <label>Export mode</label>
+                  <div className="mixtape-export-mode-options">
+                    <button className={`mixtape-mode-btn${exportMode === "full" ? " active" : ""}`} onClick={() => setExportMode("full")}>Full (with audio)</button>
+                    <button className={`mixtape-mode-btn${exportMode === "playlist" ? " active" : ""}`} onClick={() => setExportMode("playlist")}>Playlist only</button>
+                  </div>
+                  {exportMode === "full" && trackList.some(t => trackStatus(t) !== "local") && (
+                    <p className="mixtape-export-hint">{trackList.filter(t => trackStatus(t) !== "local").length} remote track{trackList.filter(t => trackStatus(t) !== "local").length > 1 ? "s" : ""} will be downloaded during export</p>
+                  )}
+                  {exportMode === "playlist" && (
+                    <p className="mixtape-export-hint">Track list and cover only — no audio files</p>
+                  )}
+                </div>
                 <div className="mixtape-export-row">
                   <label>
                     Type
@@ -268,15 +311,6 @@ export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExp
                       <option value="custom">{mixtapeTypeLabel("custom")}</option>
                       <option value="album">{mixtapeTypeLabel("album")}</option>
                       <option value="best_of_artist">{mixtapeTypeLabel("best_of_artist")}</option>
-                    </select>
-                  </label>
-                  <label>
-                    Quality
-                    <select value={quality} onChange={(e) => handleQualityChange(e.target.value as Quality)}>
-                      <option value="flac">{qualityLabel("flac")}</option>
-                      <option value="mp3_320">{qualityLabel("mp3_320")}</option>
-                      <option value="mp3_128">{qualityLabel("mp3_128")}</option>
-                      <option value="aac">{qualityLabel("aac")}</option>
                     </select>
                   </label>
                 </div>
@@ -292,7 +326,6 @@ export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExp
                           onChange={(e) => handleMetadataKeyChange(idx, e.target.value)}
                           onBlur={() => handleMetadataKeyBlur(idx)}
                           placeholder="Key"
-                          readOnly={entry.key === "quality"}
                           className={isDuplicate ? "mixtape-metadata-error" : ""}
                         />
                         <input
@@ -300,11 +333,8 @@ export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExp
                           value={entry.value}
                           onChange={(e) => handleMetadataValueChange(idx, e.target.value)}
                           placeholder="Value"
-                          readOnly={entry.key === "quality"}
                         />
-                        {entry.key !== "quality" && (
-                          <button className="mixtape-metadata-remove" onClick={() => handleRemoveMetadata(idx)}>x</button>
-                        )}
+                        <button className="mixtape-metadata-remove" onClick={() => handleRemoveMetadata(idx)}>x</button>
                       </div>
                     );
                   })}
@@ -324,19 +354,21 @@ export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExp
             <div className="mixtape-export-tracklist">
               <div className="mixtape-export-tracklist-header">
                 <span>{trackList.length} tracks</span>
-                {estimatedSize > 0 && <span>~{formatFileSize(estimatedSize)}</span>}
+                {exportMode === "full" && estimatedSize > 0 && <span>~{formatFileSize(estimatedSize)}</span>}
               </div>
               {trackList.map((track, idx) => (
                 <div
-                  key={track.id}
+                  key={track.id ?? `track-${idx}`}
                   className="mixtape-export-track"
-                  draggable
-                  onDragStart={() => handleDragStart(idx)}
-                  onDragOver={(e) => handleDragOver(e, idx)}
-                  onDragEnd={handleDragEnd}
                 >
-                  <span className="mixtape-track-grip">{"\u2807"}</span>
                   <span className="mixtape-track-num">{idx + 1}</span>
+                  {track.imageUrl && (
+                    <img
+                      className="mixtape-track-thumb"
+                      src={track.imageUrl.startsWith("http") ? track.imageUrl : convertFileSrc(track.imageUrl)}
+                      alt=""
+                    />
+                  )}
                   <div className="mixtape-track-info">
                     <span className="mixtape-track-title">{track.title}</span>
                     <span className="mixtape-track-artist">
@@ -366,14 +398,16 @@ export function MixtapeExportModal({ tracks, defaultTitle, onClose }: MixtapeExp
                 className="mixtape-progress-fill"
                 style={{
                   width: progress
-                    ? `${(progress.current_track / progress.total_tracks) * 100}%`
+                    ? `${(progress.currentTrack / progress.totalTracks) * 100}%`
                     : "0%",
                 }}
               />
             </div>
             <div className="mixtape-progress-text">
               {progress
-                ? `Exporting track ${progress.current_track} of ${progress.total_tracks}...`
+                ? progress.phase === "downloading" || progress.phase === "resolving"
+                  ? `Downloading ${progress.currentTrack} of ${progress.totalTracks}: ${progress.trackTitle}...`
+                  : `Packing ${progress.currentTrack} of ${progress.totalTracks}: ${progress.trackTitle}...`
                 : "Starting export..."}
             </div>
             <button className="mixtape-cancel-btn" onClick={handleCancel}>

@@ -5,13 +5,15 @@ import playlistDefault from "../assets/playlist-default.png";
 
 interface SavePlaylistModalProps {
   defaultName: string;
+  defaultImage?: string | null;
+  title?: string;
   onSave: (name: string, imagePath: string | null) => void;
   onClose: () => void;
 }
 
-export function SavePlaylistModal({ defaultName, onSave, onClose }: SavePlaylistModalProps) {
+export function SavePlaylistModal({ defaultName, defaultImage, title, onSave, onClose }: SavePlaylistModalProps) {
   const [name, setName] = useState(defaultName);
-  const [imagePath, setImagePath] = useState<string | null>(null);
+  const [imagePath, setImagePath] = useState<string | null>(defaultImage ?? null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -65,7 +67,7 @@ export function SavePlaylistModal({ defaultName, onSave, onClose }: SavePlaylist
   return (
     <div className="ds-modal-overlay" onClick={onClose}>
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">Save Playlist</h2>
+        <h2 className="ds-modal-title">{title || "Save Playlist"}</h2>
         <div className="save-playlist-image-row">
           <div className="save-playlist-image-preview">
             <img src={imagePath ? convertFileSrc(imagePath) : playlistDefault} alt="" />

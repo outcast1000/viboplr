@@ -1261,12 +1261,10 @@ function activate(api) {
     if (!pl) return;
     var tracks = state.playlistTracks[pl.id] || [];
     if (tracks.length === 0) return;
-    api.ui.requestAction("play-tracks", {
-      tracks: playlistTracksToPayload(tracks),
-      startIndex: 0,
-      playlistName: pl.name,
-      coverUrl: pl.imageUrl || undefined,
-    });
+    var ctx = playlistContextPayload(pl);
+    ctx.tracks = playlistTracksToPayload(tracks);
+    ctx.startIndex = 0;
+    api.ui.requestAction("play-tracks", ctx);
   });
 
   api.ui.onAction("enqueue-current", function() {
@@ -1296,6 +1294,19 @@ function activate(api) {
     return null;
   }
 
+  function playlistContextPayload(pl) {
+    var meta = {};
+    if (pl.section) meta.section = pl.section;
+    if (pl.description) meta.description = pl.description;
+    if (state.savedAt) meta.dateAdded = new Date(state.savedAt).toISOString();
+    return {
+      playlistName: pl.name,
+      coverUrl: pl.imageUrl || undefined,
+      source: "spotify:playlist:" + pl.id,
+      metadata: meta,
+    };
+  }
+
   function playlistTracksToPayload(tracks) {
     var out = [];
     for (var i = 0; i < tracks.length; i++) {
@@ -1323,12 +1334,10 @@ function activate(api) {
     if (!pl) return;
     var tracks = state.playlistTracks[pl.id] || [];
     if (tracks.length === 0) return;
-    api.ui.requestAction("play-tracks", {
-      tracks: playlistTracksToPayload(tracks),
-      startIndex: 0,
-      playlistName: pl.name,
-      coverUrl: pl.imageUrl || undefined,
-    });
+    var ctx = playlistContextPayload(pl);
+    ctx.tracks = playlistTracksToPayload(tracks);
+    ctx.startIndex = 0;
+    api.ui.requestAction("play-tracks", ctx);
   });
 
   api.ui.onAction("enqueue-playlist", function(data) {
@@ -1442,11 +1451,17 @@ function activate(api) {
   api.ui.onAction("play-archived", function(data) {
     var found = getArchivedByIndex(data);
     if (!found || !found.entry.tracks || found.entry.tracks.length === 0) return;
+    var entry = found.entry;
+    var meta = {};
+    if (entry.section) meta.section = entry.section;
+    if (entry.archivedAt) meta.archivedAt = entry.archivedAt;
     api.ui.requestAction("play-tracks", {
-      tracks: archivedTracksToPayload(found.entry.tracks),
+      tracks: archivedTracksToPayload(entry.tracks),
       startIndex: 0,
-      playlistName: found.entry.name,
-      coverUrl: found.entry.imageUrl || undefined,
+      playlistName: entry.name,
+      coverUrl: entry.imageUrl || undefined,
+      source: entry.spotifyId ? "spotify:playlist:" + entry.spotifyId : undefined,
+      metadata: meta,
     });
   });
 

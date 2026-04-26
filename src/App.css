@@ -1809,18 +1809,19 @@
   background: var(--hover);
 }
 
-.mixtape-track-grip {
-  cursor: grab;
-  color: var(--text-tertiary);
-  font-size: var(--fs-xs);
-  user-select: none;
-}
-
 .mixtape-track-num {
   width: 24px;
   text-align: right;
   color: var(--text-tertiary);
   font-size: var(--fs-xs);
+  flex-shrink: 0;
+}
+
+.mixtape-track-thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 2px;
+  object-fit: cover;
   flex-shrink: 0;
 }
 
@@ -2039,6 +2040,50 @@
   flex-direction: row !important;
   align-items: center;
   gap: 6px !important;
+}
+
+.mixtape-export-mode {
+  margin-bottom: 4px;
+}
+
+.mixtape-export-mode > label {
+  display: block;
+  font-size: var(--fs-sm);
+  margin-bottom: 6px;
+}
+
+.mixtape-export-mode-options {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius, 6px);
+  overflow: hidden;
+}
+
+.mixtape-mode-btn {
+  flex: 1;
+  padding: 6px 12px;
+  border: none;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.mixtape-mode-btn + .mixtape-mode-btn {
+  border-left: 1px solid var(--border);
+}
+
+.mixtape-mode-btn.active {
+  background: var(--accent);
+  color: var(--accent-text, #fff);
+}
+
+.mixtape-export-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin: 6px 0 0;
 }
 
 .mixtape-export-modal h2 {

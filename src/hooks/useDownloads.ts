@@ -113,6 +113,57 @@ export function useDownloads(
     return () => { unlisten.then((fn) => fn()); };
   }, []);
 
+  // Listen for mixtape-download-request events from full export
+  useEffect(() => {
+    const unlisten = listen<{
+      id: number;
+      title: string;
+      artist_name: string | null;
+      album_title: string | null;
+      path: string | null;
+    }>("mixtape-download-request", async (event) => {
+      const { id, title, artist_name, album_title, path } = event.payload;
+      const format = downloadFormatRef.current;
+
+      let result: DownloadResolveResult | null = null;
+
+      if (path) {
+        const parts = path.split("://");
+        const scheme = parts[0];
+        if (scheme === "tidal") {
+          const trackId = parts[1] || null;
+          result = await invokeDownloadResolveRef.current(
+            "tidal-browse", "tidal-download", title, artist_name, album_title, trackId, format);
+        } else if (scheme === "subsonic") {
+          const rest = parts[1] || "";
+          const lastSlash = rest.lastIndexOf("/");
+          const trackId = lastSlash >= 0 ? rest.substring(lastSlash + 1) : null;
+          if (trackId) {
+            try {
+              const url = await invoke<string>("resolve_subsonic_download_url", {
+                collectionId: parseInt(rest.substring(0, lastSlash), 10),
+                remoteTrackId: trackId,
+                format,
+              });
+              result = { url, headers: null, metadata: null };
+            } catch (e) {
+              console.error("Subsonic mixtape resolve failed:", e);
+            }
+          }
+        }
+      }
+
+      if (!result) {
+        result = await resolveDownload(
+          downloadProvidersRef.current, title, artist_name, album_title, format);
+      }
+
+      await invoke("download_resolve_response", { id, result: result ?? null });
+    });
+
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
   function setFormat(format: string, store: AppStore) {
     setDownloadFormat(format);
     downloadFormatRef.current = format;

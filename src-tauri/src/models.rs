@@ -288,7 +288,8 @@ pub struct MixtapeTrack {
     pub album: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_secs: Option<f64>,
-    pub file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumb: Option<String>,
 }
@@ -321,6 +322,52 @@ pub struct MixtapeExportProgress {
     pub total_tracks: u32,
     pub phase: String,
     pub track_title: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MixtapeTrackMeta {
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_secs: Option<f64>,
+    pub image_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MixtapePlaylistExportOptions {
+    pub title: String,
+    pub mixtape_type: MixtapeType,
+    pub metadata: HashMap<String, String>,
+    pub created_by: Option<String>,
+    pub cover_image_path: Option<String>,
+    pub include_thumbs: bool,
+    pub tracks: Vec<MixtapeTrackMeta>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MixtapeExportTrackInput {
+    pub id: Option<i64>,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_secs: Option<f64>,
+    pub path: Option<String>,
+    pub image_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MixtapeFullExportOptions {
+    pub title: String,
+    pub mixtape_type: MixtapeType,
+    pub metadata: HashMap<String, String>,
+    pub created_by: Option<String>,
+    pub cover_image_path: Option<String>,
+    pub include_thumbs: bool,
+    pub tracks: Vec<MixtapeExportTrackInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

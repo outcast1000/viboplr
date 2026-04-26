@@ -19,7 +19,7 @@ import { type StreamResolver } from "./streamResolvers";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
-import { useQueue } from "./hooks/useQueue";
+import { useQueue, type PlaylistContext } from "./hooks/useQueue";
 import { useLibrary, DEFAULT_TRACK_COLUMNS, ALBUM_DETAIL_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
 import { useImageCache } from "./hooks/useImageCache";
@@ -91,6 +91,7 @@ function App() {
   const [appRestoring, setAppRestoring] = useState(true);
   const [navError, setNavError] = useState<string | null>(null);
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
+  const [editPlaylistMode, setEditPlaylistMode] = useState(false);
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
   const [tidalAlbumDownload, setTidalAlbumDownload] = useState<TidalAlbumDownloadInput | null>(null);
   const [tidalSearchResults, setTidalSearchResults] = useState<TidalSearchTrack[] | null>(null);
@@ -249,7 +250,16 @@ function App() {
       queueHook.enqueueTracks([tidalTrackToTrackFn(track)]);
     },
     playTidalTracks: (tracks: TidalSearchTrackLike[], startIndex?: number, context?: { name: string; coverUrl?: string | null }) => {
-      queueHook.playTracks(tracks.map(tidalTrackToTrackFn), startIndex ?? 0, context ? { name: context.name, coverUrl: context.coverUrl } : undefined);
+      queueHook.playTracks(tracks.map(tidalTrackToTrackFn), startIndex ?? 0, context ? { name: context.name } : undefined);
+      if (context?.coverUrl) {
+        if (context.coverUrl.startsWith("http://") || context.coverUrl.startsWith("https://")) {
+          invoke<string>("download_url_to_playlist_images", { url: context.coverUrl })
+            .then(path => queueHook.setPlaylistContext(prev => prev ? { ...prev, imagePath: path } : prev))
+            .catch(console.error);
+        } else {
+          queueHook.setPlaylistContext(prev => prev ? { ...prev, imagePath: context.coverUrl! } : prev);
+        }
+      }
     },
     getDownloadFormat: () => downloadFormatRef.current,
   }), [queueHook, tidalTrackToTrackFn]);
@@ -535,6 +545,8 @@ function App() {
   const [mixtapePreviewPath, setMixtapePreviewPath] = useState<string | null>(null);
   const [mixtapeExportTracks, setMixtapeExportTracks] = useState<ExportTrack[] | null>(null);
   const [mixtapeExportDefaultTitle, setMixtapeExportDefaultTitle] = useState<string>("");
+  const [mixtapeExportDefaultCover, setMixtapeExportDefaultCover] = useState<string | null>(null);
+  const [mixtapeExportDefaultMetadata, setMixtapeExportDefaultMetadata] = useState<Record<string, string> | null>(null);
 
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
@@ -736,6 +748,9 @@ function App() {
         if (tracks?.length) {
           const playlistName = payload.playlistName as string | undefined;
           const coverUrl = payload.coverUrl as string | undefined;
+          const source = payload.source as string | undefined;
+          const metadata = payload.metadata as Record<string, string> | undefined;
+          const ctx: PlaylistContext | null = playlistName ? { name: playlistName, source: source ?? null, metadata: metadata ?? null } : null;
           queueHook.playTracks(tracks.map(t => ({
             id: null,
             key: nextExternalKey(),
@@ -746,7 +761,16 @@ function App() {
             path: t.path ?? t.url ?? null,
             image_url: t.image_url,
             liked: 0,
-          })) as Track[], startIndex, playlistName ? { name: playlistName, coverUrl: coverUrl ?? null } : null);
+          })) as Track[], startIndex, ctx);
+          if (coverUrl && playlistName) {
+            if (coverUrl.startsWith("http://") || coverUrl.startsWith("https://")) {
+              invoke<string>("download_url_to_playlist_images", { url: coverUrl })
+                .then(path => queueHook.setPlaylistContext(prev => prev ? { ...prev, imagePath: path } : prev))
+                .catch(console.error);
+            } else {
+              queueHook.setPlaylistContext(prev => prev ? { ...prev, imagePath: coverUrl } : prev);
+            }
+          }
         }
       } else if (action === "navigate-to-artist") {
         pushStateRef.current();
@@ -1116,7 +1140,7 @@ function App() {
           store.get<string | null>("trackSortField"),
           store.get<string>("trackSortDir"),
           store.get<ColumnConfig[] | null>("trackColumns"),
-          store.get<{ name: string; coverPath?: string | null; coverUrl?: string | null } | null>("playlistContext"),
+          store.get<PlaylistContext | null>("playlistContext"),
           store.get<string | null>("artistViewMode"),
           store.get<string | null>("albumViewMode"),
           store.get<string | null>("tagViewMode"),
@@ -1285,7 +1309,7 @@ function App() {
           if (typeof savedPlaylistName === "string") {
             queueHook.setPlaylistContext({ name: savedPlaylistName });
           } else {
-            queueHook.setPlaylistContext(savedPlaylistName as { name: string; coverPath?: string | null; coverUrl?: string | null });
+            queueHook.setPlaylistContext(savedPlaylistName as PlaylistContext);
           }
         }
         if (savedTrackViewMode && ["basic", "list", "tiles"].includes(savedTrackViewMode)) library.setTrackViewMode(savedTrackViewMode as ViewMode);
@@ -1841,11 +1865,49 @@ function App() {
   }
   function handleSaveAsPlaylist() {
     if (queueHook.queue.length === 0) return;
+    setEditPlaylistMode(false);
     setShowSavePlaylistModal(true);
+  }
+
+  function handleEditPlaylist() {
+    setEditPlaylistMode(true);
+    setShowSavePlaylistModal(true);
+  }
+
+  function handleQueueExportAsMixtape() {
+    const tracks = queueHook.queue;
+    if (tracks.length === 0) return;
+    const exportTracks: ExportTrack[] = tracks.map(t => ({
+      id: t.id ?? undefined,
+      title: t.title,
+      artistName: t.artist_name || undefined,
+      albumTitle: t.album_title || undefined,
+      durationSecs: t.duration_secs || undefined,
+      fileSize: t.file_size || undefined,
+      path: t.path || undefined,
+      imageUrl: t.image_url || undefined,
+    }));
+    setMixtapeExportTracks(exportTracks);
+    setMixtapeExportDefaultTitle(queueHook.playlistContext?.name || "");
+    setMixtapeExportDefaultCover(queueHook.playlistContext?.imagePath ?? null);
+    const ctx = queueHook.playlistContext;
+    const meta: Record<string, string> = {};
+    if (ctx?.source) meta.source = ctx.source;
+    if (ctx?.metadata) {
+      for (const [k, v] of Object.entries(ctx.metadata)) {
+        if (v) meta[k] = v;
+      }
+    }
+    setMixtapeExportDefaultMetadata(Object.keys(meta).length > 0 ? meta : null);
   }
 
   async function handleSavePlaylistConfirm(name: string, imagePath: string | null) {
     setShowSavePlaylistModal(false);
+    if (editPlaylistMode) {
+      queueHook.setPlaylistContext(prev => ({ ...prev, name, imagePath: imagePath ?? prev?.imagePath ?? null }));
+      addLog("Playlist updated: " + name, "playlist");
+      return;
+    }
     const tracks = queueHook.queue.map((t) => ({
       title: t.title,
       artist_name: t.artist_name ?? null,
@@ -1884,13 +1946,15 @@ function App() {
         fileSize: t.file_size || undefined,
       })));
       setMixtapeExportDefaultTitle(defaultTitle || "");
+      setMixtapeExportDefaultCover(null);
+      setMixtapeExportDefaultMetadata(null);
     } catch (e) {
       console.error("Failed to prepare mixtape export:", e);
     }
   }, []);
 
   // Queue handler for mixtape "Just Play" mode — replaces the queue with mixtape tracks
-  const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; coverPath?: string | null }) => {
+  const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; imagePath?: string | null }) => {
     queueHook.playTracks(tracks, 0, context);
   }, [queueHook.playTracks]);
 
@@ -2255,7 +2319,7 @@ function App() {
                           title="Play All"
                           onClick={() => {
                             const tagImgPath = tagImageCache.images[selectedTag] ?? null;
-                            queueHook.playTracks(sortedTracks.filter(t => t.liked !== -1), 0, tag ? { name: tag.name, coverPath: tagImgPath } : null);
+                            queueHook.playTracks(sortedTracks.filter(t => t.liked !== -1), 0, tag ? { name: tag.name, imagePath: tagImgPath } : null);
                           }}
                         >
                           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
@@ -2798,8 +2862,10 @@ function App() {
           }}
           onMoveMultiple={queueHook.moveMultiple}
           onClear={queueHook.clearQueue}
-          onSavePlaylist={queueHook.savePlaylist}
-          onSaveAsPlaylist={handleSaveAsPlaylist}
+          onSaveAsM3U={queueHook.savePlaylist}
+          onSaveToPlaylists={handleSaveAsPlaylist}
+          onExportAsMixtape={handleQueueExportAsMixtape}
+          onEditPlaylist={handleEditPlaylist}
           onLoadPlaylist={() => queueHook.loadPlaylist(setMixtapePreviewPath)}
           onContextMenu={(e, indices) => {
             const tracks = indices.map(i => queueHook.queue[i]).filter(Boolean);
@@ -3001,6 +3067,8 @@ function App() {
         <MixtapeExportModal
           tracks={mixtapeExportTracks}
           defaultTitle={mixtapeExportDefaultTitle}
+          defaultCoverPath={mixtapeExportDefaultCover}
+          defaultMetadata={mixtapeExportDefaultMetadata}
           onClose={() => setMixtapeExportTracks(null)}
         />
       )}
@@ -3033,13 +3101,17 @@ function App() {
 
       {showSavePlaylistModal && (
         <SavePlaylistModal
-          defaultName={(() => {
-            const date = new Date();
-            const dateStr = date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-            return queueHook.playlistContext?.name
-              ? `${queueHook.playlistContext.name} ${dateStr}`
-              : `Queue ${dateStr}`;
-          })()}
+          defaultName={editPlaylistMode
+            ? (queueHook.playlistContext?.name ?? "")
+            : (() => {
+              const date = new Date();
+              const dateStr = date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+              return queueHook.playlistContext?.name
+                ? `${queueHook.playlistContext.name} ${dateStr}`
+                : `Queue ${dateStr}`;
+            })()}
+          defaultImage={editPlaylistMode ? (queueHook.playlistContext?.imagePath ?? null) : null}
+          title={editPlaylistMode ? "Edit Playlist" : "Save Playlist"}
           onSave={handleSavePlaylistConfirm}
           onClose={() => setShowSavePlaylistModal(false)}
         />

@@ -57,7 +57,7 @@ function playlistTrackToMinimalTrack(t: PlaylistTrack): { title: string; artist_
 
 interface PlaylistsViewProps {
   searchQuery: string;
-  onPlayTracks: (tracks: any[], startIndex: number, context?: { name: string; coverPath?: string | null; coverUrl?: string | null } | null) => void;
+  onPlayTracks: (tracks: any[], startIndex: number, context?: { name: string; imagePath?: string | null } | null) => void;
   onEnqueueTracks: (tracks: any[]) => void;
   onExportAsMixtape?: (trackIds: number[], defaultTitle?: string) => void;
   pluginMenuItems?: PluginMenuItem[];
@@ -122,7 +122,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
     e.stopPropagation();
     const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
     if (rows.length > 0) {
-      onPlayTracks(rows.map(playlistTrackToMinimalTrack), 0, { name: pl.name, coverPath: pl.image_path });
+      onPlayTracks(rows.map(playlistTrackToMinimalTrack), 0, { name: pl.name, imagePath: pl.image_path });
     }
   }, [onPlayTracks]);
 
@@ -209,7 +209,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
               {selectedPlaylist.track_count} tracks &middot; Saved {formatDate(selectedPlaylist.saved_at)}
             </div>
             <div className="playlists-detail-actions">
-              <button className="playlists-action-btn playlists-action-btn-play" onClick={() => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0, { name: selectedPlaylist.name, coverPath: selectedPlaylist.image_path })} disabled={tracks.length === 0}>Play</button>
+              <button className="playlists-action-btn playlists-action-btn-play" onClick={() => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0, { name: selectedPlaylist.name, imagePath: selectedPlaylist.image_path })} disabled={tracks.length === 0}>Play</button>
               <button className="playlists-action-btn" onClick={() => handleExport(selectedPlaylist)}>Export as M3U</button>
               {onExportAsMixtape && (
                 <button className="playlists-action-btn" onClick={async () => {
@@ -260,7 +260,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
           >
             <div className="context-menu-item" onClick={() => {
               const t = trackContextMenu.track;
-              onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? { name: selectedPlaylist.name, coverPath: selectedPlaylist.image_path } : null);
+              onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? { name: selectedPlaylist.name, imagePath: selectedPlaylist.image_path } : null);
               setTrackContextMenu(null);
             }}>
               <span>Play</span>

@@ -1464,6 +1464,32 @@ pub fn copy_to_playlist_images(
 }
 
 #[tauri::command]
+pub fn download_url_to_playlist_images(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<String, String> {
+    let img_dir = state.app_dir.join("playlist_images");
+    std::fs::create_dir_all(&img_dir).map_err(|e| e.to_string())?;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let ext = if url.contains(".png") { "png" } else { "jpg" };
+    let dest = img_dir.join(format!("downloaded_{}.{}", timestamp, ext));
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+    let mut response = client.get(&url).send().map_err(|e| format!("Download failed: {}", e))?;
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+    let mut file = std::fs::File::create(&dest).map_err(|e| format!("Create file: {}", e))?;
+    std::io::copy(&mut response, &mut file).map_err(|e| format!("Write file: {}", e))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 pub fn generate_playlist_composite(
     state: State<'_, AppState>,
     artist_names: Vec<String>,
@@ -3441,6 +3467,311 @@ pub fn export_mixtape(
 }
 
 #[tauri::command]
+pub fn export_mixtape_playlist_only(
+    dest_path: String,
+    options: crate::models::MixtapePlaylistExportOptions,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    use tauri::Emitter;
+
+    let dest_path = if !dest_path.ends_with(".mixtape") {
+        format!("{}.mixtape", dest_path)
+    } else {
+        dest_path
+    };
+
+    if std::path::Path::new(&dest_path).is_dir() {
+        return Err("Destination path is a directory".to_string());
+    }
+
+    let app_dir = state.app_dir.clone();
+
+    let track_entries: Vec<crate::models::MixtapeTrack> = options.tracks.iter().map(|t| {
+        crate::models::MixtapeTrack {
+            title: t.title.clone(),
+            artist: t.artist.clone().unwrap_or_default(),
+            album: t.album.clone(),
+            duration_secs: t.duration_secs,
+            file: None,
+            thumb: None,
+        }
+    }).collect();
+
+    // Resolve thumbnail paths from cached album images
+    let thumb_paths: Vec<Option<String>> = options.tracks.iter().map(|t| {
+        // Try local cached album image first
+        if let (Some(album), Some(artist)) = (&t.album, &t.artist) {
+            let slug = crate::entity_image::entity_image_slug("album", album, Some(artist));
+            if let Some(p) = crate::entity_image::get_image_path(&app_dir, "album", &slug) {
+                return Some(p.to_string_lossy().to_string());
+            }
+        }
+        // Fall back to image_url if it's a local path
+        if let Some(ref url) = t.image_url {
+            if !url.starts_with("http") && std::path::Path::new(url).exists() {
+                return Some(url.clone());
+            }
+        }
+        None
+    }).collect();
+
+    let manifest = crate::mixtape::build_manifest(
+        options.title, options.mixtape_type, options.metadata,
+        options.created_by, track_entries,
+    );
+
+    let cover = options.cover_image_path.clone();
+    let include_thumbs = options.include_thumbs;
+
+    thread::spawn(move || {
+        let dest = std::path::Path::new(&dest_path);
+        let cover_path = cover.as_ref().map(|p| std::path::Path::new(p.as_str()));
+        match crate::mixtape::build_playlist_mixtape(dest, cover_path, manifest, &thumb_paths, include_thumbs) {
+            Ok(file_size) => {
+                let _ = app.emit("mixtape-export-complete", serde_json::json!({
+                    "path": dest_path, "fileSize": file_size,
+                }));
+            }
+            Err(e) => {
+                let _ = app.emit("mixtape-export-error", serde_json::json!({ "message": e }));
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn export_mixtape_full(
+    dest_path: String,
+    options: crate::models::MixtapeFullExportOptions,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    use tauri::Emitter;
+
+    let dest_path = if !dest_path.ends_with(".mixtape") {
+        format!("{}.mixtape", dest_path)
+    } else {
+        dest_path
+    };
+
+    if std::path::Path::new(&dest_path).is_dir() {
+        return Err("Destination path is a directory".to_string());
+    }
+
+    let cancel = state.mixtape_cancel.clone();
+    let app_dir = state.app_dir.clone();
+    let resolve_registry = state.download_resolve_registry.clone();
+    cancel.store(false, Ordering::Relaxed);
+
+    let tracks_input = options.tracks.clone();
+    let cover_image_path = options.cover_image_path.clone();
+    let include_thumbs = options.include_thumbs;
+
+    thread::spawn(move || {
+        let temp_dir = app_dir.join("temp_mixtape_export");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let mut sources: Vec<crate::mixtape::MixtapeTrackSource> = Vec::new();
+        let mut skipped: Vec<String> = Vec::new();
+        let total = tracks_input.len();
+
+        for (i, track) in tracks_input.iter().enumerate() {
+            if cancel.load(Ordering::Relaxed) {
+                let _ = std::fs::remove_dir_all(&temp_dir);
+                let _ = app.emit("mixtape-export-error",
+                    serde_json::json!({ "message": "Export cancelled" }));
+                return;
+            }
+
+            let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
+                current_track: (i + 1) as u32,
+                total_tracks: total as u32,
+                phase: "resolving".to_string(),
+                track_title: track.title.clone(),
+            });
+
+            let audio_path: Option<String> = if let Some(ref path) = track.path {
+                if path.starts_with("file://") {
+                    let fs_path = &path[7..];
+                    if std::path::Path::new(fs_path).exists() {
+                        Some(fs_path.to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    resolve_and_download_track(&resolve_registry, &app, &temp_dir, i, total, track)
+                }
+            } else {
+                resolve_and_download_track(&resolve_registry, &app, &temp_dir, i, total, track)
+            };
+
+            match audio_path {
+                Some(path) => {
+                    let thumb_path = track.album.as_ref().and_then(|album| {
+                        let artist = track.artist.as_deref().unwrap_or("");
+                        let slug = crate::entity_image::entity_image_slug("album", album, Some(artist));
+                        crate::entity_image::get_image_path(&app_dir, "album", &slug)
+                            .map(|p| p.to_string_lossy().to_string())
+                    }).or_else(|| {
+                        track.image_url.as_ref().and_then(|url| {
+                            if !url.starts_with("http") && std::path::Path::new(url).exists() {
+                                Some(url.clone())
+                            } else {
+                                None
+                            }
+                        })
+                    });
+                    sources.push(crate::mixtape::MixtapeTrackSource {
+                        title: track.title.clone(),
+                        artist: track.artist.clone().unwrap_or_default(),
+                        album: track.album.clone(),
+                        duration_secs: track.duration_secs,
+                        audio_path: path,
+                        thumb_path,
+                    });
+                }
+                None => {
+                    skipped.push(track.title.clone());
+                }
+            }
+        }
+
+        if sources.is_empty() {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+            let _ = app.emit("mixtape-export-error", serde_json::json!({
+                "message": format!("No tracks could be resolved. Skipped: {}", skipped.join(", ")),
+            }));
+            return;
+        }
+
+        let manifest = crate::mixtape::build_manifest(
+            options.title, options.mixtape_type, options.metadata,
+            options.created_by, vec![],
+        );
+        let dest = std::path::Path::new(&dest_path);
+        let cover = cover_image_path.as_ref().map(|p| std::path::Path::new(p.as_str()));
+
+        match crate::mixtape::build_mixtape(
+            dest, cover, &sources, manifest, include_thumbs, &cancel,
+            |current, total, title, _| {
+                let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
+                    current_track: current, total_tracks: total,
+                    phase: "packing".to_string(), track_title: title.to_string(),
+                });
+            },
+        ) {
+            Ok(file_size) => {
+                let complete_payload = if !skipped.is_empty() {
+                    serde_json::json!({ "path": dest_path, "fileSize": file_size, "skipped": skipped })
+                } else {
+                    serde_json::json!({ "path": dest_path, "fileSize": file_size })
+                };
+                let _ = app.emit("mixtape-export-complete", complete_payload);
+            }
+            Err(e) => {
+                let _ = app.emit("mixtape-export-error", serde_json::json!({ "message": e }));
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    });
+
+    Ok(())
+}
+
+fn resolve_and_download_track(
+    resolve_registry: &Arc<crate::downloader::DownloadResolveRegistry>,
+    app: &tauri::AppHandle,
+    temp_dir: &std::path::Path,
+    i: usize,
+    total: usize,
+    track: &crate::models::MixtapeExportTrackInput,
+) -> Option<String> {
+    use tauri::Emitter;
+
+    let resolve_id = (i as u64) + 10000;
+    let rx = resolve_registry.register(resolve_id);
+    let _ = app.emit("mixtape-download-request", serde_json::json!({
+        "id": resolve_id,
+        "title": track.title,
+        "artist_name": track.artist,
+        "album_title": track.album,
+        "path": track.path,
+    }));
+
+    match rx.recv_timeout(std::time::Duration::from_secs(60)) {
+        Ok(Some(response)) => {
+            let ext = if response.url.contains(".flac") { "flac" }
+                else if response.url.contains(".m4a") { "m4a" }
+                else { "mp3" };
+            let temp_file = temp_dir.join(
+                format!("{:03}-{}.{}", i + 1,
+                    crate::entity_image::canonical_slug(&track.title), ext));
+
+            let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
+                current_track: (i + 1) as u32,
+                total_tracks: total as u32,
+                phase: "downloading".to_string(),
+                track_title: track.title.clone(),
+            });
+
+            match mixtape_download_to_file(&response.url, response.headers.as_ref(), &temp_file) {
+                Ok(_) => Some(temp_file.to_string_lossy().to_string()),
+                Err(e) => {
+                    log::error!("Failed to download {}: {}", track.title, e);
+                    None
+                }
+            }
+        }
+        _ => {
+            resolve_registry.cancel(resolve_id);
+            None
+        }
+    }
+}
+
+fn mixtape_download_to_file(
+    url: &str,
+    headers: Option<&std::collections::HashMap<String, String>>,
+    dest: &std::path::Path,
+) -> Result<(), String> {
+    if url.starts_with("file://") {
+        let src_path = urlencoding::decode(&url[7..])
+            .map_err(|e| format!("URL decode error: {}", e))?;
+        std::fs::copy(src_path.as_ref(), dest)
+            .map_err(|e| format!("Failed to copy local file: {}", e))?;
+        return Ok(());
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .danger_accept_invalid_certs(true)
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+
+    let mut req = client.get(url);
+    if let Some(h) = headers {
+        for (k, v) in h {
+            req = req.header(k.as_str(), v.as_str());
+        }
+    }
+
+    let mut response = req.send().map_err(|e| format!("HTTP request failed: {}", e))?;
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+
+    let mut file = std::fs::File::create(dest)
+        .map_err(|e| format!("Failed to create file: {}", e))?;
+    std::io::copy(&mut response, &mut file)
+        .map_err(|e| format!("Failed to write file: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn import_mixtape(
     path: String,
     mode: crate::models::MixtapeImportMode,
@@ -3506,7 +3837,7 @@ pub fn import_mixtape(
                 // Save playlist tracks with file:// paths to extracted audio
                 let track_tuples: Vec<(String, Option<String>, Option<String>, Option<f64>, Option<String>, Option<String>)> =
                     manifest.tracks.iter().map(|t| {
-                        let audio_path = format!("file://{}", extract_dir.join(&t.file).to_string_lossy());
+                        let audio_path = t.file.as_ref().map(|f| format!("file://{}", extract_dir.join(f).to_string_lossy())).unwrap_or_default();
                         (
                             t.title.clone(),
                             Some(t.artist.clone()),
@@ -3689,7 +4020,7 @@ pub fn import_mixtape(
                         "artist": t.artist,
                         "album": t.album,
                         "durationSecs": t.duration_secs,
-                        "path": format!("file://{}", playback_dir.join(&t.file).to_string_lossy()),
+                        "path": t.file.as_ref().map(|f| format!("file://{}", playback_dir.join(f).to_string_lossy())).unwrap_or_default(),
                     })
                 }).collect();
 

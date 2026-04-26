@@ -8,7 +8,7 @@ import playlistDefault from "../assets/playlist-default.png";
 interface MixtapePreviewModalProps {
   mixtapePath: string;
   onClose: () => void;
-  onQueueTracks?: (tracks: Track[], context: { name: string; coverPath?: string | null }) => void;
+  onQueueTracks?: (tracks: Track[], context: { name: string; imagePath?: string | null }) => void;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -83,7 +83,7 @@ export function MixtapePreviewModal({
       if (onQueueTracks && preview) {
         onQueueTracks(event.payload, {
           name: preview.manifest.title,
-          coverPath: preview.cover_temp_path,
+          imagePath: preview.cover_temp_path,
         });
       }
       onClose();
