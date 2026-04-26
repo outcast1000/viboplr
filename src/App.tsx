@@ -258,6 +258,19 @@ function App() {
   // Wire up image resolver to handle image-resolve-request events
   useImageResolver(plugins.invokeImageFetch);
 
+  const streamResolversMeta = useMemo(() => {
+    const meta: Array<{ id: string; name: string; source: string }> = [];
+    for (const ps of plugins.pluginStates) {
+      if (ps.status !== "active") continue;
+      const srs = ps.manifest.contributes?.streamResolvers;
+      if (!srs) continue;
+      for (const sr of srs) {
+        meta.push({ id: `${ps.id}:${sr.id}`, name: sr.name, source: ps.id });
+      }
+    }
+    return meta;
+  }, [plugins.pluginStates]);
+
   // Build ordered stream resolver list from built-in + plugins + user ordering
   useEffect(() => {
     const buildResolvers = async () => {
@@ -2644,7 +2657,7 @@ function App() {
               onDebugLoggingChange={handleDebugLoggingChange}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
               downloadsCollection={downloadsCollection}
-              streamResolvers={streamResolversRef.current.map(r => ({ id: r.id, name: r.name, source: r.source }))}
+              streamResolvers={streamResolversMeta}
               autoSaveStreams={autoSaveStreams}
               onSetDownloadsFolder={handleSetDownloadsFolder}
               onUnsetDownloadsCollection={handleUnsetDownloadsCollection}
