@@ -849,6 +849,9 @@ pub fn delete_tracks(
     if !deleted_ids.is_empty() {
         state.db.delete_tracks_by_ids(&deleted_ids).map_err(|e| e.to_string())?;
         state.db.recompute_counts().map_err(|e| e.to_string())?;
+        for &id in &deleted_ids {
+            crate::video_frames::delete_cached_frames(&state.app_dir, id);
+        }
         for track in &tracks {
             if deleted_ids.contains(&track.id) {
                 let _ = app.emit("track-removed", serde_json::json!({
@@ -1928,6 +1931,85 @@ pub async fn ffmpeg_convert_audio(
             std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0));
 
         Ok(dest_str)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+// --- Video frame extraction commands ---
+
+#[derive(serde::Serialize)]
+pub struct VideoFrameResult {
+    pub status: String,
+    pub paths: Option<Vec<String>>,
+    pub timestamps: Option<Vec<f64>>,
+}
+
+#[tauri::command]
+pub fn get_video_frames(
+    state: State<'_, AppState>,
+    track_id: i64,
+) -> Option<VideoFrameResult> {
+    let app_dir = &state.app_dir;
+    crate::video_frames::get_cached_frames(app_dir, track_id).map(|cached| VideoFrameResult {
+        status: "ok".to_string(),
+        paths: Some(cached.paths),
+        timestamps: if cached.timestamps.is_empty() { None } else { Some(cached.timestamps) },
+    })
+}
+
+#[tauri::command]
+pub async fn extract_video_frames(
+    state: State<'_, AppState>,
+    track_id: i64,
+) -> Result<VideoFrameResult, String> {
+    let app_dir = state.app_dir.clone();
+    let db = state.db.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        if !crate::video_frames::is_ffmpeg_available() {
+            return Ok(VideoFrameResult { status: "unavailable".to_string(), paths: None, timestamps: None });
+        }
+
+        if let Some(cached) = crate::video_frames::get_cached_frames(&app_dir, track_id) {
+            return Ok(VideoFrameResult {
+                status: "ok".to_string(),
+                paths: Some(cached.paths),
+                timestamps: if cached.timestamps.is_empty() { None } else { Some(cached.timestamps) },
+            });
+        }
+
+        let track = db.get_track_by_id(track_id)
+            .map_err(|e| format!("DB error: {}", e))?;
+
+        if track.is_remote() {
+            return Err("Cannot extract frames from remote tracks".to_string());
+        }
+
+        let fs_path = track.filesystem_path()
+            .ok_or_else(|| "Track has no local file path".to_string())?;
+
+        let video_path = std::path::Path::new(fs_path);
+        if !video_path.exists() {
+            return Err(format!("Video file not found: {}", fs_path));
+        }
+
+        let video_exts = ["mp4", "m4v", "mov", "webm"];
+        let is_video = video_path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| video_exts.contains(&e.to_lowercase().as_str()))
+            .unwrap_or(false);
+        if !is_video {
+            return Err("Track is not a video file".to_string());
+        }
+
+        let (paths, timestamps) = crate::video_frames::extract_frames(&app_dir, track_id, video_path)?;
+
+        Ok(VideoFrameResult {
+            status: "ok".to_string(),
+            paths: Some(paths),
+            timestamps: Some(timestamps),
+        })
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
