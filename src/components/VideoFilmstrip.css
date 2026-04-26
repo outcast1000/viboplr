@@ -1,0 +1,44 @@
+.video-filmstrip {
+  display: flex;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.video-filmstrip-frame {
+  flex: 1;
+  position: relative;
+  border-radius: var(--ds-radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.video-filmstrip-frame img {
+  width: 100%;
+  display: block;
+}
+
+.video-filmstrip-ts {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  font-size: var(--fs-2xs);
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1.4;
+}
+
+.video-filmstrip-placeholder {
+  flex: 1;
+  aspect-ratio: 16 / 9;
+  background: var(--bg-tertiary);
+  border-radius: var(--ds-radius);
+  animation: glow-pulse 1.5s ease-in-out infinite;
+}
+
+.video-filmstrip-hint {
+  padding: 8px 0;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
