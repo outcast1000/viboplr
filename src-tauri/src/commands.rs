@@ -2341,56 +2341,15 @@ pub async fn download_to_path(
         let ext = final_dest.extension().and_then(|e| e.to_str()).unwrap_or(fmt.extension());
         let temp_path = final_dest.with_extension(format!("viboplr-dl.{}", ext));
 
-        let http_client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(300))
-            .build()
-            .map_err(|e| format!("HTTP client error: {}", e))?;
-
-        let resp = http_client
-            .get(&stream_url)
-            .send()
-            .map_err(|e| format!("Download failed: {}", e))?;
-
-        let total_bytes = resp.content_length().unwrap_or(0);
-        let mut downloaded: u64 = 0;
-        let mut last_emit = std::time::Instant::now();
-
-        let mut file = std::fs::File::create(&temp_path)
-            .map_err(|e| format!("Failed to create file: {}", e))?;
-
-        let mut reader = std::io::BufReader::new(resp);
-        let mut buf = [0u8; 8192];
-        loop {
-            if cancel_flag.load(Ordering::SeqCst) {
-                drop(file);
-                let _ = std::fs::remove_file(&temp_path);
-                return Err("Download cancelled".to_string());
-            }
-            use std::io::Read;
-            let n = reader.read(&mut buf).map_err(|e| {
-                let _ = std::fs::remove_file(&temp_path);
-                format!("Read error: {}", e)
-            })?;
-            if n == 0 {
-                break;
-            }
-            std::io::Write::write_all(&mut file, &buf[..n]).map_err(|e| {
-                let _ = std::fs::remove_file(&temp_path);
-                format!("Write error: {}", e)
-            })?;
-            downloaded += n as u64;
-
-            if last_emit.elapsed() >= std::time::Duration::from_millis(500) {
-                let pct = if total_bytes > 0 {
-                    ((downloaded as f64 / total_bytes as f64) * 100.0) as u8
-                } else {
-                    0
-                };
+        crate::downloader::download_file(
+            &stream_url,
+            None,
+            &temp_path,
+            Some(&cancel_flag),
+            Some(&|pct| {
                 let _ = app.emit("direct-download-progress", pct);
-                last_emit = std::time::Instant::now();
-            }
-        }
-        let _ = app.emit("direct-download-progress", 100u8);
+            }),
+        )?;
 
         // Write tags if metadata was provided
         if title.is_some() || artist_name.is_some() {
@@ -2494,52 +2453,15 @@ pub async fn download_preview(
         }
 
         // Download to temp path with progress events
-        let http_client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(300))
-            .build()
-            .map_err(|e| format!("HTTP client error: {}", e))?;
-
-        let resp = http_client
-            .get(&stream_url)
-            .send()
-            .map_err(|e| format!("Download failed: {}", e))?;
-
-        let total_bytes = resp.content_length().unwrap_or(0);
-        let mut downloaded: u64 = 0;
-        let mut last_emit = std::time::Instant::now();
-
-        let mut file = std::fs::File::create(&new_path)
-            .map_err(|e| format!("Failed to create file: {}", e))?;
-
-        let mut reader = std::io::BufReader::new(resp);
-        let mut buf = [0u8; 8192];
-        loop {
-            use std::io::Read;
-            let n = reader.read(&mut buf).map_err(|e| {
-                let _ = std::fs::remove_file(&new_path);
-                format!("Read error: {}", e)
-            })?;
-            if n == 0 {
-                break;
-            }
-            std::io::Write::write_all(&mut file, &buf[..n]).map_err(|e| {
-                let _ = std::fs::remove_file(&new_path);
-                format!("Write error: {}", e)
-            })?;
-            downloaded += n as u64;
-
-            if last_emit.elapsed() >= std::time::Duration::from_millis(500) {
-                let pct = if total_bytes > 0 {
-                    ((downloaded as f64 / total_bytes as f64) * 100.0) as u8
-                } else {
-                    0
-                };
+        crate::downloader::download_file(
+            &stream_url,
+            None,
+            &new_path,
+            None,
+            Some(&|pct| {
                 let _ = app.emit("upgrade-download-progress", pct);
-                last_emit = std::time::Instant::now();
-            }
-        }
-        std::io::Write::flush(&mut file).map_err(|e| format!("Flush error: {}", e))?;
-        drop(file);
+            }),
+        )?;
 
         // Write tags if metadata was provided
         if title.is_some() || artist_name.is_some() {
