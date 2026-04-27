@@ -2832,7 +2832,7 @@ function App() {
             onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
             onAdjustAutoContinueWeight={autoContinue.adjustWeight}
             onToggleLike={() => playback.currentTrack && playback.currentTrack.id != null && likeActions.handleToggleLike(playback.currentTrack)}
-            onToggleDislike={() => playback.currentTrack && playback.currentTrack.id != null && likeActions.handleToggleDislike(playback.currentTrack)}
+            onToggleDislike={() => { if (playback.currentTrack && playback.currentTrack.id != null) { likeActions.handleToggleDislike(playback.currentTrack); handleNext(); } }}
             onToggleFullscreen={playback.toggleFullscreen}
             showQueue={!queueCollapsed}
             onToggleQueue={handleToggleQueueCollapsed}
@@ -3189,7 +3189,7 @@ function App() {
         onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
         onToggleLike={() => playback.currentTrack && playback.currentTrack.id != null && likeActions.handleToggleLike(playback.currentTrack)}
-        onToggleDislike={() => playback.currentTrack && playback.currentTrack.id != null && likeActions.handleToggleDislike(playback.currentTrack)}
+        onToggleDislike={() => { if (playback.currentTrack && playback.currentTrack.id != null) { likeActions.handleToggleDislike(playback.currentTrack); handleNext(); } }}
         onTrackClick={(trackId) => { library.handleTrackClick(trackId); }}
         onArtistClick={library.handleArtistClick}
         onAlbumClick={library.handleAlbumClick}
