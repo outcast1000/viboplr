@@ -105,6 +105,7 @@ interface NowPlayingBarProps {
   resolvedSource?: { name: string; url: string } | null;
   loadingTrack?: Track | null;
   onSkipError?: () => void;
+  onDownloadTrack?: () => void;
 }
 
 export function NowPlayingBar({
@@ -123,6 +124,7 @@ export function NowPlayingBar({
   syncWithPlaying, onToggleSync,
   showHelp, onToggleHelp,
   playbackError, resolvingStatus, resolvedSource, loadingTrack, onSkipError,
+  onDownloadTrack,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -461,6 +463,15 @@ export function NowPlayingBar({
             />
           )}
         </div>
+        {onDownloadTrack && currentTrack && currentTrack.path && !currentTrack.path.startsWith("file://") && (
+          <button
+            className="g-btn g-btn-sm"
+            onClick={onDownloadTrack}
+            title="Download track"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
+        )}
         <button
           className={`g-btn g-btn-sm${syncWithPlaying ? " active" : ""}`}
           onClick={onToggleSync}

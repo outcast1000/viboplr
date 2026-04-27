@@ -3196,6 +3196,7 @@ function App() {
         loadingTrack={playback.loadingTrack}
         playbackError={playback.playbackError}
         onSkipError={() => { playback.clearPlaybackError(); handleNext(); }}
+        onDownloadTrack={playback.currentTrack ? () => contextMenuActions.handleDownloadTrack(playback.currentTrack!) : undefined}
       />
 
       {contextMenuActions.youtubeFeedback && (
