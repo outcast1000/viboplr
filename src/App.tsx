@@ -362,6 +362,34 @@ function App() {
   // Build ordered download provider list from active plugins
   const downloadProviders = useMemo(() => {
     const providers: DownloadProvider[] = [];
+
+    // Built-in subsonic provider
+    providers.push({
+      id: "__builtin:subsonic",
+      name: "Subsonic",
+      source: "__builtin",
+      resolveByUri: async (uri, format) => {
+        if (!uri.startsWith("subsonic://")) return null;
+        const rest = uri.substring(11);
+        const lastSlash = rest.lastIndexOf("/");
+        if (lastSlash < 0) return null;
+        const collectionId = parseInt(rest.substring(0, lastSlash), 10);
+        const trackId = rest.substring(lastSlash + 1);
+        if (!trackId || isNaN(collectionId)) return null;
+        try {
+          const url = await invoke<string>("resolve_subsonic_download_url", {
+            collectionId, remoteTrackId: trackId, format,
+          });
+          return { url, headers: null, metadata: null };
+        } catch (e) {
+          console.error("Subsonic download resolve failed:", e);
+          return null;
+        }
+      },
+      resolveByMetadata: async () => null,
+    });
+
+    // Plugin providers
     for (const ps of plugins.pluginStates) {
       if (ps.status !== "active") continue;
       const dps = ps.manifest.contributes?.downloadProviders;
@@ -371,13 +399,16 @@ function App() {
           id: `${ps.id}:${dp.id}`,
           name: dp.name,
           source: ps.id,
-          resolve: (title, artistName, albumName, sourceTrackId, format) =>
-            plugins.invokeDownloadResolve(ps.id, dp.id, title, artistName, albumName, sourceTrackId, format),
+          resolveByUri: (uri, format) =>
+            plugins.invokeDownloadResolveByUri(ps.id, dp.id, uri, format),
+          resolveByMetadata: (title, artistName, albumName, durationSecs, format) =>
+            plugins.invokeDownloadResolveByMetadata(ps.id, dp.id, title, artistName, albumName, durationSecs, format),
         });
       }
     }
+
     return providers;
-  }, [plugins.pluginStates, plugins.invokeDownloadResolve]);
+  }, [plugins.pluginStates, plugins.invokeDownloadResolveByUri, plugins.invokeDownloadResolveByMetadata]);
 
   const downloadProvidersRef = useRef<DownloadProvider[]>([]);
   downloadProvidersRef.current = downloadProviders;
@@ -397,9 +428,6 @@ function App() {
       invoke("sync_download_providers", { providers: providerData }).catch(console.error);
     }
   }, [plugins.pluginStates]);
-
-  const invokeDownloadResolveRef = useRef(plugins.invokeDownloadResolve);
-  invokeDownloadResolveRef.current = plugins.invokeDownloadResolve;
 
   const artistInfo = useArtistInfo({
     selectedArtist: library.selectedArtist,
@@ -596,7 +624,7 @@ function App() {
   });
 
   // Downloads
-  const downloads = useDownloads(downloadFormatRef, addLog, downloadProvidersRef, invokeDownloadResolveRef);
+  const downloads = useDownloads(downloadFormatRef, addLog, downloadProvidersRef);
 
   // Like actions
   const likeActions = useLikeActions({
@@ -2940,8 +2968,8 @@ function App() {
               });
             }
           } : undefined}
-          onDownloadTrack={(providerId) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track" && t.trackId) { const track = library.tracks.find(tr => tr.id === t.trackId); if (track) contextMenuActions.handleDownloadTrack(track, providerId); } else if (t.kind === "album" && t.albumId) { const albumTracks = library.tracks.filter(tr => tr.album_id === t.albumId); if (albumTracks.length) contextMenuActions.handleDownloadMulti(albumTracks, providerId); } }}
-          onDownloadMulti={(providerId) => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "multi-track") { const idSet = new Set(t.trackIds); const selected = library.tracks.filter(tr => tr.id != null && idSet.has(tr.id)); contextMenuActions.handleDownloadMulti(selected, providerId); } }}
+          onDownloadTrack={() => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track" && t.trackId) { const track = library.tracks.find(tr => tr.id === t.trackId); if (track) contextMenuActions.handleDownloadTrack(track); } else if (t.kind === "album" && t.albumId) { const albumTracks = library.tracks.filter(tr => tr.album_id === t.albumId); if (albumTracks.length) contextMenuActions.handleDownloadMulti(albumTracks); } }}
+          onDownloadMulti={() => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "multi-track") { const idSet = new Set(t.trackIds); const selected = library.tracks.filter(tr => tr.id != null && idSet.has(tr.id)); contextMenuActions.handleDownloadMulti(selected); } }}
           downloadProviders={downloadProviders.map(p => ({ id: p.id, name: p.name }))}
           onExportAsMixtape={handleExportAsMixtape}
           onClose={() => contextMenuActions.setContextMenu(null)}

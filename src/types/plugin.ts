@@ -404,29 +404,38 @@ export interface DownloadResolveResult {
   } | null;
 }
 
-export type DownloadResolveHandler = (
+export type DownloadResolveByUriHandler = (
+  uri: string,
+  format: string,
+) => Promise<DownloadResolveResult | null>;
+
+export type DownloadResolveByMetadataHandler = (
   title: string,
   artistName: string | null,
   albumName: string | null,
-  sourceTrackId: string | null,
+  durationSecs: number | null,
   format: string,
 ) => Promise<DownloadResolveResult | null>;
 
 export interface PluginDownloadsAPI {
-  onResolve(providerId: string, handler: DownloadResolveHandler): () => void;
+  onResolveByUri(providerId: string, handler: DownloadResolveByUriHandler): () => void;
+  onResolveByMetadata(providerId: string, handler: DownloadResolveByMetadataHandler): () => void;
 }
 
 export interface DownloadProvider {
   id: string;
   name: string;
   source: string;
-  resolve: (
+  resolveByUri: (
+    uri: string,
+    format: string,
+  ) => Promise<DownloadResolveResult | null>;
+  resolveByMetadata: (
     title: string,
     artistName: string | null,
     albumName: string | null,
-    sourceTrackId: string | null,
+    durationSecs: number | null,
     format: string,
-    sourceCollectionId?: number | null,
   ) => Promise<DownloadResolveResult | null>;
 }
 

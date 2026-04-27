@@ -22,7 +22,8 @@ import type {
   GalleryPluginEntry,
   PluginGalleryIndex,
   ImageFetchResult,
-  DownloadResolveHandler,
+  DownloadResolveByUriHandler,
+  DownloadResolveByMetadataHandler,
   DownloadResolveResult,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
@@ -57,7 +58,8 @@ interface LoadedPlugin {
   oauthCallbackHandlers: Array<(queryString: string) => void>;
   infoFetchHandlers: Map<string, (entity: InfoEntity) => Promise<InfoFetchResult>>;
   imageFetchHandlers: Map<string, (name: string, artistName?: string) => Promise<ImageFetchResult>>;
-  downloadResolveHandlers: Map<string, DownloadResolveHandler>;
+  downloadResolveByUriHandlers: Map<string, DownloadResolveByUriHandler>;
+  downloadResolveByMetadataHandlers: Map<string, DownloadResolveByMetadataHandler>;
   streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string } | null>>;
   streamUrlResolver: ((trackId: string, quality?: string | null) => Promise<string | null>) | null;
   schedulerHandlers: Map<string, () => void>;
@@ -482,8 +484,10 @@ export function usePlugins(
             if (!destCollectionId && !customDestPath) return;
             await invoke("enqueue_download", {
               title: "TIDAL track",
-              sourceProviderId: "tidal-browse:tidal-download",
-              sourceTrackId: trackId,
+              artistName: null,
+              albumTitle: null,
+              uri: "tidal://" + trackId,
+              durationSecs: null,
               destCollectionId,
               destCollectionPath: customDestPath,
               format,
@@ -609,11 +613,15 @@ export function usePlugins(
         },
 
         downloads: {
-          onResolve(providerId: string, handler: DownloadResolveHandler): () => void {
-            loaded.downloadResolveHandlers.set(providerId, handler);
-            const unsub = () => {
-              loaded.downloadResolveHandlers.delete(providerId);
-            };
+          onResolveByUri(providerId: string, handler: DownloadResolveByUriHandler): () => void {
+            loaded.downloadResolveByUriHandlers.set(providerId, handler);
+            const unsub = () => { loaded.downloadResolveByUriHandlers.delete(providerId); };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          onResolveByMetadata(providerId: string, handler: DownloadResolveByMetadataHandler): () => void {
+            loaded.downloadResolveByMetadataHandlers.set(providerId, handler);
+            const unsub = () => { loaded.downloadResolveByMetadataHandlers.delete(providerId); };
             trackUnsubscribe(unsub);
             return unsub;
           },
@@ -696,7 +704,8 @@ export function usePlugins(
     loaded.uiActionHandlers.clear();
     loaded.infoFetchHandlers.clear();
     loaded.imageFetchHandlers.clear();
-    loaded.downloadResolveHandlers.clear();
+    loaded.downloadResolveByUriHandlers.clear();
+    loaded.downloadResolveByMetadataHandlers.clear();
     loaded.streamResolveHandlers.clear();
     loaded.schedulerHandlers.clear();
 
@@ -734,7 +743,8 @@ export function usePlugins(
         oauthCallbackHandlers: [],
         infoFetchHandlers: new Map(),
         imageFetchHandlers: new Map(),
-        downloadResolveHandlers: new Map(),
+        downloadResolveByUriHandlers: new Map(),
+        downloadResolveByMetadataHandlers: new Map(),
         streamResolveHandlers: new Map(),
         streamUrlResolver: null,
         schedulerHandlers: new Map(),
@@ -1172,24 +1182,36 @@ export function usePlugins(
     [],
   );
 
-  const invokeDownloadResolve = useCallback(
+  const invokeDownloadResolveByUri = useCallback(
+    async (pluginId: string, providerId: string, uri: string, format: string): Promise<DownloadResolveResult | null> => {
+      const loaded = loadedPluginsRef.current.get(pluginId);
+      if (!loaded) return null;
+      const handler = loaded.downloadResolveByUriHandlers.get(providerId);
+      if (!handler) return null;
+      try {
+        return await handler(uri, format);
+      } catch (e) {
+        console.error(`[plugin:${pluginId}] download resolveByUri error for ${providerId}:`, e);
+        return null;
+      }
+    },
+    [],
+  );
+
+  const invokeDownloadResolveByMetadata = useCallback(
     async (
-      pluginId: string,
-      providerId: string,
-      title: string,
-      artistName: string | null,
-      albumName: string | null,
-      sourceTrackId: string | null,
-      format: string,
+      pluginId: string, providerId: string,
+      title: string, artistName: string | null, albumName: string | null,
+      durationSecs: number | null, format: string,
     ): Promise<DownloadResolveResult | null> => {
       const loaded = loadedPluginsRef.current.get(pluginId);
       if (!loaded) return null;
-      const handler = loaded.downloadResolveHandlers.get(providerId);
+      const handler = loaded.downloadResolveByMetadataHandlers.get(providerId);
       if (!handler) return null;
       try {
-        return await handler(title, artistName, albumName, sourceTrackId, format);
+        return await handler(title, artistName, albumName, durationSecs, format);
       } catch (e) {
-        console.error(`[plugin:${pluginId}] download resolve error for ${providerId}:`, e);
+        console.error(`[plugin:${pluginId}] download resolveByMetadata error for ${providerId}:`, e);
         return null;
       }
     },
@@ -1239,7 +1261,8 @@ export function usePlugins(
     invokeInfoFetch,
     invokeImageFetch,
     invokeStreamResolve,
-    invokeDownloadResolve,
+    invokeDownloadResolveByUri,
+    invokeDownloadResolveByMetadata,
     resolveTidalStreamUrl,
   };
 }

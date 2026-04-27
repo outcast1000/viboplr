@@ -5,7 +5,6 @@ import type { Track, Artist, Album } from "../types";
 import { parseLibraryId } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../components/ContextMenu";
 import { store } from "../store";
-import { parseUrlScheme } from "../queueEntry";
 
 interface UseContextMenuActionsDeps {
   library: {
@@ -50,7 +49,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
   const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
-  const [downloadConfirm, setDownloadConfirm] = useState<{ track: Track; localTitle: string; localTrackId: number; providerId: string | null } | null>(null);
+  const [downloadConfirm, setDownloadConfirm] = useState<{ track: Track; localTitle: string; localTrackId: number } | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
 
@@ -365,40 +364,14 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     );
   }
 
-  const enqueueDownload = useCallback(async (track: Track, providerId: string | null = null) => {
-    const url = track.path;
-
-    let sourceProviderId: string | null = providerId;
-    let sourceTrackId: string | null = null;
-    let sourceCollectionId: number | null = null;
-
-    if (!providerId && url) {
-      const parsed = parseUrlScheme(url);
-      if (parsed.scheme === "tidal") {
-        sourceProviderId = "tidal-browse:tidal-download";
-        sourceTrackId = parsed.id;
-        sourceCollectionId = track.collection_id;
-      } else if (parsed.scheme === "subsonic") {
-        sourceProviderId = "__builtin:subsonic";
-        sourceTrackId = parsed.id;
-        sourceCollectionId = track.collection_id;
-      }
-    } else if (providerId && url) {
-      const parsed = parseUrlScheme(url);
-      if (parsed.scheme === "tidal" || parsed.scheme === "subsonic") {
-        sourceTrackId = parsed.id;
-        sourceCollectionId = track.collection_id;
-      }
-    }
-
+  const enqueueDownload = useCallback(async (track: Track) => {
     try {
       await invoke("enqueue_download", {
         title: track.title,
         artistName: track.artist_name,
         albumTitle: track.album_title,
-        sourceProviderId,
-        sourceTrackId,
-        sourceCollectionId,
+        uri: track.path ?? null,
+        durationSecs: track.duration_secs ?? null,
         destCollectionId: null,
         destCollectionPath: null,
         format: null,
@@ -412,63 +385,37 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }, [addLog]);
 
-  const handleDownloadTrack = useCallback(async (track: Track, providerId: string | null = null) => {
+  const handleDownloadTrack = useCallback(async (track: Track) => {
     const localCopy = findLocalCopy(track);
     if (localCopy) {
-      setDownloadConfirm({ track, localTitle: localCopy.title, localTrackId: localCopy.id!, providerId });
+      setDownloadConfirm({ track, localTitle: localCopy.title, localTrackId: localCopy.id! });
       return;
     }
-    enqueueDownload(track, providerId);
+    enqueueDownload(track);
   }, [enqueueDownload, library.tracks]);
 
   const handleDownloadConfirm = useCallback(() => {
     if (!downloadConfirm) return;
-    const { track, providerId } = downloadConfirm;
+    const { track } = downloadConfirm;
     setDownloadConfirm(null);
-    enqueueDownload(track, providerId);
+    enqueueDownload(track);
   }, [downloadConfirm, enqueueDownload]);
 
   const handleDownloadConfirmDismiss = useCallback(() => {
     setDownloadConfirm(null);
   }, []);
 
-  const handleDownloadMulti = useCallback(async (tracks: Track[], providerId: string | null = null) => {
+  const handleDownloadMulti = useCallback(async (tracks: Track[]) => {
     for (let i = 0; i < tracks.length; i++) {
       const track = tracks[i];
-      const url = track.path;
       const isLast = i === tracks.length - 1;
-
-      let sourceProviderId: string | null = providerId;
-      let sourceTrackId: string | null = null;
-      let sourceCollectionId: number | null = null;
-
-      if (!providerId && url) {
-        const parsed = parseUrlScheme(url);
-        if (parsed.scheme === "tidal") {
-          sourceProviderId = "tidal-browse:tidal-download";
-          sourceTrackId = parsed.id;
-          sourceCollectionId = track.collection_id;
-        } else if (parsed.scheme === "subsonic") {
-          sourceProviderId = "__builtin:subsonic";
-          sourceTrackId = parsed.id;
-          sourceCollectionId = track.collection_id;
-        }
-      } else if (providerId && url) {
-        const parsed = parseUrlScheme(url);
-        if (parsed.scheme === "tidal" || parsed.scheme === "subsonic") {
-          sourceTrackId = parsed.id;
-          sourceCollectionId = track.collection_id;
-        }
-      }
-
       try {
         await invoke("enqueue_download", {
           title: track.title,
           artistName: track.artist_name,
           albumTitle: track.album_title,
-          sourceProviderId,
-          sourceTrackId,
-          sourceCollectionId,
+          uri: track.path ?? null,
+          durationSecs: track.duration_secs ?? null,
           destCollectionId: null,
           destCollectionPath: null,
           format: null,
