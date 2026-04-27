@@ -46,6 +46,18 @@ const formatDuration = (secs?: number): string => {
   return `${mins}:${s.toString().padStart(2, "0")}`;
 };
 
+const RECOMMENDED_METADATA_KEYS = [
+  { key: "liner_notes", label: "Liner Notes" },
+  { key: "quality", label: "Quality" },
+  { key: "source", label: "Source" },
+  { key: "genre", label: "Genre" },
+  { key: "mood", label: "Mood" },
+  { key: "occasion", label: "Occasion" },
+  { key: "year", label: "Year" },
+  { key: "bpm", label: "BPM" },
+  { key: "notes", label: "Notes" },
+];
+
 const SOURCE_LABELS: Record<string, string> = {
   subsonic: "Subsonic",
   tidal: "TIDAL",
@@ -355,7 +367,26 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
                       </div>
                     );
                   })}
-                  <button className="mixtape-metadata-add" onClick={handleAddMetadata}>+ Add field</button>
+                  <select
+                    className="mixtape-metadata-add-select"
+                    value=""
+                    onChange={(e) => {
+                      const key = e.target.value;
+                      if (key === "__custom__") {
+                        handleAddMetadata();
+                      } else if (key) {
+                        setMetadataEntries(prev => [...prev, { key, value: "" }]);
+                      }
+                    }}
+                  >
+                    <option value="">+ Add field</option>
+                    {RECOMMENDED_METADATA_KEYS
+                      .filter(rec => !metadataEntries.some(e => e.key === rec.key))
+                      .map(rec => (
+                        <option key={rec.key} value={rec.key}>{rec.label}</option>
+                      ))}
+                    <option value="__custom__">Custom...</option>
+                  </select>
                 </div>
                 <label className="mixtape-export-checkbox">
                   <input

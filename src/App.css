@@ -2169,6 +2169,23 @@
   border-color: var(--text-secondary);
 }
 
+.mixtape-metadata-add-select {
+  margin-top: 4px;
+  padding: 4px 10px;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: var(--ds-radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  width: 100%;
+}
+
+.mixtape-metadata-add-select:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
 .mixtape-preview-metadata {
   margin-top: 8px;
 }
