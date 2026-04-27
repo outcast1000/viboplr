@@ -4,7 +4,10 @@ import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import { store } from "../store";
 import type { Track } from "../types";
 
-const MINI_HEIGHT = 52;
+const MINI_COMPACT_HEIGHT = 52;
+const MINI_EXTRA_ROW_HEIGHT = 38;
+const MINI_EXPANDED_HEIGHT = MINI_COMPACT_HEIGHT + MINI_EXTRA_ROW_HEIGHT;
+const MINI_COLLAPSE_DELAY = 500;
 const MINI_MIN_WIDTH = 280;
 const MINI_MAX_WIDTH = 550;
 const MINI_INITIAL_WIDTH = 500;
@@ -82,12 +85,87 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
   const [miniMode, setMiniMode] = useState(false);
   const miniModeRef = useRef(false);
   const fullSizeRef = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
+  const [miniExpanded, setMiniExpanded] = useState(false);
+  const expandDirectionRef = useRef<"down" | "up">("down");
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expandingRef = useRef(false);
+
+  const cancelCollapseTimer = useCallback(() => {
+    if (collapseTimerRef.current) {
+      clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
+  }, []);
+
+  const expandMini = useCallback(async () => {
+    if (!miniModeRef.current || expandingRef.current) return;
+    expandingRef.current = true;
+    try {
+      const win = getCurrentWindow();
+      const factor = await win.scaleFactor();
+      const pos = await win.outerPosition();
+      const size = await win.innerSize();
+      const logicalY = pos.y / factor;
+      const logicalW = size.width / factor;
+      const bounds = await getLogicalMonitorBounds();
+
+      const monitor = bounds.find(m =>
+        pos.x / factor >= m.x && pos.x / factor < m.x + m.w &&
+        logicalY >= m.y && logicalY < m.y + m.h
+      ) || bounds[0];
+
+      const spaceBelow = monitor
+        ? (monitor.y + monitor.h) - (logicalY + MINI_COMPACT_HEIGHT)
+        : Infinity;
+
+      if (spaceBelow >= MINI_EXTRA_ROW_HEIGHT) {
+        expandDirectionRef.current = "down";
+        await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_EXPANDED_HEIGHT));
+        await win.setSize(new LogicalSize(logicalW, MINI_EXPANDED_HEIGHT));
+      } else {
+        expandDirectionRef.current = "up";
+        await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_EXPANDED_HEIGHT));
+        await win.setPosition(new LogicalPosition(pos.x / factor, logicalY - MINI_EXTRA_ROW_HEIGHT));
+        await win.setSize(new LogicalSize(logicalW, MINI_EXPANDED_HEIGHT));
+      }
+      setMiniExpanded(true);
+    } catch (err) {
+      console.error("expandMini failed:", err);
+    } finally {
+      expandingRef.current = false;
+    }
+  }, []);
+
+  const collapseMini = useCallback(async () => {
+    if (!miniModeRef.current || expandingRef.current) return;
+    expandingRef.current = true;
+    try {
+      const win = getCurrentWindow();
+      const factor = await win.scaleFactor();
+      const pos = await win.outerPosition();
+      const size = await win.innerSize();
+      const logicalW = size.width / factor;
+
+      await win.setSize(new LogicalSize(logicalW, MINI_COMPACT_HEIGHT));
+      if (expandDirectionRef.current === "up") {
+        await win.setPosition(new LogicalPosition(pos.x / factor, pos.y / factor + MINI_EXTRA_ROW_HEIGHT));
+      }
+      await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_COMPACT_HEIGHT));
+      setMiniExpanded(false);
+    } catch (err) {
+      console.error("collapseMini failed:", err);
+    } finally {
+      expandingRef.current = false;
+    }
+  }, []);
 
   const toggleMiniMode = useCallback(async () => {
     try {
       const win = getCurrentWindow();
       const factor = await win.scaleFactor();
       if (!miniModeRef.current) {
+        cancelCollapseTimer();
+        setMiniExpanded(false);
         const size = await win.innerSize();
         const pos = await win.outerPosition();
         const geo = { w: size.width / factor, h: size.height / factor, x: pos.x / factor, y: pos.y / factor };
@@ -100,8 +178,8 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         miniModeRef.current = true;
         store.set("miniMode", true);
         await win.hide();
-        await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_HEIGHT));
-        await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_HEIGHT));
+        await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_COMPACT_HEIGHT));
+        await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_COMPACT_HEIGHT));
         const [mx, my] = await Promise.all([
           store.get<number | null>("miniWindowX"),
           store.get<number | null>("miniWindowY"),
@@ -111,7 +189,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
           if (isPositionOnScreen(mx, my, bounds)) {
             await win.setPosition(new LogicalPosition(mx, my));
           } else if (bounds.length > 0) {
-            const clamped = clampToNearestMonitor(mx, my, MINI_INITIAL_WIDTH, MINI_HEIGHT, bounds);
+            const clamped = clampToNearestMonitor(mx, my, MINI_INITIAL_WIDTH, MINI_COMPACT_HEIGHT, bounds);
             await win.setPosition(new LogicalPosition(clamped.x, clamped.y));
           }
         }
@@ -120,6 +198,8 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         await win.show();
         await win.setFocus();
       } else {
+        cancelCollapseTimer();
+        setMiniExpanded(false);
         const pos = await win.outerPosition();
         await store.set("miniWindowX", pos.x / factor);
         await store.set("miniWindowY", pos.y / factor);
@@ -160,7 +240,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
     } catch (err) {
       console.error("toggleMiniMode failed:", err);
     }
-  }, []);
+  }, [cancelCollapseTimer]);
 
   // Auto-resize mini window when track changes or mini mode is entered
   const miniSettledRef = useRef(false);
@@ -171,7 +251,8 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
       const timer = setTimeout(async () => {
         const win = getCurrentWindow();
         const newWidth = measureMiniFooter();
-        await win.setSize(new LogicalSize(newWidth, MINI_HEIGHT));
+        const currentHeight = miniExpanded ? MINI_EXPANDED_HEIGHT : MINI_COMPACT_HEIGHT;
+        await win.setSize(new LogicalSize(newWidth, currentHeight));
         miniSettledRef.current = true;
       }, 60);
       return () => clearTimeout(timer);
@@ -184,12 +265,13 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         const size = await win.innerSize();
         const pos = await win.outerPosition();
         const rightEdge = pos.x / factor + size.width / factor;
-        await win.setSize(new LogicalSize(newWidth, MINI_HEIGHT));
+        const currentHeight = miniExpanded ? MINI_EXPANDED_HEIGHT : MINI_COMPACT_HEIGHT;
+        await win.setSize(new LogicalSize(newWidth, currentHeight));
         await win.setPosition(new LogicalPosition(rightEdge - newWidth, pos.y / factor));
       });
       return () => cancelAnimationFrame(frame);
     }
-  }, [miniMode, currentTrack]);
+  }, [miniMode, currentTrack, miniExpanded]);
 
   // Save window size and position on resize/move
   useEffect(() => {
@@ -200,7 +282,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
     const save = async () => {
       clearTimeout(timer);
       timer = setTimeout(async () => {
-        if (cancelled || !restoredRef.current) return;
+        if (cancelled || !restoredRef.current || expandingRef.current) return;
         const factor = await win.scaleFactor();
         const pos = await win.outerPosition();
         if (miniModeRef.current) {
@@ -230,5 +312,30 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
     };
   }, []);
 
-  return { miniMode, setMiniMode, miniModeRef, fullSizeRef, toggleMiniMode };
+  useEffect(() => {
+    if (!miniMode) return;
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (cancelled) return;
+      if (focused) {
+        cancelCollapseTimer();
+        expandMini();
+      } else {
+        collapseMini();
+      }
+    }).then(fn => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+
+    return () => {
+      cancelled = true;
+      cancelCollapseTimer();
+      unlisten?.();
+    };
+  }, [miniMode, expandMini, collapseMini, cancelCollapseTimer]);
+
+  return { miniMode, setMiniMode, miniModeRef, fullSizeRef, toggleMiniMode, miniExpanded, cancelCollapseTimer };
 }

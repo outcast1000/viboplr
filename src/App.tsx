@@ -3174,6 +3174,8 @@ function App() {
           || null
         }
         miniMode={mini.miniMode}
+        miniExpanded={mini.miniExpanded}
+        onCancelCollapseTimer={mini.cancelCollapseTimer}
         onToggleMiniMode={mini.toggleMiniMode}
         onClose={() => getCurrentWindow().close()}
         onPause={playback.handlePause}
