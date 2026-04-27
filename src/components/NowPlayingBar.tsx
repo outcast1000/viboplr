@@ -4,6 +4,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
+import { isRemoteScheme } from "../queueEntry";
 import { AutoContinuePopover } from "./AutoContinuePopover";
 import { WaveformSeekBar } from "./WaveformSeekBar";
 import { SegmentedSeekBar } from "./SegmentedSeekBar";
@@ -476,7 +477,7 @@ export function NowPlayingBar({
             />
           )}
         </div>
-        {onDownloadTrack && currentTrack && currentTrack.path && !currentTrack.path.startsWith("file://") && (
+        {onDownloadTrack && currentTrack && (isRemoteScheme(currentTrack.path ?? "") || resolvedSource) && (
           <button
             className="g-btn g-btn-sm"
             onClick={onDownloadTrack}
