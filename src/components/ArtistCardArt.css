@@ -51,35 +51,3 @@
   color: var(--text-secondary);
   margin-top: 2px;
 }
-
-.artist-card-like {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: rgba(var(--overlay-inverse), 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
-  z-index: 1;
-}
-
-.artist-card:hover .artist-card-like {
-  opacity: 1;
-}
-
-.artist-card-like:hover {
-  color: var(--error);
-}
-
-.artist-card-like.liked {
-  opacity: 1;
-  color: var(--error);
-}

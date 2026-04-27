@@ -323,6 +323,107 @@
   background: rgba(var(--overlay-inverse), 0.8);
 }
 
+/* ── Like / Dislike buttons ── */
+
+/* Default variant — detail page headers */
+.ds-like-btn,
+.ds-dislike-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+  vertical-align: middle;
+}
+
+.ds-like-btn:hover { color: var(--error); }
+.ds-like-btn.liked { color: var(--error); }
+.ds-dislike-btn:hover { color: var(--error); }
+.ds-dislike-btn.disliked { color: var(--error); }
+
+/* Inline variant — table rows, list rows */
+.ds-like-inline-group {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ds-like-inline,
+.ds-dislike-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  padding: 0;
+  width: 20px;
+  text-align: center;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.ds-like-inline:hover { color: var(--error); }
+.ds-like-inline.liked { color: var(--error); }
+.ds-dislike-inline:hover { color: var(--error); }
+.ds-dislike-inline.disliked { color: var(--error); }
+
+/* Overlay variant — card tiles */
+.ds-like-overlay-group {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 1;
+}
+
+.ds-like-overlay,
+.ds-dislike-overlay {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(var(--overlay-inverse), 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border: none;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.ds-card:hover .ds-like-overlay,
+.ds-card:hover .ds-dislike-overlay,
+.album-card:hover .ds-like-overlay,
+.album-card:hover .ds-dislike-overlay,
+.artist-card:hover .ds-like-overlay,
+.artist-card:hover .ds-dislike-overlay,
+.tag-card:hover .ds-like-overlay,
+.tag-card:hover .ds-dislike-overlay {
+  opacity: 1;
+}
+
+.ds-like-overlay:hover { color: var(--error); }
+.ds-like-overlay.liked {
+  opacity: 1;
+  color: var(--error);
+}
+.ds-dislike-overlay:hover { color: var(--error); }
+.ds-dislike-overlay.disliked {
+  opacity: 1;
+  color: var(--error);
+}
+
+/* Legacy alias — keep .ds-card-like for backwards compat */
 .ds-card-like {
   position: absolute;
   top: 6px;

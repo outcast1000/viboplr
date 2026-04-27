@@ -7,6 +7,7 @@ import { formatDuration } from "../utils";
 import { AutoContinuePopover } from "./AutoContinuePopover";
 import { WaveformSeekBar } from "./WaveformSeekBar";
 import { SegmentedSeekBar } from "./SegmentedSeekBar";
+import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import "./NowPlayingBar.css";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
@@ -130,8 +131,6 @@ export function NowPlayingBar({
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const likeBtnRef = useRef<HTMLButtonElement>(null);
-  const dislikeBtnRef = useRef<HTMLButtonElement>(null);
   const [sourceTooltip, setSourceTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const [showMiniVolume, setShowMiniVolume] = useState(false);
 
@@ -266,26 +265,13 @@ export function NowPlayingBar({
           <div className="mini-extra-row">
             <div className="mini-extra-left">
               {currentTrack && currentTrack.id != null && (
-                <>
-                  <button
-                    className={`g-btn g-btn-sm${currentTrack.liked === 1 ? " liked" : ""}`}
-                    onClick={onToggleLike}
-                    title={currentTrack.liked === 1 ? "Unlike" : "Like"}
-                  >
-                    {currentTrack.liked === 1
-                      ? <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                      : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>}
-                  </button>
-                  {onToggleDislike && (
-                    <button
-                      className={`g-btn g-btn-sm${currentTrack.liked === -1 ? " disliked" : ""}`}
-                      onClick={onToggleDislike}
-                      title={currentTrack.liked === -1 ? "Remove dislike" : "Dislike"}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
-                    </button>
-                  )}
-                </>
+                <LikeDislikeButtons
+                  liked={currentTrack.liked}
+                  onToggleLike={onToggleLike}
+                  onToggleDislike={onToggleDislike}
+                  variant="glass"
+                  size={12}
+                />
               )}
             </div>
             <div className="mini-extra-right">
@@ -352,32 +338,14 @@ export function NowPlayingBar({
           </div>
           {currentTrack && currentTrack.id != null && (
             <div className="now-like-col">
-              <button
-                ref={likeBtnRef}
-                className={`g-btn g-btn-sm${currentTrack.liked === 1 ? " liked" : ""}`}
-                onClick={() => {
-                  likeBtnRef.current?.classList.add("anim-heart-bounce");
-                  onToggleLike();
-                }}
-                onAnimationEnd={() => likeBtnRef.current?.classList.remove("anim-heart-bounce")}
-                title={`${currentTrack.liked === 1 ? "Unlike" : "Like"} (${mod}L)`}
-              >
-                {currentTrack.liked === 1
-                  ? <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                  : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>}
-              </button>
-              {onToggleDislike && <button
-                ref={dislikeBtnRef}
-                className={`g-btn g-btn-sm now-dislike-btn${currentTrack.liked === -1 ? " disliked" : ""}`}
-                onClick={() => {
-                  dislikeBtnRef.current?.classList.add("anim-heart-bounce-subtle");
-                  onToggleDislike();
-                }}
-                onAnimationEnd={() => dislikeBtnRef.current?.classList.remove("anim-heart-bounce-subtle")}
-                title={currentTrack.liked === -1 ? "Remove hate" : "Hate"}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
-              </button>}
+              <LikeDislikeButtons
+                liked={currentTrack.liked}
+                onToggleLike={onToggleLike}
+                onToggleDislike={onToggleDislike}
+                variant="glass"
+                size={13}
+                showKeyboardHint={`(${mod}L)`}
+              />
             </div>
           )}
           <div className="now-info-text">

@@ -5,6 +5,7 @@ import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
 import { AutoContinuePopover } from "./AutoContinuePopover";
 import { WaveformSeekBar } from "./WaveformSeekBar";
+import { LikeDislikeButtons } from "./LikeDislikeButtons";
 
 interface FullscreenControlsProps {
   waveformPeaks: number[] | null;
@@ -179,24 +180,13 @@ export function FullscreenControls({
             ) : null}
           </div>
           {currentTrack && (
-            <>
-              <button
-                className={`g-btn g-btn-sm${currentTrack.liked === 1 ? " liked" : ""}`}
-                onClick={onToggleLike}
-                title={currentTrack.liked === 1 ? "Unlike" : "Like"}
-              >
-                {currentTrack.liked === 1
-                  ? <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                  : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>}
-              </button>
-              {onToggleDislike && <button
-                className={`g-btn g-btn-xs${currentTrack.liked === -1 ? " disliked" : ""}`}
-                onClick={onToggleDislike}
-                title={currentTrack.liked === -1 ? "Remove hate" : "Hate"}
-              >
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
-              </button>}
-            </>
+            <LikeDislikeButtons
+              liked={currentTrack.liked}
+              onToggleLike={onToggleLike}
+              onToggleDislike={onToggleDislike}
+              variant="glass"
+              size={13}
+            />
           )}
         </div>
         <div className="fs-center">

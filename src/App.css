@@ -983,14 +983,6 @@
 .entity-table-like {
   width: 20px;
   flex-shrink: 0;
-  text-align: center;
-  font-size: var(--fs-sm);
-  color: var(--text-tertiary);
-  cursor: pointer;
-}
-
-.entity-table-like:hover {
-  color: var(--error);
 }
 
 .entity-table-name {
@@ -1048,46 +1040,6 @@
   background: var(--bg-hover);
 }
 
-.entity-list-like-group {
-  display: flex;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.entity-list-like {
-  width: 20px;
-  flex-shrink: 0;
-  text-align: center;
-  font-size: var(--fs-sm);
-  color: var(--text-tertiary);
-  cursor: pointer;
-}
-
-.entity-list-like:hover {
-  color: var(--error);
-}
-
-.entity-list-like.active {
-  color: var(--error);
-}
-
-.entity-list-dislike {
-  width: 20px;
-  flex-shrink: 0;
-  text-align: center;
-  font-size: var(--fs-sm);
-  color: var(--text-tertiary);
-  cursor: pointer;
-}
-
-.entity-list-dislike:hover {
-  color: var(--error);
-}
-
-.entity-list-dislike.active {
-  color: var(--error);
-}
-
 .entity-list-img {
   width: 40px;
   height: 40px;
@@ -1111,38 +1063,6 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-}
-
-
-.detail-love-btn,
-.detail-hate-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--text-tertiary);
-  padding: 4px;
-  border-radius: 4px;
-  transition: color 0.15s;
-  vertical-align: middle;
-}
-
-.detail-love-btn:hover {
-  color: var(--accent);
-}
-
-.detail-love-btn.liked {
-  color: var(--accent);
-}
-
-.detail-hate-btn:hover {
-  color: var(--accent);
-}
-
-.detail-hate-btn.hated {
-  color: var(--accent);
 }
 
 

@@ -138,28 +138,6 @@
   text-overflow: clip;
 }
 
-.col-like .like-btn,
-.col-like .dislike-btn {
-  cursor: pointer;
-  color: var(--text-tertiary);
-}
-
-.col-like .like-btn:hover {
-  color: var(--error);
-}
-
-.col-like .like-btn.active {
-  color: var(--error);
-}
-
-.col-like .dislike-btn:hover {
-  color: var(--error);
-}
-
-.col-like .dislike-btn.active {
-  color: var(--error);
-}
-
 .col-num {
   width: 40px;
   flex-shrink: 0;

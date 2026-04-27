@@ -3,6 +3,7 @@ import type { Track, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration } from "../utils";
 import { parseLibraryId } from "../queueEntry";
 import { IconYoutube } from "./Icons";
+import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "./TrackList.css";
 
@@ -386,32 +387,13 @@ export function TrackList({
       case "like":
         return (
           <span key="like" className="col-like">
-            <span
-              className={`like-btn${t.liked === 1 ? " active" : ""}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                (e.currentTarget as HTMLElement).classList.add("anim-heart-bounce");
-                onToggleLike(t);
-              }}
-              onAnimationEnd={(e) => (e.currentTarget as HTMLElement).classList.remove("anim-heart-bounce")}
-              title={t.liked === 1 ? "Unlike" : "Like"}
-            >
-              {t.liked === 1 ? "\u2665" : "\u2661"}
-            </span>
-            {onToggleDislike && (
-              <span
-                className={`dislike-btn${t.liked === -1 ? " active" : ""}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  (e.currentTarget as HTMLElement).classList.add("anim-heart-bounce-subtle");
-                  onToggleDislike(t);
-                }}
-                onAnimationEnd={(e) => (e.currentTarget as HTMLElement).classList.remove("anim-heart-bounce-subtle")}
-                title={t.liked === -1 ? "Remove hate" : "Hate"}
-              >
-                {t.liked === -1 ? "\u2716" : "\u2298"}
-              </span>
-            )}
+            <LikeDislikeButtons
+              liked={t.liked}
+              onToggleLike={() => onToggleLike(t)}
+              onToggleDislike={onToggleDislike ? () => onToggleDislike(t) : undefined}
+              variant="inline"
+              size={12}
+            />
           </span>
         );
       case "num": {

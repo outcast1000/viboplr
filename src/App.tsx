@@ -84,6 +84,7 @@ import type { ExportTrack } from "./components/MixtapeExportModal";
 import { SearchView } from "./components/SearchView";
 import { StatusBar } from "./components/StatusBar";
 import { IconYoutube } from "./components/Icons";
+import { LikeDislikeButtons } from "./components/LikeDislikeButtons";
 
 
 function App() {
@@ -2196,7 +2197,7 @@ function App() {
                 onPlayTrack={(t: Track) => queueHook.playTracks([t], 0)}
                 onWatchOnYoutube={track.id != null ? () => contextMenuActions.watchOnYoutube(track.id!, track.title, track.artist_name, track.youtube_url) : undefined}
                 onToggleLike={() => likeActions.handleToggleLike(track)}
-                onToggleHate={() => likeActions.handleToggleDislike(track)}
+                onToggleDislike={() => likeActions.handleToggleDislike(track)}
                 onShowInFolder={async () => { const libId = parseLibraryId(library.selectedTrack!); if (libId == null) return; try { await invoke("show_in_folder", { trackId: libId }); } catch (e) { console.error("Failed to open containing folder:", e); contextMenuActions.setFolderError(String(e)); } }}
                 collections={library.collections}
                 searchProviders={searchProviders}
@@ -2297,7 +2298,7 @@ function App() {
                 onTrackDragStart={contextMenuActions.handleTrackDragStart}
                 onDeleteTracks={handleDeleteTracks}
                 onToggleArtistLike={likeActions.handleToggleArtistLike}
-                onToggleArtistHate={likeActions.handleToggleArtistHate}
+                onToggleArtistDislike={likeActions.handleToggleArtistDislike}
                 onAlbumContextMenu={contextMenuActions.handleAlbumContextMenu}
                 searchProviders={searchProviders}
                 artists={artists}
@@ -2347,22 +2348,12 @@ function App() {
                     <div className="album-detail-info">
                       <h2>
                         {tag?.name ?? "Unknown"}
-                        <button
-                          className={`detail-love-btn${tag?.liked === 1 ? " liked" : ""}`}
-                          onClick={() => likeActions.handleToggleTagLike(selectedTag)}
-                          title={tag?.liked === 1 ? "Unlike tag" : "Love tag"}
-                        >
-                          {tag?.liked === 1
-                            ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                            : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>}
-                        </button>
-                        <button
-                          className={`detail-hate-btn${tag?.liked === -1 ? " hated" : ""}`}
-                          onClick={() => likeActions.handleToggleTagHate(selectedTag)}
-                          title={tag?.liked === -1 ? "Remove hate" : "Hate tag"}
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
-                        </button>
+                        <LikeDislikeButtons
+                          liked={tag?.liked ?? 0}
+                          onToggleLike={() => likeActions.handleToggleTagLike(selectedTag)}
+                          onToggleDislike={() => likeActions.handleToggleTagDislike(selectedTag)}
+                          entityLabel="tag"
+                        />
                       </h2>
                       <span className="artist-meta">{tag?.track_count ?? 0} tracks</span>
                       <ImageActions
@@ -2436,7 +2427,7 @@ function App() {
                 searchProviders={searchProviders}
                 onArtistClick={library.handleArtistClick}
                 onToggleAlbumLike={likeActions.handleToggleAlbumLike}
-                onToggleAlbumHate={likeActions.handleToggleAlbumHate}
+                onToggleAlbumDislike={likeActions.handleToggleAlbumDislike}
                 onPlayTracks={queueHook.playTracks}
                 onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
                 onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}
@@ -2510,7 +2501,7 @@ function App() {
                   searchProviders={searchProviders}
                   onArtistClick={library.handleArtistClick}
                   onToggleAlbumLike={likeActions.handleToggleAlbumLike}
-                  onToggleAlbumHate={likeActions.handleToggleAlbumHate}
+                  onToggleAlbumDislike={likeActions.handleToggleAlbumDislike}
                   onPlayTracks={queueHook.playTracks}
                   onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
                   onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}

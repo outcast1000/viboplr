@@ -79,7 +79,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     }
   }
 
-  async function handleToggleArtistHate(artistId: number) {
+  async function handleToggleArtistDislike(artistId: number) {
     const artist = library.artists.find(a => a.id === artistId);
     if (!artist) return;
     const newLiked = artist.liked === -1 ? 0 : -1;
@@ -87,7 +87,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
       await invoke("toggle_liked", { kind: "artist", id: artistId, liked: newLiked });
       library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked: newLiked } : a));
     } catch (e) {
-      console.error("Failed to toggle artist hate:", e);
+      console.error("Failed to toggle artist dislike:", e);
     }
   }
 
@@ -103,7 +103,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     }
   }
 
-  async function handleToggleAlbumHate(albumId: number) {
+  async function handleToggleAlbumDislike(albumId: number) {
     const album = library.albums.find(a => a.id === albumId);
     if (!album) return;
     const newLiked = album.liked === -1 ? 0 : -1;
@@ -111,7 +111,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
       await invoke("toggle_liked", { kind: "album", id: albumId, liked: newLiked });
       library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: newLiked } : a));
     } catch (e) {
-      console.error("Failed to toggle album hate:", e);
+      console.error("Failed to toggle album dislike:", e);
     }
   }
 
@@ -127,7 +127,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     }
   }
 
-  async function handleToggleTagHate(tagId: number) {
+  async function handleToggleTagDislike(tagId: number) {
     const tag = library.tags.find(t => t.id === tagId);
     if (!tag) return;
     const newLiked = tag.liked === -1 ? 0 : -1;
@@ -135,7 +135,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
       await invoke("toggle_liked", { kind: "tag", id: tagId, liked: newLiked });
       library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked: newLiked } : t));
     } catch (e) {
-      console.error("Failed to toggle tag hate:", e);
+      console.error("Failed to toggle tag dislike:", e);
     }
   }
 
@@ -143,10 +143,10 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     handleToggleLike,
     handleToggleDislike,
     handleToggleArtistLike,
-    handleToggleArtistHate,
+    handleToggleArtistDislike,
     handleToggleAlbumLike,
-    handleToggleAlbumHate,
+    handleToggleAlbumDislike,
     handleToggleTagLike,
-    handleToggleTagHate,
+    handleToggleTagDislike,
   };
 }
