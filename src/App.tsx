@@ -445,7 +445,7 @@ function App() {
     if (shouldAutoSave(autoSaveStreamsRef.current, track.path ?? "", resolvedSource?.id ?? null)) {
       const dlColId = downloadsCollectionIdRef.current;
       if (dlColId != null) {
-        downloads.autoSaveTrack(track, dlColId, downloadFormatRef.current).catch(console.error);
+        downloads.autoSaveTrack(track, dlColId, downloadFormatRef.current, library.tracks).catch(console.error);
       }
     }
   }, [playback.scrobbled, playback.currentTrack, plugins.dispatchEvent]);
@@ -3040,6 +3040,21 @@ function App() {
             <p className="delete-confirm-warning">{contextMenuActions.folderError}</p>
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--ghost" onClick={() => contextMenuActions.setFolderError(null)}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {contextMenuActions.downloadConfirm && (
+        <div className="ds-modal-overlay" onClick={contextMenuActions.handleDownloadConfirmDismiss}>
+          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="ds-modal-title">Already Downloaded</h2>
+            <p className="delete-confirm-warning">
+              "{contextMenuActions.downloadConfirm.localTitle}" already exists in your local library. Download again?
+            </p>
+            <div className="ds-modal-actions">
+              <button className="ds-btn ds-btn--ghost" onClick={contextMenuActions.handleDownloadConfirmDismiss}>Cancel</button>
+              <button className="ds-btn ds-btn--primary" onClick={contextMenuActions.handleDownloadConfirm} autoFocus>Download</button>
             </div>
           </div>
         </div>

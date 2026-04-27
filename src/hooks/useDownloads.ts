@@ -10,7 +10,7 @@ export interface UseDownloadsReturn {
   downloadFormat: string;
   setFormat: (format: string, store: AppStore) => void;
   downloadTrack: (trackId: number, destCollectionId: number, tracks: Track[]) => Promise<void>;
-  autoSaveTrack: (track: Track, downloadsCollectionId: number, format: string) => Promise<void>;
+  autoSaveTrack: (track: Track, downloadsCollectionId: number, format: string, libraryTracks?: Track[]) => Promise<void>;
 }
 
 export async function resolveDownload(
@@ -218,8 +218,20 @@ export function useDownloads(
     track: Track,
     downloadsCollectionId: number,
     format: string,
+    libraryTracks?: Track[],
   ) {
     try {
+      if (libraryTracks) {
+        const title = track.title.toLowerCase();
+        const artist = (track.artist_name || "").toLowerCase();
+        const localCopy = libraryTracks.find(t =>
+          t.path?.startsWith("file://") &&
+          t.title.toLowerCase() === title &&
+          (t.artist_name || "").toLowerCase() === artist
+        );
+        if (localCopy) return;
+      }
+
       const existing = await invoke<Track | null>("find_track_in_collection", {
         collectionId: downloadsCollectionId,
         title: track.title,

@@ -50,6 +50,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
   const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
+  const [downloadConfirm, setDownloadConfirm] = useState<{ track: Track; localTitle: string; providerId: string | null } | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
 
@@ -354,7 +355,17 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } });
   }
 
-  const handleDownloadTrack = useCallback(async (track: Track, providerId: string | null = null) => {
+  function findLocalCopy(track: Track): Track | undefined {
+    const title = track.title.toLowerCase();
+    const artist = (track.artist_name || "").toLowerCase();
+    return library.tracks.find(t =>
+      t.path?.startsWith("file://") &&
+      t.title.toLowerCase() === title &&
+      (t.artist_name || "").toLowerCase() === artist
+    );
+  }
+
+  const enqueueDownload = useCallback(async (track: Track, providerId: string | null = null) => {
     const url = track.path;
 
     let sourceProviderId: string | null = providerId;
@@ -400,6 +411,26 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       addLog(`Download failed: ${e}`, "downloads");
     }
   }, [addLog]);
+
+  const handleDownloadTrack = useCallback(async (track: Track, providerId: string | null = null) => {
+    const localCopy = findLocalCopy(track);
+    if (localCopy) {
+      setDownloadConfirm({ track, localTitle: localCopy.title, providerId });
+      return;
+    }
+    enqueueDownload(track, providerId);
+  }, [enqueueDownload, library.tracks]);
+
+  const handleDownloadConfirm = useCallback(() => {
+    if (!downloadConfirm) return;
+    const { track, providerId } = downloadConfirm;
+    setDownloadConfirm(null);
+    enqueueDownload(track, providerId);
+  }, [downloadConfirm, enqueueDownload]);
+
+  const handleDownloadConfirmDismiss = useCallback(() => {
+    setDownloadConfirm(null);
+  }, []);
 
   const handleDownloadMulti = useCallback(async (tracks: Track[], providerId: string | null = null) => {
     for (let i = 0; i < tracks.length; i++) {
@@ -501,5 +532,8 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleEntityContextMenu,
     handleDownloadTrack,
     handleDownloadMulti,
+    downloadConfirm,
+    handleDownloadConfirm,
+    handleDownloadConfirmDismiss,
   };
 }
