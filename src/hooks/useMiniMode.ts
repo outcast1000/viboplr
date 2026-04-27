@@ -198,7 +198,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         await win.setFocus();
       } else {
         cancelCollapseTimer();
-        setMiniExpanded(false);
+        miniModeRef.current = false;
         const pos = await win.outerPosition();
         await store.set("miniWindowX", pos.x / factor);
         await store.set("miniWindowY", pos.y / factor);
@@ -232,8 +232,8 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
             }
           }
         }
+        setMiniExpanded(false);
         setMiniMode(false);
-        miniModeRef.current = false;
         store.set("miniMode", false);
       }
     } catch (err) {
@@ -248,6 +248,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
     if (!miniSettledRef.current) {
       // Just entered mini mode — delay measurement to let window resize settle (Windows/WebView2)
       const timer = setTimeout(async () => {
+        if (!miniModeRef.current) return;
         const win = getCurrentWindow();
         const newWidth = measureMiniFooter();
         const currentHeight = miniExpanded ? MINI_EXPANDED_HEIGHT : MINI_COMPACT_HEIGHT;
@@ -258,6 +259,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
     } else {
       // Track changed while in mini mode — pin right edge
       const frame = requestAnimationFrame(async () => {
+        if (!miniModeRef.current) return;
         const win = getCurrentWindow();
         const newWidth = measureMiniFooter();
         const factor = await win.scaleFactor();
