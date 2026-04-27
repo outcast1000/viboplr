@@ -977,35 +977,35 @@ function activate(api) {
 
   // -- Download provider --
 
-  api.downloads.onResolve("tidal-download", async function(title, artistName, albumName, sourceTrackId, format) {
+  api.downloads.onResolveByUri("tidal-download", async function(uri, format) {
+    if (!uri.startsWith("tidal://")) return null;
     if (state.streamingDown) return null;
     var quality = format === "flac" ? "LOSSLESS" : "HIGH";
-
-    // Direct resolution if we already know the TIDAL track ID
-    if (sourceTrackId) {
-      try {
-        var streamUrl = await tidalGetStreamUrl(sourceTrackId, quality);
-        if (streamUrl) {
-          return { url: streamUrl, headers: null, metadata: null };
-        }
-      } catch (e) {
-        // Fall through to search
+    var trackId = uri.substring(8);
+    if (!trackId) return null;
+    try {
+      var streamUrl = await tidalGetStreamUrl(trackId, quality);
+      if (streamUrl) {
+        return { url: streamUrl, headers: null, metadata: null };
       }
+    } catch (e) {
+      // Fall through
     }
+    return null;
+  });
 
-    // Fallback: search by metadata
+  api.downloads.onResolveByMetadata("tidal-download", async function(title, artistName, albumName, durationSecs, format) {
+    if (state.streamingDown) return null;
+    var quality = format === "flac" ? "LOSSLESS" : "HIGH";
     var query = [title, artistName].filter(Boolean).join(" ");
     if (!query) return null;
-
     try {
       var results = await tidalSearch(query, 1);
       var tracks = results && results.tracks;
       if (!tracks || !tracks.length) return null;
-
       var track = tracks[0];
       var url = await tidalGetStreamUrl(track.tidal_id, quality);
       if (!url) return null;
-
       return {
         url: url,
         headers: null,

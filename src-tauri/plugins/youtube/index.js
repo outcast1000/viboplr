@@ -115,20 +115,23 @@ async function activate(api) {
     }
   });
 
-  api.downloads.onResolve("youtube-download", async function(title, artistName, albumName, sourceTrackId, format) {
-    console.log("[youtube] download resolve called:", JSON.stringify({ title: title, artist: artistName, format: format, sourceTrackId: sourceTrackId }));
+  api.downloads.onResolveByUri("youtube-download", async function(uri, format) {
+    if (!uri.startsWith("external://")) return null;
+    if (!ytDlpVersion) return null;
+    return null;
+  });
+
+  api.downloads.onResolveByMetadata("youtube-download", async function(title, artistName, albumName, durationSecs, format) {
     if (!ytDlpVersion) {
       console.log("[youtube] skipping download resolve — yt-dlp not available");
       return null;
     }
-
     try {
       var webmPath = await searchAndDownload(api, title, artistName);
       if (!webmPath) {
         console.warn("[youtube] download resolve: no webm for", title);
         return null;
       }
-
       console.log("[youtube] converting", webmPath, "to format:", format || "aac");
       var finalPath;
       try {
@@ -141,7 +144,6 @@ async function activate(api) {
         console.log("[youtube] falling back to raw webm file");
         finalPath = webmPath;
       }
-
       console.log("[youtube] download resolve success:", finalPath);
       return {
         url: "file://" + finalPath,
