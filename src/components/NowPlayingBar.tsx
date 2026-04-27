@@ -262,32 +262,46 @@ export function NowPlayingBar({
           </div>
         </div>
         {miniExpanded && (
-          <div className="mini-extra-row">
-            <div className="mini-extra-left">
-              {currentTrack && currentTrack.id != null && (
-                <LikeDislikeButtons
-                  liked={currentTrack.liked}
-                  onToggleLike={onToggleLike}
-                  onToggleDislike={onToggleDislike}
-                  variant="glass"
-                  size={12}
-                />
-              )}
+          <>
+            <div className="mini-seek-row" onMouseDown={(e) => e.stopPropagation()}>
+              <span className="mini-seek-time">{formatDuration(positionSecs)}</span>
+              <div className="mini-seek-track" onClick={(e) => {
+                if (!durationSecs) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                onSeek(pct * durationSecs);
+              }}>
+                <div className="mini-seek-fill" style={{ width: `${progress}%` }} />
+              </div>
+              <span className="mini-seek-time mini-seek-total">{formatDuration(durationSecs)}</span>
             </div>
-            <div className="mini-extra-right">
-              <button className="g-btn g-btn-sm" onClick={onPrevious} title="Previous">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-              </button>
-              <button className="g-btn mini-expand-btn" onClick={() => { onCancelCollapseTimer(); onToggleMiniMode(); }} title="Exit mini mode">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/></svg>
-              </button>
-              <button className="g-btn mini-close-btn" onClick={() => { onCancelCollapseTimer(); onClose(); }} title="Close">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
+            <div className="mini-extra-row">
+              <div className="mini-extra-left">
+                {currentTrack && currentTrack.id != null && (
+                  <LikeDislikeButtons
+                    liked={currentTrack.liked}
+                    onToggleLike={onToggleLike}
+                    onToggleDislike={onToggleDislike}
+                    variant="glass"
+                    size={12}
+                  />
+                )}
+              </div>
+              <div className="mini-extra-right">
+                <button className="g-btn g-btn-sm" onClick={onPrevious} title="Previous">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                </button>
+                <button className="g-btn mini-expand-btn" onClick={() => { onCancelCollapseTimer(); onToggleMiniMode(); }} title="Exit mini mode">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/></svg>
+                </button>
+                <button className="g-btn mini-close-btn" onClick={() => { onCancelCollapseTimer(); onClose(); }} title="Close">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
             </div>
-          </div>
+          </>
         )}
-        <div className="mini-progress" style={{ width: `${progress}%` }} />
+        {!miniExpanded && <div className="mini-progress" style={{ width: `${progress}%` }} />}
       </footer>
     );
   }

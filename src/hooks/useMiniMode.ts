@@ -5,7 +5,7 @@ import { store } from "../store";
 import type { Track } from "../types";
 
 const MINI_COMPACT_HEIGHT = 52;
-const MINI_EXTRA_ROW_HEIGHT = 38;
+const MINI_EXTRA_ROW_HEIGHT = 54;
 const MINI_EXPANDED_HEIGHT = MINI_COMPACT_HEIGHT + MINI_EXTRA_ROW_HEIGHT;
 const MINI_MIN_WIDTH = 280;
 const MINI_MAX_WIDTH = 550;
