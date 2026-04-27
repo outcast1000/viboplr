@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { exit } from "@tauri-apps/plugin-process";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrent as getDeepLinkCurrent } from "@tauri-apps/plugin-deep-link";
 import { listen } from "@tauri-apps/api/event";
@@ -3168,7 +3169,7 @@ function App() {
         miniExpanded={mini.miniExpanded}
         onCancelCollapseTimer={mini.cancelCollapseTimer}
         onToggleMiniMode={mini.toggleMiniMode}
-        onClose={() => getCurrentWindow().close()}
+        onClose={() => exit(0)}
         onPause={playback.handlePause}
         onStop={playback.handleStop}
         onNext={handleNext}
