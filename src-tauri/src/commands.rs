@@ -3586,15 +3586,14 @@ pub fn export_mixtape_full(
                 return;
             }
 
-            let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
-                current_track: (i + 1) as u32,
-                total_tracks: total as u32,
-                phase: "resolving".to_string(),
-                track_title: track.title.clone(),
-            });
-
             let audio_path: Option<String> = if let Some(ref path) = track.path {
                 if path.starts_with("file://") {
+                    let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
+                        current_track: (i + 1) as u32,
+                        total_tracks: total as u32,
+                        phase: "packing".to_string(),
+                        track_title: track.title.clone(),
+                    });
                     let fs_path = &path[7..];
                     if std::path::Path::new(fs_path).exists() {
                         Some(fs_path.to_string())
@@ -3602,10 +3601,13 @@ pub fn export_mixtape_full(
                         None
                     }
                 } else {
-                    resolve_and_download_track(&resolve_registry, &app, &temp_dir, i, total, track)
+                    let source = if path.starts_with("subsonic://") { "subsonic" }
+                        else if path.starts_with("tidal://") { "tidal" }
+                        else { "plugin" };
+                    resolve_and_download_track(&resolve_registry, &app, &temp_dir, i, total, track, source)
                 }
             } else {
-                resolve_and_download_track(&resolve_registry, &app, &temp_dir, i, total, track)
+                resolve_and_download_track(&resolve_registry, &app, &temp_dir, i, total, track, "plugin")
             };
 
             match audio_path {
@@ -3689,8 +3691,16 @@ fn resolve_and_download_track(
     i: usize,
     total: usize,
     track: &crate::models::MixtapeExportTrackInput,
+    source: &str,
 ) -> Option<String> {
     use tauri::Emitter;
+
+    let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
+        current_track: (i + 1) as u32,
+        total_tracks: total as u32,
+        phase: format!("resolving:{}", source),
+        track_title: track.title.clone(),
+    });
 
     let resolve_id = (i as u64) + 10000;
     log::info!("[mixtape-export] resolve #{}: \"{}\" by {:?}, path={:?}",
@@ -3719,7 +3729,7 @@ fn resolve_and_download_track(
             let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
                 current_track: (i + 1) as u32,
                 total_tracks: total as u32,
-                phase: "downloading".to_string(),
+                phase: format!("downloading:{}", source),
                 track_title: track.title.clone(),
             });
 

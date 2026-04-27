@@ -45,6 +45,22 @@ const formatDuration = (secs?: number): string => {
   return `${mins}:${s.toString().padStart(2, "0")}`;
 };
 
+const SOURCE_LABELS: Record<string, string> = {
+  subsonic: "Subsonic",
+  tidal: "TIDAL",
+  plugin: "plugin",
+};
+
+function formatPhase(phase: string): string {
+  if (phase === "packing") return "Packing";
+  const [action, source] = phase.split(":");
+  if (action === "resolving" || action === "downloading") {
+    const label = (source && SOURCE_LABELS[source]) || source || "";
+    return label ? `Downloading from ${label}` : "Downloading";
+  }
+  return "Packing";
+}
+
 const formatFileSize = (bytes?: number): string => {
   if (!bytes) return "\u2014";
   const mb = bytes / (1024 * 1024);
@@ -405,9 +421,7 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
             </div>
             <div className="mixtape-progress-text">
               {progress
-                ? progress.phase === "downloading" || progress.phase === "resolving"
-                  ? `Downloading ${progress.currentTrack} of ${progress.totalTracks}: ${progress.trackTitle}...`
-                  : `Packing ${progress.currentTrack} of ${progress.totalTracks}: ${progress.trackTitle}...`
+                ? `${formatPhase(progress.phase)} ${progress.currentTrack} of ${progress.totalTracks}: ${progress.trackTitle}...`
                 : "Starting export..."}
             </div>
             <button className="mixtape-cancel-btn" onClick={handleCancel}>
