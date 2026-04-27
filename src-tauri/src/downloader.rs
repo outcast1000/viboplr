@@ -416,6 +416,21 @@ pub fn process_download(
     drop(file);
     } // else (remote URL)
 
+    // Detect WebM content by EBML magic bytes
+    let is_webm = std::fs::File::open(&temp_path)
+        .and_then(|mut f| {
+            let mut magic = [0u8; 4];
+            std::io::Read::read_exact(&mut f, &mut magic)?;
+            Ok(magic == [0x1a, 0x45, 0xdf, 0xa3])
+        })
+        .unwrap_or(false);
+
+    if is_webm {
+        return process_webm_download(
+            &temp_path, request, db, title, artist, album, track_number, year, genre,
+        );
+    }
+
     // Write tags to the downloaded file
     if let Err(e) = write_tags(
         &temp_path,
@@ -446,6 +461,99 @@ pub fn process_download(
         Some(request.dest_collection_id),
         Some(&request.dest_collection_path),
     );
+
+    Ok(dest_path)
+}
+
+fn process_webm_download(
+    temp_path: &Path,
+    request: &DownloadRequest,
+    db: &Arc<Database>,
+    title: &str,
+    artist: &str,
+    album: &str,
+    track_number: Option<u32>,
+    year: Option<i32>,
+    genre: Option<&str>,
+) -> Result<PathBuf, String> {
+    if crate::video_frames::is_ffmpeg_available() {
+        let m4a_temp = temp_path.with_extension("m4a");
+        let m4a_temp_str = m4a_temp.to_string_lossy().to_string();
+        let temp_str = temp_path.to_string_lossy().to_string();
+        log::info!("Converting WebM to m4a: {} -> {}", temp_str, m4a_temp_str);
+
+        let mut cmd = std::process::Command::new("ffmpeg");
+        cmd.args(["-i", &temp_str, "-vn", "-c:a", "aac", "-b:a", "192k", "-y", &m4a_temp_str]);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
+        let output = cmd.output().map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+
+        if output.status.success() {
+            let _ = std::fs::remove_file(temp_path);
+            let dest_path = build_dest_path(
+                &request.dest_collection_path, title, artist, album,
+                track_number, "m4a", request.path_pattern.as_deref(),
+            );
+            if let Some(parent) = dest_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if let Err(e) = write_tags(&m4a_temp, title, artist, album, track_number, year, genre, None, &DownloadFormat::Aac) {
+                log::warn!("Failed to write tags for converted {}: {}", title, e);
+            }
+            std::fs::rename(&m4a_temp, &dest_path).map_err(|e| {
+                let _ = std::fs::remove_file(&m4a_temp);
+                format!("Failed to rename converted file: {}", e)
+            })?;
+            crate::scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id), Some(&request.dest_collection_path));
+            return Ok(dest_path);
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        log::warn!("ffmpeg conversion failed, saving as .webm: {}", stderr);
+        let _ = std::fs::remove_file(&m4a_temp);
+        // Fall through to save as .webm
+    }
+
+    // No ffmpeg: save as .webm, write metadata directly to DB
+    let dest_path = build_dest_path(
+        &request.dest_collection_path, title, artist, album,
+        track_number, "webm", request.path_pattern.as_deref(),
+    );
+    if let Some(parent) = dest_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::rename(temp_path, &dest_path).map_err(|e| {
+        let _ = std::fs::remove_file(temp_path);
+        format!("Failed to rename webm file: {}", e)
+    })?;
+
+    let relative_path = dest_path
+        .strip_prefix(&request.dest_collection_path)
+        .unwrap_or(&dest_path)
+        .to_string_lossy()
+        .to_string();
+    let file_size = std::fs::metadata(&dest_path).ok().map(|m| m.len() as i64);
+    let modified_at = std::fs::metadata(&dest_path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64);
+    let artist_id = if !artist.is_empty() { db.get_or_create_artist(artist).ok() } else { None };
+    let album_id = if !album.is_empty() { db.get_or_create_album(album, artist_id, year).ok() } else { None };
+    if let Ok(track_id) = db.upsert_track(
+        &relative_path, title, artist_id, album_id, track_number.map(|n| n as i32),
+        None, Some("webm"), file_size, modified_at,
+        Some(request.dest_collection_id), year,
+    ) {
+        if let Some(genre) = genre {
+            if let Ok(tag_id) = db.get_or_create_tag(genre) {
+                let _ = db.add_track_tag(track_id, tag_id);
+            }
+        }
+    }
 
     Ok(dest_path)
 }
