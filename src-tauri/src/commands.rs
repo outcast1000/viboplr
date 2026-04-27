@@ -3491,6 +3491,7 @@ pub fn export_mixtape_full(
     let tracks_input = options.tracks.clone();
     let cover_image_path = options.cover_image_path.clone();
     let include_thumbs = options.include_thumbs;
+    let format = options.format.as_deref().unwrap_or("flac").to_string();
 
     thread::spawn(move || {
         let temp_dir = app_dir.join("temp_mixtape_export");
@@ -3526,10 +3527,10 @@ pub fn export_mixtape_full(
                     let source = if path.starts_with("subsonic://") { "subsonic" }
                         else if path.starts_with("tidal://") { "tidal" }
                         else { "plugin" };
-                    resolve_and_download_track(&resolve_registry, &app, &temp_dir, i, total, track, source)
+                    resolve_and_download_track(&resolve_registry, &app, &temp_dir, i, total, track, source, &cancel, &format)
                 }
             } else {
-                resolve_and_download_track(&resolve_registry, &app, &temp_dir, i, total, track, "plugin")
+                resolve_and_download_track(&resolve_registry, &app, &temp_dir, i, total, track, "plugin", &cancel, &format)
             };
 
             match audio_path {
@@ -3614,6 +3615,8 @@ fn resolve_and_download_track(
     total: usize,
     track: &crate::models::MixtapeExportTrackInput,
     source: &str,
+    cancel: &std::sync::atomic::AtomicBool,
+    format: &str,
 ) -> Option<String> {
     use tauri::Emitter;
 
@@ -3628,12 +3631,15 @@ fn resolve_and_download_track(
     log::info!("[mixtape-export] resolve #{}: \"{}\" by {:?}, path={:?}",
         resolve_id, track.title, track.artist, track.path);
     let rx = resolve_registry.register(resolve_id);
-    let _ = app.emit("mixtape-download-request", serde_json::json!({
+    let uri = track.path.clone();
+    let _ = app.emit("download-resolve-request", serde_json::json!({
         "id": resolve_id,
         "title": track.title,
         "artist_name": track.artist,
         "album_title": track.album,
-        "path": track.path,
+        "duration_secs": track.duration_secs,
+        "uri": uri,
+        "format": format,
     }));
 
     match rx.recv_timeout(std::time::Duration::from_secs(60)) {
@@ -3656,7 +3662,9 @@ fn resolve_and_download_track(
             });
 
             log::info!("[mixtape-export] downloading to {}", temp_file.display());
-            match mixtape_download_to_file(&response.url, response.headers.as_ref(), &temp_file) {
+            match crate::downloader::download_file(
+                &response.url, response.headers.as_ref(), &temp_file, Some(cancel), None,
+            ) {
                 Ok(_) => {
                     let size = std::fs::metadata(&temp_file).map(|m| m.len()).unwrap_or(0);
                     log::info!("[mixtape-export] download complete: {} ({} bytes)", temp_file.display(), size);
@@ -3678,44 +3686,6 @@ fn resolve_and_download_track(
             None
         }
     }
-}
-
-fn mixtape_download_to_file(
-    url: &str,
-    headers: Option<&std::collections::HashMap<String, String>>,
-    dest: &std::path::Path,
-) -> Result<(), String> {
-    if url.starts_with("file://") {
-        let src_path = urlencoding::decode(&url[7..])
-            .map_err(|e| format!("URL decode error: {}", e))?;
-        std::fs::copy(src_path.as_ref(), dest)
-            .map_err(|e| format!("Failed to copy local file: {}", e))?;
-        return Ok(());
-    }
-
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .danger_accept_invalid_certs(true)
-        .build()
-        .map_err(|e| format!("HTTP client error: {}", e))?;
-
-    let mut req = client.get(url);
-    if let Some(h) = headers {
-        for (k, v) in h {
-            req = req.header(k.as_str(), v.as_str());
-        }
-    }
-
-    let mut response = req.send().map_err(|e| format!("HTTP request failed: {}", e))?;
-    if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status()));
-    }
-
-    let mut file = std::fs::File::create(dest)
-        .map_err(|e| format!("Failed to create file: {}", e))?;
-    std::io::copy(&mut response, &mut file)
-        .map_err(|e| format!("Failed to write file: {}", e))?;
-    Ok(())
 }
 
 #[tauri::command]

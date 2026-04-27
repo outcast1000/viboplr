@@ -20,6 +20,7 @@ interface MixtapeExportModalProps {
   defaultCoverPath?: string | null;
   defaultMetadata?: Record<string, string> | null;
   defaultMixtapeType?: MixtapeType;
+  downloadFormat?: string;
   onClose: () => void;
 }
 
@@ -81,7 +82,7 @@ const formatFileSize = (bytes?: number): string => {
   return `${(mb / 1024).toFixed(2)} GB`;
 };
 
-export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, defaultMetadata, defaultMixtapeType, onClose }: MixtapeExportModalProps) {
+export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, defaultMetadata, defaultMixtapeType, downloadFormat, onClose }: MixtapeExportModalProps) {
   const [title, setTitle] = useState(defaultTitle || "");
   const [mixtapeType, setMixtapeType] = useState<MixtapeType>(defaultMixtapeType || "custom");
   const [coverPath, setCoverPath] = useState<string | null>(defaultCoverPath ?? null);
@@ -228,6 +229,7 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
             coverImagePath: coverPath,
             includeThumbs: includeThumb,
             tracks: trackInputs,
+            format: downloadFormat || "flac",
           },
         });
       }

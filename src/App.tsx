@@ -3100,6 +3100,7 @@ function App() {
           defaultCoverPath={mixtapeExportDefaultCover}
           defaultMetadata={mixtapeExportDefaultMetadata}
           defaultMixtapeType={mixtapeExportDefaultType}
+          downloadFormat={downloads.downloadFormat}
           onClose={() => setMixtapeExportTracks(null)}
         />
       )}

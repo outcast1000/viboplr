@@ -368,6 +368,7 @@ pub struct MixtapeFullExportOptions {
     pub cover_image_path: Option<String>,
     pub include_thumbs: bool,
     pub tracks: Vec<MixtapeExportTrackInput>,
+    pub format: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
