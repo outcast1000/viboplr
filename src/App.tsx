@@ -547,6 +547,7 @@ function App() {
   const [mixtapeExportDefaultTitle, setMixtapeExportDefaultTitle] = useState<string>("");
   const [mixtapeExportDefaultCover, setMixtapeExportDefaultCover] = useState<string | null>(null);
   const [mixtapeExportDefaultMetadata, setMixtapeExportDefaultMetadata] = useState<Record<string, string> | null>(null);
+  const [mixtapeExportDefaultType, setMixtapeExportDefaultType] = useState<"custom" | "album" | "best_of_artist">("custom");
 
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
@@ -1934,7 +1935,7 @@ function App() {
   }
 
   // Mixtape export trigger — fetches full track data and opens the export modal
-  const handleExportAsMixtape = useCallback(async (trackIds: number[], defaultTitle?: string) => {
+  const handleExportAsMixtape = useCallback(async (trackIds: number[], defaultTitle?: string, defaultType?: "custom" | "album" | "best_of_artist") => {
     try {
       const tracks = await invoke<Track[]>("get_tracks_by_ids", { ids: trackIds });
       setMixtapeExportTracks(tracks.map((t) => ({
@@ -1945,13 +1946,22 @@ function App() {
         durationSecs: t.duration_secs || undefined,
         fileSize: t.file_size || undefined,
       })));
+      let inferredType = defaultType;
+      if (!inferredType) {
+        if (library.selectedAlbum != null && tracks.length > 0 && tracks.every(t => t.album_id === library.selectedAlbum)) {
+          inferredType = "album";
+        } else if (library.selectedArtist != null && tracks.length > 0 && tracks.every(t => t.artist_id === library.selectedArtist)) {
+          inferredType = "best_of_artist";
+        }
+      }
       setMixtapeExportDefaultTitle(defaultTitle || "");
       setMixtapeExportDefaultCover(null);
       setMixtapeExportDefaultMetadata(null);
+      setMixtapeExportDefaultType(inferredType || "custom");
     } catch (e) {
       console.error("Failed to prepare mixtape export:", e);
     }
-  }, []);
+  }, [library.selectedAlbum, library.selectedArtist]);
 
   // Queue handler for mixtape "Just Play" mode — replaces the queue with mixtape tracks
   const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; imagePath?: string | null }) => {
@@ -3078,6 +3088,7 @@ function App() {
           defaultTitle={mixtapeExportDefaultTitle}
           defaultCoverPath={mixtapeExportDefaultCover}
           defaultMetadata={mixtapeExportDefaultMetadata}
+          defaultMixtapeType={mixtapeExportDefaultType}
           onClose={() => setMixtapeExportTracks(null)}
         />
       )}
