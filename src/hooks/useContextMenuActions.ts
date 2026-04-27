@@ -50,7 +50,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
   const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
-  const [downloadConfirm, setDownloadConfirm] = useState<{ track: Track; localTitle: string; providerId: string | null } | null>(null);
+  const [downloadConfirm, setDownloadConfirm] = useState<{ track: Track; localTitle: string; localTrackId: number; providerId: string | null } | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
 
@@ -415,7 +415,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const handleDownloadTrack = useCallback(async (track: Track, providerId: string | null = null) => {
     const localCopy = findLocalCopy(track);
     if (localCopy) {
-      setDownloadConfirm({ track, localTitle: localCopy.title, providerId });
+      setDownloadConfirm({ track, localTitle: localCopy.title, localTrackId: localCopy.id!, providerId });
       return;
     }
     enqueueDownload(track, providerId);

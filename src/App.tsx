@@ -3046,6 +3046,10 @@ function App() {
             </p>
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--ghost" onClick={contextMenuActions.handleDownloadConfirmDismiss}>Cancel</button>
+              <button className="ds-btn ds-btn--secondary" onClick={() => {
+                invoke("show_in_folder", { trackId: contextMenuActions.downloadConfirm!.localTrackId }).catch(console.error);
+                contextMenuActions.handleDownloadConfirmDismiss();
+              }}>Show in Folder</button>
               <button className="ds-btn ds-btn--primary" onClick={contextMenuActions.handleDownloadConfirm} autoFocus>Download</button>
             </div>
           </div>
