@@ -72,12 +72,10 @@ pub struct DownloadRequest {
     pub path_pattern: Option<String>,
     /// If true, this is the last track in a batch (album download). FTS rebuild happens after this one.
     pub is_batch_last: bool,
-    /// Plugin ID of the source provider (e.g., "tidal-browse")
-    pub source_provider_id: Option<String>,
-    /// Track ID within the source provider (e.g., TIDAL track ID)
-    pub source_track_id: Option<String>,
-    /// Collection ID for the source (e.g., subsonic collection)
-    pub source_collection_id: Option<i64>,
+    /// Raw track URI (e.g., "tidal://123", "subsonic://5/abc", null for metadata-only)
+    pub uri: Option<String>,
+    /// Track duration in seconds (used for metadata-based resolution)
+    pub duration_secs: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -688,9 +686,8 @@ mod tests {
             format: DownloadFormat::Flac,
             is_batch_last: false,
             path_pattern: None,
-            source_provider_id: None,
-            source_track_id: Some("123".to_string()),
-            source_collection_id: None,
+            uri: Some("tidal://123".to_string()),
+            duration_secs: None,
         }
     }
 

@@ -943,9 +943,8 @@ pub fn run() {
                         "title": request.title,
                         "artist_name": request.artist_name,
                         "album_title": request.album_title,
-                        "source_provider_id": request.source_provider_id,
-                        "source_track_id": request.source_track_id,
-                        "source_collection_id": request.source_collection_id,
+                        "duration_secs": request.duration_secs,
+                        "uri": request.uri,
                         "format": request.format.to_string(),
                     }));
 

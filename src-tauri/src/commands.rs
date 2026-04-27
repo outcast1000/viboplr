@@ -2109,9 +2109,8 @@ pub fn enqueue_download(
     title: String,
     artist_name: Option<String>,
     album_title: Option<String>,
-    source_provider_id: Option<String>,
-    source_track_id: Option<String>,
-    source_collection_id: Option<i64>,
+    uri: Option<String>,
+    duration_secs: Option<f64>,
     dest_collection_id: Option<i64>,
     dest_collection_path: Option<String>,
     format: Option<String>,
@@ -2136,9 +2135,8 @@ pub fn enqueue_download(
         format: fmt,
         path_pattern,
         is_batch_last: is_batch_last.unwrap_or(true),
-        source_provider_id,
-        source_track_id,
-        source_collection_id,
+        uri,
+        duration_secs,
     };
     state.track_download_manager.enqueue(request);
     Ok(id)
