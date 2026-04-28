@@ -213,6 +213,29 @@ export function ContextMenu({
             </div>
           </>
         )}
+        {onDownloadTrack && downloadProviderEntries && downloadProviderEntries.length > 0 && (
+          <>
+            <div className="context-menu-separator" />
+            <div className="context-menu-submenu">
+              <div className="context-menu-item">
+                <IconDownload size={14} /><span>{count > 1 ? `Download ${count} tracks` : "Download"}</span>
+              </div>
+              <div className="context-menu-submenu-list">
+                <div className="context-menu-item" onClick={() => { count > 1 && onDownloadMulti ? onDownloadMulti() : onDownloadTrack(); onClose(); }}>
+                  <span>Download (auto)</span>
+                </div>
+                {downloadProviderEntries.map((entry) => (
+                  <div key={entry.id} className="context-menu-item" onClick={() => {
+                    if (onDownloadFromProvider) { onDownloadFromProvider(entry.id, entry.interactive); }
+                    onClose();
+                  }}>
+                    <span>Download from {entry.name}{entry.interactive ? "..." : ""}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
         {pluginMenuItems && pluginMenuItems.length > 0 && (() => {
           const pluginTargetKind = count === 1 ? "track" : "multi-track";
           const matching = pluginMenuItems.filter(item => item.targets.includes(pluginTargetKind as "track" | "album" | "artist" | "multi-track"));

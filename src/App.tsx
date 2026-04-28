@@ -770,11 +770,25 @@ function App() {
     const ctx = contextMenuActions.contextMenu;
     if (!ctx) return;
     const target = ctx.target;
-    if (target.kind !== "track") return;
 
-    const trackId = target.trackId ?? null;
-    const title = target.title ?? "";
-    const artistName = target.artistName ?? null;
+    let trackId: number | null = null;
+    let title = "";
+    let artistName: string | null = null;
+
+    if (target.kind === "track") {
+      trackId = target.trackId ?? null;
+      title = target.title ?? "";
+      artistName = target.artistName ?? null;
+    } else if (target.kind === "queue-multi" && target.indices.length === 1) {
+      const queueTrack = queueHook.queue[target.indices[0]];
+      if (queueTrack) {
+        trackId = queueTrack.id ?? null;
+        title = queueTrack.title;
+        artistName = queueTrack.artist_name ?? null;
+      }
+    } else {
+      return;
+    }
 
     if (interactive) {
       setInteractiveDownload({
@@ -800,7 +814,7 @@ function App() {
         addLog(`Download failed: ${e}`, "downloads");
       });
     }
-  }, [contextMenuActions.contextMenu, downloadProviderEntries, library.tracks, addLog]);
+  }, [contextMenuActions.contextMenu, downloadProviderEntries, library.tracks, queueHook.queue, addLog]);
 
   // Wire plugin host callbacks (uses addLog, library, contextMenuActions defined above)
   pluginHostCallbacksRef.current = {
@@ -3021,8 +3035,31 @@ function App() {
               });
             }
           } : undefined}
-          onDownloadTrack={() => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track" && t.trackId) { const track = library.tracks.find(tr => tr.id === t.trackId); if (track) contextMenuActions.handleDownloadTrack(track); } else if (t.kind === "album" && t.albumId) { const albumTracks = library.tracks.filter(tr => tr.album_id === t.albumId); if (albumTracks.length) contextMenuActions.handleDownloadMulti(albumTracks); } }}
-          onDownloadMulti={() => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "multi-track") { const idSet = new Set(t.trackIds); const selected = library.tracks.filter(tr => tr.id != null && idSet.has(tr.id)); contextMenuActions.handleDownloadMulti(selected); } }}
+          onDownloadTrack={() => {
+            const t = contextMenuActions.contextMenu!.target;
+            if (t.kind === "track" && t.trackId) {
+              const track = library.tracks.find(tr => tr.id === t.trackId);
+              if (track) contextMenuActions.handleDownloadTrack(track);
+            } else if (t.kind === "album" && t.albumId) {
+              const albumTracks = library.tracks.filter(tr => tr.album_id === t.albumId);
+              if (albumTracks.length) contextMenuActions.handleDownloadMulti(albumTracks);
+            } else if (t.kind === "queue-multi") {
+              const tracks = t.indices.map(i => queueHook.queue[i]).filter(Boolean);
+              if (tracks.length === 1) contextMenuActions.handleDownloadTrack(tracks[0]);
+              else if (tracks.length > 1) contextMenuActions.handleDownloadMulti(tracks);
+            }
+          }}
+          onDownloadMulti={() => {
+            const t = contextMenuActions.contextMenu!.target;
+            if (t.kind === "multi-track") {
+              const idSet = new Set(t.trackIds);
+              const selected = library.tracks.filter(tr => tr.id != null && idSet.has(tr.id));
+              contextMenuActions.handleDownloadMulti(selected);
+            } else if (t.kind === "queue-multi") {
+              const tracks = t.indices.map(i => queueHook.queue[i]).filter(Boolean);
+              if (tracks.length) contextMenuActions.handleDownloadMulti(tracks);
+            }
+          }}
           downloadProviderEntries={downloadProviderEntries}
           onDownloadFromProvider={handleDownloadFromProvider}
           onExportAsMixtape={handleExportAsMixtape}
