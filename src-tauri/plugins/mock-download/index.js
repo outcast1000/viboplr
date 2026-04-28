@@ -111,9 +111,9 @@ function activate(api) {
   api.downloads.onInteractiveSearch("mock-dl", async function(query, limit) {
     console.log("[mock-download] interactiveSearch called, emptySearchRate=" + state.emptySearchRate + ", errorRate=" + state.errorRate);
     if (!state.enabled) return [];
+    await delay(state.resolveDelayMs);
     if (shouldError()) throw new Error("Mock provider: simulated search error");
     if (shouldEmptySearch()) { console.log("[mock-download] returning empty search results"); return []; }
-    await delay(state.resolveDelayMs);
     var q = (query || "").toLowerCase();
     var results = MOCK_CATALOG.filter(function(t) {
       return t.title.toLowerCase().indexOf(q) >= 0 ||
