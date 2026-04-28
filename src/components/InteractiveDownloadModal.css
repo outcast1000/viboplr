@@ -75,6 +75,11 @@
   font-size: var(--fs-sm);
 }
 
+.tidal-dl-search-field button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .tidal-dl-results {
   max-height: 300px;
   overflow-y: auto;
