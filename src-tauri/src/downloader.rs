@@ -76,6 +76,8 @@ pub struct DownloadRequest {
     pub uri: Option<String>,
     /// Track duration in seconds (used for metadata-based resolution)
     pub duration_secs: Option<f64>,
+    /// Target a specific download provider (e.g., "tidal-browse:tidal-download"). When set, only this provider is tried.
+    pub provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -688,6 +690,7 @@ mod tests {
             path_pattern: None,
             uri: Some("tidal://123".to_string()),
             duration_secs: None,
+            provider: None,
         }
     }
 

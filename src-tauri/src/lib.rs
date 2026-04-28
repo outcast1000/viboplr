@@ -945,6 +945,7 @@ pub fn run() {
                         "album_title": request.album_title,
                         "duration_secs": request.duration_secs,
                         "uri": request.uri,
+                        "provider": request.provider,
                         "format": request.format.to_string(),
                     }));
 

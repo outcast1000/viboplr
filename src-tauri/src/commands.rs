@@ -2116,6 +2116,7 @@ pub fn enqueue_download(
     format: Option<String>,
     path_pattern: Option<String>,
     is_batch_last: Option<bool>,
+    provider: Option<String>,
 ) -> Result<u64, String> {
     let (dest_cid, dest_path) = resolve_dest_collection(&state, dest_collection_id, dest_collection_path)?;
 
@@ -2137,6 +2138,7 @@ pub fn enqueue_download(
         is_batch_last: is_batch_last.unwrap_or(true),
         uri,
         duration_secs,
+        provider,
     };
     state.track_download_manager.enqueue(request);
     Ok(id)
