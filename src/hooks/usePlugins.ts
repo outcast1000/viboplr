@@ -973,8 +973,10 @@ export function usePlugins(
   }, [activatePlugin, deactivatePlugin, debugMode]);
 
   // Initialize on mount, and reload when debugMode changes
+  const initialLoadDone = useRef(false);
   useEffect(() => {
     loadPlugins();
+    initialLoadDone.current = true;
     return () => {
       // Deactivate all on unmount
       for (const id of loadedPluginsRef.current.keys()) {
@@ -983,6 +985,13 @@ export function usePlugins(
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Reload plugins when debugMode changes (after initial load)
+  useEffect(() => {
+    if (initialLoadDone.current) {
+      loadPlugins();
+    }
+  }, [debugMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -- Public methods --
 
