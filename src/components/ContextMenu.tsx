@@ -350,8 +350,23 @@ export function ContextMenu({
       {isMulti && onDownloadMulti && downloadProviderEntries && downloadProviderEntries.length > 0 && (
         <>
           <div className="context-menu-separator" />
-          <div className="context-menu-item" onClick={() => { onDownloadMulti(); onClose(); }}>
-            <IconDownload size={14} /><span>Download {target.trackIds.length} tracks</span>
+          <div className="context-menu-submenu">
+            <div className="context-menu-item">
+              <IconDownload size={14} /><span>Download {target.trackIds.length} tracks</span>
+            </div>
+            <div className="context-menu-submenu-list">
+              <div className="context-menu-item" onClick={() => { onDownloadMulti(); onClose(); }}>
+                <span>Download (auto)</span>
+              </div>
+              {downloadProviderEntries.map((entry) => (
+                <div key={entry.id} className="context-menu-item" onClick={() => {
+                  if (onDownloadFromProvider) { onDownloadFromProvider(entry.id, entry.interactive); }
+                  onClose();
+                }}>
+                  <span>Download from {entry.name}{entry.interactive ? "..." : ""}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </>
       )}

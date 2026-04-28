@@ -771,6 +771,37 @@ function App() {
     if (!ctx) return;
     const target = ctx.target;
 
+    // Collect tracks for batch downloads
+    let batchTracks: Track[] | null = null;
+    if (target.kind === "multi-track") {
+      const idSet = new Set(target.trackIds);
+      batchTracks = library.tracks.filter(t => t.id != null && idSet.has(t.id));
+    } else if (target.kind === "queue-multi" && target.indices.length > 1) {
+      batchTracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
+    }
+
+    if (batchTracks && batchTracks.length > 0) {
+      (async () => {
+        for (let i = 0; i < batchTracks!.length; i++) {
+          const t = batchTracks![i];
+          try {
+            await invoke("enqueue_download", {
+              title: t.title, artistName: t.artist_name, albumTitle: t.album_title,
+              uri: t.path ?? null, durationSecs: t.duration_secs ?? null,
+              destCollectionId: null, format: null, provider: providerId,
+              isBatchLast: i === batchTracks!.length - 1,
+            });
+          } catch (e) {
+            console.error("Failed to enqueue download:", e);
+            addLog(`Download failed: ${t.title} - ${e}`, "downloads");
+          }
+        }
+        addLog(`Downloading ${batchTracks!.length} tracks from ${downloadProviderEntries.find(e => e.id === providerId)?.name ?? providerId}`, "downloads");
+      })();
+      return;
+    }
+
+    // Single track
     let trackId: number | null = null;
     let title = "";
     let artistName: string | null = null;
