@@ -3091,6 +3091,7 @@ function App() {
           libraryTrack={interactiveDownload.input.trackId != null ? library.tracks.find(t => t.id === interactiveDownload.input.trackId) ?? null : null}
           downloadFormat={downloads.downloadFormat}
           collections={localCollections}
+          downloadsCollectionId={downloadsCollectionId}
           store={store}
           lastDest={lastDownloadDest}
           onSearch={(query, limit) => {
