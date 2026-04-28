@@ -3104,9 +3104,22 @@ function App() {
           }}
           onClose={() => setInteractiveDownload(null)}
           onComplete={(msg) => { setInteractiveDownload(null); library.loadLibrary(); library.loadTracks(); addLog(msg, "downloads"); }}
-          onPlay={(path) => {
-            const track = library.tracks.find(t => t.path === `file://${path}` || t.path === path);
-            if (track) queueHook.addToQueueAndPlay(track);
+          onPlay={async (path) => {
+            try {
+              const track = await invoke<Track>("find_track_by_metadata", {
+                title: interactiveDownload.input.title,
+                artistName: interactiveDownload.input.artistName,
+              });
+              if (track) {
+                queueHook.playTracks([track], 0);
+                return;
+              }
+            } catch { /* fall through */ }
+            queueHook.playTracks([{
+              id: 0, title: interactiveDownload.input.title,
+              artist_name: interactiveDownload.input.artistName,
+              path: `file://${path}`,
+            } as Track], 0);
           }}
         />
       )}
