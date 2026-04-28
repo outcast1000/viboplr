@@ -3106,7 +3106,7 @@ function App() {
           onComplete={(msg) => { setInteractiveDownload(null); library.loadLibrary(); library.loadTracks(); addLog(msg, "downloads"); }}
           onPlay={(path) => {
             const track = library.tracks.find(t => t.path === `file://${path}` || t.path === path);
-            if (track) queueHook.playTracks([track], 0);
+            if (track) queueHook.addToQueueAndPlay(track);
           }}
         />
       )}
