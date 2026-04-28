@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { tidalCoverUrl } from "../utils";
 import type { AppStore } from "../store";
-import "./TidalDownloadModal.css";
+import "./InteractiveDownloadModal.css";
 
 export interface TidalAlbumDownloadInput {
   albumId: string;
