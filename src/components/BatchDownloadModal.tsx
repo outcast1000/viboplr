@@ -74,6 +74,7 @@ export function BatchDownloadModal({
   store,
   lastDest,
   onSearch,
+  onResolve,
   onClose,
   onComplete,
 }: BatchDownloadModalProps) {
@@ -105,6 +106,11 @@ export function BatchDownloadModal({
   const [downloadStates, setDownloadStates] = useState<DownloadTrackState[]>([]);
   const trackIdsRef = useRef<Set<number>>(new Set());
 
+  const onSearchRef = useRef(onSearch);
+  onSearchRef.current = onSearch;
+  const onResolveRef = useRef(onResolve);
+  onResolveRef.current = onResolve;
+
   useEffect(() => {
     if (step !== "resolve") return;
     cancelledRef.current = false;
@@ -126,7 +132,7 @@ export function BatchDownloadModal({
 
         try {
           const query = [tracks[i].title, tracks[i].artistName].filter(Boolean).join(" ");
-          const results = await onSearch(query, 5);
+          const results = await onSearchRef.current(query, 5);
           const match = results.length > 0 ? results[0] : null;
 
           setResolveStates(prev => prev.map((s, idx) =>
@@ -139,7 +145,6 @@ export function BatchDownloadModal({
           ));
         }
 
-        // 200ms delay between searches (except after the last one)
         if (i < tracks.length - 1 && !cancelledRef.current) {
           await new Promise(r => setTimeout(r, 200));
         }
@@ -155,7 +160,7 @@ export function BatchDownloadModal({
     return () => {
       cancelledRef.current = true;
     };
-  }, [step, tracks, onSearch]);
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Enqueue downloads when step becomes "downloading"
   useEffect(() => {
@@ -264,7 +269,7 @@ export function BatchDownloadModal({
   async function handleManualSearch(_index: number) {
     setManualSearching(true);
     try {
-      const results = await onSearch(manualQuery, 10);
+      const results = await onSearchRef.current(manualQuery, 10);
       setManualResults(results);
     } catch (err) {
       console.error("Failed to perform manual search:", err);
