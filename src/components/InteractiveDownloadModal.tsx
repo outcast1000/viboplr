@@ -427,7 +427,7 @@ export function InteractiveDownloadModal({
                 onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
                 placeholder={`Search ${providerName}...`}
               />
-              <button onClick={() => handleSearch()}>Search</button>
+              <button onClick={() => handleSearch()} disabled={searching}>Search</button>
             </div>
             {searching ? (
               <div className="tidal-dl-loading"><div className="tidal-dl-spinner" /><span>Searching {providerName}...</span></div>
