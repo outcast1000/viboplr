@@ -98,6 +98,7 @@ export function usePlugins(
   positionRef: React.RefObject<number>,
   playbackCallbacks?: PluginPlaybackCallbacks,
   hostCallbacks?: PluginHostCallbacks,
+  debugMode?: boolean,
 ) {
   const [pluginStates, setPluginStates] = useState<PluginState[]>([]);
   const [sidebarItems, setSidebarItems] = useState<PluginSidebarItem[]>([]);
@@ -880,6 +881,10 @@ export function usePlugins(
           continue;
         }
 
+        if (m.debugOnly && !debugMode) {
+          continue;
+        }
+
         const state = await activatePlugin(plugin);
         states.push(state);
 
@@ -965,9 +970,9 @@ export function usePlugins(
     } catch (e) {
       console.error("Failed to load plugins:", e);
     }
-  }, [activatePlugin, deactivatePlugin]);
+  }, [activatePlugin, deactivatePlugin, debugMode]);
 
-  // Initialize on mount
+  // Initialize on mount, and reload when debugMode changes
   useEffect(() => {
     loadPlugins();
     return () => {

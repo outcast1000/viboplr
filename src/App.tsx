@@ -269,7 +269,7 @@ function App() {
     getDownloadFormat: () => downloadFormatRef.current,
   }), [queueHook, tidalTrackToTrackFn]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
-  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current);
+  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode);
 
   // Wire up image resolver to handle image-resolve-request events
   useImageResolver(plugins.invokeImageFetch);

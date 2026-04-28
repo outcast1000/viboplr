@@ -87,6 +87,7 @@ export interface PluginManifest {
   author?: string;
   description?: string;
   minAppVersion?: string;
+  debugOnly?: boolean;
   icon?: string;
   apiUsage?: PluginApiUsage[];
   homepage?: string;
