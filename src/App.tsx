@@ -3165,6 +3165,7 @@ function App() {
           providerId={batchDownload.providerId}
           providerName={batchDownload.providerName}
           confirmed={batchDownload.confirmed}
+          downloadFormat={downloads.downloadFormat}
           collections={localCollections}
           downloadsCollectionId={downloadsCollectionId}
           store={store}

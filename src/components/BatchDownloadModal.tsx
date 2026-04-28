@@ -36,6 +36,7 @@ interface BatchDownloadModalProps {
   providerId: string;
   providerName: string;
   confirmed?: boolean;
+  downloadFormat: string;
   collections: { id: number; name: string; path: string }[];
   downloadsCollectionId?: number | null;
   store: AppStore;
@@ -69,6 +70,7 @@ export function BatchDownloadModal({
   providerId,
   providerName,
   confirmed,
+  downloadFormat,
   collections,
   downloadsCollectionId,
   store,
@@ -79,7 +81,9 @@ export function BatchDownloadModal({
   onComplete,
 }: BatchDownloadModalProps) {
   const [step, setStep] = useState<Step>("configure");
-  const [quality, setQuality] = useState<"flac" | "aac">("flac");
+  const [quality, setQuality] = useState<"flac" | "aac">(
+    downloadFormat === "flac" ? "flac" : "aac"
+  );
   const [destType, setDestType] = useState<"collection" | "path">("collection");
   const [destCollectionId, setDestCollectionId] = useState<number | null>(() => {
     if (lastDest) {
