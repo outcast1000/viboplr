@@ -25,6 +25,7 @@ interface InteractiveDownloadModalProps {
   onResolve: (matchId: string, format: string) => Promise<DownloadResolveResult>;
   onClose: () => void;
   onComplete: (message: string) => void;
+  onPlay?: (path: string) => void;
 }
 
 interface UpgradePreviewInfo {
@@ -71,6 +72,7 @@ export function InteractiveDownloadModal({
   onResolve,
   onClose,
   onComplete,
+  onPlay,
 }: InteractiveDownloadModalProps) {
   const [step, setStep] = useState<Step>("search");
   const [searchQuery, setSearchQuery] = useState(
@@ -628,6 +630,14 @@ export function InteractiveDownloadModal({
               <div className="tidal-dl-success-path">{downloadResult.path}</div>
             </div>
             <div className="tidal-dl-actions">
+              <button onClick={() => invoke("show_in_folder_path", { filePath: downloadResult.path }).catch(console.error)}>
+                Show in Folder
+              </button>
+              {onPlay && (
+                <button onClick={() => { onPlay(downloadResult.path); onClose(); }}>
+                  Play
+                </button>
+              )}
               <button className="tidal-dl-btn-primary" onClick={onClose}>Done</button>
             </div>
           </>
