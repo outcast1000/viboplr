@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -125,7 +125,10 @@ export function InteractiveDownloadModal({
   const hasDuration = results.some(r => r.durationSecs);
 
   // Auto-search on mount
+  const didAutoSearch = useRef(false);
   useEffect(() => {
+    if (didAutoSearch.current) return;
+    didAutoSearch.current = true;
     if (!searchQuery) {
       setSearchError("No title or artist to search for");
       return;
