@@ -25,6 +25,9 @@ import type {
   DownloadResolveByUriHandler,
   DownloadResolveByMetadataHandler,
   DownloadResolveResult,
+  InteractiveSearchHandler,
+  InteractiveResolveHandler,
+  InteractiveSearchResult,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 
@@ -60,6 +63,8 @@ interface LoadedPlugin {
   imageFetchHandlers: Map<string, (name: string, artistName?: string) => Promise<ImageFetchResult>>;
   downloadResolveByUriHandlers: Map<string, DownloadResolveByUriHandler>;
   downloadResolveByMetadataHandlers: Map<string, DownloadResolveByMetadataHandler>;
+  interactiveSearchHandlers: Map<string, InteractiveSearchHandler>;
+  interactiveResolveHandlers: Map<string, InteractiveResolveHandler>;
   streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string } | null>>;
   streamUrlResolver: ((trackId: string, quality?: string | null) => Promise<string | null>) | null;
   schedulerHandlers: Map<string, () => void>;
@@ -491,6 +496,7 @@ export function usePlugins(
               destCollectionId,
               destCollectionPath: customDestPath,
               format,
+              provider: "tidal-browse:tidal-download",
             });
           },
           async downloadAlbum(_albumId, _opts) {
@@ -625,6 +631,18 @@ export function usePlugins(
             trackUnsubscribe(unsub);
             return unsub;
           },
+          onInteractiveSearch(providerId: string, handler: InteractiveSearchHandler): () => void {
+            loaded.interactiveSearchHandlers.set(providerId, handler);
+            const unsub = () => { loaded.interactiveSearchHandlers.delete(providerId); };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          onInteractiveResolve(providerId: string, handler: InteractiveResolveHandler): () => void {
+            loaded.interactiveResolveHandlers.set(providerId, handler);
+            const unsub = () => { loaded.interactiveResolveHandlers.delete(providerId); };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
         },
 
         scheduler: {
@@ -706,6 +724,8 @@ export function usePlugins(
     loaded.imageFetchHandlers.clear();
     loaded.downloadResolveByUriHandlers.clear();
     loaded.downloadResolveByMetadataHandlers.clear();
+    loaded.interactiveSearchHandlers.clear();
+    loaded.interactiveResolveHandlers.clear();
     loaded.streamResolveHandlers.clear();
     loaded.schedulerHandlers.clear();
 
@@ -745,6 +765,8 @@ export function usePlugins(
         imageFetchHandlers: new Map(),
         downloadResolveByUriHandlers: new Map(),
         downloadResolveByMetadataHandlers: new Map(),
+        interactiveSearchHandlers: new Map(),
+        interactiveResolveHandlers: new Map(),
         streamResolveHandlers: new Map(),
         streamUrlResolver: null,
         schedulerHandlers: new Map(),
@@ -1218,6 +1240,37 @@ export function usePlugins(
     [],
   );
 
+  const invokeInteractiveSearch = useCallback(
+    async (pluginId: string, providerId: string, query: string, limit: number): Promise<InteractiveSearchResult[]> => {
+      const loaded = loadedPluginsRef.current.get(pluginId);
+      if (!loaded) return [];
+      const handler = loaded.interactiveSearchHandlers.get(providerId);
+      if (!handler) return [];
+      return handler(query, limit);
+    },
+    [],
+  );
+
+  const invokeInteractiveResolve = useCallback(
+    async (pluginId: string, providerId: string, matchId: string, format: string): Promise<DownloadResolveResult> => {
+      const loaded = loadedPluginsRef.current.get(pluginId);
+      if (!loaded) throw new Error(`Plugin ${pluginId} not loaded`);
+      const handler = loaded.interactiveResolveHandlers.get(providerId);
+      if (!handler) throw new Error(`No interactive resolve handler for ${providerId}`);
+      return handler(matchId, format);
+    },
+    [],
+  );
+
+  const hasInteractiveDownload = useCallback(
+    (pluginId: string, providerId: string): boolean => {
+      const loaded = loadedPluginsRef.current.get(pluginId);
+      if (!loaded) return false;
+      return loaded.interactiveSearchHandlers.has(providerId) && loaded.interactiveResolveHandlers.has(providerId);
+    },
+    [],
+  );
+
   const resolveTidalStreamUrl = useCallback(
     async (trackId: string, quality?: string | null): Promise<string> => {
       for (const [, lp] of loadedPluginsRef.current) {
@@ -1263,6 +1316,9 @@ export function usePlugins(
     invokeStreamResolve,
     invokeDownloadResolveByUri,
     invokeDownloadResolveByMetadata,
+    invokeInteractiveSearch,
+    invokeInteractiveResolve,
+    hasInteractiveDownload,
     resolveTidalStreamUrl,
   };
 }

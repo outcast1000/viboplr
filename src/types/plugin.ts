@@ -417,9 +417,31 @@ export type DownloadResolveByMetadataHandler = (
   format: string,
 ) => Promise<DownloadResolveResult | null>;
 
+export interface InteractiveSearchResult {
+  id: string;
+  title: string;
+  artistName?: string | null;
+  albumTitle?: string | null;
+  coverUrl?: string | null;
+  durationSecs?: number | null;
+  trackNumber?: number | null;
+}
+
+export type InteractiveSearchHandler = (
+  query: string,
+  limit: number,
+) => Promise<InteractiveSearchResult[]>;
+
+export type InteractiveResolveHandler = (
+  matchId: string,
+  format: string,
+) => Promise<DownloadResolveResult>;
+
 export interface PluginDownloadsAPI {
   onResolveByUri(providerId: string, handler: DownloadResolveByUriHandler): () => void;
   onResolveByMetadata(providerId: string, handler: DownloadResolveByMetadataHandler): () => void;
+  onInteractiveSearch(providerId: string, handler: InteractiveSearchHandler): () => void;
+  onInteractiveResolve(providerId: string, handler: InteractiveResolveHandler): () => void;
 }
 
 export interface DownloadProvider {
