@@ -38,7 +38,8 @@ interface ContextMenuProps {
   onLocateTrack?: () => void;
   onDownloadTrack?: () => void;
   onDownloadMulti?: () => void;
-  downloadProviders?: { id: string; name: string }[];
+  downloadProviderEntries?: { id: string; name: string; interactive: boolean }[];
+  onDownloadFromProvider?: (providerId: string, interactive: boolean) => void;
   onBulkEdit?: () => void;
   onExportAsMixtape?: (trackIds: number[]) => void;
   onClose: () => void;
@@ -120,7 +121,7 @@ function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarget {
 
 export function ContextMenu({
   menu, providers, onPlay, onEnqueue, onShowInFolder, onWatchOnYoutube, onViewDetails,
-  onDelete, onRefreshImage, onRemoveFromQueue, onKeepOnly, onMoveToTop, onMoveToBottom, onLocateTrack, onDownloadTrack, onDownloadMulti, downloadProviders,
+  onDelete, onRefreshImage, onRemoveFromQueue, onKeepOnly, onMoveToTop, onMoveToBottom, onLocateTrack, onDownloadTrack, onDownloadMulti, downloadProviderEntries, onDownloadFromProvider,
   onBulkEdit, onExportAsMixtape, onClose,
   pluginMenuItems, onPluginAction,
   onSetDockSide, onSetFitMode,
@@ -292,15 +293,30 @@ export function ContextMenu({
           </div>
         </>
       )}
-      {target.kind === "track" && onDownloadTrack && downloadProviders && downloadProviders.length > 0 && (
+      {target.kind === "track" && onDownloadTrack && downloadProviderEntries && downloadProviderEntries.length > 0 && (
         <>
           <div className="context-menu-separator" />
-          <div className="context-menu-item" onClick={() => { onDownloadTrack(); onClose(); }}>
-            <IconDownload size={14} /><span>Download</span>
+          <div className="context-menu-submenu">
+            <div className="context-menu-item">
+              <IconDownload size={14} /><span>Download</span>
+            </div>
+            <div className="context-menu-submenu-list">
+              <div className="context-menu-item" onClick={() => { onDownloadTrack(); onClose(); }}>
+                <span>Download (auto)</span>
+              </div>
+              {downloadProviderEntries.map((entry) => (
+                <div key={entry.id} className="context-menu-item" onClick={() => {
+                  if (onDownloadFromProvider) { onDownloadFromProvider(entry.id, entry.interactive); }
+                  onClose();
+                }}>
+                  <span>Download from {entry.name}{entry.interactive ? "..." : ""}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </>
       )}
-      {target.kind === "album" && onDownloadTrack && downloadProviders && downloadProviders.length > 0 && (
+      {target.kind === "album" && onDownloadTrack && downloadProviderEntries && downloadProviderEntries.length > 0 && (
         <>
           <div className="context-menu-separator" />
           <div className="context-menu-item" onClick={() => { onDownloadTrack(); onClose(); }}>
@@ -308,7 +324,7 @@ export function ContextMenu({
           </div>
         </>
       )}
-      {isMulti && onDownloadMulti && downloadProviders && downloadProviders.length > 0 && (
+      {isMulti && onDownloadMulti && downloadProviderEntries && downloadProviderEntries.length > 0 && (
         <>
           <div className="context-menu-separator" />
           <div className="context-menu-item" onClick={() => { onDownloadMulti(); onClose(); }}>

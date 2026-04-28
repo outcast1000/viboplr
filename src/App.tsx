@@ -416,6 +416,21 @@ function App() {
   const downloadProvidersRef = useRef<DownloadProvider[]>([]);
   downloadProvidersRef.current = downloadProviders;
 
+  const downloadProviderEntries = useMemo(() => {
+    return downloadProviders
+      .filter(p => p.source !== "__builtin")
+      .map(p => {
+        const parts = p.id.split(":");
+        const pluginId = parts[0];
+        const providerId = parts.slice(1).join(":");
+        return {
+          id: p.id,
+          name: p.name,
+          interactive: plugins.hasInteractiveDownload(pluginId, providerId),
+        };
+      });
+  }, [downloadProviders, plugins.hasInteractiveDownload]);
+
   // Sync download providers to DB for backend ordering
   useEffect(() => {
     const providerData: [string, string, string, number][] = [];
@@ -750,6 +765,42 @@ function App() {
       : `${localIds.length} tracks`;
     contextMenuActions.setDeleteConfirm({ trackIds: localIds, title });
   }, [library.tracks, contextMenuActions.setDeleteConfirm]);
+
+  const handleDownloadFromProvider = useCallback((providerId: string, interactive: boolean) => {
+    const ctx = contextMenuActions.contextMenu;
+    if (!ctx) return;
+    const target = ctx.target;
+    if (target.kind !== "track") return;
+
+    const trackId = target.trackId ?? null;
+    const title = target.title ?? "";
+    const artistName = target.artistName ?? null;
+
+    if (interactive) {
+      setInteractiveDownload({
+        input: { trackId, title, artistName },
+        providerId,
+        providerName: downloadProviderEntries.find(e => e.id === providerId)?.name ?? providerId,
+      });
+    } else {
+      const track = trackId != null ? library.tracks.find(t => t.id === trackId) : null;
+      invoke("enqueue_download", {
+        title: track?.title ?? title,
+        artistName: track?.artist_name ?? artistName,
+        albumTitle: track?.album_title ?? null,
+        uri: track?.path ?? null,
+        durationSecs: track?.duration_secs ?? null,
+        destCollectionId: null,
+        format: null,
+        provider: providerId,
+      }).then(() => {
+        addLog(`Downloading: ${track?.title ?? title}`, "downloads");
+      }).catch((e: unknown) => {
+        console.error("Failed to enqueue download:", e);
+        addLog(`Download failed: ${e}`, "downloads");
+      });
+    }
+  }, [contextMenuActions.contextMenu, downloadProviderEntries, library.tracks, addLog]);
 
   // Wire plugin host callbacks (uses addLog, library, contextMenuActions defined above)
   pluginHostCallbacksRef.current = {
@@ -2972,7 +3023,8 @@ function App() {
           } : undefined}
           onDownloadTrack={() => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "track" && t.trackId) { const track = library.tracks.find(tr => tr.id === t.trackId); if (track) contextMenuActions.handleDownloadTrack(track); } else if (t.kind === "album" && t.albumId) { const albumTracks = library.tracks.filter(tr => tr.album_id === t.albumId); if (albumTracks.length) contextMenuActions.handleDownloadMulti(albumTracks); } }}
           onDownloadMulti={() => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "multi-track") { const idSet = new Set(t.trackIds); const selected = library.tracks.filter(tr => tr.id != null && idSet.has(tr.id)); contextMenuActions.handleDownloadMulti(selected); } }}
-          downloadProviders={downloadProviders.map(p => ({ id: p.id, name: p.name }))}
+          downloadProviderEntries={downloadProviderEntries}
+          onDownloadFromProvider={handleDownloadFromProvider}
           onExportAsMixtape={handleExportAsMixtape}
           onClose={() => contextMenuActions.setContextMenu(null)}
           pluginMenuItems={plugins.menuItems}
