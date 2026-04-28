@@ -1,8 +1,14 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { InteractiveSearchResult, DownloadResolveResult } from "../types/plugin";
 import type { AppStore } from "../store";
 import "./InteractiveDownloadModal.css";
+
+interface ResolveState {
+  originalTrack: BatchDownloadTrack;
+  status: "pending" | "searching" | "matched" | "not_found";
+  match?: InteractiveSearchResult | null;
+}
 
 export interface BatchDownloadTrack {
   title: string;
@@ -53,6 +59,7 @@ export function BatchDownloadModal({
   downloadsCollectionId,
   store,
   lastDest,
+  onSearch,
   onClose,
 }: BatchDownloadModalProps) {
   const [step, setStep] = useState<Step>("configure");
@@ -68,6 +75,90 @@ export function BatchDownloadModal({
   });
   const [destPath, setDestPath] = useState<string | null>(null);
   const [pathPattern, setPathPattern] = useState(PATH_PATTERNS[0].value);
+
+  // Resolve step state
+  const [resolveStates, setResolveStates] = useState<ResolveState[]>([]);
+  const cancelledRef = useRef(false);
+
+  // Review step state
+  const [manualSearchIndex, setManualSearchIndex] = useState<number | null>(null);
+  const [manualQuery, setManualQuery] = useState("");
+  const [manualResults, setManualResults] = useState<InteractiveSearchResult[]>([]);
+  const [manualSearching, setManualSearching] = useState(false);
+
+  useEffect(() => {
+    if (step !== "resolve") return;
+    cancelledRef.current = false;
+
+    async function runResolve() {
+      const initial: ResolveState[] = tracks.map(t => ({
+        originalTrack: t,
+        status: "pending",
+        match: null,
+      }));
+      setResolveStates(initial);
+
+      for (let i = 0; i < tracks.length; i++) {
+        if (cancelledRef.current) break;
+
+        setResolveStates(prev => prev.map((s, idx) =>
+          idx === i ? { ...s, status: "searching" } : s
+        ));
+
+        try {
+          const query = [tracks[i].title, tracks[i].artistName].filter(Boolean).join(" ");
+          const results = await onSearch(query, 5);
+          const match = results.length > 0 ? results[0] : null;
+
+          setResolveStates(prev => prev.map((s, idx) =>
+            idx === i ? { ...s, status: match ? "matched" : "not_found", match } : s
+          ));
+        } catch (err) {
+          console.error("Failed to resolve track:", err);
+          setResolveStates(prev => prev.map((s, idx) =>
+            idx === i ? { ...s, status: "not_found", match: null } : s
+          ));
+        }
+
+        // 200ms delay between searches (except after the last one)
+        if (i < tracks.length - 1 && !cancelledRef.current) {
+          await new Promise(r => setTimeout(r, 200));
+        }
+      }
+
+      if (!cancelledRef.current) {
+        setStep("review");
+      }
+    }
+
+    runResolve();
+
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, [step, tracks, onSearch]);
+
+  async function handleManualSearch(_index: number) {
+    setManualSearching(true);
+    try {
+      const results = await onSearch(manualQuery, 10);
+      setManualResults(results);
+    } catch (err) {
+      console.error("Failed to perform manual search:", err);
+      setManualResults([]);
+    } finally {
+      setManualSearching(false);
+    }
+  }
+
+  function handlePickManualMatch(index: number, match: InteractiveSearchResult) {
+    setResolveStates(prev => prev.map((s, i) =>
+      i === index ? { ...s, status: "matched", match } : s
+    ));
+    setManualSearchIndex(null);
+    setManualQuery("");
+    setManualResults([]);
+  }
 
   // Derive a representative artist/album from the first track for the preview
   const sampleArtist = tracks[0]?.artistName ?? "Artist";
@@ -170,8 +261,116 @@ export function BatchDownloadModal({
           </>
         )}
 
-        {step === "resolve" && <p>Resolve step placeholder</p>}
-        {step === "review" && <p>Review step placeholder</p>}
+        {step === "resolve" && (
+          <>
+            <div className="tidal-dl-batch-list">
+              {resolveStates.map((rs, i) => (
+                <div key={i} className="tidal-dl-batch-row">
+                  <div className="tidal-dl-batch-status">
+                    {rs.status === "searching" && <div className="ds-spinner ds-spinner--sm" />}
+                    {rs.status === "matched" && <span style={{color: "var(--success)"}}>&#10003;</span>}
+                    {rs.status === "not_found" && <span style={{color: "var(--error)"}}>&#10007;</span>}
+                    {rs.status === "pending" && <span style={{color: "var(--text-tertiary)"}}>&#183;</span>}
+                  </div>
+                  <div className="tidal-dl-batch-info">
+                    <div className="tidal-dl-batch-title">{rs.originalTrack.title}</div>
+                    {rs.status === "matched" && rs.match && (
+                      <div className="tidal-dl-batch-match">&rarr; {rs.match.title}{rs.match.artistName ? ` — ${rs.match.artistName}` : ""}</div>
+                    )}
+                    {rs.status === "not_found" && (
+                      <div className="tidal-dl-batch-match">No match found</div>
+                    )}
+                    {rs.status === "searching" && (
+                      <div className="tidal-dl-batch-match">Searching...</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="tidal-dl-actions">
+              <button onClick={() => { cancelledRef.current = true; onClose(); }}>Cancel</button>
+            </div>
+          </>
+        )}
+
+        {step === "review" && (
+          <>
+            <div className="tidal-dl-batch-list">
+              {resolveStates.map((rs, i) => (
+                <div key={i}>
+                  <div className="tidal-dl-batch-row">
+                    <div className="tidal-dl-batch-status">
+                      {rs.status === "matched" && <span style={{color: "var(--success)"}}>&#10003;</span>}
+                      {rs.status === "not_found" && <span style={{color: "var(--error)"}}>&#10007;</span>}
+                    </div>
+                    <div className="tidal-dl-batch-info">
+                      <div className="tidal-dl-batch-title">{rs.originalTrack.title}</div>
+                      {rs.status === "matched" && rs.match && (
+                        <div className="tidal-dl-batch-match">&rarr; {rs.match.title}{rs.match.artistName ? ` — ${rs.match.artistName}` : ""}</div>
+                      )}
+                      {rs.status === "not_found" && (
+                        <div className="tidal-dl-batch-match">No match found</div>
+                      )}
+                    </div>
+                    {rs.status === "not_found" && (
+                      <div className="tidal-dl-batch-action">
+                        <button className="tidal-dl-btn-small" onClick={() => {
+                          setManualSearchIndex(manualSearchIndex === i ? null : i);
+                          setManualQuery([rs.originalTrack.title, rs.originalTrack.artistName].filter(Boolean).join(" "));
+                          setManualResults([]);
+                        }}>
+                          {manualSearchIndex === i ? "Close" : "Search"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {manualSearchIndex === i && (
+                    <div className="tidal-dl-batch-inline-search">
+                      <div className="tidal-dl-search-field">
+                        <input
+                          value={manualQuery}
+                          onChange={e => setManualQuery(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") handleManualSearch(i); }}
+                          placeholder="Search..."
+                        />
+                        <button onClick={() => handleManualSearch(i)} disabled={manualSearching}>Search</button>
+                      </div>
+                      {manualSearching && <div className="tidal-dl-loading"><div className="ds-spinner ds-spinner--sm" /></div>}
+                      {!manualSearching && manualResults.length > 0 && (
+                        <div className="tidal-dl-batch-inline-results">
+                          {manualResults.map(r => (
+                            <div key={r.id} className="tidal-dl-batch-row" style={{cursor: "pointer"}} onClick={() => handlePickManualMatch(i, r)}>
+                              <div className="tidal-dl-batch-info">
+                                <div className="tidal-dl-batch-title">{r.title}</div>
+                                <div className="tidal-dl-batch-match">{r.artistName}{r.albumTitle ? ` — ${r.albumTitle}` : ""}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {!manualSearching && manualResults.length === 0 && manualQuery && (
+                        <div className="tidal-dl-empty" style={{padding: "8px"}}>No results</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="tidal-dl-batch-footer">
+              <span>{resolveStates.filter(s => s.status === "matched").length} matched, {resolveStates.filter(s => s.status === "not_found").length} not found</span>
+            </div>
+
+            <div className="tidal-dl-actions">
+              <button onClick={onClose}>Cancel</button>
+              <button className="tidal-dl-btn-primary" onClick={() => setStep("downloading")}
+                disabled={resolveStates.filter(s => s.status === "matched").length === 0}>
+                Download {resolveStates.filter(s => s.status === "matched").length} tracks
+              </button>
+            </div>
+          </>
+        )}
         {step === "downloading" && <p>Downloading step placeholder</p>}
         {step === "done" && <p>Done step placeholder</p>}
       </div>
