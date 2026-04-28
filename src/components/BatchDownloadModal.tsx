@@ -1,8 +1,21 @@
 import { useState, useRef, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { InteractiveSearchResult, DownloadResolveResult } from "../types/plugin";
 import type { AppStore } from "../store";
 import "./InteractiveDownloadModal.css";
+
+type DownloadStatus = "queued" | "downloading" | "done" | "error";
+
+interface DownloadTrackState {
+  id: number;
+  title: string;
+  artist: string;
+  status: DownloadStatus;
+  progress: number;
+  error?: string;
+}
 
 interface ResolveState {
   originalTrack: BatchDownloadTrack;
@@ -53,6 +66,7 @@ function previewPattern(pattern: string, artist: string, album: string, ext: str
 
 export function BatchDownloadModal({
   tracks,
+  providerId,
   providerName,
   confirmed,
   collections,
@@ -61,6 +75,7 @@ export function BatchDownloadModal({
   lastDest,
   onSearch,
   onClose,
+  onComplete,
 }: BatchDownloadModalProps) {
   const [step, setStep] = useState<Step>("configure");
   const [quality, setQuality] = useState<"flac" | "aac">("flac");
@@ -85,6 +100,10 @@ export function BatchDownloadModal({
   const [manualQuery, setManualQuery] = useState("");
   const [manualResults, setManualResults] = useState<InteractiveSearchResult[]>([]);
   const [manualSearching, setManualSearching] = useState(false);
+
+  // Download step state
+  const [downloadStates, setDownloadStates] = useState<DownloadTrackState[]>([]);
+  const trackIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     if (step !== "resolve") return;
@@ -137,6 +156,110 @@ export function BatchDownloadModal({
       cancelledRef.current = true;
     };
   }, [step, tracks, onSearch]);
+
+  // Enqueue downloads when step becomes "downloading"
+  useEffect(() => {
+    if (step !== "downloading") return;
+
+    (async () => {
+      const toDownload = confirmed
+        ? tracks.map(t => ({
+            title: t.title,
+            artistName: t.artistName ?? null,
+            albumTitle: t.albumTitle ?? null,
+            uri: t.uri ?? null,
+            durationSecs: t.durationSecs ?? null,
+          }))
+        : resolveStates
+            .filter(s => s.status === "matched" && s.match)
+            .map(s => ({
+              title: s.match!.title ?? s.originalTrack.title,
+              artistName: s.match!.artistName ?? s.originalTrack.artistName ?? null,
+              albumTitle: s.originalTrack.albumTitle ?? null,
+              uri: s.originalTrack.uri ?? s.match!.id,
+              durationSecs: s.match!.durationSecs ?? s.originalTrack.durationSecs ?? null,
+            }));
+
+      const collId = destType === "collection" ? destCollectionId : null;
+      const customPath = destType === "path" ? destPath : null;
+
+      const ids: number[] = [];
+      for (let i = 0; i < toDownload.length; i++) {
+        const t = toDownload[i];
+        try {
+          const id = await invoke<number>("enqueue_download", {
+            title: t.title,
+            artistName: t.artistName,
+            albumTitle: t.albumTitle,
+            uri: t.uri,
+            durationSecs: t.durationSecs,
+            destCollectionId: collId,
+            destCollectionPath: customPath,
+            format: quality,
+            pathPattern,
+            provider: providerId,
+            isBatchLast: i === toDownload.length - 1,
+          });
+          ids.push(id);
+        } catch (e) {
+          console.error("Failed to enqueue:", t.title, e);
+        }
+      }
+
+      trackIdsRef.current = new Set(ids);
+      setDownloadStates(ids.map((id, i) => ({
+        id,
+        title: toDownload[i].title,
+        artist: toDownload[i].artistName ?? "",
+        status: "queued",
+        progress: 0,
+      })));
+    })();
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen for download events
+  useEffect(() => {
+    if (step !== "downloading") return;
+    const unsubs: Promise<() => void>[] = [];
+
+    unsubs.push(listen<{ id: number; track_title: string; artist_name: string; status: string; progress_pct: number }>("download-progress", (event) => {
+      const p = event.payload;
+      if (!trackIdsRef.current.has(p.id)) return;
+      setDownloadStates(prev => prev.map(t =>
+        t.id === p.id ? { ...t, status: "downloading", progress: p.progress_pct } : t
+      ));
+    }));
+
+    unsubs.push(listen<{ id: number; trackTitle: string; destPath: string }>("download-complete", (event) => {
+      const p = event.payload;
+      if (!trackIdsRef.current.has(p.id)) return;
+      setDownloadStates(prev => {
+        const next = prev.map(t =>
+          t.id === p.id ? { ...t, status: "done" as DownloadStatus, progress: 100 } : t
+        );
+        if (next.every(t => t.status === "done" || t.status === "error")) {
+          setStep("done");
+        }
+        return next;
+      });
+    }));
+
+    unsubs.push(listen<{ id: number; trackTitle: string; error: string }>("download-error", (event) => {
+      const p = event.payload;
+      if (!trackIdsRef.current.has(p.id)) return;
+      setDownloadStates(prev => {
+        const next = prev.map(t =>
+          t.id === p.id ? { ...t, status: "error" as DownloadStatus, error: p.error } : t
+        );
+        if (next.every(t => t.status === "done" || t.status === "error")) {
+          setStep("done");
+        }
+        return next;
+      });
+    }));
+
+    return () => { unsubs.forEach(p => p.then(fn => fn())); };
+  }, [step]);
 
   async function handleManualSearch(_index: number) {
     setManualSearching(true);
@@ -371,8 +494,103 @@ export function BatchDownloadModal({
             </div>
           </>
         )}
-        {step === "downloading" && <p>Downloading step placeholder</p>}
-        {step === "done" && <p>Done step placeholder</p>}
+        {step === "downloading" && (
+          <>
+            <div className="tidal-dl-batch-overall">
+              <div className="tidal-dl-progress">
+                <div className="tidal-dl-progress-bar">
+                  <div className="tidal-dl-progress-fill" style={{
+                    width: `${downloadStates.length > 0
+                      ? (downloadStates.filter(t => t.status === "done" || t.status === "error").length / downloadStates.length * 100)
+                      : 0}%`
+                  }} />
+                </div>
+                <span className="tidal-dl-progress-pct">
+                  {downloadStates.filter(t => t.status === "done" || t.status === "error").length} / {downloadStates.length}
+                </span>
+              </div>
+            </div>
+
+            <div className="tidal-dl-batch-list">
+              {downloadStates.map((ds) => (
+                <div key={ds.id} className="tidal-dl-batch-row">
+                  <div className="tidal-dl-batch-status">
+                    {ds.status === "queued" && <span style={{color: "var(--text-tertiary)"}}>&#183;</span>}
+                    {ds.status === "downloading" && <div className="ds-spinner ds-spinner--sm" />}
+                    {ds.status === "done" && <span style={{color: "var(--success)"}}>&#10003;</span>}
+                    {ds.status === "error" && <span style={{color: "var(--error)"}}>&#10007;</span>}
+                  </div>
+                  <div className="tidal-dl-batch-info">
+                    <div className="tidal-dl-batch-title">{ds.title}</div>
+                    {ds.artist && <div className="tidal-dl-batch-match">{ds.artist}</div>}
+                    {ds.status === "error" && ds.error && (
+                      <div className="tidal-dl-batch-match" style={{color: "var(--error)"}}>{ds.error}</div>
+                    )}
+                  </div>
+                  {ds.status === "downloading" && (
+                    <div className="tidal-dl-batch-progress">{ds.progress}%</div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="tidal-dl-actions">
+              <button onClick={onClose}>Close</button>
+            </div>
+          </>
+        )}
+
+        {step === "done" && (() => {
+          const doneCount = downloadStates.filter(t => t.status === "done").length;
+          const errCount = downloadStates.filter(t => t.status === "error").length;
+          return (
+            <>
+              <div className="tidal-dl-batch-overall">
+                <div className="tidal-dl-progress">
+                  <div className="tidal-dl-progress-bar">
+                    <div className="tidal-dl-progress-fill" style={{ width: "100%" }} />
+                  </div>
+                  <span className="tidal-dl-progress-pct">
+                    {doneCount} / {downloadStates.length}
+                  </span>
+                </div>
+              </div>
+
+              <div className="tidal-dl-batch-list">
+                {downloadStates.map((ds) => (
+                  <div key={ds.id} className="tidal-dl-batch-row">
+                    <div className="tidal-dl-batch-status">
+                      {ds.status === "done" && <span style={{color: "var(--success)"}}>&#10003;</span>}
+                      {ds.status === "error" && <span style={{color: "var(--error)"}}>&#10007;</span>}
+                    </div>
+                    <div className="tidal-dl-batch-info">
+                      <div className="tidal-dl-batch-title">{ds.title}</div>
+                      {ds.artist && <div className="tidal-dl-batch-match">{ds.artist}</div>}
+                      {ds.status === "error" && ds.error && (
+                        <div className="tidal-dl-batch-match" style={{color: "var(--error)"}}>{ds.error}</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="tidal-dl-batch-footer">
+                <span>
+                  {doneCount} downloaded{errCount > 0 ? `, ${errCount} failed` : ""}
+                </span>
+              </div>
+
+              <div className="tidal-dl-actions">
+                <button className="tidal-dl-btn-primary" onClick={() => {
+                  onComplete(`Downloaded ${doneCount} of ${downloadStates.length} tracks`);
+                  onClose();
+                }}>
+                  Done
+                </button>
+              </div>
+            </>
+          );
+        })()}
       </div>
     </div>
   );
