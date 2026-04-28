@@ -293,6 +293,7 @@ Standard `.ds-*` CSS classes are defined in `src/design-system.css`. When buildi
 | Tables | `.ds-table` | `.ds-table-header`, `.ds-table-row`, `.highlighted`, `.active` |
 | Columns | `.ds-col--grow`, `--shrink`, `--right`, `--secondary` | — |
 | Lists | `.ds-list` + `.ds-list-item` | `.ds-list-item-img`, `--circular`, `.ds-list-item-info`, `.ds-list-item-name`, `.ds-list-item-secondary` |
+| Spinners | `.ds-spinner` | `--sm` (16px), `--lg` (32px) |
 
 **Usage:** `className="ds-btn ds-btn--primary ds-btn--sm"`
 

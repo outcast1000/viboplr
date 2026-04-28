@@ -110,6 +110,33 @@ Use the existing CSS custom property scale, never hardcoded `font-size` values:
 | `--fs-xl` | |
 | `--fs-2xl` | Largest headings |
 
+## Spinner
+
+Use `.ds-spinner` for loading indicators. It renders an accent-colored spinning circle using skinnable CSS variables (`--border` for the track, `--accent` for the active arc).
+
+| Class | Size |
+|---|---|
+| `.ds-spinner--sm` | 16px |
+| `.ds-spinner` | 24px (default) |
+| `.ds-spinner--lg` | 32px |
+
+```tsx
+<div className="ds-spinner" />
+<div className="ds-spinner ds-spinner--sm" />
+```
+
+## Disabled Buttons
+
+All `.ds-btn` variants support `:disabled` natively (opacity 0.5, `cursor: not-allowed`, `pointer-events: none`). For non-`.ds-btn` buttons, apply the same pattern:
+
+```css
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+```
+
 ## Transitions
 
 Standard transition: `all 0.15s`. Used on all `.g-btn` variants for background, color, and border-color changes.

@@ -814,3 +814,30 @@
   color: var(--warning);
   border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
 }
+
+/* ── Spinner ── */
+
+.ds-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ds-spin 0.8s linear infinite;
+}
+
+.ds-spinner--sm {
+  width: 16px;
+  height: 16px;
+  border-width: 1.5px;
+}
+
+.ds-spinner--lg {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+
+@keyframes ds-spin {
+  to { transform: rotate(360deg); }
+}

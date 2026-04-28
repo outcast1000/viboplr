@@ -430,7 +430,7 @@ export function InteractiveDownloadModal({
               <button onClick={() => handleSearch()} disabled={searching}>Search</button>
             </div>
             {searching ? (
-              <div className="tidal-dl-loading"><div className="tidal-dl-spinner" /><span>Searching {providerName}...</span></div>
+              <div className="tidal-dl-loading"><div className="ds-spinner" /><span>Searching {providerName}...</span></div>
             ) : searchError ? (
               <div className="tidal-dl-error">{searchError}</div>
             ) : results.length === 0 && !searching ? (
@@ -561,7 +561,7 @@ export function InteractiveDownloadModal({
         {/* DOWNLOADING STEP */}
         {step === "downloading" && (
           <div className="tidal-dl-downloading">
-            <div className="tidal-dl-loading"><div className="tidal-dl-spinner" /><span>Downloading from {providerName}...</span></div>
+            <div className="tidal-dl-loading"><div className="ds-spinner" /><span>Downloading from {providerName}...</span></div>
             <div className="tidal-dl-progress">
               <div className="tidal-dl-progress-bar">
                 <div className="tidal-dl-progress-fill" style={{ width: `${downloadProgress}%` }} />
