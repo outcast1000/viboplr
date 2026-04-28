@@ -10,7 +10,7 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, TidalSearchTrack, Collection } from "./types";
+import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
 import { isVideoTrack, parseSubsonicUrl, tidalCoverUrl } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, type QueueEntry } from "./queueEntry";
@@ -74,7 +74,7 @@ import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
-import { TidalDownloadModal } from "./components/TidalDownloadModal";
+import { InteractiveDownloadModal } from "./components/InteractiveDownloadModal";
 import { TidalAlbumDownloadModal, type TidalAlbumDownloadInput } from "./components/TidalAlbumDownloadModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
@@ -96,8 +96,11 @@ function App() {
   const [editPlaylistMode, setEditPlaylistMode] = useState(false);
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
   const [tidalAlbumDownload, setTidalAlbumDownload] = useState<TidalAlbumDownloadInput | null>(null);
-  const [tidalSearchResults, setTidalSearchResults] = useState<TidalSearchTrack[] | null>(null);
-  const [tidalSearchError, setTidalSearchError] = useState<string | null>(null);
+  const [interactiveDownload, setInteractiveDownload] = useState<{
+    input: { trackId: number | null; title: string; artistName: string | null };
+    providerId: string;
+    providerName: string;
+  } | null>(null);
   const pendingRestoreTrackRef = useRef<Track | null>(null);
   const pendingRestoreQueueRef = useRef<{ tracks: Track[]; index: number } | null>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -123,7 +126,7 @@ function App() {
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
-  const [lastTidalDownloadDest, setLastTidalDownloadDest] = useState<string | null>(null);
+  const [lastDownloadDest, setLastDownloadDest] = useState<string | null>(null);
   const [autoSaveStreams, setAutoSaveStreams] = useState<Record<string, boolean>>({});
   const [downloadsCollectionId, setDownloadsCollectionId] = useState<number | null>(null);
   const autoSaveStreamsRef = useRef<Record<string, boolean>>({});
@@ -767,12 +770,11 @@ function App() {
         setTidalAlbumDownload(payload as unknown as TidalAlbumDownloadInput);
         return;
       } else if (action === "tidal-download") {
-        contextMenuActions.setTidalDownload(payload as { trackId: number | null; title: string; artistName: string | null });
-      } else if (action === "tidal-search-result") {
-        const tracks = (payload.tracks ?? []) as TidalSearchTrack[];
-        const error = (payload.error as string) ?? null;
-        setTidalSearchResults(tracks);
-        setTidalSearchError(error);
+        setInteractiveDownload({
+          input: payload as { trackId: number | null; title: string; artistName: string | null },
+          providerId: "tidal-browse:tidal-download",
+          providerName: "TIDAL",
+        });
       } else if (action === "play-tracks") {
         const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string; image_url?: string }>);
         const startIndex = (payload.startIndex as number) ?? 0;
@@ -1150,7 +1152,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastTidalDownloadDest, savedSearchViewModes, savedAutoSaveStreams, savedDownloadsCollectionId, savedMinimizeToMiniPlayer] = await timeAsync("store.restore", () => Promise.all([
+        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastDownloadDest, savedSearchViewModes, savedAutoSaveStreams, savedDownloadsCollectionId, savedMinimizeToMiniPlayer] = await timeAsync("store.restore", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -1196,7 +1198,7 @@ function App() {
           store.get<boolean>("filterYoutubeOnly"),
           store.get<string>("mediaTypeFilter"),
           store.get<boolean>("trackLikedFirst"),
-          store.get<string | null>("lastTidalDownloadDest"),
+          store.get<string | null>("lastDownloadDest"),
           store.get<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
           store.get<Record<string, boolean> | boolean>("autoSaveStreams"),
           store.get<number | null>("downloadsCollectionId"),
@@ -1357,7 +1359,7 @@ function App() {
         if (savedQueueCollapsed) setQueueCollapsed(true);
         if (savedQueueWidth && savedQueueWidth >= 200 && savedQueueWidth <= 600) setQueueWidth(savedQueueWidth);
         if (savedDownloadFormat && ["flac", "aac"].includes(savedDownloadFormat)) { downloads.setFormat(savedDownloadFormat, store); }
-        if (savedLastTidalDownloadDest !== undefined) setLastTidalDownloadDest(savedLastTidalDownloadDest ?? null);
+        if (savedLastDownloadDest !== undefined) setLastDownloadDest(savedLastDownloadDest ?? null);
         if (savedSearchViewModes) {
           const validModes = ["basic", "list", "tiles"];
           const s = savedSearchViewModes as { tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags?: ViewMode };
@@ -2986,30 +2988,32 @@ function App() {
           downloadFormat={downloads.downloadFormat}
           collections={localCollections}
           store={store}
-          lastDest={lastTidalDownloadDest}
+          lastDest={lastDownloadDest}
           onClose={() => setTidalAlbumDownload(null)}
           onComplete={(msg) => { setTidalAlbumDownload(null); addLog(msg, "downloads"); }}
         />
       )}
 
-      {contextMenuActions.tidalDownload && (
-        <TidalDownloadModal
-          input={contextMenuActions.tidalDownload}
-          libraryTrack={contextMenuActions.tidalDownload.trackId != null ? library.tracks.find(t => t.id === contextMenuActions.tidalDownload!.trackId) ?? null : null}
+      {interactiveDownload && (
+        <InteractiveDownloadModal
+          input={interactiveDownload.input}
+          providerId={interactiveDownload.providerId}
+          providerName={interactiveDownload.providerName}
+          libraryTrack={interactiveDownload.input.trackId != null ? library.tracks.find(t => t.id === interactiveDownload.input.trackId) ?? null : null}
           downloadFormat={downloads.downloadFormat}
           collections={localCollections}
           store={store}
-          lastDest={lastTidalDownloadDest}
+          lastDest={lastDownloadDest}
           onSearch={(query, limit) => {
-            setTidalSearchResults(null);
-            setTidalSearchError(null);
-            plugins.dispatchUIAction("tidal-browse", "tidal-search-for-download", { query, limit });
+            const parts = interactiveDownload.providerId.split(":");
+            return plugins.invokeInteractiveSearch(parts[0], parts.slice(1).join(":"), query, limit);
           }}
-          searchResults={tidalSearchResults}
-          searchError={tidalSearchError}
-          resolveStreamUrl={plugins.resolveTidalStreamUrl}
-          onClose={() => { contextMenuActions.setTidalDownload(null); setTidalSearchResults(null); setTidalSearchError(null); }}
-          onComplete={(msg) => { contextMenuActions.setTidalDownload(null); setTidalSearchResults(null); setTidalSearchError(null); library.loadLibrary(); library.loadTracks(); addLog(msg, "downloads"); }}
+          onResolve={(matchId, format) => {
+            const parts = interactiveDownload.providerId.split(":");
+            return plugins.invokeInteractiveResolve(parts[0], parts.slice(1).join(":"), matchId, format);
+          }}
+          onClose={() => setInteractiveDownload(null)}
+          onComplete={(msg) => { setInteractiveDownload(null); library.loadLibrary(); library.loadTracks(); addLog(msg, "downloads"); }}
         />
       )}
 

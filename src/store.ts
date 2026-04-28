@@ -52,7 +52,7 @@ const STORE_DEFAULTS = {
   sidebarCollapsed: true,
   queueCollapsed: true,
   downloadFormat: "flac",
-  lastTidalDownloadDest: null,
+  lastDownloadDest: null,
   skin: "default",
   loggingEnabled: false,
   debugLogging: false,

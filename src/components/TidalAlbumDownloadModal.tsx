@@ -149,7 +149,7 @@ export function TidalAlbumDownloadModal({
       return;
     }
 
-    store.set("lastTidalDownloadDest", collId != null ? String(collId) : null);
+    store.set("lastDownloadDest", collId != null ? String(collId) : null);
 
     try {
       const ids: number[] = [];
