@@ -20,12 +20,17 @@ async function resolveTrackDownload(
   albumName: string | null,
   durationSecs: number | null,
   format: string,
+  provider?: string | null,
 ): Promise<DownloadResolveResult | null> {
+  const targetProviders = provider
+    ? providers.filter(p => p.id === provider)
+    : providers;
+
   if (uri) {
-    for (const provider of providers) {
+    for (const p of targetProviders) {
       try {
         const result = await Promise.race([
-          provider.resolveByUri(uri, format),
+          p.resolveByUri(uri, format),
           new Promise<null>((r) => setTimeout(() => r(null), 10000)),
         ]);
         if (result) return result;
@@ -35,10 +40,10 @@ async function resolveTrackDownload(
     }
   }
 
-  for (const provider of providers) {
+  for (const p of targetProviders) {
     try {
       const result = await Promise.race([
-        provider.resolveByMetadata(title, artistName, albumName, durationSecs, format),
+        p.resolveByMetadata(title, artistName, albumName, durationSecs, format),
         new Promise<null>((r) => setTimeout(() => r(null), 10000)),
       ]);
       if (result) return result;
@@ -85,12 +90,13 @@ export function useDownloads(
       duration_secs: number | null;
       uri: string | null;
       format: string;
+      provider: string | null;
     }>("download-resolve-request", async (event) => {
-      const { id, title, artist_name, album_title, duration_secs, uri, format } = event.payload;
+      const { id, title, artist_name, album_title, duration_secs, uri, format, provider } = event.payload;
 
       const result = await resolveTrackDownload(
         downloadProvidersRef.current,
-        uri, title, artist_name, album_title, duration_secs, format,
+        uri, title, artist_name, album_title, duration_secs, format, provider,
       );
 
       await invoke("download_resolve_response", { id, result: result ?? null });
