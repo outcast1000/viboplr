@@ -75,6 +75,8 @@ import { EditCollectionModal } from "./components/EditCollectionModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { InteractiveDownloadModal } from "./components/InteractiveDownloadModal";
+import { BatchDownloadModal } from "./components/BatchDownloadModal";
+import type { BatchDownloadTrack } from "./components/BatchDownloadModal";
 import { TidalAlbumDownloadModal, type TidalAlbumDownloadInput } from "./components/TidalAlbumDownloadModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
@@ -100,6 +102,12 @@ function App() {
     input: { trackId: number | null; title: string; artistName: string | null };
     providerId: string;
     providerName: string;
+  } | null>(null);
+  const [batchDownload, setBatchDownload] = useState<{
+    tracks: BatchDownloadTrack[];
+    providerId: string;
+    providerName: string;
+    confirmed?: boolean;
   } | null>(null);
   const pendingRestoreTrackRef = useRef<Track | null>(null);
   const pendingRestoreQueueRef = useRef<{ tracks: Track[]; index: number } | null>(null);
@@ -781,23 +789,19 @@ function App() {
     }
 
     if (batchTracks && batchTracks.length > 0) {
-      (async () => {
-        for (let i = 0; i < batchTracks!.length; i++) {
-          const t = batchTracks![i];
-          try {
-            await invoke("enqueue_download", {
-              title: t.title, artistName: t.artist_name, albumTitle: t.album_title,
-              uri: t.path ?? null, durationSecs: t.duration_secs ?? null,
-              destCollectionId: null, format: null, provider: providerId,
-              isBatchLast: i === batchTracks!.length - 1,
-            });
-          } catch (e) {
-            console.error("Failed to enqueue download:", e);
-            addLog(`Download failed: ${t.title} - ${e}`, "downloads");
-          }
-        }
-        addLog(`Downloading ${batchTracks!.length} tracks from ${downloadProviderEntries.find(e => e.id === providerId)?.name ?? providerId}`, "downloads");
-      })();
+      const providerEntry = downloadProviderEntries.find(e => e.id === providerId);
+      setBatchDownload({
+        tracks: batchTracks.map(t => ({
+          title: t.title,
+          artistName: t.artist_name ?? null,
+          albumTitle: t.album_title ?? null,
+          uri: t.path ?? null,
+          durationSecs: t.duration_secs ?? null,
+        })),
+        providerId,
+        providerName: providerEntry?.name ?? providerId,
+        confirmed: !providerEntry?.interactive,
+      });
       return;
     }
 
@@ -3152,6 +3156,29 @@ function App() {
               path: `file://${path}`,
             } as Track], 0);
           }}
+        />
+      )}
+
+      {batchDownload && (
+        <BatchDownloadModal
+          tracks={batchDownload.tracks}
+          providerId={batchDownload.providerId}
+          providerName={batchDownload.providerName}
+          confirmed={batchDownload.confirmed}
+          collections={localCollections}
+          downloadsCollectionId={downloadsCollectionId}
+          store={store}
+          lastDest={lastDownloadDest}
+          onSearch={(query, limit) => {
+            const parts = batchDownload.providerId.split(":");
+            return plugins.invokeInteractiveSearch(parts[0], parts.slice(1).join(":"), query, limit);
+          }}
+          onResolve={(matchId, format) => {
+            const parts = batchDownload.providerId.split(":");
+            return plugins.invokeInteractiveResolve(parts[0], parts.slice(1).join(":"), matchId, format);
+          }}
+          onClose={() => setBatchDownload(null)}
+          onComplete={(msg) => { setBatchDownload(null); library.loadLibrary(); library.loadTracks(); addLog(msg, "downloads"); }}
         />
       )}
 

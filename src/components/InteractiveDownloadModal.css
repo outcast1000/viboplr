@@ -412,3 +412,116 @@
   font-size: var(--fs-xs);
   color: var(--error);
 }
+
+/* -- Batch download track list -- */
+
+.tidal-dl-batch-list {
+  max-height: 350px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.tidal-dl-batch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+}
+
+.tidal-dl-batch-row:last-child {
+  border-bottom: none;
+}
+
+.tidal-dl-batch-status {
+  flex-shrink: 0;
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tidal-dl-batch-info {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tidal-dl-batch-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tidal-dl-batch-match {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tidal-dl-batch-action {
+  flex-shrink: 0;
+}
+
+.tidal-dl-batch-action button {
+  padding: 2px 8px;
+  font-size: var(--fs-xs);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.tidal-dl-batch-progress {
+  width: 50px;
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.tidal-dl-batch-inline-search {
+  padding: 8px 8px 8px 36px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.tidal-dl-batch-inline-search .tidal-dl-search-field {
+  margin-bottom: 8px;
+}
+
+.tidal-dl-batch-inline-results {
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.tidal-dl-batch-inline-results .tidal-dl-batch-row {
+  cursor: pointer;
+}
+
+.tidal-dl-batch-inline-results .tidal-dl-batch-row:hover {
+  background: var(--bg-hover);
+}
+
+.tidal-dl-batch-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.tidal-dl-batch-overall {
+  margin-bottom: 12px;
+}
+
+.tidal-dl-batch-summary {
+  text-align: center;
+  padding: 16px;
+  font-size: var(--fs-sm);
+}
