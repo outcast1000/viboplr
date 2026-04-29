@@ -2,8 +2,10 @@ import { useState, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import type { Track } from "../types";
 import type { InteractiveSearchResult, DownloadResolveResult } from "../types/plugin";
 import type { AppStore } from "../store";
+import { IconPlay, IconFolder } from "./Icons";
 import "./InteractiveDownloadModal.css";
 
 type DownloadStatus = "queued" | "downloading" | "done" | "error";
@@ -15,12 +17,17 @@ interface DownloadTrackState {
   status: DownloadStatus;
   progress: number;
   error?: string;
+  filePath?: string;
 }
+
+type ExistingAction = "skip" | "upgrade" | "keep_both";
 
 interface ResolveState {
   originalTrack: BatchDownloadTrack;
   status: "pending" | "searching" | "matched" | "not_found";
   match?: InteractiveSearchResult | null;
+  libraryTrack?: Track | null;
+  existingAction?: ExistingAction;
 }
 
 export interface BatchDownloadTrack {
@@ -45,6 +52,7 @@ interface BatchDownloadModalProps {
   onResolve: (matchId: string, format: string) => Promise<DownloadResolveResult>;
   onClose: () => void;
   onComplete: (message: string) => void;
+  onPlay?: (path: string) => void;
 }
 
 type Step = "configure" | "resolve" | "review" | "downloading" | "done";
@@ -79,6 +87,7 @@ export function BatchDownloadModal({
   onResolve,
   onClose,
   onComplete,
+  onPlay,
 }: BatchDownloadModalProps) {
   const [step, setStep] = useState<Step>("configure");
   const [quality, setQuality] = useState<"flac" | "aac">(
@@ -139,8 +148,25 @@ export function BatchDownloadModal({
           const results = await onSearchRef.current(query, 5);
           const match = results.length > 0 ? results[0] : null;
 
+          let libraryMatch: Track | null = null;
+          if (match) {
+            try {
+              libraryMatch = await invoke<Track | null>("find_track_by_metadata", {
+                title: match.title ?? tracks[i].title,
+                artistName: match.artistName ?? tracks[i].artistName ?? null,
+                albumName: null,
+              });
+            } catch { /* no match */ }
+          }
+
           setResolveStates(prev => prev.map((s, idx) =>
-            idx === i ? { ...s, status: match ? "matched" : "not_found", match } : s
+            idx === i ? {
+              ...s,
+              status: match ? "matched" : "not_found",
+              match,
+              libraryTrack: libraryMatch,
+              existingAction: libraryMatch ? "skip" : undefined,
+            } : s
           ));
         } catch (err) {
           console.error("Failed to resolve track:", err);
@@ -180,7 +206,7 @@ export function BatchDownloadModal({
             durationSecs: t.durationSecs ?? null,
           }))
         : resolveStates
-            .filter(s => s.status === "matched" && s.match)
+            .filter(s => s.status === "matched" && s.match && (!s.libraryTrack || s.existingAction !== "skip"))
             .map(s => ({
               title: s.match!.title ?? s.originalTrack.title,
               artistName: s.match!.artistName ?? s.originalTrack.artistName ?? null,
@@ -244,7 +270,7 @@ export function BatchDownloadModal({
       if (!trackIdsRef.current.has(p.id)) return;
       setDownloadStates(prev => {
         const next = prev.map(t =>
-          t.id === p.id ? { ...t, status: "done" as DownloadStatus, progress: 100 } : t
+          t.id === p.id ? { ...t, status: "done" as DownloadStatus, progress: 100, filePath: p.destPath } : t
         );
         if (next.every(t => t.status === "done" || t.status === "error")) {
           setStep("done");
@@ -425,25 +451,64 @@ export function BatchDownloadModal({
           </>
         )}
 
-        {step === "review" && (
+        {step === "review" && (() => {
+          const matchedCount = resolveStates.filter(s => s.status === "matched").length;
+          const notFoundCount = resolveStates.filter(s => s.status === "not_found").length;
+          const existingCount = resolveStates.filter(s => s.libraryTrack).length;
+          const downloadableCount = resolveStates.filter(s =>
+            s.status === "matched" && (!s.libraryTrack || s.existingAction !== "skip")
+          ).length;
+
+          return (
           <>
+            {existingCount > 0 && (
+              <div className="tidal-dl-error" style={{background: "color-mix(in srgb, var(--warning) 15%, transparent)", color: "var(--warning)"}}>
+                {existingCount} track{existingCount > 1 ? "s" : ""} already in your library
+              </div>
+            )}
             <div className="tidal-dl-batch-list">
               {resolveStates.map((rs, i) => (
                 <div key={i}>
                   <div className="tidal-dl-batch-row">
                     <div className="tidal-dl-batch-status">
-                      {rs.status === "matched" && <span style={{color: "var(--success)"}}>&#10003;</span>}
+                      {rs.status === "matched" && !rs.libraryTrack && <span style={{color: "var(--success)"}}>&#10003;</span>}
+                      {rs.status === "matched" && rs.libraryTrack && <span style={{color: "var(--warning)"}}>&#9679;</span>}
                       {rs.status === "not_found" && <span style={{color: "var(--error)"}}>&#10007;</span>}
                     </div>
                     <div className="tidal-dl-batch-info">
                       <div className="tidal-dl-batch-title">{rs.originalTrack.title}</div>
                       {rs.status === "matched" && rs.match && (
-                        <div className="tidal-dl-batch-match">&rarr; {rs.match.title}{rs.match.artistName ? ` — ${rs.match.artistName}` : ""}</div>
+                        <div className="tidal-dl-batch-match">
+                          &rarr; {rs.match.title}{rs.match.artistName ? ` — ${rs.match.artistName}` : ""}
+                        </div>
+                      )}
+                      {rs.status === "matched" && rs.libraryTrack && (
+                        <div className="tidal-dl-batch-match" style={{color: "var(--warning)"}}>
+                          Already in library ({rs.libraryTrack.format?.toUpperCase() ?? "local"})
+                        </div>
                       )}
                       {rs.status === "not_found" && (
                         <div className="tidal-dl-batch-match">No match found</div>
                       )}
                     </div>
+                    {rs.status === "matched" && rs.libraryTrack && (
+                      <div className="tidal-dl-batch-action">
+                        <select
+                          value={rs.existingAction ?? "skip"}
+                          onChange={e => {
+                            const action = e.target.value as ExistingAction;
+                            setResolveStates(prev => prev.map((s, idx) =>
+                              idx === i ? { ...s, existingAction: action } : s
+                            ));
+                          }}
+                          style={{fontSize: "var(--fs-xs)", padding: "2px 4px"}}
+                        >
+                          <option value="skip">Skip</option>
+                          <option value="upgrade">Upgrade</option>
+                          <option value="keep_both">Keep Both</option>
+                        </select>
+                      </div>
+                    )}
                     {rs.status === "not_found" && (
                       <div className="tidal-dl-batch-action">
                         <button className="tidal-dl-btn-small" onClick={() => {
@@ -491,18 +556,22 @@ export function BatchDownloadModal({
             </div>
 
             <div className="tidal-dl-batch-footer">
-              <span>{resolveStates.filter(s => s.status === "matched").length} matched, {resolveStates.filter(s => s.status === "not_found").length} not found</span>
+              <span>
+                {matchedCount} matched{notFoundCount > 0 ? `, ${notFoundCount} not found` : ""}
+                {existingCount > 0 ? ` (${existingCount} existing)` : ""}
+              </span>
             </div>
 
             <div className="tidal-dl-actions">
               <button onClick={onClose}>Cancel</button>
               <button className="tidal-dl-btn-primary" onClick={() => setStep("downloading")}
-                disabled={resolveStates.filter(s => s.status === "matched").length === 0}>
-                Download {resolveStates.filter(s => s.status === "matched").length} tracks
+                disabled={downloadableCount === 0}>
+                Download {downloadableCount} track{downloadableCount !== 1 ? "s" : ""}
               </button>
             </div>
           </>
-        )}
+          );
+        })()}
         {step === "downloading" && (
           <>
             <div className="tidal-dl-batch-overall">
@@ -538,6 +607,18 @@ export function BatchDownloadModal({
                   </div>
                   {ds.status === "downloading" && (
                     <div className="tidal-dl-batch-progress">{ds.progress}%</div>
+                  )}
+                  {ds.status === "done" && ds.filePath && (
+                    <div className="tidal-dl-batch-action" style={{display: "flex", gap: "4px"}}>
+                      {onPlay && (
+                        <button className="g-btn g-btn-xs" title="Play" onClick={() => onPlay(ds.filePath!)}>
+                          <IconPlay size={10} />
+                        </button>
+                      )}
+                      <button className="g-btn g-btn-xs" title="Show in Folder" onClick={() => invoke("show_in_folder_path", { filePath: ds.filePath }).catch(console.error)}>
+                        <IconFolder size={10} />
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -579,6 +660,18 @@ export function BatchDownloadModal({
                         <div className="tidal-dl-batch-match" style={{color: "var(--error)"}}>{ds.error}</div>
                       )}
                     </div>
+                    {ds.status === "done" && ds.filePath && (
+                      <div className="tidal-dl-batch-action" style={{display: "flex", gap: "4px"}}>
+                        {onPlay && (
+                          <button className="g-btn g-btn-xs" title="Play" onClick={() => onPlay(ds.filePath!)}>
+                            <IconPlay size={10} />
+                          </button>
+                        )}
+                        <button className="g-btn g-btn-xs" title="Show in Folder" onClick={() => invoke("show_in_folder_path", { filePath: ds.filePath }).catch(console.error)}>
+                          <IconFolder size={10} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -120,6 +120,13 @@ Cross-cutting rules that apply to all code everywhere.
 - For tracks without a library ID (e.g., external search results), the target still carries title/artist so plugins can act on metadata alone
 - **Implementation:** Use the shared `ContextMenu` component from `ContextMenu.tsx`. Pass `pluginMenuItems` and `onPluginAction` to every context menu instance. New track surfaces must wire up `onContextMenu` handlers.
 
+### Track Matching by Metadata
+
+- When checking if a track already exists in the library, **always use the backend** `invoke("find_track_by_metadata", { title, artistName, albumName })` command
+- Never do JS-side title/artist string comparison for library lookups — the backend uses `strip_diacritics(unicode_lower())` in SQL which correctly handles accented characters (Björk↔Bjork, Jóga↔Joga), Greek, Cyrillic, and other Unicode
+- The backend searches across all collection types (local, subsonic, tidal) and prefers local copies
+- Use this for: duplicate detection before downloads, library existence checks, track matching in modals
+
 ### Fix As You Go
 
 - When modifying a file, fix nearby convention violations as part of the same change

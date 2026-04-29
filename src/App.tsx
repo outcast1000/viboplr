@@ -3180,6 +3180,9 @@ function App() {
           }}
           onClose={() => setBatchDownload(null)}
           onComplete={(msg) => { setBatchDownload(null); library.loadLibrary(); library.loadTracks(); addLog(msg, "downloads"); }}
+          onPlay={(path) => {
+            queueHook.addToQueueAndPlay({ id: 0, title: path.split("/").pop() ?? "Track", path: `file://${path}` } as Track);
+          }}
         />
       )}
 
