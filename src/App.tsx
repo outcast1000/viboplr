@@ -74,9 +74,8 @@ import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
-import { InteractiveDownloadModal } from "./components/InteractiveDownloadModal";
-import { BatchDownloadModal } from "./components/BatchDownloadModal";
-import type { BatchDownloadTrack } from "./components/BatchDownloadModal";
+import { DownloadModal } from "./components/DownloadModal";
+import type { DownloadTrack } from "./components/DownloadModal";
 import { TidalAlbumDownloadModal, type TidalAlbumDownloadInput } from "./components/TidalAlbumDownloadModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
@@ -98,13 +97,8 @@ function App() {
   const [editPlaylistMode, setEditPlaylistMode] = useState(false);
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
   const [tidalAlbumDownload, setTidalAlbumDownload] = useState<TidalAlbumDownloadInput | null>(null);
-  const [interactiveDownload, setInteractiveDownload] = useState<{
-    input: { trackId: number | null; title: string; artistName: string | null };
-    providerId: string;
-    providerName: string;
-  } | null>(null);
-  const [batchDownload, setBatchDownload] = useState<{
-    tracks: BatchDownloadTrack[];
+  const [downloadModal, setDownloadModal] = useState<{
+    tracks: DownloadTrack[];
     providerId: string;
     providerName: string;
     confirmed?: boolean;
@@ -790,17 +784,18 @@ function App() {
 
     if (batchTracks && batchTracks.length > 0) {
       const providerEntry = downloadProviderEntries.find(e => e.id === providerId);
-      setBatchDownload({
+      setDownloadModal({
         tracks: batchTracks.map(t => ({
           title: t.title,
           artistName: t.artist_name ?? null,
           albumTitle: t.album_title ?? null,
           uri: t.path ?? null,
           durationSecs: t.duration_secs ?? null,
+          trackId: t.id ?? null,
         })),
         providerId,
         providerName: providerEntry?.name ?? providerId,
-        confirmed: !providerEntry?.interactive,
+        confirmed: !interactive,
       });
       return;
     }
@@ -826,12 +821,21 @@ function App() {
     }
 
     if (interactive) {
-      setInteractiveDownload({
-        input: { trackId, title, artistName },
+      const track = trackId != null ? library.tracks.find(t => t.id === trackId) : null;
+      setDownloadModal({
+        tracks: [{
+          title: track?.title ?? title,
+          artistName: track?.artist_name ?? artistName,
+          albumTitle: track?.album_title ?? null,
+          uri: track?.path ?? null,
+          durationSecs: track?.duration_secs ?? null,
+          trackId,
+        }],
         providerId,
         providerName: downloadProviderEntries.find(e => e.id === providerId)?.name ?? providerId,
       });
     } else {
+      // Non-interactive: silent enqueue (no modal)
       const track = trackId != null ? library.tracks.find(t => t.id === trackId) : null;
       invoke("enqueue_download", {
         title: track?.title ?? title,
@@ -870,8 +874,13 @@ function App() {
         setTidalAlbumDownload(payload as unknown as TidalAlbumDownloadInput);
         return;
       } else if (action === "tidal-download") {
-        setInteractiveDownload({
-          input: payload as { trackId: number | null; title: string; artistName: string | null },
+        const p = payload as { trackId: number | null; title: string; artistName: string | null };
+        setDownloadModal({
+          tracks: [{
+            title: p.title,
+            artistName: p.artistName,
+            trackId: p.trackId,
+          }],
           providerId: "tidal-browse:tidal-download",
           providerName: "TIDAL",
         });
@@ -3118,68 +3127,27 @@ function App() {
         />
       )}
 
-      {interactiveDownload && (
-        <InteractiveDownloadModal
-          input={interactiveDownload.input}
-          providerId={interactiveDownload.providerId}
-          providerName={interactiveDownload.providerName}
-          libraryTrack={interactiveDownload.input.trackId != null ? library.tracks.find(t => t.id === interactiveDownload.input.trackId) ?? null : null}
+      {downloadModal && (
+        <DownloadModal
+          tracks={downloadModal.tracks}
+          providerId={downloadModal.providerId}
+          providerName={downloadModal.providerName}
+          confirmed={downloadModal.confirmed}
           downloadFormat={downloads.downloadFormat}
           collections={localCollections}
           downloadsCollectionId={downloadsCollectionId}
           store={store}
           lastDest={lastDownloadDest}
           onSearch={(query, limit) => {
-            const parts = interactiveDownload.providerId.split(":");
+            const parts = downloadModal.providerId.split(":");
             return plugins.invokeInteractiveSearch(parts[0], parts.slice(1).join(":"), query, limit);
           }}
           onResolve={(matchId, format) => {
-            const parts = interactiveDownload.providerId.split(":");
+            const parts = downloadModal.providerId.split(":");
             return plugins.invokeInteractiveResolve(parts[0], parts.slice(1).join(":"), matchId, format);
           }}
-          onClose={() => setInteractiveDownload(null)}
-          onComplete={(msg) => { setInteractiveDownload(null); library.loadLibrary(); library.loadTracks(); addLog(msg, "downloads"); }}
-          onPlay={async (path) => {
-            try {
-              const track = await invoke<Track>("find_track_by_metadata", {
-                title: interactiveDownload.input.title,
-                artistName: interactiveDownload.input.artistName,
-              });
-              if (track) {
-                queueHook.playTracks([track], 0);
-                return;
-              }
-            } catch { /* fall through */ }
-            queueHook.playTracks([{
-              id: 0, title: interactiveDownload.input.title,
-              artist_name: interactiveDownload.input.artistName,
-              path: `file://${path}`,
-            } as Track], 0);
-          }}
-        />
-      )}
-
-      {batchDownload && (
-        <BatchDownloadModal
-          tracks={batchDownload.tracks}
-          providerId={batchDownload.providerId}
-          providerName={batchDownload.providerName}
-          confirmed={batchDownload.confirmed}
-          downloadFormat={downloads.downloadFormat}
-          collections={localCollections}
-          downloadsCollectionId={downloadsCollectionId}
-          store={store}
-          lastDest={lastDownloadDest}
-          onSearch={(query, limit) => {
-            const parts = batchDownload.providerId.split(":");
-            return plugins.invokeInteractiveSearch(parts[0], parts.slice(1).join(":"), query, limit);
-          }}
-          onResolve={(matchId, format) => {
-            const parts = batchDownload.providerId.split(":");
-            return plugins.invokeInteractiveResolve(parts[0], parts.slice(1).join(":"), matchId, format);
-          }}
-          onClose={() => setBatchDownload(null)}
-          onComplete={(msg) => { setBatchDownload(null); library.loadLibrary(); library.loadTracks(); addLog(msg, "downloads"); }}
+          onClose={() => setDownloadModal(null)}
+          onComplete={(msg) => { setDownloadModal(null); library.loadLibrary(); library.loadTracks(); addLog(msg, "downloads"); }}
           onPlay={(path) => {
             queueHook.addToQueueAndPlay({ id: 0, title: path.split("/").pop() ?? "Track", path: `file://${path}` } as Track);
           }}
