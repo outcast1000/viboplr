@@ -501,8 +501,7 @@ export function usePlugins(
             });
           },
           async downloadAlbum(_albumId, _opts) {
-            // Album downloads should be done by fetching album tracks then calling downloadTrack() per track.
-            // The tidal-download-album requestAction (handled by TidalAlbumDownloadModal) is the preferred flow.
+            // Album downloads use the tidal-download-album requestAction which opens the unified DownloadModal.
             throw new Error("downloadAlbum is deprecated. Use tidal-download-album requestAction or download tracks individually.");
           },
         },

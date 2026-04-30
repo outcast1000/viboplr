@@ -61,7 +61,7 @@ interface DownloadResult {
   file_size: number;
 }
 
-type ExistingAction = "skip" | "download";
+type ExistingAction = "skip" | "download" | "overwrite";
 
 interface ResolveState {
   originalTrack: DownloadTrack;
@@ -824,6 +824,12 @@ function MultiTrackDownload({
   // Download step state
   const [downloadStates, setDownloadStates] = useState<BatchDownloadTrackState[]>([]);
   const [batchConflict, _setBatchConflict] = useState<BatchConflict | null>(null);
+  const [upgradeComparison, setUpgradeComparison] = useState<{
+    trackIndex: number;
+    title: string;
+    info: UpgradePreviewInfo;
+  } | null>(null);
+  const upgradeResolveRef = useRef<((decision: "replace" | "copy" | "skip") => void) | null>(null);
   const conflictResolveRef = useRef<((decision: "replace" | "keep_both" | "skip") => void) | null>(null);
 
   // Callback refs -- critical to prevent stale closures in resolve useEffect
@@ -927,6 +933,9 @@ function MultiTrackDownload({
             matchId: t.uri ?? null,
             coverUrl: null as string | null,
             trackNumber: null as number | null,
+            existingAction: undefined as ExistingAction | undefined,
+            libraryPath: null as string | null,
+            libraryTrackId: null as number | null,
           }))
         : resolveStates
             .map((s, i) => ({ s, i }))
@@ -941,6 +950,9 @@ function MultiTrackDownload({
               matchId: s.match!.id,
               coverUrl: s.match!.coverUrl ?? null,
               trackNumber: s.match!.trackNumber ?? null,
+              existingAction: s.existingAction,
+              libraryPath: s.libraryTrack?.path ?? null,
+              libraryTrackId: s.libraryTrack?.id ?? null,
             }));
 
       // Save last used destination
@@ -1010,19 +1022,55 @@ function MultiTrackDownload({
               ext
             );
 
-            // Check for conflicts
             let finalPath = dp;
-            let overwrite = false;
 
-            // For batch downloads, overwrite by default (user already confirmed at review step)
-            overwrite = true;
+            // Overwrite flow: download preview, compare, then user decides
+            if (t.existingAction === "overwrite" && t.libraryTrackId != null) {
+              const info = await invoke<UpgradePreviewInfo>("download_preview", {
+                trackId: t.libraryTrackId,
+                streamUrl,
+                format: quality,
+                title,
+                artistName,
+                albumTitle,
+                trackNumber,
+                coverUrl: coverUrl ?? null,
+              });
 
-            // Download
+              setUpgradeComparison({ trackIndex: i, title: t.title, info });
+
+              const decision = await new Promise<"replace" | "copy" | "skip">((resolve) => {
+                upgradeResolveRef.current = resolve;
+              });
+
+              setUpgradeComparison(null);
+              upgradeResolveRef.current = null;
+
+              if (decision === "replace") {
+                await invoke("confirm_track_upgrade", { trackId: t.libraryTrackId, newPath: info.new_path });
+                setDownloadStates(prev => prev.map(s =>
+                  s.index === i ? { ...s, status: "done", progress: 100, filePath: info.new_path } : s
+                ));
+              } else if (decision === "copy") {
+                await invoke("save_track_as_copy", { trackId: t.libraryTrackId, newPath: info.new_path });
+                setDownloadStates(prev => prev.map(s =>
+                  s.index === i ? { ...s, status: "done", progress: 100, filePath: info.new_path } : s
+                ));
+              } else {
+                await invoke("cancel_track_upgrade", { newPath: info.new_path }).catch(() => {});
+                setDownloadStates(prev => prev.map(s =>
+                  s.index === i ? { ...s, status: "skipped" } : s
+                ));
+              }
+              continue;
+            }
+
+            // Normal download
             const result = await invoke<DownloadResult>("download_to_path", {
               streamUrl,
               destPath: finalPath,
               format: quality,
-              overwrite,
+              overwrite: true,
               title,
               artistName,
               albumTitle,
@@ -1279,6 +1327,9 @@ function MultiTrackDownload({
                         >
                           <option value="skip">Skip</option>
                           <option value="download">Download</option>
+                          {rs.libraryTrack!.path?.startsWith("file://") && (
+                            <option value="overwrite">Overwrite</option>
+                          )}
                         </select>
                       </div>
                     )}
@@ -1377,6 +1428,43 @@ function MultiTrackDownload({
                 <button onClick={() => conflictResolveRef.current?.("skip")}>Skip</button>
                 <button className="tidal-dl-btn-secondary" onClick={() => conflictResolveRef.current?.("keep_both")}>Keep Both</button>
                 <button className="tidal-dl-btn-primary" onClick={() => conflictResolveRef.current?.("replace")}>Replace</button>
+              </div>
+            </div>
+          )}
+
+          {/* Inline upgrade comparison UI */}
+          {upgradeComparison && (
+            <div className="tidal-dl-conflict">
+              <h4 style={{margin: "0 0 8px"}}>{upgradeComparison.title}</h4>
+              <div className="tidal-dl-compare">
+                <div className="tidal-dl-compare-col">
+                  <h4>Current file</h4>
+                  <div className="tidal-dl-field">
+                    <span>Format</span>
+                    <span>{upgradeComparison.info.old_format?.toUpperCase() ?? "—"}</span>
+                  </div>
+                  <div className="tidal-dl-field">
+                    <span>Size</span>
+                    <span>{formatFileSize(upgradeComparison.info.old_file_size)}</span>
+                  </div>
+                </div>
+                <div className="tidal-dl-compare-arrow">{"→"}</div>
+                <div className="tidal-dl-compare-col">
+                  <h4>New version</h4>
+                  <div className="tidal-dl-field">
+                    <span>Format</span>
+                    <span>{upgradeComparison.info.new_format?.toUpperCase() ?? "—"}</span>
+                  </div>
+                  <div className="tidal-dl-field">
+                    <span>Size</span>
+                    <span>{formatFileSize(upgradeComparison.info.new_file_size)}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="tidal-dl-actions" style={{ marginTop: "12px", justifyContent: "center" }}>
+                <button onClick={() => upgradeResolveRef.current?.("skip")}>Skip</button>
+                <button className="tidal-dl-btn-secondary" onClick={() => upgradeResolveRef.current?.("copy")}>Save as Copy</button>
+                <button className="tidal-dl-btn-primary" onClick={() => upgradeResolveRef.current?.("replace")}>Replace</button>
               </div>
             </div>
           )}

@@ -76,7 +76,6 @@ import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
 import type { DownloadTrack } from "./components/DownloadModal";
-import { TidalAlbumDownloadModal, type TidalAlbumDownloadInput } from "./components/TidalAlbumDownloadModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 import { MixtapePreviewModal } from "./components/MixtapePreviewModal";
@@ -96,7 +95,6 @@ function App() {
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
   const [editPlaylistMode, setEditPlaylistMode] = useState(false);
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
-  const [tidalAlbumDownload, setTidalAlbumDownload] = useState<TidalAlbumDownloadInput | null>(null);
   const [downloadModal, setDownloadModal] = useState<{
     tracks: DownloadTrack[];
     providerId: string;
@@ -871,7 +869,20 @@ function App() {
         setPluginLoadingMessage(null);
         return;
       } else if (action === "tidal-download-album") {
-        setTidalAlbumDownload(payload as unknown as TidalAlbumDownloadInput);
+        const albumPayload = payload as { albumId: string; title: string; artistName: string | null; coverId: string | null; trackCount: number; tracks?: Array<{ tidal_id: string; title: string; artist_name: string | null }> };
+        if (albumPayload.tracks && albumPayload.tracks.length > 0) {
+          setDownloadModal({
+            tracks: albumPayload.tracks.map(t => ({
+              title: t.title,
+              artistName: t.artist_name,
+              albumTitle: albumPayload.title,
+              uri: "tidal://" + t.tidal_id,
+            })),
+            providerId: "tidal-browse:tidal-download",
+            providerName: "TIDAL",
+            confirmed: true,
+          });
+        }
         return;
       } else if (action === "tidal-download") {
         const p = payload as { trackId: number | null; title: string; artistName: string | null };
@@ -3115,17 +3126,6 @@ function App() {
         />
       )}
 
-      {tidalAlbumDownload && (
-        <TidalAlbumDownloadModal
-          input={tidalAlbumDownload}
-          downloadFormat={downloads.downloadFormat}
-          collections={localCollections}
-          store={store}
-          lastDest={lastDownloadDest}
-          onClose={() => setTidalAlbumDownload(null)}
-          onComplete={(msg) => { setTidalAlbumDownload(null); addLog(msg, "downloads"); }}
-        />
-      )}
 
       {downloadModal && (
         <DownloadModal
