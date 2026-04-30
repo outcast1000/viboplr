@@ -3305,6 +3305,331 @@ pub fn plugin_cache_list_dirs(
     Ok(dirs)
 }
 
+// ── Plugin file storage (nested path segments) ──────────────────
+
+const PLUGIN_FILE_MAX_BYTES: u64 = 50 * 1024 * 1024;
+
+fn validate_path_segment(segment: &str) -> Result<(), String> {
+    if segment.is_empty() {
+        return Err("Empty path segment".to_string());
+    }
+    if segment.len() > 255 {
+        return Err("Path segment too long".to_string());
+    }
+    if segment == "." || segment == ".." {
+        return Err("Path segment may not be '.' or '..'".to_string());
+    }
+    if segment.contains('/') || segment.contains('\\') || segment.contains('\0') {
+        return Err("Path segment contains invalid characters".to_string());
+    }
+    if segment.chars().any(|c| (c as u32) < 0x20) {
+        return Err("Path segment contains control characters".to_string());
+    }
+    // Windows reserved device names
+    let upper = segment.to_uppercase();
+    let base = upper.split('.').next().unwrap_or(&upper);
+    matches!(base, "CON" | "PRN" | "AUX" | "NUL"
+        | "COM1" | "COM2" | "COM3" | "COM4" | "COM5" | "COM6" | "COM7" | "COM8" | "COM9"
+        | "LPT1" | "LPT2" | "LPT3" | "LPT4" | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9")
+        .then(|| Err::<(), String>("Path segment is a reserved name".to_string()))
+        .transpose()?;
+    Ok(())
+}
+
+fn resolve_plugin_path(
+    app_dir: &std::path::Path,
+    plugin_id: &str,
+    path: &[String],
+) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+    if plugin_id.is_empty() || plugin_id.contains("..") || plugin_id.contains('/') || plugin_id.contains('\\') {
+        return Err("Invalid plugin ID".to_string());
+    }
+    if path.is_empty() {
+        return Err("Path must have at least one segment".to_string());
+    }
+    for seg in path {
+        validate_path_segment(seg)?;
+    }
+    let root = app_dir.join("plugin-cache").join(plugin_id);
+    let mut full = root.clone();
+    for seg in path {
+        full.push(seg);
+    }
+    Ok((root, full))
+}
+
+fn ensure_within_root(root: &std::path::Path, target: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(root).ok();
+    let canonical_root = root.canonicalize().map_err(|e| format!("Path error: {}", e))?;
+    // Canonicalize the deepest ancestor that exists so we can also validate paths
+    // for files that do not yet exist (e.g. when we're about to create them).
+    let mut probe = target.to_path_buf();
+    loop {
+        if probe.exists() {
+            break;
+        }
+        if !probe.pop() {
+            // Nothing exists yet — use the root itself.
+            probe = canonical_root.clone();
+            break;
+        }
+    }
+    let canonical_probe = probe.canonicalize().map_err(|e| format!("Path error: {}", e))?;
+    if !canonical_probe.starts_with(&canonical_root) {
+        return Err("Path escapes plugin root".to_string());
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct PluginDirEntry {
+    pub name: String,
+    pub is_dir: bool,
+}
+
+#[tauri::command]
+pub fn plugin_files_write_text(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    path: Vec<String>,
+    content: String,
+) -> Result<String, String> {
+    if content.len() as u64 > PLUGIN_FILE_MAX_BYTES {
+        return Err(format!("Content too large (max {} bytes)", PLUGIN_FILE_MAX_BYTES));
+    }
+    let (root, target) = resolve_plugin_path(&state.app_dir, &plugin_id, &path)?;
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {}", e))?;
+    }
+    ensure_within_root(&root, &target)?;
+
+    // Atomic write: temp file + rename
+    let mut tmp = target.clone();
+    let tmp_name = format!(
+        "{}.tmp-{}",
+        target.file_name().and_then(|s| s.to_str()).unwrap_or("file"),
+        std::process::id()
+    );
+    tmp.set_file_name(tmp_name);
+    std::fs::write(&tmp, content.as_bytes()).map_err(|e| format!("Failed to write: {}", e))?;
+    std::fs::rename(&tmp, &target).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Failed to rename: {}", e)
+    })?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn plugin_files_read_text(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    path: Vec<String>,
+) -> Result<Option<String>, String> {
+    let (root, target) = resolve_plugin_path(&state.app_dir, &plugin_id, &path)?;
+    ensure_within_root(&root, &target)?;
+    if !target.exists() {
+        return Ok(None);
+    }
+    let meta = std::fs::metadata(&target).map_err(|e| format!("Stat error: {}", e))?;
+    if meta.len() > PLUGIN_FILE_MAX_BYTES {
+        return Err(format!("File too large (max {} bytes)", PLUGIN_FILE_MAX_BYTES));
+    }
+    let content = std::fs::read_to_string(&target).map_err(|e| format!("Read error: {}", e))?;
+    Ok(Some(content))
+}
+
+#[tauri::command]
+pub async fn plugin_files_download(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    path: Vec<String>,
+    url: String,
+) -> Result<String, String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("URL must start with http:// or https://".to_string());
+    }
+    let (root, target) = resolve_plugin_path(&state.app_dir, &plugin_id, &path)?;
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {}", e))?;
+    }
+    ensure_within_root(&root, &target)?;
+
+    let client = reqwest::Client::builder()
+        .user_agent("Viboplr/0.1.0 (https://github.com/viboplr)")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client.get(&url).send().await.map_err(|e| format!("Download failed: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let content_length = resp.content_length().unwrap_or(0);
+    if content_length > 10 * 1024 * 1024 {
+        return Err("Download too large (>10MB)".to_string());
+    }
+    let bytes = resp.bytes().await.map_err(|e| format!("Download failed: {}", e))?;
+    if bytes.len() > 10 * 1024 * 1024 {
+        return Err("Download too large (>10MB)".to_string());
+    }
+
+    let mut tmp = target.clone();
+    let tmp_name = format!(
+        "{}.tmp-{}",
+        target.file_name().and_then(|s| s.to_str()).unwrap_or("file"),
+        std::process::id()
+    );
+    tmp.set_file_name(tmp_name);
+    std::fs::write(&tmp, &bytes).map_err(|e| format!("Failed to write: {}", e))?;
+    std::fs::rename(&tmp, &target).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Failed to rename: {}", e)
+    })?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn plugin_files_get_path(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    path: Vec<String>,
+) -> Result<Option<String>, String> {
+    let (root, target) = resolve_plugin_path(&state.app_dir, &plugin_id, &path)?;
+    ensure_within_root(&root, &target)?;
+    if target.exists() {
+        Ok(Some(target.to_string_lossy().to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub fn plugin_files_exists(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    path: Vec<String>,
+) -> Result<bool, String> {
+    let (root, target) = resolve_plugin_path(&state.app_dir, &plugin_id, &path)?;
+    ensure_within_root(&root, &target)?;
+    Ok(target.exists())
+}
+
+#[tauri::command]
+pub fn plugin_files_list(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    path: Vec<String>,
+) -> Result<Vec<PluginDirEntry>, String> {
+    // path may be empty here — means "list the plugin root"
+    if plugin_id.is_empty() || plugin_id.contains("..") || plugin_id.contains('/') || plugin_id.contains('\\') {
+        return Err("Invalid plugin ID".to_string());
+    }
+    for seg in &path {
+        validate_path_segment(seg)?;
+    }
+    let root = state.app_dir.join("plugin-cache").join(&plugin_id);
+    let mut target = root.clone();
+    for seg in &path {
+        target.push(seg);
+    }
+    if !target.exists() {
+        return Ok(vec![]);
+    }
+    ensure_within_root(&root, &target)?;
+    let mut out = Vec::new();
+    let entries = std::fs::read_dir(&target).map_err(|e| format!("Failed to read dir: {}", e))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Read error: {}", e))?;
+        let name = match entry.file_name().into_string() {
+            Ok(n) => n,
+            Err(_) => continue, // skip non-UTF8
+        };
+        let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+        out.push(PluginDirEntry { name, is_dir });
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn plugin_files_remove(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    path: Vec<String>,
+) -> Result<(), String> {
+    let (root, target) = resolve_plugin_path(&state.app_dir, &plugin_id, &path)?;
+    if !target.exists() {
+        return Ok(());
+    }
+    ensure_within_root(&root, &target)?;
+    let meta = std::fs::metadata(&target).map_err(|e| format!("Stat error: {}", e))?;
+    if meta.is_dir() {
+        std::fs::remove_dir_all(&target).map_err(|e| format!("Failed to delete: {}", e))?;
+    } else {
+        std::fs::remove_file(&target).map_err(|e| format!("Failed to delete: {}", e))?;
+    }
+    Ok(())
+}
+
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn plugin_files_copy(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    src: Vec<String>,
+    dst: Vec<String>,
+) -> Result<(), String> {
+    let (root, src_path) = resolve_plugin_path(&state.app_dir, &plugin_id, &src)?;
+    let (_, dst_path) = resolve_plugin_path(&state.app_dir, &plugin_id, &dst)?;
+    if !src_path.exists() {
+        return Err("Source does not exist".to_string());
+    }
+    if let Some(parent) = dst_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {}", e))?;
+    }
+    ensure_within_root(&root, &src_path)?;
+    ensure_within_root(&root, &dst_path)?;
+    let meta = std::fs::metadata(&src_path).map_err(|e| format!("Stat error: {}", e))?;
+    if meta.is_dir() {
+        copy_dir_recursive(&src_path, &dst_path).map_err(|e| format!("Copy failed: {}", e))?;
+    } else {
+        std::fs::copy(&src_path, &dst_path).map_err(|e| format!("Copy failed: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn plugin_files_move(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    src: Vec<String>,
+    dst: Vec<String>,
+) -> Result<(), String> {
+    let (root, src_path) = resolve_plugin_path(&state.app_dir, &plugin_id, &src)?;
+    let (_, dst_path) = resolve_plugin_path(&state.app_dir, &plugin_id, &dst)?;
+    if !src_path.exists() {
+        return Err("Source does not exist".to_string());
+    }
+    if let Some(parent) = dst_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create dir: {}", e))?;
+    }
+    ensure_within_root(&root, &src_path)?;
+    ensure_within_root(&root, &dst_path)?;
+    std::fs::rename(&src_path, &dst_path).map_err(|e| format!("Move failed: {}", e))?;
+    Ok(())
+}
+
 // ── Mixtape operations ───────────────────────────────────────────
 
 #[tauri::command]
@@ -4485,6 +4810,83 @@ mod plugin_cache_tests {
     #[test]
     fn test_validate_plugin_cache_path_filename_optional() {
         assert!(validate_plugin_cache_path("ok", "sub", None).is_ok());
+    }
+
+    // ---- New path-segment validator ----
+
+    #[test]
+    fn test_validate_path_segment_accepts_normal() {
+        assert!(validate_path_segment("playlists").is_ok());
+        assert!(validate_path_segment("Made for You").is_ok());
+        assert!(validate_path_segment("Your '90s Top Hits").is_ok());
+        assert!(validate_path_segment("abc123").is_ok());
+        assert!(validate_path_segment("tracks.json").is_ok());
+        assert!(validate_path_segment("cover.jpg").is_ok());
+    }
+
+    #[test]
+    fn test_validate_path_segment_rejects_traversal() {
+        assert!(validate_path_segment("..").is_err());
+        assert!(validate_path_segment(".").is_err());
+    }
+
+    #[test]
+    fn test_validate_path_segment_rejects_separators() {
+        assert!(validate_path_segment("a/b").is_err());
+        assert!(validate_path_segment("a\\b").is_err());
+        assert!(validate_path_segment("a\0b").is_err());
+    }
+
+    #[test]
+    fn test_validate_path_segment_rejects_empty() {
+        assert!(validate_path_segment("").is_err());
+    }
+
+    #[test]
+    fn test_validate_path_segment_rejects_control_chars() {
+        assert!(validate_path_segment("hello\nworld").is_err());
+        assert!(validate_path_segment("hello\x01").is_err());
+    }
+
+    #[test]
+    fn test_validate_path_segment_rejects_windows_reserved() {
+        assert!(validate_path_segment("CON").is_err());
+        assert!(validate_path_segment("PRN.txt").is_err());
+        assert!(validate_path_segment("nul").is_err()); // case-insensitive
+        assert!(validate_path_segment("COM1").is_err());
+    }
+
+    #[test]
+    fn test_validate_path_segment_length_cap() {
+        assert!(validate_path_segment(&"a".repeat(255)).is_ok());
+        assert!(validate_path_segment(&"a".repeat(256)).is_err());
+    }
+
+    #[test]
+    fn test_resolve_plugin_path_builds_nested() {
+        let tmp = std::env::temp_dir();
+        let (root, target) = resolve_plugin_path(
+            &tmp,
+            "spotify-browse",
+            &["playlists".to_string(), "Made for You".to_string(), "abc".to_string(), "meta.json".to_string()],
+        )
+        .expect("should build path");
+        assert!(target.starts_with(&root));
+        assert!(target.ends_with("meta.json"));
+        assert!(target.to_string_lossy().contains("Made for You"));
+    }
+
+    #[test]
+    fn test_resolve_plugin_path_rejects_empty_path() {
+        let tmp = std::env::temp_dir();
+        assert!(resolve_plugin_path(&tmp, "ok", &[]).is_err());
+    }
+
+    #[test]
+    fn test_resolve_plugin_path_rejects_bad_plugin_id() {
+        let tmp = std::env::temp_dir();
+        assert!(resolve_plugin_path(&tmp, "../evil", &["x".to_string()]).is_err());
+        assert!(resolve_plugin_path(&tmp, "a/b", &["x".to_string()]).is_err());
     }
 }
 

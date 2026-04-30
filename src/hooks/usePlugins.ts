@@ -407,6 +407,49 @@ export function usePlugins(
           async deleteCacheDir(subdir: string): Promise<void> {
             await invoke("plugin_cache_delete_dir", { pluginId, subdir });
           },
+          files: {
+            async writeJson(path: string[], data: unknown): Promise<string> {
+              return invoke<string>("plugin_files_write_text", {
+                pluginId,
+                path,
+                content: JSON.stringify(data),
+              });
+            },
+            async readJson<T>(path: string[]): Promise<T | null> {
+              const raw = await invoke<string | null>("plugin_files_read_text", { pluginId, path });
+              if (raw === null || raw === undefined) return null;
+              return JSON.parse(raw) as T;
+            },
+            async writeText(path: string[], content: string): Promise<string> {
+              return invoke<string>("plugin_files_write_text", { pluginId, path, content });
+            },
+            async readText(path: string[]): Promise<string | null> {
+              const raw = await invoke<string | null>("plugin_files_read_text", { pluginId, path });
+              return raw ?? null;
+            },
+            async download(path: string[], url: string): Promise<string> {
+              return invoke<string>("plugin_files_download", { pluginId, path, url });
+            },
+            async getPath(path: string[]): Promise<string | null> {
+              return invoke<string | null>("plugin_files_get_path", { pluginId, path });
+            },
+            async exists(path: string[]): Promise<boolean> {
+              return invoke<boolean>("plugin_files_exists", { pluginId, path });
+            },
+            async list(path: string[]): Promise<{ name: string; isDir: boolean }[]> {
+              return invoke<{ name: string; is_dir: boolean }[]>("plugin_files_list", { pluginId, path })
+                .then((entries) => entries.map((e) => ({ name: e.name, isDir: e.is_dir })));
+            },
+            async remove(path: string[]): Promise<void> {
+              await invoke("plugin_files_remove", { pluginId, path });
+            },
+            async copy(src: string[], dst: string[]): Promise<void> {
+              await invoke("plugin_files_copy", { pluginId, src, dst });
+            },
+            async move(src: string[], dst: string[]): Promise<void> {
+              await invoke("plugin_files_move", { pluginId, src, dst });
+            },
+          },
         },
 
         network: {

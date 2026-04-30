@@ -171,49 +171,9 @@ function activate(api) {
     return result;
   }
 
-  function loadArchives() {
-    api.storage.get("spotify_browse_archives").then(function(archives) {
-      state.archivedPlaylists = archives || [];
-      if (state.activeTab === "saved") render();
-    }).catch(function(err) {
-      console.error("Failed to load archives:", err);
-      state.archivedPlaylists = [];
-    });
-  }
-
-  function saveArchives() {
-    api.storage.set("spotify_browse_archives", state.archivedPlaylists).catch(console.error);
-  }
-
-  function archivePlaylist(pl) {
-    var tracks = state.playlistTracks[pl.id] || [];
-    var now = new Date();
-    var entry = {
-      id: pl.id + ":" + now.getTime(),
-      spotifyId: pl.id,
-      name: pl.name,
-      section: pl.section || null,
-      imageUrl: pl.imageUrl || null,
-      archivedAt: now.toISOString(),
-      trackCount: tracks.length,
-      tracks: [],
-    };
-    for (var i = 0; i < tracks.length; i++) {
-      var t = tracks[i];
-      entry.tracks.push({
-        name: t.name || "",
-        artist: t.artist || "",
-        album: t.album || "",
-        duration: t.duration || "",
-        imageUrl: t.imageUrl || null,
-        spotifyId: t.spotifyId || null,
-      });
-    }
-    state.archivedPlaylists.unshift(entry);
-    saveArchives();
-    loadArchives();
-    api.ui.showNotification("Archived: " + pl.name);
-  }
+  // ---- Filesystem persistence ----
+  // Layout: playlists/{section}/{playlist_id}/{meta.json,tracks.json,previous.json,cover.jpg,track-*.jpg}
+  //         archives/{archive_id}/{meta.json,tracks.json,cover.jpg,track-*.jpg}
 
   function djb2Hash(str) {
     var hash = 5381;
@@ -226,57 +186,295 @@ function activate(api) {
     return hex;
   }
 
+  // Section names can contain characters that are awkward on disk. Normalize
+  // (but keep spaces, letters, digits, and common punctuation Spotify uses).
+  function sanitizeSegment(s) {
+    if (!s) return "_";
+    var out = String(s).replace(/[/\\\0]/g, "_").replace(/[\x00-\x1f]/g, "").trim();
+    if (!out) return "_";
+    if (out.length > 200) out = out.substring(0, 200);
+    return out;
+  }
+
+  function playlistDir(pl) {
+    return ["playlists", sanitizeSegment(pl.section || "Playlists"), sanitizeSegment(pl.id)];
+  }
+
+  function loadArchives() {
+    state.archivedPlaylists = [];
+    api.storage.files.list(["archives"]).then(function (entries) {
+      var loads = [];
+      for (var i = 0; i < entries.length; i++) {
+        if (!entries[i].isDir) continue;
+        (function (archiveId) {
+          loads.push(
+            api.storage.files.readJson(["archives", archiveId, "meta.json"]).then(function (meta) {
+              if (!meta) return null;
+              // Resolve cover file to absolute path for rendering
+              if (meta.coverFile) {
+                return api.storage.files.getPath(["archives", archiveId, meta.coverFile]).then(function (p) {
+                  meta.imageUrl = p || meta.imageUrl || null;
+                  meta._archiveId = archiveId;
+                  return meta;
+                });
+              }
+              meta._archiveId = archiveId;
+              return meta;
+            }).catch(function (e) { console.error("Failed to load archive meta:", archiveId, e); return null; })
+          );
+        })(entries[i].name);
+      }
+      return Promise.all(loads);
+    }).then(function (metas) {
+      var list = [];
+      for (var i = 0; i < metas.length; i++) {
+        if (metas[i]) list.push(metas[i]);
+      }
+      list.sort(function (a, b) {
+        return (b.archivedAt || "").localeCompare(a.archivedAt || "");
+      });
+      state.archivedPlaylists = list;
+      if (state.activeTab === "saved") render();
+    }).catch(function (err) {
+      console.error("Failed to load archives:", err);
+      state.archivedPlaylists = [];
+    });
+  }
+
+  function archivePlaylist(pl) {
+    var tracks = state.playlistTracks[pl.id] || [];
+    var now = new Date();
+    var archiveId = sanitizeSegment(pl.id + "-" + now.getTime());
+    var srcDir = playlistDir(pl);
+    var dstDir = ["archives", archiveId];
+
+    api.storage.files.exists(srcDir).then(function (exists) {
+      var copyP = exists
+        ? api.storage.files.copy(srcDir, dstDir)
+        : Promise.resolve();
+      return copyP;
+    }).then(function () {
+      // Write archive-specific meta (same shape as live meta plus archivedAt)
+      var meta = {
+        id: pl.id,
+        spotifyId: pl.id,
+        name: pl.name,
+        section: pl.section || null,
+        description: pl.description || "",
+        coverFile: "cover.jpg",
+        archivedAt: now.toISOString(),
+        trackCount: tracks.length,
+      };
+      return api.storage.files.writeJson(["archives", archiveId, "meta.json"], meta);
+    }).then(function () {
+      // Also ensure tracks.json exists even if the source dir didn't have it
+      return api.storage.files.exists(["archives", archiveId, "tracks.json"]).then(function (hasTracks) {
+        if (hasTracks) return null;
+        return api.storage.files.writeJson(["archives", archiveId, "tracks.json"], serializeTracks(tracks));
+      });
+    }).then(function () {
+      api.ui.showNotification("Archived: " + pl.name);
+      loadArchives();
+    }).catch(function (e) {
+      console.error("Failed to archive playlist:", e);
+      api.ui.showNotification("Failed to archive: " + pl.name);
+    });
+  }
+
+  function serializeTracks(tracks) {
+    var out = [];
+    for (var i = 0; i < tracks.length; i++) {
+      var t = tracks[i];
+      out.push({
+        name: t.name || "",
+        artist: t.artist || "",
+        album: t.album || "",
+        duration: t.duration || "",
+        spotifyId: t.spotifyId || null,
+        coverFile: t.coverFile || null,
+        imageUrl: t.imageUrl && t.imageUrl.indexOf("http") === 0 ? t.imageUrl : null,
+      });
+    }
+    return out;
+  }
+
+  // Persist a single playlist's files. Returns a promise that resolves when
+  // meta + tracks are on disk and images are being fetched (images run in
+  // the background and the promise settles independently from their success).
+  function savePlaylist(pl) {
+    var dir = playlistDir(pl);
+    var tracks = state.playlistTracks[pl.id] || [];
+
+    var metaP = api.storage.files.writeJson(dir.concat(["meta.json"]), {
+      id: pl.id,
+      name: pl.name,
+      section: pl.section || null,
+      description: pl.description || "",
+      coverFile: "cover.jpg",
+      updatedAt: new Date().toISOString(),
+    }).catch(function (e) { console.error("Failed to write meta:", pl.id, e); });
+
+    var tracksP = api.storage.files.writeJson(dir.concat(["tracks.json"]), serializeTracks(tracks))
+      .catch(function (e) { console.error("Failed to write tracks:", pl.id, e); });
+
+    return Promise.all([metaP, tracksP]);
+  }
+
+  function saveAllPlaylists() {
+    var promises = [];
+    for (var i = 0; i < state.playlists.length; i++) {
+      promises.push(savePlaylist(state.playlists[i]));
+    }
+    return Promise.all(promises);
+  }
+
+  // Download cover + track images into each playlist's directory, updating
+  // track.imageUrl / pl.imageUrl to absolute local paths. Idempotent — skips
+  // fetches for images already local.
   function cacheAllImages() {
     var promises = [];
-    var playlists = state.playlists;
-
-    for (var pi = 0; pi < playlists.length; pi++) {
-      (function(pl) {
+    for (var pi = 0; pi < state.playlists.length; pi++) {
+      (function (pl) {
+        var dir = playlistDir(pl);
         if (pl.imageUrl && pl.imageUrl.indexOf("http") === 0) {
           promises.push(
-            api.storage.cacheFile(pl.id, "cover.jpg", pl.imageUrl).then(function(path) {
+            api.storage.files.download(dir.concat(["cover.jpg"]), pl.imageUrl).then(function (path) {
               pl.imageUrl = path;
-            }).catch(function(e) {
+            }).catch(function (e) {
               console.error("Failed to cache playlist cover:", e);
             })
           );
         }
         var tracks = state.playlistTracks[pl.id] || [];
         for (var ti = 0; ti < tracks.length; ti++) {
-          (function(track) {
+          (function (track) {
             if (track.imageUrl && track.imageUrl.indexOf("http") === 0) {
-              var hash = djb2Hash(track.name + " - " + track.artist);
+              var filename = "track-" + djb2Hash(track.name + " - " + track.artist) + ".jpg";
               promises.push(
-                api.storage.cacheFile(pl.id, hash + ".jpg", track.imageUrl).then(function(path) {
+                api.storage.files.download(dir.concat([filename]), track.imageUrl).then(function (path) {
                   track.imageUrl = path;
-                }).catch(function(e) {
+                  track.coverFile = filename;
+                }).catch(function (e) {
                   console.error("Failed to cache track image:", e);
                 })
               );
             }
           })(tracks[ti]);
         }
-      })(playlists[pi]);
+      })(state.playlists[pi]);
     }
 
     if (promises.length > 0) {
-      Promise.all(promises).then(function() {
-        saveState();
+      Promise.all(promises).then(function () {
+        saveAllPlaylists();
         render();
-      }).catch(function() {
-        saveState();
+      }).catch(function () {
+        saveAllPlaylists();
       });
     }
   }
 
   function saveState() {
     state.savedAt = Date.now();
-    api.storage.set("spotify_browse_state", {
-      playlists: state.playlists,
-      playlistTracks: state.playlistTracks,
-      previousTracks: state.previousTracks,
-      savedAt: state.savedAt,
-    }).catch(console.error);
+    saveAllPlaylists().catch(console.error);
+  }
+
+  // Walk playlists/** and load every {section, id, meta, tracks}. Resolves
+  // track coverFile references to absolute paths for rendering.
+  function loadPlaylistsFromDisk() {
+    return api.storage.files.list(["playlists"]).then(function (sectionEntries) {
+      var sections = [];
+      for (var i = 0; i < sectionEntries.length; i++) {
+        if (sectionEntries[i].isDir) sections.push(sectionEntries[i].name);
+      }
+      var playlistLoads = [];
+      for (var s = 0; s < sections.length; s++) {
+        (function (sec) {
+          playlistLoads.push(
+            api.storage.files.list(["playlists", sec]).then(function (plEntries) {
+              var loads = [];
+              for (var j = 0; j < plEntries.length; j++) {
+                if (!plEntries[j].isDir) continue;
+                (function (plId) {
+                  loads.push(loadPlaylistFromDisk(sec, plId));
+                })(plEntries[j].name);
+              }
+              return Promise.all(loads);
+            })
+          );
+        })(sections[s]);
+      }
+      return Promise.all(playlistLoads);
+    }).then(function (perSection) {
+      var allPlaylists = [];
+      var allTracks = {};
+      for (var i = 0; i < perSection.length; i++) {
+        var loaded = perSection[i];
+        for (var j = 0; j < loaded.length; j++) {
+          var entry = loaded[j];
+          if (!entry) continue;
+          allPlaylists.push(entry.playlist);
+          allTracks[entry.playlist.id] = entry.tracks;
+        }
+      }
+      return { playlists: allPlaylists, tracks: allTracks };
+    });
+  }
+
+  function loadPlaylistFromDisk(sectionName, playlistIdSegment) {
+    var dir = ["playlists", sectionName, playlistIdSegment];
+    return Promise.all([
+      api.storage.files.readJson(dir.concat(["meta.json"])),
+      api.storage.files.readJson(dir.concat(["tracks.json"])),
+    ]).then(function (results) {
+      var meta = results[0];
+      var tracks = results[1] || [];
+      if (!meta) return null;
+
+      // Resolve cover path
+      var coverP = meta.coverFile
+        ? api.storage.files.getPath(dir.concat([meta.coverFile]))
+        : Promise.resolve(null);
+
+      // Resolve each track's coverFile
+      var trackPathPromises = [];
+      for (var i = 0; i < tracks.length; i++) {
+        (function (t) {
+          if (t.coverFile) {
+            trackPathPromises.push(
+              api.storage.files.getPath(dir.concat([t.coverFile])).then(function (p) {
+                if (p) t.imageUrl = p;
+              })
+            );
+          }
+        })(tracks[i]);
+      }
+
+      return coverP.then(function (coverPath) {
+        return Promise.all(trackPathPromises).then(function () {
+          var playlist = {
+            id: meta.id,
+            name: meta.name,
+            section: meta.section || sectionName,
+            description: meta.description || "",
+            imageUrl: coverPath || null,
+            uri: "spotify:playlist:" + meta.id,
+          };
+          return { playlist: playlist, tracks: tracks };
+        });
+      });
+    }).catch(function (e) {
+      console.error("Failed to load playlist:", sectionName, playlistIdSegment, e);
+      return null;
+    });
+  }
+
+  // Delete all on-disk data for a playlist (used when a refresh no longer
+  // returns it from its section).
+  function deletePlaylistFiles(pl) {
+    return api.storage.files.remove(playlistDir(pl)).catch(function (e) {
+      console.error("Failed to delete playlist dir:", pl.id, e);
+    });
   }
 
   function savePreferences() {
@@ -1336,6 +1534,20 @@ function activate(api) {
       }
     }
 
+    // Remove on-disk dirs for playlists that dropped out of the refresh.
+    var newKeyed = {};
+    for (var p = 0; p < newPlaylists.length; p++) {
+      var npl = newPlaylists[p];
+      newKeyed[playlistDir(npl).join("/")] = true;
+    }
+    for (var op = 0; op < state.playlists.length; op++) {
+      var oldPl = state.playlists[op];
+      var oldKey = playlistDir(oldPl).join("/");
+      if (!newKeyed[oldKey]) {
+        deletePlaylistFiles(oldPl);
+      }
+    }
+
     state.playlists = newPlaylists;
     state.playlistTracks = newTracks;
     saveState();
@@ -1454,11 +1666,19 @@ function activate(api) {
         render();
         return;
       }
-      // Merge: remove old playlists from this section, add new ones
+      // Merge: remove old playlists from this section, add new ones.
+      // Any old playlist in this section that didn't reappear gets its
+      // on-disk directory deleted.
+      var keptIds = {};
+      for (var kp = 0; kp < result.playlists.length; kp++) keptIds[result.playlists[kp].id] = true;
       var kept = [];
       for (var i = 0; i < state.playlists.length; i++) {
-        if ((state.playlists[i].section || "Playlists") !== sectionName) {
-          kept.push(state.playlists[i]);
+        var oldPl = state.playlists[i];
+        var oldSection = oldPl.section || "Playlists";
+        if (oldSection !== sectionName) {
+          kept.push(oldPl);
+        } else if (!keptIds[oldPl.id]) {
+          deletePlaylistFiles(oldPl);
         }
       }
       for (var j = 0; j < result.playlists.length; j++) {
@@ -1503,6 +1723,17 @@ function activate(api) {
     if (idx === -1) return;
     state.sections.splice(idx, 1);
     api.storage.set("spotify_browse_sections", state.sections).catch(console.error);
+    // Drop the section's on-disk directory and any cached playlists/tracks in memory.
+    api.storage.files.remove(["playlists", sanitizeSegment(name)]).catch(console.error);
+    var keptPls = [];
+    for (var p = 0; p < state.playlists.length; p++) {
+      if ((state.playlists[p].section || "Playlists") !== name) {
+        keptPls.push(state.playlists[p]);
+      } else {
+        delete state.playlistTracks[state.playlists[p].id];
+      }
+    }
+    state.playlists = keptPls;
     state.activeTab = "saved";
     renderSettings();
     render();
@@ -1775,46 +2006,83 @@ function activate(api) {
     return out;
   }
 
+  function loadArchiveTracks(entry) {
+    if (!entry || !entry._archiveId) return Promise.resolve([]);
+    var dir = ["archives", entry._archiveId];
+    return api.storage.files.readJson(dir.concat(["tracks.json"])).then(function (tracks) {
+      tracks = tracks || [];
+      // Resolve coverFile for each track, matching loadPlaylistFromDisk
+      var promises = [];
+      for (var i = 0; i < tracks.length; i++) {
+        (function (t) {
+          if (t.coverFile) {
+            promises.push(
+              api.storage.files.getPath(dir.concat([t.coverFile])).then(function (p) {
+                if (p) t.imageUrl = p;
+              })
+            );
+          }
+        })(tracks[i]);
+      }
+      return Promise.all(promises).then(function () { return tracks; });
+    });
+  }
+
   api.ui.onAction("view-archived", function(data) {
     var found = getArchivedByIndex(data);
     if (!found) return;
     var entry = found.entry;
-    state.viewingArchived = true;
-    var viewId = "archived:" + found.index;
-    state.currentPlaylist = { id: viewId, name: entry.name, imageUrl: entry.imageUrl };
-    state.playlistTracks[viewId] = entry.tracks || [];
-    state.currentView = "playlist";
-    renderPlaylist();
+    loadArchiveTracks(entry).then(function (tracks) {
+      state.viewingArchived = true;
+      var viewId = "archived:" + found.index;
+      state.currentPlaylist = { id: viewId, name: entry.name, imageUrl: entry.imageUrl };
+      state.playlistTracks[viewId] = tracks;
+      state.currentView = "playlist";
+      renderPlaylist();
+    }).catch(function (e) { console.error("Failed to load archive tracks:", e); });
   });
 
   api.ui.onAction("play-archived", function(data) {
     var found = getArchivedByIndex(data);
-    if (!found || !found.entry.tracks || found.entry.tracks.length === 0) return;
+    if (!found) return;
     var entry = found.entry;
-    var meta = {};
-    if (entry.section) meta.section = entry.section;
-    if (entry.archivedAt) meta.archivedAt = entry.archivedAt;
-    api.playback.playTracks(archivedToPluginTracks(entry.tracks), 0, {
-      name: entry.name,
-      coverUrl: entry.imageUrl || null,
-      source: entry.spotifyId ? "spotify:playlist:" + entry.spotifyId : null,
-      metadata: meta,
-    });
+    loadArchiveTracks(entry).then(function (tracks) {
+      if (!tracks.length) return;
+      var meta = {};
+      if (entry.section) meta.section = entry.section;
+      if (entry.archivedAt) meta.archivedAt = entry.archivedAt;
+      api.playback.playTracks(archivedToPluginTracks(tracks), 0, {
+        name: entry.name,
+        coverUrl: entry.imageUrl || null,
+        source: entry.spotifyId ? "spotify:playlist:" + entry.spotifyId : null,
+        metadata: meta,
+      });
+    }).catch(function (e) { console.error("Failed to play archive:", e); });
   });
 
   api.ui.onAction("enqueue-archived", function(data) {
     var found = getArchivedByIndex(data);
-    if (!found || !found.entry.tracks || found.entry.tracks.length === 0) return;
-    api.playback.insertTracks(archivedToPluginTracks(found.entry.tracks), -1);
+    if (!found) return;
+    loadArchiveTracks(found.entry).then(function (tracks) {
+      if (!tracks.length) return;
+      api.playback.insertTracks(archivedToPluginTracks(tracks), -1);
+    }).catch(function (e) { console.error("Failed to enqueue archive:", e); });
   });
 
   api.ui.onAction("delete-archived", function(data) {
     var found = getArchivedByIndex(data);
     if (!found) return;
-    state.archivedPlaylists.splice(found.index, 1);
-    saveArchives();
-    api.ui.showNotification("Archive deleted");
-    render();
+    var entry = found.entry;
+    var p = entry._archiveId
+      ? api.storage.files.remove(["archives", entry._archiveId])
+      : Promise.resolve();
+    p.then(function () {
+      api.ui.showNotification("Archive deleted");
+      loadArchives();
+    }).catch(function (e) {
+      console.error("Failed to delete archive:", e);
+      api.ui.showNotification("Failed to delete archive");
+    });
   });
 
   api.ui.onAction("manual-refresh", function() {
@@ -1936,28 +2204,82 @@ function activate(api) {
 
   // ---- Init: restore previous data ----
 
-  // Restore state (with legacy migration)
-  api.storage.get("spotify_browse_state").then(function(saved) {
-    if (saved && saved.playlists && saved.playlists.length > 0) {
-      state.playlists = saved.playlists;
-      state.playlistTracks = saved.playlistTracks || {};
-      state.previousTracks = saved.previousTracks || {};
-      state.savedAt = saved.savedAt || null;
-      state.status = "done";
-      render();
-    } else {
-      api.storage.get("spotify_browse_playlists").then(function(legacy) {
-        if (legacy && legacy.playlists && legacy.playlists.length > 0) {
-          state.playlists = legacy.playlists;
-          state.playlistTracks = legacy.tracks || {};
-          state.status = "done";
-          saveState();
-          api.storage.delete("spotify_browse_playlists").catch(console.error);
-        }
+  // Load playlists from the filesystem layout (playlists/{section}/{id}/...).
+  // Fall back to the legacy spotify_browse_state KV entry for a one-time
+  // migration, then delete it.
+  function loadInitialState() {
+    loadPlaylistsFromDisk().then(function (result) {
+      if (result.playlists.length > 0) {
+        state.playlists = result.playlists;
+        state.playlistTracks = result.tracks;
+        state.status = "done";
         render();
-      }).catch(function(err) { console.error("Failed to load legacy state:", err); render(); });
+        return;
+      }
+      // Fall back to legacy KV state for migration
+      return api.storage.get("spotify_browse_state").then(function (saved) {
+        if (saved && saved.playlists && saved.playlists.length > 0) {
+          state.playlists = saved.playlists;
+          state.playlistTracks = saved.playlistTracks || {};
+          state.previousTracks = saved.previousTracks || {};
+          state.savedAt = saved.savedAt || null;
+          state.status = "done";
+          // Persist into the new filesystem layout, then drop the KV entry
+          saveAllPlaylists().then(function () {
+            api.storage.delete("spotify_browse_state").catch(console.error);
+          }).catch(console.error);
+          render();
+        } else {
+          render();
+        }
+      });
+    }).catch(function (err) {
+      console.error("Failed to load state:", err);
+      render();
+    });
+  }
+  loadInitialState();
+
+  // One-time migration for legacy archives key into the archives/ directory.
+  // Runs in the background; loadArchives() is called afterwards to pick them up.
+  api.storage.get("spotify_browse_archives").then(function (legacy) {
+    if (!legacy || !legacy.length) { loadArchives(); return; }
+    var promises = [];
+    for (var i = 0; i < legacy.length; i++) {
+      (function (entry) {
+        var archiveId = sanitizeSegment(entry.id || (entry.spotifyId + "-" + Date.now()));
+        var meta = {
+          id: entry.spotifyId || entry.id,
+          spotifyId: entry.spotifyId || entry.id,
+          name: entry.name,
+          section: entry.section || null,
+          description: entry.description || "",
+          coverFile: entry.imageUrl ? "cover.jpg" : null,
+          archivedAt: entry.archivedAt || new Date().toISOString(),
+          trackCount: entry.trackCount || (entry.tracks ? entry.tracks.length : 0),
+        };
+        var p = api.storage.files.writeJson(["archives", archiveId, "meta.json"], meta)
+          .then(function () {
+            return api.storage.files.writeJson(["archives", archiveId, "tracks.json"], entry.tracks || []);
+          });
+        // Copy cover if it's a local path from the old layout
+        if (entry.imageUrl && entry.imageUrl.indexOf("http") !== 0) {
+          // old paths were plugin-cache/{plugin}/{playlistId}/cover.jpg — unreachable via new API
+          // best-effort: skip, user can re-archive if they want the image
+        } else if (entry.imageUrl) {
+          p = p.then(function () {
+            return api.storage.files.download(["archives", archiveId, "cover.jpg"], entry.imageUrl)
+              .catch(function () { /* non-fatal */ });
+          });
+        }
+        promises.push(p);
+      })(legacy[i]);
     }
-  }).catch(function(err) { console.error("Failed to load state:", err); render(); });
+    Promise.all(promises).then(function () {
+      api.storage.delete("spotify_browse_archives").catch(console.error);
+      loadArchives();
+    }).catch(function (e) { console.error("Failed to migrate archives:", e); loadArchives(); });
+  }).catch(function () { loadArchives(); });
 
   // Load sections
   api.storage.get("spotify_browse_sections").then(function(sections) {
@@ -1979,7 +2301,7 @@ function activate(api) {
     }
   }).catch(console.error);
 
-  // One-time archive cleanup migration
+  // One-time cleanup of older legacy archive keys
   api.storage.get("spotify_browse_archive_index").then(function(index) {
     if (!index || !index.length) return;
     var promises = [];
@@ -1990,15 +2312,14 @@ function activate(api) {
     Promise.all(promises).catch(console.error);
   }).catch(console.error);
 
-  // Clean up orphaned cache directories
-  api.storage.listCacheDirs().then(function(dirs) {
+  // One-time cleanup: the old layout was plugin-cache/{plugin}/{playlistId}/...
+  // (flat, one dir per playlist id at the root). The new layout nests under
+  // "playlists/{section}/{id}/", so any top-level dir that isn't "playlists"
+  // or "archives" is orphaned flat-layout junk.
+  api.storage.listCacheDirs().then(function (dirs) {
     if (!dirs || !dirs.length) return;
-    var knownIds = {};
-    for (var i = 0; i < state.playlists.length; i++) {
-      knownIds[state.playlists[i].id] = true;
-    }
     for (var d = 0; d < dirs.length; d++) {
-      if (!knownIds[dirs[d]]) {
+      if (dirs[d] !== "playlists" && dirs[d] !== "archives") {
         api.storage.deleteCacheDir(dirs[d]).catch(console.error);
       }
     }

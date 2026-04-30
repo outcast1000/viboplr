@@ -362,6 +362,21 @@ export interface PluginStorageAPI {
   getCachePath(subdir: string, filename: string): Promise<string | null>;
   listCacheDirs(): Promise<string[]>;
   deleteCacheDir(subdir: string): Promise<void>;
+  files: PluginFileAPI;
+}
+
+export interface PluginFileAPI {
+  writeJson(path: string[], data: unknown): Promise<string>;
+  readJson<T>(path: string[]): Promise<T | null>;
+  writeText(path: string[], content: string): Promise<string>;
+  readText(path: string[]): Promise<string | null>;
+  download(path: string[], url: string): Promise<string>;
+  getPath(path: string[]): Promise<string | null>;
+  exists(path: string[]): Promise<boolean>;
+  list(path: string[]): Promise<{ name: string; isDir: boolean }[]>;
+  remove(path: string[]): Promise<void>;
+  copy(src: string[], dst: string[]): Promise<void>;
+  move(src: string[], dst: string[]): Promise<void>;
 }
 
 export interface BrowseWindowHandle {
