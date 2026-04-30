@@ -303,9 +303,9 @@ export interface PluginPlaybackAPI {
   getCurrentTrack(): Track | null;
   isPlaying(): boolean;
   getPosition(): number;
-  playTidalTrack(track: TidalSearchTrackLike): void;
-  enqueueTidalTrack(track: TidalSearchTrackLike): void;
-  playTidalTracks(tracks: TidalSearchTrackLike[], startIndex?: number, context?: { name: string; coverUrl?: string | null }): void;
+  playTrack(track: PluginTrack): void;
+  enqueueTrack(track: PluginTrack): void;
+  playTracks(tracks: PluginTrack[], startIndex?: number, context?: { name: string; coverUrl?: string | null; source?: string | null; metadata?: Record<string, string> | null }): void;
   onTrackStarted(handler: (track: Track) => void): () => void;
   onTrackPlayed(handler: (track: Track) => void): () => void;
   onTrackScrobbled(handler: (track: Track) => void): () => void;
@@ -316,17 +316,14 @@ export interface PluginPlaybackAPI {
   ): () => void;
 }
 
-// Loose shape plugins pass for TIDAL tracks (matches TidalSearchTrack)
-export interface TidalSearchTrackLike {
-  tidal_id: string;
+export interface PluginTrack {
+  path?: string | null;
   title: string;
   artist_name?: string | null;
-  artist_id?: string | null;
   album_title?: string | null;
-  album_id?: string | null;
-  cover_id?: string | null;
   duration_secs?: number | null;
   track_number?: number | null;
+  image_url?: string | null;
 }
 
 export interface PluginTidalAPI {

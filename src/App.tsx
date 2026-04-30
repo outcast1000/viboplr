@@ -11,7 +11,7 @@ import "./design-system.css";
 import "./App.css";
 
 import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
-import { isVideoTrack, parseSubsonicUrl, tidalCoverUrl } from "./utils";
+import { isVideoTrack, parseSubsonicUrl } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, type QueueEntry } from "./queueEntry";
 import type { SearchProviderConfig } from "./searchProviders";
@@ -44,7 +44,7 @@ import { useLikeActions } from "./hooks/useLikeActions";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useArtistInfo } from "./hooks/useArtistInfo";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
-import type { TidalSearchTrackLike, DownloadProvider } from "./types/plugin";
+import type { PluginTrack, DownloadProvider } from "./types/plugin";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
 import { CaptionBar } from "./components/CaptionBar";
@@ -222,11 +222,11 @@ function App() {
   pluginPlayingRef.current = playback.playing;
   const pluginPositionRef = useRef(0);
   pluginPositionRef.current = playback.positionSecs;
-  const tidalTrackToTrackFn = useCallback((info: TidalSearchTrackLike): Track => {
+  const pluginTrackToTrackFn = useCallback((info: PluginTrack): Track => {
     return {
       id: null,
       key: nextExternalKey(),
-      path: `tidal://${info.tidal_id}`,
+      path: info.path ?? null,
       title: info.title,
       artist_id: null,
       artist_name: info.artist_name ?? null,
@@ -243,19 +243,19 @@ function App() {
       youtube_url: null,
       added_at: null,
       modified_at: null,
-      image_url: tidalCoverUrl(info.cover_id ?? null, 160) ?? undefined,
+      image_url: info.image_url ?? undefined,
     };
   }, []);
   const downloadFormatRef = useRef("flac");
   const pluginPlaybackCallbacks = useMemo(() => ({
-    playTidalTrack: (track: TidalSearchTrackLike) => {
-      queueHook.playTracks([tidalTrackToTrackFn(track)], 0);
+    playTrack: (track: PluginTrack) => {
+      queueHook.playTracks([pluginTrackToTrackFn(track)], 0);
     },
-    enqueueTidalTrack: (track: TidalSearchTrackLike) => {
-      queueHook.enqueueTracks([tidalTrackToTrackFn(track)]);
+    enqueueTrack: (track: PluginTrack) => {
+      queueHook.enqueueTracks([pluginTrackToTrackFn(track)]);
     },
-    playTidalTracks: (tracks: TidalSearchTrackLike[], startIndex?: number, context?: { name: string; coverUrl?: string | null }) => {
-      queueHook.playTracks(tracks.map(tidalTrackToTrackFn), startIndex ?? 0, context ? { name: context.name } : undefined);
+    playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name: string; coverUrl?: string | null; source?: string | null; metadata?: Record<string, string> | null }) => {
+      queueHook.playTracks(tracks.map(pluginTrackToTrackFn), startIndex ?? 0, context ? { name: context.name, source: context.source ?? null, metadata: context.metadata ?? null } : undefined);
       if (context?.coverUrl) {
         if (context.coverUrl.startsWith("http://") || context.coverUrl.startsWith("https://")) {
           invoke<string>("download_url_to_playlist_images", { url: context.coverUrl })
@@ -267,7 +267,7 @@ function App() {
       }
     },
     getDownloadFormat: () => downloadFormatRef.current,
-  }), [queueHook, tidalTrackToTrackFn]);
+  }), [queueHook, pluginTrackToTrackFn]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode);
 
@@ -895,36 +895,6 @@ function App() {
           providerId: "tidal-browse:tidal-download",
           providerName: "TIDAL",
         });
-      } else if (action === "play-tracks") {
-        const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string; image_url?: string }>);
-        const startIndex = (payload.startIndex as number) ?? 0;
-        if (tracks?.length) {
-          const playlistName = payload.playlistName as string | undefined;
-          const coverUrl = payload.coverUrl as string | undefined;
-          const source = payload.source as string | undefined;
-          const metadata = payload.metadata as Record<string, string> | undefined;
-          const ctx: PlaylistContext | null = playlistName ? { name: playlistName, source: source ?? null, metadata: metadata ?? null } : null;
-          queueHook.playTracks(tracks.map(t => ({
-            id: null,
-            key: nextExternalKey(),
-            title: t.title,
-            artist_name: t.artist_name ?? null,
-            album_title: t.album_title ?? null,
-            duration_secs: t.duration_secs ?? null,
-            path: t.path ?? t.url ?? null,
-            image_url: t.image_url,
-            liked: 0,
-          })) as Track[], startIndex, ctx);
-          if (coverUrl && playlistName) {
-            if (coverUrl.startsWith("http://") || coverUrl.startsWith("https://")) {
-              invoke<string>("download_url_to_playlist_images", { url: coverUrl })
-                .then(path => queueHook.setPlaylistContext(prev => prev ? { ...prev, imagePath: path } : prev))
-                .catch(console.error);
-            } else {
-              queueHook.setPlaylistContext(prev => prev ? { ...prev, imagePath: coverUrl } : prev);
-            }
-          }
-        }
       } else if (action === "navigate-to-artist") {
         pushStateRef.current();
         library.navigateToArtistByName(payload.name as string);
@@ -937,21 +907,6 @@ function App() {
       } else if (action === "refresh-library") {
         library.loadLibrary();
         library.loadTracks();
-      } else if (action === "enqueue-tracks") {
-        const tracks = (payload.tracks as Array<{ title: string; artist_name?: string | null; album_title?: string | null; duration_secs?: number | null; url?: string | null; path?: string; image_url?: string }>);
-        if (tracks?.length) {
-          queueHook.enqueueTracks(tracks.map(t => ({
-            id: null,
-            key: nextExternalKey(),
-            title: t.title,
-            artist_name: t.artist_name ?? null,
-            album_title: t.album_title ?? null,
-            duration_secs: t.duration_secs ?? null,
-            path: t.path ?? t.url ?? null,
-            image_url: t.image_url,
-            liked: 0,
-          })) as Track[]);
-        }
       }
     },
     showNotification: (message) => {

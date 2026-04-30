@@ -18,7 +18,7 @@ import type {
   PluginBadge,
   ViboplrPluginAPI,
   PluginEventName,
-  TidalSearchTrackLike,
+  PluginTrack,
   GalleryPluginEntry,
   PluginGalleryIndex,
   ImageFetchResult,
@@ -80,9 +80,9 @@ type EventHandlers = {
 // -- Hook --
 
 export interface PluginPlaybackCallbacks {
-  playTidalTrack: (track: TidalSearchTrackLike) => void;
-  enqueueTidalTrack: (track: TidalSearchTrackLike) => void;
-  playTidalTracks: (tracks: TidalSearchTrackLike[], startIndex?: number, context?: { name: string; coverUrl?: string | null }) => void;
+  playTrack: (track: PluginTrack) => void;
+  enqueueTrack: (track: PluginTrack) => void;
+  playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name: string; coverUrl?: string | null; source?: string | null; metadata?: Record<string, string> | null }) => void;
   getDownloadFormat: () => string;
 }
 
@@ -288,14 +288,14 @@ export function usePlugins(
           getCurrentTrack: () => currentTrackRef.current,
           isPlaying: () => playingRef.current ?? false,
           getPosition: () => positionRef.current ?? 0,
-          playTidalTrack: (track) => {
-            playbackCallbacksRef.current?.playTidalTrack(track);
+          playTrack: (track) => {
+            playbackCallbacksRef.current?.playTrack(track);
           },
-          enqueueTidalTrack: (track) => {
-            playbackCallbacksRef.current?.enqueueTidalTrack(track);
+          enqueueTrack: (track) => {
+            playbackCallbacksRef.current?.enqueueTrack(track);
           },
-          playTidalTracks: (tracks, startIndex, context) => {
-            playbackCallbacksRef.current?.playTidalTracks(tracks, startIndex, context);
+          playTracks: (tracks, startIndex, context) => {
+            playbackCallbacksRef.current?.playTracks(tracks, startIndex, context);
           },
           onTrackStarted: (handler) =>
             subscribeEvent(

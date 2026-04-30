@@ -308,6 +308,18 @@ function activate(api) {
     return "https://resources.tidal.com/images/" + path + "/" + size + "x" + size + ".jpg";
   }
 
+  function toPluginTrack(t) {
+    return {
+      path: "tidal://" + t.tidal_id,
+      title: t.title,
+      artist_name: t.artist_name || null,
+      album_title: t.album_title || null,
+      duration_secs: t.duration_secs || null,
+      track_number: t.track_number || null,
+      image_url: coverUrl(t.cover_id, 160) || null,
+    };
+  }
+
   function formatDuration(secs) {
     if (!secs) return "";
     var m = Math.floor(secs / 60);
@@ -733,7 +745,7 @@ function activate(api) {
     if (parts[0] !== "track" || !parts[1]) return;
     var track = findTrackById(parts[1]);
     if (track) {
-      api.playback.playTidalTrack(track);
+      api.playback.playTrack(toPluginTrack(track));
     }
   });
 
@@ -753,14 +765,14 @@ function activate(api) {
   api.ui.onAction("play-selected", function (data) {
     var tracks = getSelectedTracks(data);
     if (tracks.length > 0) {
-      api.playback.playTidalTracks(tracks, 0);
+      api.playback.playTracks(tracks.map(toPluginTrack), 0);
     }
   });
 
   api.ui.onAction("queue-selected", function (data) {
     var tracks = getSelectedTracks(data);
     for (var i = 0; i < tracks.length; i++) {
-      api.playback.enqueueTidalTrack(tracks[i]);
+      api.playback.enqueueTrack(toPluginTrack(tracks[i]));
     }
   });
 
@@ -785,7 +797,7 @@ function activate(api) {
     tidalGetAlbum(albumId).then(function (album) {
       api.ui.requestAction("hide-loading", {});
       if (album && album.tracks && album.tracks.length > 0) {
-        api.playback.playTidalTracks(album.tracks, 0, {
+        api.playback.playTracks(album.tracks.map(toPluginTrack), 0, {
           name: album.title + (album.artist_name ? " - " + album.artist_name : ""),
           coverUrl: coverUrl(album.cover_id, 320),
         });
@@ -825,7 +837,7 @@ function activate(api) {
   api.ui.onAction("play-album", function () {
     var album = state.albumDetail;
     if (album && album.tracks && album.tracks.length > 0) {
-      api.playback.playTidalTracks(album.tracks, 0, {
+      api.playback.playTracks(album.tracks.map(toPluginTrack), 0, {
         name: album.title + (album.artist_name ? " - " + album.artist_name : ""),
         coverUrl: coverUrl(album.cover_id, 320),
       });
@@ -976,7 +988,7 @@ function activate(api) {
       tidalSearch(query, 1).then(function (results) {
         var tracks = results.tracks || [];
         if (tracks.length > 0) {
-          api.playback.playTidalTrack(tracks[0]);
+          api.playback.playTrack(toPluginTrack(tracks[0]));
         } else {
           api.ui.showNotification("No TIDAL match found for this track");
         }
@@ -1001,7 +1013,7 @@ function activate(api) {
             api.ui.showNotification("TIDAL album has no tracks");
             return;
           }
-          api.playback.playTidalTracks(albumTracks, 0);
+          api.playback.playTracks(albumTracks.map(toPluginTrack), 0);
         });
       }).catch(function (err) {
         api.ui.showNotification("TIDAL album playback failed: " + (err.message || err));

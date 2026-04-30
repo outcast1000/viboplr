@@ -13,7 +13,7 @@ function activate(api) {
     // scraping-tracks | done | error
     status: "idle",
     playlists: [],
-    playlistTracks: {},   // playlistId -> [{ name, artist, album, duration, imageUrl }]
+    playlistTracks: {},   // playlistId -> [{ name, artist, album, duration, imageUrl, spotifyId }]
     previousTracks: {},   // playlistId -> tracks from before last refresh
     currentPlaylist: null,
     scrapeProgress: { current: 0, total: 0, name: "" },
@@ -132,6 +132,7 @@ function activate(api) {
         album: t.album || "",
         duration: t.duration || "",
         imageUrl: t.imageUrl || null,
+        spotifyId: t.spotifyId || null,
       });
     }
     state.archivedPlaylists.unshift(entry);
@@ -756,9 +757,11 @@ function activate(api) {
           'if(!du){var cells3=r.querySelectorAll("[role=\\"gridcell\\"]");' +
             'if(cells3.length>0){du=cells3[cells3.length-1];durSource="last-gridcell"}}' +
           'var dur="";if(du){var dt=du.textContent.trim();if(/^\\d+:\\d{2}$/.test(dt))dur=dt}' +
+          'var trkLink=r.querySelector("a[href*=\\"/track/\\"]");' +
+          'var spId=trkLink?trkLink.getAttribute("href").split("/track/")[1].split("?")[0]:null;' +
           'var imgUrl=bestImg(r);' +
-          'if(i<5)_dbg("tracks","row["+i+"] parsed",{name:nm,nameSource:nameSource,artist:arts.join(", "),artistSource:artistSource,album:al,dur:dur,durSource:durSource,hasImg:!!imgUrl});' +
-          'out.push({name:nm,artist:arts.join(", "),album:al,duration:dur,imageUrl:imgUrl})' +
+          'if(i<5)_dbg("tracks","row["+i+"] parsed",{name:nm,nameSource:nameSource,artist:arts.join(", "),artistSource:artistSource,album:al,dur:dur,durSource:durSource,hasImg:!!imgUrl,spotifyId:spId});' +
+          'out.push({name:nm,artist:arts.join(", "),album:al,duration:dur,imageUrl:imgUrl,spotifyId:spId})' +
         '}' +
         '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:out.length,skipped:skipped,total:rows.length,gen:_gen});' +
         'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:out,gen:_gen});' +
@@ -1262,9 +1265,7 @@ function activate(api) {
     var tracks = state.playlistTracks[pl.id] || [];
     if (tracks.length === 0) return;
     var ctx = playlistContextPayload(pl);
-    ctx.tracks = playlistTracksToPayload(tracks);
-    ctx.startIndex = 0;
-    api.ui.requestAction("play-tracks", ctx);
+    api.playback.playTracks(toPluginTracks(tracks), 0, ctx);
   });
 
   api.ui.onAction("enqueue-current", function() {
@@ -1272,7 +1273,10 @@ function activate(api) {
     if (!pl) return;
     var tracks = state.playlistTracks[pl.id] || [];
     if (tracks.length === 0) return;
-    api.ui.requestAction("enqueue-tracks", { tracks: playlistTracksToPayload(tracks) });
+    var pluginTracks = toPluginTracks(tracks);
+    for (var i = 0; i < pluginTracks.length; i++) {
+      api.playback.enqueueTrack(pluginTracks[i]);
+    }
   });
 
   api.ui.onAction("archive-current", function() {
@@ -1307,7 +1311,7 @@ function activate(api) {
     };
   }
 
-  function playlistTracksToPayload(tracks) {
+  function toPluginTracks(tracks) {
     var out = [];
     for (var i = 0; i < tracks.length; i++) {
       var t = tracks[i];
@@ -1319,11 +1323,12 @@ function activate(api) {
         }
       }
       out.push({
+        path: t.spotifyId ? "spotify://" + t.spotifyId : null,
         title: t.name || "Unknown",
         artist_name: t.artist || null,
         album_title: t.album || null,
         duration_secs: durationSecs,
-        image_url: t.imageUrl || undefined,
+        image_url: t.imageUrl || null,
       });
     }
     return out;
@@ -1335,9 +1340,7 @@ function activate(api) {
     var tracks = state.playlistTracks[pl.id] || [];
     if (tracks.length === 0) return;
     var ctx = playlistContextPayload(pl);
-    ctx.tracks = playlistTracksToPayload(tracks);
-    ctx.startIndex = 0;
-    api.ui.requestAction("play-tracks", ctx);
+    api.playback.playTracks(toPluginTracks(tracks), 0, ctx);
   });
 
   api.ui.onAction("enqueue-playlist", function(data) {
@@ -1345,7 +1348,10 @@ function activate(api) {
     if (!pl) return;
     var tracks = state.playlistTracks[pl.id] || [];
     if (tracks.length === 0) return;
-    api.ui.requestAction("enqueue-tracks", { tracks: playlistTracksToPayload(tracks) });
+    var pluginTracks = toPluginTracks(tracks);
+    for (var i = 0; i < pluginTracks.length; i++) {
+      api.playback.enqueueTrack(pluginTracks[i]);
+    }
   });
 
   api.ui.onAction("archive-playlist", function(data) {
@@ -1414,7 +1420,7 @@ function activate(api) {
     return (idx >= 0 && idx < state.archivedPlaylists.length) ? { index: idx, entry: state.archivedPlaylists[idx] } : null;
   }
 
-  function archivedTracksToPayload(tracks) {
+  function archivedToPluginTracks(tracks) {
     var out = [];
     for (var i = 0; i < tracks.length; i++) {
       var t = tracks[i];
@@ -1426,11 +1432,12 @@ function activate(api) {
         }
       }
       out.push({
+        path: t.spotifyId ? "spotify://" + t.spotifyId : null,
         title: t.name || "Unknown",
         artist_name: t.artist || null,
         album_title: t.album || null,
         duration_secs: durationSecs,
-        image_url: t.imageUrl || undefined,
+        image_url: t.imageUrl || null,
       });
     }
     return out;
@@ -1455,12 +1462,10 @@ function activate(api) {
     var meta = {};
     if (entry.section) meta.section = entry.section;
     if (entry.archivedAt) meta.archivedAt = entry.archivedAt;
-    api.ui.requestAction("play-tracks", {
-      tracks: archivedTracksToPayload(entry.tracks),
-      startIndex: 0,
-      playlistName: entry.name,
-      coverUrl: entry.imageUrl || undefined,
-      source: entry.spotifyId ? "spotify:playlist:" + entry.spotifyId : undefined,
+    api.playback.playTracks(archivedToPluginTracks(entry.tracks), 0, {
+      name: entry.name,
+      coverUrl: entry.imageUrl || null,
+      source: entry.spotifyId ? "spotify:playlist:" + entry.spotifyId : null,
       metadata: meta,
     });
   });
@@ -1468,7 +1473,10 @@ function activate(api) {
   api.ui.onAction("enqueue-archived", function(data) {
     var found = getArchivedByIndex(data);
     if (!found || !found.entry.tracks || found.entry.tracks.length === 0) return;
-    api.ui.requestAction("enqueue-tracks", { tracks: archivedTracksToPayload(found.entry.tracks) });
+    var pluginTracks = archivedToPluginTracks(found.entry.tracks);
+    for (var i = 0; i < pluginTracks.length; i++) {
+      api.playback.enqueueTrack(pluginTracks[i]);
+    }
   });
 
   api.ui.onAction("delete-archived", function(data) {
