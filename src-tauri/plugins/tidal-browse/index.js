@@ -1161,7 +1161,7 @@ function activate(api) {
   // -- Fallback provider --
 
   function rustLog(level, message) {
-    api.informationTypes.invoke("write_frontend_log", { level: level, message: message, section: "tidal" }).catch(function () {});
+    api.log(level, message, "tidal");
   }
 
   api.playback.onStreamResolve("tidal-fallback", async function (title, artistName, albumName) {

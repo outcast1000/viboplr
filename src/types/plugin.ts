@@ -547,6 +547,7 @@ export interface PluginEnvAPI {
 }
 
 export interface ViboplrPluginAPI {
+  log(level: string, message: string, section?: string): void;
   library: PluginLibraryAPI;
   playback: PluginPlaybackAPI;
   contextMenu: PluginContextMenuAPI;

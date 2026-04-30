@@ -156,6 +156,9 @@ export function usePlugins(
       };
 
       return {
+        log: (level: string, message: string, section?: string) => {
+          invoke("write_frontend_log", { level, message, section: section ?? pluginId }).catch(() => {});
+        },
         library: {
           async getTracks(opts) {
             return invoke<Track[]>("get_tracks", {
