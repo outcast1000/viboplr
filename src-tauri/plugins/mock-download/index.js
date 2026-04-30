@@ -169,7 +169,7 @@ function activate(api) {
               type: "settings-row",
               label: "Enabled",
               description: "When disabled, the mock provider returns null for all requests",
-              control: { type: "toggle", value: state.enabled, action: "toggle-enabled" },
+              control: { type: "toggle", checked: state.enabled, action: "toggle-enabled" },
             },
             {
               type: "settings-row",

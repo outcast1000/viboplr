@@ -684,7 +684,7 @@ function activate(api) {
               description: "Use fake data for search, streaming, and downloads. No real TIDAL calls.",
               control: {
                 type: "toggle",
-                value: state.mockMode,
+                checked: state.mockMode,
                 action: "toggle-mock-mode",
               },
             },
