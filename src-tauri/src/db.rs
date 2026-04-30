@@ -502,6 +502,20 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
+    pub fn get_artist_by_id(&self, artist_id: i64) -> SqlResult<Option<Artist>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, name, track_count, liked FROM artists WHERE id = ?1",
+            params![artist_id],
+            |row| Ok(Artist {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                track_count: row.get(2)?,
+                liked: row.get::<_, i32>(3).unwrap_or(0),
+            }),
+        ).optional()
+    }
+
     pub fn get_artists(&self) -> SqlResult<Vec<Artist>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -587,6 +601,17 @@ impl Database {
         }
     }
 
+    pub fn get_album_by_id(&self, album_id: i64) -> SqlResult<Option<Album>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked \
+             FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
+             WHERE a.id = ?1",
+            params![album_id],
+            |row| album_from_row(row),
+        ).optional()
+    }
+
     pub fn get_albums(&self, artist_id: Option<i64>) -> SqlResult<Vec<Album>> {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = artist_id {
@@ -655,6 +680,20 @@ impl Database {
             result.push((tag_id, name.clone()));
         }
         Ok(result)
+    }
+
+    pub fn get_tag_by_id(&self, tag_id: i64) -> SqlResult<Option<Tag>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, name, track_count, liked FROM tags WHERE id = ?1",
+            params![tag_id],
+            |row| Ok(Tag {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                track_count: row.get(2)?,
+                liked: row.get::<_, i32>(3).unwrap_or(0),
+            }),
+        ).optional()
     }
 
     pub fn get_tags(&self) -> SqlResult<Vec<Tag>> {
@@ -3456,6 +3495,49 @@ mod tests {
 
         let id3 = db.get_or_create_album("The Wall", None, None).unwrap();
         assert_ne!(id1, id3, "NULL artist_id should create separate album");
+    }
+
+    #[test]
+    fn test_get_artist_by_id() {
+        let db = test_db();
+        let id = db.get_or_create_artist("Radiohead").unwrap();
+
+        let found = db.get_artist_by_id(id).unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, "Radiohead");
+
+        let missing = db.get_artist_by_id(99999).unwrap();
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_get_album_by_id() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Pink Floyd").unwrap();
+        let album_id = db.get_or_create_album("The Wall", Some(artist_id), Some(1979)).unwrap();
+
+        let found = db.get_album_by_id(album_id).unwrap();
+        assert!(found.is_some());
+        let album = found.unwrap();
+        assert_eq!(album.title, "The Wall");
+        assert_eq!(album.artist_name.as_deref(), Some("Pink Floyd"));
+        assert_eq!(album.year, Some(1979));
+
+        let missing = db.get_album_by_id(99999).unwrap();
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_get_tag_by_id() {
+        let db = test_db();
+        let id = db.get_or_create_tag("Rock").unwrap();
+
+        let found = db.get_tag_by_id(id).unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, "Rock");
+
+        let missing = db.get_tag_by_id(99999).unwrap();
+        assert!(missing.is_none());
     }
 
     #[test]

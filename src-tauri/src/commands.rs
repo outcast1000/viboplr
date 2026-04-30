@@ -471,11 +471,21 @@ pub fn get_artists(state: State<'_, AppState>) -> Result<Vec<Artist>, String> {
 }
 
 #[tauri::command]
+pub fn get_artist_by_id(state: State<'_, AppState>, artist_id: i64) -> Result<Option<Artist>, String> {
+    state.db.get_artist_by_id(artist_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_albums(
     state: State<'_, AppState>,
     artist_id: Option<i64>,
 ) -> Result<Vec<Album>, String> {
     state.db.get_albums(artist_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_album_by_id(state: State<'_, AppState>, album_id: i64) -> Result<Option<Album>, String> {
+    state.db.get_album_by_id(album_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -696,6 +706,11 @@ pub fn get_tracks_by_artist(
 #[tauri::command]
 pub fn get_tags(state: State<'_, AppState>) -> Result<Vec<Tag>, String> {
     state.db.get_tags().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_tag_by_id(state: State<'_, AppState>, tag_id: i64) -> Result<Option<Tag>, String> {
+    state.db.get_tag_by_id(tag_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

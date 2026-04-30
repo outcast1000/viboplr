@@ -166,23 +166,81 @@ export function usePlugins(
                 albumId: opts?.albumId ?? null,
                 tagId: opts?.tagId ?? null,
                 limit: opts?.limit ?? 100,
-                offset: 0,
+                offset: opts?.offset ?? 0,
               },
             });
           },
-          async getArtists() {
-            return invoke("get_artists");
+          async ftsTracks(query, opts) {
+            return invoke<Track[]>("get_tracks", {
+              opts: {
+                query,
+                limit: opts?.limit ?? 50,
+                offset: opts?.offset ?? 0,
+              },
+            });
           },
-          async getAlbums() {
-            return invoke("get_albums", { artistId: null });
+          async ftsArtists(query, opts) {
+            const res = await invoke<{ artists: Array<{ id: number; name: string; track_count: number }> | null }>(
+              "search_entity",
+              { query, entity: "artists", limit: opts?.limit ?? 50, offset: opts?.offset ?? 0 },
+            );
+            return res.artists ?? [];
+          },
+          async ftsAlbums(query, opts) {
+            const res = await invoke<{ albums: Array<{ id: number; title: string; artist_name: string | null; year: number | null }> | null }>(
+              "search_entity",
+              { query, entity: "albums", limit: opts?.limit ?? 50, offset: opts?.offset ?? 0 },
+            );
+            return res.albums ?? [];
+          },
+          async ftsTags(query, opts) {
+            const res = await invoke<{ tags: Array<{ id: number; name: string; track_count: number }> | null }>(
+              "search_entity",
+              { query, entity: "tags", limit: opts?.limit ?? 50, offset: opts?.offset ?? 0 },
+            );
+            return res.tags ?? [];
+          },
+          async getArtists(opts) {
+            const artists = await invoke<Array<{ id: number; name: string; track_count: number }>>("get_artists");
+            const offset = opts?.offset ?? 0;
+            const limit = opts?.limit;
+            if (offset || limit) {
+              return artists.slice(offset, limit ? offset + limit : undefined);
+            }
+            return artists;
+          },
+          async getAlbums(opts) {
+            const albums = await invoke<Array<{ id: number; title: string; artist_name: string | null; year: number | null }>>(
+              "get_albums",
+              { artistId: opts?.artistId ?? null },
+            );
+            const offset = opts?.offset ?? 0;
+            const limit = opts?.limit;
+            if (offset || limit) {
+              return albums.slice(offset, limit ? offset + limit : undefined);
+            }
+            return albums;
+          },
+          async getTags(opts) {
+            const tags = await invoke<Array<{ id: number; name: string; track_count: number }>>("get_tags");
+            const offset = opts?.offset ?? 0;
+            const limit = opts?.limit;
+            if (offset || limit) {
+              return tags.slice(offset, limit ? offset + limit : undefined);
+            }
+            return tags;
           },
           async getTrackById(id: number) {
             return invoke<Track | null>("get_track_by_id", { trackId: id }).catch(() => null);
           },
-          async search(query: string) {
-            return invoke<Track[]>("get_tracks", {
-              opts: { query, limit: 50, offset: 0 },
-            });
+          async getArtistById(id: number) {
+            return invoke<{ id: number; name: string; track_count: number } | null>("get_artist_by_id", { artistId: id }).catch(() => null);
+          },
+          async getAlbumById(id: number) {
+            return invoke<{ id: number; title: string; artist_name: string | null; year: number | null } | null>("get_album_by_id", { albumId: id }).catch(() => null);
+          },
+          async getTagById(id: number) {
+            return invoke<{ id: number; name: string; track_count: number } | null>("get_tag_by_id", { tagId: id }).catch(() => null);
           },
           async getHistory(opts) {
             return invoke("get_history_recent", {

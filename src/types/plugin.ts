@@ -241,11 +241,35 @@ export interface PluginLibraryAPI {
     albumId?: number;
     tagId?: number;
     limit?: number;
+    offset?: number;
   }): Promise<Track[]>;
-  getArtists(): Promise<
+  ftsTracks(query: string, opts?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<Track[]>;
+  ftsArtists(query: string, opts?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<Array<{ id: number; name: string; track_count: number }>>;
+  ftsAlbums(query: string, opts?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<Array<{ id: number; title: string; artist_name: string | null; year: number | null }>>;
+  ftsTags(query: string, opts?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<Array<{ id: number; name: string; track_count: number }>>;
+  getArtists(opts?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<
     Array<{ id: number; name: string; track_count: number }>
   >;
-  getAlbums(): Promise<
+  getAlbums(opts?: {
+    artistId?: number;
+    limit?: number;
+    offset?: number;
+  }): Promise<
     Array<{
       id: number;
       title: string;
@@ -253,8 +277,16 @@ export interface PluginLibraryAPI {
       year: number | null;
     }>
   >;
+  getTags(opts?: {
+    limit?: number;
+    offset?: number;
+  }): Promise<
+    Array<{ id: number; name: string; track_count: number }>
+  >;
   getTrackById(id: number): Promise<Track | null>;
-  search(query: string): Promise<Track[]>;
+  getArtistById(id: number): Promise<{ id: number; name: string; track_count: number } | null>;
+  getAlbumById(id: number): Promise<{ id: number; title: string; artist_name: string | null; year: number | null } | null>;
+  getTagById(id: number): Promise<{ id: number; name: string; track_count: number } | null>;
   getHistory(opts?: { limit?: number }): Promise<HistoryEntry[]>;
   getMostPlayed(opts?: {
     limit?: number;
