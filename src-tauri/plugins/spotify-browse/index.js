@@ -32,6 +32,8 @@ function activate(api) {
     refreshSummary: "",
     sections: ["Made for You"],
     addingSectionViaTab: false,
+    lastReport: null,
+    showDiagnostics: false,
   };
 
   // ---- Helpers ----
@@ -41,8 +43,80 @@ function activate(api) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
-  function dbg(tag, msg, data) {
-    console.log("[spotify-dbg]", tag, msg, data !== undefined ? data : "");
+  // ---- Diagnostics: unified logger + run report ----
+
+  var MAX_REPORT_LOG_ENTRIES = 500;
+  var MAX_STORED_REPORTS = 5;
+  var activeReport = null;
+
+  function plog(level, tag, msg, data) {
+    var line = "[" + tag + "] " + msg;
+    if (data !== undefined) line += " " + safeStringify(data);
+    if (level === "error") console.error("[spotify]", line);
+    else if (level === "warn") console.warn("[spotify]", line);
+    else console.log("[spotify]", line);
+    api.log(level, line, "spotify-browse");
+    if (activeReport) {
+      activeReport.log.push({ ts: Date.now(), level: level, tag: tag, msg: msg, data: data });
+      if (activeReport.log.length > MAX_REPORT_LOG_ENTRIES) {
+        activeReport.log.splice(0, activeReport.log.length - MAX_REPORT_LOG_ENTRIES);
+      }
+    }
+  }
+
+  function dbg(tag, msg, data) { plog("info", tag, msg, data); }
+
+  function safeStringify(v) {
+    try { return typeof v === "string" ? v : JSON.stringify(v); }
+    catch (e) { return "[unstringifiable]"; }
+  }
+
+  function beginReport(trigger, sectionsToScrape) {
+    activeReport = {
+      trigger: trigger,
+      startedAt: new Date().toISOString(),
+      endedAt: null,
+      durationMs: 0,
+      outcome: "running",
+      errorMessage: null,
+      sections: sectionsToScrape.map(function (n) {
+        return { name: n, status: "pending", attempts: 0, playlistCount: 0, snapshot: null };
+      }),
+      playlists: [],
+      log: [],
+    };
+  }
+
+  function getReportSection(name) {
+    if (!activeReport) return null;
+    for (var i = 0; i < activeReport.sections.length; i++) {
+      if (activeReport.sections[i].name === name) return activeReport.sections[i];
+    }
+    return null;
+  }
+
+  function finishReport(outcome, errorMessage) {
+    if (!activeReport) return;
+    activeReport.endedAt = new Date().toISOString();
+    activeReport.durationMs = new Date(activeReport.endedAt).getTime() - new Date(activeReport.startedAt).getTime();
+    activeReport.outcome = outcome;
+    if (errorMessage) activeReport.errorMessage = errorMessage;
+    var snapshot = activeReport;
+    activeReport = null;
+    persistReport(snapshot);
+  }
+
+  function persistReport(report) {
+    api.storage.get("spotify_browse_reports").then(function (existing) {
+      var list = Array.isArray(existing) ? existing.slice() : [];
+      list.unshift(report);
+      if (list.length > MAX_STORED_REPORTS) list.length = MAX_STORED_REPORTS;
+      api.storage.set("spotify_browse_reports", list).catch(function (e) {
+        console.error("Failed to save spotify report:", e);
+      });
+      state.lastReport = report;
+      renderSettings();
+    }).catch(function (e) { console.error("Failed to read reports:", e); });
   }
 
   // ---- Change detection helpers ----
@@ -526,17 +600,148 @@ function activate(api) {
 
     ch.push({ type: "toggle", label: "Show browser window during refresh", checked: state.showBrowserOnRefresh, action: "toggle-show-browser-pref" });
 
+    ch.push(buildDiagnosticsSection());
+
     api.ui.setViewData("spotify-settings", {
       type: "layout", direction: "vertical", children: ch,
     });
+  }
+
+  function buildDiagnosticsSection() {
+    var rep = state.lastReport;
+    var children = [];
+
+    children.push({
+      type: "layout", direction: "horizontal", style: { "gap": "8px", "align-items": "center" },
+      children: [
+        { type: "button", label: state.showDiagnostics ? "Hide" : "Show Last Run", action: "toggle-diagnostics", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
+        { type: "button", label: "Clear History", action: "clear-diagnostics", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
+      ],
+    });
+
+    if (!state.showDiagnostics) {
+      return { type: "section", title: "Diagnostics", children: children };
+    }
+
+    if (!rep) {
+      children.push({ type: "text", content: "<p>No runs recorded yet. Refresh a section or run Refresh All to populate diagnostics.</p>" });
+      return { type: "section", title: "Diagnostics", children: children };
+    }
+
+    var started = new Date(rep.startedAt);
+    var header = "<p><b>" + escapeHtml(rep.trigger || "run") + "</b> — " +
+      escapeHtml(started.toLocaleString()) + "<br/>" +
+      "Outcome: <b>" + escapeHtml(rep.outcome) + "</b> in " + Math.round((rep.durationMs || 0) / 1000) + "s";
+    if (rep.errorMessage) header += "<br/><b>Error:</b> " + escapeHtml(rep.errorMessage);
+    header += "</p>";
+    children.push({ type: "text", content: header });
+
+    if (rep.sections && rep.sections.length) {
+      var secLines = "<p><b>Sections:</b></p><ul>";
+      for (var si = 0; si < rep.sections.length; si++) {
+        var sec = rep.sections[si];
+        secLines += "<li>" + escapeHtml(sec.name) + " — <b>" + escapeHtml(sec.status) + "</b>, " +
+          sec.playlistCount + " playlists, " + (sec.attempts || 0) + " attempt" + (sec.attempts === 1 ? "" : "s");
+        if (sec.snapshot && sec.snapshot.url) {
+          secLines += "<br/><i>" + escapeHtml(sec.snapshot.url) + "</i>";
+          if (sec.snapshot.counts) secLines += "<br/>counts: " + escapeHtml(safeStringify(sec.snapshot.counts));
+        }
+        secLines += "</li>";
+      }
+      secLines += "</ul>";
+      children.push({ type: "text", content: secLines });
+    }
+
+    if (rep.playlists && rep.playlists.length) {
+      var failed = [];
+      var okCount = 0;
+      for (var pi = 0; pi < rep.playlists.length; pi++) {
+        if (rep.playlists[pi].status === "ok") okCount++;
+        else failed.push(rep.playlists[pi]);
+      }
+      var summary = "<p><b>Playlists:</b> " + okCount + " ok";
+      if (failed.length) summary += ", <b>" + failed.length + " failed</b>";
+      summary += " (of " + rep.playlists.length + ")</p>";
+      children.push({ type: "text", content: summary });
+
+      if (failed.length) {
+        var fhtml = "<p><b>Failures:</b></p><ul>";
+        for (var fi = 0; fi < failed.length; fi++) {
+          var f = failed[fi];
+          fhtml += "<li><b>" + escapeHtml(f.name || "?") + "</b>";
+          if (f.section) fhtml += " [" + escapeHtml(f.section) + "]";
+          fhtml += " — " + escapeHtml(f.status) +
+            " in " + Math.round((f.durationMs || 0) / 1000) + "s";
+          if (f.error) fhtml += "<br/>error: " + escapeHtml(f.error.substring(0, 200));
+          if (f.snapshot && f.snapshot.url) {
+            fhtml += "<br/>url: <i>" + escapeHtml(f.snapshot.url) + "</i>";
+            if (f.snapshot.counts) fhtml += "<br/>counts: " + escapeHtml(safeStringify(f.snapshot.counts));
+          }
+          fhtml += "</li>";
+        }
+        fhtml += "</ul>";
+        children.push({ type: "text", content: fhtml });
+      }
+    }
+
+    children.push({ type: "text", content: "<p><i>Detailed logs are written to the app log file (filter by spotify-browse).</i></p>" });
+
+    return { type: "section", title: "Diagnostics", children: children };
   }
 
   // ---- Injected scripts (plain strings for eval) ----
 
   var DBG_HELPER =
     'function _dbg(tag,msg,data){' +
-      'console.log("[spotify-dbg]",tag,msg,data)' +
+      'console.log("[spotify-dbg]",tag,msg,data);' +
+      'try{if(window.__viboplr&&window.__viboplr.send)window.__viboplr.send("dbg",{tag:tag,msg:msg,data:data,level:"info"})}catch(e){}' +
+    '}' +
+    'function _dbgErr(tag,msg,data){' +
+      'console.error("[spotify-dbg]",tag,msg,data);' +
+      'try{if(window.__viboplr&&window.__viboplr.send)window.__viboplr.send("dbg",{tag:tag,msg:msg,data:data,level:"error"})}catch(e){}' +
     '}';
+
+  // Capture a compact DOM snapshot for failure diagnostics. Sent via __viboplr.send("snapshot", {...}).
+  var SNAPSHOT_HELPER =
+    'function _snap(label){' +
+      'try{' +
+        'var body=document.body?document.body.innerHTML:"";' +
+        'if(body.length>8192)body=body.substring(0,8192)+"...[truncated "+(body.length-8192)+" chars]";' +
+        'var testids=[];var tidNodes=document.querySelectorAll("[data-testid]");' +
+        'for(var t=0;t<Math.min(tidNodes.length,50);t++)testids.push(tidNodes[t].getAttribute("data-testid"));' +
+        'var counts={' +
+          'playlistLinks:document.querySelectorAll("a[href*=\\"/playlist/\\"]").length,' +
+          'draggableLinks:document.querySelectorAll("a[draggable=\\"false\\"][href*=\\"/playlist/\\"]").length,' +
+          'rows:document.querySelectorAll("[role=\\"row\\"]").length,' +
+          'trackLinks:document.querySelectorAll("a[href*=\\"/track/\\"]").length,' +
+          'artistLinks:document.querySelectorAll("a[href*=\\"/artist/\\"]").length,' +
+          'mainEl:!!document.querySelector("main"),' +
+          'trackList:!!document.querySelector("[data-testid=\\"playlist-tracklist\\"]")' +
+        '};' +
+        'window.__viboplr.send("snapshot",{label:label,url:location.href,title:document.title,counts:counts,testids:testids,bodyExcerpt:body});' +
+      '}catch(e){window.__viboplr.send("snapshot",{label:label,error:""+e})}' +
+    '}';
+
+  // Click a filter pill / nav item labeled "Music". Spotify shows these above the
+  // library when filtered to shows/podcasts — switching back to Music reveals playlists.
+  var SCRIPT_CLICK_MUSIC = '(function(){try{' +
+    DBG_HELPER +
+    'var candidates=document.querySelectorAll(\'button,a,[role="button"],[role="tab"],[role="listitem"] span\');' +
+    '_dbg("music","scanning "+candidates.length+" candidates");' +
+    'for(var i=0;i<candidates.length;i++){' +
+      'var el=candidates[i];' +
+      'var txt=(el.textContent||"").trim();' +
+      'if(txt.toLowerCase()==="music"){' +
+        'var clickEl=el.tagName==="SPAN"?(el.closest("button")||el.closest("a")||el.closest(\'[role="button"]\')||el.closest(\'[role="tab"]\')||el.closest(\'[role="listitem"]\')||el):el;' +
+        '_dbg("music","FOUND \'Music\', clicking",{tag:clickEl.tagName,role:clickEl.getAttribute("role")});' +
+        'clickEl.click();' +
+        'window.__viboplr.send("music-clicked",{ok:true});' +
+        'return;' +
+      '}' +
+    '}' +
+    '_dbg("music","NOT FOUND");' +
+    'window.__viboplr.send("music-clicked",{ok:false});' +
+    '}catch(e){window.__viboplr.send("music-clicked",{ok:false,error:""+e})}})()';
 
   var IMG_HELPER =
     'function bestImg(el){' +
@@ -763,8 +968,11 @@ function activate(api) {
 
   // ---- Consolidated scrape function ----
 
-  function performScrape(showProgress, visible, sectionsOverride) {
+  function performScrape(showProgress, visible, sectionsOverride, trigger) {
     var sectionsToScrape = sectionsOverride || state.sections;
+    var triggerLabel = trigger || (sectionsOverride ? "refresh-section" : "refresh-all");
+    beginReport(triggerLabel, sectionsToScrape);
+
     return new Promise(function(resolve, reject) {
       var allPlaylists = [];
       var allTracks = {};
@@ -772,17 +980,33 @@ function activate(api) {
       var failedSections = [];
       var handle = null;
       var gen = ++scrapeGeneration;
+      var pendingSnapshot = null;
 
       function done(val) {
         if (handle) { handle.close().catch(console.error); handle = null; }
         activeScrapeHandle = null;
+        finishReport(val ? "ok" : "cancelled");
         resolve(val);
       }
 
       function fail(err) {
         if (handle) { handle.close().catch(console.error); handle = null; }
         activeScrapeHandle = null;
+        finishReport("error", err && err.message ? err.message : String(err));
         reject(err);
+      }
+
+      function captureSnapshot(label, onDone) {
+        if (!handle) { if (onDone) onDone(null); return; }
+        pendingSnapshot = { label: label, cb: onDone };
+        handle.eval('(function(){' + SNAPSHOT_HELPER + '_snap(' + JSON.stringify(label) + ')})()');
+        setTimeout(function () {
+          if (pendingSnapshot && pendingSnapshot.label === label) {
+            var cb = pendingSnapshot.cb;
+            pendingSnapshot = null;
+            if (cb) cb(null);
+          }
+        }, 2000);
       }
 
       api.network.openBrowseWindow("https://open.spotify.com", {
@@ -803,6 +1027,19 @@ function activate(api) {
         }
         h.onMessage(function(msg) {
           if (msg.type === "window-closed") { done(null); return; }
+          if (msg.type === "dbg" && msg.data) {
+            plog(msg.data.level || "info", "browser:" + (msg.data.tag || "?"), msg.data.msg || "", msg.data.data);
+            return;
+          }
+          if (msg.type === "snapshot" && msg.data) {
+            if (pendingSnapshot) {
+              var cb = pendingSnapshot.cb;
+              var snap = msg.data;
+              pendingSnapshot = null;
+              if (cb) cb(snap);
+            }
+            return;
+          }
           if (currentHandler) currentHandler(msg);
         });
 
@@ -856,14 +1093,33 @@ function activate(api) {
             // Wait for home page to render, then find section
             setTimeout(function() {
               var sectionRetries = 0;
+              var musicFallbackTried = false;
+              var reportSection = getReportSection(sectionName);
 
               function tryFindSection() {
                 if (gen !== scrapeGeneration) { done(null); return; }
                 sectionRetries++;
+                if (reportSection) reportSection.attempts = sectionRetries;
                 if (sectionRetries > 10) {
-                  dbg("flow", "GAVE UP finding section: " + sectionName);
-                  failedSections.push(sectionName);
-                  nextSection();
+                  var giveUpFindSection = function () {
+                    dbg("flow", "GAVE UP finding section: " + sectionName);
+                    if (reportSection) reportSection.status = "not-found";
+                    captureSnapshot("section-not-found:" + sectionName, function (snap) {
+                      if (reportSection) reportSection.snapshot = snap;
+                      failedSections.push(sectionName);
+                      nextSection();
+                    });
+                  };
+                  if (!musicFallbackTried) {
+                    musicFallbackTried = true;
+                    dbg("flow", "section '" + sectionName + "' not found, trying Music button fallback");
+                    clickMusicThen(function() {
+                      sectionRetries = 0;
+                      tryFindSection();
+                    }, giveUpFindSection);
+                    return;
+                  }
+                  giveUpFindSection();
                   return;
                 }
                 h.eval(scriptFindSection(sectionName));
@@ -874,7 +1130,7 @@ function activate(api) {
                   if (showProgress) { state.status = "scraping-playlists"; render(); }
                   // Wait for section page to render, then scrape playlists
                   setTimeout(function() {
-                    scrapePlaylistsForSection(sectionName);
+                    scrapePlaylistsForSection(sectionName, musicFallbackTried);
                   }, 4000);
                 }
                 if (msg.type === "section-not-found") {
@@ -890,6 +1146,10 @@ function activate(api) {
                       allPlaylists.push(pl);
                     }
                   }
+                  if (reportSection) {
+                    reportSection.status = "ok";
+                    reportSection.playlistCount = sectionPlaylists.length;
+                  }
                   dbg("flow", "section '" + sectionName + "' yielded " + sectionPlaylists.length + " playlists (" + allPlaylists.length + " total unique)");
                   nextSection();
                 }
@@ -899,16 +1159,56 @@ function activate(api) {
             }, sectionIdx > 1 ? 3000 : 0);
           }
 
-          function scrapePlaylistsForSection(sectionName) {
+          function clickMusicThen(next, giveUp) {
+            if (gen !== scrapeGeneration) { done(null); return; }
+            var priorHandler = currentHandler;
+            var settled = false;
+            function finish(found) {
+              if (settled) return;
+              settled = true;
+              setHandler(priorHandler);
+              if (found) setTimeout(next, 3000);
+              else giveUp();
+            }
+            setHandler(function(msg) {
+              if (msg.type === "music-clicked") {
+                finish(!!(msg.data && msg.data.ok));
+              }
+            });
+            handle.eval(SCRIPT_CLICK_MUSIC);
+            // Safety: if the click script never responds, give up after 3s.
+            setTimeout(function() { finish(false); }, 3000);
+          }
+
+          function scrapePlaylistsForSection(sectionName, musicFallbackAlreadyTried) {
             var plRetries = 0;
+            var musicFallbackTried = !!musicFallbackAlreadyTried;
+            var reportSection = getReportSection(sectionName);
 
             function tryScrapePlaylists() {
               if (gen !== scrapeGeneration) { done(null); return; }
               plRetries++;
+              if (reportSection) reportSection.attempts = (reportSection.attempts || 0) + 1;
               if (plRetries > 10) {
-                dbg("flow", "GAVE UP scraping playlists for section: " + sectionName);
-                failedSections.push(sectionName);
-                nextSection();
+                var giveUpScrapePlaylists = function () {
+                  dbg("flow", "GAVE UP scraping playlists for section: " + sectionName);
+                  if (reportSection) reportSection.status = "empty";
+                  captureSnapshot("playlists-empty:" + sectionName, function (snap) {
+                    if (reportSection && !reportSection.snapshot) reportSection.snapshot = snap;
+                    failedSections.push(sectionName);
+                    nextSection();
+                  });
+                };
+                if (!musicFallbackTried) {
+                  musicFallbackTried = true;
+                  dbg("flow", "section '" + sectionName + "' playlists empty, trying Music button fallback");
+                  clickMusicThen(function() {
+                    plRetries = 0;
+                    tryScrapePlaylists();
+                  }, giveUpScrapePlaylists);
+                  return;
+                }
+                giveUpScrapePlaylists();
                 return;
               }
               h.eval(SCRIPT_SCRAPE_PLAYLISTS);
@@ -949,13 +1249,42 @@ function activate(api) {
               render();
             }
 
+            var plReport = {
+              id: pl.id, name: pl.name, section: pl.section || null,
+              status: "pending", trackCount: 0, durationMs: 0,
+              error: null, snapshot: null,
+            };
+            if (activeReport) activeReport.playlists.push(plReport);
+            var plStart = Date.now();
+
             h.eval(scriptNavigatePlaylist(pl.id));
 
             var trackTimeout = null;
             setHandler(function(msg) {
               if (msg.type === "tracks" && msg.data && msg.data.playlistId === pl.id) {
                 if (trackTimeout) { clearTimeout(trackTimeout); trackTimeout = null; }
-                allTracks[pl.id] = msg.data.tracks || [];
+                var tracks = msg.data.tracks || [];
+                allTracks[pl.id] = tracks;
+                plReport.trackCount = tracks.length;
+                plReport.durationMs = Date.now() - plStart;
+                if (msg.data.error) {
+                  plReport.status = "error";
+                  plReport.error = String(msg.data.error);
+                  captureSnapshot("tracks-error:" + pl.id, function (snap) {
+                    plReport.snapshot = snap;
+                    setTimeout(scrapeNext, 1000);
+                  });
+                  return;
+                }
+                if (tracks.length === 0) {
+                  plReport.status = "empty";
+                  captureSnapshot("tracks-empty:" + pl.id, function (snap) {
+                    plReport.snapshot = snap;
+                    setTimeout(scrapeNext, 1000);
+                  });
+                  return;
+                }
+                plReport.status = "ok";
                 setTimeout(scrapeNext, 1000);
               }
             });
@@ -965,7 +1294,12 @@ function activate(api) {
               h.eval(scriptScrollThenScrape(pl.id, gen));
               trackTimeout = setTimeout(function() {
                 allTracks[pl.id] = allTracks[pl.id] || [];
-                scrapeNext();
+                plReport.status = "timeout";
+                plReport.durationMs = Date.now() - plStart;
+                captureSnapshot("tracks-timeout:" + pl.id, function (snap) {
+                  plReport.snapshot = snap;
+                  scrapeNext();
+                });
               }, 45000);
             }, 4000);
           }
@@ -1014,7 +1348,7 @@ function activate(api) {
     if (state.refreshing) return;
     state.refreshing = true;
 
-    performScrape(false).then(function(result) {
+    performScrape(false, false, null, "auto-refresh").then(function(result) {
       state.refreshing = false;
       if (!result) {
         recordCheckResult(0, 1);
@@ -1054,7 +1388,7 @@ function activate(api) {
     dbg("flow", "starting initial scrape via performScrape");
     render();
 
-    performScrape(true, false).then(function(result) {
+    performScrape(true, false, null, "open-spotify").then(function(result) {
       if (!result) {
         state.status = "error";
         state.errorMessage = "Not logged in to Spotify. Click 'Open Spotify' to try again.";
@@ -1112,7 +1446,7 @@ function activate(api) {
     state.status = "waiting-login";
     render();
 
-    performScrape(true, state.showBrowserOnRefresh, [sectionName]).then(function(result) {
+    performScrape(true, state.showBrowserOnRefresh, [sectionName], "refresh-section:" + sectionName).then(function(result) {
       state.refreshing = false;
       if (!result) {
         state.status = "error";
@@ -1490,7 +1824,7 @@ function activate(api) {
     state.status = "waiting-login";
     render();
 
-    performScrape(true, state.showBrowserOnRefresh).then(function(result) {
+    performScrape(true, state.showBrowserOnRefresh, null, "manual-refresh-all").then(function(result) {
       state.refreshing = false;
       if (!result) {
         state.status = "error";
@@ -1577,6 +1911,17 @@ function activate(api) {
   api.ui.onAction("toggle-show-browser-pref", function() {
     state.showBrowserOnRefresh = !state.showBrowserOnRefresh;
     savePreferences();
+    renderSettings();
+  });
+
+  api.ui.onAction("toggle-diagnostics", function() {
+    state.showDiagnostics = !state.showDiagnostics;
+    renderSettings();
+  });
+
+  api.ui.onAction("clear-diagnostics", function() {
+    state.lastReport = null;
+    api.storage.set("spotify_browse_reports", []).catch(console.error);
     renderSettings();
   });
 
@@ -1674,6 +2019,14 @@ function activate(api) {
 
   // Load archived playlists
   loadArchives();
+
+  // Load last diagnostics report
+  api.storage.get("spotify_browse_reports").then(function (reports) {
+    if (Array.isArray(reports) && reports.length > 0) {
+      state.lastReport = reports[0];
+      renderSettings();
+    }
+  }).catch(console.error);
 
   // Render settings panel
   renderSettings();
