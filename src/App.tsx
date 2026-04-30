@@ -135,15 +135,16 @@ function App() {
   autoSaveStreamsRef.current = autoSaveStreams;
   downloadsCollectionIdRef.current = downloadsCollectionId;
   const advanceIndexRef = useRef<() => void>(() => {});
-  const resolveTidalStreamUrlRef = useRef<(trackId: string, quality?: string | null) => Promise<string>>(
-    async () => { throw new Error("TIDAL stream resolver not ready"); }
+  const resolveStreamByUriRef = useRef<(scheme: string, id: string, quality?: string | null) => Promise<string>>(
+    async () => { throw new Error("Stream URI resolver not ready"); }
   );
   const resolveTrackSrcRef = useRef<(track: Track) => Promise<string>>(async (track) => {
     const url = track.path;
     if (!url) throw new Error("Track has no URL");
     const parsed = parseUrlScheme(url);
     if (parsed.scheme === "file") return convertFileSrc(parsed.path);
-    if (parsed.scheme === "tidal") return resolveTidalStreamUrlRef.current(parsed.id, null);
+    if (parsed.scheme === "tidal") return resolveStreamByUriRef.current("tidal", parsed.id, null);
+    if (parsed.scheme === "spotify") return resolveStreamByUriRef.current("spotify", parsed.id, null);
     if (parsed.scheme === "external") throw new Error("Cannot play external track directly — requires stream resolver");
     if (parsed.scheme === "unknown") throw new Error(`Cannot play unknown URL scheme: ${parsed.url}`);
     return invoke<string>("resolve_subsonic_location", { location: parsed.url });
@@ -953,10 +954,9 @@ function App() {
     dispatchPluginEvent: plugins.dispatchEvent as (event: string, ...args: unknown[]) => void,
   });
 
-  // Keep the tidal stream URL resolver ref in sync with the plugin system
   useEffect(() => {
-    resolveTidalStreamUrlRef.current = plugins.resolveTidalStreamUrl;
-  }, [plugins.resolveTidalStreamUrl]);
+    resolveStreamByUriRef.current = plugins.resolveStreamByUri;
+  }, [plugins.resolveStreamByUri]);
 
   // Resolve a queue track's url to a playable source
   useEffect(() => {
@@ -964,7 +964,7 @@ function App() {
       if (url.startsWith("http://") || url.startsWith("https://")) return Promise.resolve(url);
       const parsed = parseUrlScheme(url);
       if (parsed.scheme === "file") return Promise.resolve(convertFileSrc(parsed.path));
-      if (parsed.scheme === "tidal") return resolveTidalStreamUrlRef.current(parsed.id, null);
+      if (parsed.scheme === "tidal" || parsed.scheme === "spotify") return resolveStreamByUriRef.current(parsed.scheme, parsed.id, null);
       if (parsed.scheme === "subsonic") return invoke<string>("resolve_subsonic_location", { location: url });
       return Promise.reject(new Error(`Unplayable URL scheme: ${url}`));
     };

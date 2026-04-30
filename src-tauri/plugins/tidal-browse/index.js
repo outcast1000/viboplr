@@ -320,6 +320,20 @@ function activate(api) {
     };
   }
 
+  function downloadTidalTrack(trackId) {
+    return api.informationTypes.invoke("enqueue_download", {
+      title: "TIDAL track",
+      artistName: null,
+      albumTitle: null,
+      uri: "tidal://" + trackId,
+      durationSecs: null,
+      destCollectionId: null,
+      destCollectionPath: null,
+      format: null,
+      provider: "tidal-browse:tidal-download",
+    });
+  }
+
   function formatDuration(secs) {
     if (!secs) return "";
     var m = Math.floor(secs / 60);
@@ -777,7 +791,7 @@ function activate(api) {
   api.ui.onAction("download-selected", function (data) {
     var tracks = getSelectedTracks(data);
     for (var i = 0; i < tracks.length; i++) {
-      api.tidal.downloadTrack(tracks[i].tidal_id).catch(function (err) {
+      downloadTidalTrack(tracks[i].tidal_id).catch(function (err) {
         api.ui.showNotification("Download failed: " + (err.message || err));
       });
     }
@@ -914,7 +928,7 @@ function activate(api) {
     if (!data || !data.itemId) return;
     var parts = data.itemId.split(":");
     if (parts[0] !== "track" || !parts[1]) return;
-    api.tidal.downloadTrack(parts[1]).catch(function (err) {
+    downloadTidalTrack(parts[1]).catch(function (err) {
       api.ui.showNotification("Download failed: " + (err.message || err));
     });
     api.ui.showNotification("Download started");
@@ -1031,7 +1045,7 @@ function activate(api) {
       tidalSearch(query, 1).then(function (results) {
         var matches = (results && results.tracks) || [];
         if (matches.length === 0) return;
-        return api.tidal.downloadTrack(matches[0].tidal_id);
+        return downloadTidalTrack(matches[0].tidal_id);
       }).catch(function (err) {
         console.error("TIDAL playlist download failed for track:", t.title, err);
       });
@@ -1171,7 +1185,7 @@ function activate(api) {
 
   // -- Stream URL resolver for tidal:// playback --
 
-  api.tidal.onStreamUrlResolve(function (trackId, quality) {
+  api.playback.onResolveStreamByUri("tidal", function (trackId, quality) {
     if (state.streamingDown) {
       rustLog("warn", "TIDAL streaming servers are down — skipping stream URL resolve for track " + trackId);
       return Promise.resolve(null);

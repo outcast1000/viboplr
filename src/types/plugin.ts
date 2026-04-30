@@ -313,6 +313,10 @@ export interface PluginPlaybackAPI {
     providerId: string,
     handler: (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string } | null>,
   ): () => void;
+  onResolveStreamByUri(
+    scheme: string,
+    handler: (id: string, quality?: string | null) => Promise<string | null>,
+  ): () => void;
 }
 
 export interface PluginTrack {
@@ -323,12 +327,6 @@ export interface PluginTrack {
   duration_secs?: number | null;
   track_number?: number | null;
   image_url?: string | null;
-}
-
-export interface PluginTidalAPI {
-  getStreamUrl(trackId: string, quality?: string): Promise<string>;
-  onStreamUrlResolve(handler: (trackId: string, quality?: string | null) => Promise<string | null>): void;
-  downloadTrack(trackId: string, opts?: { collectionId?: number; format?: string }): Promise<void>;
 }
 
 export interface PluginCollectionsAPI {
@@ -537,7 +535,6 @@ export interface ViboplrPluginAPI {
   ui: PluginUIAPI;
   storage: PluginStorageAPI;
   network: PluginNetworkAPI;
-  tidal: PluginTidalAPI;
   collections: PluginCollectionsAPI;
   playlists: PluginPlaylistsAPI;
   informationTypes: PluginInformationTypesAPI;

@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { store } from "../store";
 import type { Track, Collection } from "../types";
 import type {
@@ -65,7 +64,7 @@ interface LoadedPlugin {
   interactiveSearchHandlers: Map<string, InteractiveSearchHandler>;
   interactiveResolveHandlers: Map<string, InteractiveResolveHandler>;
   streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string } | null>>;
-  streamUrlResolver: ((trackId: string, quality?: string | null) => Promise<string | null>) | null;
+  streamUriResolvers: Map<string, (id: string, quality?: string | null) => Promise<string | null>>;
   schedulerHandlers: Map<string, () => void>;
 }
 
@@ -325,6 +324,17 @@ export function usePlugins(
             trackUnsubscribe(unsub);
             return unsub;
           },
+          onResolveStreamByUri(
+            scheme: string,
+            handler: (id: string, quality?: string | null) => Promise<string | null>,
+          ): () => void {
+            loaded.streamUriResolvers.set(scheme, handler);
+            const unsub = () => {
+              loaded.streamUriResolvers.delete(scheme);
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
         },
 
         contextMenu: {
@@ -500,52 +510,6 @@ export function usePlugins(
           },
         },
 
-        tidal: {
-          async getStreamUrl(trackId, quality) {
-            // Delegate to the plugin-registered stream URL resolver
-            for (const [, lp] of loadedPluginsRef.current) {
-              if (lp.streamUrlResolver) {
-                const url = await lp.streamUrlResolver(trackId, quality);
-                if (url) return url;
-              }
-            }
-            throw new Error("No TIDAL stream URL resolver available");
-          },
-          onStreamUrlResolve(handler: (trackId: string, quality?: string | null) => Promise<string | null>) {
-            loaded.streamUrlResolver = handler;
-          },
-          async downloadTrack(trackId, opts) {
-            const format = opts?.format || (playbackCallbacksRef.current?.getDownloadFormat() ?? "flac");
-            let destCollectionId: number | null = opts?.collectionId ?? null;
-            let customDestPath: string | null = null;
-            if (!destCollectionId) {
-              try {
-                const all = await invoke<Collection[]>("get_collections");
-                const localCol = all.find((c) => c.kind === "local" && c.path);
-                if (localCol) destCollectionId = localCol.id;
-              } catch { /* ignore */ }
-            }
-            if (!destCollectionId) {
-              try {
-                const picked = await openDialog({ directory: true, title: "Choose download folder" });
-                if (!picked) return;
-                customDestPath = typeof picked === "string" ? picked : picked[0];
-              } catch { return; }
-            }
-            if (!destCollectionId && !customDestPath) return;
-            await invoke("enqueue_download", {
-              title: "TIDAL track",
-              artistName: null,
-              albumTitle: null,
-              uri: "tidal://" + trackId,
-              durationSecs: null,
-              destCollectionId,
-              destCollectionPath: customDestPath,
-              format,
-              provider: "tidal-browse:tidal-download",
-            });
-          },
-        },
 
         collections: {
           async getLocalCollections() {
@@ -752,6 +716,7 @@ export function usePlugins(
     loaded.interactiveSearchHandlers.clear();
     loaded.interactiveResolveHandlers.clear();
     loaded.streamResolveHandlers.clear();
+    loaded.streamUriResolvers.clear();
     loaded.schedulerHandlers.clear();
 
     // Clear view data for this plugin
@@ -792,7 +757,7 @@ export function usePlugins(
         interactiveSearchHandlers: new Map(),
         interactiveResolveHandlers: new Map(),
         streamResolveHandlers: new Map(),
-        streamUrlResolver: null,
+        streamUriResolvers: new Map(),
         schedulerHandlers: new Map(),
       };
 
@@ -1308,15 +1273,16 @@ export function usePlugins(
     [],
   );
 
-  const resolveTidalStreamUrl = useCallback(
-    async (trackId: string, quality?: string | null): Promise<string> => {
+  const resolveStreamByUri = useCallback(
+    async (scheme: string, id: string, quality?: string | null): Promise<string> => {
       for (const [, lp] of loadedPluginsRef.current) {
-        if (lp.streamUrlResolver) {
-          const url = await lp.streamUrlResolver(trackId, quality);
+        const handler = lp.streamUriResolvers.get(scheme);
+        if (handler) {
+          const url = await handler(id, quality);
           if (url) return url;
         }
       }
-      throw new Error("No TIDAL stream URL resolver available");
+      throw new Error(`No stream URI resolver for scheme: ${scheme}`);
     },
     [],
   );
@@ -1356,6 +1322,6 @@ export function usePlugins(
     invokeInteractiveSearch,
     invokeInteractiveResolve,
     hasInteractiveDownload,
-    resolveTidalStreamUrl,
+    resolveStreamByUri,
   };
 }

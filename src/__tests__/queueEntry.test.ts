@@ -323,9 +323,14 @@ describe("parseUrlScheme", () => {
     expect(result).toEqual({ scheme: "file", path: "C:/Users/Music/song.mp3" });
   });
 
+  it("parses spotify:// scheme", () => {
+    const result = parseUrlScheme("spotify://4uLU6hMCjMI75M1A2tKUQC");
+    expect(result).toEqual({ scheme: "spotify", id: "4uLU6hMCjMI75M1A2tKUQC" });
+  });
+
   it("returns unknown for unrecognized scheme", () => {
-    const result = parseUrlScheme("spotify://track/abc123");
-    expect(result).toEqual({ scheme: "unknown", url: "spotify://track/abc123" });
+    const result = parseUrlScheme("magnet://some-hash");
+    expect(result).toEqual({ scheme: "unknown", url: "magnet://some-hash" });
   });
 
   it("returns unknown for http:// URLs", () => {

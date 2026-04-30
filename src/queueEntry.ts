@@ -17,6 +17,7 @@ export interface QueueEntry {
 export type ParsedUrl =
   | { scheme: "file"; path: string }
   | { scheme: "tidal"; id: string }
+  | { scheme: "spotify"; id: string }
   | { scheme: "subsonic"; url: string; id: string }
   | { scheme: "external" }
   | { scheme: "unknown"; url: string };
@@ -123,6 +124,10 @@ export function parseUrlScheme(url: string): ParsedUrl {
 
   if (url.startsWith("tidal://")) {
     return { scheme: "tidal", id: url.substring(8) };
+  }
+
+  if (url.startsWith("spotify://")) {
+    return { scheme: "spotify", id: url.substring(10) };
   }
 
   if (url.startsWith("subsonic://")) {

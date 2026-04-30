@@ -42,7 +42,8 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | `onTrackStarted(handler)` | Event: track starts playing | **lastfm** — sends "now playing" update to Last.fm |
 | `onTrackScrobbled(handler)` | Event: scrobble threshold met (50% or 4min) | **lastfm** — scrobbles the track to Last.fm |
 | `onTrackLiked(handler)` | Event: track liked/unliked | **lastfm** — syncs love/unlove status with Last.fm |
-| `onStreamResolve(providerId, handler)` | Register fallback stream URL resolver | **tidal-browse** — resolves playback for non-local tracks via TIDAL search; **youtube** — resolves playback via yt-dlp search+download |
+| `onStreamResolve(providerId, handler)` | Register fallback stream URL resolver by metadata (title, artist, album) | **tidal-browse** — resolves playback for non-local tracks via TIDAL search; **youtube** — resolves playback via yt-dlp search+download |
+| `onResolveStreamByUri(scheme, handler)` | Register stream URL resolver for a URI scheme (e.g. "tidal", "spotify") | **tidal-browse** — resolves tidal:// URIs to CDN stream URLs |
 
 ## `api.contextMenu` — Context Menu Actions
 
@@ -77,14 +78,6 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | `openUrl(url)` | Open URL in system browser | **lastfm** — opens auth URL; **tidal-browse** — opens uptime status page; **youtube** — opens yt-dlp/ffmpeg install pages |
 | `onDeepLink(handler)` | Handle deep link callbacks | **lastfm** — receives OAuth callback after auth |
 | `openBrowseWindow(url, opts)` | Open internal browser window with JS eval/messaging | **spotify-browse** — scrapes open.spotify.com via injected JS; **lyrics-search** — Google search for lyrics URLs |
-
-## `api.tidal` — TIDAL Streaming
-
-| API | Description | Used By |
-|-----|-------------|---------|
-| `getStreamUrl(trackId, quality?)` | Get TIDAL stream URL | — |
-| `onStreamUrlResolve(handler)` | Register TIDAL stream URL resolver | **tidal-browse** — resolves tidal:// stream URLs by decoding BTS manifests |
-| `downloadTrack(trackId, opts?)` | Download a TIDAL track | **tidal-browse** — downloads individual tracks to local collection |
 
 ## `api.collections` — Local Collections
 
@@ -138,7 +131,7 @@ Complete reference of all functions and events available to Viboplr plugins via 
 
 ## Summary
 
-- **13 namespaces**, ~68 methods/events
+- **12 namespaces**, ~66 methods/events
 - Heaviest consumers: **lastfm** (scrobbling + 9 info types + OAuth + history import), **tidal-browse** (search + playback + downloads + images + context menus), **spotify-browse** (web scraping + playback + playlists + scheduling + caching)
 - Image-only plugins (audiodb, deezer, itunes, musicbrainz) are minimal: just `network.fetch` + `imageProviders.onFetch`
 - Lyrics plugins (lrclib, lyrics-ovh, lyrics-search) use `informationTypes.onFetch("lyrics")` + `network.fetch`
