@@ -58,7 +58,6 @@ interface LoadedPlugin {
   contextMenuHandlers: Map<string, (target: PluginContextMenuTarget) => void>;
   uiActionHandlers: Map<string, (data: unknown) => void>;
   deepLinkHandlers: Array<(url: string) => void>;
-  oauthCallbackHandlers: Array<(queryString: string) => void>;
   infoFetchHandlers: Map<string, (entity: InfoEntity) => Promise<InfoFetchResult>>;
   imageFetchHandlers: Map<string, (name: string, artistName?: string) => Promise<ImageFetchResult>>;
   downloadResolveByUriHandlers: Map<string, DownloadResolveByUriHandler>;
@@ -124,7 +123,6 @@ export function usePlugins(
   const loadedPluginsRef = useRef<Map<string, LoadedPlugin>>(new Map());
   const eventHandlersRef = useRef<EventHandlers>({
     "track:started": [],
-    "track:played": [],
     "track:scrobbled": [],
     "track:liked": [],
     "track:added": [],
@@ -306,11 +304,6 @@ export function usePlugins(
               "track:started",
               handler as (...args: unknown[]) => void,
             ),
-          onTrackPlayed: (handler) =>
-            subscribeEvent(
-              "track:played",
-              handler as (...args: unknown[]) => void,
-            ),
           onTrackScrobbled: (handler) =>
             subscribeEvent(
               "track:scrobbled",
@@ -419,16 +412,6 @@ export function usePlugins(
               const idx = loaded.deepLinkHandlers.indexOf(handler);
               if (idx >= 0) loaded.deepLinkHandlers.splice(idx, 1);
             };
-          },
-          onOAuthCallback(handler: (queryString: string) => void) {
-            loaded.oauthCallbackHandlers.push(handler);
-            return () => {
-              const idx = loaded.oauthCallbackHandlers.indexOf(handler);
-              if (idx >= 0) loaded.oauthCallbackHandlers.splice(idx, 1);
-            };
-          },
-          async startOAuthListener(): Promise<number> {
-            return invoke<number>("oauth_listen");
           },
           async openBrowseWindow(url, opts) {
             const label = `browse-${pluginId}-${Date.now()}`;
@@ -561,10 +544,6 @@ export function usePlugins(
               format,
               provider: "tidal-browse:tidal-download",
             });
-          },
-          async downloadAlbum(_albumId, _opts) {
-            // Album downloads use the tidal-download-album requestAction which opens the unified DownloadModal.
-            throw new Error("downloadAlbum is deprecated. Use tidal-download-album requestAction or download tracks individually.");
           },
         },
 
@@ -727,22 +706,6 @@ export function usePlugins(
     [currentTrackRef, playingRef, positionRef],
   );
 
-  // Listen for OAuth callback events from the Rust backend
-  useEffect(() => {
-    const unlisten = listen<string>("oauth-callback", (event) => {
-      for (const [, loaded] of loadedPluginsRef.current) {
-        for (const handler of loaded.oauthCallbackHandlers) {
-          try {
-            handler(event.payload);
-          } catch (e) {
-            console.error(`[plugin:${loaded.id}] oauth callback error:`, e);
-          }
-        }
-      }
-    });
-    return () => { unlisten.then(f => f()); };
-  }, []);
-
   // Listen for scheduler due events from the Rust backend
   useEffect(() => {
     const unlisten = listen<{ pluginId: string; taskId: string }>(
@@ -822,7 +785,6 @@ export function usePlugins(
         contextMenuHandlers: new Map(),
         uiActionHandlers: new Map(),
         deepLinkHandlers: [],
-        oauthCallbackHandlers: [],
         infoFetchHandlers: new Map(),
         imageFetchHandlers: new Map(),
         downloadResolveByUriHandlers: new Map(),

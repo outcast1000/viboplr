@@ -22,7 +22,6 @@ export type PluginTargetKind = "track" | "album" | "artist" | "multi-track" | "p
 
 export type PluginEventName =
   | "track:started"
-  | "track:played"
   | "track:scrobbled"
   | "track:liked"
   | "track:added"
@@ -308,7 +307,6 @@ export interface PluginPlaybackAPI {
   insertTrack(track: PluginTrack, position: number): void;
   insertTracks(tracks: PluginTrack[], position: number): void;
   onTrackStarted(handler: (track: Track) => void): () => void;
-  onTrackPlayed(handler: (track: Track) => void): () => void;
   onTrackScrobbled(handler: (track: Track) => void): () => void;
   onTrackLiked(handler: (track: Track, liked: boolean) => void): () => void;
   onStreamResolve(
@@ -331,7 +329,6 @@ export interface PluginTidalAPI {
   getStreamUrl(trackId: string, quality?: string): Promise<string>;
   onStreamUrlResolve(handler: (trackId: string, quality?: string | null) => Promise<string | null>): void;
   downloadTrack(trackId: string, opts?: { collectionId?: number; format?: string }): Promise<void>;
-  downloadAlbum(albumId: string, opts?: { collectionId?: number; format?: string }): Promise<void>;
 }
 
 export interface PluginCollectionsAPI {
@@ -390,8 +387,6 @@ export interface PluginNetworkAPI {
   }>;
   openUrl(url: string): Promise<void>;
   onDeepLink(handler: (url: string) => void): () => void;
-  onOAuthCallback(handler: (queryString: string) => void): () => void;
-  startOAuthListener(): Promise<number>;
   openBrowseWindow(
     url: string,
     opts?: { title?: string; width?: number; height?: number; visible?: boolean },

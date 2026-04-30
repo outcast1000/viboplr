@@ -40,8 +40,7 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | `insertTrack(track, position)` | Insert a PluginTrack into the queue at position (-1 = end) | — |
 | `insertTracks(tracks, position)` | Insert multiple PluginTracks into the queue at position (-1 = end) | **tidal-browse** — enqueues selected tracks; **spotify-browse** — enqueues playlist tracks |
 | `onTrackStarted(handler)` | Event: track starts playing | **lastfm** — sends "now playing" update to Last.fm |
-| `onTrackPlayed(handler)` | Event: track is played (scrobble threshold met) | — |
-| `onTrackScrobbled(handler)` | Event: track is scrobbled | **lastfm** — scrobbles the track to Last.fm |
+| `onTrackScrobbled(handler)` | Event: scrobble threshold met (50% or 4min) | **lastfm** — scrobbles the track to Last.fm |
 | `onTrackLiked(handler)` | Event: track liked/unliked | **lastfm** — syncs love/unlove status with Last.fm |
 | `onStreamResolve(providerId, handler)` | Register fallback stream URL resolver | **tidal-browse** — resolves playback for non-local tracks via TIDAL search; **youtube** — resolves playback via yt-dlp search+download |
 
@@ -77,8 +76,6 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | `fetch(url, init?)` | HTTP request (proxied through Rust) | **All plugins** — every plugin uses this for API calls (TIDAL, Last.fm, Deezer, iTunes, MusicBrainz, Genius, LRCLIB, Lyrics.ovh, AudioDB, Google search, GitHub API) |
 | `openUrl(url)` | Open URL in system browser | **lastfm** — opens auth URL; **tidal-browse** — opens uptime status page; **youtube** — opens yt-dlp/ffmpeg install pages |
 | `onDeepLink(handler)` | Handle deep link callbacks | **lastfm** — receives OAuth callback after auth |
-| `onOAuthCallback(handler)` | Handle OAuth query string callbacks | — |
-| `startOAuthListener()` | Start local OAuth listener, returns port | — |
 | `openBrowseWindow(url, opts)` | Open internal browser window with JS eval/messaging | **spotify-browse** — scrapes open.spotify.com via injected JS; **lyrics-search** — Google search for lyrics URLs |
 
 ## `api.tidal` — TIDAL Streaming
@@ -88,7 +85,6 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | `getStreamUrl(trackId, quality?)` | Get TIDAL stream URL | — |
 | `onStreamUrlResolve(handler)` | Register TIDAL stream URL resolver | **tidal-browse** — resolves tidal:// stream URLs by decoding BTS manifests |
 | `downloadTrack(trackId, opts?)` | Download a TIDAL track | **tidal-browse** — downloads individual tracks to local collection |
-| `downloadAlbum(albumId, opts?)` | *Deprecated* — throws error | — |
 
 ## `api.collections` — Local Collections
 

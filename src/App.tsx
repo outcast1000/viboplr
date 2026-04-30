@@ -501,7 +501,6 @@ function App() {
     if (!playback.scrobbled) return;
     const track = playback.currentTrack;
     if (!track) return;
-    plugins.dispatchEvent("track:played", track);
     plugins.dispatchEvent("track:scrobbled", track);
     if (shouldAutoSave(autoSaveStreamsRef.current, track.path ?? "", resolvedSource?.id ?? null)) {
       const dlColId = downloadsCollectionIdRef.current;
