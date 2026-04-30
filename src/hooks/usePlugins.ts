@@ -518,9 +518,6 @@ export function usePlugins(
               .filter((c) => c.kind === "local")
               .map((c) => ({ id: c.id, name: c.name, path: c.path }));
           },
-          async getDownloadFormat() {
-            return playbackCallbacksRef.current?.getDownloadFormat() ?? "flac";
-          },
         },
 
         playlists: {
@@ -624,6 +621,9 @@ export function usePlugins(
         },
 
         downloads: {
+          async getDownloadFormat() {
+            return playbackCallbacksRef.current?.getDownloadFormat() ?? "flac";
+          },
           onResolveByUri(providerId: string, handler: DownloadResolveByUriHandler): () => void {
             loaded.downloadResolveByUriHandlers.set(providerId, handler);
             const unsub = () => { loaded.downloadResolveByUriHandlers.delete(providerId); };

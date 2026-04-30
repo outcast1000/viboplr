@@ -84,7 +84,6 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | API | Description | Used By |
 |-----|-------------|---------|
 | `getLocalCollections()` | Get all local collections (id, name, path) | **auto-tagger** — lists collections for analysis scope selection |
-| `getDownloadFormat()` | Get configured download format | — |
 
 ## `api.playlists` — Playlist Management
 
@@ -113,6 +112,7 @@ Complete reference of all functions and events available to Viboplr plugins via 
 
 | API | Description | Used By |
 |-----|-------------|---------|
+| `getDownloadFormat()` | Get user's configured download format (flac/aac/mp3) | — |
 | `onResolveByUri(providerId, handler)` | Resolve download by URI scheme | **tidal-browse** — resolves `tidal://` URIs; **mock-download** — resolves `mock://` URIs; **youtube** — resolves `external://` URIs (stub) |
 | `onResolveByMetadata(providerId, handler)` | Resolve download by title/artist/album | **tidal-browse** — searches TIDAL by metadata; **mock-download** — matches against mock catalog; **youtube** — searches YouTube via yt-dlp, downloads and converts |
 | `onInteractiveSearch(providerId, handler)` | User-facing search for download candidates | **tidal-browse** — TIDAL track search; **mock-download** — mock catalog search |

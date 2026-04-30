@@ -331,7 +331,6 @@ export interface PluginTrack {
 
 export interface PluginCollectionsAPI {
   getLocalCollections(): Promise<Array<{ id: number; name: string; path: string | null }>>;
-  getDownloadFormat(): Promise<string>;
 }
 
 export interface PluginContextMenuAPI {
@@ -462,6 +461,7 @@ export type InteractiveResolveHandler = (
 ) => Promise<DownloadResolveResult>;
 
 export interface PluginDownloadsAPI {
+  getDownloadFormat(): Promise<string>;
   onResolveByUri(providerId: string, handler: DownloadResolveByUriHandler): () => void;
   onResolveByMetadata(providerId: string, handler: DownloadResolveByMetadataHandler): () => void;
   onInteractiveSearch(providerId: string, handler: InteractiveSearchHandler): () => void;
