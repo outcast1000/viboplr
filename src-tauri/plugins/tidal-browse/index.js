@@ -321,15 +321,9 @@ function activate(api) {
   }
 
   function downloadTidalTrack(trackId) {
-    return api.informationTypes.invoke("enqueue_download", {
+    return api.downloads.enqueue({
       title: "TIDAL track",
-      artistName: null,
-      albumTitle: null,
       uri: "tidal://" + trackId,
-      durationSecs: null,
-      destCollectionId: null,
-      destCollectionPath: null,
-      format: null,
       provider: "tidal-browse:tidal-download",
     });
   }

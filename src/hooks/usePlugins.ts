@@ -616,9 +616,6 @@ export function usePlugins(
             trackUnsubscribe(unsub);
             return unsub;
           },
-          async invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-            return invoke<T>(command, args ?? {});
-          },
         },
 
         imageProviders: {
@@ -638,6 +635,19 @@ export function usePlugins(
         downloads: {
           async getDownloadFormat() {
             return playbackCallbacksRef.current?.getDownloadFormat() ?? "flac";
+          },
+          async enqueue(request) {
+            return invoke<number>("enqueue_download", {
+              title: request.title,
+              artistName: request.artistName ?? null,
+              albumTitle: request.albumTitle ?? null,
+              uri: request.uri ?? null,
+              durationSecs: request.durationSecs ?? null,
+              destCollectionId: request.destCollectionId ?? null,
+              destCollectionPath: request.destCollectionPath ?? null,
+              format: request.format ?? null,
+              provider: request.provider ?? null,
+            });
           },
           onResolveByUri(providerId: string, handler: DownloadResolveByUriHandler): () => void {
             loaded.downloadResolveByUriHandlers.set(providerId, handler);

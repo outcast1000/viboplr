@@ -399,9 +399,6 @@ export interface PluginInformationTypesAPI {
     infoTypeId: string,
     handler: (entity: import("./informationTypes").InfoEntity) => Promise<import("./informationTypes").InfoFetchResult>,
   ): () => void;
-  /** Call a Tauri command from within an info fetch handler. Allows internal
-   *  plugins to reuse existing backend commands (e.g. lastfm_get_artist_info). */
-  invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
 }
 
 export type ImageFetchResult =
@@ -464,8 +461,21 @@ export type InteractiveResolveHandler = (
   format: string,
 ) => Promise<DownloadResolveResult>;
 
+export interface DownloadRequest {
+  title: string;
+  artistName?: string | null;
+  albumTitle?: string | null;
+  uri?: string | null;
+  durationSecs?: number | null;
+  destCollectionId?: number | null;
+  destCollectionPath?: string | null;
+  format?: string | null;
+  provider?: string | null;
+}
+
 export interface PluginDownloadsAPI {
   getDownloadFormat(): Promise<string>;
+  enqueue(request: DownloadRequest): Promise<number>;
   onResolveByUri(providerId: string, handler: DownloadResolveByUriHandler): () => void;
   onResolveByMetadata(providerId: string, handler: DownloadResolveByMetadataHandler): () => void;
   onInteractiveSearch(providerId: string, handler: InteractiveSearchHandler): () => void;
