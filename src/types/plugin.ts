@@ -358,6 +358,10 @@ export interface PluginStorageAPI {
   get<T>(key: string): Promise<T | undefined>;
   set(key: string, value: unknown): Promise<void>;
   delete(key: string): Promise<void>;
+  cacheFile(subdir: string, filename: string, url: string): Promise<string>;
+  getCachePath(subdir: string, filename: string): Promise<string | null>;
+  listCacheDirs(): Promise<string[]>;
+  deleteCacheDir(subdir: string): Promise<void>;
 }
 
 export interface BrowseWindowHandle {
@@ -528,6 +532,20 @@ export interface PluginSchedulerAPI {
   onDue(taskId: string, handler: () => void): () => void;
 }
 
+export interface ExecResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+export interface PluginSystemAPI {
+  exec(program: string, args?: string[], opts?: { cwd?: string }): Promise<ExecResult>;
+}
+
+export interface PluginEnvAPI {
+  get(key: string): Promise<string | null>;
+}
+
 export interface ViboplrPluginAPI {
   library: PluginLibraryAPI;
   playback: PluginPlaybackAPI;
@@ -541,6 +559,8 @@ export interface ViboplrPluginAPI {
   imageProviders: PluginImageProvidersAPI;
   downloads: PluginDownloadsAPI;
   scheduler: PluginSchedulerAPI;
+  system: PluginSystemAPI;
+  env: PluginEnvAPI;
 }
 
 // -- Gallery types --

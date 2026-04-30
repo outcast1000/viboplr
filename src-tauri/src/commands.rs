@@ -1796,6 +1796,55 @@ pub fn search_youtube(title: String, artist_name: Option<String>, duration_secs:
     })
 }
 
+// --- Plugin system exec ---
+
+const ALLOWED_PROGRAMS: &[&str] = &["yt-dlp", "ffmpeg"];
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecResult {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+#[tauri::command]
+pub async fn plugin_exec(
+    state: State<'_, AppState>,
+    program: String,
+    args: Vec<String>,
+    cwd: Option<String>,
+) -> Result<ExecResult, String> {
+    if !ALLOWED_PROGRAMS.contains(&program.as_str()) {
+        return Err(format!("Program not allowed: {}. Allowed: {:?}", program, ALLOWED_PROGRAMS));
+    }
+
+    let app_dir = state.app_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut cmd = std::process::Command::new(&program);
+        cmd.args(&args);
+        if let Some(dir) = cwd {
+            cmd.current_dir(dir);
+        } else {
+            cmd.current_dir(&app_dir);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        let output = cmd.output()
+            .map_err(|e| format!("Failed to run {}: {}", program, e))?;
+        Ok(ExecResult {
+            exit_code: output.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
 // --- yt-dlp commands ---
 
 #[tauri::command]
@@ -2846,8 +2895,17 @@ pub fn plugin_storage_delete(state: State<'_, AppState>, plugin_id: String, key:
 }
 
 #[tauri::command]
-pub fn plugin_get_lastfm_credentials() -> (String, String) {
-    (LASTFM_API_KEY.to_string(), LASTFM_API_SECRET.to_string())
+pub fn plugin_getenv(key: String) -> Result<Option<String>, String> {
+    let allowed = ["LASTFM_API_KEY", "LASTFM_API_SECRET"];
+    if !allowed.contains(&key.as_str()) {
+        return Err(format!("Environment variable not allowed: {}", key));
+    }
+    let value = match key.as_str() {
+        "LASTFM_API_KEY" => LASTFM_API_KEY,
+        "LASTFM_API_SECRET" => LASTFM_API_SECRET,
+        _ => "",
+    };
+    Ok(if value.is_empty() { None } else { Some(value.to_string()) })
 }
 
 #[tauri::command]

@@ -69,6 +69,10 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | `get(key)` | Retrieve stored value | **lastfm** — session/credentials/cache; **lyrics-search** — enabled domains; **spotify-browse** — playlists/tracks/sections/settings; **tidal-browse** — quality/mock settings; **auto-tagger** — approved tags/stopwords/settings; **mock-download** — enabled/delay/rates |
 | `set(key, value)` | Store value | Same plugins as `get` |
 | `delete(key)` | Delete stored value | **lastfm** — clears session on disconnect; **spotify-browse** — clears deleted playlists/sections |
+| `cacheFile(subdir, filename, url)` | Download URL to plugin cache dir, return local path | **spotify-browse** — caches playlist covers and track images |
+| `getCachePath(subdir, filename)` | Get cached file path or null | — |
+| `listCacheDirs()` | List subdirectories in plugin cache root | **spotify-browse** — finds orphaned cache dirs for cleanup |
+| `deleteCacheDir(subdir)` | Delete a cache subdirectory | **spotify-browse** — removes orphaned playlist cache dirs |
 
 ## `api.network` — HTTP, OAuth & Browser Windows
 
@@ -99,7 +103,7 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | API | Description | Used By |
 |-----|-------------|---------|
 | `onFetch(infoTypeId, handler)` | Register information type fetch handler | **genius** — song_bio, song_meaning, artist_bio, album_wiki, lyrics; **lastfm** — artist_bio, artist_stats, similar_artists, artist_top_tracks, album_wiki, album_track_popularity, track_info, track_tags, similar_tracks; **lrclib** — lyrics; **lyrics-ovh** — lyrics; **lyrics-search** — lyrics |
-| `invoke(command, args?)` | Call any Tauri backend command | **lastfm** — `plugin_get_lastfm_credentials`, `info_delete_values_for_type`; **spotify-browse** — `plugin_cache_image`, `plugin_cache_list_dirs`, `plugin_cache_delete_dir`; **tidal-browse** — `write_frontend_log`; **auto-tagger** — `get_tracks` (paginated); **youtube** — `yt_dlp_check`, `ffmpeg_check`, `search_youtube`, `yt_dlp_stream_audio`, `ffmpeg_convert_audio` |
+| `invoke(command, args?)` | Call any Tauri backend command | **lastfm** — `info_delete_values_for_type`; **tidal-browse** — `enqueue_download`, `write_frontend_log` |
 
 ## `api.imageProviders` — Artist/Album Image Providers
 
@@ -127,11 +131,23 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | `complete(taskId)` | Mark a task execution complete | **spotify-browse** — marks auto-refresh task complete after scrape |
 | `onDue(taskId, handler)` | Handler called when scheduled task is due | **spotify-browse** — triggers playlist re-scrape |
 
+## `api.env` — Build-time Environment Variables
+
+| API | Description | Used By |
+|-----|-------------|---------|
+| `get(key)` | Get an allowlisted build-time env var (returns null if unset) | **lastfm** — reads LASTFM_API_KEY and LASTFM_API_SECRET |
+
+## `api.system` — System Commands
+
+| API | Description | Used By |
+|-----|-------------|---------|
+| `exec(program, args?, opts?)` | Execute an allowlisted program (yt-dlp, ffmpeg), returns { exitCode, stdout, stderr } | **youtube** — yt-dlp version check, audio download, ffmpeg version check, audio conversion |
+
 ---
 
 ## Summary
 
-- **12 namespaces**, ~66 methods/events
+- **14 namespaces**, ~69 methods/events
 - Heaviest consumers: **lastfm** (scrobbling + 9 info types + OAuth + history import), **tidal-browse** (search + playback + downloads + images + context menus), **spotify-browse** (web scraping + playback + playlists + scheduling + caching)
 - Image-only plugins (audiodb, deezer, itunes, musicbrainz) are minimal: just `network.fetch` + `imageProviders.onFetch`
 - Lyrics plugins (lrclib, lyrics-ovh, lyrics-search) use `informationTypes.onFetch("lyrics")` + `network.fetch`

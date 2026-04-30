@@ -209,9 +209,7 @@ function activate(api) {
     var allTracks = [];
     var pageSize = 500;
     function fetchPage(offset) {
-      return api.informationTypes.invoke("get_tracks", {
-        opts: { limit: pageSize, offset: offset },
-      }).then(function (tracks) {
+      return api.library.getTracks({ limit: pageSize, offset: offset }).then(function (tracks) {
         allTracks = allTracks.concat(tracks);
         if (tracks.length >= pageSize) {
           return fetchPage(offset + pageSize);

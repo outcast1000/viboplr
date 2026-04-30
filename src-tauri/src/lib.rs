@@ -107,6 +107,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::test_collection_connection,
         commands::subsonic_test_connection,
         commands::search_youtube,
+        commands::plugin_exec,
         commands::yt_dlp_check,
         commands::ffmpeg_check,
         commands::yt_dlp_stream_audio,
@@ -156,7 +157,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::plugin_scheduler_unregister,
         commands::plugin_scheduler_complete,
 
-        commands::plugin_get_lastfm_credentials,
+        commands::plugin_getenv,
         commands::plugin_record_history_plays_batch,
         commands::plugin_apply_tags,
         commands::info_sync_types,
@@ -286,6 +287,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::test_collection_connection,
         commands::subsonic_test_connection,
         commands::search_youtube,
+        commands::plugin_exec,
         commands::yt_dlp_check,
         commands::ffmpeg_check,
         commands::yt_dlp_stream_audio,
@@ -335,7 +337,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::plugin_scheduler_unregister,
         commands::plugin_scheduler_complete,
 
-        commands::plugin_get_lastfm_credentials,
+        commands::plugin_getenv,
         commands::plugin_record_history_plays_batch,
         commands::plugin_apply_tags,
         commands::info_sync_types,

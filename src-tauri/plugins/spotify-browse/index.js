@@ -160,12 +160,7 @@ function activate(api) {
       (function(pl) {
         if (pl.imageUrl && pl.imageUrl.indexOf("http") === 0) {
           promises.push(
-            api.informationTypes.invoke("plugin_cache_image", {
-              pluginId: "spotify-browse",
-              subdir: pl.id,
-              filename: "cover.jpg",
-              url: pl.imageUrl,
-            }).then(function(path) {
+            api.storage.cacheFile(pl.id, "cover.jpg", pl.imageUrl).then(function(path) {
               pl.imageUrl = path;
             }).catch(function(e) {
               console.error("Failed to cache playlist cover:", e);
@@ -178,12 +173,7 @@ function activate(api) {
             if (track.imageUrl && track.imageUrl.indexOf("http") === 0) {
               var hash = djb2Hash(track.name + " - " + track.artist);
               promises.push(
-                api.informationTypes.invoke("plugin_cache_image", {
-                  pluginId: "spotify-browse",
-                  subdir: pl.id,
-                  filename: hash + ".jpg",
-                  url: track.imageUrl,
-                }).then(function(path) {
+                api.storage.cacheFile(pl.id, hash + ".jpg", track.imageUrl).then(function(path) {
                   track.imageUrl = path;
                 }).catch(function(e) {
                   console.error("Failed to cache track image:", e);
@@ -1656,9 +1646,7 @@ function activate(api) {
   }).catch(console.error);
 
   // Clean up orphaned cache directories
-  api.informationTypes.invoke("plugin_cache_list_dirs", {
-    pluginId: "spotify-browse",
-  }).then(function(dirs) {
+  api.storage.listCacheDirs().then(function(dirs) {
     if (!dirs || !dirs.length) return;
     var knownIds = {};
     for (var i = 0; i < state.playlists.length; i++) {
@@ -1666,10 +1654,7 @@ function activate(api) {
     }
     for (var d = 0; d < dirs.length; d++) {
       if (!knownIds[dirs[d]]) {
-        api.informationTypes.invoke("plugin_cache_delete_dir", {
-          pluginId: "spotify-browse",
-          subdir: dirs[d],
-        }).catch(console.error);
+        api.storage.deleteCacheDir(dirs[d]).catch(console.error);
       }
     }
   }).catch(console.error);

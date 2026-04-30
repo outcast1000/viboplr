@@ -38,31 +38,80 @@ async function fetchLatestVersions(api) {
 async function checkTools(api) {
   checking = true;
   renderSettings(api);
-  ytDlpVersion = await api.informationTypes.invoke("yt_dlp_check", {});
-  ffmpegVersion = await api.informationTypes.invoke("ffmpeg_check", {});
+  try {
+    var ytResult = await api.system.exec("yt-dlp", ["--version"]);
+    ytDlpVersion = ytResult.exitCode === 0 ? ytResult.stdout.trim() : null;
+  } catch (e) { ytDlpVersion = null; }
+  try {
+    var ffResult = await api.system.exec("ffmpeg", ["-version"]);
+    if (ffResult.exitCode === 0) {
+      var line = ffResult.stdout.split("\n")[0] || "";
+      var m = line.match(/^ffmpeg version (\S+)/);
+      ffmpegVersion = m ? m[1] : "unknown";
+    } else { ffmpegVersion = null; }
+  } catch (e) { ffmpegVersion = null; }
   await fetchLatestVersions(api);
   checking = false;
   renderSettings(api);
+}
+
+function parseDurationText(text) {
+  var parts = text.split(":");
+  if (parts.length === 2) return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+  if (parts.length === 3) return parseInt(parts[0], 10) * 3600 + parseInt(parts[1], 10) * 60 + parseInt(parts[2], 10);
+  return null;
+}
+
+async function searchYoutube(api, title, artistName, durationSecs) {
+  var query = artistName ? title + " " + artistName : title;
+  var encoded = encodeURIComponent(query);
+  var url = "https://www.youtube.com/results?search_query=" + encoded;
+  var resp = await api.network.fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
+  });
+  var body = await resp.text();
+  var match = body.match(/var ytInitialData = (\{.*?\});<\/script>/);
+  if (!match) return null;
+  var data;
+  try { data = JSON.parse(match[1]); } catch (e) { return null; }
+  var sections = ((((data.contents || {}).twoColumnSearchResultsRenderer || {}).primaryContents || {}).sectionListRenderer || {}).contents || [];
+  var candidates = [];
+  for (var s = 0; s < sections.length && candidates.length < 7; s++) {
+    var items = ((sections[s].itemSectionRenderer || {}).contents) || [];
+    for (var i = 0; i < items.length && candidates.length < 7; i++) {
+      var vr = items[i].videoRenderer;
+      if (!vr || !vr.videoId) continue;
+      var vTitle = (((vr.title || {}).runs || [])[0] || {}).text || null;
+      var durText = ((vr.lengthText || {}).simpleText) || null;
+      candidates.push({ videoId: vr.videoId, title: vTitle, durationSecs: durText ? parseDurationText(durText) : null });
+    }
+  }
+  if (candidates.length === 0) return null;
+  var best = candidates[0];
+  if (durationSecs) {
+    for (var c = 0; c < candidates.length; c++) {
+      if (candidates[c].durationSecs !== null && Math.abs(candidates[c].durationSecs - durationSecs) <= 3) {
+        best = candidates[c]; break;
+      }
+    }
+  }
+  return { url: "https://www.youtube.com/watch?v=" + best.videoId, videoTitle: best.title };
 }
 
 async function searchAndDownload(api, title, artistName, durationSecs) {
   console.log("[youtube] searchAndDownload:", JSON.stringify({ title: title, artist: artistName, duration: durationSecs }));
   var result;
   try {
-    result = await api.informationTypes.invoke("search_youtube", {
-      title: title,
-      artistName: artistName || null,
-      durationSecs: durationSecs || null
-    });
+    result = await searchYoutube(api, title, artistName, durationSecs);
   } catch (e) {
-    console.error("[youtube] search_youtube failed:", e);
+    console.error("[youtube] searchYoutube failed:", e);
     return null;
   }
   if (!result || !result.url) {
     console.warn("[youtube] search returned no result for:", title);
     return null;
   }
-  console.log("[youtube] search found:", result.url, result.video_title || "");
+  console.log("[youtube] search found:", result.url, result.videoTitle || "");
 
   var cached = downloadCache[result.url];
   if (cached) {
@@ -73,11 +122,24 @@ async function searchAndDownload(api, title, artistName, durationSecs) {
   console.log("[youtube] downloading audio via yt-dlp:", result.url);
   var filePath;
   try {
-    filePath = await api.informationTypes.invoke("yt_dlp_stream_audio", {
-      youtubeUrl: result.url
-    });
+    var destFile = Date.now() + ".webm";
+    var dlResult = await api.system.exec("yt-dlp", ["-f", "bestaudio", "--no-warnings", "-o", destFile, result.url], { cwd: null });
+    if (dlResult.exitCode !== 0) {
+      console.error("[youtube] yt-dlp failed:", dlResult.stderr);
+      return null;
+    }
+    filePath = dlResult.stdout.trim() || null;
+    if (!filePath) {
+      var lines = dlResult.stderr.split("\n");
+      for (var li = 0; li < lines.length; li++) {
+        var dm = lines[li].match(/\[download\] Destination: (.+)/);
+        if (dm) { filePath = dm[1]; break; }
+        var am = lines[li].match(/\[download\] (.+) has already been downloaded/);
+        if (am) { filePath = am[1]; break; }
+      }
+    }
   } catch (e) {
-    console.error("[youtube] yt_dlp_stream_audio failed:", e);
+    console.error("[youtube] yt-dlp exec failed:", e);
     return null;
   }
   if (!filePath) {
@@ -91,8 +153,18 @@ async function searchAndDownload(api, title, artistName, durationSecs) {
 }
 
 async function activate(api) {
-  ytDlpVersion = await api.informationTypes.invoke("yt_dlp_check", {});
-  ffmpegVersion = await api.informationTypes.invoke("ffmpeg_check", {});
+  try {
+    var ytRes = await api.system.exec("yt-dlp", ["--version"]);
+    ytDlpVersion = ytRes.exitCode === 0 ? ytRes.stdout.trim() : null;
+  } catch (e) { ytDlpVersion = null; }
+  try {
+    var ffRes = await api.system.exec("ffmpeg", ["-version"]);
+    if (ffRes.exitCode === 0) {
+      var line = ffRes.stdout.split("\n")[0] || "";
+      var m = line.match(/^ffmpeg version (\S+)/);
+      ffmpegVersion = m ? m[1] : "unknown";
+    } else { ffmpegVersion = null; }
+  } catch (e) { ffmpegVersion = null; }
 
   api.playback.onStreamResolve("youtube-fallback", async function(title, artistName, albumName, durationSecs) {
     console.log("[youtube] stream resolve called:", JSON.stringify({ title: title, artist: artistName, duration: durationSecs }));
@@ -135,10 +207,16 @@ async function activate(api) {
       console.log("[youtube] converting", webmPath, "to format:", format || "aac");
       var finalPath;
       try {
-        finalPath = await api.informationTypes.invoke("ffmpeg_convert_audio", {
-          sourcePath: webmPath,
-          audioFormat: format || "aac"
-        });
+        var fmt = format || "aac";
+        var ext = (fmt === "aac" || fmt === "m4a") ? "m4a" : fmt === "mp3" ? "mp3" : fmt === "flac" ? "flac" : null;
+        if (ext) {
+          var destPath = webmPath.replace(/\.[^.]+$/, "." + ext);
+          var codec = (fmt === "aac" || fmt === "m4a") ? "aac" : fmt === "mp3" ? "libmp3lame" : "flac";
+          var convResult = await api.system.exec("ffmpeg", ["-i", webmPath, "-vn", "-c:a", codec, "-y", destPath]);
+          finalPath = convResult.exitCode === 0 ? destPath : webmPath;
+        } else {
+          finalPath = webmPath;
+        }
       } catch (convertErr) {
         console.error("[youtube] ffmpeg_convert_audio failed:", convertErr);
         console.log("[youtube] falling back to raw webm file");

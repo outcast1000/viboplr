@@ -392,6 +392,18 @@ export function usePlugins(
           async delete(key: string): Promise<void> {
             await invoke("plugin_storage_delete", { pluginId, key });
           },
+          async cacheFile(subdir: string, filename: string, url: string): Promise<string> {
+            return invoke<string>("plugin_cache_image", { pluginId, subdir, filename, url });
+          },
+          async getCachePath(subdir: string, filename: string): Promise<string | null> {
+            return invoke<string | null>("plugin_cache_get_path", { pluginId, subdir, filename });
+          },
+          async listCacheDirs(): Promise<string[]> {
+            return invoke<string[]>("plugin_cache_list_dirs", { pluginId });
+          },
+          async deleteCacheDir(subdir: string): Promise<void> {
+            await invoke("plugin_cache_delete_dir", { pluginId, subdir });
+          },
         },
 
         network: {
@@ -663,6 +675,22 @@ export function usePlugins(
           onDue(taskId: string, handler: () => void): () => void {
             loaded.schedulerHandlers.set(taskId, handler);
             return () => { loaded.schedulerHandlers.delete(taskId); };
+          },
+        },
+
+        system: {
+          async exec(program: string, args?: string[], opts?: { cwd?: string }) {
+            return invoke<{ exitCode: number; stdout: string; stderr: string }>("plugin_exec", {
+              program,
+              args: args ?? [],
+              cwd: opts?.cwd ?? null,
+            });
+          },
+        },
+
+        env: {
+          async get(key: string): Promise<string | null> {
+            return invoke<string | null>("plugin_getenv", { key });
           },
         },
       };

@@ -959,7 +959,10 @@ function activate(api) {
   // ===== Initialize =====
 
   // Load API credentials from backend
-  api.informationTypes.invoke("plugin_get_lastfm_credentials").then(function (creds) {
+  Promise.all([
+    api.env.get("LASTFM_API_KEY"),
+    api.env.get("LASTFM_API_SECRET"),
+  ]).then(function (creds) {
     state.apiKey = creds[0];
     state.apiSecret = creds[1];
     _resolveApiKeyReady();
