@@ -107,12 +107,12 @@ const PATH_PATTERNS = [
   { value: "[artist] - [album] - [track_number] - [title]", label: "Artist - Album - 01 - Title (flat)" },
 ];
 
-function previewPattern(pattern: string, artist: string, album: string, ext: string): string {
+function previewPattern(pattern: string, artist: string, album: string, title: string, ext: string): string {
   return pattern
     .replace(/\[artist\]/g, artist || "Artist")
     .replace(/\[album\]/g, album || "Album")
     .replace(/\[track_number\]/g, "01")
-    .replace(/\[title\]/g, "Track Name")
+    .replace(/\[title\]/g, title || "Track Name")
     + "." + ext;
 }
 
@@ -823,7 +823,7 @@ function MultiTrackDownload({
 
   // Download step state
   const [downloadStates, setDownloadStates] = useState<BatchDownloadTrackState[]>([]);
-  const [batchConflict, setBatchConflict] = useState<BatchConflict | null>(null);
+  const [batchConflict, _setBatchConflict] = useState<BatchConflict | null>(null);
   const conflictResolveRef = useRef<((decision: "replace" | "keep_both" | "skip") => void) | null>(null);
 
   // Callback refs -- critical to prevent stale closures in resolve useEffect
@@ -912,6 +912,7 @@ function MultiTrackDownload({
     if (step !== "downloading") return;
     if (downloadGuard.current) return;
     downloadGuard.current = true;
+    cancelledRef.current = false;
 
     (async () => {
       // Build the list of tracks to download
@@ -982,8 +983,6 @@ function MultiTrackDownload({
           if (cancelledRef.current) break;
 
           const t = toDownload[i];
-
-          // Mark as downloading
           setDownloadStates(prev => prev.map(s =>
             s.index === i ? { ...s, status: "downloading", progress: 0 } : s
           ));
@@ -1015,60 +1014,8 @@ function MultiTrackDownload({
             let finalPath = dp;
             let overwrite = false;
 
-            try {
-              // Extract the directory part for check_dest_conflict
-              const check = await invoke<ConflictCheck>("check_dest_conflict", {
-                artistName: artistName ?? "Unknown",
-                trackTitle: title,
-                destDir: basePath,
-                format: quality,
-              });
-
-              if (check.has_conflict) {
-                // Show conflict UI and wait for user decision
-                const altPath = (() => {
-                  const p = check.dest_path;
-                  const dotIdx = p.lastIndexOf(".");
-                  const base = dotIdx > 0 ? p.substring(0, dotIdx) : p;
-                  const extPart = dotIdx > 0 ? p.substring(dotIdx) : "";
-                  return `${base} (2)${extPart}`;
-                })();
-
-                setBatchConflict({
-                  trackIndex: i,
-                  destPath: check.dest_path,
-                  existingSize: check.existing_size,
-                  existingFormat: check.existing_format,
-                  altPath,
-                });
-
-                // Wait for user decision
-                const decision = await new Promise<"replace" | "keep_both" | "skip">((resolve) => {
-                  conflictResolveRef.current = resolve;
-                });
-
-                setBatchConflict(null);
-                conflictResolveRef.current = null;
-
-                if (decision === "skip") {
-                  setDownloadStates(prev => prev.map(s =>
-                    s.index === i ? { ...s, status: "skipped" } : s
-                  ));
-                  continue;
-                } else if (decision === "replace") {
-                  finalPath = check.dest_path;
-                  overwrite = true;
-                } else {
-                  // keep_both
-                  finalPath = altPath;
-                }
-              } else {
-                finalPath = check.dest_path;
-              }
-            } catch {
-              // Conflict check failed, use built path
-              finalPath = dp;
-            }
+            // For batch downloads, overwrite by default (user already confirmed at review step)
+            overwrite = true;
 
             // Download
             const result = await invoke<DownloadResult>("download_to_path", {
@@ -1160,8 +1107,9 @@ function MultiTrackDownload({
   // Derive a representative artist/album from the first track for the preview
   const sampleArtist = tracks[0]?.artistName ?? "Artist";
   const sampleAlbum = tracks[0]?.albumTitle ?? "Album";
+  const sampleTitle = tracks[0]?.title ?? "Track Name";
   const ext = quality === "flac" ? "flac" : "m4a";
-  const preview = previewPattern(pathPattern, sampleArtist, sampleAlbum, ext);
+  const preview = previewPattern(pathPattern, sampleArtist, sampleAlbum, sampleTitle, ext);
 
   return (
     <>
