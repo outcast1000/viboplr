@@ -967,24 +967,6 @@ function activate(api) {
     state.apiSecret = creds[1];
     _resolveApiKeyReady();
 
-    // Migrate: clear stale cached errors/old-format data for all lastfm info types
-    return api.storage.get("cache_migrated_v3").then(function (done) {
-      if (!done) {
-        console.log("[lastfm] Running cache_migrated_v3 migration");
-        var types = [
-          "album_track_popularity", "album_wiki",
-          "artist_bio", "artist_stats", "artist_top_tracks", "similar_artists",
-          "track_info", "track_tags", "similar_tracks",
-        ];
-        var deletes = types.map(function (t) {
-          return api.informationTypes.invoke("info_delete_values_for_type", { typeId: t }).catch(function () {});
-        });
-        return Promise.all(deletes).then(function () {
-          return api.storage.set("cache_migrated_v3", true);
-        });
-      }
-    });
-  }).then(function () {
     // Restore session
     return api.storage.get("lastfm_session");
   }).then(function (session) {

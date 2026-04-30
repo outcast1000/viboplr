@@ -2999,14 +2999,6 @@ pub fn info_delete_value(
     state.db.info_delete_value(information_type_id, &entity_key).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn info_delete_values_for_type(
-    state: State<'_, AppState>,
-    type_id: String,
-) -> Result<usize, String> {
-    state.db.info_delete_values_for_type(&type_id).map_err(|e| e.to_string())
-}
-
 // ── Image / Info provider commands ─────────────────────────────
 
 #[tauri::command]

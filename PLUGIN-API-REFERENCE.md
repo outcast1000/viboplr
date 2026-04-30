@@ -109,7 +109,7 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | API | Description | Used By |
 |-----|-------------|---------|
 | `onFetch(infoTypeId, handler)` | Register information type fetch handler | **genius** — song_bio, song_meaning, artist_bio, album_wiki, lyrics; **lastfm** — artist_bio, artist_stats, similar_artists, artist_top_tracks, album_wiki, album_track_popularity, track_info, track_tags, similar_tracks; **lrclib** — lyrics; **lyrics-ovh** — lyrics; **lyrics-search** — lyrics |
-| `invoke(command, args?)` | Call any Tauri backend command | **lastfm** — `info_delete_values_for_type`; **tidal-browse** — `enqueue_download` |
+| `invoke(command, args?)` | Call any Tauri backend command | **tidal-browse** — `enqueue_download` |
 
 ## `api.imageProviders` — Artist/Album Image Providers
 
