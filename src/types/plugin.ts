@@ -304,8 +304,9 @@ export interface PluginPlaybackAPI {
   isPlaying(): boolean;
   getPosition(): number;
   playTrack(track: PluginTrack): void;
-  enqueueTrack(track: PluginTrack): void;
   playTracks(tracks: PluginTrack[], startIndex?: number, context?: { name: string; coverUrl?: string | null; source?: string | null; metadata?: Record<string, string> | null }): void;
+  insertTrack(track: PluginTrack, position: number): void;
+  insertTracks(tracks: PluginTrack[], position: number): void;
   onTrackStarted(handler: (track: Track) => void): () => void;
   onTrackPlayed(handler: (track: Track) => void): () => void;
   onTrackScrobbled(handler: (track: Track) => void): () => void;

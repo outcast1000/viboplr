@@ -81,8 +81,9 @@ type EventHandlers = {
 
 export interface PluginPlaybackCallbacks {
   playTrack: (track: PluginTrack) => void;
-  enqueueTrack: (track: PluginTrack) => void;
   playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name: string; coverUrl?: string | null; source?: string | null; metadata?: Record<string, string> | null }) => void;
+  insertTrack: (track: PluginTrack, position: number) => void;
+  insertTracks: (tracks: PluginTrack[], position: number) => void;
   getDownloadFormat: () => string;
 }
 
@@ -291,11 +292,14 @@ export function usePlugins(
           playTrack: (track) => {
             playbackCallbacksRef.current?.playTrack(track);
           },
-          enqueueTrack: (track) => {
-            playbackCallbacksRef.current?.enqueueTrack(track);
-          },
           playTracks: (tracks, startIndex, context) => {
             playbackCallbacksRef.current?.playTracks(tracks, startIndex, context);
+          },
+          insertTrack: (track, position) => {
+            playbackCallbacksRef.current?.insertTrack(track, position);
+          },
+          insertTracks: (tracks, position) => {
+            playbackCallbacksRef.current?.insertTracks(tracks, position);
           },
           onTrackStarted: (handler) =>
             subscribeEvent(

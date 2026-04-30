@@ -771,9 +771,7 @@ function activate(api) {
 
   api.ui.onAction("queue-selected", function (data) {
     var tracks = getSelectedTracks(data);
-    for (var i = 0; i < tracks.length; i++) {
-      api.playback.enqueueTrack(toPluginTrack(tracks[i]));
-    }
+    api.playback.insertTracks(tracks.map(toPluginTrack), -1);
   });
 
   api.ui.onAction("download-selected", function (data) {

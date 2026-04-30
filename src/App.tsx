@@ -251,9 +251,6 @@ function App() {
     playTrack: (track: PluginTrack) => {
       queueHook.playTracks([pluginTrackToTrackFn(track)], 0);
     },
-    enqueueTrack: (track: PluginTrack) => {
-      queueHook.enqueueTracks([pluginTrackToTrackFn(track)]);
-    },
     playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name: string; coverUrl?: string | null; source?: string | null; metadata?: Record<string, string> | null }) => {
       queueHook.playTracks(tracks.map(pluginTrackToTrackFn), startIndex ?? 0, context ? { name: context.name, source: context.source ?? null, metadata: context.metadata ?? null } : undefined);
       if (context?.coverUrl) {
@@ -264,6 +261,22 @@ function App() {
         } else {
           queueHook.setPlaylistContext(prev => prev ? { ...prev, imagePath: context.coverUrl! } : prev);
         }
+      }
+    },
+    insertTrack: (track: PluginTrack, position: number) => {
+      const converted = [pluginTrackToTrackFn(track)];
+      if (position === -1) {
+        queueHook.enqueueTracks(converted);
+      } else {
+        queueHook.insertAtPosition(converted, position);
+      }
+    },
+    insertTracks: (tracks: PluginTrack[], position: number) => {
+      const converted = tracks.map(pluginTrackToTrackFn);
+      if (position === -1) {
+        queueHook.enqueueTracks(converted);
+      } else {
+        queueHook.insertAtPosition(converted, position);
       }
     },
     getDownloadFormat: () => downloadFormatRef.current,

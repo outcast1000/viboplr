@@ -485,6 +485,7 @@ function activate(api) {
           subtitle: (t.artist || "Unknown") + (t.album ? " — " + t.album : ""),
           imageUrl: t.imageUrl || undefined,
           duration: t.duration || "",
+          action: "play-track",
         };
         if (isAdded) {
           item.style = { "border-left": "3px solid var(--success)", "padding-left": "8px" };
@@ -1259,6 +1260,19 @@ function activate(api) {
     }
   });
 
+  api.ui.onAction("play-track", function(data) {
+    if (!data || !data.itemId) return;
+    var parts = data.itemId.split(":");
+    if (parts[0] !== "track") return;
+    var index = parseInt(parts[1], 10);
+    var pl = state.currentPlaylist;
+    if (!pl) return;
+    var tracks = state.playlistTracks[pl.id] || [];
+    if (index < 0 || index >= tracks.length) return;
+    var ctx = playlistContextPayload(pl);
+    api.playback.playTracks(toPluginTracks(tracks), index, ctx);
+  });
+
   api.ui.onAction("play-current", function() {
     var pl = state.currentPlaylist;
     if (!pl) return;
@@ -1273,10 +1287,7 @@ function activate(api) {
     if (!pl) return;
     var tracks = state.playlistTracks[pl.id] || [];
     if (tracks.length === 0) return;
-    var pluginTracks = toPluginTracks(tracks);
-    for (var i = 0; i < pluginTracks.length; i++) {
-      api.playback.enqueueTrack(pluginTracks[i]);
-    }
+    api.playback.insertTracks(toPluginTracks(tracks), -1);
   });
 
   api.ui.onAction("archive-current", function() {
@@ -1348,10 +1359,7 @@ function activate(api) {
     if (!pl) return;
     var tracks = state.playlistTracks[pl.id] || [];
     if (tracks.length === 0) return;
-    var pluginTracks = toPluginTracks(tracks);
-    for (var i = 0; i < pluginTracks.length; i++) {
-      api.playback.enqueueTrack(pluginTracks[i]);
-    }
+    api.playback.insertTracks(toPluginTracks(tracks), -1);
   });
 
   api.ui.onAction("archive-playlist", function(data) {
@@ -1473,10 +1481,7 @@ function activate(api) {
   api.ui.onAction("enqueue-archived", function(data) {
     var found = getArchivedByIndex(data);
     if (!found || !found.entry.tracks || found.entry.tracks.length === 0) return;
-    var pluginTracks = archivedToPluginTracks(found.entry.tracks);
-    for (var i = 0; i < pluginTracks.length; i++) {
-      api.playback.enqueueTrack(pluginTracks[i]);
-    }
+    api.playback.insertTracks(archivedToPluginTracks(found.entry.tracks), -1);
   });
 
   api.ui.onAction("delete-archived", function(data) {

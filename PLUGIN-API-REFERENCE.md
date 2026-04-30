@@ -36,8 +36,9 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | `isPlaying()` | Check if playback is active (sync) | — |
 | `getPosition()` | Get playback position in seconds (sync) | — |
 | `playTrack(track)` | Play a single PluginTrack | **tidal-browse** — plays selected track from search/album views |
-| `enqueueTrack(track)` | Enqueue a PluginTrack | **tidal-browse** — enqueues track from context menu/UI; **spotify-browse** — enqueues playlist tracks |
-| `playTracks(tracks, startIndex, context)` | Play multiple PluginTracks with optional playlist context (name, coverUrl, source, metadata) | **tidal-browse** — plays album or search result list; **spotify-browse** — plays playlist with source/metadata context |
+| `playTracks(tracks, startIndex, context)` | Play multiple PluginTracks with optional playlist context (name, coverUrl, source, metadata) | **tidal-browse** — plays album or search result list; **spotify-browse** — plays playlist from clicked track or start |
+| `insertTrack(track, position)` | Insert a PluginTrack into the queue at position (-1 = end) | — |
+| `insertTracks(tracks, position)` | Insert multiple PluginTracks into the queue at position (-1 = end) | **tidal-browse** — enqueues selected tracks; **spotify-browse** — enqueues playlist tracks |
 | `onTrackStarted(handler)` | Event: track starts playing | **lastfm** — sends "now playing" update to Last.fm |
 | `onTrackPlayed(handler)` | Event: track is played (scrobble threshold met) | — |
 | `onTrackScrobbled(handler)` | Event: track is scrobbled | **lastfm** — scrobbles the track to Last.fm |
@@ -57,7 +58,7 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | `setViewData(viewId, data)` | Render/update a plugin sidebar view | **lastfm** — settings panel; **lyrics-search** — settings with domain toggles; **spotify-browse** — playlists/tracks/settings views; **tidal-browse** — search results, album/artist detail; **auto-tagger** — analyze/approved/settings views; **mock-download** — settings panel; **youtube** — dependency status settings |
 | `showNotification(message)` | Show a toast notification | **spotify-browse** — archive/delete/save confirmations; **tidal-browse** — download/error notifications; **auto-tagger** — "applying tags" confirmation |
 | `navigateToView(viewId)` | Navigate to a plugin sidebar view | **tidal-browse** — opens TIDAL view from context menu |
-| `requestAction(action, payload)` | Request a host-level action (navigate, etc.) | **tidal-browse** — tidal-download-album, navigate-to-artist/album, show/hide-loading; **auto-tagger** — refresh-library after applying tags |
+| `requestAction(action, payload)` | Request a host-level action (navigate, download, etc.) | **tidal-browse** — tidal-download-album, navigate-to-artist/album, show/hide-loading; **auto-tagger** — refresh-library after applying tags |
 | `onAction(actionId, handler)` | Register handler for UI button/toggle/tab events | **lastfm** — connect/disconnect/import/auto-import actions; **lyrics-search** — domain toggles, test search; **spotify-browse** — tab switching, refresh, play, archive, etc.; **tidal-browse** — search, play, download, view detail; **auto-tagger** — analyze, approve, settings; **mock-download** — toggle/delay/rate settings; **youtube** — refresh, install links |
 | `setBadge(viewId, badge)` | Set dot/count badge on sidebar item | **spotify-browse** — dot badge when playlist changes detected; **tidal-browse** — dot badge when servers are down |
 
@@ -103,7 +104,7 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | `save(data)` | Save a playlist with tracks | **spotify-browse** — saves scraped Spotify playlists to app library |
 | `list()` | List all saved playlists | — |
 | `delete(id)` | Delete a playlist | — |
-| `getTracks(id)` | Get tracks in a playlist | **spotify-browse** — loads tracks from archived playlist snapshots |
+| `getTracks(id)` | Get tracks in a playlist | — |
 
 ## `api.informationTypes` — Information Type Providers
 
@@ -134,15 +135,15 @@ Complete reference of all functions and events available to Viboplr plugins via 
 |-----|-------------|---------|
 | `register(taskId, intervalMs)` | Register a recurring scheduled task | **spotify-browse** — auto-refresh playlists on configurable interval |
 | `unregister(taskId)` | Unregister a scheduled task | **spotify-browse** — stops auto-refresh when disabled |
-| `complete(taskId)` | Mark a task execution complete | — |
+| `complete(taskId)` | Mark a task execution complete | **spotify-browse** — marks auto-refresh task complete after scrape |
 | `onDue(taskId, handler)` | Handler called when scheduled task is due | **spotify-browse** — triggers playlist re-scrape |
 
 ---
 
 ## Summary
 
-- **13 namespaces**, ~60 methods/events
-- Heaviest consumers: **lastfm** (scrobbling + 9 info types + OAuth + history import), **tidal-browse** (search + playback + downloads + images + context menus), **spotify-browse** (web scraping + playlists + scheduling + caching)
+- **13 namespaces**, ~68 methods/events
+- Heaviest consumers: **lastfm** (scrobbling + 9 info types + OAuth + history import), **tidal-browse** (search + playback + downloads + images + context menus), **spotify-browse** (web scraping + playback + playlists + scheduling + caching)
 - Image-only plugins (audiodb, deezer, itunes, musicbrainz) are minimal: just `network.fetch` + `imageProviders.onFetch`
 - Lyrics plugins (lrclib, lyrics-ovh, lyrics-search) use `informationTypes.onFetch("lyrics")` + `network.fetch`
 - "—" in the "Used By" column means the API is available but no current plugin uses it
