@@ -289,6 +289,13 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         if (playback.currentTrack && playback.currentTrack.id != null && deletedSet.has(playback.currentTrack.id)) {
           playback.handleStop();
         }
+        const queueIndicesToRemove: number[] = [];
+        queueHook.queue.forEach((t, i) => {
+          if (t.id != null && deletedSet.has(t.id)) queueIndicesToRemove.push(i);
+        });
+        if (queueIndicesToRemove.length > 0) {
+          queueHook.removeMultiple(queueIndicesToRemove);
+        }
         library.loadLibrary();
         onTracksDeleted?.(result.deletedIds);
       }
