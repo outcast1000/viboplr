@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import type { Track, PlaylistLoadResult, PlaylistEntry } from "../types";
 import { trackToQueueEntry, queueEntryToTrack } from "../queueEntry";
@@ -25,6 +26,16 @@ export function useQueue(
   const [shuffleOrder, setShuffleOrder] = useState<number[]>([]);
   const [shufflePosition, setShufflePosition] = useState(0);
   const [playlistContext, setPlaylistContext] = useState<PlaylistContext | null>(null);
+  const [thumbVersions, setThumbVersions] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const unlisten = listen<{ key: string }>("main-playlist-thumb-ready", (event) => {
+      const key = event.payload?.key;
+      if (!key) return;
+      setThumbVersions(prev => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
+    });
+    return () => { unlisten.then(fn => fn()).catch(console.error); };
+  }, []);
 
   const queueRef = useRef(queue);
   queueRef.current = queue;
@@ -77,6 +88,13 @@ export function useQueue(
     // Backend slugifies the `key` param via canonical_slug → same filename as thumbFilenameForUri.
     for (const uri of removed) {
       invoke("main_playlist_remove_thumb", { key: uri }).catch(console.error);
+    }
+    if (removed.length > 0) {
+      setThumbVersions(prev => {
+        const next = { ...prev };
+        for (const uri of removed) delete next[uri];
+        return next;
+      });
     }
     if (!remote) return;
     for (const t of added) {
@@ -503,5 +521,6 @@ export function useQueue(
     toggleQueueMode, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,
+    thumbVersions,
   };
 }

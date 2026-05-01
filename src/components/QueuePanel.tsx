@@ -80,6 +80,7 @@ interface QueuePanelProps {
   onResizeWidth: (width: number) => void;
   debugMode?: boolean;
   mainPlaylistDir: string | null;
+  thumbVersions: Record<string, number>;
 }
 
 const AUTO_APPROVE_SECS = 10;
@@ -128,7 +129,7 @@ export function QueuePanel({
   albumImages, artistImages,
   externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth, debugMode,
-  mainPlaylistDir,
+  mainPlaylistDir, thumbVersions,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
@@ -531,9 +532,12 @@ export function QueuePanel({
           >
             <div className="queue-item-art-wrapper">
               <QueueItemThumb
-                localThumb={mainPlaylistDir && t.path && isContextRemote(playlistContext)
-                  ? convertFileSrc(`${mainPlaylistDir}/thumbs/${thumbFilenameForUri(t.path)}`)
-                  : null}
+                localThumb={(() => {
+                  if (!mainPlaylistDir || !t.path || !isContextRemote(playlistContext)) return null;
+                  const base = convertFileSrc(`${mainPlaylistDir}/thumbs/${thumbFilenameForUri(t.path)}`);
+                  const version = thumbVersions[t.path];
+                  return version ? `${base}?v=${version}` : base;
+                })()}
                 fallback={getTrackImage(t)}
               />
             </div>

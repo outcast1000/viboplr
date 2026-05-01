@@ -4017,14 +4017,18 @@ pub async fn main_playlist_set_cover(
 
 #[tauri::command]
 pub async fn main_playlist_set_thumb(
+    app: AppHandle,
     state: State<'_, AppState>,
     key: String,
     source: crate::models::ImageSource,
 ) -> Result<(), String> {
     let dir = state.app_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::main_playlist::set_thumb(&dir, &key, &source))
+    let key_clone = key.clone();
+    tauri::async_runtime::spawn_blocking(move || crate::main_playlist::set_thumb(&dir, &key_clone, &source))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())??;
+    let _ = app.emit("main-playlist-thumb-ready", serde_json::json!({ "key": key }));
+    Ok(())
 }
 
 #[tauri::command]

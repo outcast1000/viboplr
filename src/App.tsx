@@ -2997,6 +2997,7 @@ function App() {
           onResizeWidth={handleResizeQueueWidth}
           debugMode={debugMode}
           mainPlaylistDir={mainPlaylistDir}
+          thumbVersions={queueHook.thumbVersions}
         />
       {!queueCollapsed && (
         <button
