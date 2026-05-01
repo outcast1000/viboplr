@@ -3136,8 +3136,41 @@ function App() {
           }}
           onClose={() => setDownloadModal(null)}
           onComplete={(msg) => { setDownloadModal(null); library.loadLibrary(); library.loadTracks(); addLog(msg, "downloads"); }}
-          onPlay={(path) => {
-            queueHook.addToQueueAndPlay({ id: 0, title: path.split("/").pop() ?? "Track", path: `file://${path}` } as Track);
+          onPlay={async (path) => {
+            const uri = `file://${path}`;
+            try {
+              await library.loadTracks();
+              const tracks = await invoke<Track[]>("get_tracks", { opts: {} });
+              const match = tracks.find(t => t.path === uri);
+              if (match) {
+                queueHook.playTracks([match], 0);
+                return;
+              }
+            } catch (e) {
+              console.error("Failed to look up downloaded track:", e);
+            }
+            const fallback: Track = {
+              id: null,
+              key: uri,
+              path: uri,
+              title: path.split("/").pop() ?? "Track",
+              artist_id: null,
+              artist_name: null,
+              album_id: null,
+              album_title: null,
+              year: null,
+              track_number: null,
+              duration_secs: null,
+              format: null,
+              file_size: null,
+              collection_id: null,
+              collection_name: null,
+              liked: 0,
+              youtube_url: null,
+              added_at: null,
+              modified_at: null,
+            };
+            queueHook.playTracks([fallback], 0);
           }}
         />
       )}
