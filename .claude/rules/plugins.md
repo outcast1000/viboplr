@@ -336,21 +336,4 @@ Toggle controls use `checked: boolean`, not `value`. `{ type: "toggle", label, a
 - **`plugin_storage`** — per-plugin key-value store. Primary key on `(plugin_id, key)`.
 - **`plugin_schedules`** — periodic task state.
 
-## Existing Plugins
 
-| Plugin | Contributions |
-|--------|-------------|
-| **audiodb** | Artist images (priority 400) |
-| **auto-tagger** | Sidebar view; reacts to `track:added` and `scan:complete` to suggest/auto-assign tags |
-| **deezer** | Artist images (200), album images (300) |
-| **genius** | Song bio + song meaning (annotations), artist + album bios (rich_text, priority 200) |
-| **itunes** | Artist images (300), album images (200) |
-| **lastfm** | Multiple info types (stats, bios, similar, popularity, tags), scrobbling, event hooks, settings panel |
-| **lrclib** | Synced/plain lyrics (priority 100) |
-| **lyrics-ovh** | Plain lyrics (priority 300) |
-| **lyrics-search** | Meta-search lyrics via Google + whitelisted scrapers (priority 400, settings panel) |
-| **mock-download** | `debugOnly` download provider (priority 900) with settings panel — testing harness for the unified download flow |
-| **musicbrainz** | Artist images (500), album images (500) |
-| **spotify-browse** | Sidebar (Spotify), scrape-based browse (playlists/liked), settings panel with scrape diagnostics |
-| **tidal-browse** | Sidebar (TIDAL), artist+album images (100), context menus (search/play/download-playlist), download provider (priority 100), stream resolver (priority 200), custom `tidal://` URI stream resolver |
-| **youtube** | Stream resolver (priority 300) + download provider (priority 300) via `yt-dlp` + `ffmpeg`, settings panel with dependency checks |
