@@ -122,22 +122,21 @@ async function searchAndDownload(api, title, artistName, durationSecs) {
   console.log("[youtube] downloading audio via yt-dlp:", result.url);
   var filePath;
   try {
-    var destFile = Date.now() + ".webm";
-    var dlResult = await api.system.exec("yt-dlp", ["-f", "bestaudio", "--no-warnings", "-o", destFile, result.url], { cwd: null });
+    var destFile = Date.now() + ".%(ext)s";
+    var dlResult = await api.system.exec("yt-dlp", [
+      "-f", "bestaudio",
+      "--no-warnings",
+      "--quiet",
+      "--no-simulate",
+      "--print", "after_move:filepath",
+      "-o", destFile,
+      result.url
+    ], { cwd: null });
     if (dlResult.exitCode !== 0) {
       console.error("[youtube] yt-dlp failed:", dlResult.stderr);
       return null;
     }
     filePath = dlResult.stdout.trim() || null;
-    if (!filePath) {
-      var lines = dlResult.stderr.split("\n");
-      for (var li = 0; li < lines.length; li++) {
-        var dm = lines[li].match(/\[download\] Destination: (.+)/);
-        if (dm) { filePath = dm[1]; break; }
-        var am = lines[li].match(/\[download\] (.+) has already been downloaded/);
-        if (am) { filePath = am[1]; break; }
-      }
-    }
   } catch (e) {
     console.error("[youtube] yt-dlp exec failed:", e);
     return null;
