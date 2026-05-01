@@ -658,3 +658,44 @@
   background: color-mix(in srgb, var(--error) 12%, transparent);
   color: var(--error);
 }
+
+/* Ultra-compact mini player row (24px height) */
+.mini-ultra-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 24px;
+  width: 100%;
+  min-width: 0;
+}
+
+.mini-ultra-row .now-title.mini-ultra-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.mini-ultra-row .mini-right {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mini-ultra-row .mini-play-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+}
+
+.mini-ultra-row .g-btn-sm {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+}

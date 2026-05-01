@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
+import type { MiniRestingSize } from "../hooks/useMiniMode";
 import { formatDuration } from "../utils";
 import { isRemoteScheme } from "../queueEntry";
 import { AutoContinuePopover } from "./AutoContinuePopover";
@@ -78,7 +79,9 @@ interface NowPlayingBarProps {
   imagePath: string | null;
   miniMode: boolean;
   miniExpanded: boolean;
+  miniRestingSize: MiniRestingSize;
   onCancelCollapseTimer: () => void;
+  onCycleRestingSize: () => void;
   onToggleMiniMode: () => void;
   onClose: () => void;
   onPause: () => void;
@@ -119,7 +122,7 @@ export function NowPlayingBar({
   trackRank, artistRank,
   volume, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
-  imagePath, miniMode, miniExpanded, onCancelCollapseTimer, onToggleMiniMode, onClose,
+  imagePath, miniMode, miniExpanded, miniRestingSize, onCancelCollapseTimer, onCycleRestingSize, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
@@ -180,88 +183,114 @@ export function NowPlayingBar({
         }} onDoubleClick={isMac ? (e) => {
           if (!(e.target as HTMLElement).closest("button")) onToggleMiniMode();
         } : undefined}>
-        <div className="mini-compact-row">
-          <div className="now-info">
-            <div className="now-mini-art-wrapper">
-              {imagePath ? (
-                <img className="now-mini-art" src={imagePath.startsWith("http") ? imagePath : convertFileSrc(imagePath)} alt="" />
-              ) : (
-                <div className="now-mini-art now-mini-art-placeholder">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                    <circle cx="12" cy="12" r="10" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                </div>
-              )}
-            </div>
-            <div className="now-mini-info-text">
-              {playbackError ? (
-                <>
-                  <span className="now-title now-mini-error">Playback failed</span>
-                  <span className="now-artist">{currentTrack?.title || "Unknown"}</span>
-                </>
-              ) : currentTrack ? (
-                <>
-                  <span className="now-title">
-                    {currentTrack.title}
-                    {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
-                  </span>
-                  {showMiniVolume ? (
-                    <div className="mini-volume-row">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/>{volume > 0 && <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>}{volume > 0.5 && <path d="M19 12c0 3.53-2.04 6.58-5 8.05v2.08c4.12-1.57 7-5.47 7-10.13s-2.88-8.56-7-10.13V3.95c2.96 1.47 5 4.52 5 8.05z"/>}</svg>
-                      <div className="mini-volume-track">
-                        <div className="mini-volume-fill" style={{ width: `${Math.round(volume * 100)}%` }} />
-                      </div>
-                      <span className="mini-volume-pct">{Math.round(volume * 100)}%</span>
-                    </div>
-                  ) : (
-                    <span className="now-artist">
-                      {loadingTrack && loadingTrack.key !== currentTrack.key ? (
-                        <span className="now-resolving-trying">
-                          Loading {loadingTrack.title}
-                          {resolvingStatus?.trying && ` · ${resolvingStatus.trying}`}...
-                        </span>
-                      ) : resolvingStatus ? (
-                        <>
-                          {resolvingStatus.error && (
-                            <><span className="now-resolving-error">{resolvingStatus.error}</span><span className="now-resolving-sep"> · </span></>
-                          )}
-                          <span className="now-resolving-trying">Trying {resolvingStatus.trying}...</span>
-                        </>
-                      ) : (
-                        <>
-                          {currentTrack.artist_name || "Unknown"}
-                          {currentTrack.album_title && ` · ${currentTrack.album_title}`}
-                        </>
-                      )}
+        {miniExpanded || miniRestingSize === "compact" ? (
+          <div className="mini-compact-row">
+            <div className="now-info">
+              <div className="now-mini-art-wrapper">
+                {imagePath ? (
+                  <img className="now-mini-art" src={imagePath.startsWith("http") ? imagePath : convertFileSrc(imagePath)} alt="" />
+                ) : (
+                  <div className="now-mini-art now-mini-art-placeholder">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
+                      <circle cx="12" cy="12" r="10" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+              <div className="now-mini-info-text">
+                {playbackError ? (
+                  <>
+                    <span className="now-title now-mini-error">Playback failed</span>
+                    <span className="now-artist">{currentTrack?.title || "Unknown"}</span>
+                  </>
+                ) : currentTrack ? (
+                  <>
+                    <span className="now-title">
+                      {currentTrack.title}
+                      {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                     </span>
-                  )}
-                </>
-              ) : loadingTrack ? (
-                <>
-                  <span className="now-title"><SlideText text={loadingTrack.title} /></span>
-                  <span className="now-artist">
-                    <span className="now-resolving-trying">Loading...</span>
-                  </span>
-                </>
-              ) : (
-                <span className="now-title">No track playing</span>
-              )}
+                    {showMiniVolume ? (
+                      <div className="mini-volume-row">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/>{volume > 0 && <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>}{volume > 0.5 && <path d="M19 12c0 3.53-2.04 6.58-5 8.05v2.08c4.12-1.57 7-5.47 7-10.13s-2.88-8.56-7-10.13V3.95c2.96 1.47 5 4.52 5 8.05z"/>}</svg>
+                        <div className="mini-volume-track">
+                          <div className="mini-volume-fill" style={{ width: `${Math.round(volume * 100)}%` }} />
+                        </div>
+                        <span className="mini-volume-pct">{Math.round(volume * 100)}%</span>
+                      </div>
+                    ) : (
+                      <span className="now-artist">
+                        {loadingTrack && loadingTrack.key !== currentTrack.key ? (
+                          <span className="now-resolving-trying">
+                            Loading {loadingTrack.title}
+                            {resolvingStatus?.trying && ` · ${resolvingStatus.trying}`}...
+                          </span>
+                        ) : resolvingStatus ? (
+                          <>
+                            {resolvingStatus.error && (
+                              <><span className="now-resolving-error">{resolvingStatus.error}</span><span className="now-resolving-sep"> · </span></>
+                            )}
+                            <span className="now-resolving-trying">Trying {resolvingStatus.trying}...</span>
+                          </>
+                        ) : (
+                          <>
+                            {currentTrack.artist_name || "Unknown"}
+                            {currentTrack.album_title && ` · ${currentTrack.album_title}`}
+                          </>
+                        )}
+                      </span>
+                    )}
+                  </>
+                ) : loadingTrack ? (
+                  <>
+                    <span className="now-title"><SlideText text={loadingTrack.title} /></span>
+                    <span className="now-artist">
+                      <span className="now-resolving-trying">Loading...</span>
+                    </span>
+                  </>
+                ) : (
+                  <span className="now-title">No track playing</span>
+                )}
+              </div>
+            </div>
+            <div className="mini-right">
+              <div className="now-controls">
+                <button className="g-btn g-btn-md mini-play-btn" onClick={onPause} title="Play / Pause">
+                  {playing
+                    ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+                    : <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>}
+                </button>
+                <button className="g-btn g-btn-sm" onClick={onNext} title="Next">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zm-2 6L6 18V6z"/></svg>
+                </button>
+              </div>
             </div>
           </div>
-          <div className="mini-right">
-            <div className="now-controls">
-              <button className="g-btn g-btn-md mini-play-btn" onClick={onPause} title="Play / Pause">
-                {playing
-                  ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-                  : <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>}
-              </button>
-              <button className="g-btn g-btn-sm" onClick={onNext} title="Next">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zm-2 6L6 18V6z"/></svg>
-              </button>
+        ) : (
+          <div className="mini-ultra-row">
+            <span className="now-title mini-ultra-title">
+              {playbackError
+                ? "Playback failed"
+                : currentTrack
+                  ? `${currentTrack.title} - ${currentTrack.artist_name || "Unknown"}`
+                  : loadingTrack
+                    ? `Loading ${loadingTrack.title}…`
+                    : "No track playing"}
+            </span>
+            <div className="mini-right">
+              <div className="now-controls">
+                <button className="g-btn g-btn-md mini-play-btn" onClick={onPause} title="Play / Pause">
+                  {playing
+                    ? <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+                    : <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>}
+                </button>
+                <button className="g-btn g-btn-sm" onClick={onNext} title="Next">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zm-2 6L6 18V6z"/></svg>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
         {miniExpanded && (
           <>
             <div className="mini-seek-row" onMouseDown={(e) => e.stopPropagation()}>
@@ -291,6 +320,17 @@ export function NowPlayingBar({
               <div className="mini-extra-right">
                 <button className="g-btn g-btn-sm" onClick={onPrevious} title="Previous">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                </button>
+                <button
+                  className="g-btn g-btn-sm"
+                  onClick={onCycleRestingSize}
+                  title={miniRestingSize === "compact" ? "Use ultra-compact resting size" : "Use compact resting size"}
+                >
+                  {miniRestingSize === "compact" ? (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                  ) : (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                  )}
                 </button>
                 <button className="g-btn mini-expand-btn" onClick={() => { onCancelCollapseTimer(); onToggleMiniMode(); }} title="Exit mini mode">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/></svg>

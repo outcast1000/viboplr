@@ -5,6 +5,7 @@ import { store } from "../store";
 import type { Track } from "../types";
 
 const MINI_COMPACT_HEIGHT = 52;
+const MINI_ULTRA_HEIGHT = 24;
 const MINI_EXTRA_ROW_HEIGHT = 54;
 const MINI_EXPANDED_HEIGHT = MINI_COMPACT_HEIGHT + MINI_EXTRA_ROW_HEIGHT;
 const MINI_MIN_WIDTH = 280;
@@ -12,6 +13,8 @@ const MINI_MAX_WIDTH = 550;
 const MINI_INITIAL_WIDTH = 500;
 const FULL_MIN_WIDTH = 300;
 const FULL_MIN_HEIGHT = 400;
+const MINI_HOVER_EXPAND_DELAY = 500;
+const MINI_HOVER_COLLAPSE_DELAY = 300;
 
 type MonitorRect = { x: number; y: number; w: number; h: number };
 
@@ -55,6 +58,63 @@ async function getLogicalMonitorBounds(): Promise<MonitorRect[]> {
   }
 }
 
+export type MiniRestingSize = "ultra" | "compact";
+
+export function cycleRestingSize(current: MiniRestingSize): MiniRestingSize {
+  return current === "compact" ? "ultra" : "compact";
+}
+
+interface HoverControllerOptions {
+  expandDelayMs: number;
+  collapseDelayMs: number;
+  onExpand: () => void;
+  onCollapse: () => void;
+  isExpanded: () => boolean;
+}
+
+export interface HoverController {
+  handleEnter: () => void;
+  handleLeave: () => void;
+  cancel: () => void;
+}
+
+export function makeHoverController(opts: HoverControllerOptions): HoverController {
+  let expandTimer: ReturnType<typeof setTimeout> | null = null;
+  let collapseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearExpand = () => {
+    if (expandTimer) { clearTimeout(expandTimer); expandTimer = null; }
+  };
+  const clearCollapse = () => {
+    if (collapseTimer) { clearTimeout(collapseTimer); collapseTimer = null; }
+  };
+
+  return {
+    handleEnter() {
+      clearCollapse();
+      if (opts.isExpanded()) return;
+      clearExpand();
+      expandTimer = setTimeout(() => {
+        expandTimer = null;
+        opts.onExpand();
+      }, opts.expandDelayMs);
+    },
+    handleLeave() {
+      clearExpand();
+      if (!opts.isExpanded()) return;
+      clearCollapse();
+      collapseTimer = setTimeout(() => {
+        collapseTimer = null;
+        opts.onCollapse();
+      }, opts.collapseDelayMs);
+    },
+    cancel() {
+      clearExpand();
+      clearCollapse();
+    },
+  };
+}
+
 function measureMiniFooter(): number {
   const footer = document.querySelector(".now-playing-mini") as HTMLElement;
   if (!footer) return MINI_INITIAL_WIDTH;
@@ -85,6 +145,18 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
   const miniModeRef = useRef(false);
   const fullSizeRef = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
   const [miniExpanded, setMiniExpanded] = useState(false);
+  const miniExpandedRef = useRef(false);
+  useEffect(() => { miniExpandedRef.current = miniExpanded; }, [miniExpanded]);
+  const [miniRestingSize, setMiniRestingSizeState] = useState<MiniRestingSize>("compact");
+  const miniRestingSizeRef = useRef<MiniRestingSize>("compact");
+  useEffect(() => { miniRestingSizeRef.current = miniRestingSize; }, [miniRestingSize]);
+
+  // Used in Task 3 for expand/collapse paths
+  const currentRestingHeight = useCallback(
+    () => (miniRestingSizeRef.current === "ultra" ? MINI_ULTRA_HEIGHT : MINI_COMPACT_HEIGHT),
+    [],
+  );
+
   const expandDirectionRef = useRef<"down" | "up">("down");
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const expandingRef = useRef(false);
@@ -113,18 +185,20 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         logicalY >= m.y && logicalY < m.y + m.h
       ) || bounds[0];
 
+      const restingHeight = currentRestingHeight();
+      const extraHeight = MINI_EXPANDED_HEIGHT - restingHeight;
       const spaceBelow = monitor
-        ? (monitor.y + monitor.h) - (logicalY + MINI_COMPACT_HEIGHT)
+        ? (monitor.y + monitor.h) - (logicalY + restingHeight)
         : Infinity;
 
-      if (spaceBelow >= MINI_EXTRA_ROW_HEIGHT) {
+      if (spaceBelow >= extraHeight) {
         expandDirectionRef.current = "down";
         await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_EXPANDED_HEIGHT));
         await win.setSize(new LogicalSize(logicalW, MINI_EXPANDED_HEIGHT));
       } else {
         expandDirectionRef.current = "up";
         await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_EXPANDED_HEIGHT));
-        await win.setPosition(new LogicalPosition(pos.x / factor, logicalY - MINI_EXTRA_ROW_HEIGHT));
+        await win.setPosition(new LogicalPosition(pos.x / factor, logicalY - extraHeight));
         await win.setSize(new LogicalSize(logicalW, MINI_EXPANDED_HEIGHT));
       }
       setMiniExpanded(true);
@@ -133,7 +207,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
     } finally {
       expandingRef.current = false;
     }
-  }, []);
+  }, [currentRestingHeight]);
 
   const collapseMini = useCallback(async () => {
     if (!miniModeRef.current || expandingRef.current) return;
@@ -145,18 +219,20 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
       const size = await win.innerSize();
       const logicalW = size.width / factor;
 
-      await win.setSize(new LogicalSize(logicalW, MINI_COMPACT_HEIGHT));
+      const restingHeight = currentRestingHeight();
+      const extraHeight = MINI_EXPANDED_HEIGHT - restingHeight;
+      await win.setSize(new LogicalSize(logicalW, restingHeight));
       if (expandDirectionRef.current === "up") {
-        await win.setPosition(new LogicalPosition(pos.x / factor, pos.y / factor + MINI_EXTRA_ROW_HEIGHT));
+        await win.setPosition(new LogicalPosition(pos.x / factor, pos.y / factor + extraHeight));
       }
-      await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_COMPACT_HEIGHT));
+      await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, restingHeight));
       setMiniExpanded(false);
     } catch (err) {
       console.error("collapseMini failed:", err);
     } finally {
       expandingRef.current = false;
     }
-  }, []);
+  }, [currentRestingHeight]);
 
   const toggleMiniMode = useCallback(async () => {
     try {
@@ -165,6 +241,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
       if (!miniModeRef.current) {
         cancelCollapseTimer();
         setMiniExpanded(false);
+        const restingHeight = currentRestingHeight();
         const size = await win.innerSize();
         const pos = await win.outerPosition();
         const geo = { w: size.width / factor, h: size.height / factor, x: pos.x / factor, y: pos.y / factor };
@@ -177,8 +254,8 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         miniModeRef.current = true;
         store.set("miniMode", true);
         await win.hide();
-        await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_COMPACT_HEIGHT));
-        await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, MINI_COMPACT_HEIGHT));
+        await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, restingHeight));
+        await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, restingHeight));
         const [mx, my] = await Promise.all([
           store.get<number | null>("miniWindowX"),
           store.get<number | null>("miniWindowY"),
@@ -188,7 +265,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
           if (isPositionOnScreen(mx, my, bounds)) {
             await win.setPosition(new LogicalPosition(mx, my));
           } else if (bounds.length > 0) {
-            const clamped = clampToNearestMonitor(mx, my, MINI_INITIAL_WIDTH, MINI_COMPACT_HEIGHT, bounds);
+            const clamped = clampToNearestMonitor(mx, my, MINI_INITIAL_WIDTH, restingHeight, bounds);
             await win.setPosition(new LogicalPosition(clamped.x, clamped.y));
           }
         }
@@ -239,7 +316,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
     } catch (err) {
       console.error("toggleMiniMode failed:", err);
     }
-  }, [cancelCollapseTimer]);
+  }, [cancelCollapseTimer, currentRestingHeight]);
 
   // Auto-resize mini window when track changes or mini mode is entered
   const miniSettledRef = useRef(false);
@@ -251,7 +328,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         if (!miniModeRef.current) return;
         const win = getCurrentWindow();
         const newWidth = measureMiniFooter();
-        const currentHeight = miniExpanded ? MINI_EXPANDED_HEIGHT : MINI_COMPACT_HEIGHT;
+        const currentHeight = miniExpanded ? MINI_EXPANDED_HEIGHT : currentRestingHeight();
         await win.setSize(new LogicalSize(newWidth, currentHeight));
         miniSettledRef.current = true;
       }, 60);
@@ -266,13 +343,13 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         const size = await win.innerSize();
         const pos = await win.outerPosition();
         const rightEdge = pos.x / factor + size.width / factor;
-        const currentHeight = miniExpanded ? MINI_EXPANDED_HEIGHT : MINI_COMPACT_HEIGHT;
+        const currentHeight = miniExpanded ? MINI_EXPANDED_HEIGHT : currentRestingHeight();
         await win.setSize(new LogicalSize(newWidth, currentHeight));
         await win.setPosition(new LogicalPosition(rightEdge - newWidth, pos.y / factor));
       });
       return () => cancelAnimationFrame(frame);
     }
-  }, [miniMode, currentTrack, miniExpanded]);
+  }, [miniMode, currentTrack, miniExpanded, miniRestingSize]);
 
   // Save window size and position on resize/move
   useEffect(() => {
@@ -314,29 +391,62 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
   }, []);
 
   useEffect(() => {
-    if (!miniMode) return;
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-
-    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (cancelled) return;
-      if (focused) {
-        cancelCollapseTimer();
-        expandMini();
-      } else {
-        collapseMini();
+    (async () => {
+      try {
+        const saved = await store.get<MiniRestingSize | null>("miniRestingSize");
+        if (saved === "ultra" || saved === "compact") {
+          setMiniRestingSizeState(saved);
+        }
+      } catch (err) {
+        console.error("Failed to load miniRestingSize:", err);
       }
-    }).then(fn => {
-      if (cancelled) fn();
-      else unlisten = fn;
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!miniMode) return;
+
+    const controller = makeHoverController({
+      expandDelayMs: MINI_HOVER_EXPAND_DELAY,
+      collapseDelayMs: MINI_HOVER_COLLAPSE_DELAY,
+      onExpand: () => { expandMini(); },
+      onCollapse: () => { collapseMini(); },
+      isExpanded: () => miniExpandedRef.current,
     });
 
-    return () => {
-      cancelled = true;
-      cancelCollapseTimer();
-      unlisten?.();
-    };
-  }, [miniMode, expandMini, collapseMini, cancelCollapseTimer]);
+    // Expand on mouse over OR on focus gained. Collapse on mouse out OR focus lost.
+    // The controller dedupes (handleEnter while expanded is a noop).
+    const root = document.documentElement;
+    const onEnter = () => controller.handleEnter();
+    const onLeave = () => controller.handleLeave();
 
-  return { miniMode, setMiniMode, miniModeRef, fullSizeRef, toggleMiniMode, miniExpanded, cancelCollapseTimer };
+    root.addEventListener("mouseenter", onEnter);
+    root.addEventListener("mouseleave", onLeave);
+    window.addEventListener("focus", onEnter);
+    window.addEventListener("blur", onLeave);
+
+    if (root.matches(":hover") || document.hasFocus()) {
+      controller.handleEnter();
+    }
+
+    return () => {
+      controller.cancel();
+      root.removeEventListener("mouseenter", onEnter);
+      root.removeEventListener("mouseleave", onLeave);
+      window.removeEventListener("focus", onEnter);
+      window.removeEventListener("blur", onLeave);
+    };
+  }, [miniMode, expandMini, collapseMini]);
+
+  const setMiniRestingSize = useCallback((next: MiniRestingSize) => {
+    setMiniRestingSizeState(next);
+    store.set("miniRestingSize", next).catch((err: unknown) => {
+      console.error("Failed to persist miniRestingSize:", err);
+    });
+  }, []);
+
+  return {
+    miniMode, setMiniMode, miniModeRef, fullSizeRef, toggleMiniMode, miniExpanded,
+    cancelCollapseTimer, miniRestingSize, setMiniRestingSize,
+  };
 }

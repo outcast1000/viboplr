@@ -29,7 +29,7 @@ import { usePasteImage } from "./hooks/usePasteImage";
 import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistory";
 import { useSessionLog } from "./hooks/useSessionLog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
-import { useMiniMode } from "./hooks/useMiniMode";
+import { useMiniMode, cycleRestingSize } from "./hooks/useMiniMode";
 import { useVideoLayout } from "./hooks/useVideoLayout";
 import type { VideoLayoutState } from "./hooks/useVideoLayout";
 import { useWaveform } from "./hooks/useWaveform";
@@ -3362,7 +3362,9 @@ function App() {
         }
         miniMode={mini.miniMode}
         miniExpanded={mini.miniExpanded}
+        miniRestingSize={mini.miniRestingSize}
         onCancelCollapseTimer={mini.cancelCollapseTimer}
+        onCycleRestingSize={() => mini.setMiniRestingSize(cycleRestingSize(mini.miniRestingSize))}
         onToggleMiniMode={mini.toggleMiniMode}
         onClose={() => exit(0)}
         onPause={playback.handlePause}
