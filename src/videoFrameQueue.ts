@@ -1,0 +1,138 @@
+export const HOVER_FRAME_INTERVAL_MS = 600;
+
+export type FrameEntry =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; frames: string[]; timestamps: number[] }
+  | { status: "unavailable" };
+
+interface VideoFrameResult {
+  status: string;
+  paths?: string[];
+  timestamps?: number[];
+}
+
+type InvokeFn = (cmd: string, args: unknown) => Promise<unknown>;
+type ConvertFn = (path: string) => string;
+type Unsubscribe = () => void;
+type Listener = () => void;
+
+const IDLE: FrameEntry = { status: "idle" };
+
+/**
+ * FIFO queue (concurrency 1) that performs cache checks synchronously on enqueue
+ * and queues `extract_video_frames` invokes on cache miss. Framework-agnostic.
+ */
+export class VideoFrameQueue {
+  private entries = new Map<number, FrameEntry>();
+  private pending: number[] = [];
+  private cancelled = new Set<number>();
+  private processing = false;
+  private listeners = new Set<Listener>();
+  private inflightPromise: Promise<void> = Promise.resolve();
+
+  constructor(private invoke: InvokeFn, private convertFileSrc: ConvertFn) {}
+
+  getEntry(trackId: number): FrameEntry {
+    return this.entries.get(trackId) ?? IDLE;
+  }
+
+  subscribe(listener: Listener): Unsubscribe {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /** Await until all queued work has settled. Test helper. */
+  async drain(): Promise<void> {
+    await new Promise((r) => setTimeout(r, 0));
+    while (this.processing || this.pending.length > 0) {
+      await this.inflightPromise;
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
+  enqueue(trackId: number): void {
+    const current = this.entries.get(trackId);
+    if (current && current.status !== "idle") return;
+    this.setEntry(trackId, { status: "loading" });
+    this.cancelled.delete(trackId);
+    void this.checkCache(trackId);
+  }
+
+  cancel(trackId: number): void {
+    const current = this.entries.get(trackId);
+    if (!current || current.status !== "loading") return;
+    this.pending = this.pending.filter((id) => id !== trackId);
+    this.cancelled.add(trackId);
+  }
+
+  evict(trackId: number): void {
+    this.entries.delete(trackId);
+    this.pending = this.pending.filter((id) => id !== trackId);
+    this.cancelled.delete(trackId);
+    this.notify();
+  }
+
+  private setEntry(trackId: number, entry: FrameEntry) {
+    this.entries.set(trackId, entry);
+    this.notify();
+  }
+
+  private notify() {
+    for (const l of this.listeners) l();
+  }
+
+  private toReady(res: VideoFrameResult): FrameEntry {
+    if (res.status === "ok" && res.paths) {
+      return {
+        status: "ready",
+        frames: res.paths.map((p) => this.convertFileSrc(p)),
+        timestamps: res.timestamps ?? [],
+      };
+    }
+    return { status: "unavailable" };
+  }
+
+  private async checkCache(trackId: number): Promise<void> {
+    try {
+      const cached = (await this.invoke("get_video_frames", { trackId })) as VideoFrameResult | null;
+      if (cached && cached.status === "ok" && cached.paths) {
+        this.setEntry(trackId, this.toReady(cached));
+        return;
+      }
+    } catch (e) {
+      console.error("Failed to check video frame cache:", e);
+      this.setEntry(trackId, { status: "unavailable" });
+      return;
+    }
+    this.pending.push(trackId);
+    this.pump();
+  }
+
+  private pump(): void {
+    if (this.processing) return;
+    const next = this.pending.shift();
+    if (next === undefined) return;
+    if (this.cancelled.has(next)) {
+      this.cancelled.delete(next);
+      this.setEntry(next, { status: "idle" });
+      this.pump();
+      return;
+    }
+    this.processing = true;
+    this.inflightPromise = this.extract(next).finally(() => {
+      this.processing = false;
+      this.pump();
+    });
+  }
+
+  private async extract(trackId: number): Promise<void> {
+    try {
+      const res = (await this.invoke("extract_video_frames", { trackId })) as VideoFrameResult;
+      this.setEntry(trackId, this.toReady(res));
+    } catch (e) {
+      console.error("Failed to extract video frames:", e);
+      this.setEntry(trackId, { status: "unavailable" });
+    }
+  }
+}

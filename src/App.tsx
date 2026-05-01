@@ -47,6 +47,8 @@ import { useContextMenuActions } from "./hooks/useContextMenuActions";
 import type { PluginTrack, DownloadProvider } from "./types/plugin";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
+import { VideoFrameQueueProvider, useVideoFrameQueue } from "./hooks/useVideoFrameQueueContext";
+import type { VideoFrameQueue } from "./videoFrameQueue";
 import { CaptionBar } from "./components/CaptionBar";
 import { ViewSearchBar } from "./components/ViewSearchBar";
 
@@ -88,8 +90,15 @@ import { IconYoutube } from "./components/Icons";
 import { LikeDislikeButtons } from "./components/LikeDislikeButtons";
 
 
+function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<VideoFrameQueue | null> }) {
+  const queue = useVideoFrameQueue();
+  useEffect(() => { refOut.current = queue; }, [queue, refOut]);
+  return null;
+}
+
 function App() {
   const restoredRef = useRef(false);
+  const videoFrameQueueRef = useRef<VideoFrameQueue | null>(null);
   const [appRestoring, setAppRestoring] = useState(true);
   const [navError, setNavError] = useState<string | null>(null);
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
@@ -786,7 +795,12 @@ function App() {
     artistImages: artistImageCache.images,
     queueCollapsed,
     setQueueCollapsed,
-    onTracksDeleted: (deletedIds: number[]) => setSearchDeletedBatch(prev => ({ ids: deletedIds, key: prev.key + 1 })),
+    onTracksDeleted: (deletedIds: number[]) => {
+      setSearchDeletedBatch(prev => ({ ids: deletedIds, key: prev.key + 1 }));
+      for (const id of deletedIds) {
+        videoFrameQueueRef.current?.evict(id);
+      }
+    },
   });
 
   const handleDeleteTracks = useCallback((trackIds: number[]) => {
@@ -2137,6 +2151,8 @@ function App() {
   };
 
   return (
+    <VideoFrameQueueProvider>
+    <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
     <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties} onClick={() => contextMenuActions.setContextMenu(null)}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
@@ -3468,6 +3484,7 @@ function App() {
       />
 
     </div>
+    </VideoFrameQueueProvider>
   );
 }
 

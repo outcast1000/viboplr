@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import type { Track, Artist, Album, Tag, ViewMode, SortField } from "../types";
 import { formatDuration, isVideoTrack } from "../utils";
 import { store } from "../store";
@@ -8,8 +8,15 @@ import { ArtistCardArt } from "./ArtistCardArt";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { TagCardArt } from "./TagCardArt";
 import { ViewModeToggle } from "./ViewModeToggle";
-import { VideoFrameCard } from "./VideoFrameCard";
+import { VideoRowThumb } from "./VideoRowThumb";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
+
+function isLocalVideo(t: Track): boolean {
+  if (!isVideoTrack(t)) return false;
+  if (t.id == null) return false;
+  if (!t.path) return false;
+  return !t.path.startsWith("subsonic://") && !t.path.startsWith("tidal://");
+}
 
 interface SearchSettings {
   activeTab: SearchTab;
@@ -28,12 +35,6 @@ interface SearchSettings {
   tagSortDir: SortDir;
   tagLikedFirst: boolean;
   sortBarCollapsed: boolean;
-}
-
-interface VideoFrameResult {
-  status: string;
-  paths?: string[];
-  timestamps?: number[];
 }
 
 type SortDir = "asc" | "desc";
@@ -144,7 +145,6 @@ export function SearchView({
   const [tagSortDir, setTagSortDir] = useState<SortDir>("asc");
   const [tagLikedFirst, setTagLikedFirst] = useState(false);
   const [sortBarCollapsed, setSortBarCollapsed] = useState(true);
-  const [videoFrameCache, setVideoFrameCache] = useState<Record<number, string[]>>({});
   const inputRef = useRef<HTMLInputElement>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -279,19 +279,6 @@ export function SearchView({
       artistSortField, artistSortDir, artistLikedFirst,
       albumSortField, albumSortDir, albumLikedFirst,
       tagSortField, tagSortDir, tagLikedFirst, sortBarCollapsed]);
-
-  useEffect(() => {
-    const videoTracks = results.tracks.filter(t => t.id != null && t.path != null && isVideoTrack(t) && !t.path.startsWith("subsonic://") && !t.path.startsWith("tidal://"));
-    for (const t of videoTracks) {
-      if (t.id == null || videoFrameCache[t.id]) continue;
-      invoke<VideoFrameResult | null>("get_video_frames", { trackId: t.id }).then(result => {
-        if (result && result.status === "ok" && result.paths && t.id != null) {
-          setVideoFrameCache(prev => ({ ...prev, [t.id!]: result.paths!.map(p => convertFileSrc(p)) }));
-        }
-      }).catch(console.error);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally excludes videoFrameCache to prevent infinite loop
-  }, [results.tracks]);
 
   const refetchTracks = useCallback(async () => {
     if (!searched) return;
@@ -622,7 +609,9 @@ export function SearchView({
                     variant="inline"
                     size={12}
                   />
-                  {t.album_id ? (
+                  {isLocalVideo(t) ? (
+                    <VideoRowThumb trackId={t.id!} alt={t.title} className="entity-list-img" />
+                  ) : t.album_id ? (
                     <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={onFetchAlbumImage} />
                   ) : (
                     <div className="entity-list-img">{t.title[0]?.toUpperCase() ?? "?"}</div>
@@ -669,8 +658,8 @@ export function SearchView({
                     onContextMenu={(e) => onTrackContextMenu(e, t, new Set())}
                   >
                     <div className="album-card-art-wrapper">
-                    {t.id != null && videoFrameCache[t.id] ? (
-                      <VideoFrameCard frames={videoFrameCache[t.id]} alt={t.title} className="album-card-art" />
+                    {isLocalVideo(t) ? (
+                      <VideoRowThumb trackId={t.id!} alt={t.title} className="album-card-art" />
                     ) : t.album_id ? (
                       <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={onFetchAlbumImage} />
                     ) : (
