@@ -430,6 +430,21 @@ function App() {
   const downloadProvidersRef = useRef<DownloadProvider[]>([]);
   downloadProvidersRef.current = downloadProviders;
 
+  const [providerPriorities, setProviderPriorities] = useState<Map<string, number>>(new Map());
+
+  const refreshProviderPriorities = useCallback(async () => {
+    try {
+      const rows = await invoke<[string, string, string, number][]>("get_active_download_providers");
+      const map = new Map<string, number>();
+      for (const [pluginId, providerId, , priority] of rows) {
+        map.set(`${pluginId}:${providerId}`, priority);
+      }
+      setProviderPriorities(map);
+    } catch (e) {
+      console.error("Failed to load download provider priorities:", e);
+    }
+  }, []);
+
   const downloadProviderEntries = useMemo(() => {
     return downloadProviders
       .filter(p => p.source !== "__builtin")
@@ -440,10 +455,12 @@ function App() {
         return {
           id: p.id,
           name: p.name,
+          priority: providerPriorities.get(p.id) ?? Number.MAX_SAFE_INTEGER,
           interactive: plugins.hasInteractiveDownload(pluginId, providerId),
         };
-      });
-  }, [downloadProviders, plugins.hasInteractiveDownload]);
+      })
+      .sort((a, b) => a.priority - b.priority);
+  }, [downloadProviders, providerPriorities, plugins.hasInteractiveDownload]);
 
   // Sync download providers to DB for backend ordering
   useEffect(() => {
@@ -457,9 +474,13 @@ function App() {
       }
     }
     if (providerData.length > 0) {
-      invoke("sync_download_providers", { providers: providerData }).catch(console.error);
+      invoke("sync_download_providers", { providers: providerData })
+        .then(() => refreshProviderPriorities())
+        .catch(console.error);
+    } else {
+      refreshProviderPriorities();
     }
-  }, [plugins.pluginStates]);
+  }, [plugins.pluginStates, refreshProviderPriorities]);
 
   const artistInfo = useArtistInfo({
     selectedArtist: library.selectedArtist,
@@ -3346,7 +3367,47 @@ function App() {
         loadingTrack={playback.loadingTrack}
         playbackError={playback.playbackError}
         onSkipError={() => { playback.clearPlaybackError(); handleNext(); }}
-        onDownloadTrack={playback.currentTrack ? () => contextMenuActions.handleDownloadTrack(playback.currentTrack!) : undefined}
+        onDownloadTrack={playback.currentTrack ? async () => {
+          const track = playback.currentTrack!;
+          let entries = downloadProviderEntries;
+          try {
+            const rows = await invoke<[string, string, string, number][]>("get_active_download_providers");
+            const freshPriorities = new Map<string, number>();
+            for (const [pid, provId, , prio] of rows) freshPriorities.set(`${pid}:${provId}`, prio);
+            setProviderPriorities(freshPriorities);
+            entries = downloadProviders
+              .filter(p => p.source !== "__builtin")
+              .map(p => {
+                const parts = p.id.split(":");
+                return {
+                  id: p.id,
+                  name: p.name,
+                  priority: freshPriorities.get(p.id) ?? Number.MAX_SAFE_INTEGER,
+                  interactive: plugins.hasInteractiveDownload(parts[0], parts.slice(1).join(":")),
+                };
+              })
+              .sort((a, b) => a.priority - b.priority);
+          } catch (e) {
+            console.error("Failed to load download provider priorities:", e);
+          }
+          const provider = entries.find(e => e.interactive) ?? entries[0];
+          if (!provider) {
+            contextMenuActions.handleDownloadTrack(track);
+            return;
+          }
+          setDownloadModal({
+            tracks: [{
+              title: track.title,
+              artistName: track.artist_name ?? null,
+              albumTitle: track.album_title ?? null,
+              uri: track.path ?? null,
+              durationSecs: track.duration_secs ?? null,
+              trackId: track.id ?? null,
+            }],
+            providerId: provider.id,
+            providerName: provider.name,
+          });
+        } : undefined}
       />
 
       {contextMenuActions.youtubeFeedback && (
