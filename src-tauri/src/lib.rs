@@ -1209,6 +1209,16 @@ pub fn run() {
             timer.time("restore_window", || {
                 let window = app.get_webview_window("main").unwrap();
 
+                // Force process exit when the main window closes. Covers two cases:
+                // (1) on macOS, win.close() hides rather than terminates;
+                // (2) on Windows, hidden plugin browse windows keep the process alive
+                //     so RunEvent::ExitRequested never fires.
+                window.on_window_event(|event| {
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        std::process::exit(0);
+                    }
+                });
+
                 // Make window background transparent for rounded mini player corners
                 #[cfg(target_os = "macos")]
                 {
