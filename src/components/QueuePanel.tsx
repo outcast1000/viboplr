@@ -4,6 +4,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 import { formatDuration } from "../utils";
+import { thumbFilenameForUri } from "../mainPlaylist";
 import "./QueuePanel.css";
 
 export interface PendingEnqueue {
@@ -78,6 +79,7 @@ interface QueuePanelProps {
   onToggleCollapsed: () => void;
   onResizeWidth: (width: number) => void;
   debugMode?: boolean;
+  mainPlaylistDir: string | null;
 }
 
 const AUTO_APPROVE_SECS = 10;
@@ -89,6 +91,7 @@ export function QueuePanel({
   albumImages, artistImages,
   externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth, debugMode,
+  mainPlaylistDir,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
@@ -490,16 +493,36 @@ export function QueuePanel({
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
             <div className="queue-item-art-wrapper">
-              {(() => { const src = getTrackImage(t); return src ? (
-                <img className="queue-item-thumb" src={src} alt="" />
-              ) : (
-                <div className="queue-item-thumb queue-item-thumb-placeholder">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
-                    <circle cx="12" cy="12" r="10" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                </div>
-              ); })()}
+              {(() => {
+                const localThumb = mainPlaylistDir && t.path
+                  ? convertFileSrc(`${mainPlaylistDir}/thumbs/${thumbFilenameForUri(t.path)}`)
+                  : null;
+                const fallback = getTrackImage(t);
+                const initialSrc = localThumb ?? fallback ?? "";
+                return initialSrc ? (
+                  <img
+                    className="queue-item-thumb"
+                    src={initialSrc}
+                    data-has-fallback={localThumb && fallback ? "true" : "false"}
+                    onError={(e) => {
+                      const el = e.currentTarget as HTMLImageElement;
+                      if (el.dataset.fallbackApplied === "true") return;
+                      if (localThumb && fallback) {
+                        el.dataset.fallbackApplied = "true";
+                        el.src = fallback;
+                      }
+                    }}
+                    alt=""
+                  />
+                ) : (
+                  <div className="queue-item-thumb queue-item-thumb-placeholder">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+                      <circle cx="12" cy="12" r="10" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  </div>
+                );
+              })()}
             </div>
             <div
               className="queue-item-info"

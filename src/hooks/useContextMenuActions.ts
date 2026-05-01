@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Artist, Album } from "../types";
 import { parseLibraryId } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../components/ContextMenu";
+import type { PlaylistContext } from "./useQueue";
 import { store } from "../store";
 
 interface UseContextMenuActionsDeps {
@@ -17,7 +18,7 @@ interface UseContextMenuActionsDeps {
     loadTracks: () => Promise<void>;
   };
   queueHook: {
-    playTracks: (tracks: Track[], index: number, context?: { name: string; imagePath?: string | null } | null) => void;
+    playTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
     enqueueTracks: (tracks: Track[]) => void;
     findDuplicates: (tracks: Track[]) => { duplicates: Track[]; unique: Track[] };
     insertAtPosition: (tracks: Track[], pos: number) => void;
@@ -84,13 +85,13 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
       if (albumTracks.length > 0) {
         const album = library.albums.find(a => a.id === target.albumId);
-        queueHook.playTracks(albumTracks, 0, album ? { name: album.title, imagePath: albumImages[target.albumId] ?? null } : null);
+        queueHook.playTracks(albumTracks, 0, album ? { name: album.title, imagePath: albumImages[target.albumId] ?? null, source: "album", remote: false } : null);
       }
     } else if (target.kind === "artist" && target.artistId) {
       const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
       if (artistTracks.length > 0) {
         const artist = library.artists.find(a => a.id === target.artistId);
-        queueHook.playTracks(artistTracks, 0, artist ? { name: artist.name, imagePath: artistImages[target.artistId] ?? null } : null);
+        queueHook.playTracks(artistTracks, 0, artist ? { name: artist.name, imagePath: artistImages[target.artistId] ?? null, source: "artist", remote: false } : null);
       }
     } else if (target.kind === "multi-track") {
       const idSet = new Set(target.trackIds);

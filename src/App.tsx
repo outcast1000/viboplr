@@ -13,14 +13,15 @@ import "./App.css";
 import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
 import { isVideoTrack, parseSubsonicUrl } from "./utils";
 import { store } from "./store";
-import { parseUrlScheme, queueEntryToTrack, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, type QueueEntry } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, type QueueEntry } from "./queueEntry";
+import { tracksFromManifest, contextFromManifest, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
 import { type StreamResolver } from "./streamResolvers";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
-import { useQueue, type PlaylistContext } from "./hooks/useQueue";
+import { useQueue } from "./hooks/useQueue";
 import { useLibrary, DEFAULT_TRACK_COLUMNS, ALBUM_DETAIL_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
 import { useImageCache } from "./hooks/useImageCache";
@@ -138,6 +139,7 @@ function App() {
   const [lastDownloadDest, setLastDownloadDest] = useState<string | null>(null);
   const [autoSaveStreams, setAutoSaveStreams] = useState<Record<string, boolean>>({});
   const [downloadsCollectionId, setDownloadsCollectionId] = useState<number | null>(null);
+  const [mainPlaylistDir, setMainPlaylistDir] = useState<string | null>(null);
   const autoSaveStreamsRef = useRef<Record<string, boolean>>({});
   const downloadsCollectionIdRef = useRef<number | null>(null);
   trackVideoHistoryRef.current = trackVideoHistory;
@@ -262,7 +264,7 @@ function App() {
       queueHook.playTracks([pluginTrackToTrackFn(track)], 0);
     },
     playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name: string; coverUrl?: string | null; source?: string | null; metadata?: Record<string, string> | null }) => {
-      queueHook.playTracks(tracks.map(pluginTrackToTrackFn), startIndex ?? 0, context ? { name: context.name, source: context.source ?? null, metadata: context.metadata ?? null } : undefined);
+      queueHook.playTracks(tracks.map(pluginTrackToTrackFn), startIndex ?? 0, context ? { name: context.name, source: context.source ?? null, metadata: context.metadata ?? null, remote: true } : undefined);
       if (context?.coverUrl) {
         if (context.coverUrl.startsWith("http://") || context.coverUrl.startsWith("https://")) {
           invoke<string>("download_url_to_playlist_images", { url: context.coverUrl })
@@ -1274,16 +1276,13 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedTrackEntry, vol, qEntries, qIdx, qMode, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, savedPlaylistName, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastDownloadDest, savedSearchViewModes, savedAutoSaveStreams, savedDownloadsCollectionId, savedMinimizeToMiniPlayer] = await timeAsync("store.restore", () => Promise.all([
+        const [v, sa, sal, st, , vol, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastDownloadDest, savedSearchViewModes, savedAutoSaveStreams, savedDownloadsCollectionId, savedMinimizeToMiniPlayer] = await timeAsync("store.restore", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
           store.get<number | null>("selectedTag"),
           store.get<QueueEntry | null>("currentTrackEntry"),
           store.get<number>("volume"),
-          store.get<QueueEntry[]>("queueEntries"),
-          store.get<number>("queueIndex"),
-          store.get<string>("queueMode"),
           store.get<number>("positionSecs"),
           store.get<number>("crossfadeSecs"),
           store.get<boolean>("trackVideoHistory"),
@@ -1295,7 +1294,6 @@ function App() {
           store.get<string | null>("trackSortField"),
           store.get<string>("trackSortDir"),
           store.get<ColumnConfig[] | null>("trackColumns"),
-          store.get<PlaylistContext | null>("playlistContext"),
           store.get<string | null>("artistViewMode"),
           store.get<string | null>("albumViewMode"),
           store.get<string | null>("tagViewMode"),
@@ -1382,90 +1380,35 @@ function App() {
           library.setTrackColumns([...tCols, ...missing]);
         }
 
-        // Allow mutation for migration
-        let queueEntries = qEntries;
-
-        // Migration: if old queueTrackIds exists, convert to queueEntries
-        if (!queueEntries) {
-          const oldIds = await store.get<number[]>("queueTrackIds");
-          if (oldIds?.length) {
-            const oldTracks = await invoke<Track[]>("get_tracks_by_ids", { ids: oldIds }).catch(() => []);
-            if (oldTracks.length) {
-              const entries: QueueEntry[] = oldTracks.map(t => ({
-                url: `file://${t.path}`,
-                title: t.title,
-                artist_name: t.artist_name,
-                album_title: t.album_title,
-                duration_secs: t.duration_secs,
-                track_number: t.track_number,
-                year: t.year,
-                format: t.format,
-              }));
-              await store.set("queueEntries", entries);
-              queueEntries = entries;
+        // Restore queue from main-playlist folder (replaces tauri-store queue keys)
+        try {
+          const [{ manifest, state: mpState }, dir] = await Promise.all([
+            invoke<{ manifest: Manifest | null; state: MainPlaylistState | null }>("main_playlist_read"),
+            invoke<string>("main_playlist_dir"),
+          ]);
+          if (manifest) {
+            const tracks = tracksFromManifest(manifest);
+            const ctx = contextFromManifest(manifest, dir);
+            if (tracks.length > 0) {
+              const idx = mpState?.queueIndex != null && mpState.queueIndex >= 0 && mpState.queueIndex < tracks.length ? mpState.queueIndex : -1;
+              pendingRestoreQueueRef.current = { tracks, index: idx };
+              if (idx >= 0) {
+                pendingRestoreTrackRef.current = tracks[idx];
+              }
             }
+            if (ctx) queueHook.setPlaylistContext(ctx);
           }
-        }
-
-        // Migration: rename old "location" field to "url" in persisted entries
-        if (queueEntries?.length && "location" in (queueEntries as any[])[0] && !("url" in (queueEntries as any[])[0])) {
-          queueEntries = (queueEntries as any[]).map(e => ({ ...e, url: e.location }));
-          await store.set("queueEntries", queueEntries);
-        }
-
-        // Restore queue from QueueEntry[] — convert to Track[], re-resolve file:// from DB
-        let restoredTracks: Track[] = [];
-        if (queueEntries?.length) {
-          const entries = queueEntries as QueueEntry[];
-          const minimalTracks = entries.map(e => queueEntryToTrack(e));
-
-          // Collect file:// and subsonic:// URIs for bulk DB lookup to get full metadata
-          const libraryPaths = entries
-            .filter(e => e.url.startsWith("file://") || e.url.startsWith("subsonic://"))
-            .map(e => e.url);
-
-          let dbTracks: Track[] = [];
-          if (libraryPaths.length > 0) {
-            dbTracks = await invoke<Track[]>("get_tracks_by_paths", { paths: libraryPaths }).catch(() => []);
+          if (mpState) {
+            if (mpState.queueMode && ["normal", "loop", "shuffle"].includes(mpState.queueMode)) {
+              queueHook.setQueueMode(mpState.queueMode);
+            }
+            queueHook.setShuffleOrder(mpState.shuffleOrder ?? []);
+            queueHook.setShufflePosition(mpState.shufflePosition ?? 0);
           }
-          const dbByPath = new Map(dbTracks.map(t => [t.path, t]));
-
-          restoredTracks = minimalTracks.map((t, i) => {
-            const entry = entries[i];
-            const dbTrack = dbByPath.get(t.path);
-            if (dbTrack) return { ...dbTrack, image_url: entry.image_url ?? dbTrack.image_url };
-            return t; // tidal or not in library
-          });
-        }
-
-        // Migrate savedTrackEntry from old "location" field to "url"
-        let currentTrackEntry = savedTrackEntry;
-        if (currentTrackEntry && "location" in (currentTrackEntry as any) && !("url" in (currentTrackEntry as any))) {
-          currentTrackEntry = { ...currentTrackEntry, url: (currentTrackEntry as any).location } as QueueEntry;
-        }
-
-        // Restore current track from queue or saved entry (no DB ID lookup)
-        const idx = qIdx ?? -1;
-        const currentFromQueue = idx >= 0 && idx < restoredTracks.length ? restoredTracks[idx] : null;
-        const restoredTrack = currentFromQueue ?? (currentTrackEntry ? queueEntryToTrack(currentTrackEntry) : null);
-
-        // Store in refs — state will be applied in a separate effect after appRestoring flips
-        if (restoredTrack) {
-          pendingRestoreTrackRef.current = restoredTrack;
-        }
-        if (restoredTracks.length) {
-          pendingRestoreQueueRef.current = { tracks: restoredTracks, index: idx >= 0 && idx < restoredTracks.length ? idx : -1 };
-        }
-
-        if (qMode && ["normal", "loop", "shuffle"].includes(qMode)) {
-          queueHook.setQueueMode(qMode as "normal" | "loop" | "shuffle");
-        }
-        if (savedPlaylistName) {
-          if (typeof savedPlaylistName === "string") {
-            queueHook.setPlaylistContext({ name: savedPlaylistName });
-          } else {
-            queueHook.setPlaylistContext(savedPlaylistName as PlaylistContext);
-          }
+          // Fire-and-forget gc; not awaited so it never blocks startup.
+          invoke("main_playlist_gc").catch(e => console.error("main_playlist_gc failed:", e));
+        } catch (e) {
+          console.error("Failed to restore main playlist:", e);
         }
         if (savedTrackViewMode && ["basic", "list", "tiles"].includes(savedTrackViewMode)) library.setTrackViewMode(savedTrackViewMode as ViewMode);
         if (savedFilterYoutubeOnly) library.setFilterYoutubeOnly(true);
@@ -1522,6 +1465,11 @@ function App() {
       setAppRestoring(false);
       await timeAsync("loadLibrary", () => library.loadLibrary());
     })();
+  }, []);
+
+  // Fetch main playlist directory on mount
+  useEffect(() => {
+    invoke<string>("main_playlist_dir").then(setMainPlaylistDir).catch(console.error);
   }, []);
 
   // Apply pending restore state once appRestoring flips to false
@@ -2119,7 +2067,7 @@ function App() {
 
   // Queue handler for mixtape "Just Play" mode — replaces the queue with mixtape tracks
   const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; imagePath?: string | null }) => {
-    queueHook.playTracks(tracks, 0, context);
+    queueHook.playTracks(tracks, 0, { ...context, source: "playlist", remote: false });
   }, [queueHook.playTracks]);
 
   // Bridge for keyboard shortcuts
@@ -2493,7 +2441,7 @@ function App() {
                           title="Play All"
                           onClick={() => {
                             const tagImgPath = tagImageCache.images[selectedTag] ?? null;
-                            queueHook.playTracks(sortedTracks.filter(t => t.liked !== -1), 0, tag ? { name: tag.name, imagePath: tagImgPath } : null);
+                            queueHook.playTracks(sortedTracks.filter(t => t.liked !== -1), 0, tag ? { name: tag.name, imagePath: tagImgPath, source: "tag", remote: false } : null);
                           }}
                         >
                           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
@@ -3048,6 +2996,7 @@ function App() {
           onToggleCollapsed={handleToggleQueueCollapsed}
           onResizeWidth={handleResizeQueueWidth}
           debugMode={debugMode}
+          mainPlaylistDir={mainPlaylistDir}
         />
       {!queueCollapsed && (
         <button

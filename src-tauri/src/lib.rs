@@ -15,6 +15,7 @@ mod subsonic;
 mod sync;
 mod tag_writer;
 mod mixtape;
+mod main_playlist;
 mod timing;
 mod downloader;
 mod update_checker;
@@ -204,6 +205,14 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::import_mixtape,
         commands::cancel_mixtape_operation,
         commands::cleanup_temp_mixtapes,
+        commands::main_playlist_write,
+        commands::main_playlist_read,
+        commands::main_playlist_clear,
+        commands::main_playlist_gc,
+        commands::main_playlist_set_cover,
+        commands::main_playlist_set_thumb,
+        commands::main_playlist_remove_thumb,
+        commands::main_playlist_dir,
         commands::check_for_extension_updates,
         commands::download_and_install_plugin_update,
         commands::download_and_install_skin_update,
@@ -393,6 +402,14 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::import_mixtape,
         commands::cancel_mixtape_operation,
         commands::cleanup_temp_mixtapes,
+        commands::main_playlist_write,
+        commands::main_playlist_read,
+        commands::main_playlist_clear,
+        commands::main_playlist_gc,
+        commands::main_playlist_set_cover,
+        commands::main_playlist_set_thumb,
+        commands::main_playlist_remove_thumb,
+        commands::main_playlist_dir,
         commands::check_for_extension_updates,
         commands::download_and_install_plugin_update,
         commands::download_and_install_skin_update,

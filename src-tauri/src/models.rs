@@ -404,3 +404,27 @@ pub struct ExtensionUpdate {
     pub min_app_version: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MainPlaylistState {
+    pub queue_index: i32,
+    pub queue_mode: String, // "normal" | "loop" | "shuffle"
+    pub shuffle_order: Vec<usize>,
+    pub shuffle_position: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MainPlaylistReadResult {
+    pub manifest: Option<MixtapeManifest>,
+    pub state: Option<MainPlaylistState>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageSource {
+    /// Local filesystem path to copy from.
+    pub path: Option<String>,
+    /// Remote URL to download from.
+    pub url: Option<String>,
+}

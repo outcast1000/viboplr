@@ -3,13 +3,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import type { Track, PlaylistLoadResult, PlaylistEntry } from "../types";
 import { trackToQueueEntry, queueEntryToTrack } from "../queueEntry";
-import { store } from "../store";
+import { buildManifest, buildState, diffThumbs, isContextRemote } from "../mainPlaylist";
 
 export interface PlaylistContext {
   name: string;
   imagePath?: string | null;
+  coverUrl?: string | null;
   source?: string | null;
   metadata?: Record<string, string> | null;
+  remote?: boolean;
 }
 
 export function useQueue(
@@ -37,11 +39,57 @@ export function useQueue(
   const queuePanelRef = useRef<HTMLDivElement>(null);
   const dragIndexRef = useRef<number | null>(null);
 
-  // Persist state
-  useEffect(() => { if (restoredRef.current) store.set("queueEntries", queue.map(t => trackToQueueEntry(t))); }, [queue]);
-  useEffect(() => { if (restoredRef.current) store.set("queueIndex", queueIndex); }, [queueIndex]);
-  useEffect(() => { if (restoredRef.current) store.set("queueMode", queueMode); }, [queueMode]);
-  useEffect(() => { if (restoredRef.current) store.set("playlistContext", playlistContext); }, [playlistContext]);
+  // Persist state to main-playlist folder
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    const t = setTimeout(() => {
+      invoke("main_playlist_write", {
+        manifest: buildManifest(queue, playlistContext),
+        stateData: buildState(queueIndex, queueMode, shuffleOrder, shufflePosition),
+      }).catch(e => console.error("Failed to write main-playlist:", e));
+    }, 500);
+    return () => clearTimeout(t);
+  }, [queue, playlistContext, queueIndex, queueMode, shuffleOrder, shufflePosition]);
+
+  // Cover: write whenever playlistContext changes
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    const ctx = playlistContext;
+    if (!ctx || (!ctx.imagePath && !ctx.coverUrl)) {
+      invoke("main_playlist_set_cover", { source: null }).catch(console.error);
+      return;
+    }
+    const source = ctx.coverUrl
+      ? { url: ctx.coverUrl, path: null }
+      : { path: ctx.imagePath, url: null };
+    invoke("main_playlist_set_cover", { source }).catch(console.error);
+  }, [playlistContext]);
+
+  // Thumb diff: write/remove thumbs when queue changes (remote-only)
+  const prevQueueRef = useRef<Track[]>([]);
+  useEffect(() => {
+    if (!restoredRef.current) { prevQueueRef.current = queue; return; }
+    const remote = isContextRemote(playlistContext);
+    const { added, removed } = diffThumbs(prevQueueRef.current, queue);
+    prevQueueRef.current = queue;
+
+    // Always remove stale thumbs even when switching off remote.
+    // Backend slugifies the `key` param via canonical_slug → same filename as thumbFilenameForUri.
+    for (const uri of removed) {
+      invoke("main_playlist_remove_thumb", { key: uri }).catch(console.error);
+    }
+    if (!remote) return;
+    for (const t of added) {
+      if (!t.path) continue;
+      const source =
+        t.image_url?.startsWith("http") ? { url: t.image_url, path: null } :
+        t.image_url?.startsWith("file://") ? { path: t.image_url.slice(7), url: null } :
+        t.image_url ? { path: t.image_url, url: null } :
+        null;
+      if (!source) continue;
+      invoke("main_playlist_set_thumb", { key: t.path, source }).catch(console.error);
+    }
+  }, [queue, playlistContext]);
 
   // Auto-scroll queue panel to current track
   useEffect(() => {
@@ -290,6 +338,7 @@ export function useQueue(
     setShuffleOrder([]);
     setShufflePosition(0);
     setPlaylistContext(null);
+    invoke("main_playlist_clear").catch(console.error);
   }
 
   function toggleQueueMode() {
