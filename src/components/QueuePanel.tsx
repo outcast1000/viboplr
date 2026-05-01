@@ -4,7 +4,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 import { formatDuration } from "../utils";
-import { thumbFilenameForUri } from "../mainPlaylist";
+import { thumbFilenameForUri, isContextRemote } from "../mainPlaylist";
 import "./QueuePanel.css";
 
 export interface PendingEnqueue {
@@ -83,6 +83,43 @@ interface QueuePanelProps {
 }
 
 const AUTO_APPROVE_SECS = 10;
+
+function QueueItemThumb({ localThumb, fallback }: { localThumb: string | null; fallback: string | null }) {
+  const [failed, setFailed] = useState(false);
+  const [src, setSrc] = useState<string>(() => localThumb ?? fallback ?? "");
+  const hasFallback = !!(localThumb && fallback);
+
+  useEffect(() => {
+    setFailed(false);
+    setSrc(localThumb ?? fallback ?? "");
+  }, [localThumb, fallback]);
+
+  if (!src || failed) {
+    return (
+      <div className="queue-item-thumb queue-item-thumb-placeholder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+          <circle cx="12" cy="12" r="10" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      className="queue-item-thumb"
+      src={src}
+      onError={() => {
+        if (hasFallback && src === localThumb) {
+          setSrc(fallback!);
+          return;
+        }
+        setFailed(true);
+      }}
+      alt=""
+    />
+  );
+}
 
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
@@ -493,36 +530,12 @@ export function QueuePanel({
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
             <div className="queue-item-art-wrapper">
-              {(() => {
-                const localThumb = mainPlaylistDir && t.path
+              <QueueItemThumb
+                localThumb={mainPlaylistDir && t.path && isContextRemote(playlistContext)
                   ? convertFileSrc(`${mainPlaylistDir}/thumbs/${thumbFilenameForUri(t.path)}`)
-                  : null;
-                const fallback = getTrackImage(t);
-                const initialSrc = localThumb ?? fallback ?? "";
-                return initialSrc ? (
-                  <img
-                    className="queue-item-thumb"
-                    src={initialSrc}
-                    data-has-fallback={localThumb && fallback ? "true" : "false"}
-                    onError={(e) => {
-                      const el = e.currentTarget as HTMLImageElement;
-                      if (el.dataset.fallbackApplied === "true") return;
-                      if (localThumb && fallback) {
-                        el.dataset.fallbackApplied = "true";
-                        el.src = fallback;
-                      }
-                    }}
-                    alt=""
-                  />
-                ) : (
-                  <div className="queue-item-thumb queue-item-thumb-placeholder">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
-                      <circle cx="12" cy="12" r="10" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
-                  </div>
-                );
-              })()}
+                  : null}
+                fallback={getTrackImage(t)}
+              />
             </div>
             <div
               className="queue-item-info"
