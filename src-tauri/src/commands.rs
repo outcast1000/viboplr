@@ -3089,9 +3089,13 @@ pub fn image_resolve_response(
 }
 
 #[tauri::command]
-pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("Viboplr/0.1.0 (https://github.com/viboplr)")
+pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>, insecure: Option<bool>) -> Result<serde_json::Value, String> {
+    let mut builder = reqwest::Client::builder()
+        .user_agent("Viboplr/0.1.0 (https://github.com/viboplr)");
+    if insecure.unwrap_or(false) {
+        builder = builder.danger_accept_invalid_certs(true);
+    }
+    let client = builder
         .build()
         .map_err(|e| e.to_string())?;
     let method_str = method.as_deref().unwrap_or("GET");

@@ -462,6 +462,7 @@ export function usePlugins(
                 method: init?.method ?? null,
                 headers: init?.headers ?? null,
                 body: init?.body ?? null,
+                insecure: init?.insecure ?? null,
               },
             );
             const bodyText = resp.body;

@@ -406,6 +406,7 @@ export interface PluginNetworkAPI {
       method?: string;
       headers?: Record<string, string>;
       body?: string;
+      insecure?: boolean;
     },
   ): Promise<{
     status: number;

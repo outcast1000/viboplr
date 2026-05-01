@@ -148,7 +148,7 @@ function activate(api) {
     }
     for (var i = 0; i < urls.length; i++) {
       try {
-        var resp = await api.network.fetch(urls[i] + path);
+        var resp = await api.network.fetch(urls[i] + path, { insecure: true });
         if (resp.status >= 200 && resp.status < 300) {
           return resp.json();
         }
