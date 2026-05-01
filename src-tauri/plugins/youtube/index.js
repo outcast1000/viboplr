@@ -3,7 +3,6 @@ var ffmpegVersion = null;
 var latestYtDlp = null;
 var latestFfmpeg = null;
 var checking = false;
-var downloadCache = {};
 
 var YTDLP_INSTALL_URL = "https://github.com/yt-dlp/yt-dlp#installation";
 var FFMPEG_INSTALL_URL = "https://ffmpeg.org/download.html";
@@ -98,56 +97,176 @@ async function searchYoutube(api, title, artistName, durationSecs) {
   return { url: "https://www.youtube.com/watch?v=" + best.videoId, videoTitle: best.title };
 }
 
+// Probe an audio file via `ffmpeg -i`. Returns { codec, bitrateKbps } or null.
+async function probeAudio(api, filePath) {
+  try {
+    var probe = await api.system.exec("ffmpeg", ["-i", filePath, "-hide_banner"]);
+    // ffmpeg exits nonzero when no output is given, but still prints stream info to stderr
+    var stderr = probe.stderr || "";
+    var streamLine = null;
+    var lines = stderr.split("\n");
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].indexOf("Audio:") !== -1) { streamLine = lines[i]; break; }
+    }
+    if (!streamLine) return null;
+    // Stream #0:0(eng): Audio: opus, 48000 Hz, stereo, fltp, 160 kb/s
+    var codecMatch = streamLine.match(/Audio:\s*([a-zA-Z0-9_]+)/);
+    var codec = codecMatch ? codecMatch[1].toLowerCase() : null;
+    var brMatch = streamLine.match(/(\d+)\s*kb\/s/);
+    var bitrateKbps = brMatch ? parseInt(brMatch[1], 10) : null;
+    return { codec: codec, bitrateKbps: bitrateKbps };
+  } catch (e) {
+    api.log("warn", "probeAudio failed: " + (e && e.message ? e.message : e), "youtube");
+    return null;
+  }
+}
+
+// Decide ffmpeg args for converting src to target format. Remux when codec already matches.
+function buildConvertArgs(srcPath, destPath, fmt, probe) {
+  var codec = probe ? probe.codec : null;
+  var bitrateKbps = probe && probe.bitrateKbps ? probe.bitrateKbps : 160;
+
+  // Remux opportunities (codec copy, no re-encode)
+  if ((fmt === "aac" || fmt === "m4a") && (codec === "aac")) {
+    return ["-i", srcPath, "-vn", "-c:a", "copy", "-y", destPath];
+  }
+  if (fmt === "mp3" && codec === "mp3") {
+    return ["-i", srcPath, "-vn", "-c:a", "copy", "-y", destPath];
+  }
+  if (fmt === "flac" && codec === "flac") {
+    return ["-i", srcPath, "-vn", "-c:a", "copy", "-y", destPath];
+  }
+
+  // Re-encode, matching source bitrate (cap at 320k, floor at 96k for sanity)
+  var targetKbps = Math.max(96, Math.min(320, bitrateKbps));
+  if (fmt === "aac" || fmt === "m4a") {
+    return ["-i", srcPath, "-vn", "-c:a", "aac", "-b:a", targetKbps + "k", "-y", destPath];
+  }
+  if (fmt === "mp3") {
+    return ["-i", srcPath, "-vn", "-c:a", "libmp3lame", "-b:a", targetKbps + "k", "-y", destPath];
+  }
+  if (fmt === "flac") {
+    return ["-i", srcPath, "-vn", "-c:a", "flac", "-y", destPath];
+  }
+  return null;
+}
+
+var VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+
+// Look up a cached download for a videoId. Returns absolute path or null.
+async function findCachedDownload(api, videoId) {
+  try {
+    var entries = await api.storage.files.list(["cache"]);
+    for (var i = 0; i < entries.length; i++) {
+      var name = entries[i].name;
+      var dot = name.lastIndexOf(".");
+      if (dot > 0 && name.substring(0, dot) === videoId) {
+        return await api.storage.files.getPath(["cache", name]);
+      }
+    }
+  } catch (e) {
+    // Directory may not exist yet — that's fine
+  }
+  return null;
+}
+
+// Wipe any transcoded/temp files, leaving the cache dir with source files only.
+async function cleanupCache(api) {
+  var removed = 0;
+  var kept = 0;
+  try {
+    await api.storage.files.remove(["temp"]);
+  } catch (e) {
+    // temp dir may not exist — that's fine
+  }
+  try {
+    var entries = await api.storage.files.list(["cache"]);
+    for (var i = 0; i < entries.length; i++) {
+      var entry = entries[i];
+      if (entry.isDir) continue;
+      var name = entry.name;
+      var dot = name.lastIndexOf(".");
+      var stem = dot > 0 ? name.substring(0, dot) : name;
+      if (!VIDEO_ID_RE.test(stem)) {
+        try {
+          await api.storage.files.remove(["cache", name]);
+          removed++;
+        } catch (e) {
+          api.log("warn", "Failed to remove stray cache file: " + name, "youtube");
+        }
+      } else {
+        kept++;
+      }
+    }
+  } catch (e) {
+    // cache dir may not exist — that's fine
+    return;
+  }
+  if (removed > 0 || kept > 0) {
+    api.log("info", "Cache cleanup: kept " + kept + " source file(s), removed " + removed + " stray file(s)", "youtube");
+  }
+}
+
 async function searchAndDownload(api, title, artistName, durationSecs) {
-  console.log("[youtube] searchAndDownload:", JSON.stringify({ title: title, artist: artistName, duration: durationSecs }));
+  api.log("info", "Searching YouTube for: " + title + (artistName ? " — " + artistName : ""), "youtube");
   var result;
   try {
     result = await searchYoutube(api, title, artistName, durationSecs);
   } catch (e) {
-    console.error("[youtube] searchYoutube failed:", e);
+    api.log("error", "YouTube search failed: " + (e && e.message ? e.message : e), "youtube");
     return null;
   }
   if (!result || !result.url) {
-    console.warn("[youtube] search returned no result for:", title);
+    api.log("warn", "YouTube search returned no result for: " + title, "youtube");
     return null;
   }
-  console.log("[youtube] search found:", result.url, result.videoTitle || "");
+  api.log("info", "Matched " + (result.videoTitle || "(untitled)") + " — " + result.url, "youtube");
 
-  var cached = downloadCache[result.url];
+  var videoId = result.url.split("v=")[1];
+  if (!videoId) {
+    api.log("warn", "Could not extract videoId from: " + result.url, "youtube");
+    return null;
+  }
+
+  var cached = await findCachedDownload(api, videoId);
   if (cached) {
-    console.log("[youtube] using cached file:", cached);
+    api.log("info", "Using cached download: " + cached, "youtube");
     return cached;
   }
 
-  console.log("[youtube] downloading audio via yt-dlp:", result.url);
+  api.log("info", "Downloading audio via yt-dlp: " + result.url, "youtube");
   var filePath;
   try {
-    var destFile = Date.now() + ".%(ext)s";
+    // Get the plugin's cache directory by writing a sentinel and reading its path
+    var sentinelPath = await api.storage.files.writeText(["cache", ".init"], "");
+    // sentinelPath is ".../plugin-cache/youtube/cache/.init" — strip filename for -P
+    var cacheDir = sentinelPath.replace(/[\/\\][^\/\\]+$/, "");
+    var outputTemplate = videoId + ".%(ext)s";
     var dlResult = await api.system.exec("yt-dlp", [
       "-f", "bestaudio",
       "--no-warnings",
       "--quiet",
       "--no-simulate",
       "--print", "after_move:filepath",
-      "-o", destFile,
+      "-P", cacheDir,
+      "-o", outputTemplate,
       result.url
     ], { cwd: null });
     if (dlResult.exitCode !== 0) {
-      console.error("[youtube] yt-dlp failed:", dlResult.stderr);
+      api.log("error", "yt-dlp failed (exit " + dlResult.exitCode + "): " + (dlResult.stderr || "").trim(), "youtube");
       return null;
     }
     filePath = dlResult.stdout.trim() || null;
   } catch (e) {
-    console.error("[youtube] yt-dlp exec failed:", e);
+    api.log("error", "yt-dlp exec failed: " + (e && e.message ? e.message : e), "youtube");
     return null;
   }
   if (!filePath) {
-    console.warn("[youtube] yt-dlp returned no file path");
+    api.log("warn", "yt-dlp returned no file path", "youtube");
     return null;
   }
 
-  console.log("[youtube] downloaded to:", filePath);
-  downloadCache[result.url] = filePath;
+  api.log("info", "Downloaded to: " + filePath, "youtube");
   return filePath;
 }
 
@@ -165,23 +284,25 @@ async function activate(api) {
     } else { ffmpegVersion = null; }
   } catch (e) { ffmpegVersion = null; }
 
+  // Startup cleanup: wipe transcoded/temp files; keep source downloads keyed by videoId.
+  await cleanupCache(api);
+
   api.playback.onStreamResolve("youtube-fallback", async function(title, artistName, albumName, durationSecs) {
-    console.log("[youtube] stream resolve called:", JSON.stringify({ title: title, artist: artistName, duration: durationSecs }));
     if (!ytDlpVersion) {
-      console.log("[youtube] skipping stream resolve — yt-dlp not available");
+      api.log("warn", "Stream resolve skipped — yt-dlp not available", "youtube");
       return null;
     }
 
     try {
       var filePath = await searchAndDownload(api, title, artistName, durationSecs);
       if (!filePath) {
-        console.warn("[youtube] stream resolve: no file returned for", title);
+        api.log("warn", "Stream resolve: no file returned for " + title, "youtube");
         return null;
       }
-      console.log("[youtube] stream resolve success:", filePath);
+      api.log("info", "Stream resolved to: " + filePath, "youtube");
       return { url: "file://" + filePath, label: "YouTube" };
     } catch (e) {
-      console.error("[youtube] stream resolve failed:", e, e.stack || "");
+      api.log("error", "Stream resolve failed: " + (e && e.message ? e.message : e), "youtube");
       return null;
     }
   });
@@ -194,34 +315,70 @@ async function activate(api) {
 
   api.downloads.onResolveByMetadata("youtube-download", async function(title, artistName, albumName, durationSecs, format) {
     if (!ytDlpVersion) {
-      console.log("[youtube] skipping download resolve — yt-dlp not available");
+      api.log("warn", "Download resolve skipped — yt-dlp not available", "youtube");
       return null;
     }
     try {
-      var webmPath = await searchAndDownload(api, title, artistName);
-      if (!webmPath) {
-        console.warn("[youtube] download resolve: no webm for", title);
+      var srcPath = await searchAndDownload(api, title, artistName);
+      if (!srcPath) {
+        api.log("warn", "Download resolve: no source file for " + title, "youtube");
         return null;
       }
-      console.log("[youtube] converting", webmPath, "to format:", format || "aac");
+      var fmt = format || "aac";
+      api.log("info", "Preparing " + title + " as " + fmt, "youtube");
       var finalPath;
       try {
-        var fmt = format || "aac";
         var ext = (fmt === "aac" || fmt === "m4a") ? "m4a" : fmt === "mp3" ? "mp3" : fmt === "flac" ? "flac" : null;
         if (ext) {
-          var destPath = webmPath.replace(/\.[^.]+$/, "." + ext);
-          var codec = (fmt === "aac" || fmt === "m4a") ? "aac" : fmt === "mp3" ? "libmp3lame" : "flac";
-          var convResult = await api.system.exec("ffmpeg", ["-i", webmPath, "-vn", "-c:a", codec, "-y", destPath]);
-          finalPath = convResult.exitCode === 0 ? destPath : webmPath;
+          var probe = await probeAudio(api, srcPath);
+          if (probe) {
+            api.log("info", "Source: " + (probe.codec || "?") + " @ " + (probe.bitrateKbps || "?") + " kb/s", "youtube");
+          } else {
+            api.log("warn", "Could not probe source — falling back to transcode defaults", "youtube");
+          }
+          // Derive a destPath in the plugin's temp/ directory (wiped on startup) rather than next to the cached source.
+          var srcName = srcPath.replace(/^.*[\/\\]/, "");
+          var destName = srcName.replace(/\.[^.]+$/, "." + ext);
+          var tempSentinel = await api.storage.files.writeText(["temp", destName], "");
+          var destPath = tempSentinel;
+          var srcExt = (srcPath.match(/\.([^.]+)$/) || [])[1];
+          var args = buildConvertArgs(srcPath, destPath, fmt, probe);
+          if (!args) {
+            api.log("warn", "No conversion rule for format: " + fmt + " — using source as-is", "youtube");
+            finalPath = srcPath;
+          } else if (srcExt === ext && args[4] === "copy") {
+            api.log("info", "Source already in target container — reusing without conversion", "youtube");
+            finalPath = srcPath;
+          } else if (args[4] === "copy") {
+            api.log("info", "Remuxing (codec copy, no re-encode) -> " + destPath, "youtube");
+            var remuxResult = await api.system.exec("ffmpeg", args);
+            finalPath = remuxResult.exitCode === 0 ? destPath : srcPath;
+            if (remuxResult.exitCode !== 0) {
+              api.log("error", "Remux failed (exit " + remuxResult.exitCode + "): " + (remuxResult.stderr || "").trim(), "youtube");
+            }
+          } else {
+            // Re-encode — find the -b:a arg to log bitrate
+            var brIdx = args.indexOf("-b:a");
+            var brLabel = brIdx >= 0 ? args[brIdx + 1] : "default";
+            api.log("info", "Transcoding to " + fmt + " @ " + brLabel + " -> " + destPath, "youtube");
+            var convResult = await api.system.exec("ffmpeg", args);
+            if (convResult.exitCode === 0) {
+              finalPath = destPath;
+              api.log("info", "Transcode complete: " + destPath, "youtube");
+            } else {
+              finalPath = srcPath;
+              api.log("error", "Transcode failed (exit " + convResult.exitCode + "): " + (convResult.stderr || "").trim(), "youtube");
+            }
+          }
         } else {
-          finalPath = webmPath;
+          api.log("warn", "Unknown target format: " + fmt + " — using source as-is", "youtube");
+          finalPath = srcPath;
         }
       } catch (convertErr) {
-        console.error("[youtube] ffmpeg_convert_audio failed:", convertErr);
-        console.log("[youtube] falling back to raw webm file");
-        finalPath = webmPath;
+        api.log("error", "Conversion error: " + (convertErr && convertErr.message ? convertErr.message : convertErr), "youtube");
+        finalPath = srcPath;
       }
-      console.log("[youtube] download resolve success:", finalPath);
+      api.log("info", "Download resolve -> " + finalPath, "youtube");
       return {
         url: "file://" + finalPath,
         headers: null,
@@ -318,7 +475,6 @@ function deactivate() {
   latestYtDlp = null;
   latestFfmpeg = null;
   checking = false;
-  downloadCache = {};
 }
 
 return { activate: activate, deactivate: deactivate };

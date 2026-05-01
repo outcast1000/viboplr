@@ -855,7 +855,7 @@ function App() {
         uri: track?.path ?? null,
         durationSecs: track?.duration_secs ?? null,
         destCollectionId: null,
-        format: null,
+        format: downloadFormatRef.current,
         provider: providerId,
       }).then(() => {
         addLog(`Downloading: ${track?.title ?? title}`, "downloads");
