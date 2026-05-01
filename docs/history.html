@@ -67,6 +67,95 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.39</span>
+          <span class="timeline-date">May 1, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li><strong>downloads</strong>: open DownloadModal from now playing Download button</li>
+          <li><strong>youtube</strong>: persistent cache by videoId, smart transcode, logging</li>
+          <li>add confirm plugin view type, use playlist_id for archives</li>
+          <li>add api.storage.files for nested plugin file storage</li>
+          <li><strong>spotify</strong>: diagnostics for scrape runs, Music button fallback</li>
+          <li>add api.downloads.enqueue, remove generic invoke escape hatch</li>
+          <li>add top-level api.log method, migrate tidal-browse</li>
+          <li>add api.system.exec, api.env.get, api.storage cache methods</li>
+          <li>replace enqueueTrack with insertTrack/insertTracks, add spotify track play</li>
+          <li>replace TIDAL-specific playback API with generic PluginTrack</li>
+          <li>expand plugin library API with FTS search, entity lookups, and getTags</li>
+          <li>batch overwrite with per-track comparison, replace TidalAlbumDownloadModal</li>
+          <li>create unified DownloadModal replacing single and batch modals</li>
+          <li>detect existing library tracks in batch download review step</li>
+          <li>wire BatchDownloadModal into App.tsx, add batch CSS styles</li>
+          <li>BatchDownloadModal downloading step with per-track progress</li>
+          <li>BatchDownloadModal resolve and review steps with inline manual search</li>
+          <li>BatchDownloadModal component with configure step</li>
+          <li>add download provider submenu to multi-track context menu</li>
+          <li>add debugOnly manifest flag — hides plugins when debug mode is off</li>
+          <li>default Save To to Downloads Folder, reorder dropdown</li>
+          <li>add spinner to loading states in InteractiveDownloadModal</li>
+          <li>add error rate and empty search rate to mock download plugin</li>
+          <li>add Show in Folder and Play buttons to download complete step</li>
+          <li>tidal-browse registers interactive download handlers</li>
+          <li>download context menu submenu with per-provider entries</li>
+          <li>replace TidalDownloadModal with generic InteractiveDownloadModal</li>
+          <li>create generic InteractiveDownloadModal component</li>
+          <li>add interactive download plugin API (onInteractiveSearch, onInteractiveResolve)</li>
+          <li>resolveTrackDownload supports provider filtering</li>
+          <li>add provider field to DownloadRequest for targeted downloads</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li><strong>downloads</strong>: play downloaded track with full library metadata</li>
+          <li><strong>tidal</strong>: allow insecure TLS for TIDAL proxy instances</li>
+          <li><strong>youtube</strong>: use after_move:filepath to get reliable output path</li>
+          <li>plugin toggles use checked: not value: for state</li>
+          <li>unified DownloadModal batch download fixes</li>
+          <li>BatchDownloadModal uses downloadFormat prop for quality default</li>
+          <li>prevent re-render loop in BatchDownloadModal resolve step</li>
+          <li>reload plugins when debugMode changes after initial load</li>
+          <li>Play button finds track from DB after download, falls back to path</li>
+          <li>Play button adds downloaded track to queue instead of replacing it</li>
+          <li>style disabled search button with reduced opacity</li>
+          <li>disable Search button while searching</li>
+          <li>move delay before error/empty checks in mock search handler</li>
+          <li>prevent double auto-search on mount in InteractiveDownloadModal</li>
+          <li>show download submenu in queue and playlist context menus</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li><strong>plugins</strong>: remove existing plugins section for clarity</li>
+          <li>move getDownloadFormat from api.collections to api.downloads</li>
+          <li>replace api.tidal with generic onResolveStreamByUri</li>
+          <li>replace InteractiveDownloadModal + BatchDownloadModal with unified DownloadModal</li>
+          <li>move spinner and disabled styles to design system</li>
+          <li>update tidal-browse and youtube plugins to new download provider API</li>
+          <li>unified download provider chain with resolveByUri + resolveByMetadata</li>
+          <li>replace source_provider_id/track_id/collection_id with uri + duration_secs on DownloadRequest</li>
+          <li>mixtape export uses download_file and download-resolve-request event</li>
+          <li>use shared download_file() in download_to_path and download_preview</li>
+          <li>extract shared download_file() helper in downloader.rs</li>
+          </ul>
+          <h4>Chores</h4>
+          <ul>
+          <li>remove obsolete lastfm cache migration</li>
+          <li>remove dead plugin API methods</li>
+          <li>cleanup old TidalDownloadModal CSS, fix album modal import</li>
+          </ul>
+          <h4>Other</h4>
+          <ul>
+          <li>debug: add console.log to mock download interactive search</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.39/Viboplr_0.9.39_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.39_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.39/Viboplr_0.9.39_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.39_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.38</span>
           <span class="timeline-date">April 27, 2026</span>
         </div>
