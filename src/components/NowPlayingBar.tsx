@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import type { MiniRestingSize } from "../hooks/useMiniMode";
@@ -109,7 +110,7 @@ interface NowPlayingBarProps {
   onToggleHelp: () => void;
   playbackError?: string | null;
   resolvingStatus?: { error: string | null; trying: string | null } | null;
-  resolvedSource?: { name: string; url: string } | null;
+  resolvedSource?: { name: string; url: string; id?: string | null } | null;
   loadingTrack?: Track | null;
   onSkipError?: () => void;
   onDownloadTrack?: () => void;
@@ -135,13 +136,34 @@ export function NowPlayingBar({
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [sourceTooltip, setSourceTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const [sourceTooltipOpen, setSourceTooltipOpen] = useState(false);
+  const [sourceAnchor, setSourceAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
+  const sourceHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sourceTooltipRef = useRef<HTMLDivElement | null>(null);
   const [showMiniVolume, setShowMiniVolume] = useState(false);
 
   // Blur any focused element when entering mini mode so no button appears selected
   useEffect(() => {
     if (miniMode) (document.activeElement as HTMLElement)?.blur();
   }, [miniMode]);
+
+  // Fetch audio properties for the current track (local files only). Reset on track change.
+  useEffect(() => {
+    setAudioProps(null);
+    if (!currentTrack?.id) return;
+    const path = currentTrack.path ?? "";
+    const isLocal = path.startsWith("file://") || (!path.includes("://") && path.length > 0);
+    if (!isLocal) return;
+    let cancelled = false;
+    invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>(
+      "get_track_audio_properties",
+      { trackId: currentTrack.id }
+    )
+      .then(p => { if (!cancelled) setAudioProps(p); })
+      .catch(e => console.error("Failed to load audio properties:", e));
+    return () => { cancelled = true; };
+  }, [currentTrack?.id, currentTrack?.path]);
 
   // Auto-skip on error in mini mode (5s)
   useEffect(() => {
@@ -419,23 +441,20 @@ export function NowPlayingBar({
                   ) : (
                     <>
                       {!resolvingStatus && (() => {
-                        const source = resolvedSource?.name || (currentTrack.path?.startsWith("tidal://") ? "TIDAL" : currentTrack.path?.startsWith("subsonic://") ? "Subsonic" : "Local");
-                        const isLocal = currentTrack.path?.startsWith("file://") || !currentTrack.path?.includes("://");
-                        const tip = [
-                          `Source: ${source}`,
-                          currentTrack.format ? `Format: ${currentTrack.format.toUpperCase()}` : null,
-                          currentTrack.file_size ? `Size: ${(currentTrack.file_size / 1048576).toFixed(1)} MB` : null,
-                          currentTrack.collection_name ? `Collection: ${currentTrack.collection_name}` : null,
-                          isLocal ? `Path: ${currentTrack.path?.replace(/^file:\/\//, "")}` : null,
-                          !isLocal && resolvedSource ? `URL: ${(() => { try { const u = new URL(resolvedSource.url); return u.protocol === "asset:" ? decodeURIComponent(u.pathname) : u.hostname; } catch { return resolvedSource.url.slice(0, 50); } })()}` : null,
-                        ].filter(Boolean).join("\n");
+                        const path = currentTrack.path ?? "";
+                        const isLocal = path.startsWith("file://") || (!path.includes("://") && path.length > 0);
                         return <span
                           className="now-source-icon"
                           onMouseEnter={(e) => {
+                            if (sourceHoverTimerRef.current) { clearTimeout(sourceHoverTimerRef.current); sourceHoverTimerRef.current = null; }
                             const rect = e.currentTarget.getBoundingClientRect();
-                            setSourceTooltip({ text: tip, x: rect.left, y: rect.top - 8 });
+                            setSourceAnchor({ x: rect.left, y: rect.top - 8 });
+                            setSourceTooltipOpen(true);
                           }}
-                          onMouseLeave={() => setSourceTooltip(null)}
+                          onMouseLeave={() => {
+                            if (sourceHoverTimerRef.current) clearTimeout(sourceHoverTimerRef.current);
+                            sourceHoverTimerRef.current = setTimeout(() => setSourceTooltipOpen(false), 150);
+                          }}
                         ><SourceIcon isLocal={isLocal} /></span>;
                       })()}
                       {resolvingStatus ? (
@@ -572,12 +591,117 @@ export function NowPlayingBar({
           </div>
         </div>
       )}
-      {sourceTooltip && (
-        <div
-          className="ds-tooltip visible"
-          style={{ left: sourceTooltip.x, top: sourceTooltip.y, transform: "translateY(-100%)" }}
-        >{sourceTooltip.text}</div>
-      )}
+      {sourceTooltipOpen && sourceAnchor && currentTrack && (() => {
+        const path = currentTrack.path ?? "";
+        const isTidal = path.startsWith("tidal://");
+        const isSubsonic = path.startsWith("subsonic://");
+        const isLocal = path.startsWith("file://") || (!path.includes("://") && path.length > 0);
+        const resolverName = resolvedSource?.name;
+        const resolverId = resolvedSource?.id;
+        const viaYouTube = resolverId === "youtube:youtube-fallback";
+
+        const sourceLabel = viaYouTube
+          ? "YouTube"
+          : resolverName && resolverName !== "Library"
+            ? resolverName
+            : isTidal ? "TIDAL" : isSubsonic ? "Subsonic" : isLocal ? "Local" : (resolverName || "Unknown");
+
+        const localPath = isLocal ? path.replace(/^file:\/\//, "") : null;
+        const folder = localPath ? localPath.replace(/\/[^/]*$/, "") : null;
+
+        // External link for the "open URL" action
+        let externalUrl: string | null = null;
+        let externalLabel: string | null = null;
+        if (viaYouTube && resolvedSource) {
+          // yt-dlp stream URLs are opaque googlevideo; prefer the youtube_url the track carries
+          externalUrl = currentTrack.youtube_url || resolvedSource.url;
+          externalLabel = "Open on YouTube";
+        } else if (currentTrack.youtube_url && !isTidal && !isSubsonic && !isLocal) {
+          externalUrl = currentTrack.youtube_url;
+          externalLabel = "Open on YouTube";
+        } else if (isTidal) {
+          const m = path.match(/^tidal:\/\/[^/]+\/(.+)$/);
+          if (m) { externalUrl = `https://tidal.com/browse/track/${m[1]}`; externalLabel = "Open on TIDAL"; }
+        } else if (isSubsonic && resolvedSource) {
+          try {
+            const u = new URL(resolvedSource.url);
+            externalUrl = `${u.protocol}//${u.host}`;
+            externalLabel = "Open server";
+          } catch { /* ignore */ }
+        }
+
+        // Rows
+        const rows: Array<[string, React.ReactNode]> = [];
+        if (currentTrack.format) rows.push(["format", currentTrack.format.toUpperCase()]);
+        if (audioProps?.bitrate) rows.push(["bitrate", `${audioProps.bitrate} kbps`]);
+        if (audioProps?.sample_rate) {
+          const depth = audioProps.bit_depth ? ` · ${audioProps.bit_depth}-bit` : "";
+          rows.push(["quality", `${(audioProps.sample_rate / 1000).toFixed(1)} kHz${depth}`]);
+        }
+        if (audioProps?.channels) {
+          const label = audioProps.channels === 1 ? "Mono" : audioProps.channels === 2 ? "Stereo" : `${audioProps.channels} ch`;
+          rows.push(["channels", label]);
+        }
+        if (currentTrack.file_size) rows.push(["size", `${(currentTrack.file_size / 1048576).toFixed(1)} MB`]);
+        if (currentTrack.collection_name) rows.push(["collection", currentTrack.collection_name]);
+        if (localPath) rows.push(["path", <span className="now-source-path" title={localPath}>{localPath}</span>]);
+        if (!isLocal && resolvedSource) {
+          try {
+            const u = new URL(resolvedSource.url);
+            rows.push(["host", u.hostname]);
+          } catch { /* ignore */ }
+        }
+
+        return (
+          <div
+            ref={sourceTooltipRef}
+            className="ds-tooltip visible now-source-tooltip"
+            style={{ left: sourceAnchor.x, top: sourceAnchor.y, transform: "translateY(-100%)" }}
+            onMouseEnter={() => {
+              if (sourceHoverTimerRef.current) { clearTimeout(sourceHoverTimerRef.current); sourceHoverTimerRef.current = null; }
+            }}
+            onMouseLeave={() => setSourceTooltipOpen(false)}
+          >
+            <div className="ds-tooltip-title">{sourceLabel}</div>
+            {rows.length > 0 && (
+              <div className="ds-tooltip-rows">
+                {rows.map(([k, v]) => (
+                  <div key={k} className="ds-tooltip-row">
+                    <span className="ds-tooltip-key">{k}</span>
+                    <span className="ds-tooltip-val">{v}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {(folder || externalUrl) && (
+              <div className="now-source-actions">
+                {folder && currentTrack.id != null && (
+                  <button
+                    className="ds-btn ds-btn--ghost ds-btn--sm"
+                    onClick={() => {
+                      invoke("show_in_folder", { trackId: currentTrack.id }).catch(e => console.error("Failed to show in folder:", e));
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                    Open folder
+                  </button>
+                )}
+                {externalUrl && (
+                  <button
+                    className="ds-btn ds-btn--ghost ds-btn--sm"
+                    onClick={() => {
+                      openUrl(externalUrl!).catch(e => console.error("Failed to open URL:", e));
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    {externalLabel}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </footer>
   );
 }

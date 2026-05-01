@@ -157,6 +157,39 @@
   cursor: default;
 }
 
+.now-source-tooltip {
+  pointer-events: auto;
+  min-width: 220px;
+}
+
+.now-source-tooltip .ds-tooltip-val {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.now-source-path {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.now-source-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(var(--overlay-base), 0.1);
+}
+
+.now-source-actions .ds-btn {
+  flex: 1;
+  gap: 6px;
+}
+
 .now-sep {
   color: var(--text-secondary);
 }
