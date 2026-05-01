@@ -221,6 +221,17 @@ export type PluginViewData =
   | { type: "settings-row"; label: string; description?: string; control?: PluginViewData; child?: PluginViewData }
   | { type: "section"; title: string; children: PluginViewData[] }
   | {
+      type: "confirm";
+      title?: string;
+      message: string;
+      confirmLabel?: string;
+      cancelLabel?: string;
+      confirmVariant?: "accent" | "secondary" | "danger";
+      confirmAction: string;
+      cancelAction: string;
+      data?: unknown;
+    }
+  | {
       type: "detail-header";
       title: string;
       subtitle?: string;

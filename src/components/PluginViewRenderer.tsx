@@ -290,6 +290,20 @@ function PluginViewNode({
           </div>
         </div>
       );
+    case "confirm":
+      return (
+        <PluginConfirm
+          title={node.title}
+          message={node.message}
+          confirmLabel={node.confirmLabel}
+          cancelLabel={node.cancelLabel}
+          confirmVariant={node.confirmVariant}
+          confirmAction={node.confirmAction}
+          cancelAction={node.cancelAction}
+          data={node.data}
+          onAction={onAction}
+        />
+      );
     case "detail-header":
       return (
         <PluginDetailHeader
@@ -909,6 +923,61 @@ function PluginLoading({ message }: { message?: string }) {
     <div className="plugin-loading">
       <div className="plugin-loading-spinner" />
       {message && <div>{message}</div>}
+    </div>
+  );
+}
+
+// -- Confirm dialog --
+
+function PluginConfirm({
+  title,
+  message,
+  confirmLabel,
+  cancelLabel,
+  confirmVariant,
+  confirmAction,
+  cancelAction,
+  data,
+  onAction,
+}: {
+  title?: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  confirmVariant?: "accent" | "secondary" | "danger";
+  confirmAction: string;
+  cancelAction: string;
+  data?: unknown;
+  onAction?: (actionId: string, data?: unknown) => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onAction?.(cancelAction, data);
+      else if (e.key === "Enter") onAction?.(confirmAction, data);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmAction, cancelAction, data, onAction]);
+
+  const confirmClass =
+    confirmVariant === "danger" ? "ds-btn ds-btn--danger"
+    : confirmVariant === "secondary" ? "ds-btn ds-btn--secondary"
+    : "ds-btn ds-btn--primary";
+
+  return (
+    <div className="ds-modal-overlay" onClick={() => onAction?.(cancelAction, data)}>
+      <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
+        {title && <div className="ds-modal-title">{title}</div>}
+        <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{message}</div>
+        <div className="ds-modal-actions">
+          <button className="ds-btn ds-btn--secondary" onClick={() => onAction?.(cancelAction, data)}>
+            {cancelLabel || "Cancel"}
+          </button>
+          <button className={confirmClass} onClick={() => onAction?.(confirmAction, data)} autoFocus>
+            {confirmLabel || "Confirm"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

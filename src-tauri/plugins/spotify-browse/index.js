@@ -161,10 +161,14 @@ function activate(api) {
     return { added: added, removed: removed };
   }
 
+  function sectionsEqual(a, b) {
+    return String(a || "Playlists").toLowerCase() === String(b || "Playlists").toLowerCase();
+  }
+
   function getPlaylistsForSection(sectionName) {
     var result = [];
     for (var i = 0; i < state.playlists.length; i++) {
-      if ((state.playlists[i].section || "Playlists") === sectionName) {
+      if (sectionsEqual(state.playlists[i].section, sectionName)) {
         result.push(state.playlists[i]);
       }
     }
@@ -242,19 +246,34 @@ function activate(api) {
   }
 
   function archivePlaylist(pl) {
+    var archiveId = sanitizeSegment(pl.id);
+    // If an archive already exists for this playlist, ask the user what to do.
+    api.storage.files.exists(["archives", archiveId]).then(function (exists) {
+      if (exists) {
+        state.pendingArchive = { playlistId: pl.id, archiveId: archiveId };
+        render();
+        return;
+      }
+      doArchive(pl, archiveId);
+    }).catch(function (e) {
+      console.error("Failed to check archive existence:", e);
+      doArchive(pl, archiveId);
+    });
+  }
+
+  function doArchive(pl, archiveId) {
     var tracks = state.playlistTracks[pl.id] || [];
     var now = new Date();
-    var archiveId = sanitizeSegment(pl.id + "-" + now.getTime());
     var srcDir = playlistDir(pl);
     var dstDir = ["archives", archiveId];
 
-    api.storage.files.exists(srcDir).then(function (exists) {
-      var copyP = exists
-        ? api.storage.files.copy(srcDir, dstDir)
-        : Promise.resolve();
-      return copyP;
+    // Clear any previous archive dir first so overwrite is clean.
+    api.storage.files.remove(dstDir).catch(function () { /* no-op if missing */ })
+    .then(function () {
+      return api.storage.files.exists(srcDir);
+    }).then(function (exists) {
+      return exists ? api.storage.files.copy(srcDir, dstDir) : Promise.resolve();
     }).then(function () {
-      // Write archive-specific meta (same shape as live meta plus archivedAt)
       var meta = {
         id: pl.id,
         spotifyId: pl.id,
@@ -265,12 +284,11 @@ function activate(api) {
         archivedAt: now.toISOString(),
         trackCount: tracks.length,
       };
-      return api.storage.files.writeJson(["archives", archiveId, "meta.json"], meta);
+      return api.storage.files.writeJson(dstDir.concat(["meta.json"]), meta);
     }).then(function () {
-      // Also ensure tracks.json exists even if the source dir didn't have it
-      return api.storage.files.exists(["archives", archiveId, "tracks.json"]).then(function (hasTracks) {
+      return api.storage.files.exists(dstDir.concat(["tracks.json"])).then(function (hasTracks) {
         if (hasTracks) return null;
-        return api.storage.files.writeJson(["archives", archiveId, "tracks.json"], serializeTracks(tracks));
+        return api.storage.files.writeJson(dstDir.concat(["tracks.json"]), serializeTracks(tracks));
       });
     }).then(function () {
       api.ui.showNotification("Archived: " + pl.name);
@@ -544,6 +562,13 @@ function activate(api) {
       buttons.push({ label: "Open Browser", action: "open-browser" });
     }
 
+    // Always show a browser-visibility toggle for debugging scrapes.
+    buttons.push({
+      label: state.showBrowserOnRefresh ? "Hide browser during refresh" : "Show browser during refresh",
+      action: "toggle-show-browser-pref",
+      variant: "secondary",
+    });
+
     var statusText = "";
     var statusVariant = "default";
 
@@ -696,6 +721,25 @@ function activate(api) {
           { type: "button", label: "Add", action: "add-section-tab", variant: "accent", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
           { type: "button", label: "Cancel", action: "cancel-add-section", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
         ],
+      });
+    }
+
+    if (state.pendingArchive) {
+      var pendingName = (function () {
+        for (var pi = 0; pi < state.playlists.length; pi++) {
+          if (state.playlists[pi].id === state.pendingArchive.playlistId) return state.playlists[pi].name;
+        }
+        return state.pendingArchive.playlistId;
+      })();
+      view.push({
+        type: "confirm",
+        title: "Overwrite existing archive?",
+        message: "\"" + pendingName + "\" is already archived. Replacing it will discard the previous snapshot.",
+        confirmLabel: "Overwrite",
+        cancelLabel: "Cancel",
+        confirmVariant: "danger",
+        confirmAction: "confirm-archive-overwrite",
+        cancelAction: "cancel-archive",
       });
     }
 
@@ -1674,8 +1718,7 @@ function activate(api) {
       var kept = [];
       for (var i = 0; i < state.playlists.length; i++) {
         var oldPl = state.playlists[i];
-        var oldSection = oldPl.section || "Playlists";
-        if (oldSection !== sectionName) {
+        if (!sectionsEqual(oldPl.section, sectionName)) {
           kept.push(oldPl);
         } else if (!keptIds[oldPl.id]) {
           deletePlaylistFiles(oldPl);
@@ -1718,7 +1761,7 @@ function activate(api) {
     var name = data.section;
     var idx = -1;
     for (var i = 0; i < state.sections.length; i++) {
-      if (state.sections[i] === name) { idx = i; break; }
+      if (sectionsEqual(state.sections[i], name)) { idx = i; break; }
     }
     if (idx === -1) return;
     state.sections.splice(idx, 1);
@@ -1727,7 +1770,7 @@ function activate(api) {
     api.storage.files.remove(["playlists", sanitizeSegment(name)]).catch(console.error);
     var keptPls = [];
     for (var p = 0; p < state.playlists.length; p++) {
-      if ((state.playlists[p].section || "Playlists") !== name) {
+      if (!sectionsEqual(state.playlists[p].section, name)) {
         keptPls.push(state.playlists[p]);
       } else {
         delete state.playlistTracks[state.playlists[p].id];
@@ -1921,6 +1964,24 @@ function activate(api) {
     var pl = findPlaylistFromData(data);
     if (!pl) return;
     archivePlaylist(pl);
+  });
+
+  api.ui.onAction("confirm-archive-overwrite", function() {
+    if (!state.pendingArchive) return;
+    var pending = state.pendingArchive;
+    state.pendingArchive = null;
+    var pl = null;
+    for (var i = 0; i < state.playlists.length; i++) {
+      if (state.playlists[i].id === pending.playlistId) { pl = state.playlists[i]; break; }
+    }
+    if (!pl) { render(); return; }
+    doArchive(pl, pending.archiveId);
+    render();
+  });
+
+  api.ui.onAction("cancel-archive", function() {
+    state.pendingArchive = null;
+    render();
   });
 
   function savePlaylistToApp(pl) {
@@ -2180,6 +2241,7 @@ function activate(api) {
     state.showBrowserOnRefresh = !state.showBrowserOnRefresh;
     savePreferences();
     renderSettings();
+    render();
   });
 
   api.ui.onAction("toggle-diagnostics", function() {
@@ -2240,14 +2302,32 @@ function activate(api) {
   }
   loadInitialState();
 
-  // One-time migration for legacy archives key into the archives/ directory.
-  // Runs in the background; loadArchives() is called afterwards to pick them up.
+  // One-time migration: legacy archives key → archives/{playlist_id}/. When the
+  // KV held multiple snapshots of the same playlist, keep the most recent.
   api.storage.get("spotify_browse_archives").then(function (legacy) {
-    if (!legacy || !legacy.length) { loadArchives(); return; }
-    var promises = [];
+    if (!legacy || !legacy.length) {
+      // Still run the dedup pass over on-disk archives with old timestamp suffixes.
+      collapseTimestampedArchives().then(loadArchives).catch(function (e) {
+        console.error("Failed to collapse old archives:", e); loadArchives();
+      });
+      return;
+    }
+    // Pick the newest entry per playlist id.
+    var byId = {};
     for (var i = 0; i < legacy.length; i++) {
+      var e = legacy[i];
+      var pid = e.spotifyId || e.id;
+      if (!pid) continue;
+      var existing = byId[pid];
+      if (!existing || (e.archivedAt || "") > (existing.archivedAt || "")) {
+        byId[pid] = e;
+      }
+    }
+    var promises = [];
+    var ids = Object.keys(byId);
+    for (var j = 0; j < ids.length; j++) {
       (function (entry) {
-        var archiveId = sanitizeSegment(entry.id || (entry.spotifyId + "-" + Date.now()));
+        var archiveId = sanitizeSegment(entry.spotifyId || entry.id);
         var meta = {
           id: entry.spotifyId || entry.id,
           spotifyId: entry.spotifyId || entry.id,
@@ -2258,28 +2338,73 @@ function activate(api) {
           archivedAt: entry.archivedAt || new Date().toISOString(),
           trackCount: entry.trackCount || (entry.tracks ? entry.tracks.length : 0),
         };
-        var p = api.storage.files.writeJson(["archives", archiveId, "meta.json"], meta)
-          .then(function () {
-            return api.storage.files.writeJson(["archives", archiveId, "tracks.json"], entry.tracks || []);
-          });
-        // Copy cover if it's a local path from the old layout
-        if (entry.imageUrl && entry.imageUrl.indexOf("http") !== 0) {
-          // old paths were plugin-cache/{plugin}/{playlistId}/cover.jpg — unreachable via new API
-          // best-effort: skip, user can re-archive if they want the image
-        } else if (entry.imageUrl) {
+        var p = api.storage.files.remove(["archives", archiveId])
+          .catch(function () { /* no-op if missing */ })
+          .then(function () { return api.storage.files.writeJson(["archives", archiveId, "meta.json"], meta); })
+          .then(function () { return api.storage.files.writeJson(["archives", archiveId, "tracks.json"], entry.tracks || []); });
+        if (entry.imageUrl && entry.imageUrl.indexOf("http") === 0) {
           p = p.then(function () {
             return api.storage.files.download(["archives", archiveId, "cover.jpg"], entry.imageUrl)
               .catch(function () { /* non-fatal */ });
           });
         }
         promises.push(p);
-      })(legacy[i]);
+      })(byId[ids[j]]);
     }
     Promise.all(promises).then(function () {
       api.storage.delete("spotify_browse_archives").catch(console.error);
-      loadArchives();
-    }).catch(function (e) { console.error("Failed to migrate archives:", e); loadArchives(); });
+      return collapseTimestampedArchives();
+    }).then(loadArchives).catch(function (e) {
+      console.error("Failed to migrate archives:", e); loadArchives();
+    });
   }).catch(function () { loadArchives(); });
+
+  // Legacy on-disk archive dirs looked like "{playlist_id}-{timestamp}". For each
+  // playlist id, keep the newest directory's contents, rename it to just the id,
+  // and drop the rest.
+  function collapseTimestampedArchives() {
+    return api.storage.files.list(["archives"]).then(function (entries) {
+      // Group by the playlist id prefix.
+      var groups = {};
+      for (var i = 0; i < entries.length; i++) {
+        if (!entries[i].isDir) continue;
+        var name = entries[i].name;
+        // Only treat names matching {id}-{digits} as timestamped snapshots.
+        var m = name.match(/^(.+?)-(\d{10,})$/);
+        if (!m) continue;
+        var pid = m[1];
+        var ts = parseInt(m[2], 10);
+        if (!groups[pid]) groups[pid] = [];
+        groups[pid].push({ name: name, ts: ts });
+      }
+      var tasks = [];
+      var pids = Object.keys(groups);
+      for (var p = 0; p < pids.length; p++) {
+        (function (pid) {
+          var list = groups[pid];
+          list.sort(function (a, b) { return b.ts - a.ts; });
+          var keeper = list[0];
+          var canonical = sanitizeSegment(pid);
+          // If an archive at the canonical id already exists, just delete the extras.
+          tasks.push(
+            api.storage.files.exists(["archives", canonical]).then(function (exists) {
+              if (exists) {
+                var dels = [];
+                for (var k = 0; k < list.length; k++) dels.push(api.storage.files.remove(["archives", list[k].name]));
+                return Promise.all(dels);
+              }
+              return api.storage.files.move(["archives", keeper.name], ["archives", canonical]).then(function () {
+                var dels = [];
+                for (var k = 1; k < list.length; k++) dels.push(api.storage.files.remove(["archives", list[k].name]));
+                return Promise.all(dels);
+              });
+            })
+          );
+        })(pids[p]);
+      }
+      return Promise.all(tasks);
+    });
+  }
 
   // Load sections
   api.storage.get("spotify_browse_sections").then(function(sections) {
