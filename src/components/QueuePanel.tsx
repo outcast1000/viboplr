@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
-import { formatDuration } from "../utils";
+import { formatDuration, isVideoTrack } from "../utils";
 import { thumbFilenameForUri, isContextRemote } from "../mainPlaylist";
 import "./QueuePanel.css";
 
@@ -206,17 +206,41 @@ export function QueuePanel({
   // Fallback image resolution for tracks missing image_url
   const [resolvedImages, setResolvedImages] = useState<Record<string, string | null>>({});
   const resolvingRef = useRef<Set<string>>(new Set());
+  const [videoFrames, setVideoFrames] = useState<Record<number, string | null>>({});
+  const videoFramesReqRef = useRef<Set<number>>(new Set());
 
   const getTrackImageKey = useCallback((t: Track) => `${t.artist_name ?? ""}::${t.title}`, []);
 
   const getTrackImage = useCallback((t: Track): string | null => {
+    if (t.id != null && isVideoTrack(t)) {
+      const frame = videoFrames[t.id];
+      if (frame) return convertFileSrc(frame);
+    }
     if (t.image_url) return t.image_url.startsWith("http") ? t.image_url : convertFileSrc(t.image_url);
     if (t.album_id != null && albumImages[t.album_id]) return convertFileSrc(albumImages[t.album_id]!);
     if (t.artist_id != null && artistImages[t.artist_id]) return convertFileSrc(artistImages[t.artist_id]!);
     const resolved = resolvedImages[getTrackImageKey(t)];
     if (resolved) return convertFileSrc(resolved);
     return null;
-  }, [albumImages, artistImages, resolvedImages, getTrackImageKey]);
+  }, [albumImages, artistImages, resolvedImages, getTrackImageKey, videoFrames]);
+
+  useEffect(() => {
+    for (const t of queue) {
+      if (t.id == null || !isVideoTrack(t)) continue;
+      if (t.id in videoFrames || videoFramesReqRef.current.has(t.id)) continue;
+      const trackId = t.id;
+      videoFramesReqRef.current.add(trackId);
+      invoke<{ status: string; paths?: string[] } | null>("get_video_frames", { trackId })
+        .then(result => {
+          const first = result?.status === "ok" && result.paths?.[0] ? result.paths[0] : null;
+          setVideoFrames(prev => ({ ...prev, [trackId]: first }));
+        })
+        .catch(e => {
+          console.error("Failed to load cached video frame for queue:", e);
+          setVideoFrames(prev => ({ ...prev, [trackId]: null }));
+        });
+    }
+  }, [queue, videoFrames]);
 
   useEffect(() => {
     for (const t of queue) {
