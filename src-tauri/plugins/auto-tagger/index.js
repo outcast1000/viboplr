@@ -254,7 +254,7 @@ function activate(api) {
     }
 
     fetchAllTracks().then(function (tracks) {
-      var promises = [];
+      var assignments = [];
       for (var i = 0; i < tracks.length; i++) {
         var ngrams = tokenizeTrack(tracks[i], collectionRoots);
         var matchedTags = [];
@@ -265,13 +265,12 @@ function activate(api) {
           }
         }
         if (matchedTags.length > 0) {
-          promises.push(api.library.applyTags(tracks[i].id, matchedTags).catch(function (err) {
-            console.error("Failed to apply tags:", err);
-          }));
+          assignments.push([tracks[i].id, matchedTags]);
         }
         state.processedTrackIds[tracks[i].id] = true;
       }
-      return Promise.all(promises);
+      if (assignments.length === 0) return 0;
+      return api.library.applyTagsBulk(assignments);
     }).then(function () {
       if (refreshAfter) {
         api.ui.requestAction("refresh-library", {});
@@ -339,6 +338,7 @@ function activate(api) {
       for (var t = 0; t < state.approvedTags.length; t++) {
         normalizedApproved[normalizeStr(state.approvedTags[t])] = state.approvedTags[t];
       }
+      var assignments = [];
       for (var i = 0; i < tracks.length; i++) {
         if (state.processedTrackIds[tracks[i].id]) continue;
         var ngrams = tokenizeTrack(tracks[i], collectionRoots);
@@ -350,11 +350,14 @@ function activate(api) {
           }
         }
         if (matchedTags.length > 0) {
-          api.library.applyTags(tracks[i].id, matchedTags).catch(function (err) {
-            console.error("Auto-tagger: failed to apply tags:", err);
-          });
+          assignments.push([tracks[i].id, matchedTags]);
         }
         state.processedTrackIds[tracks[i].id] = true;
+      }
+      if (assignments.length > 0) {
+        return api.library.applyTagsBulk(assignments).catch(function (err) {
+          console.error("Auto-tagger: failed to apply tags in bulk:", err);
+        });
       }
     }).catch(function (err) {
       console.error("Auto-tagger: scan:complete handler failed:", err);

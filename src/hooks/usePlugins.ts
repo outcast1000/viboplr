@@ -268,6 +268,9 @@ export function usePlugins(
           async applyTags(trackId, tagNames) {
             return invoke<Array<{ id: number; name: string }>>("plugin_apply_tags", { trackId, tagNames });
           },
+          async applyTagsBulk(assignments) {
+            return invoke<number>("plugin_apply_tags_bulk", { assignments });
+          },
           onTrackAdded: (handler) =>
             subscribeEvent(
               "track:added",

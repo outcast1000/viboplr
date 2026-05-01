@@ -283,6 +283,7 @@ impl Database {
                 tag_names,
                 path,
                 content='',
+                contentless_delete=1,
                 tokenize='unicode61 remove_diacritics 2'
             );
 
@@ -404,7 +405,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
-            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 30);
+            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 31);
 
             CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id);
             CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);
@@ -475,7 +476,15 @@ impl Database {
             )?;
         }
 
-        let needs_fts_rebuild = version < 26;
+        if version < 31 {
+            conn.execute_batch(
+                "UPDATE db_version SET version = 31 WHERE rowid = 1;"
+            )?;
+        }
+
+        // Rebuild FTS when schema predates current layout OR when bumping to v31
+        // (v31 adds contentless_delete=1 to tracks_fts, requires DROP+recreate).
+        let needs_fts_rebuild = version < 31;
         drop(conn);
 
         if needs_fts_rebuild {
@@ -838,9 +847,71 @@ impl Database {
                  album_title,
                  tag_names,
                  content='',
+                 contentless_delete=1,
                  tokenize='unicode61 remove_diacritics 2'
              );"
         )?;
+        Ok(())
+    }
+
+    /// Refresh the FTS row for a single track without rebuilding the entire
+    /// `tracks_fts` table. Cheap to call after per-track edits (tag changes,
+    /// metadata updates).
+    pub fn update_fts_for_track(&self, track_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        Self::update_fts_for_track_inner(&conn, track_id)
+    }
+
+    fn update_fts_for_track_inner(conn: &Connection, track_id: i64) -> SqlResult<()> {
+        conn.execute("DELETE FROM tracks_fts WHERE rowid = ?1", params![track_id])?;
+        conn.execute(
+            "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, path)
+             SELECT t.id,
+                    strip_diacritics(t.title),
+                    strip_diacritics(COALESCE(ar.name, '')),
+                    strip_diacritics(COALESCE(al.title, '')),
+                    strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
+                    strip_diacritics(COALESCE(t.path, ''))
+             FROM tracks t
+             LEFT JOIN artists ar ON t.artist_id = ar.id
+             LEFT JOIN albums al ON t.album_id = al.id
+             WHERE t.id = ?1",
+            params![track_id],
+        )?;
+        Ok(())
+    }
+
+    /// Apply tag names to many tracks in a single locked transaction.
+    /// Creates tags as needed (case/diacritic-insensitive match), inserts
+    /// `track_tags` rows with `INSERT OR IGNORE`, and updates the FTS row for
+    /// each touched track. One lock acquisition for the entire batch.
+    pub fn apply_tags_bulk(&self, assignments: &[(i64, Vec<String>)]) -> SqlResult<()> {
+        if assignments.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        for (track_id, tag_names) in assignments {
+            for name in tag_names {
+                let tag_id: i64 = match tx.query_row(
+                    "SELECT id FROM tags WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
+                    params![name],
+                    |row| row.get(0),
+                ).optional()? {
+                    Some(id) => id,
+                    None => {
+                        tx.execute("INSERT INTO tags (name) VALUES (?1)", params![name])?;
+                        tx.last_insert_rowid()
+                    }
+                };
+                tx.execute(
+                    "INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?1, ?2)",
+                    params![track_id, tag_id],
+                )?;
+            }
+            Self::update_fts_for_track_inner(&tx, *track_id)?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -855,6 +926,7 @@ impl Database {
                  tag_names,
                  path,
                  content='',
+                 contentless_delete=1,
                  tokenize='unicode61 remove_diacritics 2'
              );"
         )?;
@@ -3557,6 +3629,62 @@ mod tests {
         let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"Alternative"));
         assert!(names.contains(&"Rock"));
+    }
+
+    #[test]
+    fn test_apply_tags_bulk_updates_fts_per_track() {
+        let db = test_db();
+        let t1 = insert_track(&db, "a.mp3", "Alpha", None, None);
+        let t2 = insert_track(&db, "b.mp3", "Beta", None, None);
+        let t3 = insert_track(&db, "c.mp3", "Gamma", None, None);
+        db.rebuild_fts().unwrap();
+
+        db.apply_tags_bulk(&[
+            (t1, vec!["Ambient".to_string(), "Electronic".to_string()]),
+            (t2, vec!["Rock".to_string()]),
+            // t3 intentionally untouched
+        ]).unwrap();
+
+        // Tags associated correctly
+        assert_eq!(db.get_tags_for_track(t1).unwrap().len(), 2);
+        assert_eq!(db.get_tags_for_track(t2).unwrap().len(), 1);
+        assert_eq!(db.get_tags_for_track(t3).unwrap().len(), 0);
+
+        // FTS reflects new tag names for both touched tracks, no rebuild needed
+        let hits = db.get_tracks(&TrackQuery { query: Some("Ambient".to_string()), limit: Some(100), ..Default::default() }).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, t1);
+
+        let hits = db.get_tracks(&TrackQuery { query: Some("Rock".to_string()), limit: Some(100), ..Default::default() }).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, t2);
+
+        // Bulk with an already-tagged track + a new tag merges (INSERT OR IGNORE)
+        db.apply_tags_bulk(&[(t1, vec!["Ambient".to_string(), "Chill".to_string()])]).unwrap();
+        let tags = db.get_tags_for_track(t1).unwrap();
+        assert_eq!(tags.len(), 3);
+
+        // Empty input is a no-op, not an error
+        db.apply_tags_bulk(&[]).unwrap();
+    }
+
+    #[test]
+    fn test_update_fts_for_track_reflects_tag_changes() {
+        let db = test_db();
+        let track_id = insert_track(&db, "music/song.mp3", "Melody", None, None);
+        db.rebuild_fts().unwrap();
+
+        // No tag yet — searching for "Jazz" returns nothing
+        let hits = db.get_tracks(&TrackQuery { query: Some("Jazz".to_string()), limit: Some(100), ..Default::default() }).unwrap();
+        assert_eq!(hits.len(), 0);
+
+        let tag_id = db.get_or_create_tag("Jazz").unwrap();
+        db.add_track_tag(track_id, tag_id).unwrap();
+        db.update_fts_for_track(track_id).unwrap();
+
+        let hits = db.get_tracks(&TrackQuery { query: Some("Jazz".to_string()), limit: Some(100), ..Default::default() }).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].id, track_id);
     }
 
     #[test]

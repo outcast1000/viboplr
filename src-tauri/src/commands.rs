@@ -2928,8 +2928,18 @@ pub fn plugin_apply_tags(
         state.db.add_track_tag(track_id, tag_id).map_err(|e| e.to_string())?;
         result.push((tag_id, name.clone()));
     }
-    let _ = state.db.rebuild_fts();
+    let _ = state.db.update_fts_for_track(track_id);
     Ok(result)
+}
+
+#[tauri::command]
+pub fn plugin_apply_tags_bulk(
+    state: State<'_, AppState>,
+    assignments: Vec<(i64, Vec<String>)>,
+) -> Result<usize, String> {
+    let count = assignments.len();
+    state.db.apply_tags_bulk(&assignments).map_err(|e| e.to_string())?;
+    Ok(count)
 }
 
 // ── Image Provider sync command ──────────────────────────────

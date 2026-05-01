@@ -304,6 +304,7 @@ export interface PluginLibraryAPI {
   }): Promise<HistoryMostPlayed[]>;
   recordHistoryPlaysBatch(plays: { artist: string; track: string; playedAt: number }[]): Promise<{ imported: number; skipped: number }>;
   applyTags(trackId: number, tagNames: string[]): Promise<Array<{ id: number; name: string }>>;
+  applyTagsBulk(assignments: Array<[number, string[]]>): Promise<number>;
   onTrackAdded(handler: (track: { trackId: number; path: string; title: string; artistName: string | null; albumTitle: string | null; collectionId: number }) => void): () => void;
   onTrackRemoved(handler: (track: { trackId: number; path: string }) => void): () => void;
   onScanComplete(handler: (result: { collectionId: number; newTracks: number; removedTracks: number }) => void): () => void;

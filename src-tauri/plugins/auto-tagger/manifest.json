@@ -1,7 +1,7 @@
 {
   "id": "auto-tagger",
   "name": "Auto Tagger",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Viboplr",
   "description": "Analyzes file paths and metadata to suggest and auto-assign tags based on frequent patterns",
   "minAppVersion": "0.9.25",
