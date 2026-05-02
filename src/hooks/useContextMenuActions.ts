@@ -35,10 +35,11 @@ interface UseContextMenuActionsDeps {
   queueCollapsed: boolean;
   setQueueCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
   onTracksDeleted?: (deletedIds: number[]) => void;
+  onShowMenu?: (state: ContextMenuState) => void;
 }
 
 export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
-  const { library, queueHook, playback, addLog, albumImages, artistImages, queueCollapsed, setQueueCollapsed, onTracksDeleted } = deps;
+  const { library, queueHook, playback, addLog, albumImages, artistImages, queueCollapsed, setQueueCollapsed, onTracksDeleted, onShowMenu } = deps;
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [youtubeFeedback, setYoutubeFeedback] = useState<{
@@ -53,26 +54,31 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
 
+  function showMenu(state: ContextMenuState) {
+    setContextMenu(state);
+    onShowMenu?.(state);
+  }
+
   function handleTrackContextMenu(e: React.MouseEvent, track: Track, selectedTrackKeys: Set<string>) {
     e.preventDefault();
     if (selectedTrackKeys.size > 1) {
       const trackIds = [...selectedTrackKeys].map(k => parseLibraryId(k)).filter((id): id is number => id != null);
-      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-track", trackIds } });
+      showMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-track", trackIds } });
     } else {
-      setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, subsonic: track.path?.startsWith("subsonic://") ?? false, tidal: track.path?.startsWith("tidal://") ?? false, external: track.id == null, title: track.title, artistName: track.artist_name } });
+      showMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, subsonic: track.path?.startsWith("subsonic://") ?? false, tidal: track.path?.startsWith("tidal://") ?? false, external: track.id == null, title: track.title, artistName: track.artist_name } });
     }
   }
 
   function handleAlbumContextMenu(e: React.MouseEvent, albumId: number) {
     e.preventDefault();
     const album = library.albums.find(a => a.id === albumId);
-    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "album", albumId, title: album?.title ?? "", artistName: album?.artist_name ?? null } });
+    showMenu({ x: e.clientX, y: e.clientY, target: { kind: "album", albumId, title: album?.title ?? "", artistName: album?.artist_name ?? null } });
   }
 
   function handleArtistContextMenu(e: React.MouseEvent, artistId: number) {
     e.preventDefault();
     const artist = library.artists.find(a => a.id === artistId);
-    setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "artist", artistId, name: artist?.name ?? "" } });
+    showMenu({ x: e.clientX, y: e.clientY, target: { kind: "artist", artistId, name: artist?.name ?? "" } });
   }
 
   async function handleContextPlay() {
@@ -356,7 +362,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   function handleInfoTrackContextMenu(e: React.MouseEvent, info: { trackId?: number; title: string; artistName: string | null }) {
-    setContextMenu({ x: e.clientX, y: e.clientY, target: {
+    showMenu({ x: e.clientX, y: e.clientY, target: {
       kind: "track", trackId: info.trackId, subsonic: false, title: info.title, artistName: info.artistName, external: !info.trackId,
     } });
   }
@@ -444,7 +450,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       : info.kind === "album"
       ? { kind: "album", albumId: info.id, title: info.name, artistName: info.artistName ?? null }
       : { kind: "track", trackId: info.id, subsonic: false, title: info.name, artistName: info.artistName ?? null, external: !info.id };
-    setContextMenu({ x: e.clientX, y: e.clientY, target });
+    showMenu({ x: e.clientX, y: e.clientY, target });
   }
 
   return {

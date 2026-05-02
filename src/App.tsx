@@ -767,6 +767,8 @@ function App() {
   }, [playback.handlePause, playback.handleStop, queueHook.playPrevious]);
 
   // Context menu actions
+  const showNativeMenuRef = useRef<((state: import("./types/contextMenu").ContextMenuState) => void) | null>(null);
+  const handleExportAsMixtapeRef = useRef<((trackIds: number[], defaultTitle?: string) => void) | null>(null);
   const contextMenuActions = useContextMenuActions({
     library: {
       tracks: library.tracks,
@@ -803,6 +805,7 @@ function App() {
         videoFrameQueueRef.current?.evict(id);
       }
     },
+    onShowMenu: (state) => showNativeMenuRef.current?.(state),
   });
 
   const handleDeleteTracks = useCallback((trackIds: number[]) => {
@@ -903,12 +906,8 @@ function App() {
     }
   }, [contextMenuActions.contextMenu, downloadProviderEntries, library.tracks, queueHook.queue, addLog]);
 
-  const nativeMenuActiveRef = useRef(false);
-  useEffect(() => {
-    const cm = contextMenuActions.contextMenu;
-    if (!cm || nativeMenuActiveRef.current) return;
-    nativeMenuActiveRef.current = true;
-
+  const buildAndShowNativeMenu = useCallback((cm: { x: number; y: number; target: import("./types/contextMenu").ContextMenuTarget }) => {
+    contextMenuActions.setContextMenu(cm);
     const { target } = cm;
     const specs: MenuItemSpec[] = [];
 
@@ -975,7 +974,6 @@ function App() {
         specs.push({ kind: "separator" });
         specs.push({ kind: "submenu", text: count > 1 ? `Download ${count} tracks` : "Download", items: dlItems });
       }
-      // Plugin items
       const pluginTargetKind = count === 1 ? "track" : "multi-track";
       const matching = plugins.menuItems.filter(item => item.targets.includes(pluginTargetKind as "track" | "multi-track"));
       if (matching.length > 0) {
@@ -1022,7 +1020,6 @@ function App() {
         specs.push({ kind: "separator" });
         specs.push({ kind: "item", text: isMulti ? `Delete ${target.trackIds.length} tracks` : "Delete", action: contextMenuActions.handleDeleteRequest });
       }
-      // Download submenu
       if (target.kind === "track" && downloadProviderEntries.length > 0) {
         const dlItems: MenuItemSpec[] = [];
         dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
@@ -1057,7 +1054,6 @@ function App() {
         specs.push({ kind: "separator" });
         specs.push({ kind: "submenu", text: `Download ${target.trackIds.length} tracks`, items: dlItems });
       }
-      // Search providers submenu
       if (!isMulti) {
         const contextProviders = getProvidersForContext(searchProviders, context);
         if (contextProviders.length > 0) {
@@ -1074,7 +1070,6 @@ function App() {
           specs.push({ kind: "submenu", text: "Search", items: searchItems });
         }
       }
-      // Plugin items
       const targetKind = target.kind as string;
       const matching = plugins.menuItems.filter(item => item.targets.includes(targetKind as "track" | "album" | "artist" | "multi-track"));
       if (matching.length > 0) {
@@ -1083,24 +1078,22 @@ function App() {
           specs.push({ kind: "item", text: item.label, action: () => plugins.dispatchContextMenuAction(item.pluginId, item.id, toPluginTarget(target)) });
         });
       }
-      // Export as Mixtape
-      if (isMulti && handleExportAsMixtape) {
+      if (isMulti && handleExportAsMixtapeRef.current) {
         specs.push({ kind: "separator" });
-        specs.push({ kind: "item", text: "Export as Mixtape", action: () => handleExportAsMixtape(target.trackIds) });
+        specs.push({ kind: "item", text: "Export as Mixtape", action: () => handleExportAsMixtapeRef.current?.(target.trackIds) });
       }
     }
 
     if (specs.length === 0) {
-      nativeMenuActiveRef.current = false;
       contextMenuActions.setContextMenu(null);
       return;
     }
 
     showNativeMenu(cm.x, cm.y, specs).finally(() => {
-      nativeMenuActiveRef.current = false;
       contextMenuActions.setContextMenu(null);
     });
-  }, [contextMenuActions.contextMenu]);
+  }, [contextMenuActions, videoLayout, queueHook.queue, library, downloadProviderEntries, plugins.menuItems, plugins.dispatchContextMenuAction, searchProviders, handleDownloadFromProvider, artistImageCache, albumImageCache]);
+  showNativeMenuRef.current = buildAndShowNativeMenu;
 
   // Wire plugin host callbacks (uses addLog, library, contextMenuActions defined above)
   pluginHostCallbacksRef.current = {
@@ -2271,6 +2264,7 @@ function App() {
 
   // Bridge for keyboard shortcuts
   handleToggleLikeRef.current = likeActions.handleToggleLike;
+  handleExportAsMixtapeRef.current = handleExportAsMixtape;
 
   const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags,
     sortedTracks, sortField, highlightedIndex, highlightedListIndex } = library;
@@ -3019,10 +3013,10 @@ function App() {
                   plugins.dispatchUIAction(pluginId, actionId, actionData);
                 }}
                 onTrackContextMenu={(e, track) => {
-                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, subsonic: track.path?.startsWith("subsonic://"), tidal: track.path?.startsWith("tidal://"), external: track.id == null, title: track.title, artistName: track.artist_name } });
+                  buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, subsonic: track.path?.startsWith("subsonic://"), tidal: track.path?.startsWith("tidal://"), external: track.id == null, title: track.title, artistName: track.artist_name } });
                 }}
                 onTrackRowContextMenu={(e, item) => {
-                  contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: 0, subsonic: false, title: item.title, artistName: item.subtitle ?? null, external: true } });
+                  buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: 0, subsonic: false, title: item.title, artistName: item.subtitle ?? null, external: true } });
                 }}
                 pluginMenuItems={plugins.menuItems}
                 onPluginAction={plugins.dispatchContextMenuAction}
@@ -3132,7 +3126,7 @@ function App() {
           data-fit={videoLayout.fitMode}
           onContextMenu={(e) => {
             e.preventDefault();
-            contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: { kind: "video", dockSide: videoLayout.dockSide, fitMode: videoLayout.fitMode } });
+            buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "video", dockSide: videoLayout.dockSide, fitMode: videoLayout.fitMode } });
           }}
           style={{
             display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',
@@ -3238,7 +3232,7 @@ function App() {
           onContextMenu={(e, indices) => {
             const tracks = indices.map(i => queueHook.queue[i]).filter(Boolean);
             const first = tracks[0];
-            contextMenuActions.setContextMenu({ x: e.clientX, y: e.clientY, target: {
+            buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: {
               kind: "queue-multi", indices,
               trackIds: tracks.map(t => t.id).filter((id): id is number => id != null),
               firstTrack: first ? { title: first.title, artistName: first.artist_name, subsonic: !!first.path?.startsWith("subsonic://"), hasLocalPath: !!first.path && !first.path.startsWith("subsonic://") && !first.path.startsWith("tidal://") } : { title: "", artistName: null, subsonic: false },
