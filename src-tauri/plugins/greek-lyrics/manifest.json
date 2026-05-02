@@ -1,0 +1,28 @@
+{
+  "id": "greek-lyrics",
+  "name": "Greek Lyrics",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Search Greek lyrics sites via Google",
+  "icon": "M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM21 21l-4.35-4.35",
+  "minAppVersion": "0.9.5",
+  "contributes": {
+    "informationTypes": [
+      {
+        "id": "lyrics",
+        "name": "Lyrics",
+        "description": "Song lyrics from Greek sites",
+        "entity": "track",
+        "displayKind": "lyrics",
+        "ttl": 7776000,
+        "order": 410,
+        "priority": 350
+      }
+    ],
+    "settingsPanel": {
+      "id": "greek-lyrics-settings",
+      "label": "Greek Lyrics",
+      "order": 61
+    }
+  }
+}
