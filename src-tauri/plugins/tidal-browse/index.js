@@ -2,6 +2,11 @@
 // Provides TIDAL search, streaming, and download via plugin system
 
 var __healthCheckInterval = null;
+var REMASTER_SUFFIX = /\s*-\s*.*remaster.*$/i;
+function stripRemasterSuffix(s) {
+  if (!s) return s;
+  return s.replace(REMASTER_SUFFIX, "").trim() || s;
+}
 
 function activate(api) {
   var state = {
@@ -1163,6 +1168,7 @@ function activate(api) {
       rustLog("warn", "TIDAL streaming servers are down — skipping stream resolve for: " + [title, artistName].filter(Boolean).join(" — "));
       return null;
     }
+    title = stripRemasterSuffix(title);
     var query = [title, artistName].filter(Boolean).join(" ");
     if (!query) return null;
     try {

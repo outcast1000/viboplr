@@ -4,6 +4,12 @@ var latestYtDlp = null;
 var latestFfmpeg = null;
 var checking = false;
 
+var REMASTER_SUFFIX = /\s*-\s*.*remaster.*$/i;
+function stripRemasterSuffix(s) {
+  if (!s) return s;
+  return s.replace(REMASTER_SUFFIX, "").trim() || s;
+}
+
 var YTDLP_INSTALL_URL = "https://github.com/yt-dlp/yt-dlp#installation";
 var FFMPEG_INSTALL_URL = "https://ffmpeg.org/download.html";
 
@@ -293,6 +299,7 @@ async function activate(api) {
       return null;
     }
 
+    title = stripRemasterSuffix(title);
     try {
       var filePath = await searchAndDownload(api, title, artistName, durationSecs);
       if (!filePath) {
@@ -318,6 +325,7 @@ async function activate(api) {
       api.log("warn", "Download resolve skipped — yt-dlp not available", "youtube");
       return null;
     }
+    title = stripRemasterSuffix(title);
     try {
       var srcPath = await searchAndDownload(api, title, artistName);
       if (!srcPath) {
