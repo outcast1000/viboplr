@@ -921,7 +921,6 @@ function App() {
       });
     } else if (target.kind === "queue-multi") {
       const count = target.indices.length;
-      specs.push({ kind: "item", text: count > 1 ? `Play ${count} tracks` : "Play", action: contextMenuActions.handleContextPlay });
       if (contextMenuActions.handleQueueRemove) {
         specs.push({ kind: "item", text: count > 1 ? `Remove ${count} tracks` : "Remove", action: contextMenuActions.handleQueueRemove });
       }

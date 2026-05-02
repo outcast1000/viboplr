@@ -86,16 +86,11 @@ interface QueuePanelProps {
 const AUTO_APPROVE_SECS = 10;
 
 function QueueItemThumb({ localThumb, fallback }: { localThumb: string | null; fallback: string | null }) {
-  const [failed, setFailed] = useState(false);
-  const [src, setSrc] = useState<string>(() => localThumb ?? fallback ?? "");
-  const hasFallback = !!(localThumb && fallback);
+  const [failedSrcs, setFailedSrcs] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    setFailed(false);
-    setSrc(localThumb ?? fallback ?? "");
-  }, [localThumb, fallback]);
+  const src = [localThumb, fallback].find(s => s && !failedSrcs.has(s)) ?? null;
 
-  if (!src || failed) {
+  if (!src) {
     return (
       <div className="queue-item-thumb queue-item-thumb-placeholder">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
@@ -108,15 +103,10 @@ function QueueItemThumb({ localThumb, fallback }: { localThumb: string | null; f
 
   return (
     <img
+      key={src}
       className="queue-item-thumb"
       src={src}
-      onError={() => {
-        if (hasFallback && src === localThumb) {
-          setSrc(fallback!);
-          return;
-        }
-        setFailed(true);
-      }}
+      onError={() => setFailedSrcs(prev => new Set(prev).add(src))}
       alt=""
     />
   );
@@ -519,6 +509,9 @@ export function QueuePanel({
             <div className="queue-context-info">
               <div className="queue-context-name-row">
                 <span className="queue-context-name">{playlistContext.name}</span>
+                <span className="queue-context-meta">
+                  {queue.length} track{queue.length !== 1 ? "s" : ""} &middot; {formatTotalDuration(queue)}
+                </span>
                 {(playlistContext.source || (playlistContext.metadata && Object.keys(playlistContext.metadata).length > 0)) && (
                   <button
                     className="queue-context-info-btn"
@@ -533,9 +526,6 @@ export function QueuePanel({
                   </button>
                 )}
               </div>
-              <span className="queue-context-meta">
-                {queue.length} track{queue.length !== 1 ? "s" : ""} &middot; {formatTotalDuration(queue)}
-              </span>
             </div>
           </div>
         )}
@@ -574,6 +564,11 @@ export function QueuePanel({
               onMouseLeave={() => { if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current); setTooltip(null); setTooltipPos(null); }}
             >
               <div className="queue-item-line1">
+                {i === queueIndex && (
+                  <span className="eq-bars queue-item-eq">
+                    <span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" />
+                  </span>
+                )}
                 <span className="queue-item-title">{t.title}</span>
                 <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
               </div>
@@ -582,15 +577,26 @@ export function QueuePanel({
                 {t.album_title && <span className="queue-item-album">{t.album_title}</span>}
               </div>
             </div>
-            {onLocateTrack && t.id != null && (
-              <button
-                className="queue-item-locate"
-                onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
-                title="Locate Track"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              </button>
-            )}
+            <div className="queue-item-actions">
+              {i !== queueIndex && (
+                <button
+                  className="queue-item-action"
+                  onClick={(e) => { e.stopPropagation(); onPlay(t, i); }}
+                  title="Play"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                </button>
+              )}
+              {onLocateTrack && t.id != null && (
+                <button
+                  className="queue-item-action"
+                  onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
+                  title="Locate Track"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </button>
+              )}
+            </div>
           </div>
         ))}
         {queue.length === 0 && (
