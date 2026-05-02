@@ -1918,11 +1918,17 @@ function activate(api) {
 
   function playlistContextPayload(pl) {
     var meta = {};
-    if (pl.section) meta.section = pl.section;
-    if (pl.description) meta.description = pl.description;
-    if (state.savedAt) meta.dateAdded = new Date(state.savedAt).toISOString();
+    if (pl.section) meta.Section = pl.section;
+    if (pl.description) meta.Description = pl.description;
+    var name = pl.name;
+    if (state.savedAt) {
+      var d = new Date(state.savedAt);
+      var dateStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+      meta["Retrieved"] = dateStr;
+      name = pl.name + " (" + dateStr + ")";
+    }
     return {
-      playlistName: pl.name,
+      playlistName: name,
       coverUrl: pl.imageUrl || undefined,
       source: "spotify:playlist:" + pl.id,
       metadata: meta,
@@ -2119,8 +2125,8 @@ function activate(api) {
     loadArchiveTracks(entry).then(function (tracks) {
       if (!tracks.length) return;
       var meta = {};
-      if (entry.section) meta.section = entry.section;
-      if (entry.archivedAt) meta.archivedAt = entry.archivedAt;
+      if (entry.section) meta.Section = entry.section;
+      if (entry.archivedAt) meta["Archived"] = entry.archivedAt;
       api.playback.playTracks(archivedToPluginTracks(tracks), 0, {
         name: entry.name,
         coverUrl: entry.imageUrl || null,
