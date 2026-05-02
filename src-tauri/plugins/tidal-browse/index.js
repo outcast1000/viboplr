@@ -373,31 +373,41 @@ function activate(api) {
 
   // -- View rendering --
 
+  function buildToolbar() {
+    var statusText = "";
+    var statusVariant = "default";
+
+    if (state.apiDown && state.streamingDown) {
+      statusText = "Servers unavailable";
+      statusVariant = "error";
+    } else if (state.streamingDown) {
+      statusText = "Streaming unavailable";
+      statusVariant = "error";
+    } else if (state.apiDown) {
+      statusText = "API unavailable";
+      statusVariant = "error";
+    } else {
+      statusText = "Connected";
+      statusVariant = "success";
+    }
+
+    if (state.lastHealthCheck) {
+      statusText += " · " + formatTime(state.lastHealthCheck);
+    }
+
+    return {
+      type: "toolbar",
+      title: "TIDAL",
+      buttons: [
+        { label: "Check Now", action: "check-health", variant: "secondary" },
+      ],
+      status: statusText,
+      statusVariant: statusVariant,
+    };
+  }
+
   function renderSearchView() {
     var children = [];
-
-    var checkedSuffix = state.lastHealthCheck ? " (last checked at " + formatTime(state.lastHealthCheck) + ")" : "";
-    if (state.apiDown && state.streamingDown) {
-      children.push({
-        type: "layout",
-        direction: "horizontal",
-        className: "ds-banner ds-banner--error",
-        children: [
-          { type: "text", content: "TIDAL servers are currently unavailable" + checkedSuffix },
-          { type: "button", label: "Check Now", action: "check-health", className: "ds-btn ds-btn--sm ds-btn--secondary" },
-        ],
-      });
-    } else if (state.streamingDown) {
-      children.push({
-        type: "layout",
-        direction: "horizontal",
-        className: "ds-banner ds-banner--warning",
-        children: [
-          { type: "text", content: "TIDAL streaming is unavailable — search may still work" + checkedSuffix },
-          { type: "button", label: "Check Now", action: "check-health", className: "ds-btn ds-btn--sm ds-btn--secondary" },
-        ],
-      });
-    }
 
     children.push({
       type: "search-input",
@@ -502,7 +512,7 @@ function activate(api) {
     api.ui.setViewData("tidal", {
       type: "layout",
       direction: "vertical",
-      children: children,
+      children: [buildToolbar()].concat(children),
     });
   }
 
@@ -554,7 +564,7 @@ function activate(api) {
     api.ui.setViewData("tidal", {
       type: "layout",
       direction: "vertical",
-      children: children,
+      children: [buildToolbar()].concat(children),
     });
   }
 
@@ -602,7 +612,7 @@ function activate(api) {
     api.ui.setViewData("tidal", {
       type: "layout",
       direction: "vertical",
-      children: children,
+      children: [buildToolbar()].concat(children),
     });
   }
 
