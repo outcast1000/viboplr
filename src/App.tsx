@@ -91,9 +91,31 @@ import { IconYoutube } from "./components/Icons";
 import { LikeDislikeButtons } from "./components/LikeDislikeButtons";
 
 
-function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<VideoFrameQueue | null> }) {
+function VideoFrameQueueRefBridge({ refOut, addLog, tracksRef }: {
+  refOut: React.MutableRefObject<VideoFrameQueue | null>;
+  addLog: (msg: string, module?: string) => void;
+  tracksRef: React.MutableRefObject<Track[]>;
+}) {
   const queue = useVideoFrameQueue();
   useEffect(() => { refOut.current = queue; }, [queue, refOut]);
+  useEffect(() => {
+    const trackTitle = (id: number) => {
+      const t = tracksRef.current.find(tr => tr.id === id);
+      return t?.title ?? `track ${id}`;
+    };
+    queue.onEvent((event) => {
+      if (event.kind === "started") {
+        addLog("Extracting video frames...", "video");
+      } else if (event.kind === "failed") {
+        addLog(`Frame extraction failed: ${trackTitle(event.trackId)} — ${event.reason}`, "video");
+      } else if (event.kind === "finished" && event.extracted + event.failed > 1) {
+        const parts = [`${event.extracted} extracted`];
+        if (event.failed > 0) parts.push(`${event.failed} failed`);
+        addLog(`Video frames: ${parts.join(", ")}`, "video");
+      }
+    });
+    return () => queue.onEvent(null);
+  }, [queue, addLog, tracksRef]);
   return null;
 }
 
@@ -221,6 +243,9 @@ function App() {
   const [trackPopularityState, setTrackPopularityState] = useState<Record<number, number>>({});
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, trackPopularityState, setNavError);
   const downloadsCollection = useMemo(() => downloadsCollectionId != null ? library.collections.find(c => c.id === downloadsCollectionId) ?? null : null, [downloadsCollectionId, library.collections]);
+
+  const libraryTracksRef = useRef<Track[]>([]);
+  libraryTracksRef.current = library.tracks;
 
   const queueHook = useQueue(restoredRef, playback.handlePlay, albumImageCache.images);
   const autoContinue = useAutoContinue(restoredRef);
@@ -2292,7 +2317,7 @@ function App() {
 
   return (
     <VideoFrameQueueProvider>
-    <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
+    <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} addLog={addLog} tracksRef={libraryTracksRef} />
     <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio

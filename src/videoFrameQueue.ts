@@ -1,4 +1,5 @@
 export const HOVER_FRAME_INTERVAL_MS = 600;
+const EXTRACT_TIMEOUT_MS = 60_000;
 
 export type FrameEntry =
   | { status: "idle" }
@@ -12,10 +13,16 @@ interface VideoFrameResult {
   timestamps?: number[];
 }
 
+export type FrameQueueEvent =
+  | { kind: "started" }
+  | { kind: "failed"; trackId: number; reason: string }
+  | { kind: "finished"; extracted: number; failed: number };
+
 type InvokeFn = (cmd: string, args: unknown) => Promise<unknown>;
 type ConvertFn = (path: string) => string;
 type Unsubscribe = () => void;
 type Listener = () => void;
+type EventCallback = (event: FrameQueueEvent) => void;
 
 const IDLE: FrameEntry = { status: "idle" };
 
@@ -30,8 +37,15 @@ export class VideoFrameQueue {
   private processing = false;
   private listeners = new Set<Listener>();
   private inflightPromise: Promise<void> = Promise.resolve();
+  private eventCb: EventCallback | null = null;
+  private batchExtracted = 0;
+  private batchFailed = 0;
 
   constructor(private invoke: InvokeFn, private convertFileSrc: ConvertFn) {}
+
+  onEvent(cb: EventCallback | null): void {
+    this.eventCb = cb;
+  }
 
   getEntry(trackId: number): FrameEntry {
     return this.entries.get(trackId) ?? IDLE;
@@ -112,12 +126,22 @@ export class VideoFrameQueue {
   private pump(): void {
     if (this.processing) return;
     const next = this.pending.shift();
-    if (next === undefined) return;
+    if (next === undefined) {
+      if (this.batchExtracted + this.batchFailed > 0) {
+        this.eventCb?.({ kind: "finished", extracted: this.batchExtracted, failed: this.batchFailed });
+        this.batchExtracted = 0;
+        this.batchFailed = 0;
+      }
+      return;
+    }
     if (this.cancelled.has(next)) {
       this.cancelled.delete(next);
       this.setEntry(next, { status: "idle" });
       this.pump();
       return;
+    }
+    if (!this.processing && this.batchExtracted === 0 && this.batchFailed === 0) {
+      this.eventCb?.({ kind: "started" });
     }
     this.processing = true;
     this.inflightPromise = this.extract(next).finally(() => {
@@ -128,10 +152,26 @@ export class VideoFrameQueue {
 
   private async extract(trackId: number): Promise<void> {
     try {
-      const res = (await this.invoke("extract_video_frames", { trackId })) as VideoFrameResult;
-      this.setEntry(trackId, this.toReady(res));
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("extraction timed out")), EXTRACT_TIMEOUT_MS)
+      );
+      const res = (await Promise.race([
+        this.invoke("extract_video_frames", { trackId }),
+        timeout,
+      ])) as VideoFrameResult;
+      const entry = this.toReady(res);
+      this.setEntry(trackId, entry);
+      if (entry.status === "ready") {
+        this.batchExtracted++;
+      } else {
+        this.batchFailed++;
+        this.eventCb?.({ kind: "failed", trackId, reason: "ffmpeg unavailable" });
+      }
     } catch (e) {
       console.error("Failed to extract video frames:", e);
+      this.batchFailed++;
+      const reason = e instanceof Error ? e.message : String(e);
+      this.eventCb?.({ kind: "failed", trackId, reason });
       this.setEntry(trackId, { status: "unavailable" });
     }
   }
