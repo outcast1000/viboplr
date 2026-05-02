@@ -322,6 +322,7 @@ function activate(api) {
   function savePlaylist(pl) {
     var dir = playlistDir(pl);
     var tracks = state.playlistTracks[pl.id] || [];
+    if (!pl.updatedAt) pl.updatedAt = new Date().toISOString();
 
     var metaP = api.storage.files.writeJson(dir.concat(["meta.json"]), {
       id: pl.id,
@@ -329,7 +330,7 @@ function activate(api) {
       section: pl.section || null,
       description: pl.description || "",
       coverFile: "cover.jpg",
-      updatedAt: new Date().toISOString(),
+      updatedAt: pl.updatedAt,
     }).catch(function (e) { console.error("Failed to write meta:", pl.id, e); });
 
     var tracksP = api.storage.files.writeJson(dir.concat(["tracks.json"]), serializeTracks(tracks))
@@ -477,6 +478,7 @@ function activate(api) {
             description: meta.description || "",
             imageUrl: coverPath || null,
             uri: "spotify:playlist:" + meta.id,
+            updatedAt: meta.updatedAt || null,
           };
           return { playlist: playlist, tracks: tracks };
         });
@@ -550,30 +552,37 @@ function activate(api) {
   }
 
   function buildToolbar() {
-    var buttons = [];
+    return {
+      type: "toolbar",
+      title: "Spotify",
+    };
+  }
+
+  function buildStatusBar() {
     var isActive = isActiveStatus();
+    var children = [];
 
-    if (isActive) {
-      buttons.push({ label: "Cancel", action: "cancel" });
-    } else {
-      buttons.push({ label: "Sync", action: "sync" });
-    }
+    children.push({
+      type: "button",
+      label: isActive ? "Cancel" : "Sync",
+      action: isActive ? "cancel" : "sync",
+      variant: isActive ? "secondary" : "accent",
+      style: { "font-size": "var(--fs-xs)", "padding": "2px 10px" },
+    });
 
-    // Always show a browser-visibility toggle for debugging scrapes.
-    buttons.push({
-      label: state.showBrowserOnRefresh ? "Hide browser during refresh" : "Show browser during refresh",
+    children.push({
+      type: "button",
+      label: state.showBrowserOnRefresh ? "Hide browser" : "Show browser",
       action: "toggle-show-browser-pref",
       variant: "secondary",
+      style: { "font-size": "var(--fs-xs)", "padding": "2px 10px" },
     });
 
     var statusText = "";
-    var statusVariant = "default";
-
     if (isActive) {
       statusText = getStatusText();
     } else if (state.status === "error") {
       statusText = state.errorMessage;
-      statusVariant = "error";
     } else if (state.refreshSummary) {
       statusText = state.refreshSummary;
     } else if (state.lastCheckAt) {
@@ -582,12 +591,22 @@ function activate(api) {
       if (state.lastCheckResult) statusText += " — " + state.lastCheckResult;
     }
 
+    if (statusText) {
+      var color = state.status === "error" ? "var(--error)" : "var(--text-secondary)";
+      children.push({
+        type: "text",
+        content: "<span style='font-size:var(--fs-xs);color:" + color + ";white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>" + statusText + "</span>",
+        style: { "flex": "1", "min-width": "0" },
+      });
+    } else {
+      children.push({ type: "spacer" });
+    }
+
     return {
-      type: "toolbar",
-      title: "Spotify",
-      buttons: buttons,
-      status: statusText || undefined,
-      statusVariant: statusVariant,
+      type: "layout",
+      direction: "horizontal",
+      style: { "align-items": "center", "gap": "8px", "padding": "4px 0" },
+      children: children,
     };
   }
 
@@ -707,6 +726,7 @@ function activate(api) {
 
     var view = [
       buildToolbar(),
+      buildStatusBar(),
       { type: "tabs", activeTab: state.activeTab, action: "switch-tab", tabs: buildTabs() },
     ];
 
@@ -1564,6 +1584,11 @@ function activate(api) {
     }
     state.previousTracks = prevSnapshot;
 
+    var oldPlaylistMap = {};
+    for (var oi = 0; oi < state.playlists.length; oi++) {
+      oldPlaylistMap[state.playlists[oi].id] = state.playlists[oi];
+    }
+
     for (var i = 0; i < newPlaylists.length; i++) {
       var pl = newPlaylists[i];
       var oldTracks = prevSnapshot[pl.id];
@@ -1572,6 +1597,9 @@ function activate(api) {
       if (tracksChanged(oldTracks, fresh)) {
         hasChanges = true;
         state.updatedPlaylistIds[pl.id] = true;
+        pl.updatedAt = new Date().toISOString();
+      } else if (oldPlaylistMap[pl.id] && oldPlaylistMap[pl.id].updatedAt) {
+        pl.updatedAt = oldPlaylistMap[pl.id].updatedAt;
       }
     }
 
@@ -1918,14 +1946,15 @@ function activate(api) {
 
   function playlistContextPayload(pl) {
     var meta = {};
-    if (pl.section) meta.Section = pl.section;
+    if (pl.updatedAt) meta.date_created = pl.updatedAt;
+    if (pl.section) meta.section_title = pl.section;
+    meta.playlist_title = pl.name;
     if (pl.description) meta.Description = pl.description;
     var name = pl.name;
-    if (state.savedAt) {
-      var d = new Date(state.savedAt);
-      var dateStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-      meta["Retrieved"] = dateStr;
-      name = pl.name + " (" + dateStr + ")";
+    if (pl.updatedAt) {
+      var d = new Date(pl.updatedAt);
+      var dateStr = d.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+      name = pl.name + " - " + dateStr;
     }
     return {
       playlistName: name,
