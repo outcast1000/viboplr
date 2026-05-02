@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Artist, Album } from "../types";
@@ -41,7 +41,8 @@ interface UseContextMenuActionsDeps {
 export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const { library, queueHook, playback, addLog, albumImages, artistImages, queueCollapsed, setQueueCollapsed, onTracksDeleted, onShowMenu } = deps;
 
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [contextMenu, setContextMenuState] = useState<ContextMenuState | null>(null);
+  const contextMenuRef = useRef<ContextMenuState | null>(null);
   const [youtubeFeedback, setYoutubeFeedback] = useState<{
     trackId: number; url: string; videoTitle: string;
   } | null>(null);
@@ -53,6 +54,11 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const [downloadConfirm, setDownloadConfirm] = useState<{ track: Track; localTitle: string; localTrackId: number } | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
+
+  function setContextMenu(state: ContextMenuState | null) {
+    contextMenuRef.current = state;
+    setContextMenuState(state);
+  }
 
   function showMenu(state: ContextMenuState) {
     setContextMenu(state);
@@ -82,8 +88,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   async function handleContextPlay() {
-    if (!contextMenu) return;
-    const { target } = contextMenu;
+    const cm = contextMenuRef.current;
+    if (!cm) return;
+    const { target } = cm;
     if (target.kind === "track" && target.trackId) {
       const track = library.tracks.find(t => t.id === target.trackId);
       if (track) queueHook.playTracks([track], 0);
@@ -121,8 +128,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   async function handleContextEnqueue() {
-    if (!contextMenu) return;
-    const { target } = contextMenu;
+    const cm = contextMenuRef.current;
+    if (!cm) return;
+    const { target } = cm;
     if (target.kind === "track" && target.trackId) {
       const track = library.tracks.find(t => t.id === target.trackId);
       if (track) handleEnqueue([track]);
@@ -140,25 +148,29 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   function handleQueueRemove() {
-    if (!contextMenu || contextMenu.target.kind !== "queue-multi") return;
-    queueHook.removeMultiple(contextMenu.target.indices);
+    const cm = contextMenuRef.current;
+    if (!cm || cm.target.kind !== "queue-multi") return;
+    queueHook.removeMultiple(cm.target.indices);
   }
 
   function handleQueueKeepOnly() {
-    if (!contextMenu || contextMenu.target.kind !== "queue-multi") return;
-    const keepSet = new Set(contextMenu.target.indices);
+    const cm = contextMenuRef.current;
+    if (!cm || cm.target.kind !== "queue-multi") return;
+    const keepSet = new Set(cm.target.indices);
     const toRemove = queueHook.queue.map((_, i) => i).filter(i => !keepSet.has(i));
     queueHook.removeMultiple(toRemove);
   }
 
   function handleQueueMoveToTop() {
-    if (!contextMenu || contextMenu.target.kind !== "queue-multi") return;
-    queueHook.moveToTop(contextMenu.target.indices);
+    const cm = contextMenuRef.current;
+    if (!cm || cm.target.kind !== "queue-multi") return;
+    queueHook.moveToTop(cm.target.indices);
   }
 
   function handleQueueMoveToBottom() {
-    if (!contextMenu || contextMenu.target.kind !== "queue-multi") return;
-    queueHook.moveToBottom(contextMenu.target.indices);
+    const cm = contextMenuRef.current;
+    if (!cm || cm.target.kind !== "queue-multi") return;
+    queueHook.moveToBottom(cm.target.indices);
   }
 
   function handleTrackDragStart(dragTracks: Track[]) {
@@ -233,16 +245,17 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   async function handleShowInFolder() {
-    if (contextMenu && contextMenu.target.kind === "track" && contextMenu.target.trackId != null) {
+    const cm = contextMenuRef.current;
+    if (cm && cm.target.kind === "track" && cm.target.trackId != null) {
       try {
-        await invoke("show_in_folder", { trackId: contextMenu.target.trackId });
+        await invoke("show_in_folder", { trackId: cm.target.trackId });
       } catch (e) {
         console.error("Failed to open containing folder:", e);
         setFolderError(String(e));
       }
       setContextMenu(null);
-    } else if (contextMenu && contextMenu.target.kind === "queue-multi" && contextMenu.target.indices.length === 1) {
-      const track = queueHook.queue[contextMenu.target.indices[0]];
+    } else if (cm && cm.target.kind === "queue-multi" && cm.target.indices.length === 1) {
+      const track = queueHook.queue[cm.target.indices[0]];
       try {
         if (track && track.id != null) {
           await invoke("show_in_folder", { trackId: track.id });
@@ -258,16 +271,18 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   function handleBulkEdit() {
-    if (!contextMenu || contextMenu.target.kind !== "multi-track") return;
-    const { trackIds } = contextMenu.target;
+    const cm = contextMenuRef.current;
+    if (!cm || cm.target.kind !== "multi-track") return;
+    const { trackIds } = cm.target;
     const selected = library.tracks.filter(t => t.id != null && trackIds.includes(t.id));
     if (selected.length > 0) setBulkEditTracks(selected);
     setContextMenu(null);
   }
 
   function handleDeleteRequest() {
-    if (!contextMenu) return;
-    const { target } = contextMenu;
+    const cm = contextMenuRef.current;
+    if (!cm) return;
+    const { target } = cm;
     if (target.kind === "track" && target.trackId && !target.subsonic) {
       setDeleteConfirm({ trackIds: [target.trackId], title: target.title });
     } else if (target.kind === "multi-track") {
@@ -342,8 +357,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   async function handleWatchOnYoutube() {
-    if (!contextMenu || contextMenu.target.kind !== "track" || contextMenu.target.trackId == null) return;
-    const { trackId, title, artistName } = contextMenu.target;
+    const cm = contextMenuRef.current;
+    if (!cm || cm.target.kind !== "track" || cm.target.trackId == null) return;
+    const { trackId, title, artistName } = cm.target;
     const track = library.tracks.find(t => t.id === trackId);
     await watchOnYoutube(trackId, title, artistName, track?.youtube_url ?? null, track?.duration_secs ?? null);
   }
