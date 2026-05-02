@@ -553,13 +553,10 @@ function activate(api) {
     var buttons = [];
     var isActive = isActiveStatus();
 
-    if (state.status === "idle") {
-      buttons.push({ label: "Open Spotify", action: "open-spotify" });
-    } else if (isActive) {
+    if (isActive) {
       buttons.push({ label: "Cancel", action: "cancel" });
     } else {
-      buttons.push({ label: "Refresh All", action: "manual-refresh" });
-      buttons.push({ label: "Open Browser", action: "open-browser" });
+      buttons.push({ label: "Sync", action: "sync" });
     }
 
     // Always show a browser-visibility toggle for debugging scrapes.
@@ -702,7 +699,7 @@ function activate(api) {
         });
       }
       if (secPlaylists.length === 0 && state.status === "idle") {
-        ch.push({ type: "text", content: "<p style='opacity:0.5'>No playlists found for this section. Click <b>Open Spotify</b> or <b>Refresh</b> to scrape.</p>" });
+        ch.push({ type: "text", content: "<p style='opacity:0.5'>No playlists found for this section. Click <b>Sync</b> to scrape.</p>" });
       } else if (secPlaylists.length > 0) {
         ch.push({ type: "card-grid", items: buildPlaylistCards(secPlaylists) });
       }
@@ -866,7 +863,7 @@ function activate(api) {
     }
 
     if (!rep) {
-      children.push({ type: "text", content: "<p>No runs recorded yet. Refresh a section or run Refresh All to populate diagnostics.</p>" });
+      children.push({ type: "text", content: "<p>No runs recorded yet. Click Sync or refresh a section to populate diagnostics.</p>" });
       return { type: "section", title: "Diagnostics", children: children };
     }
 
@@ -1634,40 +1631,61 @@ function activate(api) {
 
   // ---- Actions ----
 
-  api.ui.onAction("open-spotify", function() {
-    state.playlists = [];
-    state.playlistTracks = {};
+  api.ui.onAction("sync", function() {
+    var isFirstRun = state.playlists.length === 0;
+    if (isFirstRun) {
+      state.playlists = [];
+      state.playlistTracks = {};
+      state.updatedPlaylistIds = {};
+    }
     state.status = "waiting-login";
     state.errorMessage = "";
     state.refreshSummary = "";
-    state.updatedPlaylistIds = {};
-    dbg("flow", "starting initial scrape via performScrape");
+    state.refreshing = !isFirstRun;
+    dbg("flow", isFirstRun ? "starting initial sync" : "starting refresh sync");
     render();
 
-    performScrape(true, false, null, "open-spotify").then(function(result) {
+    performScrape(true, state.showBrowserOnRefresh, null, isFirstRun ? "sync-initial" : "sync-refresh").then(function(result) {
+      state.refreshing = false;
       if (!result) {
         state.status = "error";
-        state.errorMessage = "Not logged in to Spotify. Click 'Open Spotify' to try again.";
+        state.errorMessage = "Not logged in to Spotify. Click 'Sync' to try again.";
         render();
         return;
       }
-      state.playlists = result.playlists;
-      state.playlistTracks = result.tracks;
-      state.status = "done";
       var errCount = result.failedSections ? result.failedSections.length : 0;
+      if (isFirstRun) {
+        state.playlists = result.playlists;
+        state.playlistTracks = result.tracks;
+        if (errCount > 0) {
+          state.refreshSummary = "Could not find: " + result.failedSections.join(", ");
+        }
+        if (state.sections.length > 0) {
+          state.activeTab = "section:" + state.sections[0];
+        }
+        saveState();
+      } else {
+        processRefreshResults(result.playlists, result.tracks);
+        var updatedCount = Object.keys(state.updatedPlaylistIds).length;
+        var summaryParts = [];
+        if (updatedCount > 0) {
+          summaryParts.push("Updated " + updatedCount + " playlist" + (updatedCount > 1 ? "s" : ""));
+        } else {
+          summaryParts.push("No changes detected");
+        }
+        if (errCount > 0) {
+          summaryParts.push("Could not find: " + result.failedSections.join(", "));
+        }
+        state.refreshSummary = summaryParts.join(". ");
+      }
       recordCheckResult(result.playlists.length, errCount);
-      if (errCount > 0) {
-        state.refreshSummary = "Could not find: " + result.failedSections.join(", ");
-      }
-      if (state.sections.length > 0) {
-        state.activeTab = "section:" + state.sections[0];
-      }
-      saveState();
       cacheAllImages();
+      state.status = "done";
       render();
     }).catch(function(err) {
+      state.refreshing = false;
       state.status = "error";
-      state.errorMessage = "Scrape failed: " + (err.message || err);
+      state.errorMessage = "Sync failed: " + (err.message || err);
       recordCheckResult(0, 1);
       render();
     });
@@ -1682,15 +1700,6 @@ function activate(api) {
     state.status = "idle";
     state.refreshing = false;
     render();
-  });
-
-  api.ui.onAction("open-browser", function() {
-    api.network.openBrowseWindow("https://open.spotify.com", {
-      title: "Spotify",
-      width: 1200,
-      height: 800,
-      visible: true,
-    }).catch(console.error);
   });
 
   api.ui.onAction("refresh-section", function(data) {
@@ -2143,47 +2152,6 @@ function activate(api) {
     }).catch(function (e) {
       console.error("Failed to delete archive:", e);
       api.ui.showNotification("Failed to delete archive");
-    });
-  });
-
-  api.ui.onAction("manual-refresh", function() {
-    if (state.refreshing) return;
-    state.refreshing = true;
-    state.refreshSummary = "";
-    state.status = "waiting-login";
-    render();
-
-    performScrape(true, state.showBrowserOnRefresh, null, "manual-refresh-all").then(function(result) {
-      state.refreshing = false;
-      if (!result) {
-        state.status = "error";
-        state.errorMessage = "Not logged in to Spotify. Click 'Open Spotify' to log in.";
-        render();
-        return;
-      }
-      var outcome = processRefreshResults(result.playlists, result.tracks);
-      var errCount = result.failedSections ? result.failedSections.length : 0;
-      recordCheckResult(result.playlists.length, errCount);
-      cacheAllImages();
-      state.status = "done";
-      var updatedCount = Object.keys(state.updatedPlaylistIds).length;
-      var summaryParts = [];
-      if (updatedCount > 0) {
-        summaryParts.push("Updated " + updatedCount + " playlist" + (updatedCount > 1 ? "s" : ""));
-      } else {
-        summaryParts.push("No changes detected");
-      }
-      if (errCount > 0) {
-        summaryParts.push("Could not find: " + result.failedSections.join(", "));
-      }
-      state.refreshSummary = summaryParts.join(". ");
-      render();
-    }).catch(function(err) {
-      state.refreshing = false;
-      state.status = "error";
-      state.errorMessage = "Refresh failed: " + (err.message || err);
-      recordCheckResult(0, 1);
-      render();
     });
   });
 
