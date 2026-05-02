@@ -875,14 +875,29 @@
   border-color: rgba(var(--accent-rgb), 0.2);
 }
 
-.liked-first-btn {
-  color: var(--text-tertiary);
-  font-size: var(--fs-sm);
+.sort-btn-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
 }
 
-.liked-first-btn.active {
-  color: var(--error);
-  border-color: var(--error);
+.sort-btn-clear {
+  opacity: 0.6;
+  font-style: italic;
+}
+
+.sort-btn-clear:hover {
+  opacity: 1;
 }
 
 .sort-bar-toggle {

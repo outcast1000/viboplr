@@ -10,6 +10,7 @@ import { TagCardArt } from "./TagCardArt";
 import { ViewModeToggle } from "./ViewModeToggle";
 import { VideoRowThumb } from "./VideoRowThumb";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
+import { toggleSortKey, chainPosition, chainDir, type SortKey, type SortDir } from "../sortChain";
 
 function isLocalVideo(t: Track): boolean {
   if (!isVideoTrack(t)) return false;
@@ -20,24 +21,26 @@ function isLocalVideo(t: Track): boolean {
 
 interface SearchSettings {
   activeTab: SearchTab;
-  sortField: SortField | null;
-  sortDir: SortDir;
+  sortField?: string | null;
+  sortDir?: SortDir;
+  trackLikedFirst?: boolean;
+  artistSortField?: string | null;
+  artistSortDir?: SortDir;
+  artistLikedFirst?: boolean;
+  albumSortField?: string | null;
+  albumSortDir?: SortDir;
+  albumLikedFirst?: boolean;
+  tagSortField?: string | null;
+  tagSortDir?: SortDir;
+  tagLikedFirst?: boolean;
+  trackSortChain?: SortKey[];
+  artistSortChain?: SortKey[];
+  albumSortChain?: SortKey[];
+  tagSortChain?: SortKey[];
   mediaTypeFilter: MediaTypeFilter;
   filterYoutubeOnly: boolean;
-  trackLikedFirst: boolean;
-  artistSortField: string | null;
-  artistSortDir: SortDir;
-  artistLikedFirst: boolean;
-  albumSortField: string | null;
-  albumSortDir: SortDir;
-  albumLikedFirst: boolean;
-  tagSortField: string | null;
-  tagSortDir: SortDir;
-  tagLikedFirst: boolean;
   sortBarCollapsed: boolean;
 }
-
-type SortDir = "asc" | "desc";
 type MediaTypeFilter = "all" | "audio" | "video";
 
 type SearchTab = "tracks" | "albums" | "artists" | "tags";
@@ -130,69 +133,50 @@ export function SearchView({
   const [hasMore, setHasMore] = useState({ tracks: false, albums: false, artists: false, tags: false });
   const [loadingMore, setLoadingMore] = useState({ tracks: false, albums: false, artists: false, tags: false });
   const [searched, setSearched] = useState(false);
-  const [sortField, setSortField] = useState<SortField | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [trackSortChain, setTrackSortChain] = useState<SortKey[]>([]);
+  const [artistSortChain, setArtistSortChain] = useState<SortKey[]>([]);
+  const [albumSortChain, setAlbumSortChain] = useState<SortKey[]>([]);
+  const [tagSortChain, setTagSortChain] = useState<SortKey[]>([]);
   const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaTypeFilter>("all");
   const [filterYoutubeOnly, setFilterYoutubeOnly] = useState(false);
-  const [trackLikedFirst, setTrackLikedFirst] = useState(false);
-  const [artistSortField, setArtistSortField] = useState<string | null>(null);
-  const [artistSortDir, setArtistSortDir] = useState<SortDir>("asc");
-  const [artistLikedFirst, setArtistLikedFirst] = useState(false);
-  const [albumSortField, setAlbumSortField] = useState<string | null>(null);
-  const [albumSortDir, setAlbumSortDir] = useState<SortDir>("asc");
-  const [albumLikedFirst, setAlbumLikedFirst] = useState(false);
-  const [tagSortField, setTagSortField] = useState<string | null>(null);
-  const [tagSortDir, setTagSortDir] = useState<SortDir>("asc");
-  const [tagLikedFirst, setTagLikedFirst] = useState(false);
   const [sortBarCollapsed, setSortBarCollapsed] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const queryRef = useRef("");
-  const sortRef = useRef({ sortField, sortDir, mediaTypeFilter, filterYoutubeOnly, trackLikedFirst });
-  sortRef.current = { sortField, sortDir, mediaTypeFilter, filterYoutubeOnly, trackLikedFirst };
-  const artistSortRef = useRef({ artistSortField, artistSortDir, artistLikedFirst });
-  artistSortRef.current = { artistSortField, artistSortDir, artistLikedFirst };
-  const albumSortRef = useRef({ albumSortField, albumSortDir, albumLikedFirst });
-  albumSortRef.current = { albumSortField, albumSortDir, albumLikedFirst };
-  const tagSortRef = useRef({ tagSortField, tagSortDir, tagLikedFirst });
-  tagSortRef.current = { tagSortField, tagSortDir, tagLikedFirst };
+  const sortRef = useRef({ trackSortChain, mediaTypeFilter, filterYoutubeOnly });
+  sortRef.current = { trackSortChain, mediaTypeFilter, filterYoutubeOnly };
+  const artistSortRef = useRef({ artistSortChain });
+  artistSortRef.current = { artistSortChain };
+  const albumSortRef = useRef({ albumSortChain });
+  albumSortRef.current = { albumSortChain };
+  const tagSortRef = useRef({ tagSortChain });
+  tagSortRef.current = { tagSortChain };
 
   function getTrackFilterParams() {
     const s = sortRef.current;
     return {
-      sortField: s.sortField ?? undefined,
-      sortDir: s.sortField ? s.sortDir : undefined,
+      sortChain: s.trackSortChain.length > 0 ? s.trackSortChain : undefined,
       mediaType: s.mediaTypeFilter !== "all" ? s.mediaTypeFilter : undefined,
-      likedOnly: s.trackLikedFirst || undefined,
       hasYoutubeUrl: s.filterYoutubeOnly || undefined,
     };
   }
 
   function getArtistFilterParams() {
-    const s = artistSortRef.current;
     return {
-      sortField: s.artistSortField ?? undefined,
-      sortDir: s.artistSortField ? s.artistSortDir : undefined,
-      likedOnly: s.artistLikedFirst || undefined,
+      sortChain: artistSortRef.current.artistSortChain.length > 0 ? artistSortRef.current.artistSortChain : undefined,
     };
   }
 
   function getAlbumFilterParams() {
-    const s = albumSortRef.current;
     return {
-      sortField: s.albumSortField ?? undefined,
-      sortDir: s.albumSortField ? s.albumSortDir : undefined,
-      likedOnly: s.albumLikedFirst || undefined,
+      sortChain: albumSortRef.current.albumSortChain.length > 0 ? albumSortRef.current.albumSortChain : undefined,
     };
   }
 
   function getTagFilterParams() {
-    const s = tagSortRef.current;
     return {
-      sortField: s.tagSortField ?? undefined,
-      sortDir: s.tagSortField ? s.tagSortDir : undefined,
-      likedOnly: s.tagLikedFirst || undefined,
+      sortChain: tagSortRef.current.tagSortChain.length > 0 ? tagSortRef.current.tagSortChain : undefined,
     };
   }
 
@@ -203,21 +187,45 @@ export function SearchView({
     store.get<SearchSettings>("searchSettings").then(saved => {
       if (saved) {
         setActiveTab(saved.activeTab ?? "tracks");
-        setSortField(saved.sortField ?? null);
-        setSortDir(saved.sortDir ?? "asc");
         setMediaTypeFilter(saved.mediaTypeFilter ?? "all");
         setFilterYoutubeOnly(saved.filterYoutubeOnly ?? false);
-        setTrackLikedFirst(saved.trackLikedFirst ?? false);
-        setArtistSortField(saved.artistSortField ?? null);
-        setArtistSortDir(saved.artistSortDir ?? "asc");
-        setArtistLikedFirst(saved.artistLikedFirst ?? false);
-        setAlbumSortField(saved.albumSortField ?? null);
-        setAlbumSortDir(saved.albumSortDir ?? "asc");
-        setAlbumLikedFirst(saved.albumLikedFirst ?? false);
-        setTagSortField(saved.tagSortField ?? null);
-        setTagSortDir(saved.tagSortDir ?? "asc");
-        setTagLikedFirst(saved.tagLikedFirst ?? false);
         setSortBarCollapsed(saved.sortBarCollapsed ?? true);
+
+        if (saved.trackSortChain) {
+          setTrackSortChain(saved.trackSortChain);
+        } else {
+          const chain: SortKey[] = [];
+          if (saved.trackLikedFirst) chain.push({ field: "liked", dir: "desc" });
+          if (saved.sortField) chain.push({ field: saved.sortField, dir: saved.sortDir ?? "asc" });
+          setTrackSortChain(chain);
+        }
+
+        if (saved.artistSortChain) {
+          setArtistSortChain(saved.artistSortChain);
+        } else {
+          const chain: SortKey[] = [];
+          if (saved.artistLikedFirst) chain.push({ field: "liked", dir: "desc" });
+          if (saved.artistSortField) chain.push({ field: saved.artistSortField, dir: saved.artistSortDir ?? "asc" });
+          setArtistSortChain(chain);
+        }
+
+        if (saved.albumSortChain) {
+          setAlbumSortChain(saved.albumSortChain);
+        } else {
+          const chain: SortKey[] = [];
+          if (saved.albumLikedFirst) chain.push({ field: "liked", dir: "desc" });
+          if (saved.albumSortField) chain.push({ field: saved.albumSortField, dir: saved.albumSortDir ?? "asc" });
+          setAlbumSortChain(chain);
+        }
+
+        if (saved.tagSortChain) {
+          setTagSortChain(saved.tagSortChain);
+        } else {
+          const chain: SortKey[] = [];
+          if (saved.tagLikedFirst) chain.push({ field: "liked", dir: "desc" });
+          if (saved.tagSortField) chain.push({ field: saved.tagSortField, dir: saved.tagSortDir ?? "asc" });
+          setTagSortChain(chain);
+        }
       }
       restoredRef.current = true;
       doSearch("");
@@ -249,36 +257,33 @@ export function SearchView({
   useEffect(() => {
     if (!restoredRef.current) return;
     refetchTracks();
-  }, [sortField, sortDir, mediaTypeFilter, filterYoutubeOnly, trackLikedFirst]);
+  }, [trackSortChain, mediaTypeFilter, filterYoutubeOnly]);
 
   useEffect(() => {
     if (!restoredRef.current) return;
     refetchArtists();
-  }, [artistSortField, artistSortDir, artistLikedFirst]);
+  }, [artistSortChain]);
 
   useEffect(() => {
     if (!restoredRef.current) return;
     refetchAlbums();
-  }, [albumSortField, albumSortDir, albumLikedFirst]);
+  }, [albumSortChain]);
 
   useEffect(() => {
     if (!restoredRef.current) return;
     refetchTags();
-  }, [tagSortField, tagSortDir, tagLikedFirst]);
+  }, [tagSortChain]);
 
   useEffect(() => {
     if (!restoredRef.current) return;
     store.set("searchSettings", {
-      activeTab, sortField, sortDir, mediaTypeFilter, filterYoutubeOnly, trackLikedFirst,
-      artistSortField, artistSortDir, artistLikedFirst,
-      albumSortField, albumSortDir, albumLikedFirst,
-      tagSortField, tagSortDir, tagLikedFirst,
+      activeTab, mediaTypeFilter, filterYoutubeOnly,
+      trackSortChain, artistSortChain, albumSortChain, tagSortChain,
       sortBarCollapsed,
     });
-  }, [activeTab, sortField, sortDir, mediaTypeFilter, filterYoutubeOnly, trackLikedFirst,
-      artistSortField, artistSortDir, artistLikedFirst,
-      albumSortField, albumSortDir, albumLikedFirst,
-      tagSortField, tagSortDir, tagLikedFirst, sortBarCollapsed]);
+  }, [activeTab, mediaTypeFilter, filterYoutubeOnly,
+      trackSortChain, artistSortChain, albumSortChain, tagSortChain,
+      sortBarCollapsed]);
 
   const refetchTracks = useCallback(async () => {
     if (!searched) return;
@@ -408,61 +413,27 @@ export function SearchView({
     onViewModesChange({ ...viewModes, [activeTab]: mode });
   }, [activeTab, viewModes, onViewModesChange]);
 
-  const handleSort = useCallback((field: SortField) => {
-    if (sortField === field) {
-      setSortDir(d => d === "asc" ? "desc" : "asc");
-    } else {
-      setSortField(field);
-      setSortDir("asc");
-    }
-  }, [sortField]);
+  const handleTrackSort = useCallback((field: string, e?: React.MouseEvent) => {
+    setTrackSortChain(prev => toggleSortKey(prev, field, e?.shiftKey ?? false));
+  }, []);
 
-  const sortIndicator = useCallback((field: SortField) => {
-    if (sortField !== field) return "";
-    return sortDir === "asc" ? " \u25B2" : " \u25BC";
-  }, [sortField, sortDir]);
+  const trackSortIndicator = useCallback((field: string) => {
+    const dir = chainDir(trackSortChain, field);
+    if (!dir) return "";
+    return dir === "asc" ? " \u25B2" : " \u25BC";
+  }, [trackSortChain]);
 
-  const handleArtistSort = useCallback((field: string) => {
-    if (artistSortField === field) {
-      setArtistSortDir(d => d === "asc" ? "desc" : "asc");
-    } else {
-      setArtistSortField(field);
-      setArtistSortDir("asc");
-    }
-  }, [artistSortField]);
+  const handleArtistSortClick = useCallback((field: string, e?: React.MouseEvent) => {
+    setArtistSortChain(prev => toggleSortKey(prev, field, e?.shiftKey ?? false));
+  }, []);
 
-  const artistSortIndicator = useCallback((field: string) => {
-    if (artistSortField !== field) return "";
-    return artistSortDir === "asc" ? " \u25B2" : " \u25BC";
-  }, [artistSortField, artistSortDir]);
+  const handleAlbumSortClick = useCallback((field: string, e?: React.MouseEvent) => {
+    setAlbumSortChain(prev => toggleSortKey(prev, field, e?.shiftKey ?? false));
+  }, []);
 
-  const handleAlbumSort = useCallback((field: string) => {
-    if (albumSortField === field) {
-      setAlbumSortDir(d => d === "asc" ? "desc" : "asc");
-    } else {
-      setAlbumSortField(field);
-      setAlbumSortDir("asc");
-    }
-  }, [albumSortField]);
-
-  const albumSortIndicator = useCallback((field: string) => {
-    if (albumSortField !== field) return "";
-    return albumSortDir === "asc" ? " \u25B2" : " \u25BC";
-  }, [albumSortField, albumSortDir]);
-
-  const handleTagSort = useCallback((field: string) => {
-    if (tagSortField === field) {
-      setTagSortDir(d => d === "asc" ? "desc" : "asc");
-    } else {
-      setTagSortField(field);
-      setTagSortDir("asc");
-    }
-  }, [tagSortField]);
-
-  const tagSortIndicator = useCallback((field: string) => {
-    if (tagSortField !== field) return "";
-    return tagSortDir === "asc" ? " \u25B2" : " \u25BC";
-  }, [tagSortField, tagSortDir]);
+  const handleTagSortClick = useCallback((field: string, e?: React.MouseEvent) => {
+    setTagSortChain(prev => toggleSortKey(prev, field, e?.shiftKey ?? false));
+  }, []);
 
   const handleTrackLike = useCallback((track: Track) => {
     const newLiked = track.liked === 1 ? 0 : 1;
@@ -542,15 +513,18 @@ export function SearchView({
               <div className="sort-bar-row">
                 <span className="sort-bar-label">Sort:</span>
                 <div className="sort-bar-group">
-                  <button className={`sort-btn${sortField === "title" ? " active" : ""}`} onClick={() => handleSort("title")}>Title{sortIndicator("title")}</button>
-                  <button className={`sort-btn${sortField === "artist" ? " active" : ""}`} onClick={() => handleSort("artist")}>Artist{sortIndicator("artist")}</button>
-                  <button className={`sort-btn${sortField === "album" ? " active" : ""}`} onClick={() => handleSort("album")}>Album{sortIndicator("album")}</button>
-                  <button className={`sort-btn${sortField === "year" ? " active" : ""}`} onClick={() => handleSort("year")}>Year{sortIndicator("year")}</button>
-                  <button className={`sort-btn${sortField === "duration" ? " active" : ""}`} onClick={() => handleSort("duration")}>Duration{sortIndicator("duration")}</button>
-                  <button className={`sort-btn${sortField === "added" ? " active" : ""}`} onClick={() => handleSort("added")}>Added{sortIndicator("added")}</button>
-                  <button className={`sort-btn${sortField === "modified" ? " active" : ""}`} onClick={() => handleSort("modified")}>Modified{sortIndicator("modified")}</button>
-                  <button className={`sort-btn${sortField === "random" ? " active" : ""}`} onClick={() => handleSort("random")}>Shuffle</button>
-                  <button className={`sort-btn liked-first-btn${trackLikedFirst ? " active" : ""}`} onClick={() => setTrackLikedFirst(v => !v)} title="Liked first">{"\u2665"} Liked first</button>
+                  <SortButton label="Title" field="title" chain={trackSortChain} onClick={handleTrackSort} />
+                  <SortButton label="Artist" field="artist" chain={trackSortChain} onClick={handleTrackSort} />
+                  <SortButton label="Album" field="album" chain={trackSortChain} onClick={handleTrackSort} />
+                  <SortButton label="Year" field="year" chain={trackSortChain} onClick={handleTrackSort} />
+                  <SortButton label="Duration" field="duration" chain={trackSortChain} onClick={handleTrackSort} />
+                  <SortButton label="Added" field="added" chain={trackSortChain} onClick={handleTrackSort} />
+                  <SortButton label="Modified" field="modified" chain={trackSortChain} onClick={handleTrackSort} />
+                  <SortButton label={"\u2665 Liked"} field="liked" chain={trackSortChain} onClick={handleTrackSort} />
+                  <SortButton label="Shuffle" field="random" chain={trackSortChain} onClick={handleTrackSort} />
+                  {trackSortChain.length >= 2 && (
+                    <button className="sort-btn sort-btn-clear" onClick={() => setTrackSortChain([])}>Clear</button>
+                  )}
                 </div>
               </div>
               <div className="sort-bar-row">
@@ -572,7 +546,7 @@ export function SearchView({
             currentTrack={currentTrack}
             playing={playing}
             highlightedIndex={-1}
-            sortField={sortField}
+            sortField={trackSortChain.length === 1 ? trackSortChain[0].field as SortField : null}
             trackListRef={trackListRef}
             columns={columns}
             onColumnsChange={onColumnsChange}
@@ -580,8 +554,8 @@ export function SearchView({
             onContextMenu={onTrackContextMenu}
             onArtistClick={onArtistClick}
             onAlbumClick={onAlbumClick}
-            onSort={handleSort}
-            sortIndicator={sortIndicator}
+            onSort={handleTrackSort}
+            sortIndicator={trackSortIndicator}
             onToggleLike={handleTrackLike}
             onToggleDislike={handleTrackDislike}
             onTrackDragStart={onTrackDragStart}
@@ -707,12 +681,15 @@ export function SearchView({
               <div className="sort-bar-row">
                 <span className="sort-bar-label">Sort:</span>
                 <div className="sort-bar-group">
-                  <button className={`sort-btn${albumSortField === "name" ? " active" : ""}`} onClick={() => handleAlbumSort("name")}>Name{albumSortIndicator("name")}</button>
-                  <button className={`sort-btn${albumSortField === "artist" ? " active" : ""}`} onClick={() => handleAlbumSort("artist")}>Artist{albumSortIndicator("artist")}</button>
-                  <button className={`sort-btn${albumSortField === "year" ? " active" : ""}`} onClick={() => handleAlbumSort("year")}>Year{albumSortIndicator("year")}</button>
-                  <button className={`sort-btn${albumSortField === "tracks" ? " active" : ""}`} onClick={() => handleAlbumSort("tracks")}>Tracks{albumSortIndicator("tracks")}</button>
-                  <button className={`sort-btn${albumSortField === "random" ? " active" : ""}`} onClick={() => handleAlbumSort("random")}>Shuffle</button>
-                  <button className={`sort-btn liked-first-btn${albumLikedFirst ? " active" : ""}`} onClick={() => setAlbumLikedFirst(v => !v)} title="Liked first">{"\u2665"} Liked first</button>
+                  <SortButton label="Name" field="name" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                  <SortButton label="Artist" field="artist" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                  <SortButton label="Year" field="year" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                  <SortButton label="Tracks" field="tracks" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                  <SortButton label={"\u2665 Liked"} field="liked" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                  <SortButton label="Shuffle" field="random" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                  {albumSortChain.length >= 2 && (
+                    <button className="sort-btn sort-btn-clear" onClick={() => setAlbumSortChain([])}>Clear</button>
+                  )}
                 </div>
               </div>
             </div>
@@ -732,9 +709,9 @@ export function SearchView({
             hasMore={hasMore.albums}
             loadingMore={loadingMore.albums}
             onLoadMore={handleLoadMore}
-            onSort={handleAlbumSort}
-            sortField={albumSortField}
-            sortIndicator={albumSortIndicator}
+            onSort={(field: string) => handleAlbumSortClick(field)}
+            sortField={albumSortChain[0]?.field ?? null}
+            sortIndicator={(field: string) => { const d = chainDir(albumSortChain, field); return d ? (d === "asc" ? " ▲" : " ▼") : ""; }}
           />
         )}
 
@@ -744,10 +721,13 @@ export function SearchView({
               <div className="sort-bar-row">
                 <span className="sort-bar-label">Sort:</span>
                 <div className="sort-bar-group">
-                  <button className={`sort-btn${artistSortField === "name" ? " active" : ""}`} onClick={() => handleArtistSort("name")}>Name{artistSortIndicator("name")}</button>
-                  <button className={`sort-btn${artistSortField === "tracks" ? " active" : ""}`} onClick={() => handleArtistSort("tracks")}>Tracks{artistSortIndicator("tracks")}</button>
-                  <button className={`sort-btn${artistSortField === "random" ? " active" : ""}`} onClick={() => handleArtistSort("random")}>Shuffle</button>
-                  <button className={`sort-btn liked-first-btn${artistLikedFirst ? " active" : ""}`} onClick={() => setArtistLikedFirst(v => !v)} title="Liked first">{"\u2665"} Liked first</button>
+                  <SortButton label="Name" field="name" chain={artistSortChain} onClick={handleArtistSortClick} />
+                  <SortButton label="Tracks" field="tracks" chain={artistSortChain} onClick={handleArtistSortClick} />
+                  <SortButton label={"\u2665 Liked"} field="liked" chain={artistSortChain} onClick={handleArtistSortClick} />
+                  <SortButton label="Shuffle" field="random" chain={artistSortChain} onClick={handleArtistSortClick} />
+                  {artistSortChain.length >= 2 && (
+                    <button className="sort-btn sort-btn-clear" onClick={() => setArtistSortChain([])}>Clear</button>
+                  )}
                 </div>
               </div>
             </div>
@@ -767,9 +747,9 @@ export function SearchView({
             hasMore={hasMore.artists}
             loadingMore={loadingMore.artists}
             onLoadMore={handleLoadMore}
-            onSort={handleArtistSort}
-            sortField={artistSortField}
-            sortIndicator={artistSortIndicator}
+            onSort={(field: string) => handleArtistSortClick(field)}
+            sortField={artistSortChain[0]?.field ?? null}
+            sortIndicator={(field: string) => { const d = chainDir(artistSortChain, field); return d ? (d === "asc" ? " ▲" : " ▼") : ""; }}
           />
         )}
 
@@ -779,10 +759,13 @@ export function SearchView({
               <div className="sort-bar-row">
                 <span className="sort-bar-label">Sort:</span>
                 <div className="sort-bar-group">
-                  <button className={`sort-btn${tagSortField === "name" ? " active" : ""}`} onClick={() => handleTagSort("name")}>Name{tagSortIndicator("name")}</button>
-                  <button className={`sort-btn${tagSortField === "tracks" ? " active" : ""}`} onClick={() => handleTagSort("tracks")}>Tracks{tagSortIndicator("tracks")}</button>
-                  <button className={`sort-btn${tagSortField === "random" ? " active" : ""}`} onClick={() => handleTagSort("random")}>Shuffle</button>
-                  <button className={`sort-btn liked-first-btn${tagLikedFirst ? " active" : ""}`} onClick={() => setTagLikedFirst(v => !v)} title="Liked first">{"\u2665"} Liked first</button>
+                  <SortButton label="Name" field="name" chain={tagSortChain} onClick={handleTagSortClick} />
+                  <SortButton label="Tracks" field="tracks" chain={tagSortChain} onClick={handleTagSortClick} />
+                  <SortButton label={"\u2665 Liked"} field="liked" chain={tagSortChain} onClick={handleTagSortClick} />
+                  <SortButton label="Shuffle" field="random" chain={tagSortChain} onClick={handleTagSortClick} />
+                  {tagSortChain.length >= 2 && (
+                    <button className="sort-btn sort-btn-clear" onClick={() => setTagSortChain([])}>Clear</button>
+                  )}
                 </div>
               </div>
             </div>
@@ -801,9 +784,9 @@ export function SearchView({
             hasMore={hasMore.tags}
             loadingMore={loadingMore.tags}
             onLoadMore={handleLoadMore}
-            onSort={handleTagSort}
-            sortField={tagSortField}
-            sortIndicator={tagSortIndicator}
+            onSort={(field: string) => handleTagSortClick(field)}
+            sortField={tagSortChain[0]?.field ?? null}
+            sortIndicator={(field: string) => { const d = chainDir(tagSortChain, field); return d ? (d === "asc" ? " ▲" : " ▼") : ""; }}
           />
         )}
       </div>
@@ -1087,5 +1070,25 @@ function SearchArtistResults({
         </div>
       )}
     </>
+  );
+}
+
+function SortButton({ label, field, chain, onClick }: {
+  label: string;
+  field: string;
+  chain: SortKey[];
+  onClick: (field: string, e: React.MouseEvent) => void;
+}) {
+  const pos = chainPosition(chain, field);
+  const dir = chainDir(chain, field);
+  const arrow = dir === "asc" ? " ▲" : dir === "desc" ? " ▼" : "";
+  return (
+    <button
+      className={`sort-btn${pos >= 0 ? " active" : ""}`}
+      onClick={e => onClick(field, e)}
+    >
+      {label}{arrow}
+      {chain.length > 1 && pos >= 0 && <span className="sort-btn-badge">{pos + 1}</span>}
+    </button>
   );
 }

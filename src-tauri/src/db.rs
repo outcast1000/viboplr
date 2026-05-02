@@ -119,8 +119,48 @@ fn sort_column_sql(field: Option<&str>) -> Option<String> {
         Some("added") => Some("COALESCE(t.added_at, 0)".to_string()),
         Some("modified") => Some("COALESCE(t.modified_at, 0)".to_string()),
         Some("random") => Some("RANDOM()".to_string()),
+        Some("liked") => Some("COALESCE(t.liked, 0)".to_string()),
         _ => None,
     }
+}
+
+fn build_order_by(
+    chain: &Option<Vec<SortKey>>,
+    legacy_field: Option<&str>,
+    legacy_dir: Option<&str>,
+    liked_only_fallback: bool,
+    liked_col: &str,
+    tiebreaker: &str,
+    column_resolver: impl Fn(&str) -> Option<String>,
+    default_clause: &str,
+) -> String {
+    let dir_str = |d: &str| if d.eq_ignore_ascii_case("desc") { "DESC" } else { "ASC" };
+
+    if let Some(keys) = chain {
+        if !keys.is_empty() {
+            let parts: Vec<String> = keys.iter()
+                .filter_map(|k| column_resolver(&k.field).map(|col| {
+                    if col == "RANDOM()" { col } else { format!("{} {}", col, dir_str(&k.dir)) }
+                }))
+                .collect();
+            if !parts.is_empty() {
+                return format!("ORDER BY {}{}", parts.join(", "), tiebreaker);
+            }
+        }
+    }
+
+    let liked_prefix = if liked_only_fallback { format!("{} DESC, ", liked_col) } else { String::new() };
+
+    if let Some(col) = column_resolver(legacy_field.unwrap_or("")) {
+        let d = dir_str(legacy_dir.unwrap_or("asc"));
+        return format!("ORDER BY {}{} {}{}", liked_prefix, col, d, tiebreaker);
+    }
+
+    if liked_only_fallback {
+        return format!("ORDER BY {}{}", liked_prefix, default_clause);
+    }
+
+    format!("ORDER BY {}{}", default_clause, tiebreaker)
 }
 
 pub struct Database {
@@ -1164,16 +1204,14 @@ impl Database {
             _ => {}
         }
 
-        let liked_prefix = if opts.liked_only { "t.liked DESC, " } else { "" };
-        if let Some(col) = sort_column_sql(opts.sort_field.as_deref()) {
-            let dir = match opts.sort_dir.as_deref() {
-                Some("desc") => "DESC",
-                _ => "ASC",
-            };
-            sql.push_str(&format!(" ORDER BY {}{} {}, t.id", liked_prefix, col, dir));
-        } else if opts.liked_only {
-            sql.push_str(" ORDER BY t.liked DESC, t.id");
-        }
+        let liked_fallback = opts.liked_only && opts.sort_chain.as_ref().map_or(true, |c| c.is_empty());
+        let order = build_order_by(
+            &opts.sort_chain, opts.sort_field.as_deref(), opts.sort_dir.as_deref(),
+            liked_fallback, "t.liked", ", t.id",
+            |f| sort_column_sql(Some(f)),
+            "t.id",
+        );
+        sql.push_str(&format!(" {}", order));
 
         let limit = opts.limit.unwrap_or(100);
         let offset = opts.offset.unwrap_or(0);
@@ -1299,13 +1337,13 @@ impl Database {
                     [], |row| row.get(0),
                 )?;
 
-                let liked_prefix = if opts.liked_only { "t.liked DESC, " } else { "" };
-                let order = if let Some(col) = sort_column_sql(opts.sort_field.as_deref()) {
-                    let dir = match opts.sort_dir.as_deref() { Some("desc") => "DESC", _ => "ASC" };
-                    format!("ORDER BY {}{} {}, t.id", liked_prefix, col, dir)
-                } else {
-                    format!("ORDER BY {}t.title", liked_prefix)
-                };
+                let liked_fallback = opts.liked_only && opts.sort_chain.as_ref().map_or(true, |c| c.is_empty());
+                let order = build_order_by(
+                    &opts.sort_chain, opts.sort_field.as_deref(), opts.sort_dir.as_deref(),
+                    liked_fallback, "t.liked", ", t.id",
+                    |f| sort_column_sql(Some(f)),
+                    "t.title",
+                );
 
                 let sql = format!("{} {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, where_clauses, order);
                 let mut stmt = conn.prepare(&sql)?;
@@ -1318,13 +1356,19 @@ impl Database {
                 let total: i64 = conn.query_row(
                     &format!("SELECT COUNT(*) FROM artists a {}", where_clause), [], |row| row.get(0),
                 )?;
-                let liked_prefix = if opts.liked_only { "a.liked DESC, " } else { "" };
-                let order = match opts.sort_field.as_deref() {
-                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.name {}", liked_prefix, d) }
-                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.track_count {}", liked_prefix, d) }
-                    Some("random") => format!("ORDER BY {}RANDOM()", liked_prefix),
-                    _ => format!("ORDER BY {}a.name", liked_prefix),
-                };
+                let liked_fallback = opts.liked_only && opts.sort_chain.as_ref().map_or(true, |c| c.is_empty());
+                let order = build_order_by(
+                    &opts.sort_chain, opts.sort_field.as_deref(), opts.sort_dir.as_deref(),
+                    liked_fallback, "a.liked", "",
+                    |f| match f {
+                        "name" => Some("a.name".to_string()),
+                        "tracks" => Some("a.track_count".to_string()),
+                        "liked" => Some("COALESCE(a.liked, 0)".to_string()),
+                        "random" => Some("RANDOM()".to_string()),
+                        _ => None,
+                    },
+                    "a.name",
+                );
                 let sql = format!("SELECT a.id, a.name, a.track_count, a.liked FROM artists a {} {} LIMIT ?1 OFFSET ?2", where_clause, order);
                 let mut stmt = conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![limit, offset], |row| {
@@ -1338,15 +1382,21 @@ impl Database {
                 let total: i64 = conn.query_row(
                     &format!("SELECT COUNT(*) FROM albums a {}", where_clause), [], |row| row.get(0),
                 )?;
-                let liked_prefix = if opts.liked_only { "a.liked DESC, " } else { "" };
-                let order = match opts.sort_field.as_deref() {
-                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.title {}", liked_prefix, d) }
-                    Some("artist") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}ar.name {}", liked_prefix, d) }
-                    Some("year") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.year {}", liked_prefix, d) }
-                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.track_count {}", liked_prefix, d) }
-                    Some("random") => format!("ORDER BY {}RANDOM()", liked_prefix),
-                    _ => format!("ORDER BY {}a.title", liked_prefix),
-                };
+                let liked_fallback = opts.liked_only && opts.sort_chain.as_ref().map_or(true, |c| c.is_empty());
+                let order = build_order_by(
+                    &opts.sort_chain, opts.sort_field.as_deref(), opts.sort_dir.as_deref(),
+                    liked_fallback, "a.liked", "",
+                    |f| match f {
+                        "name" => Some("a.title".to_string()),
+                        "artist" => Some("ar.name".to_string()),
+                        "year" => Some("COALESCE(a.year, 0)".to_string()),
+                        "tracks" => Some("a.track_count".to_string()),
+                        "liked" => Some("COALESCE(a.liked, 0)".to_string()),
+                        "random" => Some("RANDOM()".to_string()),
+                        _ => None,
+                    },
+                    "a.title",
+                );
                 let sql = format!(
                     "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked \
                      FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
@@ -1361,13 +1411,19 @@ impl Database {
                 let total: i64 = conn.query_row(
                     "SELECT COUNT(*) FROM tags WHERE track_count > 0", [], |row| row.get(0),
                 )?;
-                let liked_prefix = if opts.liked_only { "liked DESC, " } else { "" };
-                let order = match opts.sort_field.as_deref() {
-                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}name {}", liked_prefix, d) }
-                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}track_count {}", liked_prefix, d) }
-                    Some("random") => format!("ORDER BY {}RANDOM()", liked_prefix),
-                    _ => format!("ORDER BY {}name", liked_prefix),
-                };
+                let liked_fallback = opts.liked_only && opts.sort_chain.as_ref().map_or(true, |c| c.is_empty());
+                let order = build_order_by(
+                    &opts.sort_chain, opts.sort_field.as_deref(), opts.sort_dir.as_deref(),
+                    liked_fallback, "liked", "",
+                    |f| match f {
+                        "name" => Some("name".to_string()),
+                        "tracks" => Some("track_count".to_string()),
+                        "liked" => Some("COALESCE(liked, 0)".to_string()),
+                        "random" => Some("RANDOM()".to_string()),
+                        _ => None,
+                    },
+                    "name",
+                );
                 let sql = format!("SELECT id, name, track_count, liked FROM tags WHERE track_count > 0 {} LIMIT ?1 OFFSET ?2", order);
                 let mut stmt = conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![limit, offset], |row| {
@@ -1430,13 +1486,19 @@ impl Database {
                     |row| row.get(0),
                 )?;
 
-                let liked_prefix = if opts.liked_only { "a.liked DESC, " } else { "" };
-                let order = match opts.sort_field.as_deref() {
-                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.name {}", liked_prefix, d) }
-                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}a.track_count {}", liked_prefix, d) }
-                    Some("random") => format!("ORDER BY {}RANDOM()", liked_prefix),
-                    _ => format!("ORDER BY {}a.name", liked_prefix),
-                };
+                let liked_fallback = opts.liked_only && opts.sort_chain.as_ref().map_or(true, |c| c.is_empty());
+                let order = build_order_by(
+                    &opts.sort_chain, opts.sort_field.as_deref(), opts.sort_dir.as_deref(),
+                    liked_fallback, "a.liked", "",
+                    |f| match f {
+                        "name" => Some("a.name".to_string()),
+                        "tracks" => Some("a.track_count".to_string()),
+                        "liked" => Some("COALESCE(a.liked, 0)".to_string()),
+                        "random" => Some("RANDOM()".to_string()),
+                        _ => None,
+                    },
+                    "a.name",
+                );
                 let mut stmt = conn.prepare(
                     &format!("SELECT DISTINCT a.id, a.name, a.track_count, a.liked \
                      FROM artists a \
@@ -1474,15 +1536,21 @@ impl Database {
                     |row| row.get(0),
                 )?;
 
-                let liked_prefix = if opts.liked_only { "al.liked DESC, " } else { "" };
-                let order = match opts.sort_field.as_deref() {
-                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}al.title {}", liked_prefix, d) }
-                    Some("artist") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}ar.name {}", liked_prefix, d) }
-                    Some("year") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}al.year {}", liked_prefix, d) }
-                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}al.track_count {}", liked_prefix, d) }
-                    Some("random") => format!("ORDER BY {}RANDOM()", liked_prefix),
-                    _ => format!("ORDER BY {}al.title", liked_prefix),
-                };
+                let liked_fallback = opts.liked_only && opts.sort_chain.as_ref().map_or(true, |c| c.is_empty());
+                let order = build_order_by(
+                    &opts.sort_chain, opts.sort_field.as_deref(), opts.sort_dir.as_deref(),
+                    liked_fallback, "al.liked", "",
+                    |f| match f {
+                        "name" => Some("al.title".to_string()),
+                        "artist" => Some("ar.name".to_string()),
+                        "year" => Some("COALESCE(al.year, 0)".to_string()),
+                        "tracks" => Some("al.track_count".to_string()),
+                        "liked" => Some("COALESCE(al.liked, 0)".to_string()),
+                        "random" => Some("RANDOM()".to_string()),
+                        _ => None,
+                    },
+                    "al.title",
+                );
                 let mut stmt = conn.prepare(
                     &format!("SELECT DISTINCT al.id, al.title, al.artist_id, ar.name, al.year, al.track_count, al.liked \
                      FROM albums al \
@@ -1515,13 +1583,19 @@ impl Database {
                     |row| row.get(0),
                 )?;
 
-                let liked_prefix = if opts.liked_only { "tg.liked DESC, " } else { "" };
-                let order = match opts.sort_field.as_deref() {
-                    Some("name") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}tg.name {}", liked_prefix, d) }
-                    Some("tracks") => { let d = if opts.sort_dir.as_deref() == Some("desc") { "DESC" } else { "ASC" }; format!("ORDER BY {}tg.track_count {}", liked_prefix, d) }
-                    Some("random") => format!("ORDER BY {}RANDOM()", liked_prefix),
-                    _ => format!("ORDER BY {}tg.name", liked_prefix),
-                };
+                let liked_fallback = opts.liked_only && opts.sort_chain.as_ref().map_or(true, |c| c.is_empty());
+                let order = build_order_by(
+                    &opts.sort_chain, opts.sort_field.as_deref(), opts.sort_dir.as_deref(),
+                    liked_fallback, "tg.liked", "",
+                    |f| match f {
+                        "name" => Some("tg.name".to_string()),
+                        "tracks" => Some("tg.track_count".to_string()),
+                        "liked" => Some("COALESCE(tg.liked, 0)".to_string()),
+                        "random" => Some("RANDOM()".to_string()),
+                        _ => None,
+                    },
+                    "tg.name",
+                );
                 let mut stmt = conn.prepare(
                     &format!("SELECT DISTINCT tg.id, tg.name, tg.track_count, tg.liked \
                      FROM tags tg \
@@ -5116,6 +5190,156 @@ mod tests {
         let last_page = db.search_entity("rock", "tracks", &TrackQuery { limit: Some(3), offset: Some(9), ..Default::default() }).unwrap();
         assert_eq!(last_page.total, 10);
         assert_eq!(last_page.tracks.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_search_entity_sort_chain_tracks() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let a1 = db.get_or_create_artist("Artist").unwrap();
+        let album = db.get_or_create_album("Album", Some(a1), None).unwrap();
+        let t1 = db.upsert_track("file://a.mp3", "Alpha", Some(a1), Some(album), None, None, None, None, None, Some(cid), None).unwrap();
+        let _t2 = db.upsert_track("file://b.mp3", "Beta", Some(a1), Some(album), None, None, None, None, None, Some(cid), None).unwrap();
+        let t3 = db.upsert_track("file://c.mp3", "Charlie", Some(a1), Some(album), None, None, None, None, None, Some(cid), None).unwrap();
+        db.toggle_liked("tracks", t1, 1).unwrap();
+        db.toggle_liked("tracks", t3, -1).unwrap();
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let result = db.search_entity("", "tracks", &TrackQuery {
+            limit: Some(10),
+            sort_chain: Some(vec![
+                SortKey { field: "liked".to_string(), dir: "desc".to_string() },
+                SortKey { field: "title".to_string(), dir: "asc".to_string() },
+            ]),
+            ..Default::default()
+        }).unwrap();
+        let tracks = result.tracks.unwrap();
+        assert_eq!(tracks.len(), 3);
+        assert_eq!(tracks[0].title, "Alpha");   // liked=1
+        assert_eq!(tracks[1].title, "Beta");    // liked=0
+        assert_eq!(tracks[2].title, "Charlie"); // liked=-1
+    }
+
+    #[test]
+    fn test_search_entity_sort_chain_overrides_legacy() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let a1 = db.get_or_create_artist("Artist").unwrap();
+        let album = db.get_or_create_album("Album", Some(a1), None).unwrap();
+        db.upsert_track("file://a.mp3", "Alpha", Some(a1), Some(album), None, None, None, None, None, Some(cid), None).unwrap();
+        db.upsert_track("file://b.mp3", "Beta", Some(a1), Some(album), None, None, None, None, None, Some(cid), None).unwrap();
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let result = db.search_entity("", "tracks", &TrackQuery {
+            limit: Some(10),
+            sort_field: Some("title".to_string()),
+            sort_dir: Some("asc".to_string()),
+            sort_chain: Some(vec![
+                SortKey { field: "title".to_string(), dir: "desc".to_string() },
+            ]),
+            ..Default::default()
+        }).unwrap();
+        let tracks = result.tracks.unwrap();
+        assert_eq!(tracks[0].title, "Beta");  // desc from chain wins
+        assert_eq!(tracks[1].title, "Alpha");
+    }
+
+    #[test]
+    fn test_search_entity_empty_chain_falls_back() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let a1 = db.get_or_create_artist("Artist").unwrap();
+        let album = db.get_or_create_album("Album", Some(a1), None).unwrap();
+        db.upsert_track("file://a.mp3", "Alpha", Some(a1), Some(album), None, None, None, None, None, Some(cid), None).unwrap();
+        db.upsert_track("file://b.mp3", "Beta", Some(a1), Some(album), None, None, None, None, None, Some(cid), None).unwrap();
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let result = db.search_entity("", "tracks", &TrackQuery {
+            limit: Some(10),
+            sort_chain: Some(vec![]),
+            sort_field: Some("title".to_string()),
+            sort_dir: Some("desc".to_string()),
+            ..Default::default()
+        }).unwrap();
+        let tracks = result.tracks.unwrap();
+        assert_eq!(tracks[0].title, "Beta");  // legacy desc
+        assert_eq!(tracks[1].title, "Alpha");
+    }
+
+    #[test]
+    fn test_search_entity_sort_chain_unknown_field() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let a1 = db.get_or_create_artist("Artist").unwrap();
+        let album = db.get_or_create_album("Album", Some(a1), None).unwrap();
+        db.upsert_track("file://a.mp3", "Alpha", Some(a1), Some(album), None, None, None, None, None, Some(cid), None).unwrap();
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let result = db.search_entity("", "tracks", &TrackQuery {
+            limit: Some(10),
+            sort_chain: Some(vec![
+                SortKey { field: "nonexistent".to_string(), dir: "asc".to_string() },
+                SortKey { field: "title".to_string(), dir: "asc".to_string() },
+            ]),
+            ..Default::default()
+        }).unwrap();
+        assert_eq!(result.tracks.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_search_tracks_inner_sort_chain() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let a1 = db.get_or_create_artist("Artist").unwrap();
+        let album = db.get_or_create_album("Album", Some(a1), None).unwrap();
+        let t1 = db.upsert_track("file://a.mp3", "Rock Alpha", Some(a1), Some(album), None, None, None, None, None, Some(cid), None).unwrap();
+        let _t2 = db.upsert_track("file://b.mp3", "Rock Beta", Some(a1), Some(album), None, None, None, None, None, Some(cid), None).unwrap();
+        db.toggle_liked("tracks", t1, 1).unwrap();
+        db.recompute_counts().unwrap();
+        db.rebuild_fts().unwrap();
+
+        let result = db.search_entity("rock", "tracks", &TrackQuery {
+            limit: Some(10),
+            sort_chain: Some(vec![
+                SortKey { field: "liked".to_string(), dir: "desc".to_string() },
+                SortKey { field: "title".to_string(), dir: "asc".to_string() },
+            ]),
+            ..Default::default()
+        }).unwrap();
+        let tracks = result.tracks.unwrap();
+        assert_eq!(tracks.len(), 2);
+        assert_eq!(tracks[0].title, "Rock Alpha");  // liked=1, sorted first
+        assert_eq!(tracks[1].title, "Rock Beta");   // liked=0
+    }
+
+    #[test]
+    fn test_list_entity_artists_sort_chain_liked() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let a1 = db.get_or_create_artist("Alpha Artist").unwrap();
+        let a2 = db.get_or_create_artist("Beta Artist").unwrap();
+        let alb1 = db.get_or_create_album("Alb1", Some(a1), None).unwrap();
+        let alb2 = db.get_or_create_album("Alb2", Some(a2), None).unwrap();
+        db.upsert_track("file://s1.mp3", "S1", Some(a1), Some(alb1), None, None, None, None, None, Some(cid), None).unwrap();
+        db.upsert_track("file://s2.mp3", "S2", Some(a2), Some(alb2), None, None, None, None, None, Some(cid), None).unwrap();
+        db.toggle_liked("artists", a2, 1).unwrap();
+        db.recompute_counts().unwrap();
+
+        let result = db.search_entity("", "artists", &TrackQuery {
+            limit: Some(10),
+            sort_chain: Some(vec![
+                SortKey { field: "liked".to_string(), dir: "desc".to_string() },
+                SortKey { field: "name".to_string(), dir: "asc".to_string() },
+            ]),
+            ..Default::default()
+        }).unwrap();
+        let artists = result.artists.unwrap();
+        assert_eq!(artists[0].name, "Beta Artist");  // liked=1 first
+        assert_eq!(artists[1].name, "Alpha Artist"); // liked=0
     }
 
     #[test]

@@ -17,6 +17,14 @@ pub struct TrackQuery {
     pub sort_dir: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub sort_chain: Option<Vec<SortKey>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SortKey {
+    pub field: String,
+    pub dir: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
