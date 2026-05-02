@@ -114,6 +114,7 @@ interface NowPlayingBarProps {
   loadingTrack?: Track | null;
   onSkipError?: () => void;
   onDownloadTrack?: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }
 
 export function NowPlayingBar({
@@ -133,6 +134,7 @@ export function NowPlayingBar({
   showHelp, onToggleHelp,
   playbackError, resolvingStatus, resolvedSource, loadingTrack, onSkipError,
   onDownloadTrack,
+  onContextMenu,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -196,7 +198,10 @@ export function NowPlayingBar({
         };
     const progress = durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0;
     return (
-      <footer className={`now-playing now-playing-mini${miniExpanded ? " mini-expanded" : ""}`} onMouseDown={handleDrag} onWheel={(e) => {
+      <footer className={`now-playing now-playing-mini${miniExpanded ? " mini-expanded" : ""}`} onMouseDown={handleDrag} onContextMenu={(e) => {
+          e.preventDefault();
+          onContextMenu?.(e);
+        }} onWheel={(e) => {
           e.preventDefault();
           onVolume(Math.min(1, Math.max(0, volume + (e.deltaY < 0 ? 0.05 : -0.05))));
           setShowMiniVolume(true);

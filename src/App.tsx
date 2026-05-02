@@ -3548,6 +3548,24 @@ function App() {
         loadingTrack={playback.loadingTrack}
         playbackError={playback.playbackError}
         onSkipError={() => { playback.clearPlaybackError(); handleNext(); }}
+        onContextMenu={(e: React.MouseEvent) => {
+          const specs: MenuItemSpec[] = [];
+          const t = playback.currentTrack;
+          if (t) {
+            specs.push({ kind: "item", text: playback.playing ? "Pause" : "Play", action: playback.handlePause });
+            specs.push({ kind: "item", text: "Next", action: handleNext });
+            specs.push({ kind: "item", text: "Previous", action: queueHook.playPrevious });
+            specs.push({ kind: "separator" });
+            const isLiked = t.liked === 1;
+            if (t.id != null) {
+              specs.push({ kind: "item", text: isLiked ? "Unlike" : "Like", action: () => likeActions.handleToggleLike(t) });
+            }
+          }
+          specs.push({ kind: "separator" });
+          specs.push({ kind: "item", text: "Show Main Window", action: mini.toggleMiniMode });
+          specs.push({ kind: "item", text: "Close App", action: () => exit(0) });
+          showNativeMenu(e.clientX, e.clientY, specs);
+        }}
         onDownloadTrack={playback.currentTrack ? async () => {
           const track = playback.currentTrack!;
           let entries = downloadProviderEntries;
