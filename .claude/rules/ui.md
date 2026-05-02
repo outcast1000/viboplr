@@ -8,17 +8,17 @@ The app has 5 core entity types that appear across many surfaces. Every entity t
 
 | Entity | Key Fields | Where it appears |
 |--------|-----------|-----------------|
-| **Track** | id, path, title, artist_name, album_title, duration_secs, liked (-1/0/1), format, collection_id | All Tracks, Album detail, Tag detail, Artist detail, Liked, Queue, TIDAL search, Spotify playlists, similar tracks, search results |
-| **Artist** | id, name, track_count, liked | Artists view, search results, similar artists, TIDAL browse |
-| **Album** | id, title, artist_name, year, track_count, liked | Albums view, artist detail, search results, TIDAL browse |
-| **Playlist** | id, name, track_count | Playlists view, Spotify browse |
+| **Track** | id, path, title, artist_name, album_title, duration_secs, liked (-1/0/1), format, collection_id | All Tracks, Album detail, Tag detail, Artist detail, Liked, Queue, plugin views, similar tracks, search results |
+| **Artist** | id, name, track_count, liked | Artists view, search results, similar artists, plugin views |
+| **Album** | id, title, artist_name, year, track_count, liked | Albums view, artist detail, search results, plugin views |
+| **Playlist** | id, name, track_count | Playlists view, plugin views |
 | **Tag** | id, name, track_count, liked | Tags view |
 
 Track paths use URL schemes: `file://` (local), `subsonic://`, `tidal://`.
 
 ### Three Rendering Modes
 
-Every entity list supports three view modes using shared CSS classes. The styling must be consistent across all surfaces — a track in "All Tracks" must look identical to a track in a playlist, TIDAL results, or a plugin view.
+Every entity list supports three view modes using shared CSS classes. The styling must be consistent across all surfaces — a track in "All Tracks" must look identical to a track in a playlist or a plugin view.
 
 | Mode | CSS Class | Layout | Context Menu |
 |------|-----------|--------|--------------|
@@ -30,7 +30,7 @@ Every entity list supports three view modes using shared CSS classes. The stylin
 
 The app must detect what kind of entity it is rendering and show the appropriate context menu with all applicable actions — including plugin-registered actions.
 
-**Core principle:** An entity's context menu is the same regardless of where it appears. A track in the library, in a playlist, in TIDAL search results, or in a plugin view all get the same base actions plus all registered plugin actions.
+**Core principle:** An entity's context menu is the same regardless of where it appears. A track in the library, in a playlist, or in a plugin view all get the same base actions plus all registered plugin actions.
 
 **How it works:**
 1. Each surface renders entities using the shared CSS classes and wires up `onContextMenu` handlers
@@ -151,13 +151,13 @@ Features: drag-and-drop reorder, multi-select (Shift/Cmd+Click), right-click con
 
 ### Playlist Context
 
-When tracks are played from a specific source (album, artist, tag, playlist, Spotify playlist, etc.), a `PlaylistContext` is attached to the queue. This gives the queue panel awareness of *what* the user is playing.
+When tracks are played from a specific source (album, artist, tag, playlist, plugin view, etc.), a `PlaylistContext` is attached to the queue. This gives the queue panel awareness of *what* the user is playing.
 
 ```typescript
 interface PlaylistContext {
   name: string;              // e.g., album title, artist name, playlist name
   coverPath?: string | null; // local image path (for library entities)
-  coverUrl?: string | null;  // remote image URL (for plugins like Spotify)
+  coverUrl?: string | null;  // remote image URL (for plugins)
 }
 ```
 
@@ -180,7 +180,7 @@ interface PlaylistContext {
 
 **For plugins:** Use `api.ui.requestAction("play-tracks", { tracks, startIndex, playlistName, coverUrl })` to play tracks with context. The `playlistName` and `coverUrl` fields are extracted and passed as context automatically.
 
-**Track image URLs:** Each track in the payload can carry an `image_url` field. When playing tracks from external sources (TIDAL, Spotify), include the image URL so the now playing bar and queue can display artwork without needing a library image lookup.
+**Track image URLs:** Each track in the payload can carry an `image_url` field. When playing tracks from external sources (plugin views), include the image URL so the now playing bar and queue can display artwork without needing a library image lookup.
 
 ## Now Playing Bar
 
@@ -236,7 +236,7 @@ See "Entity System > Context Menu Consistency" for how context menus work across
 
 | Target | Base Actions |
 |--------|-------------|
-| **track** | Play, Enqueue, Play Next, Show in Folder, Find in YouTube, Delete, Bulk Edit, Export as Tape, Search providers |
+| **track** | Play, Enqueue, Play Next, Show in Folder, Find in YouTube, Delete, Bulk Edit, Export as Tape, search providers |
 | **album** | Play All, Enqueue All, Refresh Image |
 | **artist** | Play All, Enqueue All, Refresh Image |
 | **multi-track** | Play, Enqueue, Delete, Bulk Edit |
@@ -244,7 +244,7 @@ See "Entity System > Context Menu Consistency" for how context menus work across
 | **queue items** | Remove, Keep Only, Move to Top/Bottom |
 | **video** | Dock position (top/bottom/left/right) |
 
-Plugin-registered actions appear on all applicable targets automatically. Search providers: Google, Last.fm, Genius, YouTube, X/Twitter (user-configurable).
+Plugin-registered actions appear on all applicable targets automatically. Search providers are user-configurable (built-in and custom).
 
 ## Skin System
 

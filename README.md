@@ -2,14 +2,13 @@
 
 A cross-platform desktop music player for macOS and Windows built with Tauri 2, React, and Rust.
 
-Viboplr plays audio and video from local folders, Subsonic/Navidrome servers, and TIDAL. It scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
+Viboplr plays audio and video from local folders and remote music services. It acts as an orchestrator — a plugin system connects to streaming providers, metadata services, lyric databases, and image sources, while the core app handles playback, library management, and UI. It scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
 
 ## Features
 
 ### Library Management
 - **Local Folders**: Scan folders with background progress reporting and real-time file watching
-- **Subsonic/Navidrome**: Connect to remote music servers with token or digest authentication
-- **TIDAL**: Search, browse, and stream from the TIDAL catalog with instance failover
+- **Remote Collections**: Connect to remote music services via plugins (streaming, sync, browse)
 - **Smart Metadata**: Reads tags via `lofty`, with intelligent filename parsing fallback
 - **Full-Text Search**: SQLite FTS5-powered search across titles, artists, albums, genres, and filenames
 - **Tags**: Genre metadata from files stored as tags with many-to-many track relationships
@@ -23,24 +22,17 @@ Viboplr plays audio and video from local folders, Subsonic/Navidrome servers, an
 - **Waveform Seek Bar**: Visual waveform display for seeking
 
 ### Views
-- **All Tracks**: Full library with table, list, and tile view modes
 - **Artists / Albums / Tags**: Browsable with breadcrumb navigation and card art
-- **Liked Tracks**: Filtered view of liked tracks
 - **History**: Tabbed view — All Time, Last 30 Days, Recent, Artists — with arrow key navigation
 - **Playlists**: Save, load, and manage playlists with cover art and thumbnail tracking
-- **Collections**: Manage local folders, Subsonic servers, and TIDAL sources
-- **TIDAL**: Tabbed search (Tracks/Albums/Artists) with result counts and browse
+- **Collections**: Manage local folders and remote service connections
 
-### Integrations
-- **Last.fm Scrobbling**: Real-time now-playing updates and scrobble reporting
-- **Last.fm History Import**: Import complete scrobble history with progress tracking and cancellation
-- **Last.fm Metadata**: Similar artists/tracks, artist bios, album wiki, community tag suggestions — all cached with 90-day TTL
-- **Last.fm Love Sync**: Like/unlike tracks synced to Last.fm love/unlove
-- **TIDAL Streaming**: Search, browse albums/artists, and stream tracks
-- **Downloads**: Download tracks from Subsonic/TIDAL in FLAC, AAC, or MP3 with embedded tags and cover art via a pluggable download provider chain
-- **YouTube URL Storage**: Associate YouTube URLs with tracks
-- **Spotify Browse**: Browse and queue Spotify playlists via web scraping (plugin)
-- **Lyrics**: Synced and plain lyrics from multiple providers (LRCLIB, Lyrics.ovh, Genius, Greek Lyrics) with timed highlighting and auto-scroll
+### Service Orchestration
+- **Streaming**: Plugins provide stream resolution from various services — the core app chains them with configurable priority and fallback
+- **Scrobbling & Metadata**: Plugin-driven scrobble reporting, listening history import, similar artists/tracks, bios, and community tags with TTL-based caching
+- **Downloads**: Download tracks in FLAC, AAC, or MP3 with embedded tags and cover art via a pluggable download provider chain
+- **Lyrics**: Synced and plain lyrics from multiple plugin providers with timed highlighting and auto-scroll
+- **Image Providers**: Plugin-based artist/album art resolution with configurable fallback chains
 
 ### Skins
 - **8 Built-in Skins**: Default, OLED Black, Arctic Light, Forest, Silver, Ocean Blue, Viboplr, Sunset
@@ -49,17 +41,17 @@ Viboplr plays audio and video from local folders, Subsonic/Navidrome servers, an
 - **Custom CSS**: Optional per-skin CSS overrides (sanitized)
 
 ### Plugins
-- **Plugin System**: Extend the app with JavaScript plugins — information sections, image providers, stream resolvers, download providers, context menu items, sidebar views, event hooks, settings panels, and scheduler tasks
-- **15 Built-in Plugins**: audiodb, auto-tagger, deezer, genius, greek-lyrics, itunes, lastfm, lrclib, lyrics-ovh, lyrics-search, mock-download, musicbrainz, spotify-browse, tidal-browse, youtube
+- **Plugin System**: The primary extension mechanism — JavaScript plugins provide streaming, metadata, lyrics, image resolution, downloads, context menu items, sidebar views, event hooks, settings panels, and scheduler tasks
+- **15+ Built-in Plugins**: Ship with plugins for popular music services, metadata databases, lyric providers, and image sources
 - **Native & User Plugins**: Built-in plugins bundled with the app; user plugins in profile directory (user plugins override native)
 - **Structured Views**: Plugins render via data model (track lists, card grids, stats, text) — no raw HTML injection
 - **Plugin Management**: Enable/disable plugins, reorder providers, and configure settings via Settings tabs
 
 ### Other
-- **Track Properties Modal**: Tabbed view with metadata, tags, similar tracks (with play/TIDAL/YouTube actions), artist bio, album wiki
-- **Entity Images**: Automatic artist/album art via plugin-based provider chain (embedded tags, TIDAL, Deezer, iTunes, AudioDB, MusicBrainz) with configurable priority
+- **Track Properties Modal**: Tabbed view with metadata, tags, similar tracks, artist bio, album info
+- **Entity Images**: Automatic artist/album art via plugin-based provider chain with configurable priority
 - **Tag Composite Images**: Auto-generated from top artist images
-- **Search Providers**: Configurable external search (Google, Last.fm, X, YouTube, Genius, custom)
+- **Search Providers**: Configurable external search providers (custom and built-in)
 - **Context Menu**: Right-click with "Open Containing Folder", search providers, properties
 - **Auto Updates**: Built-in update checking and installation
 - **Cross-Platform**: macOS and Windows
@@ -75,7 +67,7 @@ Viboplr plays audio and video from local folders, Subsonic/Navidrome servers, an
 | Database | SQLite via `rusqlite` + FTS5 | Embedded media library with full-text search |
 | Tag reading | `lofty` | ID3v1/v2, Vorbis, FLAC, MP4, Opus tags |
 | File watching | `notify` | Cross-platform filesystem events |
-| Scrobbling | Last.fm API | Now-playing, scrobble, history import |
+| Integrations | Plugin system | Streaming, scrobbling, metadata, lyrics, images |
 | State persistence | `tauri-plugin-store` v2 | Save/restore UI state across restarts |
 
 ## Development
@@ -139,9 +131,8 @@ viboplr/
 │   │   ├── NowPlayingBar.tsx   # Playback footer controls
 │   │   ├── QueuePanel.tsx      # Queue management
 │   │   ├── Sidebar.tsx         # Navigation sidebar
-│   │   ├── SettingsPanel.tsx   # Settings (General, Skins, Plugins, TIDAL, Last.fm, Providers, Debug)
+│   │   ├── SettingsPanel.tsx   # Settings (General, Skins, Plugins, Providers, Debug)
 │   │   ├── HistoryView.tsx     # Play history view
-│   │   ├── TidalView.tsx       # TIDAL search/browse
 │   │   ├── CollectionsView.tsx # Collection management
 │   │   ├── PlaylistsView.tsx  # Saved playlists grid/detail
 │   │   ├── PluginViewRenderer.tsx # Plugin structured view rendering
@@ -167,9 +158,7 @@ viboplr/
 │   │   ├── models.rs           # Shared data models
 │   │   ├── scanner.rs          # Folder scanning
 │   │   ├── watcher.rs          # File watching
-│   │   ├── lastfm.rs           # Last.fm API client (scrobble, love, similar, metadata)
 │   │   ├── subsonic.rs         # Subsonic API client
-│   │   ├── tidal.rs            # TIDAL API client
 │   │   ├── sync.rs             # Subsonic collection sync
 │   │   ├── skins.rs            # Skin file I/O and gallery fetching
 │   │   ├── downloader.rs       # Track download manager
@@ -177,10 +166,10 @@ viboplr/
 │   │   ├── composite_image.rs  # Tag composite image generation
 │   │   ├── plugins.rs          # Plugin management and file I/O
 │   │   ├── image_provider/     # Image provider Rust-JS bridge
-│   │   ├── lyric_provider/     # Lyric provider fallback chain (LRCLIB)
+│   │   ├── lyric_provider/     # Lyric provider fallback chain
 │   │   ├── timing.rs           # Startup profiling
 │   │   └── seed.rs             # Debug-only test data seeding
-│   ├── plugins/            # Built-in plugins (15 plugins)
+│   ├── plugins/            # Built-in plugins (15+ plugins)
 │   └── Cargo.toml
 ├── SPEC.md                 # Detailed specification
 └── CLAUDE.md               # AI assistant guidance
