@@ -14,9 +14,7 @@
         "description": "Song lyrics from Greek sites",
         "entity": "track",
         "displayKind": "lyrics",
-        "ttl": 7776000,
-        "order": 410,
-        "priority": 350
+        "ttl": 7776000
       }
     ],
     "settingsPanel": {

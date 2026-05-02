@@ -3076,7 +3076,7 @@ pub fn update_info_type_active(
 pub fn reset_provider_priorities(
     state: State<'_, AppState>,
     image_defaults: Vec<(String, String, i64)>,
-    info_defaults: Vec<(String, String, i64)>,
+    info_defaults: Vec<(String, String, i64, i64)>,
 ) -> Result<(), String> {
     state.db.reset_provider_priorities(&image_defaults, &info_defaults).map_err(|e| e.to_string())
 }

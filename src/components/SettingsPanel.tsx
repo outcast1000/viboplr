@@ -10,6 +10,7 @@ import type { SkinInfo, GallerySkinEntry } from "../types/skin";
 import type { PluginState } from "../types/plugin";
 import type { Collection } from "../types";
 import { store } from "../store";
+import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY } from "../hooks/usePlugins";
 import "./SettingsPanel.css";
 
 // Provider config data shapes from backend
@@ -431,7 +432,7 @@ function ProviderPrioritySection({
   const handleReset = async () => {
     // Build defaults from plugin manifests
     const imageDefaults: [string, string, number][] = [];
-    const infoDefaults: [string, string, number][] = [];
+    const infoDefaults: [string, string, number, number][] = [];
     const downloadDefaults: [string, string, string, number][] = [];
 
     if (pluginStates) {
@@ -445,7 +446,9 @@ function ProviderPrioritySection({
         }
         if (contributes.informationTypes) {
           for (const it of contributes.informationTypes) {
-            infoDefaults.push([it.id, plugin.id, it.priority]);
+            const priority = DEFAULT_INFO_TYPE_PRIORITY[it.id]?.[plugin.id] ?? 500;
+            const order = DEFAULT_INFO_TYPE_ORDER[it.id] ?? 500;
+            infoDefaults.push([it.id, plugin.id, priority, order]);
           }
         }
         if (contributes.downloadProviders) {

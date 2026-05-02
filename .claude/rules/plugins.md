@@ -40,9 +40,7 @@ User-installed plugins (in app data directory) override built-in plugins with th
       "name": "Tab Label",
       "entity": "artist|album|track|tag",
       "displayKind": "rich_text|lyrics|stat_grid|...",
-      "ttl": 7776000,
-      "order": 200,
-      "priority": 300
+      "ttl": 7776000
     }],
     "imageProviders": [{
       "entity": "artist|album",
@@ -188,7 +186,7 @@ Tabbed metadata panels shown on entity detail pages (artists, albums, tracks, ta
 
 ### Provider Chain
 
-Multiple plugins can provide the same information type ID (e.g., both `lastfm` and `genius` provide `artist_bio`). Lower `priority` number = tried first. First success wins.
+Multiple plugins can provide the same information type ID (e.g., both `lastfm` and `genius` provide `artist_bio`). The app hardcodes default priority ordering (in `usePlugins.ts`). Users can reorder providers in Settings > Providers. Lower `priority` number = tried first. First success wins.
 
 ### Entity Keys
 

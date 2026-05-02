@@ -14,9 +14,7 @@
         "description": "Song lyrics, synced or plain text",
         "entity": "track",
         "displayKind": "lyrics",
-        "ttl": 7776000,
-        "order": 400,
-        "priority": 300
+        "ttl": 7776000
       }
     ]
   }

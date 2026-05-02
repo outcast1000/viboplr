@@ -3101,6 +3101,7 @@ impl Database {
     /// Sync the information_types table from plugin manifests.
     /// Deactivates all types, then upserts incoming types as active.
     /// Types from missing plugins remain with active = 0.
+    /// On conflict, preserves user-customized sort_order and priority.
     pub fn info_sync_types(&self, types: &[(String, String, String, String, String, i64, i64, i64, String)]) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch("BEGIN")?;
@@ -3113,7 +3114,6 @@ impl Database {
                            entity = excluded.entity,
                            display_kind = excluded.display_kind,
                            ttl = excluded.ttl,
-                           sort_order = excluded.sort_order,
                            description = excluded.description,
                            active = 1"
         )?;
@@ -3403,10 +3403,10 @@ impl Database {
         Ok(())
     }
 
-    /// Reset provider priorities to defaults.
+    /// Reset provider priorities and sort orders to defaults.
     /// image_defaults: vec of (plugin_id, entity, default_priority) for image_providers.
-    /// info_defaults: vec of (type_id, plugin_id, default_priority) for information_types.
-    pub fn reset_provider_priorities(&self, image_defaults: &[(String, String, i64)], info_defaults: &[(String, String, i64)]) -> SqlResult<()> {
+    /// info_defaults: vec of (type_id, plugin_id, default_priority, default_sort_order) for information_types.
+    pub fn reset_provider_priorities(&self, image_defaults: &[(String, String, i64)], info_defaults: &[(String, String, i64, i64)]) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch("BEGIN")?;
         {
@@ -3419,10 +3419,10 @@ impl Database {
         }
         {
             let mut stmt = conn.prepare(
-                "UPDATE information_types SET priority = ?1 WHERE type_id = ?2 AND plugin_id = ?3"
+                "UPDATE information_types SET priority = ?1, sort_order = ?4 WHERE type_id = ?2 AND plugin_id = ?3"
             )?;
             for d in info_defaults {
-                stmt.execute(rusqlite::params![d.2, d.0, d.1])?;
+                stmt.execute(rusqlite::params![d.2, d.0, d.1, d.3])?;
             }
         }
         conn.execute_batch("COMMIT")?;

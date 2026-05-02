@@ -14,9 +14,7 @@
         "description": "Song background and description",
         "entity": "track",
         "displayKind": "rich_text",
-        "ttl": 7776000,
-        "order": 350,
-        "priority": 100
+        "ttl": 7776000
       },
       {
         "id": "song_meaning",
@@ -24,9 +22,7 @@
         "description": "Lyrics with annotated explanations",
         "entity": "track",
         "displayKind": "annotations",
-        "ttl": 7776000,
-        "order": 400,
-        "priority": 100
+        "ttl": 7776000
       },
       {
         "id": "artist_bio",
@@ -34,9 +30,7 @@
         "description": "Biography and background information",
         "entity": "artist",
         "displayKind": "rich_text",
-        "ttl": 7776000,
-        "order": 200,
-        "priority": 200
+        "ttl": 7776000
       },
       {
         "id": "album_wiki",
@@ -44,9 +38,7 @@
         "description": "Album description and review",
         "entity": "album",
         "displayKind": "rich_text",
-        "ttl": 7776000,
-        "order": 200,
-        "priority": 200
+        "ttl": 7776000
       },
       {
         "id": "lyrics",
@@ -54,9 +46,7 @@
         "description": "Song lyrics, synced or plain text",
         "entity": "track",
         "displayKind": "lyrics",
-        "ttl": 7776000,
-        "order": 400,
-        "priority": 200
+        "ttl": 7776000
       }
     ]
   }

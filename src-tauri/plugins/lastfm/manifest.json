@@ -14,9 +14,7 @@
         "description": "Listener count and play statistics",
         "entity": "artist",
         "displayKind": "title_line",
-        "ttl": 7776000,
-        "order": 100,
-        "priority": 100
+        "ttl": 7776000
       },
       {
         "id": "artist_bio",
@@ -24,9 +22,7 @@
         "description": "Biography and background information",
         "entity": "artist",
         "displayKind": "rich_text",
-        "ttl": 7776000,
-        "order": 200,
-        "priority": 100
+        "ttl": 7776000
       },
       {
         "id": "artist_top_tracks",
@@ -34,9 +30,7 @@
         "description": "Most popular songs by play count",
         "entity": "artist",
         "displayKind": "ranked_list",
-        "ttl": 604800,
-        "order": 50,
-        "priority": 100
+        "ttl": 604800
       },
       {
         "id": "similar_artists",
@@ -44,9 +38,7 @@
         "description": "Artists with a similar sound or style",
         "entity": "artist",
         "displayKind": "entity_cards",
-        "ttl": 7776000,
-        "order": 500,
-        "priority": 100
+        "ttl": 7776000
       },
       {
         "id": "album_wiki",
@@ -54,9 +46,7 @@
         "description": "Album description and review",
         "entity": "album",
         "displayKind": "rich_text",
-        "ttl": 7776000,
-        "order": 200,
-        "priority": 100
+        "ttl": 7776000
       },
       {
         "id": "album_track_popularity",
@@ -64,9 +54,7 @@
         "description": "Track popularity within this album",
         "entity": "album",
         "displayKind": "ranked_list",
-        "ttl": 604800,
-        "order": 300,
-        "priority": 100
+        "ttl": 604800
       },
       {
         "id": "track_info",
@@ -74,9 +62,7 @@
         "description": "Play count and listener statistics",
         "entity": "track",
         "displayKind": "title_line",
-        "ttl": 604800,
-        "order": 100,
-        "priority": 100
+        "ttl": 604800
       },
       {
         "id": "track_tags",
@@ -84,9 +70,7 @@
         "description": "Community-submitted genre and mood tags",
         "entity": "track",
         "displayKind": "tag_list",
-        "ttl": 604800,
-        "order": 200,
-        "priority": 100
+        "ttl": 604800
       },
       {
         "id": "similar_tracks",
@@ -94,9 +78,7 @@
         "description": "Tracks with a similar sound",
         "entity": "track",
         "displayKind": "ranked_list",
-        "ttl": 7776000,
-        "order": 300,
-        "priority": 100
+        "ttl": 7776000
       }
     ],
     "eventHooks": ["track:started", "track:scrobbled", "track:liked"],

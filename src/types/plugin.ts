@@ -35,8 +35,6 @@ export interface PluginManifestInfoType {
   entity: "artist" | "album" | "track" | "tag";
   displayKind: string;
   ttl: number;
-  order: number;
-  priority: number;
 }
 
 export interface PluginManifestImageProvider {

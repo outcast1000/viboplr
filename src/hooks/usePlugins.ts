@@ -33,6 +33,29 @@ import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 const PLUGIN_GALLERY_BASE_URL =
   "https://raw.githubusercontent.com/outcast1000/viboplr-plugins/main/plugins/";
 
+// Hardcoded defaults for information type tab order and provider priority.
+// Plugins cannot override these — users customize via Settings > Providers.
+export const DEFAULT_INFO_TYPE_ORDER: Record<string, number> = {
+  artist_stats: 100,
+  artist_top_tracks: 150,
+  artist_bio: 200,
+  similar_artists: 500,
+  album_wiki: 200,
+  album_track_popularity: 300,
+  song_meaning: 100,
+  lyrics: 200,
+  track_info: 300,
+  song_bio: 350,
+  track_tags: 400,
+  similar_tracks: 500,
+};
+
+export const DEFAULT_INFO_TYPE_PRIORITY: Record<string, Record<string, number>> = {
+  lyrics: { lrclib: 100, genius: 200, "lyrics-ovh": 300, "greek-lyrics": 400, "lyrics-search": 500 },
+  artist_bio: { lastfm: 100, genius: 200 },
+  album_wiki: { lastfm: 100, genius: 200 },
+};
+
 // Simple semver comparison: returns true if current >= required
 function semverSatisfies(current: string, required: string): boolean {
   const parse = (v: string) => v.replace(/^v/, "").split(".").map(Number);
@@ -988,7 +1011,9 @@ export function usePlugins(
           }
           if (contrib.informationTypes) {
             for (const it of contrib.informationTypes) {
-              allInfoTypes.push([it.id, it.name, it.entity, it.displayKind, plugin.id, it.ttl, it.order, it.priority, it.description ?? ""]);
+              const order = DEFAULT_INFO_TYPE_ORDER[it.id] ?? 500;
+              const priority = DEFAULT_INFO_TYPE_PRIORITY[it.id]?.[plugin.id] ?? 500;
+              allInfoTypes.push([it.id, it.name, it.entity, it.displayKind, plugin.id, it.ttl, order, priority, it.description ?? ""]);
             }
           }
           if (contrib.imageProviders) {
