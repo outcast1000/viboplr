@@ -27,5 +27,6 @@ Detailed rules are in `.claude/rules/`:
 - `frontend.md` — frontend files, components, hooks, keyboard shortcuts, state persistence
 - `conventions.md` — canonical action patterns and behavioral rules
 - `plugins.md` — plugin system API, manifest format, display kinds, existing plugins
+- `queue.md` — queue state, playback progression, mutations, persistence, duplicate detection
 - `ui.md` — layout, entities, detail pages, information sections, context menus, skins
 - `testing.md` — test frameworks, commands, patterns for Rust/TS/E2E

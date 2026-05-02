@@ -10,7 +10,7 @@ Each entry documents the gold standard implementation for a repeated user action
 
 - **Canonical:** `useContextMenuActions.ts` -> `handleDeleteRequest()` / `handleDeleteConfirm()`
 - **Flow:** Show confirmation modal with track title/count -> `invoke("delete_tracks", { trackIds })` -> filter from `library.tracks` -> stop playback if deleted track is playing -> `addLog()` with result -> show error modal if partial/total failure
-- **Availability:** Local tracks only (excludes subsonic:// and tidal:// sources)
+- **Availability:** Local tracks only. Single-track path checks `!target.subsonic` (the context menu target carries a `tidal` flag too). Multi-track path filters out both `subsonic://` and `tidal://` prefixes.
 
 ### Find in YouTube
 
@@ -40,12 +40,13 @@ Each entry documents the gold standard implementation for a repeated user action
 
 - **Canonical:** `useContextMenuActions.ts` -> `handleShowInFolder()`
 - **Flow:** `invoke("show_in_folder", { trackId })` for library tracks, `invoke("show_in_folder_path", { filePath })` for paths
-- **Availability:** Non-subsonic, non-tidal tracks only
+- **Availability:** Non-subsonic, non-tidal tracks only. Visibility controlled by the context menu target's `subsonic` and `tidal` flags.
 
 ### Download Track
 
-- **Canonical:** `useDownloads.ts` -> `downloadTrack()`
-- **Flow:** `invoke("download_track", ...)` -> progress via `download-progress` events -> success via `download-complete` -> error via `download-error` -> `addLog()` on both outcomes
+- **Canonical:** `useDownloads.ts` -> `downloadTrack()` / `autoSaveTrack()`
+- **Flow:** Resolve download URL via provider chain (`resolveTrackDownload`) -> `invoke("enqueue_download", ...)` -> progress via `download-progress` events -> success via `download-complete` -> error via `download-error` -> `addLog()` on both outcomes
+- **Multi-track:** `useContextMenuActions.ts` -> `handleDownloadMulti()` loops tracks with `isBatchLast` flag on the final item
 
 ### Tag Operations
 
@@ -59,7 +60,24 @@ Each entry documents the gold standard implementation for a repeated user action
 
 - **Canonical:** `usePlayback.ts` -> record_play invoke, scrobble logic in `App.tsx`
 - **Flow:** `invoke("record_play", { trackId })` fired after scrobble threshold met (`shouldScrobble()`) -> plugin events `track:played` and `track:scrobbled` dispatched from App.tsx
+- **`track:started`** is dispatched from `App.tsx` when a new track begins playing (separate from the scrobble threshold)
 - Do not reimplement the threshold logic elsewhere
+
+### Save / Load Playlist
+
+- **Canonical:** `useQueue.ts` -> `savePlaylist()` / `loadPlaylist()`
+- **Save flow:** Prompt for filename -> write current queue to `.m3u8` via file dialog
+- **Load flow:** Open file dialog (`.m3u`, `.m3u8`, `.mixtape`) -> parse entries -> convert via `queueEntryToTrack` -> replace queue, set index to 0, play first track, set context to filename. `.mixtape` files delegate to `onOpenMixtape`.
+- **Rule:** `loadPlaylist` does NOT call `stamp()` — playlist entries lack `album_id` so stamping is a no-op.
+
+### Queue Management
+
+- **Canonical:** `useContextMenuActions.ts` -> `handleQueueRemove()` / `handleQueueKeepOnly()` / `handleQueueMoveToTop()` / `handleQueueMoveToBottom()`
+- **Flow:** Each operates on the current multi-selection indices from the queue context menu
+- **Remove:** Calls `queue.removeMultiple(indices)` — recalculates `queueIndex` to keep the playing track correct
+- **Keep Only:** Calls `queue.removeMultiple(invertedIndices)` — removes everything NOT in the selection
+- **Move to Top/Bottom:** Calls `queue.moveToTop(indices)` / `queue.moveToBottom(indices)` — reorders without changing what's playing
+- **Rule:** All mutations must preserve `queueIndex` integrity per the index recalculation rules in `queue.md`
 
 ## Behavioral Rules
 

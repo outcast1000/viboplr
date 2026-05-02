@@ -27,6 +27,7 @@ Viboplr plays audio and video from local folders, Subsonic/Navidrome servers, an
 - **Artists / Albums / Tags**: Browsable with breadcrumb navigation and card art
 - **Liked Tracks**: Filtered view of liked tracks
 - **History**: Tabbed view — All Time, Last 30 Days, Recent, Artists — with arrow key navigation
+- **Playlists**: Save, load, and manage playlists with cover art and thumbnail tracking
 - **Collections**: Manage local folders, Subsonic servers, and TIDAL sources
 - **TIDAL**: Tabbed search (Tracks/Albums/Artists) with result counts and browse
 
@@ -36,26 +37,29 @@ Viboplr plays audio and video from local folders, Subsonic/Navidrome servers, an
 - **Last.fm Metadata**: Similar artists/tracks, artist bios, album wiki, community tag suggestions — all cached with 90-day TTL
 - **Last.fm Love Sync**: Like/unlike tracks synced to Last.fm love/unlove
 - **TIDAL Streaming**: Search, browse albums/artists, and stream tracks
-- **Downloads**: Download tracks from Subsonic/TIDAL in FLAC, AAC, or MP3 with embedded tags and cover art
+- **Downloads**: Download tracks from Subsonic/TIDAL in FLAC, AAC, or MP3 with embedded tags and cover art via a pluggable download provider chain
 - **YouTube URL Storage**: Associate YouTube URLs with tracks
+- **Spotify Browse**: Browse and queue Spotify playlists via web scraping (plugin)
+- **Lyrics**: Synced and plain lyrics from multiple providers (LRCLIB, Lyrics.ovh, Genius, Greek Lyrics) with timed highlighting and auto-scroll
 
 ### Skins
 - **8 Built-in Skins**: Default, OLED Black, Arctic Light, Forest, Silver, Ocean Blue, Viboplr, Sunset
 - **Custom Skins**: Import JSON skin files or install from community gallery
-- **13 Color Tokens**: Full UI theming via CSS custom properties
+- **15 Color Tokens**: Full UI theming via CSS custom properties
 - **Custom CSS**: Optional per-skin CSS overrides (sanitized)
 
 ### Plugins
-- **Plugin System**: Extend the app with JavaScript plugins — custom sidebar views, context menu items, event hooks, storage, and network access
+- **Plugin System**: Extend the app with JavaScript plugins — information sections, image providers, stream resolvers, download providers, context menu items, sidebar views, event hooks, settings panels, and scheduler tasks
+- **15 Built-in Plugins**: audiodb, auto-tagger, deezer, genius, greek-lyrics, itunes, lastfm, lrclib, lyrics-ovh, lyrics-search, mock-download, musicbrainz, spotify-browse, tidal-browse, youtube
 - **Native & User Plugins**: Built-in plugins bundled with the app; user plugins in profile directory (user plugins override native)
 - **Structured Views**: Plugins render via data model (track lists, card grids, stats, text) — no raw HTML injection
-- **Plugin Management**: Enable/disable plugins via Settings > Plugins tab
+- **Plugin Management**: Enable/disable plugins, reorder providers, and configure settings via Settings tabs
 
 ### Other
 - **Track Properties Modal**: Tabbed view with metadata, tags, similar tracks (with play/TIDAL/YouTube actions), artist bio, album wiki
-- **Entity Images**: Automatic artist/album art from Tidal, Deezer, iTunes, AudioDB, MusicBrainz, and embedded tags
+- **Entity Images**: Automatic artist/album art via plugin-based provider chain (embedded tags, TIDAL, Deezer, iTunes, AudioDB, MusicBrainz) with configurable priority
 - **Tag Composite Images**: Auto-generated from top artist images
-- **Search Providers**: Configurable external search (Google, Last.fm, YouTube, Genius, custom)
+- **Search Providers**: Configurable external search (Google, Last.fm, X, YouTube, Genius, custom)
 - **Context Menu**: Right-click with "Open Containing Folder", search providers, properties
 - **Auto Updates**: Built-in update checking and installation
 - **Cross-Platform**: macOS and Windows
@@ -130,7 +134,7 @@ viboplr/
 │   │   ├── index.ts            # Skin registry
 │   │   ├── default.json
 │   │   └── ...
-│   ├── components/         # UI components (~28 files)
+│   ├── components/         # UI components (~46 files)
 │   │   ├── TrackList.tsx       # Track table/list/tile views
 │   │   ├── NowPlayingBar.tsx   # Playback footer controls
 │   │   ├── QueuePanel.tsx      # Queue management
@@ -139,12 +143,15 @@ viboplr/
 │   │   ├── HistoryView.tsx     # Play history view
 │   │   ├── TidalView.tsx       # TIDAL search/browse
 │   │   ├── CollectionsView.tsx # Collection management
+│   │   ├── PlaylistsView.tsx  # Saved playlists grid/detail
 │   │   ├── PluginViewRenderer.tsx # Plugin structured view rendering
+│   │   ├── InformationSections.tsx # Plugin-provided metadata tabs
 │   │   └── ...
 │   ├── types/
 │   │   ├── skin.ts             # Skin system type definitions
-│   │   └── plugin.ts           # Plugin system type definitions
-│   └── hooks/              # React hooks (~18 files)
+│   │   ├── plugin.ts           # Plugin system type definitions
+│   │   └── informationTypes.ts # Info entity, fetch result, display kind types
+│   └── hooks/              # React hooks (~27 files)
 │       ├── usePlayback.ts      # Playback state
 │       ├── useQueue.ts         # Queue management
 │       ├── useLibrary.ts       # Library queries
@@ -155,8 +162,8 @@ viboplr/
 │   ├── src/
 │   │   ├── main.rs             # Entry point
 │   │   ├── lib.rs              # Tauri setup, plugin/command registration
-│   │   ├── commands.rs         # ~107 Tauri commands + AppState
-│   │   ├── db.rs               # SQLite operations (~67 public functions)
+│   │   ├── commands.rs         # ~186 Tauri commands + AppState
+│   │   ├── db.rs               # SQLite operations (~117 public functions)
 │   │   ├── models.rs           # Shared data models
 │   │   ├── scanner.rs          # Folder scanning
 │   │   ├── watcher.rs          # File watching
@@ -168,10 +175,12 @@ viboplr/
 │   │   ├── downloader.rs       # Track download manager
 │   │   ├── entity_image.rs     # Image slug management
 │   │   ├── composite_image.rs  # Tag composite image generation
-│   │   ├── image_provider/     # Image provider fallback chain (6 providers)
+│   │   ├── plugins.rs          # Plugin management and file I/O
+│   │   ├── image_provider/     # Image provider Rust-JS bridge
+│   │   ├── lyric_provider/     # Lyric provider fallback chain (LRCLIB)
 │   │   ├── timing.rs           # Startup profiling
 │   │   └── seed.rs             # Debug-only test data seeding
-│   ├── plugins/            # Built-in plugins
+│   ├── plugins/            # Built-in plugins (15 plugins)
 │   └── Cargo.toml
 ├── SPEC.md                 # Detailed specification
 └── CLAUDE.md               # AI assistant guidance
