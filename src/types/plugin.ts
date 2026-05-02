@@ -177,7 +177,7 @@ export type PluginViewData =
       selectable?: boolean;
       actions?: { id: string; label: string; icon?: string }[];
     }
-  | { type: "text"; content: string; className?: string }
+  | { type: "text"; content: string; className?: string; style?: Record<string, string> }
   | { type: "stats-grid"; items: StatItem[] }
   | { type: "button"; label: string; action: string; variant?: "accent" | "secondary"; disabled?: boolean; style?: Record<string, string>; data?: unknown; className?: string }
   | {
@@ -185,6 +185,7 @@ export type PluginViewData =
       direction: "vertical" | "horizontal";
       children: PluginViewData[];
       className?: string;
+      style?: Record<string, string>;
     }
   | { type: "spacer" }
   | {

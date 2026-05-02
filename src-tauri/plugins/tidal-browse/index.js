@@ -374,35 +374,57 @@ function activate(api) {
   // -- View rendering --
 
   function buildToolbar() {
+    return { type: "toolbar", title: "TIDAL" };
+  }
+
+  function buildStatusBar() {
     var statusText = "";
-    var statusVariant = "default";
+    var statusColor = "var(--text-tertiary)";
 
     if (state.apiDown && state.streamingDown) {
       statusText = "Servers unavailable";
-      statusVariant = "error";
+      statusColor = "var(--error)";
     } else if (state.streamingDown) {
       statusText = "Streaming unavailable";
-      statusVariant = "error";
+      statusColor = "var(--error)";
     } else if (state.apiDown) {
       statusText = "API unavailable";
-      statusVariant = "error";
+      statusColor = "var(--error)";
     } else {
       statusText = "Connected";
-      statusVariant = "success";
     }
 
     if (state.lastHealthCheck) {
       statusText += " · " + formatTime(state.lastHealthCheck);
     }
 
+    var children = [];
+    children.push({
+      type: "button",
+      label: "Check",
+      action: "check-health",
+      variant: "secondary",
+      style: { "font-size": "var(--fs-2xs)", "padding": "0 6px", "height": "16px", "line-height": "16px", "min-height": "0" },
+    });
+    children.push({
+      type: "text",
+      content: "<span style='font-size:var(--fs-2xs);color:" + statusColor + ";overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" + statusText + "</span>",
+      style: { "flex": "1", "min-width": "0", "text-align": "right" },
+    });
+
     return {
-      type: "toolbar",
-      title: "TIDAL",
-      buttons: [
-        { label: "Check Now", action: "check-health", variant: "secondary" },
-      ],
-      status: statusText,
-      statusVariant: statusVariant,
+      type: "layout",
+      direction: "horizontal",
+      style: {
+        "align-items": "center",
+        "gap": "6px",
+        "height": "22px",
+        "padding": "0 10px",
+        "background": "var(--bg-secondary)",
+        "border-top": "1px solid var(--border)",
+        "flex-shrink": "0",
+      },
+      children: children,
     };
   }
 
@@ -512,7 +534,12 @@ function activate(api) {
     api.ui.setViewData("tidal", {
       type: "layout",
       direction: "vertical",
-      children: [buildToolbar()].concat(children),
+      children: [
+        buildToolbar(),
+        { type: "layout", direction: "vertical", style: { "flex": "1", "min-height": "0", "overflow": "auto" }, children: children },
+        buildStatusBar(),
+      ],
+      style: { "height": "100%" },
     });
   }
 
@@ -564,7 +591,12 @@ function activate(api) {
     api.ui.setViewData("tidal", {
       type: "layout",
       direction: "vertical",
-      children: [buildToolbar()].concat(children),
+      children: [
+        buildToolbar(),
+        { type: "layout", direction: "vertical", style: { "flex": "1", "min-height": "0", "overflow": "auto" }, children: children },
+        buildStatusBar(),
+      ],
+      style: { "height": "100%" },
     });
   }
 
@@ -612,7 +644,12 @@ function activate(api) {
     api.ui.setViewData("tidal", {
       type: "layout",
       direction: "vertical",
-      children: [buildToolbar()].concat(children),
+      children: [
+        buildToolbar(),
+        { type: "layout", direction: "vertical", style: { "flex": "1", "min-height": "0", "overflow": "auto" }, children: children },
+        buildStatusBar(),
+      ],
+      style: { "height": "100%" },
     });
   }
 

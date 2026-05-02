@@ -560,23 +560,8 @@ function activate(api) {
 
   function buildStatusBar() {
     var isActive = isActiveStatus();
-    var children = [];
-
-    children.push({
-      type: "button",
-      label: isActive ? "Cancel" : "Sync",
-      action: isActive ? "cancel" : "sync",
-      variant: isActive ? "secondary" : "accent",
-      style: { "font-size": "var(--fs-xs)", "padding": "2px 10px" },
-    });
-
-    children.push({
-      type: "button",
-      label: state.showBrowserOnRefresh ? "Hide browser" : "Show browser",
-      action: "toggle-show-browser-pref",
-      variant: "secondary",
-      style: { "font-size": "var(--fs-xs)", "padding": "2px 10px" },
-    });
+    var linkStyle = "font-size:var(--fs-2xs);color:var(--accent);cursor:pointer;text-decoration:none";
+    var checkStyle = "font-size:var(--fs-2xs);color:var(--text-secondary);cursor:pointer;text-decoration:none;opacity:0.7";
 
     var statusText = "";
     if (isActive) {
@@ -588,24 +573,53 @@ function activate(api) {
     } else if (state.lastCheckAt) {
       var relTime = formatRelativeTime(state.lastCheckAt);
       statusText = "Last check " + relTime;
-      if (state.lastCheckResult) statusText += " — " + state.lastCheckResult;
+      if (state.lastCheckResult) statusText += " · " + state.lastCheckResult;
     }
 
-    if (statusText) {
-      var color = state.status === "error" ? "var(--error)" : "var(--text-secondary)";
+    var statusColor = state.status === "error" ? "var(--error)" : "var(--text-tertiary)";
+    var statusSpan = statusText
+      ? "<span style='font-size:var(--fs-2xs);color:" + statusColor + ";overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" + statusText + "</span>"
+      : "";
+
+    var syncLabel = isActive ? "Cancel" : "Sync";
+    var syncAction = isActive ? "cancel" : "sync";
+    var checkmark = state.showBrowserOnRefresh ? "☑" : "☐";
+
+    var children = [];
+    children.push({
+      type: "button",
+      label: syncLabel,
+      action: syncAction,
+      variant: "secondary",
+      style: { "font-size": "var(--fs-2xs)", "padding": "0 6px", "height": "16px", "line-height": "16px", "min-height": "0" },
+    });
+    children.push({
+      type: "button",
+      label: checkmark + " Browser",
+      action: "toggle-show-browser-pref",
+      variant: "secondary",
+      style: { "font-size": "var(--fs-2xs)", "padding": "0 6px", "height": "16px", "line-height": "16px", "min-height": "0", "opacity": "0.7" },
+    });
+    if (statusSpan) {
       children.push({
         type: "text",
-        content: "<span style='font-size:var(--fs-xs);color:" + color + ";white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>" + statusText + "</span>",
-        style: { "flex": "1", "min-width": "0" },
+        content: statusSpan,
+        style: { "flex": "1", "min-width": "0", "text-align": "right" },
       });
-    } else {
-      children.push({ type: "spacer" });
     }
 
     return {
       type: "layout",
       direction: "horizontal",
-      style: { "align-items": "center", "gap": "8px", "padding": "4px 0" },
+      style: {
+        "align-items": "center",
+        "gap": "6px",
+        "height": "22px",
+        "padding": "0 10px",
+        "background": "var(--bg-secondary)",
+        "border-top": "1px solid var(--border)",
+        "flex-shrink": "0",
+      },
       children: children,
     };
   }
@@ -726,7 +740,6 @@ function activate(api) {
 
     var view = [
       buildToolbar(),
-      buildStatusBar(),
       { type: "tabs", activeTab: state.activeTab, action: "switch-tab", tabs: buildTabs() },
     ];
 
@@ -760,10 +773,11 @@ function activate(api) {
       });
     }
 
-    view.push({ type: "layout", direction: "vertical", children: ch });
+    view.push({ type: "layout", direction: "vertical", style: { "flex": "1", "min-height": "0" }, children: ch });
+    view.push(buildStatusBar());
 
     api.ui.setViewData("spotify", {
-      type: "layout", direction: "vertical", children: view
+      type: "layout", direction: "vertical", style: { "height": "100%" }, children: view
     });
   }
 

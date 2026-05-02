@@ -42,8 +42,10 @@ export function PluginViewRenderer({
     );
   }
 
-  // Hoist top-level search-input and tabs out of the scrollable area
+  // Hoist top-level search-input, tabs, and toolbar out of the scrollable area.
+  // Also hoist trailing children with flex-shrink:0 (status bars) to dock at bottom.
   const hoisted: PluginViewData[] = [];
+  const docked: PluginViewData[] = [];
   let contentData = data;
   if (data.type === "layout" && data.direction === "vertical") {
     let i = 0;
@@ -51,8 +53,16 @@ export function PluginViewRenderer({
       hoisted.push(data.children[i]);
       i++;
     }
-    if (hoisted.length > 0) {
-      contentData = { ...data, children: data.children.slice(i) };
+    let j = data.children.length;
+    while (j > i) {
+      const child = data.children[j - 1];
+      if (child.type === "layout" && child.style?.["flex-shrink"] === "0") {
+        docked.unshift(child);
+        j--;
+      } else break;
+    }
+    if (hoisted.length > 0 || docked.length > 0) {
+      contentData = { ...data, children: data.children.slice(i, j) };
     }
   }
 
@@ -60,7 +70,7 @@ export function PluginViewRenderer({
     <>
       {hoisted.map((node, i) => (
         <PluginViewNode
-          key={i}
+          key={`h${i}`}
           node={node}
           currentTrack={currentTrack}
           onPlayTrack={onPlayTrack}
@@ -85,6 +95,19 @@ export function PluginViewRenderer({
           />
         </div>
       </div>
+      {docked.map((node, i) => (
+        <PluginViewNode
+          key={`d${i}`}
+          node={node}
+          currentTrack={currentTrack}
+          onPlayTrack={onPlayTrack}
+          onAction={onAction}
+          onTrackContextMenu={onTrackContextMenu}
+          onTrackRowContextMenu={onTrackRowContextMenu}
+          pluginMenuItems={pluginMenuItems}
+          onPluginAction={onPluginAction}
+        />
+      ))}
     </>
   );
 }
@@ -142,7 +165,7 @@ function PluginViewNode({
         />
       );
     case "text":
-      return <PluginText content={node.content} className={node.className} />;
+      return <PluginText content={node.content} className={node.className} style={node.style as React.CSSProperties | undefined} />;
     case "stats-grid":
       return <PluginStatsGrid items={node.items} />;
     case "button":
@@ -160,6 +183,7 @@ function PluginViewNode({
       return (
         <div
           className={`plugin-layout plugin-layout-${node.direction}${node.className ? " " + node.className : ""}`}
+          style={node.style as React.CSSProperties | undefined}
         >
           {node.children.map((child, i) => (
             <PluginViewNode
@@ -210,7 +234,7 @@ function PluginViewNode({
         <div className="plugin-toolbar">
           {node.title && <span className="plugin-toolbar-title">{node.title}</span>}
           <div className="plugin-toolbar-buttons">
-            {node.buttons.map((btn, i) => (
+            {(node.buttons || []).map((btn, i) => (
               <button
                 key={i}
                 className={btn.variant === "accent" ? "ds-btn ds-btn--primary ds-btn--sm" : "plugin-toolbar-btn"}
@@ -632,17 +656,18 @@ export function sanitizeHTML(html: string): string {
   });
 }
 
-function PluginText({ content, className }: { content: string; className?: string }) {
+function PluginText({ content, className, style }: { content: string; className?: string; style?: React.CSSProperties }) {
   const cls = className ? `plugin-text ${className}` : "plugin-text";
   if (/<[a-zA-Z]/.test(content)) {
     return (
       <div
         className={cls}
+        style={style}
         dangerouslySetInnerHTML={{ __html: sanitizeHTML(content) }}
       />
     );
   }
-  return <div className={cls}>{content}</div>;
+  return <div className={cls} style={style}>{content}</div>;
 }
 
 // -- Stats Grid --
