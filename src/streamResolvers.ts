@@ -1,3 +1,10 @@
+const REMASTER_SUFFIX = /\s*-\s*.*remaster.*$/i;
+
+export function stripRemasterSuffix(s: string | null | undefined): string | null {
+  if (!s) return s as null;
+  return s.replace(REMASTER_SUFFIX, "").trim() || s;
+}
+
 export interface StreamResolver {
   id: string;
   name: string;

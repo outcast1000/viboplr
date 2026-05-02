@@ -17,7 +17,7 @@ import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, next
 import { tracksFromManifest, contextFromManifest, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext, buildSearchUrl } from "./searchProviders";
-import { type StreamResolver } from "./streamResolvers";
+import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
@@ -321,9 +321,9 @@ function App() {
         source: "built-in",
         resolve: async (title, artistName, albumName) => {
           const track = await invoke<Track | null>("find_track_by_metadata", {
-            title,
+            title: stripRemasterSuffix(title) ?? title,
             artistName,
-            albumName,
+            albumName: stripRemasterSuffix(albumName),
           });
           if (!track || !track.path) return null;
           return { url: track.path, label: "Library" };
@@ -1219,9 +1219,9 @@ function App() {
       if (url && isRemoteScheme(url)) {
         try {
           const localMatch = await invoke<Track | null>("find_track_by_metadata", {
-            title: track.title,
+            title: stripRemasterSuffix(track.title) ?? track.title,
             artistName: track.artist_name ?? null,
-            albumName: track.album_title ?? null,
+            albumName: stripRemasterSuffix(track.album_title),
           });
           if (localMatch && localMatch.path?.startsWith("file://")) {
             const localPath = localMatch.path.substring(7);

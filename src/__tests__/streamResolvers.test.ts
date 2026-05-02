@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { resolveStreamChain, type StreamResolver } from "../streamResolvers";
+import { resolveStreamChain, stripRemasterSuffix, type StreamResolver } from "../streamResolvers";
 
 function makeResolver(
   overrides: Partial<StreamResolver> & { id: string },
@@ -74,5 +74,34 @@ describe("resolveStreamChain", () => {
   it("returns null for empty resolver list", async () => {
     const result = await resolveStreamChain([], "Title", "Artist", null);
     expect(result).toBeNull();
+  });
+});
+
+describe("stripRemasterSuffix", () => {
+  it("strips remaster suffix after dash", () => {
+    expect(stripRemasterSuffix("Song Title - Remastered 2024")).toBe("Song Title");
+    expect(stripRemasterSuffix("Song Title - 2011 Remaster")).toBe("Song Title");
+    expect(stripRemasterSuffix("Song Title - Remaster")).toBe("Song Title");
+  });
+
+  it("is case-insensitive", () => {
+    expect(stripRemasterSuffix("Song - REMASTERED")).toBe("Song");
+    expect(stripRemasterSuffix("Song - remastered edition")).toBe("Song");
+  });
+
+  it("leaves titles without remaster unchanged", () => {
+    expect(stripRemasterSuffix("Song Title")).toBe("Song Title");
+    expect(stripRemasterSuffix("Song - Live Version")).toBe("Song - Live Version");
+    expect(stripRemasterSuffix("Song - Deluxe Edition")).toBe("Song - Deluxe Edition");
+  });
+
+  it("handles null and undefined", () => {
+    expect(stripRemasterSuffix(null)).toBeNull();
+    expect(stripRemasterSuffix(undefined)).toBeUndefined();
+  });
+
+  it("works for album names too", () => {
+    expect(stripRemasterSuffix("Abbey Road - 2019 Remaster")).toBe("Abbey Road");
+    expect(stripRemasterSuffix("OK Computer - Remastered Deluxe")).toBe("OK Computer");
   });
 });
