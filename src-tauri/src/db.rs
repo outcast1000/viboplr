@@ -995,6 +995,25 @@ impl Database {
             return rows.collect();
         }
 
+        // Artist-scoped: return all tracks for artist, ordered by album then track_number
+        if let Some(aid) = opts.artist_id {
+            let sql = format!("{} WHERE t.artist_id = ?1 {} ORDER BY al.title, t.track_number, t.title", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![aid], |row| track_from_row(row))?;
+            return rows.collect();
+        }
+
+        // Tag-scoped: return all tracks with tag, ordered by artist/album/track
+        if let Some(tid) = opts.tag_id {
+            let sql = format!(
+                "{} JOIN track_tags tt ON tt.track_id = t.id WHERE tt.tag_id = ?1 {} ORDER BY ar.name, al.title, t.track_number, t.title",
+                TRACK_SELECT, ENABLED_COLLECTION_FILTER
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![tid], |row| track_from_row(row))?;
+            return rows.collect();
+        }
+
         // Default paginated path
         let order_by = if let Some(col) = sort_column_sql(opts.sort_field.as_deref()) {
             let dir = match opts.sort_dir.as_deref() {
