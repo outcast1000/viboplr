@@ -3243,6 +3243,7 @@ function App() {
           collapsed={queueCollapsed}
           onToggleCollapsed={handleToggleQueueCollapsed}
           onResizeWidth={handleResizeQueueWidth}
+          isPlaying={playback.playing}
           debugMode={debugMode}
           mainPlaylistDir={mainPlaylistDir}
           thumbVersions={queueHook.thumbVersions}

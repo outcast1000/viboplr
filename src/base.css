@@ -259,6 +259,7 @@ body {
 
 .eq-bars.paused .eq-bar {
   animation-play-state: paused;
+  background: var(--text-secondary);
 }
 
 /* Album art glow pulse */

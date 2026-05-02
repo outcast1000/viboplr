@@ -78,6 +78,7 @@ interface QueuePanelProps {
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onResizeWidth: (width: number) => void;
+  isPlaying?: boolean;
   debugMode?: boolean;
   mainPlaylistDir: string | null;
   thumbVersions: Record<string, number>;
@@ -118,7 +119,7 @@ export function QueuePanel({
   onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onEditPlaylist, onLoadPlaylist, onContextMenu,
   albumImages, artistImages,
   externalDropTarget,
-  collapsed, onToggleCollapsed, onResizeWidth, debugMode,
+  collapsed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
   mainPlaylistDir, thumbVersions,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
@@ -565,7 +566,7 @@ export function QueuePanel({
             >
               <div className="queue-item-line1">
                 {i === queueIndex && (
-                  <span className="eq-bars queue-item-eq">
+                  <span className={`eq-bars queue-item-eq${isPlaying ? "" : " paused"}`}>
                     <span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" />
                   </span>
                 )}
