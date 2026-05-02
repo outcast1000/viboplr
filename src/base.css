@@ -185,6 +185,12 @@ body {
   border-color: rgba(var(--overlay-base), 0.12);
 }
 
+.g-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* Volume glass enhancements */
 .now-volume .g-btn {
   margin-right: 2px;

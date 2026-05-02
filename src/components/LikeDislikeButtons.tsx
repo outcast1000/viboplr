@@ -15,6 +15,7 @@ interface LikeDislikeButtonsProps {
   glassSize?: "sm" | "xs";
   entityLabel?: string;
   showKeyboardHint?: string;
+  disabled?: boolean;
 }
 
 export function LikeDislikeButtons({
@@ -26,6 +27,7 @@ export function LikeDislikeButtons({
   glassSize = "sm",
   entityLabel,
   showKeyboardHint,
+  disabled,
 }: LikeDislikeButtonsProps) {
   const likeRef = useRef<HTMLButtonElement>(null);
   const dislikeRef = useRef<HTMLButtonElement>(null);
@@ -40,15 +42,17 @@ export function LikeDislikeButtons({
 
   const handleLikeClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
+    if (disabled) return;
     likeRef.current?.classList.add("anim-heart-bounce");
     onToggleLike();
-  }, [onToggleLike]);
+  }, [onToggleLike, disabled]);
 
   const handleDislikeClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
+    if (disabled) return;
     dislikeRef.current?.classList.add("anim-heart-bounce-subtle");
     onToggleDislike?.();
-  }, [onToggleDislike]);
+  }, [onToggleDislike, disabled]);
 
   const clearLikeAnim = useCallback(() => {
     likeRef.current?.classList.remove("anim-heart-bounce");
@@ -70,6 +74,7 @@ export function LikeDislikeButtons({
           onClick={handleLikeClick}
           onAnimationEnd={clearLikeAnim}
           title={likeTitle}
+          disabled={disabled}
         >
           <LikeIcon size={size} />
         </button>
@@ -80,6 +85,7 @@ export function LikeDislikeButtons({
             onClick={handleDislikeClick}
             onAnimationEnd={clearDislikeAnim}
             title={dislikeTitle}
+            disabled={disabled}
           >
             <DislikeIcon size={size} />
           </button>
@@ -97,6 +103,7 @@ export function LikeDislikeButtons({
           onClick={handleLikeClick}
           onAnimationEnd={clearLikeAnim}
           title={likeTitle}
+          disabled={disabled}
         >
           <LikeIcon size={size} />
         </button>
@@ -107,6 +114,7 @@ export function LikeDislikeButtons({
             onClick={handleDislikeClick}
             onAnimationEnd={clearDislikeAnim}
             title={dislikeTitle}
+            disabled={disabled}
           >
             <DislikeIcon size={size} />
           </button>
@@ -124,6 +132,7 @@ export function LikeDislikeButtons({
           onClick={handleLikeClick}
           onAnimationEnd={clearLikeAnim}
           title={likeTitle}
+          disabled={disabled}
         >
           <LikeIcon size={size} />
         </button>
@@ -134,6 +143,7 @@ export function LikeDislikeButtons({
             onClick={handleDislikeClick}
             onAnimationEnd={clearDislikeAnim}
             title={dislikeTitle}
+            disabled={disabled}
           >
             <DislikeIcon size={size} />
           </button>
@@ -151,6 +161,7 @@ export function LikeDislikeButtons({
         onClick={handleLikeClick}
         onAnimationEnd={clearLikeAnim}
         title={likeTitle}
+        disabled={disabled}
       >
         <LikeIcon size={size} />
       </button>
@@ -161,6 +172,7 @@ export function LikeDislikeButtons({
           onClick={handleDislikeClick}
           onAnimationEnd={clearDislikeAnim}
           title={dislikeTitle}
+          disabled={disabled}
         >
           <DislikeIcon size={size} />
         </button>

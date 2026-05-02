@@ -348,7 +348,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   // Fallback state for non-library entities (just a name, shown with info sections only)
   const [fallbackArtistName, setFallbackArtistName] = useState<string | null>(null);
   const [fallbackAlbumName, setFallbackAlbumName] = useState<{ name: string; artistName?: string } | null>(null);
-  const [fallbackTrackName, setFallbackTrackName] = useState<{ name: string; artistName?: string } | null>(null);
+  const [fallbackTrackName, setFallbackTrackName] = useState<{ name: string; artistName?: string; albumTitle?: string } | null>(null);
 
   function clearFallback() {
     setFallbackArtistName(null);
@@ -399,7 +399,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       setSelectedTag(null);
       setSelectedTrack(null);
       clearFallback();
-      setFallbackTrackName({ name, artistName });
+      setFallbackTrackName({ name, artistName, albumTitle });
     }
   }
 

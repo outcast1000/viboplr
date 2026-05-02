@@ -346,6 +346,13 @@
 .ds-dislike-btn:hover { color: var(--error); }
 .ds-dislike-btn.disliked { color: var(--error); }
 
+.ds-like-btn:disabled,
+.ds-dislike-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* Inline variant — table rows, list rows */
 .ds-like-inline-group {
   display: flex;
@@ -373,6 +380,13 @@
 .ds-like-inline.liked { color: var(--error); }
 .ds-dislike-inline:hover { color: var(--error); }
 .ds-dislike-inline.disliked { color: var(--error); }
+
+.ds-like-inline:disabled,
+.ds-dislike-inline:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 
 /* Overlay variant — card tiles */
 .ds-like-overlay-group {
@@ -421,6 +435,13 @@
 .ds-dislike-overlay.disliked {
   opacity: 1;
   color: var(--error);
+}
+
+.ds-like-overlay:disabled,
+.ds-dislike-overlay:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* Legacy alias — keep .ds-card-like for backwards compat */

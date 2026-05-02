@@ -67,7 +67,7 @@ interface TrackPlayStats {
 // --- TrackDetailView ---
 
 interface TrackDetailViewProps {
-  trackId: number;
+  trackId: number | null;
   track: Track;
   albumImagePath: string | null;
   artistImagePath: string | null;
@@ -94,6 +94,8 @@ interface TrackDetailViewProps {
   pluginNames?: Map<string, string>;
   onInfoTrackContextMenu?: (e: React.MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
   onEntityContextMenu?: (e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;
+  onNavigateToArtistByName?: (name: string) => void;
+  onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
 }
 
 export function TrackDetailView({
@@ -106,7 +108,11 @@ export function TrackDetailView({
   addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
   onInfoTrackContextMenu,
   onEntityContextMenu,
+  onNavigateToArtistByName,
+  onNavigateToAlbumByName,
 }: TrackDetailViewProps) {
+  const isLibrary = trackId != null;
+
   const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
   const [communityTags, setCommunityTags] = useState<Array<{ name: string; count?: number }>>([]);
   const [artistTags, setArtistTags] = useState<Array<{ name: string; count?: number }>>([]);
@@ -147,14 +153,16 @@ export function TrackDetailView({
     setTrackInfo(null);
     setYoutubeUrlEdit(null);
 
-    invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId }).then(setTrackTags).catch(e => console.error("Failed to load track tags:", e));
+    if (isLibrary) {
+      invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId }).then(setTrackTags).catch(e => console.error("Failed to load track tags:", e));
+      invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>("get_track_audio_properties", { trackId })
+        .then(setAudioProps).catch(e => console.error("Failed to load audio properties:", e));
+    }
     invoke<TrackPlayStats | null>("get_track_play_stats", { title: track.title, artistName: track.artist_name }).then(s => { if (s) setPlayStats(s); }).catch(e => console.error("Failed to load play stats:", e));
     invoke<Array<{ played_at: number }>>("get_track_play_history", { title: track.title, artistName: track.artist_name, limit: 50 }).then(setPlayHistory).catch(e => console.error("Failed to load play history:", e));
-    invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>("get_track_audio_properties", { trackId })
-      .then(setAudioProps).catch(e => console.error("Failed to load audio properties:", e));
 
     if (track.artist_name) {
-      const trackEntity: InfoEntity = { kind: "track", name: track.title, id: trackId, artistName: track.artist_name };
+      const trackEntity: InfoEntity = { kind: "track", name: track.title, id: trackId ?? 0, artistName: track.artist_name };
       // Fetch track tags + artist tags (combined in one info type)
       invokeInfoFetch("lastfm", "track_tags", trackEntity).then(result => {
         if (result.status !== "ok") return;
@@ -163,7 +171,7 @@ export function TrackDetailView({
         if (val?.artistTags?.length) setArtistTags(val.artistTags);
       }).catch(e => console.error("Failed to load community/artist tags:", e));
     }
-  }, [trackId, track.artist_name, track.title, invokeInfoFetch]);
+  }, [trackId, isLibrary, track.artist_name, track.title, invokeInfoFetch]);
 
   // Receive track_info data from InformationSections (via onTitleData callback)
   const handleTitleData = useCallback((typeId: string, data: unknown) => {
@@ -277,7 +285,7 @@ export function TrackDetailView({
             >
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
             </button>
-            {albumImagePath && track.album_id ? (
+            {isLibrary && albumImagePath && track.album_id ? (
               <ImageActions
                 entityId={track.album_id}
                 entityType="album"
@@ -289,7 +297,7 @@ export function TrackDetailView({
                 onImageRemoved={(id) => onImageRemoved("album", id)}
                 onRefresh={() => onImageRefresh("album", track.album_id!, track.album_title ?? "")}
               />
-            ) : track.artist_id ? (
+            ) : isLibrary && track.artist_id ? (
               <ImageActions
                 entityId={track.artist_id}
                 entityType="artist"
@@ -309,20 +317,37 @@ export function TrackDetailView({
                 liked={track.liked}
                 onToggleLike={onToggleLike}
                 onToggleDislike={onToggleDislike}
+                disabled={!isLibrary}
               />
             </h2>
             <div className="track-detail-meta">
               {track.artist_name && (
-                <span className="track-detail-link" onClick={() => onArtistClick(track.artist_id!)}>
-                  {track.artist_name}
-                </span>
+                track.artist_id ? (
+                  <span className="track-detail-link" onClick={() => onArtistClick(track.artist_id!)}>
+                    {track.artist_name}
+                  </span>
+                ) : onNavigateToArtistByName ? (
+                  <span className="track-detail-link" onClick={() => onNavigateToArtistByName(track.artist_name!)}>
+                    {track.artist_name}
+                  </span>
+                ) : (
+                  <span>{track.artist_name}</span>
+                )
               )}
               {track.album_title && (
                 <>
                   <span className="track-detail-sep"> — </span>
-                  <span className="track-detail-link" onClick={() => onAlbumClick(track.album_id!, track.artist_id)}>
-                    {track.album_title}
-                  </span>
+                  {track.album_id ? (
+                    <span className="track-detail-link" onClick={() => onAlbumClick(track.album_id!, track.artist_id)}>
+                      {track.album_title}
+                    </span>
+                  ) : onNavigateToAlbumByName ? (
+                    <span className="track-detail-link" onClick={() => onNavigateToAlbumByName(track.album_title!, track.artist_name ?? undefined)}>
+                      {track.album_title}
+                    </span>
+                  ) : (
+                    <span>{track.album_title}</span>
+                  )}
                 </>
               )}
               {track.year && <span className="track-detail-sep"> ({track.year})</span>}
@@ -342,17 +367,23 @@ export function TrackDetailView({
                   <button className="track-detail-youtube-btn" onClick={onWatchOnYoutube} title="Find in YouTube">
                     <IconYoutube size={32} />
                   </button>
-                  <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit(track.youtube_url ?? "")}>Edit</button>
-                  <button className="track-detail-youtube-action" onClick={async () => {
-                    await invoke("clear_track_youtube_url", { trackId });
-                    onUpdateTrack({ youtube_url: null });
-                    addLog("Cleared YouTube URL", "youtube");
-                  }}>Remove</button>
+                  {isLibrary && (
+                    <>
+                      <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit(track.youtube_url ?? "")}>Edit</button>
+                      <button className="track-detail-youtube-action" onClick={async () => {
+                        await invoke("clear_track_youtube_url", { trackId });
+                        onUpdateTrack({ youtube_url: null });
+                        addLog("Cleared YouTube URL", "youtube");
+                      }}>Remove</button>
+                    </>
+                  )}
                 </>
               ) : (
                 <>
                   <button className="track-detail-youtube-action" onClick={onWatchOnYoutube}>Find in YouTube</button>
-                  <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit("")}>Set YouTube URL</button>
+                  {isLibrary && (
+                    <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit("")}>Set YouTube URL</button>
+                  )}
                 </>
               )}
             </div>
@@ -366,7 +397,7 @@ export function TrackDetailView({
       )}
       <div className="section-wide">
         <InformationSections
-          entity={track.artist_name ? { kind: "track", name: track.title, id: trackId, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
+          entity={track.artist_name ? { kind: "track", name: track.title, id: trackId ?? 0, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
           exclude={["track_tags"]}
           invokeInfoFetch={invokeInfoFetch}
           pluginNames={pluginNames}
@@ -395,7 +426,7 @@ export function TrackDetailView({
                       <span className="track-details-value">{formatDuration(track.duration_secs)}</span>
                     </div>
                   )}
-                  {track.format && (
+                  {isLibrary && track.format && (
                     <div className="track-details-row">
                       <span className="track-details-label">Format</span>
                       <span className="track-details-value">
@@ -406,7 +437,7 @@ export function TrackDetailView({
                       </span>
                     </div>
                   )}
-                  {track.file_size != null && (
+                  {isLibrary && track.file_size != null && (
                     <div className="track-details-row">
                       <span className="track-details-label">Size</span>
                       <span className="track-details-value">
@@ -416,7 +447,7 @@ export function TrackDetailView({
                       </span>
                     </div>
                   )}
-                  {track.path && (
+                  {isLibrary && track.path && (
                     <div className="track-details-row">
                       <span className="track-details-label">Path</span>
                       <span className="track-details-value track-details-path">
@@ -438,7 +469,7 @@ export function TrackDetailView({
                       <span className="track-details-value">{formatTimestamp(track.added_at)}</span>
                     </div>
                   )}
-                  {editingTags ? (
+                  {isLibrary && (editingTags ? (
                     <div className="track-tags-edit">
                       <span className="track-detail-label">Tags</span>
                       <input
@@ -470,7 +501,7 @@ export function TrackDetailView({
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
                       </button>
                     </div>
-                  )}
+                  ))}
                 </div>
               ),
             },
@@ -518,7 +549,7 @@ export function TrackDetailView({
         />
       </div>
 
-      {youtubeUrlEdit !== null && (
+      {isLibrary && youtubeUrlEdit !== null && (
         <div className="youtube-modal-overlay">
           <div className="youtube-modal" onClick={e => e.stopPropagation()}>
             <div className="youtube-modal-icon"><IconYoutube size={24} /></div>

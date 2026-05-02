@@ -65,7 +65,6 @@ import { ContextMenu } from "./components/ContextMenu";
 import { ArtistDetailContent } from "./components/ArtistDetailContent";
 import { FallbackArtistDetail } from "./components/FallbackArtistDetail";
 import { FallbackAlbumDetail } from "./components/FallbackAlbumDetail";
-import { FallbackTrackDetail } from "./components/FallbackTrackDetail";
 import { ImageActions } from "./components/ImageActions";
 import { AlbumDetailHeader } from "./components/AlbumDetailHeader";
 import { InformationSections } from "./components/InformationSections";
@@ -2279,10 +2278,14 @@ function App() {
             const isCurrentTrack = playback.currentTrack?.key === library.selectedTrack;
             return (
               <TrackDetailView
-                trackId={parseLibraryId(library.selectedTrack!) ?? 0}
+                trackId={parseLibraryId(library.selectedTrack!)}
                 track={track}
-                albumImagePath={track.album_id ? albumImageCache.images[track.album_id] ?? null : null}
-                artistImagePath={track.artist_id ? artistImageCache.images[track.artist_id] ?? null : null}
+                albumImagePath={track.album_id
+                  ? albumImageCache.images[track.album_id] ?? null
+                  : (track.album_title ? albumImageCache.getImageByName(track.album_title, track.artist_name ?? undefined) : null)}
+                artistImagePath={track.artist_id
+                  ? artistImageCache.images[track.artist_id] ?? null
+                  : (track.artist_name ? artistImageCache.getImageByName(track.artist_name) : null)}
                 positionSecs={isCurrentTrack ? playback.positionSecs : 0}
                 isCurrentTrack={isCurrentTrack}
                 onArtistClick={library.handleArtistClick}
@@ -2322,23 +2325,75 @@ function App() {
                 pluginNames={plugins.pluginNames}
                 onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
                 onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
+                onNavigateToArtistByName={library.navigateToArtistByName}
+                onNavigateToAlbumByName={library.navigateToAlbumByName}
               />
             );
           })()}
 
           {/* Fallback track detail (non-library) */}
-          {library.fallbackTrackName && !library.selectedTrack && (
-            <FallbackTrackDetail
-              name={library.fallbackTrackName.name}
-              artistName={library.fallbackTrackName.artistName}
-              invokeInfoFetch={plugins.invokeInfoFetch}
-              pluginNames={plugins.pluginNames}
-              onNavigateToArtistByName={library.navigateToArtistByName}
-              onNavigateToAlbumByName={library.navigateToAlbumByName}
-              onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
-              onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
-            />
-          )}
+          {library.fallbackTrackName && !library.selectedTrack && (() => {
+            const syntheticTrack: Track = {
+              id: null,
+              key: `fallback:${library.fallbackTrackName.name}:${library.fallbackTrackName.artistName ?? ""}`,
+              path: null,
+              title: library.fallbackTrackName.name,
+              artist_id: null,
+              artist_name: library.fallbackTrackName.artistName ?? null,
+              album_id: null,
+              album_title: library.fallbackTrackName.albumTitle ?? null,
+              year: null,
+              track_number: null,
+              duration_secs: null,
+              format: null,
+              file_size: null,
+              collection_id: null,
+              collection_name: null,
+              liked: 0,
+              youtube_url: null,
+              added_at: null,
+              modified_at: null,
+            };
+            const albumImg = syntheticTrack.album_title
+              ? albumImageCache.getImageByName(syntheticTrack.album_title, syntheticTrack.artist_name ?? undefined)
+              : null;
+            const artistImg = syntheticTrack.artist_name
+              ? artistImageCache.getImageByName(syntheticTrack.artist_name)
+              : null;
+            return (
+              <TrackDetailView
+                trackId={null}
+                track={syntheticTrack}
+                albumImagePath={albumImg}
+                artistImagePath={artistImg}
+                positionSecs={0}
+                isCurrentTrack={false}
+                onArtistClick={() => {}}
+                onAlbumClick={() => {}}
+                onTagClick={() => {}}
+                onPlay={() => queueHook.playTracks([syntheticTrack], 0)}
+                onPlayAt={() => {}}
+                onPlayTrack={(t) => queueHook.playTracks([t], 0)}
+                onWatchOnYoutube={syntheticTrack.artist_name ? () => contextMenuActions.watchOnYoutube(0, syntheticTrack.title, syntheticTrack.artist_name, null) : undefined}
+                onToggleLike={() => {}}
+                onToggleDislike={() => {}}
+                onShowInFolder={() => {}}
+                collections={library.collections}
+                searchProviders={searchProviders}
+                onImageSet={() => {}}
+                onImageRemoved={() => {}}
+                onImageRefresh={() => {}}
+                addLog={addLog}
+                onUpdateTrack={() => {}}
+                invokeInfoFetch={plugins.invokeInfoFetch}
+                pluginNames={plugins.pluginNames}
+                onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
+                onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
+                onNavigateToArtistByName={library.navigateToArtistByName}
+                onNavigateToAlbumByName={library.navigateToAlbumByName}
+              />
+            );
+          })()}
 
           {library.selectedTrack === null && !library.fallbackTrackName && <>
           {/* Fallback artist detail (non-library) */}

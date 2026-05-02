@@ -4,6 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 
 export interface UseImageCacheReturn {
   images: Record<number, string | null>;
+  nameImages: Record<string, string | null>;
+  getImageByName: (name: string, artistName?: string) => string | null;
   fetchOnDemand: (entity: { id: number; name?: string; title?: string; artist_name?: string | null }) => void;
   forceFetchImage: (entity: { id: number; name?: string; title?: string; artist_name?: string | null }) => void;
   setLocalImage: (id: number, path: string) => void;
@@ -17,10 +19,45 @@ export function useImageCache(
   addLog?: (msg: string, module?: string) => void,
 ): UseImageCacheReturn {
   const [images, setImages] = useState<Record<number, string | null>>({});
+  const [nameImages, setNameImages] = useState<Record<string, string | null>>({});
   const fetched = useRef(new Set<number>());
   const failed = useRef(new Set<number>());
   const imagesRef = useRef(images);
   imagesRef.current = images;
+  const nameCache = useRef<Record<string, string | null>>({});
+  const inFlightNames = useRef(new Set<string>());
+
+  const getImageByName = useCallback((name: string, artistName?: string): string | null => {
+    const cacheKey = kind === "album"
+      ? `album:${artistName?.toLowerCase() ?? ""}:${name.toLowerCase()}`
+      : `${kind}:${name.toLowerCase()}`;
+
+    if (cacheKey in nameCache.current) {
+      return nameCache.current[cacheKey];
+    }
+
+    if (inFlightNames.current.has(cacheKey)) {
+      return null;
+    }
+
+    inFlightNames.current.add(cacheKey);
+
+    invoke<string | null>("get_entity_image_by_name", { kind, name, artistName: artistName ?? null })
+      .then((path) => {
+        nameCache.current[cacheKey] = path;
+        setNameImages((prev) => ({ ...prev, [cacheKey]: path }));
+      })
+      .catch((err) => {
+        console.error(`Failed to get ${kind} image by name for "${name}":`, err);
+        nameCache.current[cacheKey] = null;
+        setNameImages((prev) => ({ ...prev, [cacheKey]: null }));
+      })
+      .finally(() => {
+        inFlightNames.current.delete(cacheKey);
+      });
+
+    return null;
+  }, [kind]);
 
   const fetchOnDemand = useCallback((entity: { id: number; name?: string; title?: string; artist_name?: string | null }) => {
     if (imagesRef.current[entity.id] !== undefined) return;
@@ -98,5 +135,5 @@ export function useImageCache(
     };
   }, [kind, addLog]);
 
-  return { images, fetchOnDemand, forceFetchImage, setLocalImage, clearImage, clearAllFailures, setImages };
+  return { images, nameImages, getImageByName, fetchOnDemand, forceFetchImage, setLocalImage, clearImage, clearAllFailures, setImages };
 }
