@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import type { PlaylistContext } from "../hooks/useQueue";
+import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import playlistDefault from "../assets/playlist-default.png";
 import "./PlaylistsView.css";
 
@@ -74,11 +75,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<Playlist | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ pl: Playlist; x: number; y: number } | null>(null);
-  const [trackContextMenu, setTrackContextMenu] = useState<{ track: PlaylistTrack; x: number; y: number } | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
-  const contextMenuRef = useRef<HTMLDivElement>(null);
-  const trackContextMenuRef = useRef<HTMLDivElement>(null);
 
   const loadPlaylists = useCallback(async () => {
     const rows = await invoke<Playlist[]>("get_playlists");
@@ -134,31 +131,52 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
     }
   }, [onEnqueueTracks]);
 
+  const showPlaylistMenu = useCallback(async (x: number, y: number, pl: Playlist) => {
+    const specs: MenuItemSpec[] = [
+      { kind: "item", text: "Play", action: () => handlePlayPlaylist({ stopPropagation: () => {} } as React.MouseEvent, pl) },
+      { kind: "item", text: "Enqueue", action: () => handleEnqueuePlaylist(pl) },
+      { kind: "item", text: "View / Edit", action: () => openPlaylist(pl) },
+      { kind: "separator" },
+      { kind: "item", text: "Export as M3U", action: () => handleExport(pl) },
+    ];
+    if (onExportAsMixtape) {
+      specs.push({ kind: "item", text: "Export as Mixtape", action: async () => {
+        try {
+          const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
+          const paths = rows.map(t => t.source).filter((s): s is string => s != null);
+          if (paths.length === 0) return;
+          const libraryTracks = await invoke<{ id: number }[]>("get_tracks_by_paths", { paths });
+          if (libraryTracks.length > 0) onExportAsMixtape(libraryTracks.map(t => t.id), pl.name);
+        } catch (e) {
+          console.error("Failed to prepare mixtape export:", e);
+        }
+      }});
+    }
+    specs.push({ kind: "separator" });
+    specs.push({ kind: "item", text: "Delete", action: () => setDeleteConfirm(pl) });
+    if (pluginMenuItems && pluginMenuItems.length > 0) {
+      const matching = pluginMenuItems.filter(item => item.targets.includes("playlist"));
+      if (matching.length > 0) {
+        specs.push({ kind: "separator" });
+        matching.forEach(item => {
+          specs.push({ kind: "item", text: item.label, action: () => onPluginAction?.(item.pluginId, item.id, { kind: "playlist", playlistId: pl.id, playlistName: pl.name }) });
+        });
+      }
+    }
+    await showNativeMenu(x, y, specs);
+  }, [handlePlayPlaylist, handleEnqueuePlaylist, openPlaylist, handleExport, onExportAsMixtape, pluginMenuItems, onPluginAction]);
+
   const handleContextMenu = useCallback((e: React.MouseEvent, pl: Playlist) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ pl, x: e.clientX, y: e.clientY });
-  }, []);
+    showPlaylistMenu(e.clientX, e.clientY, pl);
+  }, [showPlaylistMenu]);
 
   const handleMoreClick = useCallback((e: React.MouseEvent, pl: Playlist) => {
     e.stopPropagation();
     const rect = (e.target as HTMLElement).getBoundingClientRect();
-    setContextMenu({ pl, x: rect.left, y: rect.bottom + 4 });
-  }, []);
-
-  useEffect(() => {
-    if (!contextMenu && !trackContextMenu) return;
-    const handle = (e: MouseEvent) => {
-      if (contextMenu && contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
-        setContextMenu(null);
-      }
-      if (trackContextMenu && trackContextMenuRef.current && !trackContextMenuRef.current.contains(e.target as Node)) {
-        setTrackContextMenu(null);
-      }
-    };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [contextMenu, trackContextMenu]);
+    showPlaylistMenu(rect.left, rect.bottom + 4, pl);
+  }, [showPlaylistMenu]);
 
   const imageUrl = useCallback(
     (imagePath: string | null) => {
@@ -239,7 +257,30 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
             <div className="playlists-col-duration">Duration</div>
           </div>
           {tracks.map((t) => (
-            <div key={t.id} className="playlists-track-row" onContextMenu={(e) => { e.preventDefault(); setTrackContextMenu({ track: t, x: e.clientX, y: e.clientY }); }}>
+            <div key={t.id} className="playlists-track-row" onContextMenu={(e) => {
+              e.preventDefault();
+              const specs: MenuItemSpec[] = [
+                { kind: "item", text: "Play", action: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? { name: selectedPlaylist.name, imagePath: selectedPlaylist.image_path, source: "playlist", remote: false } : null) },
+                { kind: "item", text: "Enqueue", action: () => onEnqueueTracks([playlistTrackToMinimalTrack(t)]) },
+              ];
+              if (isLocalPath(t.source)) {
+                specs.push({ kind: "separator" });
+                specs.push({ kind: "item", text: "Open Containing Folder", action: async () => {
+                  try { await invoke("show_in_folder_path", { filePath: t.source! }); }
+                  catch (err) { console.error("Failed to open containing folder:", err); setFolderError(String(err)); }
+                }});
+              }
+              if (pluginMenuItems && pluginMenuItems.length > 0) {
+                const matching = pluginMenuItems.filter(item => item.targets.includes("track"));
+                if (matching.length > 0) {
+                  specs.push({ kind: "separator" });
+                  matching.forEach(item => {
+                    specs.push({ kind: "item", text: item.label, action: () => onPluginAction?.(item.pluginId, item.id, { kind: "track", title: t.title, artistName: t.artist_name ?? undefined }) });
+                  });
+                }
+              }
+              showNativeMenu(e.clientX, e.clientY, specs);
+            }}>
               <div className="playlists-col-num">{t.position + 1}</div>
               <div className="playlists-col-title">
                 {t.image_path && (
@@ -253,69 +294,6 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
             </div>
           ))}
         </div>
-        {trackContextMenu && (
-          <div
-            ref={trackContextMenuRef}
-            className="context-menu"
-            style={{ left: trackContextMenu.x, top: trackContextMenu.y }}
-          >
-            <div className="context-menu-item" onClick={() => {
-              const t = trackContextMenu.track;
-              onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? { name: selectedPlaylist.name, imagePath: selectedPlaylist.image_path, source: "playlist", remote: false } : null);
-              setTrackContextMenu(null);
-            }}>
-              <span>Play</span>
-            </div>
-            <div className="context-menu-item" onClick={() => {
-              onEnqueueTracks([playlistTrackToMinimalTrack(trackContextMenu.track)]);
-              setTrackContextMenu(null);
-            }}>
-              <span>Enqueue</span>
-            </div>
-            {isLocalPath(trackContextMenu.track.source) && (
-              <>
-                <div className="context-menu-separator" />
-                <div className="context-menu-item" onClick={async () => {
-                  try {
-                    await invoke("show_in_folder_path", { filePath: trackContextMenu.track.source! });
-                  } catch (e) {
-                    console.error("Failed to open containing folder:", e);
-                    setFolderError(String(e));
-                  }
-                  setTrackContextMenu(null);
-                }}>
-                  <span>Open Containing Folder</span>
-                </div>
-              </>
-            )}
-            {pluginMenuItems && pluginMenuItems.length > 0 && (() => {
-              const matching = pluginMenuItems.filter(item => item.targets.includes("track"));
-              if (matching.length === 0) return null;
-              const t = trackContextMenu.track;
-              return (
-                <>
-                  <div className="context-menu-separator" />
-                  {matching.map((item) => (
-                    <div
-                      key={`${item.pluginId}:${item.id}`}
-                      className="context-menu-item"
-                      onClick={() => {
-                        onPluginAction?.(item.pluginId, item.id, {
-                          kind: "track",
-                          title: t.title,
-                          artistName: t.artist_name ?? undefined,
-                        });
-                        setTrackContextMenu(null);
-                      }}
-                    >
-                      <span>{item.label}</span>
-                    </div>
-                  ))}
-                </>
-              );
-            })()}
-          </div>
-        )}
         {folderErrorModal}
         {deleteModal}
       </div>
@@ -346,75 +324,6 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
               </div>
             </div>
           ))}
-        </div>
-      )}
-      {contextMenu && (
-        <div
-          ref={contextMenuRef}
-          className="context-menu"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-        >
-          <div className="context-menu-item" onClick={() => { handlePlayPlaylist({ stopPropagation: () => {} } as React.MouseEvent, contextMenu.pl); setContextMenu(null); }}>
-            <span>Play</span>
-          </div>
-          <div className="context-menu-item" onClick={() => { handleEnqueuePlaylist(contextMenu.pl); setContextMenu(null); }}>
-            <span>Enqueue</span>
-          </div>
-          <div className="context-menu-item" onClick={() => { openPlaylist(contextMenu.pl); setContextMenu(null); }}>
-            <span>View / Edit</span>
-          </div>
-          <div className="context-menu-separator" />
-          <div className="context-menu-item" onClick={() => { handleExport(contextMenu.pl); setContextMenu(null); }}>
-            <span>Export as M3U</span>
-          </div>
-          {onExportAsMixtape && (
-            <div className="context-menu-item" onClick={async () => {
-              const pl = contextMenu.pl;
-              setContextMenu(null);
-              try {
-                const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
-                const paths = rows.map(t => t.source).filter((s): s is string => s != null);
-                if (paths.length === 0) return;
-                const libraryTracks = await invoke<{ id: number }[]>("get_tracks_by_paths", { paths });
-                if (libraryTracks.length > 0) {
-                  onExportAsMixtape(libraryTracks.map(t => t.id), pl.name);
-                }
-              } catch (e) {
-                console.error("Failed to prepare mixtape export:", e);
-              }
-            }}>
-              <span>Export as Mixtape</span>
-            </div>
-          )}
-          <div className="context-menu-separator" />
-          <div className="context-menu-item context-menu-item-danger" onClick={() => { setDeleteConfirm(contextMenu.pl); setContextMenu(null); }}>
-            <span>Delete</span>
-          </div>
-          {pluginMenuItems && pluginMenuItems.length > 0 && (() => {
-            const matching = pluginMenuItems.filter(item => item.targets.includes("playlist"));
-            if (matching.length === 0) return null;
-            return (
-              <>
-                <div className="context-menu-separator" />
-                {matching.map((item) => (
-                  <div
-                    key={`${item.pluginId}:${item.id}`}
-                    className="context-menu-item"
-                    onClick={() => {
-                      onPluginAction?.(item.pluginId, item.id, {
-                        kind: "playlist",
-                        playlistId: contextMenu.pl.id,
-                        playlistName: contextMenu.pl.name,
-                      });
-                      setContextMenu(null);
-                    }}
-                  >
-                    <span>{item.label}</span>
-                  </div>
-                ))}
-              </>
-            );
-          })()}
         </div>
       )}
       {deleteModal}

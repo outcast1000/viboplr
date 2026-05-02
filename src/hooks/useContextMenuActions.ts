@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Artist, Album } from "../types";
 import { parseLibraryId } from "../queueEntry";
-import type { ContextMenuState, ContextMenuTarget } from "../components/ContextMenu";
+import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
 import { store } from "../store";
 

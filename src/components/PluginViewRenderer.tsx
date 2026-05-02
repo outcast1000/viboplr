@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import type { PluginViewData, CardGridItem, StatItem, TrackRowItem, PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
+import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { ViewSearchBar } from "./ViewSearchBar";
 import "./PluginViewRenderer.css";
 
@@ -346,32 +347,28 @@ function PluginDetailHeader({
   contextMenuActions?: { id: string; label: string; separator?: boolean }[];
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!menuPos) return;
-    function onDown(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuPos(null);
-      }
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [menuPos]);
+  const showMenu = useCallback(async (x: number, y: number) => {
+    if (!contextMenuActions?.length) return;
+    const specs: MenuItemSpec[] = contextMenuActions.map(action =>
+      action.separator
+        ? { kind: "separator" as const }
+        : { kind: "item" as const, text: action.label, action: () => onAction?.(action.id) }
+    );
+    await showNativeMenu(x, y, specs);
+  }, [contextMenuActions, onAction]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     if (!contextMenuActions?.length) return;
     e.preventDefault();
     e.stopPropagation();
-    setMenuPos({ x: e.clientX, y: e.clientY });
-  }, [contextMenuActions]);
+    showMenu(e.clientX, e.clientY);
+  }, [contextMenuActions, showMenu]);
 
   const handleMoreClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setMenuPos({ x: rect.right, y: rect.bottom + 4 });
-  }, []);
+    showMenu(rect.right, rect.bottom + 4);
+  }, [showMenu]);
 
   return (
     <>
@@ -432,30 +429,6 @@ function PluginDetailHeader({
           </div>
         </div>
       </div>
-      {menuPos && contextMenuActions?.length ? (
-        <div
-          ref={menuRef}
-          className="context-menu"
-          style={{ left: menuPos.x, top: menuPos.y }}
-        >
-          {contextMenuActions.map((action) =>
-            action.separator ? (
-              <div key={action.id} className="context-menu-separator" />
-            ) : (
-              <div
-                key={action.id}
-                className="context-menu-item"
-                onClick={() => {
-                  onAction?.(action.id);
-                  setMenuPos(null);
-                }}
-              >
-                <span>{action.label}</span>
-              </div>
-            )
-          )}
-        </div>
-      ) : null}
     </>
   );
 }
@@ -540,36 +513,37 @@ function PluginCardGrid({
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
 }) {
-  const [contextMenu, setContextMenu] = useState<{ item: CardGridItem; x: number; y: number } | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!contextMenu) return;
-    const handle = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setContextMenu(null);
-      }
-    };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [contextMenu]);
+  const showCardMenu = useCallback(async (x: number, y: number, item: CardGridItem) => {
+    if (!item.contextMenuActions?.length) return;
+    const specs: MenuItemSpec[] = item.contextMenuActions.map(action =>
+      action.separator
+        ? { kind: "separator" as const }
+        : { kind: "item" as const, text: action.label, action: () => onAction?.(action.id, { itemId: item.id }) }
+    );
+    const targetKind = item.targetKind ?? "playlist";
+    const matching = pluginMenuItems?.filter(mi => mi.targets.includes(targetKind)) ?? [];
+    if (matching.length > 0) {
+      specs.push({ kind: "separator" });
+      matching.forEach(mi => {
+        specs.push({ kind: "item", text: mi.label, action: () => onPluginAction?.(mi.pluginId, mi.id, { kind: targetKind, playlistName: item.title, tracks: item.tracks }) });
+      });
+    }
+    await showNativeMenu(x, y, specs);
+  }, [onAction, pluginMenuItems, onPluginAction]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, item: CardGridItem) => {
     if (!item.contextMenuActions?.length) return;
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ item, x: e.clientX, y: e.clientY });
-  }, []);
+    showCardMenu(e.clientX, e.clientY, item);
+  }, [showCardMenu]);
 
   const handleMoreClick = useCallback((e: React.MouseEvent, item: CardGridItem) => {
     e.stopPropagation();
     if (!item.contextMenuActions?.length) return;
     const rect = (e.target as HTMLElement).getBoundingClientRect();
-    setContextMenu({ item, x: rect.left, y: rect.bottom + 4 });
-  }, []);
-
-  const contextTargetKind = contextMenu?.item.targetKind ?? "playlist";
-  const matchingPluginItems = pluginMenuItems?.filter(item => item.targets.includes(contextTargetKind)) ?? [];
+    showCardMenu(rect.left, rect.bottom + 4, item);
+  }, [showCardMenu]);
 
   return (
     <div
@@ -629,51 +603,6 @@ function PluginCardGrid({
           )}
         </div>
       ))}
-      {contextMenu && (
-        <div
-          ref={menuRef}
-          className="context-menu"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-        >
-          {contextMenu.item.contextMenuActions!.map((action) =>
-            action.separator ? (
-              <div key={action.id} className="context-menu-separator" />
-            ) : (
-              <div
-                key={action.id}
-                className="context-menu-item"
-                onClick={() => {
-                  onAction?.(action.id, { itemId: contextMenu.item.id });
-                  setContextMenu(null);
-                }}
-              >
-                <span>{action.label}</span>
-              </div>
-            )
-          )}
-          {matchingPluginItems.length > 0 && (
-            <>
-              <div className="context-menu-separator" />
-              {matchingPluginItems.map((mi) => (
-                <div
-                  key={`${mi.pluginId}:${mi.id}`}
-                  className="context-menu-item"
-                  onClick={() => {
-                    onPluginAction?.(mi.pluginId, mi.id, {
-                      kind: contextTargetKind,
-                      playlistName: contextMenu.item.title,
-                      tracks: contextMenu.item.tracks,
-                    });
-                    setContextMenu(null);
-                  }}
-                >
-                  <span>{mi.label}</span>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }

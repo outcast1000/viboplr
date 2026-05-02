@@ -16,7 +16,7 @@ import { store } from "./store";
 import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, type QueueEntry } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import type { SearchProviderConfig } from "./searchProviders";
-import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
+import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext, buildSearchUrl } from "./searchProviders";
 import { type StreamResolver } from "./streamResolvers";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
@@ -61,7 +61,8 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import ExtensionsView from "./components/ExtensionsView";
 import { FullscreenControls } from "./components/FullscreenControls";
 import { AddServerModal } from "./components/AddServerModal";
-import { ContextMenu } from "./components/ContextMenu";
+import { showNativeMenu, type MenuItemSpec } from "./nativeMenu";
+import { toPluginTarget } from "./types/contextMenu";
 import { ArtistDetailContent } from "./components/ArtistDetailContent";
 import { FallbackArtistDetail } from "./components/FallbackArtistDetail";
 import { FallbackAlbumDetail } from "./components/FallbackAlbumDetail";
@@ -901,6 +902,205 @@ function App() {
       });
     }
   }, [contextMenuActions.contextMenu, downloadProviderEntries, library.tracks, queueHook.queue, addLog]);
+
+  const nativeMenuActiveRef = useRef(false);
+  useEffect(() => {
+    const cm = contextMenuActions.contextMenu;
+    if (!cm || nativeMenuActiveRef.current) return;
+    nativeMenuActiveRef.current = true;
+
+    const { target } = cm;
+    const specs: MenuItemSpec[] = [];
+
+    if (target.kind === "video") {
+      (["contain", "fit-width", "fit-height", "fill"] as const).forEach(mode => {
+        specs.push({ kind: "check", text: mode === "contain" ? "Contain" : mode === "fit-width" ? "Fit Width" : mode === "fit-height" ? "Fit Height" : "Fill", checked: target.fitMode === mode, action: () => videoLayout.setFitMode(mode) });
+      });
+      specs.push({ kind: "separator" });
+      (["top", "bottom", "left", "right"] as const).forEach(side => {
+        specs.push({ kind: "check", text: side[0].toUpperCase() + side.slice(1), checked: target.dockSide === side, action: () => videoLayout.setDockSide(side) });
+      });
+    } else if (target.kind === "queue-multi") {
+      const count = target.indices.length;
+      specs.push({ kind: "item", text: count > 1 ? `Play ${count} tracks` : "Play", action: contextMenuActions.handleContextPlay });
+      if (contextMenuActions.handleQueueRemove) {
+        specs.push({ kind: "item", text: count > 1 ? `Remove ${count} tracks` : "Remove", action: contextMenuActions.handleQueueRemove });
+      }
+      if (contextMenuActions.handleQueueKeepOnly) {
+        specs.push({ kind: "item", text: count > 1 ? `Keep only ${count} tracks` : "Keep only", action: contextMenuActions.handleQueueKeepOnly });
+      }
+      if (contextMenuActions.handleQueueMoveToTop) {
+        specs.push({ kind: "item", text: "Move to top", action: contextMenuActions.handleQueueMoveToTop });
+      }
+      if (contextMenuActions.handleQueueMoveToBottom) {
+        specs.push({ kind: "item", text: "Move to bottom", action: contextMenuActions.handleQueueMoveToBottom });
+      }
+      if (count === 1 && target.firstTrack.hasLocalPath) {
+        specs.push({ kind: "separator" });
+        specs.push({ kind: "item", text: "Open Containing Folder", action: contextMenuActions.handleShowInFolder });
+      }
+      if (count === 1) {
+        const locateTrack = () => {
+          const track = queueHook.queue[target.indices[0]];
+          if (track) {
+            library.handleLocateTrack(track.title, track.artist_name, track.album_title, () => {
+              setSearchInitialQuery(track.title);
+              setSearchQueryKey(k => k + 1);
+              library.setView("search");
+              library.setSelectedArtist(null);
+              library.setSelectedAlbum(null);
+              library.setSelectedTag(null);
+            });
+          }
+        };
+        specs.push({ kind: "item", text: "Locate Track", action: locateTrack });
+      }
+      if (contextMenuActions.handleDeleteRequest) {
+        const canDelete = count === 1 ? !target.firstTrack.subsonic && target.trackIds[0] != null : true;
+        if (canDelete) {
+          specs.push({ kind: "separator" });
+          specs.push({ kind: "item", text: count > 1 ? `Delete ${count} tracks` : "Delete", action: contextMenuActions.handleDeleteRequest });
+        }
+      }
+      if (downloadProviderEntries.length > 0) {
+        const dlItems: MenuItemSpec[] = [];
+        dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
+          const tracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
+          if (tracks.length === 1) contextMenuActions.handleDownloadTrack(tracks[0]);
+          else if (tracks.length > 1) contextMenuActions.handleDownloadMulti(tracks);
+        }});
+        downloadProviderEntries.forEach(entry => {
+          dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "..." : ""}`, action: () => handleDownloadFromProvider(entry.id, entry.interactive) });
+        });
+        specs.push({ kind: "separator" });
+        specs.push({ kind: "submenu", text: count > 1 ? `Download ${count} tracks` : "Download", items: dlItems });
+      }
+      // Plugin items
+      const pluginTargetKind = count === 1 ? "track" : "multi-track";
+      const matching = plugins.menuItems.filter(item => item.targets.includes(pluginTargetKind as "track" | "multi-track"));
+      if (matching.length > 0) {
+        specs.push({ kind: "separator" });
+        matching.forEach(item => {
+          specs.push({ kind: "item", text: item.label, action: () => plugins.dispatchContextMenuAction(item.pluginId, item.id, toPluginTarget(target)) });
+        });
+      }
+    } else {
+      const isMulti = target.kind === "multi-track";
+      const context = isMulti ? "track" : target.kind;
+      const hasId = target.kind === "artist" ? !!target.artistId
+                  : target.kind === "album" ? !!target.albumId
+                  : target.kind === "track" ? !!target.trackId
+                  : true;
+
+      if (hasId) {
+        specs.push({ kind: "item", text: isMulti ? `Play ${target.trackIds.length} tracks` : "Play", action: contextMenuActions.handleContextPlay });
+        specs.push({ kind: "item", text: isMulti ? `Enqueue ${target.trackIds.length} tracks` : "Enqueue", action: contextMenuActions.handleContextEnqueue });
+      }
+      if (hasId && (target.kind === "artist" || target.kind === "album")) {
+        const refreshAction = target.kind === "artist" && target.artistId
+          ? () => artistImageCache.forceFetchImage({ id: target.artistId!, name: target.name })
+          : target.kind === "album" && target.albumId
+          ? () => albumImageCache.forceFetchImage({ id: target.albumId!, title: target.title, artist_name: target.artistName })
+          : null;
+        if (refreshAction) {
+          specs.push({ kind: "item", text: "Refresh Image", action: refreshAction });
+        }
+      }
+      if (isMulti && contextMenuActions.handleBulkEdit) {
+        specs.push({ kind: "item", text: "Edit Properties", action: contextMenuActions.handleBulkEdit });
+      }
+      if (target.kind === "track" && target.trackId && !target.subsonic && !target.tidal && !target.external) {
+        specs.push({ kind: "item", text: "Open Containing Folder", action: contextMenuActions.handleShowInFolder });
+      }
+      if (target.kind === "track" && target.trackId && !target.external && contextMenuActions.handleWatchOnYoutube) {
+        specs.push({ kind: "item", text: "Find in YouTube", action: contextMenuActions.handleWatchOnYoutube });
+      }
+      if (target.kind === "track" && target.trackId && !target.external) {
+        specs.push({ kind: "item", text: "View Details", action: () => library.handleTrackClick(`lib:${target.trackId}`) });
+      }
+      if (contextMenuActions.handleDeleteRequest && (target.kind === "track" && target.trackId && !target.subsonic && !target.tidal && !target.external || target.kind === "multi-track")) {
+        specs.push({ kind: "separator" });
+        specs.push({ kind: "item", text: isMulti ? `Delete ${target.trackIds.length} tracks` : "Delete", action: contextMenuActions.handleDeleteRequest });
+      }
+      // Download submenu
+      if (target.kind === "track" && downloadProviderEntries.length > 0) {
+        const dlItems: MenuItemSpec[] = [];
+        dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
+          if (target.trackId) {
+            const track = library.tracks.find(tr => tr.id === target.trackId);
+            if (track) contextMenuActions.handleDownloadTrack(track);
+          }
+        }});
+        downloadProviderEntries.forEach(entry => {
+          dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "..." : ""}`, action: () => handleDownloadFromProvider(entry.id, entry.interactive) });
+        });
+        specs.push({ kind: "separator" });
+        specs.push({ kind: "submenu", text: "Download", items: dlItems });
+      }
+      if (target.kind === "album" && target.albumId && downloadProviderEntries.length > 0) {
+        specs.push({ kind: "separator" });
+        specs.push({ kind: "item", text: "Download Album", action: () => {
+          const albumTracks = library.tracks.filter(tr => tr.album_id === target.albumId);
+          if (albumTracks.length) contextMenuActions.handleDownloadMulti(albumTracks);
+        }});
+      }
+      if (isMulti && downloadProviderEntries.length > 0) {
+        const dlItems: MenuItemSpec[] = [];
+        dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
+          const idSet = new Set(target.trackIds);
+          const selected = library.tracks.filter(tr => tr.id != null && idSet.has(tr.id));
+          contextMenuActions.handleDownloadMulti(selected);
+        }});
+        downloadProviderEntries.forEach(entry => {
+          dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "..." : ""}`, action: () => handleDownloadFromProvider(entry.id, entry.interactive) });
+        });
+        specs.push({ kind: "separator" });
+        specs.push({ kind: "submenu", text: `Download ${target.trackIds.length} tracks`, items: dlItems });
+      }
+      // Search providers submenu
+      if (!isMulti) {
+        const contextProviders = getProvidersForContext(searchProviders, context);
+        if (contextProviders.length > 0) {
+          const urlKey = context === "artist" ? "artistUrl" : context === "album" ? "albumUrl" : "trackUrl";
+          const params = target.kind === "artist"
+            ? { artist: target.name }
+            : { title: target.title, artist: target.artistName ?? undefined };
+          const searchItems: MenuItemSpec[] = contextProviders.map(provider => ({
+            kind: "item" as const,
+            text: provider.name,
+            action: () => openUrl(buildSearchUrl(provider[urlKey]!, params)),
+          }));
+          specs.push({ kind: "separator" });
+          specs.push({ kind: "submenu", text: "Search", items: searchItems });
+        }
+      }
+      // Plugin items
+      const targetKind = target.kind as string;
+      const matching = plugins.menuItems.filter(item => item.targets.includes(targetKind as "track" | "album" | "artist" | "multi-track"));
+      if (matching.length > 0) {
+        specs.push({ kind: "separator" });
+        matching.forEach(item => {
+          specs.push({ kind: "item", text: item.label, action: () => plugins.dispatchContextMenuAction(item.pluginId, item.id, toPluginTarget(target)) });
+        });
+      }
+      // Export as Mixtape
+      if (isMulti && handleExportAsMixtape) {
+        specs.push({ kind: "separator" });
+        specs.push({ kind: "item", text: "Export as Mixtape", action: () => handleExportAsMixtape(target.trackIds) });
+      }
+    }
+
+    if (specs.length === 0) {
+      nativeMenuActiveRef.current = false;
+      contextMenuActions.setContextMenu(null);
+      return;
+    }
+
+    showNativeMenu(cm.x, cm.y, specs).finally(() => {
+      nativeMenuActiveRef.current = false;
+      contextMenuActions.setContextMenu(null);
+    });
+  }, [contextMenuActions.contextMenu]);
 
   // Wire plugin host callbacks (uses addLog, library, contextMenuActions defined above)
   pluginHostCallbacksRef.current = {
@@ -2100,7 +2300,7 @@ function App() {
   return (
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties} onClick={() => contextMenuActions.setContextMenu(null)}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -3066,74 +3266,6 @@ function App() {
         </button>
       )}
 
-      {contextMenuActions.contextMenu && (
-        <ContextMenu
-          menu={contextMenuActions.contextMenu}
-          providers={searchProviders}
-          onPlay={contextMenuActions.handleContextPlay}
-          onEnqueue={contextMenuActions.handleContextEnqueue}
-          onShowInFolder={contextMenuActions.handleShowInFolder}
-          onWatchOnYoutube={contextMenuActions.handleWatchOnYoutube}
-          onViewDetails={contextMenuActions.contextMenu.target.kind === "track" && contextMenuActions.contextMenu.target.trackId != null ? () => library.handleTrackClick(`lib:${contextMenuActions.contextMenu!.target.kind === "track" && contextMenuActions.contextMenu!.target.trackId ? contextMenuActions.contextMenu!.target.trackId : 0}`) : undefined}
-          onBulkEdit={contextMenuActions.handleBulkEdit}
-          onDelete={contextMenuActions.handleDeleteRequest}
-          onRefreshImage={contextMenuActions.contextMenu.target.kind === "artist" && contextMenuActions.contextMenu.target.artistId
-            ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "artist" && t.artistId) artistImageCache.forceFetchImage({ id: t.artistId, name: t.name }); }
-            : contextMenuActions.contextMenu.target.kind === "album" && contextMenuActions.contextMenu.target.albumId
-            ? () => { const t = contextMenuActions.contextMenu!.target; if (t.kind === "album" && t.albumId) albumImageCache.forceFetchImage({ id: t.albumId, title: t.title, artist_name: t.artistName }); }
-            : undefined}
-          onRemoveFromQueue={contextMenuActions.handleQueueRemove}
-          onKeepOnly={contextMenuActions.handleQueueKeepOnly}
-          onMoveToTop={contextMenuActions.handleQueueMoveToTop}
-          onMoveToBottom={contextMenuActions.handleQueueMoveToBottom}
-          onLocateTrack={contextMenuActions.contextMenu.target.kind === "queue-multi" && contextMenuActions.contextMenu.target.indices.length === 1 ? () => {
-            const track = queueHook.queue[contextMenuActions.contextMenu!.target.kind === "queue-multi" ? contextMenuActions.contextMenu!.target.indices[0] : 0];
-            if (track) {
-              library.handleLocateTrack(track.title, track.artist_name, track.album_title, () => {
-                setSearchInitialQuery(track.title);
-                setSearchQueryKey(k => k + 1);
-                library.setView("search");
-                library.setSelectedArtist(null);
-                library.setSelectedAlbum(null);
-                library.setSelectedTag(null);
-              });
-            }
-          } : undefined}
-          onDownloadTrack={() => {
-            const t = contextMenuActions.contextMenu!.target;
-            if (t.kind === "track" && t.trackId) {
-              const track = library.tracks.find(tr => tr.id === t.trackId);
-              if (track) contextMenuActions.handleDownloadTrack(track);
-            } else if (t.kind === "album" && t.albumId) {
-              const albumTracks = library.tracks.filter(tr => tr.album_id === t.albumId);
-              if (albumTracks.length) contextMenuActions.handleDownloadMulti(albumTracks);
-            } else if (t.kind === "queue-multi") {
-              const tracks = t.indices.map(i => queueHook.queue[i]).filter(Boolean);
-              if (tracks.length === 1) contextMenuActions.handleDownloadTrack(tracks[0]);
-              else if (tracks.length > 1) contextMenuActions.handleDownloadMulti(tracks);
-            }
-          }}
-          onDownloadMulti={() => {
-            const t = contextMenuActions.contextMenu!.target;
-            if (t.kind === "multi-track") {
-              const idSet = new Set(t.trackIds);
-              const selected = library.tracks.filter(tr => tr.id != null && idSet.has(tr.id));
-              contextMenuActions.handleDownloadMulti(selected);
-            } else if (t.kind === "queue-multi") {
-              const tracks = t.indices.map(i => queueHook.queue[i]).filter(Boolean);
-              if (tracks.length) contextMenuActions.handleDownloadMulti(tracks);
-            }
-          }}
-          downloadProviderEntries={downloadProviderEntries}
-          onDownloadFromProvider={handleDownloadFromProvider}
-          onExportAsMixtape={handleExportAsMixtape}
-          onClose={() => contextMenuActions.setContextMenu(null)}
-          pluginMenuItems={plugins.menuItems}
-          onPluginAction={plugins.dispatchContextMenuAction}
-          onSetDockSide={videoLayout.setDockSide}
-          onSetFitMode={videoLayout.setFitMode}
-        />
-      )}
 
 
       {downloadModal && (
