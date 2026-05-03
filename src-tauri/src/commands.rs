@@ -897,14 +897,6 @@ pub fn bulk_update_tracks(
         fields.tag_names.as_deref(),
     ).map_err(|e| e.to_string())?;
 
-    // Determine which collections are TIDAL (to skip file writing)
-    let tidal_collection_ids: std::collections::HashSet<i64> = state.db.get_collections()
-        .unwrap_or_default()
-        .iter()
-        .filter(|c| c.kind == "tidal")
-        .map(|c| c.id)
-        .collect();
-
     // Write tags to local files
     let mut errors = Vec::new();
     let updates = crate::tag_writer::TagUpdates {
@@ -914,17 +906,9 @@ pub fn bulk_update_tracks(
         genre: fields.tag_names.as_ref().map(|tags| tags.join(", ")),
     };
 
-    for (_track_id, path, collection_id) in &track_info {
+    for (_track_id, path, _collection_id) in &track_info {
         // Skip non-local files
-        if path.starts_with("subsonic://") || path.starts_with("tidal://") {
-            continue;
-        }
-        if let Some(cid) = collection_id {
-            if tidal_collection_ids.contains(cid) {
-                continue;
-            }
-        }
-        if path.starts_with("http://") || path.starts_with("https://") {
+        if !path.starts_with("file://") {
             continue;
         }
 
@@ -3882,7 +3866,7 @@ pub fn export_mixtape_full(
                     }
                 } else {
                     let source = if path.starts_with("subsonic://") { "subsonic" }
-                        else if path.starts_with("tidal://") { "tidal" }
+                        else if path.starts_with("file://") { "local" }
                         else { "plugin" };
                     resolve_and_download_track(&resolve_registry, &app, &temp_dir, i, total, track, source, &cancel, &format)
                 }

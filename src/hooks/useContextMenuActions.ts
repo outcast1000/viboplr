@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Artist, Album } from "../types";
-import { parseLibraryId } from "../queueEntry";
+import { parseLibraryId, isLocalTrack } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
 import { store } from "../store";
@@ -71,7 +71,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       const trackIds = [...selectedTrackKeys].map(k => parseLibraryId(k)).filter((id): id is number => id != null);
       showMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-track", trackIds } });
     } else {
-      showMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, subsonic: track.path?.startsWith("subsonic://") ?? false, tidal: track.path?.startsWith("tidal://") ?? false, external: track.id == null, title: track.title, artistName: track.artist_name } });
+      showMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name } });
     }
   }
 
@@ -283,13 +283,13 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     const cm = contextMenuRef.current;
     if (!cm) return;
     const { target } = cm;
-    if (target.kind === "track" && target.trackId && !target.subsonic) {
+    if (target.kind === "track" && target.trackId && target.isLocal) {
       setDeleteConfirm({ trackIds: [target.trackId], title: target.title });
     } else if (target.kind === "multi-track") {
       setDeleteConfirm({ trackIds: target.trackIds, title: `${target.trackIds.length} tracks` });
     } else if (target.kind === "queue-multi") {
       const tracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
-      const localTracks = tracks.filter(t => t.id != null && !t.path?.startsWith("subsonic://") && !t.path?.startsWith("tidal://"));
+      const localTracks = tracks.filter(t => t.id != null && isLocalTrack(t));
       if (localTracks.length > 0) {
         const ids = localTracks.map(t => t.id!);
         setDeleteConfirm({ trackIds: ids, title: localTracks.length === 1 ? localTracks[0].title : `${localTracks.length} tracks` });
@@ -379,7 +379,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
 
   function handleInfoTrackContextMenu(e: React.MouseEvent, info: { trackId?: number; title: string; artistName: string | null }) {
     showMenu({ x: e.clientX, y: e.clientY, target: {
-      kind: "track", trackId: info.trackId, subsonic: false, title: info.title, artistName: info.artistName, external: !info.trackId,
+      kind: "track", trackId: info.trackId, isLocal: false, title: info.title, artistName: info.artistName,
     } });
   }
 
@@ -465,7 +465,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       ? { kind: "artist", artistId: info.id, name: info.name }
       : info.kind === "album"
       ? { kind: "album", albumId: info.id, title: info.name, artistName: info.artistName ?? null }
-      : { kind: "track", trackId: info.id, subsonic: false, title: info.name, artistName: info.artistName ?? null, external: !info.id };
+      : { kind: "track", trackId: info.id, isLocal: false, title: info.name, artistName: info.artistName ?? null };
     showMenu({ x: e.clientX, y: e.clientY, target });
   }
 

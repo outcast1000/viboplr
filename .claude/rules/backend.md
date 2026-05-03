@@ -38,6 +38,8 @@ All music sources are unified under a Collections abstraction with `kind` discri
 
 Tracks belong to a collection via `collection_id`. Disabled collections are filtered via `ENABLED_COLLECTION_FILTER`. Track paths use URL schemes: `file://` (local), `subsonic://{collection_id}/{subsonic_id}`, `tidal://{collection_id}/{tidal_id}`.
 
+**Track type classification:** Use `is_remote()` on `Track` (Rust) or `isLocalTrack()` / `isRemoteTrack()` (TypeScript, from `queueEntry.ts`) to classify tracks. These use an allow-list pattern: only `file://` is local, everything else is remote. Do not add new deny-list checks for specific schemes.
+
 ## Background Tasks
 
 Long-running operations use `thread::spawn` with `AtomicBool` guards for cancellation and `app.emit()` for progress reporting:

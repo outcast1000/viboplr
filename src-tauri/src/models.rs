@@ -94,9 +94,9 @@ pub struct Track {
 }
 
 impl Track {
-    /// Returns true if this track is from a remote server (subsonic:// or tidal://).
+    /// Returns true if this track is not a local file (anything except file://).
     pub fn is_remote(&self) -> bool {
-        self.path.starts_with("subsonic://") || self.path.starts_with("tidal://")
+        !self.path.is_empty() && !self.path.starts_with("file://")
     }
 
     /// Returns the bare filesystem path by stripping the file:// prefix.

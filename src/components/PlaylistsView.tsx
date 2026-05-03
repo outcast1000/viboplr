@@ -67,7 +67,7 @@ interface PlaylistsViewProps {
 }
 
 function isLocalPath(source: string | null): boolean {
-  return !!source && !source.startsWith("subsonic://") && !source.startsWith("tidal://") && !source.startsWith("spotify-track://");
+  return !!source && source.startsWith("file://");
 }
 
 export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onExportAsMixtape, pluginMenuItems, onPluginAction }: PlaylistsViewProps) {

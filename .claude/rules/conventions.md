@@ -10,7 +10,7 @@ Each entry documents the gold standard implementation for a repeated user action
 
 - **Canonical:** `useContextMenuActions.ts` -> `handleDeleteRequest()` / `handleDeleteConfirm()`
 - **Flow:** Show confirmation modal with track title/count -> `invoke("delete_tracks", { trackIds })` -> filter from `library.tracks` -> stop playback if deleted track is playing -> `addLog()` with result -> show error modal if partial/total failure
-- **Availability:** Local tracks only. Single-track path checks `!target.subsonic` (the context menu target carries a `tidal` flag too). Multi-track path filters out both `subsonic://` and `tidal://` prefixes.
+- **Availability:** Local tracks only (`file://` scheme). Uses `isLocalTrack()` helper from `queueEntry.ts`. Single-track checks `target.isLocal` on the context menu target. Multi-track filters with `isLocalTrack(t) && t.id != null`.
 
 ### Find in YouTube
 
@@ -40,7 +40,7 @@ Each entry documents the gold standard implementation for a repeated user action
 
 - **Canonical:** `useContextMenuActions.ts` -> `handleShowInFolder()`
 - **Flow:** `invoke("show_in_folder", { trackId })` for library tracks, `invoke("show_in_folder_path", { filePath })` for paths
-- **Availability:** Non-subsonic, non-tidal tracks only. Visibility controlled by the context menu target's `subsonic` and `tidal` flags.
+- **Availability:** Local tracks only (`file://` scheme). Visibility controlled by `target.isLocal` flag on the context menu target.
 
 ### Download Track
 

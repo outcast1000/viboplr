@@ -124,7 +124,7 @@ export interface PluginContextMenuTarget {
   albumTitle?: string;
   artistId?: number;
   trackIds?: number[];
-  subsonic?: boolean;
+  isLocal?: boolean;
   playlistId?: number;
   playlistName?: string;
   tracks?: Array<{ title: string; artistName?: string | null; albumName?: string | null }>;

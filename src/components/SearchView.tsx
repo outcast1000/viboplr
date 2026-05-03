@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Track, Artist, Album, Tag, ViewMode, SortField } from "../types";
 import { formatDuration, isVideoTrack } from "../utils";
 import { store } from "../store";
+import { isLocalTrack } from "../queueEntry";
 import { TrackList } from "./TrackList";
 import { ArtistCardArt } from "./ArtistCardArt";
 import { AlbumCardArt } from "./AlbumCardArt";
@@ -15,8 +16,7 @@ import { toggleSortKey, chainPosition, chainDir, type SortKey, type SortDir } fr
 function isLocalVideo(t: Track): boolean {
   if (!isVideoTrack(t)) return false;
   if (t.id == null) return false;
-  if (!t.path) return false;
-  return !t.path.startsWith("subsonic://") && !t.path.startsWith("tidal://");
+  return isLocalTrack(t);
 }
 
 interface SearchSettings {

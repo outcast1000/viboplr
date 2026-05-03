@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import { isVideoTrack } from "../utils";
+import { isLocalTrack } from "../queueEntry";
 
 interface VideoFrameResult {
   status: string;
@@ -29,7 +30,7 @@ export function useVideoFrames(track: Track | null): VideoFramesState {
     setLoading(false);
     setUnavailable(false);
 
-    if (!track || !isVideoTrack(track) || !track.path || track.path.startsWith("subsonic://") || track.path.startsWith("tidal://")) {
+    if (!track || !isVideoTrack(track) || !track.path || !isLocalTrack(track)) {
       return;
     }
 

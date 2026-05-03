@@ -3,6 +3,7 @@ import {
   trackToQueueEntry,
   queueEntryToTrack,
   parseUrlScheme,
+  isLocalTrack,
   isRemoteTrack,
   remoteId,
   type QueueEntry,
@@ -34,6 +35,32 @@ function makeTrack(overrides: Partial<Track> = {}): Track {
   };
 }
 
+describe("isLocalTrack", () => {
+  it("returns true for file:// path", () => {
+    expect(isLocalTrack(makeTrack({ path: "file:///music/song.mp3" }))).toBe(true);
+  });
+
+  it("returns false for subsonic:// path", () => {
+    expect(isLocalTrack(makeTrack({ path: "subsonic://server.com/abc" }))).toBe(false);
+  });
+
+  it("returns false for tidal:// path", () => {
+    expect(isLocalTrack(makeTrack({ path: "tidal://12345" }))).toBe(false);
+  });
+
+  it("returns false for external:// path", () => {
+    expect(isLocalTrack(makeTrack({ path: "external://yt/abc" }))).toBe(false);
+  });
+
+  it("returns false for null path", () => {
+    expect(isLocalTrack(makeTrack({ path: null }))).toBe(false);
+  });
+
+  it("returns false for empty string path", () => {
+    expect(isLocalTrack(makeTrack({ path: "" }))).toBe(false);
+  });
+});
+
 describe("isRemoteTrack", () => {
   it("returns true for subsonic:// path", () => {
     expect(isRemoteTrack(makeTrack({ path: "subsonic://server.com/abc" }))).toBe(true);
@@ -43,8 +70,28 @@ describe("isRemoteTrack", () => {
     expect(isRemoteTrack(makeTrack({ path: "tidal://12345" }))).toBe(true);
   });
 
-  it("returns false for local file path", () => {
+  it("returns true for external:// path", () => {
+    expect(isRemoteTrack(makeTrack({ path: "external://yt/abc" }))).toBe(true);
+  });
+
+  it("returns true for http:// path", () => {
+    expect(isRemoteTrack(makeTrack({ path: "http://example.com/track.mp3" }))).toBe(true);
+  });
+
+  it("returns false for file:// path", () => {
     expect(isRemoteTrack(makeTrack({ path: "file:///music/song.mp3" }))).toBe(false);
+  });
+
+  it("returns false for null path", () => {
+    expect(isRemoteTrack(makeTrack({ path: null }))).toBe(false);
+  });
+
+  it("returns false for empty string path", () => {
+    expect(isRemoteTrack(makeTrack({ path: "" }))).toBe(false);
+  });
+
+  it("returns true for arbitrary unknown scheme", () => {
+    expect(isRemoteTrack(makeTrack({ path: "foo://bar" }))).toBe(true);
   });
 });
 

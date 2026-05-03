@@ -38,11 +38,12 @@ export function isLibraryTrack(track: Track): boolean {
   return track.id != null;
 }
 
-/**
- * Returns true if this is a remote track (subsonic:// or tidal://).
- */
+export function isLocalTrack(track: Track): boolean {
+  return !!track.path?.startsWith("file://");
+}
+
 export function isRemoteTrack(track: Track): boolean {
-  return !!track.path && (track.path.startsWith("subsonic://") || track.path.startsWith("tidal://"));
+  return !!track.path && track.path.length > 0 && !track.path.startsWith("file://");
 }
 
 /**

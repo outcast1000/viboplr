@@ -13,7 +13,7 @@ import "./App.css";
 import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
 import { isVideoTrack, parseSubsonicUrl } from "./utils";
 import { store } from "./store";
-import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, type QueueEntry } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, isLocalTrack, type QueueEntry } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext, buildSearchUrl } from "./searchProviders";
@@ -812,7 +812,7 @@ function App() {
   const handleDeleteTracks = useCallback((trackIds: number[]) => {
     const idSet = new Set(trackIds);
     const selected = library.tracks.filter(t => t.id != null && idSet.has(t.id));
-    const localIds = selected.filter(t => t.id != null && !t.path?.startsWith("subsonic://") && !t.path?.startsWith("tidal://")).map(t => t.id!);
+    const localIds = selected.filter(t => t.id != null && isLocalTrack(t)).map(t => t.id!);
     if (localIds.length === 0) return;
     const title = localIds.length === 1
       ? (selected.find(t => t.id != null && t.id === localIds[0])?.title ?? "track")
@@ -922,6 +922,9 @@ function App() {
       });
     } else if (target.kind === "queue-multi") {
       const count = target.indices.length;
+      const selectedTracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
+
+      // Queue operations — always available
       if (contextMenuActions.handleQueueRemove) {
         specs.push({ kind: "item", text: count > 1 ? `Remove ${count} tracks` : "Remove", action: contextMenuActions.handleQueueRemove });
       }
@@ -934,11 +937,13 @@ function App() {
       if (contextMenuActions.handleQueueMoveToBottom) {
         specs.push({ kind: "item", text: "Move to bottom", action: contextMenuActions.handleQueueMoveToBottom });
       }
-      if (count === 1 && target.firstTrack.hasLocalPath) {
-        specs.push({ kind: "separator" });
-        specs.push({ kind: "item", text: "Open Containing Folder", action: contextMenuActions.handleShowInFolder });
-      }
+
+      // Single-track actions
       if (count === 1) {
+        if (target.firstTrack.isLocal) {
+          specs.push({ kind: "separator" });
+          specs.push({ kind: "item", text: "Open Containing Folder", action: contextMenuActions.handleShowInFolder });
+        }
         const locateTrack = () => {
           const track = queueHook.queue[target.indices[0]];
           if (track) {
@@ -953,27 +958,65 @@ function App() {
           }
         };
         specs.push({ kind: "item", text: "Locate Track", action: locateTrack });
-      }
-      if (contextMenuActions.handleDeleteRequest) {
-        const canDelete = count === 1 ? !target.firstTrack.subsonic && target.trackIds[0] != null : true;
-        if (canDelete) {
-          specs.push({ kind: "separator" });
-          specs.push({ kind: "item", text: count > 1 ? `Delete ${count} tracks` : "Delete", action: contextMenuActions.handleDeleteRequest });
+
+        // Find in YouTube — works by metadata, any track type
+        specs.push({ kind: "item", text: "Find in YouTube", action: () => {
+          const track = queueHook.queue[target.indices[0]];
+          if (track) {
+            contextMenuActions.watchOnYoutube(track.id ?? 0, track.title, track.artist_name, track.youtube_url ?? null, track.duration_secs ?? null);
+          }
+        }});
+
+        // View Details — needs library ID
+        if (target.trackIds[0] != null) {
+          specs.push({ kind: "item", text: "View Details", action: () => library.handleTrackClick(`lib:${target.trackIds[0]}`) });
         }
       }
-      if (downloadProviderEntries.length > 0) {
-        const dlItems: MenuItemSpec[] = [];
-        dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
-          const tracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
-          if (tracks.length === 1) contextMenuActions.handleDownloadTrack(tracks[0]);
-          else if (tracks.length > 1) contextMenuActions.handleDownloadMulti(tracks);
-        }});
-        downloadProviderEntries.forEach(entry => {
-          dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "..." : ""}`, action: () => handleDownloadFromProvider(entry.id, entry.interactive) });
-        });
-        specs.push({ kind: "separator" });
-        specs.push({ kind: "submenu", text: count > 1 ? `Download ${count} tracks` : "Download", items: dlItems });
+
+      // Delete — local tracks only
+      if (contextMenuActions.handleDeleteRequest) {
+        const localDeletable = selectedTracks.filter(t => isLocalTrack(t) && t.id != null);
+        if (localDeletable.length > 0) {
+          specs.push({ kind: "separator" });
+          const deleteLabel = localDeletable.length === 1 ? "Delete" : `Delete ${localDeletable.length} local tracks`;
+          specs.push({ kind: "item", text: deleteLabel, action: contextMenuActions.handleDeleteRequest });
+        }
       }
+
+      // Download — non-local tracks only
+      if (downloadProviderEntries.length > 0) {
+        const downloadable = selectedTracks.filter(t => !isLocalTrack(t));
+        if (downloadable.length > 0) {
+          const dlItems: MenuItemSpec[] = [];
+          dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
+            if (downloadable.length === 1) contextMenuActions.handleDownloadTrack(downloadable[0]);
+            else contextMenuActions.handleDownloadMulti(downloadable);
+          }});
+          downloadProviderEntries.forEach(entry => {
+            dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "..." : ""}`, action: () => handleDownloadFromProvider(entry.id, entry.interactive) });
+          });
+          specs.push({ kind: "separator" });
+          const dlLabel = downloadable.length === 1 ? "Download" : `Download ${downloadable.length} tracks`;
+          specs.push({ kind: "submenu", text: dlLabel, items: dlItems });
+        }
+      }
+
+      // Search providers — single track only
+      if (count === 1) {
+        const contextProviders = getProvidersForContext(searchProviders, "track");
+        if (contextProviders.length > 0) {
+          const params = { title: target.firstTrack.title, artist: target.firstTrack.artistName ?? undefined };
+          const searchItems: MenuItemSpec[] = contextProviders.map(provider => ({
+            kind: "item" as const,
+            text: provider.name,
+            action: () => openUrl(buildSearchUrl(provider.trackUrl!, params)),
+          }));
+          specs.push({ kind: "separator" });
+          specs.push({ kind: "submenu", text: "Search", items: searchItems });
+        }
+      }
+
+      // Plugin actions
       const pluginTargetKind = count === 1 ? "track" : "multi-track";
       const matching = plugins.menuItems.filter(item => item.targets.includes(pluginTargetKind as "track" | "multi-track"));
       if (matching.length > 0) {
@@ -1007,20 +1050,28 @@ function App() {
       if (isMulti && contextMenuActions.handleBulkEdit) {
         specs.push({ kind: "item", text: "Edit Properties", action: contextMenuActions.handleBulkEdit });
       }
-      if (target.kind === "track" && target.trackId && !target.subsonic && !target.tidal && !target.external) {
+      if (target.kind === "track" && target.isLocal) {
         specs.push({ kind: "item", text: "Open Containing Folder", action: contextMenuActions.handleShowInFolder });
       }
-      if (target.kind === "track" && target.trackId && !target.external && contextMenuActions.handleWatchOnYoutube) {
+      if (target.kind === "track" && target.trackId && contextMenuActions.handleWatchOnYoutube) {
         specs.push({ kind: "item", text: "Find in YouTube", action: contextMenuActions.handleWatchOnYoutube });
       }
-      if (target.kind === "track" && target.trackId && !target.external) {
+      if (target.kind === "track" && target.trackId) {
         specs.push({ kind: "item", text: "View Details", action: () => library.handleTrackClick(`lib:${target.trackId}`) });
       }
-      if (contextMenuActions.handleDeleteRequest && (target.kind === "track" && target.trackId && !target.subsonic && !target.tidal && !target.external || target.kind === "multi-track")) {
-        specs.push({ kind: "separator" });
-        specs.push({ kind: "item", text: isMulti ? `Delete ${target.trackIds.length} tracks` : "Delete", action: contextMenuActions.handleDeleteRequest });
+      if (contextMenuActions.handleDeleteRequest && (target.kind === "track" && target.isLocal || target.kind === "multi-track")) {
+        if (target.kind === "track") {
+          specs.push({ kind: "separator" });
+          specs.push({ kind: "item", text: "Delete", action: contextMenuActions.handleDeleteRequest });
+        } else {
+          const localCount = library.tracks.filter(t => target.trackIds.includes(t.id!) && isLocalTrack(t)).length;
+          if (localCount > 0) {
+            specs.push({ kind: "separator" });
+            specs.push({ kind: "item", text: `Delete ${localCount} local track${localCount > 1 ? "s" : ""}`, action: contextMenuActions.handleDeleteRequest });
+          }
+        }
       }
-      if (target.kind === "track" && downloadProviderEntries.length > 0) {
+      if (target.kind === "track" && !target.isLocal && downloadProviderEntries.length > 0) {
         const dlItems: MenuItemSpec[] = [];
         dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
           if (target.trackId) {
@@ -1300,7 +1351,7 @@ function App() {
   useEffect(() => {
     if (playback.playbackError && playback.failedTrack) {
       const t = playback.failedTrack;
-      const src = t.path?.startsWith("tidal://") ? "TIDAL" : t.path?.startsWith("subsonic://") ? "Subsonic" : "local";
+      const src = t.path?.startsWith("subsonic://") ? "Subsonic" : isLocalTrack(t) ? "Local" : "Remote";
       addLog(`Playback failed (${src}): ${t.artist_name ? t.artist_name + " — " : ""}${t.title}: ${playback.playbackError}`, "playback");
     }
   }, [playback.playbackError, playback.failedTrack, addLog]);
@@ -3018,10 +3069,10 @@ function App() {
                   plugins.dispatchUIAction(pluginId, actionId, actionData);
                 }}
                 onTrackContextMenu={(e, track) => {
-                  buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, subsonic: track.path?.startsWith("subsonic://"), tidal: track.path?.startsWith("tidal://"), external: track.id == null, title: track.title, artistName: track.artist_name } });
+                  buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name } });
                 }}
                 onTrackRowContextMenu={(e, item) => {
-                  buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: 0, subsonic: false, title: item.title, artistName: item.subtitle ?? null, external: true } });
+                  buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: undefined, isLocal: false, title: item.title, artistName: item.subtitle ?? null } });
                 }}
                 pluginMenuItems={plugins.menuItems}
                 onPluginAction={plugins.dispatchContextMenuAction}
@@ -3240,7 +3291,7 @@ function App() {
             buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: {
               kind: "queue-multi", indices,
               trackIds: tracks.map(t => t.id).filter((id): id is number => id != null),
-              firstTrack: first ? { title: first.title, artistName: first.artist_name, subsonic: !!first.path?.startsWith("subsonic://"), hasLocalPath: !!first.path && !first.path.startsWith("subsonic://") && !first.path.startsWith("tidal://") } : { title: "", artistName: null, subsonic: false },
+              firstTrack: first ? { title: first.title, artistName: first.artist_name, isLocal: isLocalTrack(first) } : { title: "", artistName: null, isLocal: false },
             } });
           }}
           albumImages={albumImageCache.images}

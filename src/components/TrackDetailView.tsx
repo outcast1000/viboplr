@@ -6,6 +6,7 @@ import type { Track, Collection } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext } from "../searchProviders";
+import { isLocalTrack } from "../queueEntry";
 import { IconFolder, IconLastfm, IconYoutube } from "./Icons";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { ImageActions } from "./ImageActions";
@@ -452,7 +453,7 @@ export function TrackDetailView({
                       <span className="track-details-label">Path</span>
                       <span className="track-details-value track-details-path">
                         <span className="track-detail-path-text">{track.path}</span>
-                        {!track.path.startsWith("subsonic://") && !track.path.startsWith("tidal://") && (
+                        {isLocalTrack(track) && (
                           <button className="track-detail-path-btn" onClick={onShowInFolder} title="Show in folder">
                             <IconFolder size={12} />
                           </button>

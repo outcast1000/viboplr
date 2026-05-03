@@ -639,7 +639,7 @@ export function NowPlayingBar({
           // yt-dlp stream URLs are opaque googlevideo; prefer the youtube_url the track carries
           externalUrl = currentTrack.youtube_url || resolvedSource.url;
           externalLabel = "Open on YouTube";
-        } else if (currentTrack.youtube_url && !isTidal && !isSubsonic && !isLocal) {
+        } else if (currentTrack.youtube_url && !isSubsonic && !isLocal) {
           externalUrl = currentTrack.youtube_url;
           externalLabel = "Open on YouTube";
         } else if (isTidal) {
