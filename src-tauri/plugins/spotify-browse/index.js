@@ -281,6 +281,8 @@ function activate(api) {
         description: pl.description || "",
         coverFile: "cover.jpg",
         archivedAt: now.toISOString(),
+        lastCheckedAt: pl.lastCheckedAt || null,
+        updatedAt: pl.updatedAt || null,
         trackCount: tracks.length,
       };
       return api.storage.files.writeJson(dstDir.concat(["meta.json"]), meta);
@@ -475,7 +477,7 @@ function activate(api) {
             section: meta.section || sectionName,
             description: meta.description || "",
             imageUrl: coverPath || null,
-            uri: "spotify:playlist:" + meta.id,
+            uri: "spotify://playlists/" + meta.id,
             lastCheckedAt: meta.lastCheckedAt || null,
             updatedAt: meta.updatedAt || null,
           };
@@ -1108,7 +1110,7 @@ function activate(api) {
       'var lnm=la.textContent.trim();' +
       'var limg=findImgContainer(la);' +
       '_dbg("playlists","link["+i+"] found",{id:lm[1],name:lnm,href:la.getAttribute("href"),hasImg:!!limg});' +
-      'if(lnm)out.push({id:lm[1],name:lnm,description:"",imageUrl:limg,uri:"spotify:playlist:"+lm[1]});' +
+      'if(lnm)out.push({id:lm[1],name:lnm,description:"",imageUrl:limg,uri:"spotify://playlists/"+lm[1]});' +
     '}' +
     '_dbg("playlists","DONE",{total:out.length,names:out.map(function(p){return p.name})});' +
     'window.__viboplr.send("playlists",out);' +
@@ -1935,6 +1937,7 @@ function activate(api) {
     var meta = {};
     if (pl.section) meta.Section = pl.section;
     if (pl.description) meta.Description = pl.description;
+    if (pl.updatedAt) meta["Updated"] = new Date(pl.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
     var name = pl.name;
     var ts = pl.lastCheckedAt || pl.updatedAt;
     if (ts) {
@@ -1946,7 +1949,7 @@ function activate(api) {
     return {
       playlistName: name,
       coverUrl: pl.imageUrl || undefined,
-      source: "spotify:playlist:" + pl.id,
+      source: "spotify://playlists/" + pl.id,
       metadata: meta,
     };
   }
@@ -2044,7 +2047,7 @@ function activate(api) {
 
     api.playlists.save({
       name: name,
-      source: "spotify-playlist://" + pl.id,
+      source: "spotify://playlists/" + pl.id,
       imageUrl: pl.imageUrl || null,
       tracks: trackPayloads,
     }).then(function() {
@@ -2142,11 +2145,14 @@ function activate(api) {
       if (!tracks.length) return;
       var meta = {};
       if (entry.section) meta.Section = entry.section;
-      if (entry.archivedAt) meta["Archived"] = entry.archivedAt;
+      if (entry.description) meta.Description = entry.description;
+      if (entry.archivedAt) meta["Archived"] = new Date(entry.archivedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+      if (entry.updatedAt) meta["Updated"] = new Date(entry.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+      if (entry.lastCheckedAt) meta["Retrieved"] = new Date(entry.lastCheckedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
       api.playback.playTracks(archivedToPluginTracks(tracks), 0, {
         name: entry.name,
         coverUrl: entry.imageUrl || null,
-        source: entry.spotifyId ? "spotify:playlist:" + entry.spotifyId : null,
+        source: entry.spotifyId ? "spotify://playlists/" + entry.spotifyId : null,
         metadata: meta,
       });
     }).catch(function (e) { console.error("Failed to play archive:", e); });
