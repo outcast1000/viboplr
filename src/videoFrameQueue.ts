@@ -54,6 +54,7 @@ export class VideoFrameQueue {
   enqueue(trackId: number): void {
     const current = this.entries.get(trackId);
     if (current && current.status !== "idle") return;
+    console.debug(`[VideoFrameQueue] enqueue track=${trackId} pending=${this.pending.length} processing=${this.processing}`);
     this.setEntry(trackId, { status: "loading" });
     this.cancelled.delete(trackId);
     void this.checkCache(trackId);
@@ -62,8 +63,10 @@ export class VideoFrameQueue {
   cancel(trackId: number): void {
     const current = this.entries.get(trackId);
     if (!current || current.status !== "loading") return;
+    console.debug(`[VideoFrameQueue] cancel track=${trackId}`);
     this.pending = this.pending.filter((id) => id !== trackId);
     this.cancelled.add(trackId);
+    this.setEntry(trackId, IDLE);
   }
 
   evict(trackId: number): void {
@@ -97,6 +100,7 @@ export class VideoFrameQueue {
     try {
       const cached = (await this.invoke("get_video_frames", { trackId })) as VideoFrameResult | null;
       if (cached && cached.status === "ok" && cached.paths) {
+        console.debug(`[VideoFrameQueue] cache hit track=${trackId}`);
         this.setEntry(trackId, this.toReady(cached));
         return;
       }
@@ -105,6 +109,12 @@ export class VideoFrameQueue {
       this.setEntry(trackId, { status: "unavailable" });
       return;
     }
+    const current = this.entries.get(trackId);
+    if (!current || current.status !== "loading") {
+      console.debug(`[VideoFrameQueue] cache miss but cancelled before queuing track=${trackId}`);
+      return;
+    }
+    console.debug(`[VideoFrameQueue] cache miss, queuing extraction track=${trackId} pending=${this.pending.length}`);
     this.pending.push(trackId);
     this.pump();
   }
@@ -114,11 +124,13 @@ export class VideoFrameQueue {
     const next = this.pending.shift();
     if (next === undefined) return;
     if (this.cancelled.has(next)) {
+      console.debug(`[VideoFrameQueue] skipping cancelled track=${next} pending=${this.pending.length}`);
       this.cancelled.delete(next);
       this.setEntry(next, { status: "idle" });
       this.pump();
       return;
     }
+    console.debug(`[VideoFrameQueue] extracting track=${next} pending=${this.pending.length}`);
     this.processing = true;
     this.inflightPromise = this.extract(next).finally(() => {
       this.processing = false;
@@ -129,6 +141,7 @@ export class VideoFrameQueue {
   private async extract(trackId: number): Promise<void> {
     try {
       const res = (await this.invoke("extract_video_frames", { trackId })) as VideoFrameResult;
+      console.debug(`[VideoFrameQueue] extracted track=${trackId} status=${res.status}`);
       this.setEntry(trackId, this.toReady(res));
     } catch (e) {
       console.error("Failed to extract video frames:", e);
