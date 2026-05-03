@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { getInitials } from "../utils";
 import type { Artist, Album, Track, ColumnConfig, SortField } from "../types";
+import type { PlaylistContext } from "../hooks/useQueue";
 import type { SearchProviderConfig } from "../searchProviders";
 import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { AlbumCardArt } from "./AlbumCardArt";
@@ -32,7 +33,7 @@ interface ArtistDetailContentProps {
   highlightedIndex: number;
   sortField: SortField | null;
   trackListRef: React.RefObject<HTMLDivElement | null>;
-  onPlayTracks: (tracks: Track[], index: number, context?: { name: string; imagePath?: string | null } | null) => void;
+  onPlayTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
   onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<string>) => void;
   onArtistClick: (id: number) => void;
   onAlbumClick: (id: number) => void;
@@ -158,7 +159,7 @@ export function ArtistDetailContent({
               <button
                 className="detail-art-play"
                 title="Play All"
-                onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0, { name: artist?.name ?? "Unknown", imagePath: artistImagePath })}
+                onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0, { name: artist?.name ?? "Unknown", imagePath: artistImagePath, source: "artist" })}
               >
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
               </button>

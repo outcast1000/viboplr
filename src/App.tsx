@@ -2236,6 +2236,28 @@ function App() {
     }
   }, [queueHook.playTracks, queueHook.setPlaylistContext]);
 
+  const handleArtistPlayTracks = useCallback((tracks: Track[], index: number, context?: PlaylistContext | null) => {
+    queueHook.playTracks(tracks, index, context);
+    if (context?.source === "artist") {
+      const entityKey = `artist:${context.name}`;
+      invoke<[number, string, string, string, number][]>("info_get_values_for_entity", { entityKey })
+        .then(rows => {
+          const bio = rows.find(([, typeId]) => typeId === "artist_bio");
+          if (!bio) return;
+          const [, , valueJson, status] = bio;
+          if (status !== "ok") return;
+          try {
+            const parsed = JSON.parse(valueJson);
+            const summary = parsed.summary || parsed.full || "";
+            if (summary) {
+              queueHook.setPlaylistContext(prev => prev ? { ...prev, description: summary } : prev);
+            }
+          } catch { /* ignore parse errors */ }
+        })
+        .catch(console.error);
+    }
+  }, [queueHook.playTracks, queueHook.setPlaylistContext]);
+
   function handleSaveAsPlaylist() {
     if (queueHook.queue.length === 0) return;
     setEditPlaylistMode(false);
@@ -2714,7 +2736,7 @@ function App() {
                 highlightedIndex={highlightedIndex}
                 sortField={sortField}
                 trackListRef={trackListRef}
-                onPlayTracks={queueHook.playTracks}
+                onPlayTracks={handleArtistPlayTracks}
                 onTrackContextMenu={contextMenuActions.handleTrackContextMenu}
                 onArtistClick={library.handleArtistClick}
                 onAlbumClick={library.handleAlbumClick}

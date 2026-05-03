@@ -281,6 +281,116 @@ describe("full Spotify → Mixtape → Queue roundtrip", () => {
   });
 });
 
+describe("album → queue → mixtape → queue roundtrip", () => {
+  it("preserves album source, description (review), and metadata through the full trip", () => {
+    // Step 1: AlbumDetailHeader builds context; handleAlbumPlayTracks enriches with cached review
+    const albumContext = {
+      name: "OK Computer",
+      imagePath: "/images/albums/ok-computer.jpg",
+      source: "album",
+      description: "Radiohead's third studio album, released in 1997, is widely regarded as one of the greatest albums of all time.",
+      metadata: { artist: "Radiohead", year: "1997" },
+    };
+
+    const track = makeTrack({ path: "file:///music/paranoid-android.flac" });
+
+    // Step 2: Queue persists to main-playlist manifest (app restart)
+    const manifest = buildManifest([track], albumContext);
+    expect(manifest.metadata.source).toBe("album");
+    expect(manifest.metadata.description).toBe(albumContext.description);
+    expect(manifest.metadata.artist).toBe("Radiohead");
+    expect(manifest.metadata.year).toBe("1997");
+
+    const restoredFromDisk = contextFromManifest(manifest, "/profile/main-playlist");
+    expect(restoredFromDisk!.source).toBe("album");
+    expect(restoredFromDisk!.description).toBe(albumContext.description);
+    expect(restoredFromDisk!.metadata).toEqual({ artist: "Radiohead", year: "1997" });
+
+    // Step 3: Export as mixtape
+    const exportMeta = contextToExportMetadata(restoredFromDisk);
+    expect(exportMeta).toEqual({
+      source: "album",
+      description: albumContext.description,
+      artist: "Radiohead",
+      year: "1997",
+    });
+
+    // Step 4: Re-import from mixtape
+    const reimported = contextFromMixtapeMetadata(
+      restoredFromDisk!.name,
+      restoredFromDisk!.imagePath ?? null,
+      exportMeta,
+    );
+    expect(reimported.name).toBe("OK Computer");
+    expect(reimported.source).toBe("album");
+    expect(reimported.description).toBe(albumContext.description);
+    expect(reimported.metadata).toEqual({ artist: "Radiohead", year: "1997" });
+  });
+});
+
+describe("artist → queue → mixtape → queue roundtrip", () => {
+  it("preserves artist source, description (bio), and name through the full trip", () => {
+    // Step 1: ArtistDetailContent builds context; handleArtistPlayTracks enriches with cached bio
+    const artistContext = {
+      name: "Radiohead",
+      imagePath: "/images/artists/radiohead.jpg",
+      source: "artist",
+      description: "Radiohead are an English rock band formed in Abingdon, Oxfordshire, in 1985.",
+    };
+
+    const track = makeTrack({ path: "file:///music/creep.flac" });
+
+    // Step 2: Queue persists to manifest
+    const manifest = buildManifest([track], artistContext);
+    expect(manifest.metadata.source).toBe("artist");
+    expect(manifest.metadata.description).toBe(artistContext.description);
+
+    const restoredFromDisk = contextFromManifest(manifest, "/profile/main-playlist");
+    expect(restoredFromDisk!.source).toBe("artist");
+    expect(restoredFromDisk!.description).toBe(artistContext.description);
+    expect(restoredFromDisk!.metadata).toBeNull();
+
+    // Step 3: Export as mixtape
+    const exportMeta = contextToExportMetadata(restoredFromDisk);
+    expect(exportMeta).toEqual({
+      source: "artist",
+      description: artistContext.description,
+    });
+
+    // Step 4: Re-import from mixtape
+    const reimported = contextFromMixtapeMetadata(
+      restoredFromDisk!.name,
+      restoredFromDisk!.imagePath ?? null,
+      exportMeta,
+    );
+    expect(reimported.name).toBe("Radiohead");
+    expect(reimported.source).toBe("artist");
+    expect(reimported.description).toBe(artistContext.description);
+    expect(reimported.metadata).toBeNull();
+  });
+
+  it("handles artist with no cached bio gracefully", () => {
+    const artistContext = {
+      name: "Unknown Artist",
+      imagePath: null,
+      source: "artist",
+    };
+
+    const manifest = buildManifest([], artistContext);
+    const restored = contextFromManifest(manifest, null);
+    expect(restored!.source).toBe("artist");
+    expect(restored!.description).toBeNull();
+
+    const exportMeta = contextToExportMetadata(restored);
+    expect(exportMeta).toEqual({ source: "artist" });
+
+    const reimported = contextFromMixtapeMetadata("Unknown Artist", null, exportMeta);
+    expect(reimported.source).toBe("artist");
+    expect(reimported.description).toBeNull();
+    expect(reimported.metadata).toBeNull();
+  });
+});
+
 describe("thumbFilenameForUri", () => {
   it("matches backend canonical_slug: colons and slashes are deleted", () => {
     expect(thumbFilenameForUri("tidal://12345")).toBe("tidal12345.jpg");
