@@ -660,7 +660,7 @@ function App() {
   const [searchDeletedBatch, setSearchDeletedBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
 
   // Updater
-  const updater = useAppUpdater(addLog);
+  const updater = useAppUpdater(addLog, playback.handleStop);
 
   // Skins
   const skins = useSkins();

@@ -11,7 +11,7 @@ export interface UpdateState {
   upToDate: boolean;
 }
 
-export function useAppUpdater(addLog: (msg: string, module?: string) => void) {
+export function useAppUpdater(addLog: (msg: string, module?: string) => void, onBeforeInstall?: () => void) {
   const [appVersion, setAppVersion] = useState("");
   const [updateState, setUpdateState] = useState<UpdateState>({
     available: null,
@@ -58,6 +58,8 @@ export function useAppUpdater(addLog: (msg: string, module?: string) => void) {
     if (!update) return;
     setUpdateState(s => ({ ...s, downloading: true, progress: null }));
     try {
+      onBeforeInstall?.();
+      await new Promise((r) => setTimeout(r, 300));
       await update.downloadAndInstall((event) => {
         if (event.event === "Started" && event.data.contentLength) {
           setUpdateState(s => ({ ...s, progress: { downloaded: 0, total: event.data.contentLength! } }));
