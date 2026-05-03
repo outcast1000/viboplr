@@ -1360,7 +1360,6 @@ pub fn run() {
                 app.manage(AppState {
                     db,
                     app_dir,
-                    app_data_dir,
                     profile_name,
                     download_queue,
                     track_download_manager: dl_manager,
@@ -1369,7 +1368,6 @@ pub fn run() {
                     download_resolve_registry: dl_resolve_registry_for_state,
                     direct_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                    update_checker_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     resyncing_collections: Arc::clone(&resyncing_collections),
                 });
             });

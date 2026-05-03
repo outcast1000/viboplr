@@ -870,6 +870,7 @@ impl Database {
     }
 
 
+    #[cfg(any(debug_assertions, test))]
     pub fn clear_database(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch(
@@ -2106,25 +2107,6 @@ impl Database {
         result
     }
 
-    pub fn get_track_by_remote_id(
-        &self,
-        remote_id: &str,
-        collection_id: i64,
-    ) -> SqlResult<Option<Track>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(&format!(
-            "{} WHERE t.path = ?1 AND t.collection_id = ?2",
-            TRACK_SELECT
-        ))?;
-        let track = stmt
-            .query_map(params![remote_id, collection_id], |row| {
-                track_from_row(row)
-            })?
-            .filter_map(|r| r.ok())
-            .next();
-        Ok(track)
-    }
-
     pub fn get_tracks_by_ids(&self, ids: &[i64]) -> SqlResult<Vec<Track>> {
         if ids.is_empty() {
             return Ok(vec![]);
@@ -2419,6 +2401,7 @@ impl Database {
 
     // --- Play history ---
 
+    #[cfg(test)]
     pub fn record_play(&self, track_id: i64) -> SqlResult<()> {
         self.record_history_play(track_id)
     }
@@ -2517,6 +2500,7 @@ impl Database {
 
     // --- Decoupled history ---
 
+    #[cfg(test)]
     pub fn record_history_play(&self, track_id: i64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
 
@@ -3232,16 +3216,6 @@ impl Database {
         Ok(())
     }
 
-    /// Delete all cached values for a given type_id string (across all providers and entities).
-    pub fn info_delete_values_for_type(&self, type_id: &str) -> SqlResult<usize> {
-        let conn = self.conn.lock().unwrap();
-        let count = conn.execute(
-            "DELETE FROM information_values
-             WHERE information_type_id IN (SELECT id FROM information_types WHERE type_id = ?1)",
-            [type_id],
-        )?;
-        Ok(count)
-    }
 
     // ── Image Providers ─────────────────────────────────────────
 
@@ -4459,25 +4433,6 @@ mod tests {
         assert_eq!(values[0].0, int_id);           // integer id
         assert_eq!(values[0].1, "artist_bio");     // string type_id
         assert_eq!(values[0].3, "ok");             // status
-    }
-
-    #[test]
-    fn test_info_delete_values_for_type_by_string() {
-        let db = test_db();
-
-        db.info_sync_types(&[
-            ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
-             "lastfm".into(), 7776000, 200, 100, String::new()),
-        ]).unwrap();
-        let types = db.info_get_types_for_entity("artist").unwrap();
-        let int_id = types[0].5[0].1;
-
-        db.info_upsert_value(int_id, "artist:Daft Punk", r#"{"summary":"bio"}"#, "ok").unwrap();
-        db.info_upsert_value(int_id, "artist:Radiohead", r#"{"summary":"bio2"}"#, "ok").unwrap();
-
-        let count = db.info_delete_values_for_type("artist_bio").unwrap();
-        assert_eq!(count, 2);
-        assert!(db.info_get_value(int_id, "artist:Daft Punk").unwrap().is_none());
     }
 
     #[test]

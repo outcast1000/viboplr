@@ -52,7 +52,6 @@ pub struct ImageResolveRegistry {
 pub struct AppState {
     pub db: Arc<Database>,
     pub app_dir: std::path::PathBuf,
-    pub app_data_dir: std::path::PathBuf,
     pub profile_name: String,
     pub download_queue: Arc<DownloadQueue>,
     pub track_download_manager: Arc<DownloadManager>,
@@ -61,7 +60,6 @@ pub struct AppState {
     pub download_resolve_registry: Arc<DownloadResolveRegistry>,
     pub direct_download_cancel: Arc<AtomicBool>,
     pub mixtape_cancel: Arc<AtomicBool>,
-    pub update_checker_cancel: Arc<AtomicBool>,
     pub resyncing_collections: Arc<Mutex<HashSet<i64>>>,
 }
 
@@ -2665,15 +2663,6 @@ pub async fn save_track_as_copy(
     }).await.map_err(|e| e.to_string())?
 }
 
-fn resolve_cover_url(db: &Arc<Database>, track: &Track, collection_id: i64) -> Option<String> {
-    // For TIDAL tracks, try to find cover_id from the track path pattern tidal://{coll_id}/{tidal_id}
-    // The cover_id isn't stored in the tracks table, so we look it up from the album
-    // For now, return None -- the download pipeline will still work without embedded art
-    // TODO: store cover_id in a metadata field or look up via TIDAL API
-    let _ = (db, track, collection_id);
-    None
-}
-
 #[tauri::command]
 pub fn get_cached_waveform(state: State<'_, AppState>, key: String) -> Option<serde_json::Value> {
     let hash = format!("{:x}", md5::compute(&key));
@@ -4504,7 +4493,6 @@ mod tests {
         AppState {
             db: Arc::new(db),
             app_dir: std::path::PathBuf::from("/tmp/viboplr-test"),
-            app_data_dir: std::path::PathBuf::from("/tmp/viboplr-test"),
             profile_name: "default".to_string(),
             download_queue: Arc::new(DownloadQueue {
                 queue: Mutex::new(Vec::new()),
@@ -4518,7 +4506,6 @@ mod tests {
             download_resolve_registry: Arc::new(DownloadResolveRegistry::new()),
             direct_download_cancel: Arc::new(AtomicBool::new(false)),
             mixtape_cancel: Arc::new(AtomicBool::new(false)),
-            update_checker_cancel: Arc::new(AtomicBool::new(false)),
             resyncing_collections: Arc::new(Mutex::new(HashSet::new())),
 
         }

@@ -359,6 +359,7 @@ pub struct MixtapePlaylistExportOptions {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MixtapeExportTrackInput {
+    #[allow(dead_code)]
     pub id: Option<i64>,
     pub title: String,
     pub artist: Option<String>,

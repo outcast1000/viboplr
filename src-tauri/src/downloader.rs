@@ -34,13 +34,6 @@ impl DownloadFormat {
         }
     }
 
-    pub fn tidal_quality(&self) -> &'static str {
-        match self {
-            Self::Flac => "LOSSLESS",
-            Self::Aac | Self::Mp3 => "HIGH",
-        }
-    }
-
     pub fn subsonic_format_param(&self) -> Option<&'static str> {
         match self {
             Self::Flac => None, // raw/original
@@ -763,13 +756,6 @@ mod tests {
         assert_eq!(DownloadFormat::Flac.extension(), "flac");
         assert_eq!(DownloadFormat::Aac.extension(), "m4a");
         assert_eq!(DownloadFormat::Mp3.extension(), "mp3");
-    }
-
-    #[test]
-    fn test_download_format_tidal_quality() {
-        assert_eq!(DownloadFormat::Flac.tidal_quality(), "LOSSLESS");
-        assert_eq!(DownloadFormat::Aac.tidal_quality(), "HIGH");
-        assert_eq!(DownloadFormat::Mp3.tidal_quality(), "HIGH");
     }
 
     #[test]
