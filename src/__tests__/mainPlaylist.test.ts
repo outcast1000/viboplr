@@ -391,6 +391,51 @@ describe("artist → queue → mixtape → queue roundtrip", () => {
   });
 });
 
+describe("TIDAL album → queue → mixtape → queue roundtrip", () => {
+  it("preserves tidal source and album metadata through the full trip", () => {
+    // Step 1: TIDAL plugin builds context with source and metadata
+    const tidalContext = {
+      name: "OK Computer - Radiohead",
+      source: "tidal://albums/12345",
+      metadata: { artist: "Radiohead", year: "1997", tidalId: "12345" },
+      remote: true,
+    };
+
+    const track = makeTrack({ path: "tidal://67890" });
+
+    // Step 2: Queue persists to manifest (app restart)
+    const manifest = buildManifest([track], tidalContext);
+    expect(manifest.metadata.source).toBe("tidal://albums/12345");
+    expect(manifest.metadata.artist).toBe("Radiohead");
+    expect(manifest.metadata.tidalId).toBe("12345");
+    expect(manifest.tracks[0].thumb).toBe("thumbs/tidal67890.jpg");
+
+    const restored = contextFromManifest(manifest, "/profile/main-playlist");
+    expect(restored!.source).toBe("tidal://albums/12345");
+    expect(restored!.metadata).toEqual({ artist: "Radiohead", year: "1997", tidalId: "12345" });
+    expect(restored!.remote).toBe(true);
+
+    // Step 3: Export as mixtape
+    const exportMeta = contextToExportMetadata(restored);
+    expect(exportMeta).toEqual({
+      source: "tidal://albums/12345",
+      artist: "Radiohead",
+      year: "1997",
+      tidalId: "12345",
+    });
+
+    // Step 4: Re-import from mixtape
+    const reimported = contextFromMixtapeMetadata(
+      restored!.name,
+      restored!.imagePath ?? null,
+      exportMeta,
+    );
+    expect(reimported.name).toBe("OK Computer - Radiohead");
+    expect(reimported.source).toBe("tidal://albums/12345");
+    expect(reimported.metadata).toEqual({ artist: "Radiohead", year: "1997", tidalId: "12345" });
+  });
+});
+
 describe("thumbFilenameForUri", () => {
   it("matches backend canonical_slug: colons and slashes are deleted", () => {
     expect(thumbFilenameForUri("tidal://12345")).toBe("tidal12345.jpg");

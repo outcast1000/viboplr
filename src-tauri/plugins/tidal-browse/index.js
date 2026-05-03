@@ -808,9 +808,15 @@ function activate(api) {
     tidalGetAlbum(albumId).then(function (album) {
       api.ui.requestAction("hide-loading", {});
       if (album && album.tracks && album.tracks.length > 0) {
+        var meta = {};
+        if (album.artist_name) meta.artist = album.artist_name;
+        if (album.year) meta.year = String(album.year);
+        if (album.tidal_id) meta.tidalId = album.tidal_id;
         api.playback.playTracks(album.tracks.map(toPluginTrack), 0, {
           name: album.title + (album.artist_name ? " - " + album.artist_name : ""),
           coverUrl: coverUrl(album.cover_id, 320),
+          source: "tidal://albums/" + albumId,
+          metadata: meta,
         });
       }
     }).catch(function (err) {
@@ -848,9 +854,15 @@ function activate(api) {
   api.ui.onAction("play-album", function () {
     var album = state.albumDetail;
     if (album && album.tracks && album.tracks.length > 0) {
+      var meta = {};
+      if (album.artist_name) meta.artist = album.artist_name;
+      if (album.year) meta.year = String(album.year);
+      if (album.tidal_id) meta.tidalId = album.tidal_id;
       api.playback.playTracks(album.tracks.map(toPluginTrack), 0, {
         name: album.title + (album.artist_name ? " - " + album.artist_name : ""),
         coverUrl: coverUrl(album.cover_id, 320),
+        source: "tidal://albums/" + album.tidal_id,
+        metadata: meta,
       });
     }
   });
