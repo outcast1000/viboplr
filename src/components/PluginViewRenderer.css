@@ -364,17 +364,6 @@
   pointer-events: none;
 }
 
-.plugin-layout-horizontal {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-}
-
-.plugin-layout-vertical {
-  display: flex;
-  flex-direction: column;
-}
-
 .plugin-spacer {
   height: 16px;
 }

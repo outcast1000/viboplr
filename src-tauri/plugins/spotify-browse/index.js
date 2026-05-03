@@ -322,7 +322,6 @@ function activate(api) {
   function savePlaylist(pl) {
     var dir = playlistDir(pl);
     var tracks = state.playlistTracks[pl.id] || [];
-    if (!pl.updatedAt) pl.updatedAt = new Date().toISOString();
 
     var metaP = api.storage.files.writeJson(dir.concat(["meta.json"]), {
       id: pl.id,
@@ -330,7 +329,7 @@ function activate(api) {
       section: pl.section || null,
       description: pl.description || "",
       coverFile: "cover.jpg",
-      updatedAt: pl.updatedAt,
+      updatedAt: new Date().toISOString(),
     }).catch(function (e) { console.error("Failed to write meta:", pl.id, e); });
 
     var tracksP = api.storage.files.writeJson(dir.concat(["tracks.json"]), serializeTracks(tracks))
@@ -478,7 +477,6 @@ function activate(api) {
             description: meta.description || "",
             imageUrl: coverPath || null,
             uri: "spotify:playlist:" + meta.id,
-            updatedAt: meta.updatedAt || null,
           };
           return { playlist: playlist, tracks: tracks };
         });
@@ -552,75 +550,44 @@ function activate(api) {
   }
 
   function buildToolbar() {
-    return {
-      type: "toolbar",
-      title: "Spotify",
-    };
-  }
-
-  function buildStatusBar() {
+    var buttons = [];
     var isActive = isActiveStatus();
-    var linkStyle = "font-size:var(--fs-2xs);color:var(--accent);cursor:pointer;text-decoration:none";
-    var checkStyle = "font-size:var(--fs-2xs);color:var(--text-secondary);cursor:pointer;text-decoration:none;opacity:0.7";
+
+    if (isActive) {
+      buttons.push({ label: "Cancel", action: "cancel" });
+    } else {
+      buttons.push({ label: "Sync", action: "sync" });
+    }
+
+    // Always show a browser-visibility toggle for debugging scrapes.
+    buttons.push({
+      label: state.showBrowserOnRefresh ? "Hide browser during refresh" : "Show browser during refresh",
+      action: "toggle-show-browser-pref",
+      variant: "secondary",
+    });
 
     var statusText = "";
+    var statusVariant = "default";
+
     if (isActive) {
       statusText = getStatusText();
     } else if (state.status === "error") {
       statusText = state.errorMessage;
+      statusVariant = "error";
     } else if (state.refreshSummary) {
       statusText = state.refreshSummary;
     } else if (state.lastCheckAt) {
       var relTime = formatRelativeTime(state.lastCheckAt);
       statusText = "Last check " + relTime;
-      if (state.lastCheckResult) statusText += " · " + state.lastCheckResult;
-    }
-
-    var statusColor = state.status === "error" ? "var(--error)" : "var(--text-tertiary)";
-    var statusSpan = statusText
-      ? "<span style='font-size:var(--fs-2xs);color:" + statusColor + ";overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" + statusText + "</span>"
-      : "";
-
-    var syncLabel = isActive ? "Cancel" : "Sync";
-    var syncAction = isActive ? "cancel" : "sync";
-    var checkmark = state.showBrowserOnRefresh ? "☑" : "☐";
-
-    var children = [];
-    children.push({
-      type: "button",
-      label: syncLabel,
-      action: syncAction,
-      variant: "secondary",
-      style: { "font-size": "var(--fs-2xs)", "padding": "0 6px", "height": "16px", "line-height": "16px", "min-height": "0" },
-    });
-    children.push({
-      type: "button",
-      label: checkmark + " Browser",
-      action: "toggle-show-browser-pref",
-      variant: "secondary",
-      style: { "font-size": "var(--fs-2xs)", "padding": "0 6px", "height": "16px", "line-height": "16px", "min-height": "0", "opacity": "0.7" },
-    });
-    if (statusSpan) {
-      children.push({
-        type: "text",
-        content: statusSpan,
-        style: { "flex": "1", "min-width": "0", "text-align": "right" },
-      });
+      if (state.lastCheckResult) statusText += " — " + state.lastCheckResult;
     }
 
     return {
-      type: "layout",
-      direction: "horizontal",
-      style: {
-        "align-items": "center",
-        "gap": "6px",
-        "height": "22px",
-        "padding": "0 10px",
-        "background": "var(--bg-secondary)",
-        "border-top": "1px solid var(--border)",
-        "flex-shrink": "0",
-      },
-      children: children,
+      type: "toolbar",
+      title: "Spotify",
+      buttons: buttons,
+      status: statusText || undefined,
+      statusVariant: statusVariant,
     };
   }
 
@@ -773,11 +740,10 @@ function activate(api) {
       });
     }
 
-    view.push({ type: "layout", direction: "vertical", style: { "flex": "1", "min-height": "0" }, children: ch });
-    view.push(buildStatusBar());
+    view.push({ type: "layout", direction: "vertical", children: ch });
 
     api.ui.setViewData("spotify", {
-      type: "layout", direction: "vertical", style: { "height": "100%" }, children: view
+      type: "layout", direction: "vertical", children: view
     });
   }
 
@@ -1598,11 +1564,6 @@ function activate(api) {
     }
     state.previousTracks = prevSnapshot;
 
-    var oldPlaylistMap = {};
-    for (var oi = 0; oi < state.playlists.length; oi++) {
-      oldPlaylistMap[state.playlists[oi].id] = state.playlists[oi];
-    }
-
     for (var i = 0; i < newPlaylists.length; i++) {
       var pl = newPlaylists[i];
       var oldTracks = prevSnapshot[pl.id];
@@ -1611,9 +1572,6 @@ function activate(api) {
       if (tracksChanged(oldTracks, fresh)) {
         hasChanges = true;
         state.updatedPlaylistIds[pl.id] = true;
-        pl.updatedAt = new Date().toISOString();
-      } else if (oldPlaylistMap[pl.id] && oldPlaylistMap[pl.id].updatedAt) {
-        pl.updatedAt = oldPlaylistMap[pl.id].updatedAt;
       }
     }
 
@@ -1960,15 +1918,14 @@ function activate(api) {
 
   function playlistContextPayload(pl) {
     var meta = {};
-    if (pl.updatedAt) meta.date_created = pl.updatedAt;
-    if (pl.section) meta.section_title = pl.section;
-    meta.playlist_title = pl.name;
+    if (pl.section) meta.Section = pl.section;
     if (pl.description) meta.Description = pl.description;
     var name = pl.name;
-    if (pl.updatedAt) {
-      var d = new Date(pl.updatedAt);
-      var dateStr = d.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
-      name = pl.name + " - " + dateStr;
+    if (state.savedAt) {
+      var d = new Date(state.savedAt);
+      var dateStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+      meta["Retrieved"] = dateStr;
+      name = pl.name + " (" + dateStr + ")";
     }
     return {
       playlistName: name,

@@ -373,63 +373,31 @@ function activate(api) {
 
   // -- View rendering --
 
-  function buildToolbar() {
-    return { type: "toolbar", title: "TIDAL" };
-  }
-
-  function buildStatusBar() {
-    var statusText = "";
-    var statusColor = "var(--text-tertiary)";
-
-    if (state.apiDown && state.streamingDown) {
-      statusText = "Servers unavailable";
-      statusColor = "var(--error)";
-    } else if (state.streamingDown) {
-      statusText = "Streaming unavailable";
-      statusColor = "var(--error)";
-    } else if (state.apiDown) {
-      statusText = "API unavailable";
-      statusColor = "var(--error)";
-    } else {
-      statusText = "Connected";
-    }
-
-    if (state.lastHealthCheck) {
-      statusText += " · " + formatTime(state.lastHealthCheck);
-    }
-
-    var children = [];
-    children.push({
-      type: "button",
-      label: "Check",
-      action: "check-health",
-      variant: "secondary",
-      style: { "font-size": "var(--fs-2xs)", "padding": "0 6px", "height": "16px", "line-height": "16px", "min-height": "0" },
-    });
-    children.push({
-      type: "text",
-      content: "<span style='font-size:var(--fs-2xs);color:" + statusColor + ";overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" + statusText + "</span>",
-      style: { "flex": "1", "min-width": "0", "text-align": "right" },
-    });
-
-    return {
-      type: "layout",
-      direction: "horizontal",
-      style: {
-        "align-items": "center",
-        "gap": "6px",
-        "height": "22px",
-        "padding": "0 10px",
-        "background": "var(--bg-secondary)",
-        "border-top": "1px solid var(--border)",
-        "flex-shrink": "0",
-      },
-      children: children,
-    };
-  }
-
   function renderSearchView() {
     var children = [];
+
+    var checkedSuffix = state.lastHealthCheck ? " (last checked at " + formatTime(state.lastHealthCheck) + ")" : "";
+    if (state.apiDown && state.streamingDown) {
+      children.push({
+        type: "layout",
+        direction: "horizontal",
+        className: "ds-banner ds-banner--error",
+        children: [
+          { type: "text", content: "TIDAL servers are currently unavailable" + checkedSuffix },
+          { type: "button", label: "Check Now", action: "check-health", className: "ds-btn ds-btn--sm ds-btn--secondary" },
+        ],
+      });
+    } else if (state.streamingDown) {
+      children.push({
+        type: "layout",
+        direction: "horizontal",
+        className: "ds-banner ds-banner--warning",
+        children: [
+          { type: "text", content: "TIDAL streaming is unavailable — search may still work" + checkedSuffix },
+          { type: "button", label: "Check Now", action: "check-health", className: "ds-btn ds-btn--sm ds-btn--secondary" },
+        ],
+      });
+    }
 
     children.push({
       type: "search-input",
@@ -534,12 +502,7 @@ function activate(api) {
     api.ui.setViewData("tidal", {
       type: "layout",
       direction: "vertical",
-      children: [
-        buildToolbar(),
-        { type: "layout", direction: "vertical", style: { "flex": "1", "min-height": "0", "overflow": "auto" }, children: children },
-        buildStatusBar(),
-      ],
-      style: { "height": "100%" },
+      children: children,
     });
   }
 
@@ -591,12 +554,7 @@ function activate(api) {
     api.ui.setViewData("tidal", {
       type: "layout",
       direction: "vertical",
-      children: [
-        buildToolbar(),
-        { type: "layout", direction: "vertical", style: { "flex": "1", "min-height": "0", "overflow": "auto" }, children: children },
-        buildStatusBar(),
-      ],
-      style: { "height": "100%" },
+      children: children,
     });
   }
 
@@ -644,12 +602,7 @@ function activate(api) {
     api.ui.setViewData("tidal", {
       type: "layout",
       direction: "vertical",
-      children: [
-        buildToolbar(),
-        { type: "layout", direction: "vertical", style: { "flex": "1", "min-height": "0", "overflow": "auto" }, children: children },
-        buildStatusBar(),
-      ],
-      style: { "height": "100%" },
+      children: children,
     });
   }
 
