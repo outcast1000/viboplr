@@ -4568,6 +4568,49 @@ mod tests {
     }
 
     #[test]
+    fn test_playlist_mixtape_import_roundtrip() {
+        let db = test_db();
+        // Simulate what the mixtape import does: extract source/description from
+        // a flat metadata map, save to DB, then verify everything is retrievable.
+        let manifest_metadata: std::collections::HashMap<String, String> = [
+            ("source".to_string(), "spotify://playlists/abc123".to_string()),
+            ("description".to_string(), "Your weekly mixtape".to_string()),
+            ("Section".to_string(), "Made for You".to_string()),
+            ("sourceDate".to_string(), "2026-05-03T10:00:00Z".to_string()),
+        ].into_iter().collect();
+
+        let source = manifest_metadata.get("source").cloned();
+        let description = manifest_metadata.get("description").cloned();
+        let rest_meta: std::collections::HashMap<&str, &str> = manifest_metadata.iter()
+            .filter(|(k, _)| k.as_str() != "source" && k.as_str() != "description")
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        let metadata_json = if rest_meta.is_empty() { None } else { serde_json::to_string(&rest_meta).ok() };
+
+        let id = db.save_playlist(
+            "Discover Weekly",
+            source.as_deref(),
+            None,
+            description.as_deref(),
+            metadata_json.as_deref(),
+        ).unwrap();
+
+        let playlists = db.get_playlists().unwrap();
+        let pl = playlists.iter().find(|p| p.id == id).unwrap();
+        assert_eq!(pl.name, "Discover Weekly");
+        assert_eq!(pl.source.as_deref(), Some("spotify://playlists/abc123"));
+        assert_eq!(pl.description.as_deref(), Some("Your weekly mixtape"));
+
+        // Verify the remaining metadata was stored as JSON with both keys
+        let meta: serde_json::Value = serde_json::from_str(pl.metadata.as_ref().unwrap()).unwrap();
+        assert_eq!(meta["Section"], "Made for You");
+        assert_eq!(meta["sourceDate"], "2026-05-03T10:00:00Z");
+        // source and description should NOT be in the JSON blob
+        assert!(meta.get("source").is_none());
+        assert!(meta.get("description").is_none());
+    }
+
+    #[test]
     fn test_find_track_by_metadata_exact() {
         let db = test_db();
         let artist = db.get_or_create_artist("Radiohead").unwrap();

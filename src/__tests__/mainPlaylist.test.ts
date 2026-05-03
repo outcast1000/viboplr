@@ -4,6 +4,8 @@ import {
   buildManifest,
   buildState,
   contextFromManifest,
+  contextToExportMetadata,
+  contextFromMixtapeMetadata,
   diffThumbs,
   thumbFilenameForUri,
   type Manifest,
@@ -171,6 +173,111 @@ describe("playlist metadata roundtrip", () => {
     expect(restored!.description).toBeNull();
     expect(restored!.metadata).toBeNull();
     expect(restored!.source).toBeNull();
+  });
+});
+
+describe("contextToExportMetadata", () => {
+  it("flattens source, description, and metadata into a single map", () => {
+    const result = contextToExportMetadata({
+      name: "Discover Weekly",
+      source: "spotify://playlists/abc123",
+      description: "Fresh music for you",
+      metadata: { section: "Made for You", sourceDate: "2026-05-03" },
+    });
+    expect(result).toEqual({
+      source: "spotify://playlists/abc123",
+      description: "Fresh music for you",
+      section: "Made for You",
+      sourceDate: "2026-05-03",
+    });
+  });
+
+  it("returns null for empty context", () => {
+    expect(contextToExportMetadata({ name: "Plain" })).toBeNull();
+    expect(contextToExportMetadata(null)).toBeNull();
+  });
+
+  it("omits falsy metadata values", () => {
+    const result = contextToExportMetadata({
+      name: "X",
+      source: "spotify://playlists/1",
+      metadata: { keep: "yes", drop: "" },
+    });
+    expect(result).toEqual({ source: "spotify://playlists/1", keep: "yes" });
+  });
+});
+
+describe("contextFromMixtapeMetadata", () => {
+  it("extracts source and description, keeps the rest as metadata", () => {
+    const ctx = contextFromMixtapeMetadata("Discover Weekly", "/img.jpg", {
+      source: "spotify://playlists/abc123",
+      description: "Fresh music for you",
+      section: "Made for You",
+      sourceDate: "2026-05-03",
+    });
+    expect(ctx.name).toBe("Discover Weekly");
+    expect(ctx.imagePath).toBe("/img.jpg");
+    expect(ctx.source).toBe("spotify://playlists/abc123");
+    expect(ctx.description).toBe("Fresh music for you");
+    expect(ctx.metadata).toEqual({ section: "Made for You", sourceDate: "2026-05-03" });
+    expect(ctx.remote).toBe(false);
+  });
+
+  it("handles null metadata", () => {
+    const ctx = contextFromMixtapeMetadata("Plain", null, null);
+    expect(ctx.source).toBeNull();
+    expect(ctx.description).toBeNull();
+    expect(ctx.metadata).toBeNull();
+  });
+});
+
+describe("full Spotify → Mixtape → Queue roundtrip", () => {
+  it("preserves all metadata through export and re-import", () => {
+    // Step 1: Spotify plugin creates a PlaylistContext
+    const spotifyContext = {
+      name: "Discover Weekly",
+      source: "spotify://playlists/abc123",
+      description: "Your weekly mixtape of fresh music",
+      metadata: { Section: "Made for You", sourceDate: "2026-05-03T10:00:00Z" },
+      remote: true,
+    };
+
+    // Step 2: Queue persists to main-playlist manifest (app restart)
+    const track = makeTrack({ path: "spotify://track1" });
+    const manifest = buildManifest([track], spotifyContext);
+    const restoredFromDisk = contextFromManifest(manifest, "/profile/main-playlist");
+
+    expect(restoredFromDisk!.source).toBe("spotify://playlists/abc123");
+    expect(restoredFromDisk!.description).toBe("Your weekly mixtape of fresh music");
+    expect(restoredFromDisk!.metadata).toEqual({ Section: "Made for You", sourceDate: "2026-05-03T10:00:00Z" });
+
+    // Step 3: Export as mixtape (context → flat metadata map)
+    const exportMeta = contextToExportMetadata(restoredFromDisk);
+
+    expect(exportMeta).toEqual({
+      source: "spotify://playlists/abc123",
+      description: "Your weekly mixtape of fresh music",
+      Section: "Made for You",
+      sourceDate: "2026-05-03T10:00:00Z",
+    });
+
+    // Step 4: Open mixtape "Just Play" (flat metadata → PlaylistContext)
+    const reimported = contextFromMixtapeMetadata(
+      restoredFromDisk!.name,
+      restoredFromDisk!.imagePath ?? null,
+      exportMeta,
+    );
+
+    expect(reimported.name).toBe("Discover Weekly");
+    expect(reimported.source).toBe("spotify://playlists/abc123");
+    expect(reimported.description).toBe("Your weekly mixtape of fresh music");
+    expect(reimported.metadata).toEqual({ Section: "Made for You", sourceDate: "2026-05-03T10:00:00Z" });
+
+    // Step 5: Save back to playlists DB (context carries all fields)
+    // Verify the fields that would be passed to save_playlist_record
+    expect(reimported.source).toBe(spotifyContext.source);
+    expect(reimported.description).toBe(spotifyContext.description);
+    expect(reimported.metadata).toEqual(spotifyContext.metadata);
   });
 });
 

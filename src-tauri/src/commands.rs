@@ -4169,9 +4169,15 @@ pub fn import_mixtape(
                     }
                 };
 
-                // Create playlist
-                let source = Some("mixtape");
-                let playlist_id = match db.save_playlist(&mixtape_title, source, None, None, None) {
+                // Create playlist, extracting description and source from manifest metadata
+                let source = manifest.metadata.get("source").cloned().or(Some("mixtape".to_string()));
+                let description = manifest.metadata.get("description").cloned();
+                let rest_meta: std::collections::HashMap<&str, &str> = manifest.metadata.iter()
+                    .filter(|(k, _)| k.as_str() != "source" && k.as_str() != "description")
+                    .map(|(k, v)| (k.as_str(), v.as_str()))
+                    .collect();
+                let metadata_json = if rest_meta.is_empty() { None } else { serde_json::to_string(&rest_meta).ok() };
+                let playlist_id = match db.save_playlist(&mixtape_title, source.as_deref(), None, description.as_deref(), metadata_json.as_deref()) {
                     Ok(id) => id,
                     Err(e) => {
                         let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e.to_string() }));
@@ -4243,8 +4249,14 @@ pub fn import_mixtape(
                 let mixtape_title = preview.manifest.title.clone();
 
                 // Create playlist with metadata only (no file paths)
-                let source = Some("mixtape");
-                let playlist_id = match db.save_playlist(&mixtape_title, source, None, None, None) {
+                let source = preview.manifest.metadata.get("source").cloned().or(Some("mixtape".to_string()));
+                let description = preview.manifest.metadata.get("description").cloned();
+                let rest_meta: std::collections::HashMap<&str, &str> = preview.manifest.metadata.iter()
+                    .filter(|(k, _)| k.as_str() != "source" && k.as_str() != "description")
+                    .map(|(k, v)| (k.as_str(), v.as_str()))
+                    .collect();
+                let metadata_json = if rest_meta.is_empty() { None } else { serde_json::to_string(&rest_meta).ok() };
+                let playlist_id = match db.save_playlist(&mixtape_title, source.as_deref(), None, description.as_deref(), metadata_json.as_deref()) {
                     Ok(id) => id,
                     Err(e) => {
                         let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e.to_string() }));

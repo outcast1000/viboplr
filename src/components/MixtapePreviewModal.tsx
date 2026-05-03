@@ -8,7 +8,7 @@ import playlistDefault from "../assets/playlist-default.png";
 interface MixtapePreviewModalProps {
   mixtapePath: string;
   onClose: () => void;
-  onQueueTracks?: (tracks: Track[], context: { name: string; imagePath?: string | null }) => void;
+  onQueueTracks?: (tracks: Track[], context: { name: string; imagePath?: string | null; metadata?: Record<string, string> | null }) => void;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -81,9 +81,13 @@ export function MixtapePreviewModal({
 
     const unlistenJustPlay = listen<Track[]>("mixtape-just-play", (event) => {
       if (onQueueTracks && preview) {
+        const meta = preview.manifest.metadata && Object.keys(preview.manifest.metadata).length > 0
+          ? preview.manifest.metadata as Record<string, string>
+          : null;
         onQueueTracks(event.payload, {
           name: preview.manifest.title,
           imagePath: preview.cover_temp_path,
+          metadata: meta,
         });
       }
       onClose();

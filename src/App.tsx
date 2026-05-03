@@ -14,7 +14,7 @@ import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, Collectio
 import { isVideoTrack, parseSubsonicUrl } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, isLocalTrack, type QueueEntry } from "./queueEntry";
-import { tracksFromManifest, contextFromManifest, type Manifest, type MainPlaylistState } from "./mainPlaylist";
+import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext, buildSearchUrl } from "./searchProviders";
 import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
@@ -2241,15 +2241,7 @@ function App() {
     setMixtapeExportTracks(exportTracks);
     setMixtapeExportDefaultTitle(queueHook.playlistContext?.name || "");
     setMixtapeExportDefaultCover(queueHook.playlistContext?.imagePath ?? null);
-    const ctx = queueHook.playlistContext;
-    const meta: Record<string, string> = {};
-    if (ctx?.source) meta.source = ctx.source;
-    if (ctx?.metadata) {
-      for (const [k, v] of Object.entries(ctx.metadata)) {
-        if (v) meta[k] = v;
-      }
-    }
-    setMixtapeExportDefaultMetadata(Object.keys(meta).length > 0 ? meta : null);
+    setMixtapeExportDefaultMetadata(contextToExportMetadata(queueHook.playlistContext));
   }
 
   async function handleSavePlaylistConfirm(name: string, imagePath: string | null) {
@@ -2317,8 +2309,8 @@ function App() {
   }, [library.selectedAlbum, library.selectedArtist]);
 
   // Queue handler for mixtape "Just Play" mode — replaces the queue with mixtape tracks
-  const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; imagePath?: string | null }) => {
-    queueHook.playTracks(tracks, 0, { ...context, source: "playlist", remote: false });
+  const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; imagePath?: string | null; metadata?: Record<string, string> | null }) => {
+    queueHook.playTracks(tracks, 0, contextFromMixtapeMetadata(context.name, context.imagePath ?? null, context.metadata ?? null));
   }, [queueHook.playTracks]);
 
   // Bridge for keyboard shortcuts

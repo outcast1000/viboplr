@@ -147,6 +147,44 @@ export function contextFromManifest(manifest: Manifest, mainPlaylistDir: string 
 }
 
 /**
+ * Flatten PlaylistContext fields into a single metadata map for mixtape export.
+ * source and description become top-level keys; context.metadata is merged in.
+ */
+export function contextToExportMetadata(ctx: PlaylistContext | null | undefined): Record<string, string> | null {
+  if (!ctx) return null;
+  const meta: Record<string, string> = {};
+  if (ctx.source) meta.source = ctx.source;
+  if (ctx.description) meta.description = ctx.description;
+  if (ctx.metadata) {
+    for (const [k, v] of Object.entries(ctx.metadata)) {
+      if (v) meta[k] = v;
+    }
+  }
+  return Object.keys(meta).length > 0 ? meta : null;
+}
+
+/**
+ * Extract PlaylistContext fields from a flat mixtape metadata map.
+ * Inverse of contextToExportMetadata: pulls source and description out,
+ * remaining keys become context.metadata.
+ */
+export function contextFromMixtapeMetadata(
+  name: string,
+  imagePath: string | null,
+  metadata: Record<string, string> | null,
+): PlaylistContext {
+  const { source, description, ...rest } = metadata ?? {};
+  return {
+    name,
+    imagePath,
+    source: source ?? null,
+    description: description ?? null,
+    metadata: Object.keys(rest).length > 0 ? rest : null,
+    remote: false,
+  };
+}
+
+/**
  * Diff queues by **file URI** (stable across restarts), not by `key` (in-memory only).
  * `added` are full track records (so callers can read image_url); `removed` is a list
  * of URIs to delete thumb files for.
