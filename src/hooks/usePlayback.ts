@@ -549,6 +549,15 @@ export function usePlayback(
     const el = e.target as HTMLMediaElement;
     if (!isActiveElement(el)) return;
     setDurationSecs(el.duration);
+
+    if (el instanceof HTMLVideoElement && el.videoWidth === 0) {
+      el.pause();
+      el.removeAttribute("src");
+      el.load();
+      setPlaybackError("Video codec not supported");
+      setFailedTrack(currentTrack);
+      setPlaying(false);
+    }
   }
 
   function onPlay() { setPlaying(true); }
