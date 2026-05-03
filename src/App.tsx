@@ -660,6 +660,7 @@ function App() {
   const [searchInitialQuery, setSearchInitialQuery] = useState<string | null>(null);
   const [searchQueryKey, setSearchQueryKey] = useState(0);
   const [searchDeletedBatch, setSearchDeletedBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
+  const [searchDeletedTagBatch, setSearchDeletedTagBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
 
   // Updater
   const updater = useAppUpdater(addLog, playback.handleStop);
@@ -2893,6 +2894,8 @@ function App() {
             initialQueryKey={searchQueryKey}
             deletedTrackIds={searchDeletedBatch.ids}
             deletedTrackKey={searchDeletedBatch.key}
+            deletedTagIds={searchDeletedTagBatch.ids}
+            deletedTagKey={searchDeletedTagBatch.key}
             currentTrack={playback.currentTrack}
             playing={playback.playing}
             viewModes={searchViewModes}
@@ -3449,6 +3452,7 @@ function App() {
                 try {
                   await invoke("delete_tag", { tagId: id });
                   library.setTags(prev => prev.filter(t => t.id !== id));
+                  setSearchDeletedTagBatch(prev => ({ ids: [id], key: prev.key + 1 }));
                   if (library.selectedTag === id) {
                     library.setSelectedTag(null);
                   }

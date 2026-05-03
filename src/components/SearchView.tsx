@@ -67,6 +67,8 @@ interface SearchViewProps {
   initialQueryKey: number;
   deletedTrackIds: number[];
   deletedTrackKey: number;
+  deletedTagIds: number[];
+  deletedTagKey: number;
   currentTrack: Track | null;
   playing: boolean;
   viewModes: SearchViewModes;
@@ -107,6 +109,8 @@ export function SearchView({
   initialQueryKey,
   deletedTrackIds,
   deletedTrackKey,
+  deletedTagIds,
+  deletedTagKey,
   currentTrack,
   playing,
   viewModes,
@@ -264,6 +268,20 @@ export function SearchView({
       tracks: Math.max(0, prev.tracks - deletedTrackIds.length),
     }));
   }, [deletedTrackKey]);
+
+  useEffect(() => {
+    if (deletedTagKey === 0 || deletedTagIds.length === 0) return;
+    const deleted = new Set(deletedTagIds);
+    setResults(prev => {
+      const filtered = prev.tags.filter(t => !deleted.has(t.id));
+      if (filtered.length === prev.tags.length) return prev;
+      return { ...prev, tags: filtered };
+    });
+    setCounts(prev => ({
+      ...prev,
+      tags: Math.max(0, prev.tags - deletedTagIds.length),
+    }));
+  }, [deletedTagKey]);
 
   useEffect(() => {
     if (!restoredRef.current) return;
