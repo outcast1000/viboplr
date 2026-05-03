@@ -2298,26 +2298,7 @@
   display: flex;
   justify-content: center;
   padding: 16px;
-}
-
-.search-view-load-more button {
-  background: rgba(var(--accent-rgb), 0.1);
-  border: 1px solid rgba(var(--accent-rgb), 0.2);
-  color: var(--accent);
-  font-size: var(--fs-sm);
-  padding: 8px 24px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.search-view-load-more button:hover {
-  background: rgba(var(--accent-rgb), 0.15);
-}
-
-.search-view-load-more button:disabled {
-  opacity: 0.5;
-  cursor: default;
+  min-height: 1px;
 }
 
 .search-view .artist-card-art {

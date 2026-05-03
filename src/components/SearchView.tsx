@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type RefCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, Artist, Album, Tag, ViewMode, SortField } from "../types";
 import { formatDuration, isVideoTrack } from "../utils";
@@ -390,7 +390,10 @@ export function SearchView({
     inputRef.current?.focus();
   }, [doSearch]);
 
+  const loadingRef = useRef(false);
   const handleLoadMore = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     const tab = activeTab;
     const currentCount = results[tab].length;
     const pageSize = tab === "tracks" ? TRACK_PAGE_SIZE : ENTITY_PAGE_SIZE;
@@ -413,6 +416,7 @@ export function SearchView({
       console.error("Failed to load more search results:", e);
     } finally {
       setLoadingMore(prev => ({ ...prev, [tab]: false }));
+      loadingRef.current = false;
     }
   }, [activeTab, results]);
 
@@ -617,13 +621,7 @@ export function SearchView({
                 <div className="empty">No tracks found.</div>
               )}
             </div>
-            {hasMore.tracks && (
-              <div className="search-view-load-more">
-                <button onClick={handleLoadMore} disabled={loadingMore.tracks}>
-                  {loadingMore.tracks ? "Loading..." : "Load More"}
-                </button>
-              </div>
-            )}
+            <LoadMoreSentinel hasMore={hasMore.tracks} loading={loadingMore.tracks} onLoadMore={handleLoadMore} />
           </>
         )}
 
@@ -672,13 +670,7 @@ export function SearchView({
                 )}
               </div>
             </div>
-            {hasMore.tracks && (
-              <div className="search-view-load-more">
-                <button onClick={handleLoadMore} disabled={loadingMore.tracks}>
-                  {loadingMore.tracks ? "Loading..." : "Load More"}
-                </button>
-              </div>
-            )}
+            <LoadMoreSentinel hasMore={hasMore.tracks} loading={loadingMore.tracks} onLoadMore={handleLoadMore} />
           </>
         )}
 
@@ -879,13 +871,7 @@ function SearchTagResults({
         </div>
       )}
 
-      {hasMore && (
-        <div className="search-view-load-more">
-          <button onClick={onLoadMore} disabled={loadingMore}>
-            {loadingMore ? "Loading..." : "Load More"}
-          </button>
-        </div>
-      )}
+      <LoadMoreSentinel hasMore={hasMore} loading={loadingMore} onLoadMore={onLoadMore} />
     </>
   );
 }
@@ -979,13 +965,7 @@ function SearchAlbumResults({
         </div>
       )}
 
-      {hasMore && (
-        <div className="search-view-load-more">
-          <button onClick={onLoadMore} disabled={loadingMore}>
-            {loadingMore ? "Loading..." : "Load More"}
-          </button>
-        </div>
-      )}
+      <LoadMoreSentinel hasMore={hasMore} loading={loadingMore} onLoadMore={onLoadMore} />
     </>
   );
 }
@@ -1069,14 +1049,32 @@ function SearchArtistResults({
         </div>
       )}
 
-      {hasMore && (
-        <div className="search-view-load-more">
-          <button onClick={onLoadMore} disabled={loadingMore}>
-            {loadingMore ? "Loading..." : "Load More"}
-          </button>
-        </div>
-      )}
+      <LoadMoreSentinel hasMore={hasMore} loading={loadingMore} onLoadMore={onLoadMore} />
     </>
+  );
+}
+
+function LoadMoreSentinel({ hasMore, loading, onLoadMore }: { hasMore: boolean; loading: boolean; onLoadMore: () => void }) {
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  const sentinelRef: RefCallback<HTMLDivElement> = useCallback((node) => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+      observerRef.current = null;
+    }
+    if (!node || !hasMore) return;
+    observerRef.current = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) onLoadMore(); },
+      { threshold: 0 },
+    );
+    observerRef.current.observe(node);
+  }, [hasMore, onLoadMore]);
+
+  if (!hasMore) return null;
+  return (
+    <div ref={sentinelRef} className="search-view-load-more">
+      {loading && <span className="ds-spinner ds-spinner--sm" />}
+    </div>
   );
 }
 
