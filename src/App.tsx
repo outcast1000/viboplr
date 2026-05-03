@@ -21,7 +21,7 @@ import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
-import { useQueue } from "./hooks/useQueue";
+import { useQueue, type PlaylistContext } from "./hooks/useQueue";
 import { useLibrary, DEFAULT_TRACK_COLUMNS, ALBUM_DETAIL_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
 import { useImageCache } from "./hooks/useImageCache";
@@ -2214,6 +2214,28 @@ function App() {
     setSearchViewModes(modes);
     store.set("searchViewModes", modes);
   }
+  const handleAlbumPlayTracks = useCallback((tracks: Track[], index: number, context?: PlaylistContext | null) => {
+    queueHook.playTracks(tracks, index, context);
+    if (context?.source === "album" && context.metadata?.artist) {
+      const entityKey = `album:${context.metadata.artist}:${context.name}`;
+      invoke<[number, string, string, string, number][]>("info_get_values_for_entity", { entityKey })
+        .then(rows => {
+          const wiki = rows.find(([, typeId]) => typeId === "album_wiki");
+          if (!wiki) return;
+          const [, , valueJson, status] = wiki;
+          if (status !== "ok") return;
+          try {
+            const parsed = JSON.parse(valueJson);
+            const summary = parsed.summary || parsed.full || "";
+            if (summary) {
+              queueHook.setPlaylistContext(prev => prev ? { ...prev, description: summary } : prev);
+            }
+          } catch { /* ignore parse errors */ }
+        })
+        .catch(console.error);
+    }
+  }, [queueHook.playTracks, queueHook.setPlaylistContext]);
+
   function handleSaveAsPlaylist() {
     if (queueHook.queue.length === 0) return;
     setEditPlaylistMode(false);
@@ -2242,6 +2264,8 @@ function App() {
     setMixtapeExportDefaultTitle(queueHook.playlistContext?.name || "");
     setMixtapeExportDefaultCover(queueHook.playlistContext?.imagePath ?? null);
     setMixtapeExportDefaultMetadata(contextToExportMetadata(queueHook.playlistContext));
+    const ctxSource = queueHook.playlistContext?.source;
+    setMixtapeExportDefaultType(ctxSource === "album" ? "album" : ctxSource === "artist" ? "best_of_artist" : "custom");
   }
 
   async function handleSavePlaylistConfirm(name: string, imagePath: string | null) {
@@ -2831,7 +2855,7 @@ function App() {
                 onArtistClick={library.handleArtistClick}
                 onToggleAlbumLike={likeActions.handleToggleAlbumLike}
                 onToggleAlbumDislike={likeActions.handleToggleAlbumDislike}
-                onPlayTracks={queueHook.playTracks}
+                onPlayTracks={handleAlbumPlayTracks}
                 onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
                 onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}
                 onRetrieveImage={() => {
@@ -2905,7 +2929,7 @@ function App() {
                   onArtistClick={library.handleArtistClick}
                   onToggleAlbumLike={likeActions.handleToggleAlbumLike}
                   onToggleAlbumDislike={likeActions.handleToggleAlbumDislike}
-                  onPlayTracks={queueHook.playTracks}
+                  onPlayTracks={handleAlbumPlayTracks}
                   onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
                   onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}
                   onRetrieveImage={() => {

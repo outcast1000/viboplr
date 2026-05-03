@@ -98,7 +98,16 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
       if (albumTracks.length > 0) {
         const album = library.albums.find(a => a.id === target.albumId);
-        queueHook.playTracks(albumTracks, 0, album ? { name: album.title, imagePath: albumImages[target.albumId] ?? null, source: "album", remote: false } : null);
+        queueHook.playTracks(albumTracks, 0, album ? {
+          name: album.title,
+          imagePath: albumImages[target.albumId] ?? null,
+          source: "album",
+          metadata: {
+            ...(album.artist_name ? { artist: album.artist_name } : {}),
+            ...(album.year ? { year: String(album.year) } : {}),
+          },
+          remote: false,
+        } : null);
       }
     } else if (target.kind === "artist" && target.artistId) {
       const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });

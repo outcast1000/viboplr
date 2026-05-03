@@ -1,5 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Album, Track } from "../types";
+import type { PlaylistContext } from "../hooks/useQueue";
 import type { SearchProviderConfig } from "../searchProviders";
 import { getProvidersForContext } from "../searchProviders";
 import { ImageActions } from "./ImageActions";
@@ -14,7 +15,7 @@ interface AlbumDetailHeaderProps {
   onArtistClick: (artistId: number) => void;
   onToggleAlbumLike: (albumId: number) => void;
   onToggleAlbumDislike: (albumId: number) => void;
-  onPlayTracks: (tracks: Track[], index: number, context?: { name: string; imagePath?: string | null } | null) => void;
+  onPlayTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
   onImageSet: (id: number, path: string) => void;
   onImageRemoved: (id: number) => void;
   onRetrieveImage: () => void;
@@ -55,7 +56,15 @@ export function AlbumDetailHeader({
               <button
                 className="detail-art-play"
                 title="Play All"
-                onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0, { name: album?.title ?? "Unknown", imagePath: albumImagePath })}
+                onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0, {
+                  name: album?.title ?? "Unknown",
+                  imagePath: albumImagePath,
+                  source: "album",
+                  metadata: {
+                    ...(album?.artist_name ? { artist: album.artist_name } : {}),
+                    ...(album?.year ? { year: String(album.year) } : {}),
+                  },
+                })}
               >
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
               </button>
