@@ -1950,6 +1950,7 @@ function activate(api) {
       playlistName: name,
       coverUrl: pl.imageUrl || undefined,
       source: "spotify://playlists/" + pl.id,
+      description: pl.description || null,
       metadata: meta,
     };
   }
@@ -2045,10 +2046,17 @@ function activate(api) {
       });
     }
 
+    var plMeta = { spotifyId: pl.id };
+    if (pl.section) plMeta.section = pl.section;
+    if (pl.updatedAt) plMeta.sourceDate = pl.updatedAt;
+    if (pl.lastCheckedAt) plMeta.lastCheckedAt = pl.lastCheckedAt;
+
     api.playlists.save({
       name: name,
       source: "spotify://playlists/" + pl.id,
       imageUrl: pl.imageUrl || null,
+      description: pl.description || null,
+      metadata: plMeta,
       tracks: trackPayloads,
     }).then(function() {
       api.ui.showNotification("Saved to Playlists: " + name);

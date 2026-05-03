@@ -264,8 +264,8 @@ function App() {
     playTrack: (track: PluginTrack) => {
       queueHook.playTracks([pluginTrackToTrackFn(track)], 0);
     },
-    playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name: string; coverUrl?: string | null; source?: string | null; metadata?: Record<string, string> | null }) => {
-      queueHook.playTracks(tracks.map(pluginTrackToTrackFn), startIndex ?? 0, context ? { name: context.name, source: context.source ?? null, metadata: context.metadata ?? null, remote: true } : undefined);
+    playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name: string; coverUrl?: string | null; source?: string | null; description?: string | null; metadata?: Record<string, string> | null }) => {
+      queueHook.playTracks(tracks.map(pluginTrackToTrackFn), startIndex ?? 0, context ? { name: context.name, source: context.source ?? null, description: context.description ?? null, metadata: context.metadata ?? null, remote: true } : undefined);
       if (context?.coverUrl) {
         if (context.coverUrl.startsWith("http://") || context.coverUrl.startsWith("https://")) {
           invoke<string>("download_url_to_playlist_images", { url: context.coverUrl })
@@ -2267,11 +2267,14 @@ function App() {
       source: t.path,
       image_url: t.image_url ?? null,
     }));
+    const ctx = queueHook.playlistContext;
     try {
       const playlistId = await invoke<number>("save_playlist_record", {
         name,
-        source: null,
+        source: ctx?.source ?? null,
         imageUrl: null,
+        description: ctx?.description ?? null,
+        metadata: ctx?.metadata ? JSON.stringify(ctx.metadata) : null,
         tracks,
       });
       if (imagePath) {

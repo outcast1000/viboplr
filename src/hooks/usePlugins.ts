@@ -610,6 +610,8 @@ export function usePlugins(
             name: string;
             source?: string;
             imageUrl?: string;
+            description?: string;
+            metadata?: Record<string, unknown>;
             tracks: Array<{
               title: string;
               artistName?: string;
@@ -623,6 +625,8 @@ export function usePlugins(
               name: data.name,
               source: data.source ?? null,
               imageUrl: data.imageUrl ?? null,
+              description: data.description ?? null,
+              metadata: data.metadata ? JSON.stringify(data.metadata) : null,
               tracks: data.tracks.map((t) => ({
                 title: t.title,
                 artist_name: t.artistName ?? null,
@@ -641,6 +645,8 @@ export function usePlugins(
               saved_at: number;
               image_path: string | null;
               track_count: number;
+              description: string | null;
+              metadata: string | null;
             }>>("get_playlists");
             return rows.map((r) => ({
               id: r.id,
@@ -649,6 +655,8 @@ export function usePlugins(
               savedAt: r.saved_at,
               imagePath: r.image_path,
               trackCount: r.track_count,
+              description: r.description,
+              metadata: r.metadata ? JSON.parse(r.metadata) : null,
             }));
           },
           async delete(id: number) {

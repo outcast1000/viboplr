@@ -70,6 +70,7 @@ export function buildManifest(queue: Track[], context: PlaylistContext | null | 
   const remote = isContextRemote(context);
   const metadata: Record<string, string> = {};
   if (context?.source) metadata.source = context.source;
+  if (context?.description) metadata.description = context.description;
   if (context?.metadata) for (const [k, v] of Object.entries(context.metadata)) metadata[k] = v;
 
   return {
@@ -126,7 +127,8 @@ export function tracksFromManifest(manifest: Manifest): Track[] {
 export function contextFromManifest(manifest: Manifest, mainPlaylistDir: string | null): PlaylistContext | null {
   if (!manifest.title && !manifest.cover && Object.keys(manifest.metadata).length === 0) return null;
   const source = manifest.metadata.source ?? null;
-  const { source: _s, ...restMeta } = manifest.metadata;
+  const description = manifest.metadata.description ?? null;
+  const { source: _s, description: _d, ...restMeta } = manifest.metadata;
   const remote = source ? !LIBRARY_SOURCES.has(source) : false;
   // Resolve cover to its absolute filesystem path so downstream consumers
   // (mixtape export, update_playlist_image, edit-playlist modal) get a usable path.
@@ -138,6 +140,7 @@ export function contextFromManifest(manifest: Manifest, mainPlaylistDir: string 
     imagePath,
     coverUrl: null,
     source,
+    description,
     metadata: Object.keys(restMeta).length > 0 ? restMeta : null,
     remote,
   };

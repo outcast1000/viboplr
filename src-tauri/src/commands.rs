@@ -1290,11 +1290,13 @@ pub fn save_playlist_record(
     name: String,
     source: Option<String>,
     image_url: Option<String>,
+    description: Option<String>,
+    metadata: Option<String>,
     tracks: Vec<PlaylistTrackPayload>,
 ) -> Result<i64, String> {
     let db = &state.db;
     let playlist_id = db
-        .save_playlist(&name, source.as_deref(), None)
+        .save_playlist(&name, source.as_deref(), None, description.as_deref(), metadata.as_deref())
         .map_err(|e| e.to_string())?;
 
     let track_tuples: Vec<(&str, Option<&str>, Option<&str>, Option<f64>, Option<&str>, Option<&str>)> =
@@ -4169,7 +4171,7 @@ pub fn import_mixtape(
 
                 // Create playlist
                 let source = Some("mixtape");
-                let playlist_id = match db.save_playlist(&mixtape_title, source, None) {
+                let playlist_id = match db.save_playlist(&mixtape_title, source, None, None, None) {
                     Ok(id) => id,
                     Err(e) => {
                         let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e.to_string() }));
@@ -4242,7 +4244,7 @@ pub fn import_mixtape(
 
                 // Create playlist with metadata only (no file paths)
                 let source = Some("mixtape");
-                let playlist_id = match db.save_playlist(&mixtape_title, source, None) {
+                let playlist_id = match db.save_playlist(&mixtape_title, source, None, None, None) {
                     Ok(id) => id,
                     Err(e) => {
                         let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e.to_string() }));

@@ -530,6 +530,8 @@ export interface PluginPlaylistsAPI {
     name: string;
     source?: string;
     imageUrl?: string;
+    description?: string;
+    metadata?: Record<string, unknown>;
     tracks: Array<{
       title: string;
       artistName?: string;
@@ -547,6 +549,8 @@ export interface PluginPlaylistsAPI {
     savedAt: number;
     imagePath: string | null;
     trackCount: number;
+    description: string | null;
+    metadata: Record<string, unknown> | null;
   }>>;
 
   delete(id: number): Promise<void>;

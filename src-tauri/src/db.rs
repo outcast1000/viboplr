@@ -414,11 +414,13 @@ impl Database {
             );
 
             CREATE TABLE IF NOT EXISTS playlists (
-                id         INTEGER PRIMARY KEY,
-                name       TEXT NOT NULL,
-                source     TEXT,
-                saved_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-                image_path TEXT
+                id          INTEGER PRIMARY KEY,
+                name        TEXT NOT NULL,
+                source      TEXT,
+                saved_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                image_path  TEXT,
+                description TEXT,
+                metadata    TEXT
             );
 
             CREATE TABLE IF NOT EXISTS playlist_tracks (
@@ -2183,11 +2185,11 @@ impl Database {
 
     // --- Playlists ---
 
-    pub fn save_playlist(&self, name: &str, source: Option<&str>, image_path: Option<&str>) -> SqlResult<i64> {
+    pub fn save_playlist(&self, name: &str, source: Option<&str>, image_path: Option<&str>, description: Option<&str>, metadata: Option<&str>) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO playlists (name, source, image_path) VALUES (?1, ?2, ?3)",
-            params![name, source, image_path],
+            "INSERT INTO playlists (name, source, image_path, description, metadata) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![name, source, image_path, description, metadata],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -2212,7 +2214,8 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT p.id, p.name, p.source, p.saved_at, p.image_path,
-                    (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = p.id) as track_count
+                    (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = p.id) as track_count,
+                    p.description, p.metadata
              FROM playlists p ORDER BY p.saved_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -2223,6 +2226,8 @@ impl Database {
                 saved_at: row.get(3)?,
                 image_path: row.get(4)?,
                 track_count: row.get(5)?,
+                description: row.get(6)?,
+                metadata: row.get(7)?,
             })
         })?;
         rows.collect()
@@ -4486,7 +4491,7 @@ mod tests {
     #[test]
     fn test_save_and_get_playlist() {
         let db = test_db();
-        let id = db.save_playlist("Discover Weekly 15 Apr 2026", Some("spotify-playlist://abc123"), None).unwrap();
+        let id = db.save_playlist("Discover Weekly 15 Apr 2026", Some("spotify-playlist://abc123"), None, None, None).unwrap();
         assert!(id > 0);
 
         let playlists = db.get_playlists().unwrap();
@@ -4499,7 +4504,7 @@ mod tests {
     #[test]
     fn test_save_playlist_tracks() {
         let db = test_db();
-        let playlist_id = db.save_playlist("Test Playlist", None, None).unwrap();
+        let playlist_id = db.save_playlist("Test Playlist", None, None, None, None).unwrap();
 
         db.save_playlist_tracks(playlist_id, &[
             ("Song A", Some("Artist A"), Some("Album A"), Some(210.0), Some("spotify-track://1"), None),
@@ -4518,7 +4523,7 @@ mod tests {
     #[test]
     fn test_delete_playlist_cascades() {
         let db = test_db();
-        let playlist_id = db.save_playlist("To Delete", None, None).unwrap();
+        let playlist_id = db.save_playlist("To Delete", None, None, None, None).unwrap();
         db.save_playlist_tracks(playlist_id, &[
             ("Song", None, None, None, None, None),
         ]).unwrap();
@@ -4527,6 +4532,39 @@ mod tests {
         db.delete_playlist(playlist_id).unwrap();
         assert_eq!(db.get_playlists().unwrap().len(), 0);
         assert_eq!(db.get_playlist_tracks(playlist_id).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_save_playlist_description_and_metadata() {
+        let db = test_db();
+        let meta_json = r#"{"spotifyId":"abc123","section":"Made for You","sourceDate":"2026-05-03T10:00:00Z"}"#;
+        let id = db.save_playlist(
+            "Discover Weekly",
+            Some("spotify://playlists/abc123"),
+            None,
+            Some("Your weekly mixtape of fresh music"),
+            Some(meta_json),
+        ).unwrap();
+
+        let playlists = db.get_playlists().unwrap();
+        assert_eq!(playlists.len(), 1);
+        let pl = &playlists[0];
+        assert_eq!(pl.id, id);
+        assert_eq!(pl.name, "Discover Weekly");
+        assert_eq!(pl.source.as_deref(), Some("spotify://playlists/abc123"));
+        assert_eq!(pl.description.as_deref(), Some("Your weekly mixtape of fresh music"));
+        assert_eq!(pl.metadata.as_deref(), Some(meta_json));
+    }
+
+    #[test]
+    fn test_save_playlist_description_and_metadata_nullable() {
+        let db = test_db();
+        let id = db.save_playlist("Empty Playlist", None, None, None, None).unwrap();
+
+        let playlists = db.get_playlists().unwrap();
+        let pl = playlists.iter().find(|p| p.id == id).unwrap();
+        assert!(pl.description.is_none());
+        assert!(pl.metadata.is_none());
     }
 
     #[test]

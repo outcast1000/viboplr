@@ -136,6 +136,44 @@ describe("contextFromManifest", () => {
   });
 });
 
+describe("playlist metadata roundtrip", () => {
+  it("preserves description, source, and metadata through buildManifest → contextFromManifest", () => {
+    const ctx = {
+      name: "Discover Weekly",
+      source: "spotify://playlists/abc123",
+      description: "Your weekly mixtape of fresh music",
+      metadata: { section: "Made for You", sourceDate: "2026-05-03T10:00:00Z" },
+      remote: true,
+    };
+    const t = makeTrack({ path: "spotify://track1" });
+    const manifest = buildManifest([t], ctx);
+
+    expect(manifest.metadata.source).toBe("spotify://playlists/abc123");
+    expect(manifest.metadata.description).toBe("Your weekly mixtape of fresh music");
+    expect(manifest.metadata.section).toBe("Made for You");
+    expect(manifest.metadata.sourceDate).toBe("2026-05-03T10:00:00Z");
+
+    const restored = contextFromManifest(manifest, "/profile/main-playlist");
+    expect(restored).not.toBeNull();
+    expect(restored!.name).toBe("Discover Weekly");
+    expect(restored!.source).toBe("spotify://playlists/abc123");
+    expect(restored!.description).toBe("Your weekly mixtape of fresh music");
+    expect(restored!.metadata).toEqual({ section: "Made for You", sourceDate: "2026-05-03T10:00:00Z" });
+  });
+
+  it("handles null description and metadata gracefully", () => {
+    const ctx = { name: "Plain Queue" };
+    const manifest = buildManifest([], ctx);
+
+    expect(manifest.metadata.description).toBeUndefined();
+
+    const restored = contextFromManifest(manifest, null);
+    expect(restored!.description).toBeNull();
+    expect(restored!.metadata).toBeNull();
+    expect(restored!.source).toBeNull();
+  });
+});
+
 describe("thumbFilenameForUri", () => {
   it("matches backend canonical_slug: colons and slashes are deleted", () => {
     expect(thumbFilenameForUri("tidal://12345")).toBe("tidal12345.jpg");

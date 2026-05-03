@@ -238,6 +238,8 @@ pub struct Playlist {
     pub saved_at: i64,
     pub image_path: Option<String>,
     pub track_count: i64,
+    pub description: Option<String>,
+    pub metadata: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

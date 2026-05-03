@@ -15,6 +15,8 @@ interface Playlist {
   saved_at: number;
   image_path: string | null;
   track_count: number;
+  description: string | null;
+  metadata: string | null;
 }
 
 interface PlaylistTrack {
@@ -70,6 +72,18 @@ function isLocalPath(source: string | null): boolean {
   return !!source && source.startsWith("file://");
 }
 
+function playlistContext(pl: Playlist): PlaylistContext {
+  const metadata: Record<string, string> | null = pl.metadata ? JSON.parse(pl.metadata) : null;
+  return {
+    name: pl.name,
+    imagePath: pl.image_path,
+    source: pl.source ?? "playlist",
+    description: pl.description,
+    metadata,
+    remote: false,
+  };
+}
+
 export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onExportAsMixtape, pluginMenuItems, onPluginAction }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
@@ -120,7 +134,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
     e.stopPropagation();
     const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
     if (rows.length > 0) {
-      onPlayTracks(rows.map(playlistTrackToMinimalTrack), 0, { name: pl.name, imagePath: pl.image_path, source: "playlist", remote: false });
+      onPlayTracks(rows.map(playlistTrackToMinimalTrack), 0, playlistContext(pl));
     }
   }, [onPlayTracks]);
 
@@ -228,7 +242,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
               {selectedPlaylist.track_count} tracks &middot; Saved {formatDate(selectedPlaylist.saved_at)}
             </div>
             <div className="playlists-detail-actions">
-              <button className="playlists-action-btn playlists-action-btn-play" onClick={() => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0, { name: selectedPlaylist.name, imagePath: selectedPlaylist.image_path, source: "playlist", remote: false })} disabled={tracks.length === 0}>Play</button>
+              <button className="playlists-action-btn playlists-action-btn-play" onClick={() => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0, playlistContext(selectedPlaylist))} disabled={tracks.length === 0}>Play</button>
               <button className="playlists-action-btn" onClick={() => handleExport(selectedPlaylist)}>Export as M3U</button>
               {onExportAsMixtape && (
                 <button className="playlists-action-btn" onClick={async () => {
@@ -260,7 +274,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
             <div key={t.id} className="playlists-track-row" onContextMenu={(e) => {
               e.preventDefault();
               const specs: MenuItemSpec[] = [
-                { kind: "item", text: "Play", action: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? { name: selectedPlaylist.name, imagePath: selectedPlaylist.image_path, source: "playlist", remote: false } : null) },
+                { kind: "item", text: "Play", action: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null) },
                 { kind: "item", text: "Enqueue", action: () => onEnqueueTracks([playlistTrackToMinimalTrack(t)]) },
               ];
               if (isLocalPath(t.source)) {

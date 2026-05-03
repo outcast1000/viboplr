@@ -11,6 +11,7 @@ export interface PlaylistContext {
   imagePath?: string | null;
   coverUrl?: string | null;
   source?: string | null;
+  description?: string | null;
   metadata?: Record<string, string> | null;
   remote?: boolean;
 }
