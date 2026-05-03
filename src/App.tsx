@@ -646,6 +646,8 @@ function App() {
   const [mixtapeExportDefaultMetadata, setMixtapeExportDefaultMetadata] = useState<Record<string, string> | null>(null);
   const [mixtapeExportDefaultType, setMixtapeExportDefaultType] = useState<"custom" | "album" | "best_of_artist">("custom");
 
+  const [deleteTagConfirm, setDeleteTagConfirm] = useState<{ id: number; name: string } | null>(null);
+
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
 
@@ -1044,6 +1046,7 @@ function App() {
       const hasId = target.kind === "artist" ? !!target.artistId
                   : target.kind === "album" ? !!target.albumId
                   : target.kind === "track" ? !!target.trackId
+                  : target.kind === "tag" ? !!target.tagId
                   : true;
 
       if (hasId) {
@@ -1118,8 +1121,8 @@ function App() {
         specs.push({ kind: "separator" });
         specs.push({ kind: "submenu", text: `Download ${target.trackIds.length} tracks`, items: dlItems });
       }
-      if (!isMulti) {
-        const contextProviders = getProvidersForContext(searchProviders, context);
+      if (!isMulti && target.kind !== "tag") {
+        const contextProviders = getProvidersForContext(searchProviders, context as "artist" | "album" | "track");
         if (contextProviders.length > 0) {
           const urlKey = context === "artist" ? "artistUrl" : context === "album" ? "albumUrl" : "trackUrl";
           const params = target.kind === "artist"
@@ -1145,6 +1148,12 @@ function App() {
       if (isMulti && handleExportAsMixtapeRef.current) {
         specs.push({ kind: "separator" });
         specs.push({ kind: "item", text: "Export as Mixtape", action: () => handleExportAsMixtapeRef.current?.(target.trackIds) });
+      }
+      if (target.kind === "tag" && target.tagId) {
+        specs.push({ kind: "separator" });
+        specs.push({ kind: "item", text: "Delete Tag", action: () => {
+          setDeleteTagConfirm({ id: target.tagId, name: target.name });
+        }});
       }
     }
 
@@ -2905,6 +2914,7 @@ function App() {
             onToggleAlbumLike={likeActions.handleToggleAlbumLike}
             onTrackDragStart={contextMenuActions.handleTrackDragStart}
             onTagClick={library.handleTagClick}
+            onTagContextMenu={contextMenuActions.handleTagContextMenu}
             onToggleTagLike={likeActions.handleToggleTagLike}
             onFetchArtistImage={artistImageCache.fetchOnDemand}
             onFetchAlbumImage={albumImageCache.fetchOnDemand}
@@ -3421,6 +3431,33 @@ function App() {
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--ghost" onClick={() => contextMenuActions.setDeleteConfirm(null)}>Cancel</button>
               <button className="ds-btn ds-btn--danger" onClick={contextMenuActions.handleDeleteConfirm} autoFocus>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTagConfirm && (
+        <div className="ds-modal-overlay" onClick={() => setDeleteTagConfirm(null)}>
+          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="ds-modal-title">Delete tag "{deleteTagConfirm.name}"?</h2>
+            <p className="delete-confirm-warning">This will remove the tag from all tracks. The tracks themselves will not be deleted.</p>
+            <div className="ds-modal-actions">
+              <button className="ds-btn ds-btn--ghost" onClick={() => setDeleteTagConfirm(null)}>Cancel</button>
+              <button className="ds-btn ds-btn--danger" onClick={async () => {
+                const { id, name } = deleteTagConfirm;
+                setDeleteTagConfirm(null);
+                try {
+                  await invoke("delete_tag", { tagId: id });
+                  library.setTags(prev => prev.filter(t => t.id !== id));
+                  if (library.selectedTag === id) {
+                    library.setSelectedTag(null);
+                  }
+                  addLog(`Deleted tag "${name}"`, "library");
+                } catch (e) {
+                  console.error("Failed to delete tag:", e);
+                  addLog(`Failed to delete tag "${name}": ${String(e)}`, "library");
+                }
+              }} autoFocus>Delete</button>
             </div>
           </div>
         </div>

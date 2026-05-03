@@ -804,6 +804,16 @@ impl Database {
         rows.collect()
     }
 
+    pub fn delete_tag(&self, tag_id: i64) -> SqlResult<Vec<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT track_id FROM track_tags WHERE tag_id = ?1")?;
+        let affected_track_ids: Vec<i64> = stmt.query_map(params![tag_id], |row| row.get(0))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        conn.execute("DELETE FROM track_tags WHERE tag_id = ?1", params![tag_id])?;
+        conn.execute("DELETE FROM tags WHERE id = ?1", params![tag_id])?;
+        Ok(affected_track_ids)
+    }
+
     pub fn get_tracks_by_tag(&self, tag_id: i64) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
         let sql = format!(

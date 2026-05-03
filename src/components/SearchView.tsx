@@ -88,6 +88,7 @@ interface SearchViewProps {
   onToggleAlbumLike: (id: number) => void;
   onTrackDragStart: (tracks: Track[]) => void;
   onTagClick: (id: number) => void;
+  onTagContextMenu: (e: React.MouseEvent, tag: Tag) => void;
   onToggleTagLike: (id: number) => void;
   onFetchArtistImage: (artist: Artist) => void;
   onFetchAlbumImage: (album: Album) => void;
@@ -127,6 +128,7 @@ export function SearchView({
   onToggleAlbumLike,
   onTrackDragStart,
   onTagClick,
+  onTagContextMenu,
   onToggleTagLike,
   onFetchArtistImage,
   onFetchAlbumImage,
@@ -780,6 +782,7 @@ export function SearchView({
             tagImages={tagImages}
             onTagClick={onTagClick}
             onToggleLike={onToggleTagLike}
+            onContextMenu={onTagContextMenu}
             onFetchImage={onFetchTagImage}
             onPlayTag={onPlayTag}
             hasMore={hasMore.tags}
@@ -797,7 +800,7 @@ export function SearchView({
 
 function SearchTagResults({
   tags, viewMode, tagImages, onTagClick, onToggleLike,
-  onFetchImage, onPlayTag, hasMore, loadingMore, onLoadMore,
+  onContextMenu, onFetchImage, onPlayTag, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator,
 }: {
   tags: Tag[];
@@ -805,6 +808,7 @@ function SearchTagResults({
   tagImages: Record<number, string | null>;
   onTagClick: (id: number) => void;
   onToggleLike: (id: number) => void;
+  onContextMenu: (e: React.MouseEvent, tag: Tag) => void;
   onFetchImage: (tag: { id: number }) => void;
   onPlayTag: (tagId: number) => void;
   hasMore: boolean;
@@ -824,7 +828,7 @@ function SearchTagResults({
             <span className={`entity-table-count sortable${sortField === "tracks" ? " sorted" : ""}`} onClick={() => onSort("tracks")}>Tracks{sortIndicator("tracks")}</span>
           </div>
           {tags.map(t => (
-            <div key={t.id} className="entity-table-row" onClick={() => onTagClick(t.id)}>
+            <div key={t.id} className="entity-table-row" onClick={() => onTagClick(t.id)} onContextMenu={e => { e.preventDefault(); onContextMenu(e, t); }}>
               <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="inline" size={12} />
               <span className="entity-table-name">{t.name}</span>
               <span className="entity-table-count">{t.track_count}</span>
@@ -837,7 +841,7 @@ function SearchTagResults({
       {viewMode === "list" && (
         <div className="entity-list">
           {tags.map(t => (
-            <div key={t.id} className="entity-list-item" onClick={() => onTagClick(t.id)}>
+            <div key={t.id} className="entity-list-item" onClick={() => onTagClick(t.id)} onContextMenu={e => { e.preventDefault(); onContextMenu(e, t); }}>
               <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="inline" size={12} />
               <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={onFetchImage} className="entity-list-img" />
               <div className="entity-list-info">
@@ -854,7 +858,7 @@ function SearchTagResults({
         <div className="tiles-scroll">
           <div className="album-grid">
             {tags.map(t => (
-              <div key={t.id} className="tag-card" onClick={() => onTagClick(t.id)}>
+              <div key={t.id} className="tag-card" onClick={() => onTagClick(t.id)} onContextMenu={e => { e.preventDefault(); onContextMenu(e, t); }}>
                 <div className="album-card-art-wrapper">
                   <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={onFetchImage} />
                   <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="overlay" size={12} />

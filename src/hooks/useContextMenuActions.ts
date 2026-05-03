@@ -33,6 +33,7 @@ interface UseContextMenuActionsDeps {
   playActions: {
     playAlbum: (albumId: number) => void;
     playArtist: (artistId: number) => void;
+    playTag: (tagId: number) => void;
   };
   queueCollapsed: boolean;
   setQueueCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
@@ -89,6 +90,11 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     showMenu({ x: e.clientX, y: e.clientY, target: { kind: "artist", artistId, name: artist?.name ?? "" } });
   }
 
+  function handleTagContextMenu(e: React.MouseEvent, tag: { id: number; name: string }) {
+    e.preventDefault();
+    showMenu({ x: e.clientX, y: e.clientY, target: { kind: "tag", tagId: tag.id, name: tag.name } });
+  }
+
   async function handleContextPlay() {
     const cm = contextMenuRef.current;
     if (!cm) return;
@@ -100,6 +106,8 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       playActions.playAlbum(target.albumId);
     } else if (target.kind === "artist" && target.artistId) {
       playActions.playArtist(target.artistId);
+    } else if (target.kind === "tag" && target.tagId) {
+      playActions.playTag(target.tagId);
     } else if (target.kind === "multi-track") {
       const idSet = new Set(target.trackIds);
       const selected = library.sortedTracks.filter(t => t.id != null && idSet.has(t.id));
@@ -134,6 +142,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } else if (target.kind === "artist" && target.artistId) {
       const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
       handleEnqueue(artistTracks);
+    } else if (target.kind === "tag" && target.tagId) {
+      const tagTracks = await invoke<Track[]>("get_tracks_by_tag", { tagId: target.tagId });
+      handleEnqueue(tagTracks);
     } else if (target.kind === "multi-track") {
       const idSet = new Set(target.trackIds);
       const selected = library.sortedTracks.filter(t => t.id != null && idSet.has(t.id));
@@ -481,6 +492,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleTrackContextMenu,
     handleAlbumContextMenu,
     handleArtistContextMenu,
+    handleTagContextMenu,
     handleContextPlay,
     handleContextEnqueue,
     handleEnqueue,
