@@ -28,7 +28,6 @@ function activate(api) {
     autoRefreshHours: 24,
     lastCheckAt: null,
     lastCheckResult: null,
-    savedAt: null,
     refreshSummary: "",
     sections: ["Made for You"],
     addingSectionViaTab: false,
@@ -329,7 +328,8 @@ function activate(api) {
       section: pl.section || null,
       description: pl.description || "",
       coverFile: "cover.jpg",
-      updatedAt: new Date().toISOString(),
+      lastCheckedAt: pl.lastCheckedAt || null,
+      updatedAt: pl.updatedAt || null,
     }).catch(function (e) { console.error("Failed to write meta:", pl.id, e); });
 
     var tracksP = api.storage.files.writeJson(dir.concat(["tracks.json"]), serializeTracks(tracks))
@@ -393,7 +393,6 @@ function activate(api) {
   }
 
   function saveState() {
-    state.savedAt = Date.now();
     saveAllPlaylists().catch(console.error);
   }
 
@@ -477,6 +476,8 @@ function activate(api) {
             description: meta.description || "",
             imageUrl: coverPath || null,
             uri: "spotify:playlist:" + meta.id,
+            lastCheckedAt: meta.lastCheckedAt || null,
+            updatedAt: meta.updatedAt || null,
           };
           return { playlist: playlist, tracks: tracks };
         });
@@ -1198,8 +1199,10 @@ function activate(api) {
           'if(i<5)_dbg("tracks","row["+i+"] parsed",{name:nm,nameSource:nameSource,artist:arts.join(", "),artistSource:artistSource,album:al,dur:dur,durSource:durSource,hasImg:!!imgUrl,spotifyId:spId});' +
           'out.push({name:nm,artist:arts.join(", "),album:al,duration:dur,imageUrl:imgUrl,spotifyId:spId})' +
         '}' +
-        '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:out.length,skipped:skipped,total:rows.length,gen:_gen});' +
-        'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:out,gen:_gen});' +
+        'var descEl=document.querySelector("[data-testid=\\"playlist-description\\"]")||document.querySelector("main [data-testid=\\"entityTitle\\"] ~ span");' +
+        'var desc=descEl?descEl.textContent.trim():"";' +
+        '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:out.length,skipped:skipped,total:rows.length,gen:_gen,desc:desc.substring(0,80)});' +
+        'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:out,description:desc,gen:_gen});' +
       '}catch(e){_dbg("tracks","ERROR",{error:""+e});window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:[],error:""+e,gen:_gen})}}' +
       'tick()' +
     '})()';
@@ -1504,6 +1507,7 @@ function activate(api) {
                 if (trackTimeout) { clearTimeout(trackTimeout); trackTimeout = null; }
                 var tracks = msg.data.tracks || [];
                 allTracks[pl.id] = tracks;
+                if (msg.data.description) pl.description = msg.data.description;
                 plReport.trackCount = tracks.length;
                 plReport.durationMs = Date.now() - plStart;
                 if (msg.data.error) {
@@ -1564,14 +1568,25 @@ function activate(api) {
     }
     state.previousTracks = prevSnapshot;
 
+    var oldPlaylistMap = {};
+    for (var oi = 0; oi < state.playlists.length; oi++) {
+      oldPlaylistMap[state.playlists[oi].id] = state.playlists[oi];
+    }
+
+    var now = new Date().toISOString();
     for (var i = 0; i < newPlaylists.length; i++) {
       var pl = newPlaylists[i];
       var oldTracks = prevSnapshot[pl.id];
       var fresh = newTracks[pl.id] || [];
+      var oldPl = oldPlaylistMap[pl.id];
 
+      pl.lastCheckedAt = now;
       if (tracksChanged(oldTracks, fresh)) {
         hasChanges = true;
         state.updatedPlaylistIds[pl.id] = true;
+        pl.updatedAt = now;
+      } else if (oldPl && oldPl.updatedAt) {
+        pl.updatedAt = oldPl.updatedAt;
       }
     }
 
@@ -1921,8 +1936,9 @@ function activate(api) {
     if (pl.section) meta.Section = pl.section;
     if (pl.description) meta.Description = pl.description;
     var name = pl.name;
-    if (state.savedAt) {
-      var d = new Date(state.savedAt);
+    var ts = pl.lastCheckedAt || pl.updatedAt;
+    if (ts) {
+      var d = new Date(ts);
       var dateStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
       meta["Retrieved"] = dateStr;
       name = pl.name + " (" + dateStr + ")";
@@ -2258,7 +2274,6 @@ function activate(api) {
           state.playlists = saved.playlists;
           state.playlistTracks = saved.playlistTracks || {};
           state.previousTracks = saved.previousTracks || {};
-          state.savedAt = saved.savedAt || null;
           state.status = "done";
           // Persist into the new filesystem layout, then drop the KV entry
           saveAllPlaylists().then(function () {
