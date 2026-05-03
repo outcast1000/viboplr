@@ -416,7 +416,6 @@
   border: none !important;
   color: var(--text-primary);
   font-size: var(--fs-sm);
-  outline: none;
   padding: 2px 0 !important;
 }
 
@@ -628,7 +627,6 @@
 
 .plugin-select:focus {
   border-color: var(--accent);
-  outline: none;
 }
 
 /* Plugin progress bar */

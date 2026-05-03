@@ -2244,7 +2244,6 @@
   border: 1px solid var(--border);
   border-radius: 20px;
   padding: 8px 36px;
-  outline: none;
   color: var(--text-primary);
   font-size: var(--fs-sm);
   transition: border-color 0.15s;

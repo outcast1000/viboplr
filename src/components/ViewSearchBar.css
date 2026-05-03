@@ -30,7 +30,6 @@
   padding: 8px 36px;
   color: inherit;
   font-size: var(--fs-sm);
-  outline: none;
   transition: border-color 0.15s;
 }
 

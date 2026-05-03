@@ -558,7 +558,6 @@
   color: var(--text-primary);
   font-size: var(--fs-xs);
   padding: 4px 8px;
-  outline: none;
 }
 
 .track-tags-edit-input:focus {
@@ -758,7 +757,6 @@
 }
 
 .youtube-modal-input:focus {
-  outline: none;
   border-color: var(--accent);
 }
 

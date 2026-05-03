@@ -532,7 +532,6 @@
   color: var(--text-primary);
   font-size: var(--fs-sm);
   font-family: inherit;
-  outline: none;
   transition: border-color 0.15s;
 }
 
@@ -553,7 +552,6 @@
   color: var(--text-primary);
   font-size: var(--fs-sm);
   cursor: pointer;
-  outline: none;
   flex-shrink: 0;
 }
 
@@ -602,7 +600,6 @@
   color: var(--text-primary);
   font-size: var(--fs-sm);
   font-family: inherit;
-  outline: none;
   transition: border-color 0.15s;
 }
 

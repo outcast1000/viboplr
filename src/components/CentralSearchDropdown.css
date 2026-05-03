@@ -22,7 +22,6 @@
   padding: 8px 36px 8px 36px;
   border-radius: 20px;
   font-size: var(--fs-base);
-  outline: none;
   transition: border-color 0.15s;
 }
 

@@ -486,7 +486,6 @@
   padding: 8px 10px;
   border-radius: 6px;
   font-size: var(--fs-sm);
-  outline: none;
   transition: border-color 0.15s;
 }
 

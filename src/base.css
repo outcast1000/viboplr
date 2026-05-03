@@ -58,6 +58,10 @@
   user-select: none;
 }
 
+*:focus {
+  outline: none;
+}
+
 html, body, #root {
   height: 100%;
   overflow: hidden;

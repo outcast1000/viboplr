@@ -393,7 +393,6 @@
   width: 90px;
   height: 6px;
   border-radius: 3px;
-  outline: none;
   cursor: pointer;
 }
 
@@ -640,11 +639,6 @@
   position: static;
   transform: none;
   flex: none;
-}
-
-.now-playing-mini .g-btn:focus,
-.now-playing-mini .g-btn:focus-visible {
-  outline: none;
 }
 
 .now-playing-mini .mini-play-btn {
