@@ -2572,7 +2572,7 @@ function App() {
                 isCurrentTrack={isCurrentTrack}
                 onArtistClick={library.handleArtistClick}
                 onAlbumClick={library.handleAlbumClick}
-                onTagClick={(tagId) => { library.setSelectedTrack(null); library.setSelectedTag(tagId); library.setView("tags"); }}
+                onTagClick={library.handleTagClick}
                 onPlay={() => queueHook.playTracks([track], 0)}
                 onPlayAt={(secs: number) => {
                   if (isCurrentTrack) {
@@ -2911,7 +2911,7 @@ function App() {
               onToggleArtistLike={likeActions.handleToggleArtistLike}
               onToggleAlbumLike={likeActions.handleToggleAlbumLike}
               onTrackDragStart={contextMenuActions.handleTrackDragStart}
-              onTagClick={(id) => { library.setSelectedTag(id); library.setView("tags"); }}
+              onTagClick={library.handleTagClick}
               onToggleTagLike={likeActions.handleToggleTagLike}
               onFetchArtistImage={artistImageCache.fetchOnDemand}
               onFetchAlbumImage={albumImageCache.fetchOnDemand}

@@ -324,6 +324,17 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     setView("artists");
   }
 
+  function handleTagClick(tagId: number) {
+    if (!tagId || !tags.find(t => t.id === tagId)) return;
+    onBeforeNavigate?.();
+    clearFallback();
+    setSelectedTag(tagId);
+    setSelectedArtist(null);
+    setSelectedAlbum(null);
+    setSelectedTrack(null);
+    setView("tags");
+  }
+
   function handleAlbumClick(albumId: number, artistId?: number | null) {
     if (!albumId || !albums.find(a => a.id === albumId)) {
       onNavigationError?.("This album is not available in the library. It may belong to a multi-artist compilation or an external source.");
@@ -440,7 +451,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     handleSort, sortIndicator,
     trackColumns, setTrackColumns,
     artistAlbums,
-    handleTrackClick, handleArtistClick, handleAlbumClick, handleLocateTrack,
+    handleTrackClick, handleArtistClick, handleAlbumClick, handleTagClick, handleLocateTrack,
     fallbackArtistName, setFallbackArtistName,
     fallbackAlbumName, setFallbackAlbumName,
     fallbackTrackName, setFallbackTrackName,
