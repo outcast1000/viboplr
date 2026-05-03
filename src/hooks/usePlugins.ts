@@ -102,7 +102,7 @@ type EventHandlers = {
 
 export interface PluginPlaybackCallbacks {
   playTrack: (track: PluginTrack) => void;
-  playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name: string; coverUrl?: string | null; source?: string | null; metadata?: Record<string, string> | null }) => void;
+  playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name?: string; playlistName?: string; coverUrl?: string | null; source?: string | null; description?: string | null; metadata?: Record<string, string> | null }) => void;
   insertTrack: (track: PluginTrack, position: number) => void;
   insertTracks: (tracks: PluginTrack[], position: number) => void;
   getDownloadFormat: () => string;

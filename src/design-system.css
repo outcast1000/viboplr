@@ -812,6 +812,13 @@
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
+.ds-tooltip-val--desc {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  max-width: 280px;
+}
+
 /* ── Banners ── */
 
 .ds-banner {

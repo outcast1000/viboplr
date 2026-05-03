@@ -513,7 +513,7 @@ export function QueuePanel({
                 <span className="queue-context-meta">
                   {queue.length} track{queue.length !== 1 ? "s" : ""} &middot; {formatTotalDuration(queue)}
                 </span>
-                {(playlistContext.source || (playlistContext.metadata && Object.keys(playlistContext.metadata).length > 0)) && (
+                {(playlistContext.source || playlistContext.description || (playlistContext.metadata && Object.keys(playlistContext.metadata).length > 0)) && (
                   <button
                     className="queue-context-info-btn"
                     onClick={(e) => {
@@ -675,6 +675,12 @@ export function QueuePanel({
                 <span className="ds-tooltip-val">{value}</span>
               </div>
             ))}
+            {playlistContext.description && (
+              <div className="ds-tooltip-row">
+                <span className="ds-tooltip-key">description</span>
+                <span className="ds-tooltip-val ds-tooltip-val--desc">{playlistContext.description.length > 200 ? playlistContext.description.slice(0, 200) + "…" : playlistContext.description}</span>
+              </div>
+            )}
           </div>
         </div>
       )}

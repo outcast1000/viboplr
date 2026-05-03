@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { getInitials } from "../utils";
 import type { Artist, Album, Track, ColumnConfig, SortField } from "../types";
-import type { PlaylistContext } from "../hooks/useQueue";
+
 import type { SearchProviderConfig } from "../searchProviders";
 import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { AlbumCardArt } from "./AlbumCardArt";
@@ -33,7 +33,8 @@ interface ArtistDetailContentProps {
   highlightedIndex: number;
   sortField: SortField | null;
   trackListRef: React.RefObject<HTMLDivElement | null>;
-  onPlayTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
+  onPlayTracks: (tracks: Track[], index: number) => void;
+  onPlayAlbum: (albumId: number) => void;
   onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<string>) => void;
   onArtistClick: (id: number) => void;
   onAlbumClick: (id: number) => void;
@@ -74,6 +75,7 @@ export function ArtistDetailContent({
   sortField,
   trackListRef,
   onPlayTracks,
+  onPlayAlbum,
   onTrackContextMenu,
   onArtistClick,
   onAlbumClick,
@@ -159,7 +161,7 @@ export function ArtistDetailContent({
               <button
                 className="detail-art-play"
                 title="Play All"
-                onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0, { name: artist?.name ?? "Unknown", imagePath: artistImagePath, source: "artist" })}
+                onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
               >
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
               </button>
@@ -214,10 +216,9 @@ export function ArtistDetailContent({
                   <div key={a.id} className="album-card" onClick={() => onAlbumClick(a.id)} onContextMenu={(e) => onAlbumContextMenu(e, a.id)}>
                     <div className="album-card-art-wrapper">
                       <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={onFetchAlbumImage} />
-                      <button className="album-card-play-btn" title="Play album" onClick={async (e) => {
+                      <button className="album-card-play-btn" title="Play album" onClick={(e) => {
                         e.stopPropagation();
-                        const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: a.id } });
-                        if (albumTracks.length > 0) onPlayTracks(albumTracks, 0, { name: a.title, imagePath: albumImages[a.id] ?? null });
+                        onPlayAlbum(a.id);
                       }}><svg viewBox="0 0 24 24" width="25" height="25" fill="white" style={{marginLeft: 2}}><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg></button>
                     </div>
                     <div className="album-card-body">

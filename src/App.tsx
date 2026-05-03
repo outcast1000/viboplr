@@ -21,7 +21,8 @@ import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
-import { useQueue, type PlaylistContext } from "./hooks/useQueue";
+import { useQueue } from "./hooks/useQueue";
+import { usePlayActions } from "./hooks/usePlayActions";
 import { useLibrary, DEFAULT_TRACK_COLUMNS, ALBUM_DETAIL_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
 import { useImageCache } from "./hooks/useImageCache";
@@ -262,8 +263,12 @@ function App() {
     playTrack: (track: PluginTrack) => {
       queueHook.playTracks([pluginTrackToTrackFn(track)], 0);
     },
-    playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name: string; coverUrl?: string | null; source?: string | null; description?: string | null; metadata?: Record<string, string> | null }) => {
-      queueHook.playTracks(tracks.map(pluginTrackToTrackFn), startIndex ?? 0, context ? { name: context.name, source: context.source ?? null, description: context.description ?? null, metadata: context.metadata ?? null, remote: true } : undefined);
+    playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name?: string; playlistName?: string; coverUrl?: string | null; source?: string | null; description?: string | null; metadata?: Record<string, string> | null }) => {
+      const displayName = context?.playlistName || context?.name || "";
+      const cleanName = context?.name || context?.playlistName || "";
+      const meta = { ...(context?.metadata ?? {}) };
+      if (cleanName && cleanName !== displayName) meta.playlistName = cleanName;
+      queueHook.playTracks(tracks.map(pluginTrackToTrackFn), startIndex ?? 0, context && displayName ? { name: displayName, source: context.source ?? null, description: context.description ?? null, metadata: Object.keys(meta).length > 0 ? meta : null, remote: true, coverUrl: context.coverUrl ?? null } : undefined);
       if (context?.coverUrl) {
         if (context.coverUrl.startsWith("http://") || context.coverUrl.startsWith("https://")) {
           invoke<string>("download_url_to_playlist_images", { url: context.coverUrl })
@@ -732,6 +737,17 @@ function App() {
   const artistImageCache = useImageCache("artist", addLog);
   const tagImageCache = useImageCache("tag", addLog);
 
+  const playActions = usePlayActions({
+    playTracks: queueHook.playTracks,
+    setPlaylistContext: queueHook.setPlaylistContext,
+    albums: library.albums,
+    artists: library.artists,
+    tags: library.tags,
+    albumImages: albumImageCache.images,
+    artistImages: artistImageCache.images,
+    tagImages: tagImageCache.images,
+  });
+
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
     const track = playback.currentTrack;
@@ -794,8 +810,7 @@ function App() {
       handleStop: playback.handleStop,
     },
     addLog,
-    albumImages: albumImageCache.images,
-    artistImages: artistImageCache.images,
+    playActions,
     queueCollapsed,
     setQueueCollapsed,
     onTracksDeleted: (deletedIds: number[]) => {
@@ -2211,49 +2226,23 @@ function App() {
     setSearchViewModes(modes);
     store.set("searchViewModes", modes);
   }
-  const handleAlbumPlayTracks = useCallback((tracks: Track[], index: number, context?: PlaylistContext | null) => {
-    queueHook.playTracks(tracks, index, context);
-    if (context?.source === "album" && context.metadata?.artist) {
-      const entityKey = `album:${context.metadata.artist}:${context.name}`;
-      invoke<[number, string, string, string, number][]>("info_get_values_for_entity", { entityKey })
-        .then(rows => {
-          const wiki = rows.find(([, typeId]) => typeId === "album_wiki");
-          if (!wiki) return;
-          const [, , valueJson, status] = wiki;
-          if (status !== "ok") return;
-          try {
-            const parsed = JSON.parse(valueJson);
-            const summary = parsed.summary || parsed.full || "";
-            if (summary) {
-              queueHook.setPlaylistContext(prev => prev ? { ...prev, description: summary } : prev);
-            }
-          } catch { /* ignore parse errors */ }
-        })
-        .catch(console.error);
+  const handleAlbumPlayTracks = useCallback((tracks: Track[], index: number) => {
+    const albumId = tracks[0]?.album_id;
+    if (albumId != null) {
+      playActions.playAlbum(albumId, { tracks, startIndex: index });
+    } else {
+      queueHook.playTracks(tracks, index);
     }
-  }, [queueHook.playTracks, queueHook.setPlaylistContext]);
+  }, [playActions.playAlbum, queueHook.playTracks]);
 
-  const handleArtistPlayTracks = useCallback((tracks: Track[], index: number, context?: PlaylistContext | null) => {
-    queueHook.playTracks(tracks, index, context);
-    if (context?.source === "artist") {
-      const entityKey = `artist:${context.name}`;
-      invoke<[number, string, string, string, number][]>("info_get_values_for_entity", { entityKey })
-        .then(rows => {
-          const bio = rows.find(([, typeId]) => typeId === "artist_bio");
-          if (!bio) return;
-          const [, , valueJson, status] = bio;
-          if (status !== "ok") return;
-          try {
-            const parsed = JSON.parse(valueJson);
-            const summary = parsed.summary || parsed.full || "";
-            if (summary) {
-              queueHook.setPlaylistContext(prev => prev ? { ...prev, description: summary } : prev);
-            }
-          } catch { /* ignore parse errors */ }
-        })
-        .catch(console.error);
+  const handleArtistPlayTracks = useCallback((tracks: Track[], index: number) => {
+    const artistId = tracks[0]?.artist_id;
+    if (artistId != null) {
+      playActions.playArtist(artistId, { tracks, startIndex: index });
+    } else {
+      queueHook.playTracks(tracks, index);
     }
-  }, [queueHook.playTracks, queueHook.setPlaylistContext]);
+  }, [playActions.playArtist, queueHook.playTracks]);
 
   function handleSaveAsPlaylist() {
     if (queueHook.queue.length === 0) return;
@@ -2287,10 +2276,15 @@ function App() {
     setMixtapeExportDefaultType(ctxSource === "album" ? "album" : ctxSource === "artist" ? "best_of_artist" : "custom");
   }
 
-  async function handleSavePlaylistConfirm(name: string, imagePath: string | null) {
+  async function handleSavePlaylistConfirm(name: string, imagePath: string | null, info?: import("./components/SavePlaylistModal").PlaylistEditInfo | null) {
     setShowSavePlaylistModal(false);
     if (editPlaylistMode) {
-      queueHook.setPlaylistContext(prev => ({ ...prev, name, imagePath: imagePath ?? prev?.imagePath ?? null }));
+      queueHook.setPlaylistContext(prev => ({
+        ...prev,
+        name,
+        imagePath: imagePath ?? prev?.imagePath ?? null,
+        ...(info ? { source: info.source, description: info.description, metadata: info.metadata } : {}),
+      }));
       addLog("Playlist updated: " + name, "playlist");
       return;
     }
@@ -2734,6 +2728,7 @@ function App() {
                 sortField={sortField}
                 trackListRef={trackListRef}
                 onPlayTracks={handleArtistPlayTracks}
+                onPlayAlbum={playActions.playAlbum}
                 onTrackContextMenu={contextMenuActions.handleTrackContextMenu}
                 onArtistClick={library.handleArtistClick}
                 onAlbumClick={library.handleAlbumClick}
@@ -2782,10 +2777,7 @@ function App() {
                         <button
                           className="detail-art-play"
                           title="Play All"
-                          onClick={() => {
-                            const tagImgPath = tagImageCache.images[selectedTag] ?? null;
-                            queueHook.playTracks(sortedTracks.filter(t => t.liked !== -1), 0, tag ? { name: tag.name, imagePath: tagImgPath, source: "tag", remote: false } : null);
-                          }}
+                          onClick={() => playActions.playTag(selectedTag, { tracks: sortedTracks.filter(t => t.liked !== -1) })}
                         >
                           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                         </button>
@@ -2823,7 +2815,7 @@ function App() {
                   trackListRef={trackListRef}
                   columns={tagDetailColumns}
                   onColumnsChange={setTagDetailColumns}
-                  onDoubleClick={queueHook.playTracks}
+                  onDoubleClick={(tracks, index) => playActions.playTag(selectedTag, { tracks, startIndex: index })}
                   onContextMenu={contextMenuActions.handleTrackContextMenu}
                   onArtistClick={library.handleArtistClick}
                   onAlbumClick={library.handleAlbumClick}
@@ -2898,7 +2890,10 @@ function App() {
               onViewModesChange={handleSearchViewModesChange}
               artistImages={artistImageCache.images}
               albumImages={albumImageCache.images}
-              onPlayTracks={(tracks, index) => queueHook.playTracks(tracks, index)}
+              onPlayTracks={queueHook.playTracks}
+              onPlayAlbum={playActions.playAlbum}
+              onPlayArtist={playActions.playArtist}
+              onPlayTag={playActions.playTag}
               onArtistClick={(id) => {
                 library.setSelectedArtist(id);
                 library.setView("artists");
@@ -2965,7 +2960,7 @@ function App() {
                   trackListRef={trackListRef}
                   columns={albumDetailColumns}
                   onColumnsChange={setAlbumDetailColumns}
-                  onDoubleClick={queueHook.playTracks}
+                  onDoubleClick={handleAlbumPlayTracks}
                   onContextMenu={contextMenuActions.handleTrackContextMenu}
                   onArtistClick={library.handleArtistClick}
                   onAlbumClick={library.handleAlbumClick}
@@ -3577,6 +3572,7 @@ function App() {
             })()}
           defaultImage={editPlaylistMode ? (queueHook.playlistContext?.imagePath ?? null) : null}
           title={editPlaylistMode ? "Edit Playlist" : "Save Playlist"}
+          info={editPlaylistMode ? { source: queueHook.playlistContext?.source, description: queueHook.playlistContext?.description, metadata: queueHook.playlistContext?.metadata } : null}
           onSave={handleSavePlaylistConfirm}
           onClose={() => setShowSavePlaylistModal(false)}
         />

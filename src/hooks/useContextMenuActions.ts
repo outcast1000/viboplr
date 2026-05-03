@@ -30,8 +30,10 @@ interface UseContextMenuActionsDeps {
   };
   playback: { currentTrack: Track | null; handleStop: () => void };
   addLog: (msg: string, module?: string) => void;
-  albumImages: Record<number, string | null>;
-  artistImages: Record<number, string | null>;
+  playActions: {
+    playAlbum: (albumId: number) => void;
+    playArtist: (artistId: number) => void;
+  };
   queueCollapsed: boolean;
   setQueueCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
   onTracksDeleted?: (deletedIds: number[]) => void;
@@ -39,7 +41,7 @@ interface UseContextMenuActionsDeps {
 }
 
 export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
-  const { library, queueHook, playback, addLog, albumImages, artistImages, queueCollapsed, setQueueCollapsed, onTracksDeleted, onShowMenu } = deps;
+  const { library, queueHook, playback, addLog, playActions, queueCollapsed, setQueueCollapsed, onTracksDeleted, onShowMenu } = deps;
 
   const [contextMenu, setContextMenuState] = useState<ContextMenuState | null>(null);
   const contextMenuRef = useRef<ContextMenuState | null>(null);
@@ -95,26 +97,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       const track = library.tracks.find(t => t.id === target.trackId);
       if (track) queueHook.playTracks([track], 0);
     } else if (target.kind === "album" && target.albumId) {
-      const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
-      if (albumTracks.length > 0) {
-        const album = library.albums.find(a => a.id === target.albumId);
-        queueHook.playTracks(albumTracks, 0, album ? {
-          name: album.title,
-          imagePath: albumImages[target.albumId] ?? null,
-          source: "album",
-          metadata: {
-            ...(album.artist_name ? { artist: album.artist_name } : {}),
-            ...(album.year ? { year: String(album.year) } : {}),
-          },
-          remote: false,
-        } : null);
-      }
+      playActions.playAlbum(target.albumId);
     } else if (target.kind === "artist" && target.artistId) {
-      const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
-      if (artistTracks.length > 0) {
-        const artist = library.artists.find(a => a.id === target.artistId);
-        queueHook.playTracks(artistTracks, 0, artist ? { name: artist.name, imagePath: artistImages[target.artistId] ?? null, source: "artist", remote: false } : null);
-      }
+      playActions.playArtist(target.artistId);
     } else if (target.kind === "multi-track") {
       const idSet = new Set(target.trackIds);
       const selected = library.sortedTracks.filter(t => t.id != null && idSet.has(t.id));

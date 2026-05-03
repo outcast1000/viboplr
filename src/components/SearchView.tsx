@@ -4,6 +4,7 @@ import type { Track, Artist, Album, Tag, ViewMode, SortField } from "../types";
 import { formatDuration, isVideoTrack } from "../utils";
 import { store } from "../store";
 import { isLocalTrack } from "../queueEntry";
+import type { PlaylistContext } from "../hooks/useQueue";
 import { TrackList } from "./TrackList";
 import { ArtistCardArt } from "./ArtistCardArt";
 import { AlbumCardArt } from "./AlbumCardArt";
@@ -71,7 +72,10 @@ interface SearchViewProps {
   onViewModesChange: (modes: SearchViewModes) => void;
   artistImages: Record<number, string | null>;
   albumImages: Record<number, string | null>;
-  onPlayTracks: (tracks: Track[], index: number) => void;
+  onPlayTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
+  onPlayAlbum: (albumId: number) => void;
+  onPlayArtist: (artistId: number) => void;
+  onPlayTag: (tagId: number) => void;
   onArtistClick: (id: number) => void;
   onAlbumClick: (id: number, artistId?: number | null) => void;
   onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedIds: Set<string>) => void;
@@ -107,6 +111,9 @@ export function SearchView({
   artistImages,
   albumImages,
   onPlayTracks,
+  onPlayAlbum,
+  onPlayArtist,
+  onPlayTag,
   onArtistClick,
   onAlbumClick,
   onTrackContextMenu,
@@ -705,7 +712,7 @@ export function SearchView({
             onToggleLike={onToggleAlbumLike}
             onContextMenu={onAlbumContextMenu}
             onFetchImage={onFetchAlbumImage}
-            onPlayTracks={onPlayTracks}
+            onPlayAlbum={onPlayAlbum}
             hasMore={hasMore.albums}
             loadingMore={loadingMore.albums}
             onLoadMore={handleLoadMore}
@@ -743,7 +750,7 @@ export function SearchView({
             onToggleLike={onToggleArtistLike}
             onContextMenu={onArtistContextMenu}
             onFetchImage={onFetchArtistImage}
-            onPlayTracks={onPlayTracks}
+            onPlayArtist={onPlayArtist}
             hasMore={hasMore.artists}
             loadingMore={loadingMore.artists}
             onLoadMore={handleLoadMore}
@@ -780,7 +787,7 @@ export function SearchView({
             onTagClick={onTagClick}
             onToggleLike={onToggleTagLike}
             onFetchImage={onFetchTagImage}
-            onPlayTracks={onPlayTracks}
+            onPlayTag={onPlayTag}
             hasMore={hasMore.tags}
             loadingMore={loadingMore.tags}
             onLoadMore={handleLoadMore}
@@ -796,7 +803,7 @@ export function SearchView({
 
 function SearchTagResults({
   tags, viewMode, tagImages, onTagClick, onToggleLike,
-  onFetchImage, onPlayTracks, hasMore, loadingMore, onLoadMore,
+  onFetchImage, onPlayTag, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator,
 }: {
   tags: Tag[];
@@ -805,7 +812,7 @@ function SearchTagResults({
   onTagClick: (id: number) => void;
   onToggleLike: (id: number) => void;
   onFetchImage: (tag: { id: number }) => void;
-  onPlayTracks: (tracks: Track[], index: number) => void;
+  onPlayTag: (tagId: number) => void;
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
@@ -857,7 +864,7 @@ function SearchTagResults({
                 <div className="album-card-art-wrapper">
                   <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={onFetchImage} />
                   <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="overlay" size={12} />
-                  <button className="album-card-play-btn" onClick={async e => { e.stopPropagation(); const tracks = await invoke<Track[]>("get_tracks", { opts: { tagId: t.id } }); if (tracks.length > 0) onPlayTracks(tracks, 0); }} title="Play">
+                  <button className="album-card-play-btn" onClick={e => { e.stopPropagation(); onPlayTag(t.id); }} title="Play">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                   </button>
                 </div>
@@ -885,7 +892,7 @@ function SearchTagResults({
 
 function SearchAlbumResults({
   albums, viewMode, albumImages, onAlbumClick, onToggleLike,
-  onContextMenu, onFetchImage, onPlayTracks, hasMore, loadingMore, onLoadMore,
+  onContextMenu, onFetchImage, onPlayAlbum, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator,
 }: {
   albums: Album[];
@@ -895,7 +902,7 @@ function SearchAlbumResults({
   onToggleLike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, id: number) => void;
   onFetchImage: (album: Album) => void;
-  onPlayTracks: (tracks: Track[], index: number) => void;
+  onPlayAlbum: (albumId: number) => void;
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
@@ -955,7 +962,7 @@ function SearchAlbumResults({
                   <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={onFetchImage} />
                   <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="overlay" size={12} />
                   <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); onContextMenu(e, a.id); }} title="More options">&#x22EF;</button>
-                  <button className="album-card-play-btn" onClick={async e => { e.stopPropagation(); const t = await invoke<Track[]>("get_tracks", { opts: { albumId: a.id } }); if (t.length > 0) onPlayTracks(t, 0); }} title="Play">
+                  <button className="album-card-play-btn" onClick={e => { e.stopPropagation(); onPlayAlbum(a.id); }} title="Play">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                   </button>
                 </div>
@@ -985,7 +992,7 @@ function SearchAlbumResults({
 
 function SearchArtistResults({
   artists, viewMode, artistImages, onArtistClick, onToggleLike,
-  onContextMenu, onFetchImage, onPlayTracks, hasMore, loadingMore, onLoadMore,
+  onContextMenu, onFetchImage, onPlayArtist, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator,
 }: {
   artists: Artist[];
@@ -995,7 +1002,7 @@ function SearchArtistResults({
   onToggleLike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, id: number) => void;
   onFetchImage: (artist: Artist) => void;
-  onPlayTracks: (tracks: Track[], index: number) => void;
+  onPlayArtist: (artistId: number) => void;
   hasMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
@@ -1048,7 +1055,7 @@ function SearchArtistResults({
                   <ArtistCardArt artist={a} imagePath={artistImages[a.id]} onVisible={onFetchImage} />
                   <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="overlay" size={12} />
                   <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); onContextMenu(e, a.id); }} title="More options">&#x22EF;</button>
-                  <button className="album-card-play-btn" onClick={async e => { e.stopPropagation(); const t = await invoke<Track[]>("get_tracks", { opts: { artistId: a.id } }); if (t.length > 0) onPlayTracks(t, 0); }} title="Play">
+                  <button className="album-card-play-btn" onClick={e => { e.stopPropagation(); onPlayArtist(a.id); }} title="Play">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                   </button>
                 </div>

@@ -150,8 +150,13 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return TEST_TRACKS.length;
     case 'get_album_count':
       return TEST_ALBUMS.length;
-    case 'get_tracks':
+    case 'get_tracks': {
+      const opts = args && args.opts;
+      if (opts && opts.albumId) return TEST_TRACKS.filter(t => t.album_id === opts.albumId);
+      if (opts && opts.artistId) return TEST_TRACKS.filter(t => t.artist_id === opts.artistId);
+      if (opts && opts.tagId) return [];
       return TEST_TRACKS;
+    }
     case 'get_tracks_by_ids':
       return TEST_TRACKS.filter(t => (args.trackIds || []).includes(t.id));
     case 'get_tracks_by_paths':
@@ -168,8 +173,10 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return { artists: TEST_ARTISTS, albums: TEST_ALBUMS, tracks: TEST_TRACKS };
     case 'get_tracks_by_tag':
       return [];
-    case 'get_tracks_by_artist':
-      return [];
+    case 'get_tracks_by_artist': {
+      const artistId = args && args.artistId;
+      return TEST_TRACKS.filter(t => t.artist_id === artistId);
+    }
     case 'get_liked_tracks':
       return [];
     case 'get_history_recent':
@@ -198,7 +205,36 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return null;
     case 'open_devtools':
       return null;
-    case 'tidal_check_status':
+    case 'main_playlist_read':
+      return { manifest: null, state: null };
+    case 'main_playlist_dir':
+      return '/tmp/mock-main-playlist';
+    case 'main_playlist_write':
+    case 'main_playlist_set_cover':
+    case 'main_playlist_gc':
+    case 'main_playlist_clear':
+    case 'main_playlist_remove_thumb':
+    case 'main_playlist_set_thumb':
+      return null;
+    case 'get_download_providers':
+      return [];
+    case 'get_stream_resolvers':
+      return [];
+    case 'get_image_providers':
+      return [];
+    case 'get_information_types':
+      return [];
+    case 'sync_information_types':
+      return null;
+    case 'info_get_values_for_entity':
+      return [];
+    case 'get_active_download_providers':
+      return [];
+    case 'cleanup_temp_mixtapes':
+    case 'fetch_album_image':
+    case 'fetch_artist_image':
+    case 'get_track_audio_properties':
+    case 'list_user_skins':
       return null;
     case 'get_track_by_id':
       return TEST_TRACKS.find(t => t.id === args.trackId) || null;

@@ -14,7 +14,7 @@ export interface Manifest {
   version: 1;
   title: string;
   type: "custom";
-  metadata: Record<string, string>;
+  metadata?: Record<string, string>;
   created_at: string;
   created_by: string | null;
   cover: string | null;
@@ -125,10 +125,11 @@ export function tracksFromManifest(manifest: Manifest): Track[] {
 }
 
 export function contextFromManifest(manifest: Manifest, mainPlaylistDir: string | null): PlaylistContext | null {
-  if (!manifest.title && !manifest.cover && Object.keys(manifest.metadata).length === 0) return null;
-  const source = manifest.metadata.source ?? null;
-  const description = manifest.metadata.description ?? null;
-  const { source: _s, description: _d, ...restMeta } = manifest.metadata;
+  const metadata = manifest.metadata ?? {};
+  const source = metadata.source ?? null;
+  const description = metadata.description ?? null;
+  const { source: _s, description: _d, ...restMeta } = metadata;
+  if (!source && !description && !manifest.cover && Object.keys(restMeta).length === 0) return null;
   const remote = source ? !LIBRARY_SOURCES.has(source) : false;
   // Resolve cover to its absolute filesystem path so downstream consumers
   // (mixtape export, update_playlist_image, edit-playlist modal) get a usable path.

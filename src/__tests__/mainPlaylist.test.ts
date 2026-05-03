@@ -136,6 +136,82 @@ describe("contextFromManifest", () => {
     const ctx = contextFromManifest(m, null);
     expect(ctx?.source).toBe("library");
   });
+
+  it("returns null when metadata field omitted and no cover (Rust skip_serializing_if)", () => {
+    const m = {
+      version: 1 as const,
+      title: "Queue",
+      type: "custom" as const,
+      created_at: "2026-05-01T00:00:00Z",
+      created_by: null,
+      cover: null,
+      tracks: [],
+    };
+    expect(contextFromManifest(m, null)).toBeNull();
+  });
+
+  it("returns null when metadata is undefined and no cover", () => {
+    const m: Manifest = {
+      version: 1,
+      title: "Queue",
+      type: "custom",
+      metadata: undefined,
+      created_at: "2026-05-01T00:00:00Z",
+      created_by: null,
+      cover: null,
+      tracks: [],
+    };
+    expect(contextFromManifest(m, null)).toBeNull();
+  });
+
+  it("returns context when metadata has a source", () => {
+    const m = {
+      version: 1 as const,
+      title: "My Album",
+      type: "custom" as const,
+      metadata: { source: "album" },
+      created_at: "2026-05-01T00:00:00Z",
+      created_by: null,
+      cover: null,
+      tracks: [],
+    };
+    const ctx = contextFromManifest(m, null);
+    expect(ctx).not.toBeNull();
+    expect(ctx!.name).toBe("My Album");
+    expect(ctx!.source).toBe("album");
+  });
+
+  it("returns context when manifest has a cover but no metadata", () => {
+    const m = {
+      version: 1 as const,
+      title: "Queue",
+      type: "custom" as const,
+      created_at: "2026-05-01T00:00:00Z",
+      created_by: null,
+      cover: "cover.jpg",
+      tracks: [],
+    };
+    const ctx = contextFromManifest(m, "/dir");
+    expect(ctx).not.toBeNull();
+    expect(ctx!.imagePath).toBe("/dir/cover.jpg");
+  });
+
+  it("returns context when metadata has only description (no source)", () => {
+    const m: Manifest = {
+      version: 1,
+      title: "Queue",
+      type: "custom",
+      metadata: { description: "A cool mix" },
+      created_at: "2026-05-01T00:00:00Z",
+      created_by: null,
+      cover: null,
+      tracks: [],
+    };
+    const ctx = contextFromManifest(m, null);
+    expect(ctx).not.toBeNull();
+    expect(ctx!.description).toBe("A cool mix");
+    expect(ctx!.source).toBeNull();
+  });
 });
 
 describe("playlist metadata roundtrip", () => {
@@ -150,10 +226,10 @@ describe("playlist metadata roundtrip", () => {
     const t = makeTrack({ path: "spotify://track1" });
     const manifest = buildManifest([t], ctx);
 
-    expect(manifest.metadata.source).toBe("spotify://playlists/abc123");
-    expect(manifest.metadata.description).toBe("Your weekly mixtape of fresh music");
-    expect(manifest.metadata.section).toBe("Made for You");
-    expect(manifest.metadata.sourceDate).toBe("2026-05-03T10:00:00Z");
+    expect(manifest.metadata!.source).toBe("spotify://playlists/abc123");
+    expect(manifest.metadata!.description).toBe("Your weekly mixtape of fresh music");
+    expect(manifest.metadata!.section).toBe("Made for You");
+    expect(manifest.metadata!.sourceDate).toBe("2026-05-03T10:00:00Z");
 
     const restored = contextFromManifest(manifest, "/profile/main-playlist");
     expect(restored).not.toBeNull();
@@ -163,15 +239,54 @@ describe("playlist metadata roundtrip", () => {
     expect(restored!.metadata).toEqual({ section: "Made for You", sourceDate: "2026-05-03T10:00:00Z" });
   });
 
-  it("handles null description and metadata gracefully", () => {
+  it("returns null context for plain queue with no source or cover", () => {
     const ctx = { name: "Plain Queue" };
     const manifest = buildManifest([], ctx);
 
-    expect(manifest.metadata.description).toBeUndefined();
+    expect(manifest.metadata!.description).toBeUndefined();
+    expect(contextFromManifest(manifest, null)).toBeNull();
+  });
 
-    const restored = contextFromManifest(manifest, null);
-    expect(restored!.description).toBeNull();
-    expect(restored!.metadata).toBeNull();
+  it("preserves album detail context through roundtrip", () => {
+    const ctx = {
+      name: "OK Computer",
+      imagePath: "/images/album.jpg",
+      source: "album",
+      description: "A landmark album by Radiohead...",
+      metadata: { artist: "Radiohead", year: "1997" },
+    };
+    const manifest = buildManifest([makeTrack()], ctx);
+    const restored = contextFromManifest(manifest, "/profile/main-playlist");
+    expect(restored).not.toBeNull();
+    expect(restored!.name).toBe("OK Computer");
+    expect(restored!.source).toBe("album");
+    expect(restored!.description).toBe("A landmark album by Radiohead...");
+    expect(restored!.metadata).toEqual({ artist: "Radiohead", year: "1997" });
+    expect(restored!.imagePath).toBe("/profile/main-playlist/cover.jpg");
+  });
+
+  it("preserves artist detail context through roundtrip", () => {
+    const ctx = {
+      name: "Radiohead",
+      imagePath: "/images/artist.jpg",
+      source: "artist",
+      description: "English rock band formed in 1985...",
+    };
+    const manifest = buildManifest([makeTrack()], ctx);
+    const restored = contextFromManifest(manifest, "/profile/main-playlist");
+    expect(restored).not.toBeNull();
+    expect(restored!.name).toBe("Radiohead");
+    expect(restored!.source).toBe("artist");
+    expect(restored!.description).toBe("English rock band formed in 1985...");
+  });
+
+  it("preserves cover-only context from album card play", () => {
+    const ctx = { name: "Kid A", imagePath: "/images/kidA.jpg" };
+    const manifest = buildManifest([makeTrack()], ctx);
+    const restored = contextFromManifest(manifest, "/profile/main-playlist");
+    expect(restored).not.toBeNull();
+    expect(restored!.name).toBe("Kid A");
+    expect(restored!.imagePath).toBe("/profile/main-playlist/cover.jpg");
     expect(restored!.source).toBeNull();
   });
 });
@@ -296,10 +411,10 @@ describe("album → queue → mixtape → queue roundtrip", () => {
 
     // Step 2: Queue persists to main-playlist manifest (app restart)
     const manifest = buildManifest([track], albumContext);
-    expect(manifest.metadata.source).toBe("album");
-    expect(manifest.metadata.description).toBe(albumContext.description);
-    expect(manifest.metadata.artist).toBe("Radiohead");
-    expect(manifest.metadata.year).toBe("1997");
+    expect(manifest.metadata!.source).toBe("album");
+    expect(manifest.metadata!.description).toBe(albumContext.description);
+    expect(manifest.metadata!.artist).toBe("Radiohead");
+    expect(manifest.metadata!.year).toBe("1997");
 
     const restoredFromDisk = contextFromManifest(manifest, "/profile/main-playlist");
     expect(restoredFromDisk!.source).toBe("album");
@@ -342,8 +457,8 @@ describe("artist → queue → mixtape → queue roundtrip", () => {
 
     // Step 2: Queue persists to manifest
     const manifest = buildManifest([track], artistContext);
-    expect(manifest.metadata.source).toBe("artist");
-    expect(manifest.metadata.description).toBe(artistContext.description);
+    expect(manifest.metadata!.source).toBe("artist");
+    expect(manifest.metadata!.description).toBe(artistContext.description);
 
     const restoredFromDisk = contextFromManifest(manifest, "/profile/main-playlist");
     expect(restoredFromDisk!.source).toBe("artist");
@@ -405,9 +520,9 @@ describe("plugin album → queue → mixtape → queue roundtrip", () => {
 
     // Step 2: Queue persists to manifest (app restart)
     const manifest = buildManifest([track], tidalContext);
-    expect(manifest.metadata.source).toBe("tidal://albums/12345");
-    expect(manifest.metadata.artist).toBe("Radiohead");
-    expect(manifest.metadata.tidalId).toBe("12345");
+    expect(manifest.metadata!.source).toBe("tidal://albums/12345");
+    expect(manifest.metadata!.artist).toBe("Radiohead");
+    expect(manifest.metadata!.tidalId).toBe("12345");
     expect(manifest.tracks[0].thumb).toBe("thumbs/tidal67890.jpg");
 
     const restored = contextFromManifest(manifest, "/profile/main-playlist");

@@ -1938,16 +1938,17 @@ function activate(api) {
     if (pl.section) meta.Section = pl.section;
     if (pl.description) meta.Description = pl.description;
     if (pl.updatedAt) meta["Updated"] = new Date(pl.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-    var name = pl.name;
+    var title = pl.name;
     var ts = pl.lastCheckedAt || pl.updatedAt;
     if (ts) {
       var d = new Date(ts);
       var dateStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
       meta["Retrieved"] = dateStr;
-      name = pl.name + " (" + dateStr + ")";
+      title = pl.name + " (" + dateStr + ")";
     }
     return {
-      playlistName: name,
+      name: pl.name,
+      playlistName: title,
       coverUrl: pl.imageUrl || undefined,
       source: "spotify://playlists/" + pl.id,
       description: pl.description || null,
