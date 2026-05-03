@@ -3226,6 +3226,7 @@ function App() {
         >
           <video
             ref={playback.videoRef}
+            tabIndex={-1}
             onTimeUpdate={playback.onTimeUpdate}
             onLoadedMetadata={playback.onLoadedMetadata}
             onPlay={playback.onPlay}
