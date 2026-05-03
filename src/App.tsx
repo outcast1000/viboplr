@@ -45,7 +45,7 @@ import { useLikeActions } from "./hooks/useLikeActions";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useArtistInfo } from "./hooks/useArtistInfo";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
-import type { PluginTrack, DownloadProvider } from "./types/plugin";
+import type { PluginTrack, DownloadProvider, DownloadResolveResult } from "./types/plugin";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
 import { VideoFrameQueueProvider, useVideoFrameQueue } from "./hooks/useVideoFrameQueueContext";
@@ -91,31 +91,9 @@ import { IconYoutube } from "./components/Icons";
 import { LikeDislikeButtons } from "./components/LikeDislikeButtons";
 
 
-function VideoFrameQueueRefBridge({ refOut, addLog, tracksRef }: {
-  refOut: React.MutableRefObject<VideoFrameQueue | null>;
-  addLog: (msg: string, module?: string) => void;
-  tracksRef: React.MutableRefObject<Track[]>;
-}) {
+function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<VideoFrameQueue | null> }) {
   const queue = useVideoFrameQueue();
   useEffect(() => { refOut.current = queue; }, [queue, refOut]);
-  useEffect(() => {
-    const trackTitle = (id: number) => {
-      const t = tracksRef.current.find(tr => tr.id === id);
-      return t?.title ?? `track ${id}`;
-    };
-    queue.onEvent((event) => {
-      if (event.kind === "started") {
-        addLog("Extracting video frames...", "video");
-      } else if (event.kind === "failed") {
-        addLog(`Frame extraction failed: ${trackTitle(event.trackId)} — ${event.reason}`, "video");
-      } else if (event.kind === "finished" && event.extracted + event.failed > 1) {
-        const parts = [`${event.extracted} extracted`];
-        if (event.failed > 0) parts.push(`${event.failed} failed`);
-        addLog(`Video frames: ${parts.join(", ")}`, "video");
-      }
-    });
-    return () => queue.onEvent(null);
-  }, [queue, addLog, tracksRef]);
   return null;
 }
 
@@ -132,6 +110,7 @@ function App() {
     providerId: string;
     providerName: string;
     confirmed?: boolean;
+    resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
   } | null>(null);
   const pendingRestoreTrackRef = useRef<Track | null>(null);
   const pendingRestoreQueueRef = useRef<{ tracks: Track[]; index: number } | null>(null);
@@ -243,9 +222,6 @@ function App() {
   const [trackPopularityState, setTrackPopularityState] = useState<Record<number, number>>({});
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, trackPopularityState, setNavError);
   const downloadsCollection = useMemo(() => downloadsCollectionId != null ? library.collections.find(c => c.id === downloadsCollectionId) ?? null : null, [downloadsCollectionId, library.collections]);
-
-  const libraryTracksRef = useRef<Track[]>([]);
-  libraryTracksRef.current = library.tracks;
 
   const queueHook = useQueue(restoredRef, playback.handlePlay, albumImageCache.images);
   const autoContinue = useAutoContinue(restoredRef);
@@ -1387,9 +1363,13 @@ function App() {
     getScrollTop,
   );
 
+  // Tracks last user navigation action for idle-based "Follow playing" feature
+  const lastNavActionRef = useRef(Date.now());
+
   // Push history and reset scroll for the new view.
   // Used by all navigation triggers (sidebar, keyboard, click handlers).
   const pushAndScroll = useCallback(() => {
+    lastNavActionRef.current = Date.now();
     pushState();
     const sc = getScrollEl();
     if (sc) sc.scrollTop = 0;
@@ -1770,12 +1750,13 @@ function App() {
     return () => { cancelled = true; };
   }, [library.selectedTrack, detailTrackLocal]);
 
-  // Sync detail view with currently playing track — only on automatic track changes
+  // Sync detail view with currently playing track when user is idle (no navigation for 3 min)
   const syncRef = useRef(syncWithPlaying);
   syncRef.current = syncWithPlaying;
   useEffect(() => {
     if (!syncRef.current || !playback.currentTrack) return;
-    if (playback.trackChangeSourceRef.current !== "auto") return;
+    const idleMs = Date.now() - lastNavActionRef.current;
+    if (idleMs < 180_000) return;
     const ct = playback.currentTrack;
     if (ct.key && ct.key !== library.selectedTrack) {
       library.handleTrackClick(ct.key);
@@ -2317,7 +2298,7 @@ function App() {
 
   return (
     <VideoFrameQueueProvider>
-    <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} addLog={addLog} tracksRef={libraryTracksRef} />
+    <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
     <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
@@ -3293,6 +3274,7 @@ function App() {
           providerId={downloadModal.providerId}
           providerName={downloadModal.providerName}
           confirmed={downloadModal.confirmed}
+          resolveByUri={downloadModal.resolveByUri}
           downloadFormat={downloads.downloadFormat}
           collections={localCollections}
           downloadsCollectionId={downloadsCollectionId}
@@ -3594,6 +3576,34 @@ function App() {
         }}
         onDownloadTrack={playback.currentTrack ? async () => {
           const track = playback.currentTrack!;
+          const trackUri = track.path ?? "";
+          const trackPayload = {
+            title: track.title,
+            artistName: track.artist_name ?? null,
+            albumTitle: track.album_title ?? null,
+            uri: track.path ?? null,
+            durationSecs: track.duration_secs ?? null,
+            trackId: track.id ?? null,
+          };
+
+          // Direct URI resolution: for remote schemes, skip interactive search
+          if (isRemoteScheme(trackUri)) {
+            const scheme = trackUri.substring(0, trackUri.indexOf("://"));
+            const directProvider = scheme === "subsonic"
+              ? downloadProviders.find(p => p.id === "__builtin:subsonic")
+              : downloadProviders.find(p => p.source !== "__builtin");
+            if (directProvider) {
+              setDownloadModal({
+                tracks: [trackPayload],
+                providerId: directProvider.id,
+                providerName: directProvider.name,
+                resolveByUri: directProvider.resolveByUri,
+              });
+              return;
+            }
+          }
+
+          // Fallback: interactive search via plugin providers
           let entries = downloadProviderEntries;
           try {
             const rows = await invoke<[string, string, string, number][]>("get_active_download_providers");
@@ -3621,14 +3631,7 @@ function App() {
             return;
           }
           setDownloadModal({
-            tracks: [{
-              title: track.title,
-              artistName: track.artist_name ?? null,
-              albumTitle: track.album_title ?? null,
-              uri: track.path ?? null,
-              durationSecs: track.duration_secs ?? null,
-              trackId: track.id ?? null,
-            }],
+            tracks: [trackPayload],
             providerId: provider.id,
             providerName: provider.name,
           });

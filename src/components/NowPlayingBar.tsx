@@ -144,6 +144,15 @@ export function NowPlayingBar({
   const sourceHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sourceTooltipRef = useRef<HTMLDivElement | null>(null);
   const [showMiniVolume, setShowMiniVolume] = useState(false);
+  const [followPulse, setFollowPulse] = useState(false);
+
+  // Pulse the Follow button when sync navigates to a new track
+  useEffect(() => {
+    if (!syncWithPlaying || !currentTrack?.key) return;
+    setFollowPulse(true);
+    const t = setTimeout(() => setFollowPulse(false), 600);
+    return () => clearTimeout(t);
+  }, [currentTrack?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Blur any focused element when entering mini mode so no button appears selected
   useEffect(() => {
@@ -418,8 +427,8 @@ export function NowPlayingBar({
               </div>
             )}
           </div>
-          {currentTrack && currentTrack.id != null && (
-            <div className="now-like-col">
+          <div className="now-like-col">
+            {currentTrack && currentTrack.id != null && (
               <LikeDislikeButtons
                 liked={currentTrack.liked}
                 onToggleLike={onToggleLike}
@@ -428,14 +437,39 @@ export function NowPlayingBar({
                 size={13}
                 showKeyboardHint={`(${mod}L)`}
               />
-            </div>
-          )}
+            )}
+          </div>
           <div className="now-info-text">
             {currentTrack ? (
               <>
-                <span className="now-title now-link" onClick={() => onTrackClick(currentTrack.key)}>
-                  <SlideText text={currentTrack.title} />
-                  {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
+                <span className="now-title-row">
+                  <span className="now-title now-link" onClick={() => onTrackClick(currentTrack.key)}>
+                    <SlideText text={currentTrack.title} />
+                    {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
+                  </span>
+                  {onDownloadTrack && !currentTrack.path?.startsWith("file://") && (isRemoteScheme(currentTrack.path ?? "") || (resolvedSource && resolvedSource.name !== "Library")) && (
+                    <button
+                      className="now-download-btn"
+                      onClick={onDownloadTrack}
+                      title="Download track"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    </button>
+                  )}
+                  <button
+                    className={`now-follow-btn${syncWithPlaying ? " active" : ""}${followPulse && syncWithPlaying ? " pulse" : ""}`}
+                    onClick={onToggleSync}
+                    title={syncWithPlaying ? "Stop following playback" : "Follow playback — auto-shows track details when idle"}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      {syncWithPlaying ? (
+                        <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+                      ) : (
+                        <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
+                      )}
+                    </svg>
+                    Follow
+                  </button>
                 </span>
                 <span className="now-subtitle">
                   {loadingTrack && loadingTrack.key !== currentTrack.key ? (
@@ -541,22 +575,6 @@ export function NowPlayingBar({
             />
           )}
         </div>
-        {onDownloadTrack && currentTrack && (isRemoteScheme(currentTrack.path ?? "") || resolvedSource) && (
-          <button
-            className="g-btn g-btn-sm"
-            onClick={onDownloadTrack}
-            title="Download track"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          </button>
-        )}
-        <button
-          className={`g-btn g-btn-sm${syncWithPlaying ? " active" : ""}`}
-          onClick={onToggleSync}
-          data-tooltip={syncWithPlaying ? "Stop following playback" : "Follow playback — auto-shows track details when song changes"}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        </button>
         <div className="now-volume">
           <button className="g-btn g-btn-sm" onClick={onMute} title={`Mute (${mod}M)`}>
             {volume === 0

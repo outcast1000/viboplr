@@ -25,6 +25,7 @@ interface DownloadModalProps {
   providerId: string;
   providerName: string;
   confirmed?: boolean;
+  resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
   downloadFormat: string;
   collections: { id: number; name: string; path: string }[];
   downloadsCollectionId?: number | null;
@@ -145,6 +146,7 @@ function SingleTrackDownload({
   track,
   providerId: _providerId,
   providerName,
+  resolveByUri,
   downloadFormat,
   collections,
   downloadsCollectionId,
@@ -159,6 +161,7 @@ function SingleTrackDownload({
   track: DownloadTrack;
   providerId: string;
   providerName: string;
+  resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
   downloadFormat: string;
   collections: { id: number; name: string; path: string }[];
   downloadsCollectionId?: number | null;
@@ -170,7 +173,8 @@ function SingleTrackDownload({
   onComplete: (message: string) => void;
   onPlay?: (path: string) => void;
 }) {
-  const [step, setStep] = useState<SingleStep>("search");
+  const directUri = !!(resolveByUri && track.uri);
+  const [step, setStep] = useState<SingleStep>(directUri ? "configure" : "search");
   const [searchQuery, setSearchQuery] = useState(
     [track.title, track.artistName].filter(Boolean).join(" ")
   );
@@ -180,7 +184,18 @@ function SingleTrackDownload({
   const [error, setError] = useState<string | null>(null);
 
   // Configure state
-  const [selectedMatch, setSelectedMatch] = useState<InteractiveSearchResult | null>(null);
+  const [selectedMatch, setSelectedMatch] = useState<InteractiveSearchResult | null>(() => {
+    if (directUri) {
+      return {
+        id: track.uri!,
+        title: track.title,
+        artistName: track.artistName ?? undefined,
+        albumTitle: track.albumTitle ?? undefined,
+        durationSecs: track.durationSecs ?? undefined,
+      };
+    }
+    return null;
+  });
   const [quality, setQuality] = useState<"flac" | "aac">(
     downloadFormat === "flac" ? "flac" : "aac"
   );
@@ -229,9 +244,10 @@ function SingleTrackDownload({
   const hasAlbum = results.some(r => r.albumTitle);
   const hasDuration = results.some(r => r.durationSecs);
 
-  // Auto-search on mount
+  // Auto-search on mount (skipped in direct URI mode)
   const didAutoSearch = useRef(false);
   useEffect(() => {
+    if (directUri) return;
     if (didAutoSearch.current) return;
     didAutoSearch.current = true;
     if (!searchQuery) {
@@ -289,14 +305,27 @@ function SingleTrackDownload({
     // Resolve stream URL and metadata from the provider
     let streamUrl: string;
     try {
-      const resolved = await onResolveRef.current(selectedMatch.id, quality);
-      streamUrl = resolved.url;
-      // Merge metadata: resolve overrides search result
-      setResolvedCoverUrl(resolved.metadata?.coverUrl || selectedMatch.coverUrl || null);
-      setResolvedTitle(resolved.metadata?.title || selectedMatch.title);
-      setResolvedArtist(resolved.metadata?.artist || selectedMatch.artistName || null);
-      setResolvedAlbum(resolved.metadata?.album || selectedMatch.albumTitle || null);
-      setResolvedTrackNumber(resolved.metadata?.trackNumber ?? selectedMatch.trackNumber ?? null);
+      if (directUri && resolveByUri && track.uri) {
+        const resolved = await resolveByUri(track.uri, quality);
+        if (!resolved) {
+          setError("Provider could not resolve this track for download");
+          return;
+        }
+        streamUrl = resolved.url;
+        setResolvedCoverUrl(resolved.metadata?.coverUrl || null);
+        setResolvedTitle(resolved.metadata?.title || selectedMatch.title);
+        setResolvedArtist(resolved.metadata?.artist || selectedMatch.artistName || null);
+        setResolvedAlbum(resolved.metadata?.album || selectedMatch.albumTitle || null);
+        setResolvedTrackNumber(resolved.metadata?.trackNumber ?? null);
+      } else {
+        const resolved = await onResolveRef.current(selectedMatch.id, quality);
+        streamUrl = resolved.url;
+        setResolvedCoverUrl(resolved.metadata?.coverUrl || selectedMatch.coverUrl || null);
+        setResolvedTitle(resolved.metadata?.title || selectedMatch.title);
+        setResolvedArtist(resolved.metadata?.artist || selectedMatch.artistName || null);
+        setResolvedAlbum(resolved.metadata?.album || selectedMatch.albumTitle || null);
+        setResolvedTrackNumber(resolved.metadata?.trackNumber ?? selectedMatch.trackNumber ?? null);
+      }
     } catch (e) {
       setError(`Failed to resolve stream: ${String(e)}`);
       setStep("configure");
@@ -640,7 +669,7 @@ function SingleTrackDownload({
           )}
 
           <div className="tidal-dl-actions">
-            <button onClick={handleBackToSearch}>Back</button>
+            <button onClick={directUri ? onClose : handleBackToSearch}>{directUri ? "Cancel" : "Back"}</button>
             <button className="tidal-dl-btn-primary" onClick={handleStartDownload}>
               Download
             </button>
@@ -1590,6 +1619,7 @@ export function DownloadModal({
   providerId,
   providerName,
   confirmed,
+  resolveByUri,
   downloadFormat,
   collections,
   downloadsCollectionId,
@@ -1611,6 +1641,7 @@ export function DownloadModal({
             track={tracks[0]}
             providerId={providerId}
             providerName={providerName}
+            resolveByUri={resolveByUri}
             downloadFormat={downloadFormat}
             collections={collections}
             downloadsCollectionId={downloadsCollectionId}
