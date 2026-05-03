@@ -1860,12 +1860,14 @@ function App() {
     volume: playback.volume,
     getMediaElement: playback.getMediaElement,
     handleSeek: playback.handleSeek,
+    handlePause: playback.handlePause,
     currentTrack: playback.currentTrack,
   });
   shortcutStateRef.current = {
     volume: playback.volume,
     getMediaElement: playback.getMediaElement,
     handleSeek: playback.handleSeek,
+    handlePause: playback.handlePause,
     currentTrack: playback.currentTrack,
   };
   const handleToggleLikeRef = useRef((_track: Track) => {});
@@ -1903,7 +1905,7 @@ function App() {
         switch (e.key) {
           case " ":
             e.preventDefault();
-            playback.handlePause();
+            s.handlePause();
             return;
           case "ArrowLeft": {
             e.preventDefault();
