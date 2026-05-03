@@ -67,6 +67,39 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.46</span>
+          <span class="timeline-date">May 3, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li><strong>queue</strong>: consolidate play actions, fix context banner, editable metadata</li>
+          <li><strong>tidal-browse</strong>: enrich album play context with source and metadata</li>
+          <li><strong>artist</strong>: enrich play context with cached bio and add roundtrip tests</li>
+          <li><strong>album</strong>: enrich play context with metadata and cached review</li>
+          <li><strong>playlists</strong>: preserve metadata through mixtape export/import roundtrip</li>
+          <li><strong>playlists</strong>: add description and metadata columns with full roundtrip</li>
+          <li><strong>spotify-browse</strong>: scrape playlist descriptions and add per-playlist timestamps</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li>remove TIDAL hardcoding from core, make plugin schemes generic</li>
+          <li><strong>spotify-browse</strong>: unify playlist source URI and propagate metadata</li>
+          <li><strong>context-menu</strong>: replace deny-list scheme checks with allow-list pattern</li>
+          </ul>
+          <h4>Chores</h4>
+          <ul>
+          <li>clean up all Rust compiler warnings</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.46/Viboplr_0.9.46_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.46_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.46/Viboplr_0.9.46_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.46_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.45</span>
           <span class="timeline-date">May 3, 2026</span>
         </div>
