@@ -2877,50 +2877,42 @@ function App() {
             );
           })()}
 
-          {/* Search view */}
-          {view === "search" && (
-            <SearchView
-              initialQuery={searchInitialQuery}
-              initialQueryKey={searchQueryKey}
-              deletedTrackIds={searchDeletedBatch.ids}
-              deletedTrackKey={searchDeletedBatch.key}
-              currentTrack={playback.currentTrack}
-              playing={playback.playing}
-              viewModes={searchViewModes}
-              onViewModesChange={handleSearchViewModesChange}
-              artistImages={artistImageCache.images}
-              albumImages={albumImageCache.images}
-              onPlayTracks={queueHook.playTracks}
-              onPlayAlbum={playActions.playAlbum}
-              onPlayArtist={playActions.playArtist}
-              onPlayTag={playActions.playTag}
-              onArtistClick={(id) => {
-                library.setSelectedArtist(id);
-                library.setView("artists");
-              }}
-              onAlbumClick={(id, artistId) => {
-                library.setSelectedAlbum(id);
-                if (artistId) library.setSelectedArtist(artistId);
-                library.setView("albums");
-              }}
-              onTrackContextMenu={contextMenuActions.handleTrackContextMenu}
-              onArtistContextMenu={contextMenuActions.handleArtistContextMenu}
-              onAlbumContextMenu={contextMenuActions.handleAlbumContextMenu}
-              onToggleLike={likeActions.handleToggleLike}
-              onToggleDislike={likeActions.handleToggleDislike}
-              onToggleArtistLike={likeActions.handleToggleArtistLike}
-              onToggleAlbumLike={likeActions.handleToggleAlbumLike}
-              onTrackDragStart={contextMenuActions.handleTrackDragStart}
-              onTagClick={library.handleTagClick}
-              onToggleTagLike={likeActions.handleToggleTagLike}
-              onFetchArtistImage={artistImageCache.fetchOnDemand}
-              onFetchAlbumImage={albumImageCache.fetchOnDemand}
-              onFetchTagImage={tagImageCache.fetchOnDemand}
-              tagImages={tagImageCache.images}
-              columns={library.trackColumns}
-              onColumnsChange={library.setTrackColumns}
-            />
-          )}
+          {/* Search view — always mounted to preserve state and scroll position */}
+          <SearchView
+            style={{ display: view === "search" ? undefined : "none" }}
+            initialQuery={searchInitialQuery}
+            initialQueryKey={searchQueryKey}
+            deletedTrackIds={searchDeletedBatch.ids}
+            deletedTrackKey={searchDeletedBatch.key}
+            currentTrack={playback.currentTrack}
+            playing={playback.playing}
+            viewModes={searchViewModes}
+            onViewModesChange={handleSearchViewModesChange}
+            artistImages={artistImageCache.images}
+            albumImages={albumImageCache.images}
+            onPlayTracks={queueHook.playTracks}
+            onPlayAlbum={playActions.playAlbum}
+            onPlayArtist={playActions.playArtist}
+            onPlayTag={playActions.playTag}
+            onArtistClick={library.handleArtistClick}
+            onAlbumClick={library.handleAlbumClick}
+            onTrackContextMenu={contextMenuActions.handleTrackContextMenu}
+            onArtistContextMenu={contextMenuActions.handleArtistContextMenu}
+            onAlbumContextMenu={contextMenuActions.handleAlbumContextMenu}
+            onToggleLike={likeActions.handleToggleLike}
+            onToggleDislike={likeActions.handleToggleDislike}
+            onToggleArtistLike={likeActions.handleToggleArtistLike}
+            onToggleAlbumLike={likeActions.handleToggleAlbumLike}
+            onTrackDragStart={contextMenuActions.handleTrackDragStart}
+            onTagClick={library.handleTagClick}
+            onToggleTagLike={likeActions.handleToggleTagLike}
+            onFetchArtistImage={artistImageCache.fetchOnDemand}
+            onFetchAlbumImage={albumImageCache.fetchOnDemand}
+            onFetchTagImage={tagImageCache.fetchOnDemand}
+            tagImages={tagImageCache.images}
+            columns={library.trackColumns}
+            onColumnsChange={library.setTrackColumns}
+          />
 
           {/* Artist album detail — unified scrollable container like artist-detail */}
           {(view === "artists" && selectedAlbum !== null) && (() => {
