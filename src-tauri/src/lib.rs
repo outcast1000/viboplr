@@ -900,51 +900,105 @@ pub fn run() {
                                 log::info!("Tag image already exists for {} (id={}), skipping", name, id);
                                 continue;
                             }
-                            let top_artists = match worker_db.get_top_artists_for_tag(*id, 3) {
-                                Ok(a) => a,
-                                Err(e) => {
-                                    log::warn!("Failed to get top artists for tag {}: {}", name, e);
-                                    let _ = worker_db.record_image_failure("tag", *id);
-                                    let _ = app_handle.emit(
-                                        "tag-image-error",
-                                        serde_json::json!({ "tagId": id, "name": name, "error": e.to_string() }),
-                                    );
-                                    continue;
-                                }
-                            };
+
+                            // Try composite from artist images first
+                            let mut composite_ok = false;
+                            let top_artists = worker_db.get_top_artists_for_tag(*id, 3).unwrap_or_default();
                             let artist_image_paths: Vec<std::path::PathBuf> = top_artists.iter()
                                 .filter_map(|(_, artist_name)| {
                                     let artist_slug = entity_image::entity_image_slug("artist", artist_name, None);
                                     entity_image::get_image_path(&worker_app_dir, "artist", &artist_slug)
                                 })
                                 .collect();
-                            if artist_image_paths.is_empty() {
-                                log::info!("No artist images available for tag {} (id={}), skipping composite", name, id);
-                                let _ = worker_db.record_image_failure("tag", *id);
-                                let _ = app_handle.emit(
-                                    "tag-image-error",
-                                    serde_json::json!({ "tagId": id, "name": name, "error": "No artist images available" }),
-                                );
+                            if !artist_image_paths.is_empty() {
+                                let dest = worker_app_dir.join("tag_images").join(format!("{}.png", slug));
+                                log::info!("Generating composite tag image for: {} (id={}) with {} artist images", name, id, artist_image_paths.len());
+                                match composite_image::generate_tag_composite(&artist_image_paths, &dest, 400) {
+                                    Ok(()) => {
+                                        let path = dest.to_string_lossy().to_string();
+                                        log::info!("Generated composite tag image for: {} (id={})", name, id);
+                                        let _ = app_handle.emit(
+                                            "tag-image-ready",
+                                            serde_json::json!({ "tagId": id, "path": &path, "name": name, "source": "composite" }),
+                                        );
+                                        composite_ok = true;
+                                    }
+                                    Err(e) => {
+                                        log::warn!("Composite failed for tag {}: {}, falling back to plugin providers", name, e);
+                                    }
+                                }
+                            } else {
+                                log::info!("No artist images for tag {} (id={}), falling back to plugin providers", name, id);
+                            }
+
+                            if composite_ok {
                                 continue;
                             }
-                            let dest = worker_app_dir.join("tag_images").join(format!("{}.png", slug));
-                            log::info!("Generating composite tag image for: {} (id={}) with {} artist images", name, id, artist_image_paths.len());
-                            match composite_image::generate_tag_composite(&artist_image_paths, &dest, 400) {
-                                Ok(()) => {
-                                    let path = dest.to_string_lossy().to_string();
-                                    log::info!("Generated composite tag image for: {} (id={})", name, id);
-                                    let _ = app_handle.emit(
-                                        "tag-image-ready",
-                                        serde_json::json!({ "tagId": id, "path": &path, "name": name, "source": "composite" }),
-                                    );
+
+                            // Fall back to plugin image provider chain
+                            let dest = worker_app_dir.join("tag_images").join(format!("{}.jpg", slug));
+                            let request_id = format!("tag-{}-{}", id, std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+                            let (tx, rx) = std::sync::mpsc::channel();
+                            worker_registry.pending.lock().unwrap().insert(request_id.clone(), tx);
+
+                            log::info!("Requesting plugin image resolve for tag: {} (id={})", name, id);
+                            let _ = app_handle.emit("image-resolve-request", serde_json::json!({
+                                "request_id": request_id,
+                                "entity": "tag",
+                                "id": id,
+                                "name": name,
+                            }));
+
+                            match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+                                Ok(result) => {
+                                    worker_registry.pending.lock().unwrap().remove(&request_id);
+                                    if let Some(error) = result.error {
+                                        log::warn!("All providers failed for tag {}: {}", name, error);
+                                        let _ = worker_db.record_image_failure("tag", *id);
+                                        let _ = app_handle.emit("tag-image-error",
+                                            serde_json::json!({ "tagId": id, "name": name, "error": error }));
+                                    } else if let Some(data) = result.data {
+                                        match base64_decode_and_save(&data, &dest) {
+                                            Ok(()) => {
+                                                let path = dest.to_string_lossy().to_string();
+                                                log::info!("Saved tag image from base64 data: {} (id={})", name, id);
+                                                let _ = app_handle.emit("tag-image-ready",
+                                                    serde_json::json!({ "tagId": id, "path": &path, "name": name, "source": "plugin" }));
+                                            }
+                                            Err(e) => {
+                                                log::warn!("Failed to decode/save base64 image for tag {}: {}", name, e);
+                                                let _ = worker_db.record_image_failure("tag", *id);
+                                                let _ = app_handle.emit("tag-image-error",
+                                                    serde_json::json!({ "tagId": id, "name": name, "error": e }));
+                                            }
+                                        }
+                                    } else if let Some(url) = result.url {
+                                        match download_image_from_url(&url, result.headers.as_ref(), &dest) {
+                                            Ok(()) => {
+                                                let path = dest.to_string_lossy().to_string();
+                                                log::info!("Downloaded tag image from {}: {} (id={})", url, name, id);
+                                                let _ = app_handle.emit("tag-image-ready",
+                                                    serde_json::json!({ "tagId": id, "path": &path, "name": name, "source": "plugin" }));
+                                            }
+                                            Err(e) => {
+                                                log::warn!("Failed to download tag image from {}: {}", url, e);
+                                                let _ = worker_db.record_image_failure("tag", *id);
+                                                let _ = app_handle.emit("tag-image-error",
+                                                    serde_json::json!({ "tagId": id, "name": name, "error": e }));
+                                            }
+                                        }
+                                    } else {
+                                        log::warn!("Empty resolve result for tag {}", name);
+                                        let _ = worker_db.record_image_failure("tag", *id);
+                                    }
                                 }
-                                Err(e) => {
-                                    log::warn!("Failed to generate composite tag image for {}: {}", name, e);
+                                Err(_) => {
+                                    worker_registry.pending.lock().unwrap().remove(&request_id);
+                                    log::warn!("Timeout waiting for tag image resolve: {} (id={})", name, id);
                                     let _ = worker_db.record_image_failure("tag", *id);
-                                    let _ = app_handle.emit(
-                                        "tag-image-error",
-                                        serde_json::json!({ "tagId": id, "name": name, "error": e.to_string() }),
-                                    );
+                                    let _ = app_handle.emit("tag-image-error",
+                                        serde_json::json!({ "tagId": id, "name": name, "error": "timeout" }));
                                 }
                             }
                         }

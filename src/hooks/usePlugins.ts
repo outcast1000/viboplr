@@ -1290,7 +1290,7 @@ export function usePlugins(
   );
 
   const invokeImageFetch = useCallback(
-    async (pluginId: string, entity: "artist" | "album", name: string, artistName?: string): Promise<ImageFetchResult> => {
+    async (pluginId: string, entity: "artist" | "album" | "tag", name: string, artistName?: string): Promise<ImageFetchResult> => {
       const loaded = loadedPluginsRef.current.get(pluginId);
       if (!loaded) return { status: "error", message: "plugin not loaded" };
       const handler = loaded.imageFetchHandlers.get(entity);

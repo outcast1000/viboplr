@@ -5,7 +5,7 @@ import type { ImageFetchResult } from "../types/plugin";
 
 type InvokeImageFetch = (
   pluginId: string,
-  entity: "artist" | "album",
+  entity: "artist" | "album" | "tag",
   name: string,
   artistName?: string,
 ) => Promise<ImageFetchResult>;
@@ -14,7 +14,7 @@ export function useImageResolver(invokeImageFetch: InvokeImageFetch) {
   useEffect(() => {
     const unlisten = listen<{
       request_id: string;
-      entity: "artist" | "album";
+      entity: "artist" | "album" | "tag";
       id: number;
       name?: string;
       title?: string;
