@@ -42,7 +42,7 @@ const LIBRARY_SOURCES = new Set(["library", "album", "artist", "tag", "playlist"
  *
  * Known divergences from Rust canonical_slug (intentional; don't affect thumb lookup
  * because thumbs are only cached for remote-sourced playlists whose URIs are ASCII —
- * `tidal://`, `spotify://`, `subsonic://`, `http(s)://`):
+ * plugin schemes, `subsonic://`, `http(s)://`):
  *   - no `deunicode` / `strip_diacritics` (Rust transliterates non-ASCII)
  *   - no `RESERVED_NAMES` prefix (Rust adds `_` before CON/PRN/AUX/etc.)
  *   - no 200-byte truncation

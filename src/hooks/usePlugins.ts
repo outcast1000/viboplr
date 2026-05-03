@@ -927,12 +927,13 @@ export function usePlugins(
           ? new Set(enabled)
           : new Set<string>();
 
-      // Auto-enable all built-in plugins except tidal-browse on first launch only
+      // Auto-enable all built-in plugins on first launch only
       // (when no enabledPlugins key exists in the store yet).
+      // Plugins with autoEnable: false in their manifest are skipped.
       // Once the user has a saved list, respect their choices.
       if (enabled === null) {
         for (const plugin of installed) {
-          if (plugin.builtin && plugin.id !== "tidal-browse") {
+          if (plugin.builtin && plugin.manifest.autoEnable !== false) {
             enabledSet.add(plugin.id);
           }
         }

@@ -17,12 +17,6 @@ export function formatDuration(secs: number | null | undefined): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function tidalCoverUrl(coverId: string | null, size = 320): string | null {
-  if (!coverId) return null;
-  const path = coverId.replace(/-/g, "/");
-  return `https://resources.tidal.com/images/${path}/${size}x${size}.jpg`;
-}
-
 export function parseSubsonicUrl(raw: string): { serverUrl: string; username: string; password: string } | null {
   try {
     // Replace subsonic:// with https:// so URL parser can handle it
@@ -45,7 +39,6 @@ export function collectionKindLabel(kind: string): string {
   switch (kind) {
     case "local": return "Local";
     case "subsonic": return "Server";
-    case "tidal": return "TIDAL";
     case "seed": return "Test";
     default: return kind;
   }

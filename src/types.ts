@@ -42,7 +42,7 @@ export interface Track {
   youtube_url: string | null;
   added_at: number | null;
   modified_at: number | null;
-  /** Playback URL computed when the track enters the queue (e.g. file://, tidal://, subsonic://) */
+  /** Playback URL computed when the track enters the queue (e.g. file://, subsonic://, plugin-scheme://) */
   url?: string;
   /** Image URL for display in the queue (file path or HTTP URL, set by caller) */
   image_url?: string;
@@ -61,7 +61,7 @@ export type SearchResultItem =
 
 export interface Collection {
   id: number;
-  kind: "local" | "subsonic" | "seed" | "tidal";
+  kind: "local" | "subsonic" | "seed" | (string & {});
   name: string;
   path: string | null;
   url: string | null;
@@ -131,55 +131,6 @@ export interface ColumnConfig {
 }
 
 export type ViewMode = "basic" | "list" | "tiles";
-
-// TIDAL search result types
-export interface TidalSearchTrack {
-  tidal_id: string;
-  title: string;
-  artist_name: string | null;
-  artist_id: string | null;
-  album_title: string | null;
-  album_id: string | null;
-  cover_id: string | null;
-  duration_secs: number | null;
-  track_number: number | null;
-}
-
-export interface TidalSearchAlbum {
-  tidal_id: string;
-  title: string;
-  artist_name: string | null;
-  cover_id: string | null;
-  year: number | null;
-}
-
-export interface TidalSearchArtist {
-  tidal_id: string;
-  name: string;
-  picture_id: string | null;
-}
-
-export interface TidalSearchResult {
-  tracks: TidalSearchTrack[];
-  albums: TidalSearchAlbum[];
-  artists: TidalSearchArtist[];
-}
-
-export interface TidalAlbumDetail {
-  tidal_id: string;
-  title: string;
-  artist_name: string | null;
-  cover_id: string | null;
-  year: number | null;
-  tracks: TidalSearchTrack[];
-}
-
-export interface TidalArtistDetail {
-  tidal_id: string;
-  name: string;
-  picture_id: string | null;
-  albums: TidalSearchAlbum[];
-}
 
 // Mixtape file format types
 export type MixtapeType = "custom" | "album" | "best_of_artist";

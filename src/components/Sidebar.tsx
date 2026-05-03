@@ -33,7 +33,6 @@ const pluginIconPaths: Record<string, string> = {
   "clock": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 6v6l4 2",
   "folder": "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z",
   "tag": "M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82zM7 7h.01",
-  "tidal": "M12 3l-5 5 5 5-5 5M12 3l5 5-5 5 5 5",
 };
 
 function PluginIcon({ name }: { name: string }) {

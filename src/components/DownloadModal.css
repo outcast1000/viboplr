@@ -1,17 +1,17 @@
-.tidal-dl-modal {
+.dl-modal {
   width: 520px;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
 }
 
-.tidal-dl-track {
+.dl-track {
   color: var(--text-secondary);
   margin: 0 0 12px;
   font-size: var(--fs-sm);
 }
 
-.tidal-dl-error {
+.dl-error {
   background: color-mix(in srgb, var(--error) 15%, transparent);
   color: var(--error);
   padding: 8px 12px;
@@ -20,15 +20,15 @@
   margin-bottom: 12px;
 }
 
-.tidal-dl-loading,
-.tidal-dl-empty {
+.dl-loading,
+.dl-empty {
   color: var(--text-secondary);
   text-align: center;
   padding: 24px;
   font-size: var(--fs-sm);
 }
 
-.tidal-dl-loading {
+.dl-loading {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -36,13 +36,13 @@
 }
 
 /* Search step */
-.tidal-dl-search-field {
+.dl-search-field {
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
 }
 
-.tidal-dl-search-field input {
+.dl-search-field input {
   flex: 1;
   padding: 6px 10px;
   border-radius: 6px;
@@ -52,7 +52,7 @@
   font-size: var(--fs-sm);
 }
 
-.tidal-dl-search-field button {
+.dl-search-field button {
   padding: 6px 12px;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -62,19 +62,19 @@
   font-size: var(--fs-sm);
 }
 
-.tidal-dl-search-field button:disabled {
+.dl-search-field button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   pointer-events: none;
 }
 
-.tidal-dl-results {
+.dl-results {
   max-height: 300px;
   overflow-y: auto;
   margin-bottom: 12px;
 }
 
-.tidal-dl-result {
+.dl-result {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -83,24 +83,24 @@
   cursor: pointer;
 }
 
-.tidal-dl-result:hover {
+.dl-result:hover {
   background: var(--bg-hover);
 }
 
-.tidal-dl-result-art {
+.dl-result-art {
   width: 40px;
   height: 40px;
   flex-shrink: 0;
 }
 
-.tidal-dl-result-art img {
+.dl-result-art img {
   width: 40px;
   height: 40px;
   border-radius: 4px;
   object-fit: cover;
 }
 
-.tidal-dl-result-info {
+.dl-result-info {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -108,7 +108,7 @@
   gap: 2px;
 }
 
-.tidal-dl-result-title {
+.dl-result-title {
   font-size: var(--fs-sm);
   font-weight: 500;
   white-space: nowrap;
@@ -116,7 +116,7 @@
   text-overflow: ellipsis;
 }
 
-.tidal-dl-result-meta {
+.dl-result-meta {
   font-size: var(--fs-xs);
   color: var(--text-secondary);
   white-space: nowrap;
@@ -124,14 +124,14 @@
   text-overflow: ellipsis;
 }
 
-.tidal-dl-result-duration {
+.dl-result-duration {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
   flex-shrink: 0;
 }
 
 /* Configure step */
-.tidal-dl-selected {
+.dl-selected {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -141,14 +141,14 @@
   margin-bottom: 16px;
 }
 
-.tidal-dl-selected img {
+.dl-selected img {
   width: 48px;
   height: 48px;
   border-radius: 4px;
   object-fit: cover;
 }
 
-.tidal-dl-selected-info {
+.dl-selected-info {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -156,30 +156,30 @@
   gap: 4px;
 }
 
-.tidal-dl-selected-info .tidal-dl-result-title {
+.dl-selected-info .dl-result-title {
   white-space: normal;
   word-break: break-word;
 }
 
-.tidal-dl-selected-info .tidal-dl-result-meta {
+.dl-selected-info .dl-result-meta {
   display: block;
 }
 
-.tidal-dl-config-row {
+.dl-config-row {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
 }
 
-.tidal-dl-config-row label {
+.dl-config-row label {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
   min-width: 80px;
 }
 
-.tidal-dl-config-row select,
-.tidal-dl-config-row .tidal-dl-dest-display {
+.dl-config-row select,
+.dl-config-row .dl-dest-display {
   flex: 1;
   padding: 6px 10px;
   border-radius: 6px;
@@ -189,7 +189,7 @@
   font-size: var(--fs-sm);
 }
 
-.tidal-dl-save-elsewhere {
+.dl-save-elsewhere {
   background: none;
   border: none;
   color: var(--accent);
@@ -199,12 +199,12 @@
   margin-bottom: 12px;
 }
 
-.tidal-dl-save-elsewhere:hover {
+.dl-save-elsewhere:hover {
   text-decoration: underline;
 }
 
 /* Conflict step */
-.tidal-dl-conflict {
+.dl-conflict {
   background: var(--bg-primary);
   border-radius: 8px;
   padding: 16px;
@@ -212,19 +212,19 @@
   text-align: center;
 }
 
-.tidal-dl-conflict-filename {
+.dl-conflict-filename {
   font-weight: 500;
   margin-bottom: 8px;
   word-break: break-all;
 }
 
-.tidal-dl-conflict-size {
+.dl-conflict-size {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
 }
 
 /* Downloading step */
-.tidal-dl-downloading {
+.dl-downloading {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -232,14 +232,14 @@
   padding: 16px 0;
 }
 
-.tidal-dl-progress {
+.dl-progress {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
 }
 
-.tidal-dl-progress-bar {
+.dl-progress-bar {
   flex: 1;
   height: 6px;
   background: var(--bg-tertiary);
@@ -247,14 +247,14 @@
   overflow: hidden;
 }
 
-.tidal-dl-progress-fill {
+.dl-progress-fill {
   height: 100%;
   background: var(--accent);
   border-radius: 3px;
   transition: width 0.3s ease;
 }
 
-.tidal-dl-progress-pct {
+.dl-progress-pct {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
   min-width: 36px;
@@ -262,21 +262,21 @@
 }
 
 /* Compare (upgrade result) */
-.tidal-dl-compare {
+.dl-compare {
   display: flex;
   align-items: center;
   gap: 16px;
   margin-bottom: 16px;
 }
 
-.tidal-dl-compare-col {
+.dl-compare-col {
   flex: 1;
   background: var(--bg-primary);
   border-radius: 8px;
   padding: 12px;
 }
 
-.tidal-dl-compare-col h4 {
+.dl-compare-col h4 {
   margin: 0 0 8px;
   font-size: var(--fs-sm);
   color: var(--text-secondary);
@@ -284,30 +284,30 @@
   letter-spacing: 0.5px;
 }
 
-.tidal-dl-compare-arrow {
+.dl-compare-arrow {
   font-size: var(--fs-lg);
   color: var(--text-secondary);
   flex-shrink: 0;
 }
 
-.tidal-dl-field {
+.dl-field {
   display: flex;
   justify-content: space-between;
   font-size: var(--fs-sm);
   padding: 4px 0;
 }
 
-.tidal-dl-field span:first-child {
+.dl-field span:first-child {
   color: var(--text-secondary);
 }
 
 /* Result (fresh download) */
-.tidal-dl-success {
+.dl-success {
   text-align: center;
   padding: 16px;
 }
 
-.tidal-dl-success-path {
+.dl-success-path {
   font-size: var(--fs-xs);
   color: var(--text-secondary);
   word-break: break-all;
@@ -315,13 +315,13 @@
 }
 
 /* Actions */
-.tidal-dl-actions {
+.dl-actions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
 }
 
-.tidal-dl-actions button {
+.dl-actions button {
   padding: 6px 16px;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -331,21 +331,21 @@
   font-size: var(--fs-sm);
 }
 
-.tidal-dl-actions button:hover {
+.dl-actions button:hover {
   background: var(--bg-hover);
 }
 
-.tidal-dl-btn-primary {
+.dl-btn-primary {
   background: var(--accent) !important;
   border-color: var(--accent) !important;
   color: var(--accent-text, #fff) !important;
 }
 
-.tidal-dl-btn-primary:hover {
+.dl-btn-primary:hover {
   opacity: 0.9;
 }
 
-.tidal-dl-btn-secondary {
+.dl-btn-secondary {
   background: var(--bg-tertiary) !important;
   border-color: var(--border) !important;
 }
@@ -415,13 +415,13 @@
 
 /* -- Batch download track list -- */
 
-.tidal-dl-batch-list {
+.dl-batch-list {
   max-height: 350px;
   overflow-y: auto;
   margin-bottom: 12px;
 }
 
-.tidal-dl-batch-row {
+.dl-batch-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -430,11 +430,11 @@
   font-size: var(--fs-sm);
 }
 
-.tidal-dl-batch-row:last-child {
+.dl-batch-row:last-child {
   border-bottom: none;
 }
 
-.tidal-dl-batch-status {
+.dl-batch-status {
   flex-shrink: 0;
   width: 20px;
   display: flex;
@@ -442,19 +442,19 @@
   justify-content: center;
 }
 
-.tidal-dl-batch-info {
+.dl-batch-info {
   flex: 1;
   min-width: 0;
   overflow: hidden;
 }
 
-.tidal-dl-batch-title {
+.dl-batch-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tidal-dl-batch-match {
+.dl-batch-match {
   font-size: var(--fs-xs);
   color: var(--text-secondary);
   overflow: hidden;
@@ -462,11 +462,11 @@
   white-space: nowrap;
 }
 
-.tidal-dl-batch-action {
+.dl-batch-action {
   flex-shrink: 0;
 }
 
-.tidal-dl-batch-action button {
+.dl-batch-action button {
   padding: 2px 8px;
   font-size: var(--fs-xs);
   border-radius: 4px;
@@ -476,7 +476,7 @@
   cursor: pointer;
 }
 
-.tidal-dl-batch-progress {
+.dl-batch-progress {
   width: 50px;
   flex-shrink: 0;
   font-size: var(--fs-xs);
@@ -484,30 +484,30 @@
   text-align: right;
 }
 
-.tidal-dl-batch-inline-search {
+.dl-batch-inline-search {
   padding: 8px 8px 8px 36px;
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border);
 }
 
-.tidal-dl-batch-inline-search .tidal-dl-search-field {
+.dl-batch-inline-search .dl-search-field {
   margin-bottom: 8px;
 }
 
-.tidal-dl-batch-inline-results {
+.dl-batch-inline-results {
   max-height: 150px;
   overflow-y: auto;
 }
 
-.tidal-dl-batch-inline-results .tidal-dl-batch-row {
+.dl-batch-inline-results .dl-batch-row {
   cursor: pointer;
 }
 
-.tidal-dl-batch-inline-results .tidal-dl-batch-row:hover {
+.dl-batch-inline-results .dl-batch-row:hover {
   background: var(--bg-hover);
 }
 
-.tidal-dl-batch-footer {
+.dl-batch-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -516,11 +516,11 @@
   color: var(--text-secondary);
 }
 
-.tidal-dl-batch-overall {
+.dl-batch-overall {
   margin-bottom: 12px;
 }
 
-.tidal-dl-batch-summary {
+.dl-batch-summary {
   text-align: center;
   padding: 16px;
   font-size: var(--fs-sm);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextExternalKey, parseLibraryId, isLibraryTrack } from "../queueEntry";
+import { nextExternalKey, parseLibraryId, isLibraryTrack, isLocalTrack } from "../queueEntry";
 import type { Track } from "../types";
 
 function makeTrack(overrides: Partial<Track> = {}): Track {
@@ -55,42 +55,38 @@ describe("isLibraryTrack", () => {
 
 describe("guard behavior for non-library tracks", () => {
   const libraryTrack = makeTrack({ id: 42, key: "lib:42" });
-  const tidalTrack = makeTrack({ id: null, key: "ext:1", path: "tidal://12345" });
-  const spotifyTrack = makeTrack({ id: null, key: "ext:2", path: "external://" });
+  const pluginTrack = makeTrack({ id: null, key: "ext:1", path: "tidal://12345" });
+  const externalTrack = makeTrack({ id: null, key: "ext:2", path: "external://" });
 
   describe("like eligibility (requires id != null)", () => {
     it("library track is likeable", () => {
       expect(libraryTrack.id != null).toBe(true);
     });
 
-    it("tidal track is not likeable", () => {
-      expect(tidalTrack.id != null).toBe(false);
+    it("plugin track is not likeable", () => {
+      expect(pluginTrack.id != null).toBe(false);
     });
 
-    it("spotify track is not likeable", () => {
-      expect(spotifyTrack.id != null).toBe(false);
+    it("external track is not likeable", () => {
+      expect(externalTrack.id != null).toBe(false);
     });
   });
 
   describe("delete eligibility (requires id != null and local path)", () => {
     function canDelete(t: Track): boolean {
-      return t.id != null
-        && !!t.path
-        && !t.path.startsWith("subsonic://")
-        && !t.path.startsWith("tidal://")
-        && !t.path.startsWith("external://");
+      return t.id != null && isLocalTrack(t);
     }
 
     it("library track can be deleted", () => {
       expect(canDelete(libraryTrack)).toBe(true);
     });
 
-    it("tidal track cannot be deleted", () => {
-      expect(canDelete(tidalTrack)).toBe(false);
+    it("plugin track cannot be deleted", () => {
+      expect(canDelete(pluginTrack)).toBe(false);
     });
 
-    it("spotify track cannot be deleted", () => {
-      expect(canDelete(spotifyTrack)).toBe(false);
+    it("external track cannot be deleted", () => {
+      expect(canDelete(externalTrack)).toBe(false);
     });
 
     it("subsonic track cannot be deleted", () => {
@@ -105,7 +101,7 @@ describe("guard behavior for non-library tracks", () => {
     });
 
     it("external track cannot be located", () => {
-      expect(spotifyTrack.id != null).toBe(false);
+      expect(externalTrack.id != null).toBe(false);
     });
   });
 

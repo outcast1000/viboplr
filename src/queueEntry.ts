@@ -16,11 +16,9 @@ export interface QueueEntry {
 
 export type ParsedUrl =
   | { scheme: "file"; path: string }
-  | { scheme: "tidal"; id: string }
-  | { scheme: "spotify"; id: string }
+  | { scheme: "plugin"; protocol: string; id: string }
   | { scheme: "subsonic"; url: string; id: string }
-  | { scheme: "external" }
-  | { scheme: "unknown"; url: string };
+  | { scheme: "external" };
 
 let externalKeyCounter = 1;
 
@@ -47,16 +45,17 @@ export function isRemoteTrack(track: Track): boolean {
 }
 
 /**
- * Extracts the remote ID from a subsonic:// or tidal:// path.
+ * Extracts the remote ID from a subsonic:// or plugin scheme path.
  */
 export function remoteId(track: Track): string | null {
   if (!track.path) return null;
-  if (track.path.startsWith("tidal://")) return track.path.substring(8);
   if (track.path.startsWith("subsonic://")) {
     const rest = track.path.substring(11);
     const lastSlash = rest.lastIndexOf("/");
     return lastSlash >= 0 ? rest.substring(lastSlash + 1) || null : null;
   }
+  const parsed = parseUrlScheme(track.path);
+  if (parsed.scheme === "plugin") return parsed.id;
   return null;
 }
 
@@ -115,24 +114,16 @@ export function queueEntryToTrack(entry: QueueEntry): Track {
  *
  * Supported schemes:
  * - file:// → { scheme: "file", path: string }
- * - tidal:// → { scheme: "tidal", id: string }
  * - subsonic:// → { scheme: "subsonic", url: string, id: string }
+ * - {protocol}:// → { scheme: "plugin", protocol, id: string }
  */
 export function parseUrlScheme(url: string): ParsedUrl {
   if (url.startsWith("file://")) {
     return { scheme: "file", path: url.substring(7) };
   }
 
-  if (url.startsWith("tidal://")) {
-    return { scheme: "tidal", id: url.substring(8) };
-  }
-
-  if (url.startsWith("spotify://")) {
-    return { scheme: "spotify", id: url.substring(10) };
-  }
-
   if (url.startsWith("subsonic://")) {
-    const rest = url.substring(11); // strip "subsonic://"
+    const rest = url.substring(11);
     const lastSlash = rest.lastIndexOf("/");
     const id = lastSlash >= 0 ? rest.substring(lastSlash + 1) : "";
     return { scheme: "subsonic", url, id };
@@ -142,9 +133,11 @@ export function parseUrlScheme(url: string): ParsedUrl {
     return { scheme: "external" };
   }
 
-  // Unknown scheme — enters stream resolver chain
   if (url.includes("://")) {
-    return { scheme: "unknown", url };
+    const colonPos = url.indexOf("://");
+    const protocol = url.substring(0, colonPos);
+    const id = url.substring(colonPos + 3);
+    return { scheme: "plugin", protocol, id };
   }
 
   // Plain path (no scheme) — treat as local file
@@ -152,7 +145,7 @@ export function parseUrlScheme(url: string): ParsedUrl {
 }
 
 /**
- * Returns true if the URL uses a remote app-specific scheme (tidal://, subsonic://).
+ * Returns true if the URL uses a remote app-specific scheme (subsonic://, plugin schemes).
  * Returns false for file://, http(s)://, and plain paths.
  */
 export function isRemoteScheme(url: string): boolean {

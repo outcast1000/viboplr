@@ -155,10 +155,8 @@ function App() {
     if (!url) throw new Error("Track has no URL");
     const parsed = parseUrlScheme(url);
     if (parsed.scheme === "file") return convertFileSrc(parsed.path);
-    if (parsed.scheme === "tidal") return resolveStreamByUriRef.current("tidal", parsed.id, null);
-    if (parsed.scheme === "spotify") return resolveStreamByUriRef.current("spotify", parsed.id, null);
+    if (parsed.scheme === "plugin") return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null);
     if (parsed.scheme === "external") throw new Error("Cannot play external track directly — requires stream resolver");
-    if (parsed.scheme === "unknown") throw new Error(`Cannot play unknown URL scheme: ${parsed.url}`);
     return invoke<string>("resolve_subsonic_location", { location: parsed.url });
   });
   const streamResolversRef = useRef<StreamResolver[]>([]);
@@ -1161,33 +1159,35 @@ function App() {
       } else if (action === "hide-loading") {
         setPluginLoadingMessage(null);
         return;
-      } else if (action === "tidal-download-album") {
-        const albumPayload = payload as { albumId: string; title: string; artistName: string | null; coverId: string | null; trackCount: number; tracks?: Array<{ tidal_id: string; title: string; artist_name: string | null }> };
+      } else if (action === "download-album") {
+        const albumPayload = payload as { title: string; artistName: string | null; providerId: string; providerName: string; tracks: Array<{ title: string; artist_name: string | null; uri: string }> };
         if (albumPayload.tracks && albumPayload.tracks.length > 0) {
           setDownloadModal({
             tracks: albumPayload.tracks.map(t => ({
               title: t.title,
               artistName: t.artist_name,
               albumTitle: albumPayload.title,
-              uri: "tidal://" + t.tidal_id,
+              uri: t.uri,
             })),
-            providerId: "tidal-browse:tidal-download",
-            providerName: "TIDAL",
+            providerId: albumPayload.providerId,
+            providerName: albumPayload.providerName,
             confirmed: true,
           });
         }
         return;
-      } else if (action === "tidal-download") {
-        const p = payload as { trackId: number | null; title: string; artistName: string | null };
-        setDownloadModal({
-          tracks: [{
-            title: p.title,
-            artistName: p.artistName,
-            trackId: p.trackId,
-          }],
-          providerId: "tidal-browse:tidal-download",
-          providerName: "TIDAL",
-        });
+      } else if (action === "download-track") {
+        const p = payload as { trackId: number | null; title: string; artistName: string | null; providerId?: string; providerName?: string };
+        if (p.providerId) {
+          setDownloadModal({
+            tracks: [{
+              title: p.title,
+              artistName: p.artistName,
+              trackId: p.trackId,
+            }],
+            providerId: p.providerId,
+            providerName: p.providerName ?? p.providerId,
+          });
+        }
       } else if (action === "navigate-to-artist") {
         pushStateRef.current();
         library.navigateToArtistByName(payload.name as string);
@@ -1244,7 +1244,7 @@ function App() {
       if (url.startsWith("http://") || url.startsWith("https://")) return Promise.resolve(url);
       const parsed = parseUrlScheme(url);
       if (parsed.scheme === "file") return Promise.resolve(convertFileSrc(parsed.path));
-      if (parsed.scheme === "tidal" || parsed.scheme === "spotify") return resolveStreamByUriRef.current(parsed.scheme, parsed.id, null);
+      if (parsed.scheme === "plugin") return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null);
       if (parsed.scheme === "subsonic") return invoke<string>("resolve_subsonic_location", { location: url });
       return Promise.reject(new Error(`Unplayable URL scheme: ${url}`));
     };
@@ -1253,7 +1253,7 @@ function App() {
       if (url.startsWith("http://") || url.startsWith("https://")) return "Direct URL";
       const parsed = parseUrlScheme(url);
       if (parsed.scheme === "file") return "Local";
-      if (parsed.scheme === "tidal") return "TIDAL";
+      if (parsed.scheme === "plugin") return parsed.protocol.charAt(0).toUpperCase() + parsed.protocol.slice(1);
       if (parsed.scheme === "subsonic") return "Subsonic";
       return "Unknown";
     };
@@ -1292,10 +1292,7 @@ function App() {
         if (url.startsWith("http://") || url.startsWith("https://")) {
           chain.push({ name: "Direct URL", id: null, resolve: () => Promise.resolve(url) });
         } else {
-          const parsed = parseUrlScheme(url);
-          if (parsed.scheme !== "unknown") {
-            chain.push({ name: nativeResolverName(url), id: null, resolve: () => resolveUrl(url) });
-          }
+          chain.push({ name: nativeResolverName(url), id: null, resolve: () => resolveUrl(url) });
         }
       }
 
@@ -3074,7 +3071,7 @@ function App() {
           {/* Collections view */}
           {view === "collections" && (
             <CollectionsView
-              collections={library.collections.filter(c => c.kind !== "tidal")}
+              collections={library.collections.filter(c => ["local", "subsonic", "seed"].includes(c.kind))}
               downloadsCollectionId={downloadsCollectionId}
               onToggleEnabled={collectionActions.handleToggleCollectionEnabled}
               onCheckConnection={collectionActions.handleCheckConnection}

@@ -6,13 +6,14 @@
   "description": "Search, stream, and download from TIDAL",
   "icon": "M2 12l5-5 5 5-5 5zM12 12l5-5 5 5-5 5zM7 7l5-5 5 5-5 5z",
   "minAppVersion": "0.7.0",
+  "autoEnable": false,
   "contributes": {
     "imageProviders": [
       { "entity": "artist", "priority": 100 },
       { "entity": "album", "priority": 100 }
     ],
     "sidebarItems": [
-      { "id": "tidal", "label": "TIDAL", "icon": "tidal" }
+      { "id": "tidal", "label": "TIDAL", "icon": "M2 12l5-5 5 5-5 5zM12 12l5-5 5 5-5 5zM7 7l5-5 5 5-5 5z" }
     ],
     "contextMenuItems": [
       { "id": "search-tidal", "label": "TIDAL: Search", "targets": ["track", "album", "artist"] },

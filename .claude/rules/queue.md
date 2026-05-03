@@ -106,7 +106,7 @@ How the app prevents accidental duplicate enqueues.
 **Detection:** `findDuplicates(newTracks)` compares incoming tracks against current queue by `track.path`. Returns `{ duplicates, unique }`. Path-based comparison means:
 - Same file from different collections = duplicate (same path)
 - Different formats of the same song = NOT detected (different paths)
-- External tracks with `path: null` can be falsely flagged as duplicates of each other (all null-path tracks match via `Set.has(null)`). In practice, most external tracks carry a scheme-based path (`tidal://`, `external://`) so this rarely triggers.
+- External tracks with `path: null` can be falsely flagged as duplicates of each other (all null-path tracks match via `Set.has(null)`). In practice, most external tracks carry a scheme-based path (`custom://`, `external://`) so this rarely triggers.
 
 **UX flow:**
 1. Caller (typically `useContextMenuActions`) calls `findDuplicates()` before enqueueing
@@ -218,7 +218,7 @@ The `source` parameter (`"user"` vs `"auto"`) flows from `playNext`/`playPreviou
 
 ### Interaction with Stream Resolvers
 
-Queue tracks may not have playable URLs at enqueue time. URL resolution happens at play time via the stream resolver chain in `App.tsx`. Queue code must never assume `track.path` is a playable URL. It is a scheme-prefixed identifier (`file://`, `subsonic://`, `tidal://`), not a source.
+Queue tracks may not have playable URLs at enqueue time. URL resolution happens at play time via the stream resolver chain in `App.tsx`. Queue code must never assume `track.path` is a playable URL. It is a scheme-prefixed identifier (`file://`, `subsonic://`, `custom://`), not a source.
 
 ### Shuffle State Fragility
 

@@ -65,11 +65,11 @@ pub struct DownloadRequest {
     pub path_pattern: Option<String>,
     /// If true, this is the last track in a batch (album download). FTS rebuild happens after this one.
     pub is_batch_last: bool,
-    /// Raw track URI (e.g., "tidal://123", "subsonic://5/abc", null for metadata-only)
+    /// Raw track URI (e.g., "custom://123", "subsonic://5/abc", null for metadata-only)
     pub uri: Option<String>,
     /// Track duration in seconds (used for metadata-based resolution)
     pub duration_secs: Option<f64>,
-    /// Target a specific download provider (e.g., "tidal-browse:tidal-download"). When set, only this provider is tried.
+    /// Target a specific download provider (e.g., "my-plugin:my-provider"). When set, only this provider is tried.
     pub provider: Option<String>,
 }
 

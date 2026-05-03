@@ -44,7 +44,7 @@ describe("isLocalTrack", () => {
     expect(isLocalTrack(makeTrack({ path: "subsonic://server.com/abc" }))).toBe(false);
   });
 
-  it("returns false for tidal:// path", () => {
+  it("returns false for plugin scheme path", () => {
     expect(isLocalTrack(makeTrack({ path: "tidal://12345" }))).toBe(false);
   });
 
@@ -66,7 +66,7 @@ describe("isRemoteTrack", () => {
     expect(isRemoteTrack(makeTrack({ path: "subsonic://server.com/abc" }))).toBe(true);
   });
 
-  it("returns true for tidal:// path", () => {
+  it("returns true for plugin scheme path", () => {
     expect(isRemoteTrack(makeTrack({ path: "tidal://12345" }))).toBe(true);
   });
 
@@ -100,7 +100,7 @@ describe("remoteId", () => {
     expect(remoteId(makeTrack({ path: "subsonic://server.com/abc123" }))).toBe("abc123");
   });
 
-  it("extracts id from tidal:// path", () => {
+  it("extracts id from plugin scheme path", () => {
     expect(remoteId(makeTrack({ path: "tidal://12345" }))).toBe("12345");
   });
 
@@ -162,10 +162,10 @@ describe("trackToQueueEntry", () => {
     });
   });
 
-  it("uses tidal:// path for TIDAL tracks", () => {
+  it("uses plugin scheme path for plugin tracks", () => {
     const track = makeTrack({
       path: "tidal://tidal-id",
-      title: "TIDAL Song",
+      title: "Plugin Song",
     });
     const entry = trackToQueueEntry(track);
     expect(entry.url).toBe("tidal://tidal-id");
@@ -210,11 +210,11 @@ describe("queueEntryToTrack", () => {
     expect(track.format).toBe("mp3");
   });
 
-  it("converts tidal:// url to Track with null id and generated key", () => {
+  it("converts plugin scheme url to Track with null id and generated key", () => {
     const entry: QueueEntry = {
       url: "tidal://12345",
-      title: "TIDAL Song",
-      artist_name: "TIDAL Artist",
+      title: "Plugin Song",
+      artist_name: "Plugin Artist",
       album_title: null,
       duration_secs: 240,
       track_number: null,
@@ -225,8 +225,8 @@ describe("queueEntryToTrack", () => {
     expect(track.id).toBeNull();
     expect(track.key).toMatch(/^ext:\d+$/);
     expect(track.path).toBe("tidal://12345");
-    expect(track.title).toBe("TIDAL Song");
-    expect(track.artist_name).toBe("TIDAL Artist");
+    expect(track.title).toBe("Plugin Song");
+    expect(track.artist_name).toBe("Plugin Artist");
   });
 
   it("assigns unique keys for multiple entries", () => {
@@ -296,7 +296,7 @@ describe("queueEntryToTrack", () => {
     const entry: QueueEntry = {
       url: "tidal://99999",
       key: "ext:99",
-      title: "Liked TIDAL Song",
+      title: "Liked Plugin Song",
       artist_name: null,
       album_title: null,
       duration_secs: null,
@@ -331,9 +331,9 @@ describe("parseUrlScheme", () => {
     expect(result).toEqual({ scheme: "file", path: "/music/song.mp3" });
   });
 
-  it("parses tidal:// scheme", () => {
+  it("parses tidal:// as plugin scheme", () => {
     const result = parseUrlScheme("tidal://12345");
-    expect(result).toEqual({ scheme: "tidal", id: "12345" });
+    expect(result).toEqual({ scheme: "plugin", protocol: "tidal", id: "12345" });
   });
 
   it("parses subsonic:// scheme with host and id", () => {
@@ -370,24 +370,24 @@ describe("parseUrlScheme", () => {
     expect(result).toEqual({ scheme: "file", path: "C:/Users/Music/song.mp3" });
   });
 
-  it("parses spotify:// scheme", () => {
+  it("parses spotify:// as plugin scheme", () => {
     const result = parseUrlScheme("spotify://4uLU6hMCjMI75M1A2tKUQC");
-    expect(result).toEqual({ scheme: "spotify", id: "4uLU6hMCjMI75M1A2tKUQC" });
+    expect(result).toEqual({ scheme: "plugin", protocol: "spotify", id: "4uLU6hMCjMI75M1A2tKUQC" });
   });
 
-  it("returns unknown for unrecognized scheme", () => {
+  it("parses arbitrary plugin scheme", () => {
     const result = parseUrlScheme("magnet://some-hash");
-    expect(result).toEqual({ scheme: "unknown", url: "magnet://some-hash" });
+    expect(result).toEqual({ scheme: "plugin", protocol: "magnet", id: "some-hash" });
   });
 
-  it("returns unknown for http:// URLs", () => {
+  it("parses http:// as plugin scheme with http protocol", () => {
     const result = parseUrlScheme("http://example.com/track.mp3");
-    expect(result).toEqual({ scheme: "unknown", url: "http://example.com/track.mp3" });
+    expect(result).toEqual({ scheme: "plugin", protocol: "http", id: "example.com/track.mp3" });
   });
 
-  it("returns unknown for https:// URLs", () => {
+  it("parses https:// as plugin scheme with https protocol", () => {
     const result = parseUrlScheme("https://example.com/track.mp3");
-    expect(result).toEqual({ scheme: "unknown", url: "https://example.com/track.mp3" });
+    expect(result).toEqual({ scheme: "plugin", protocol: "https", id: "example.com/track.mp3" });
   });
 
   it("handles plain path as file", () => {

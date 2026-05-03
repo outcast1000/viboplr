@@ -112,7 +112,7 @@ Top-level logger. Writes to the app's frontend log stream. Prefer this over `con
 - `insertTrack(track, position)` / `insertTracks(tracks, position)` — insert into the current queue
 - `onTrackStarted(handler)` / `onTrackScrobbled(handler)` / `onTrackLiked(handler)` — playback events
 - `onStreamResolve(providerId, handler)` — handler gets `(title, artistName, albumName, durationSecs)`, returns `{ url, label } | null`
-- `onResolveStreamByUri(scheme, handler)` — handler gets `(id, quality?)` and returns a URL; used for custom URL schemes (e.g., `tidal://`)
+- `onResolveStreamByUri(scheme, handler)` — handler gets `(id, quality?)` and returns a URL; used for custom URL schemes (e.g., `custom://`)
 
 `PluginTrack`: `{ path?, title, artist_name?, album_title?, duration_secs?, track_number?, image_url? }`. `image_url` is shown in the now playing bar and queue when no library image exists.
 
@@ -261,24 +261,23 @@ Image fetching uses a bridge between the Rust download worker and JS plugin hand
 
 ### Default Priority Order (user-configurable via Settings > Providers)
 
-**Artist:** TIDAL (100) -> Deezer (200) -> iTunes (300) -> AudioDB (400) -> MusicBrainz (500)
-**Album:** Embedded (Rust-native, always first) -> TIDAL (100) -> iTunes (200) -> Deezer (300) -> MusicBrainz (500)
+Priority order is user-configurable via Settings > Providers. Plugins declare a default priority number in their manifest (lower number = higher priority). For albums, the Rust-native `EmbeddedArtworkProvider` always runs first before any plugin providers.
 
 ## Stream Resolver Chain
 
-Stream resolvers provide playback URLs when a track's native source isn't available (e.g., library track missing on disk, no local file for a TIDAL track).
+Stream resolvers provide playback URLs when a track's native source isn't available (e.g., library track missing on disk, external track without a direct URL).
 
 ### Flow (`App.tsx` `streamResolversRef`)
 
 For each track to play:
 1. If a local copy exists for the track's metadata, use it.
-2. If the track has a native URL (`file://`, `subsonic://`, `tidal://`, or `http(s)://`), try the native resolver.
+2. If the track has a native URL (`file://`, `subsonic://`, or `http(s)://`), try the native resolver. Plugin-registered schemes are resolved via `onResolveStreamByUri`.
 3. Walk the user-ordered list of plugin stream resolvers. Each is called with `(title, artistName, albumName, durationSecs)` and has 15 seconds to return `{ url, label } | null`.
 4. First success wins. Failures fall through to the next resolver. `addLog` surfaces fallback info to the user.
 
 ### Custom URL Schemes
 
-`api.playback.onResolveStreamByUri(scheme, handler)` registers a resolver for a URL scheme (e.g., `tidal://`). The handler returns a playable URL for a given `(id, quality?)`. This replaced the old built-in TIDAL integration.
+`api.playback.onResolveStreamByUri(scheme, handler)` registers a resolver for a custom URL scheme (e.g., `custom://`). The handler returns a playable URL for a given `(id, quality?)`.
 
 ### Configuration
 
@@ -288,7 +287,7 @@ Users can drag-and-drop reorder and toggle stream resolvers on/off in Settings >
 
 Download providers implement URL resolution for the unified `DownloadModal`.
 
-- **By URI:** a plugin handles a specific scheme (e.g., `tidal://`, `external://`) via `onResolveByUri`. Used when the app already has a canonical URI.
+- **By URI:** a plugin handles a specific scheme (e.g., `custom://`, `external://`) via `onResolveByUri`. Used when the app already has a canonical URI.
 - **By metadata:** a plugin accepts arbitrary `(title, artistName, albumName, durationSecs, format)` via `onResolveByMetadata`. Used for automatic fallbacks (e.g., YouTube search-and-download).
 - **Interactive:** a plugin contributes `onInteractiveSearch` + `onInteractiveResolve`, surfaced as manual search inside `DownloadModal` with per-track picking.
 

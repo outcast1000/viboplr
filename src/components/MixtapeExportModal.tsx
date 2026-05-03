@@ -61,8 +61,6 @@ const RECOMMENDED_METADATA_KEYS = [
 
 const SOURCE_LABELS: Record<string, string> = {
   subsonic: "Subsonic",
-  tidal: "TIDAL",
-  plugin: "plugin",
 };
 
 function formatPhase(phase: string): string {

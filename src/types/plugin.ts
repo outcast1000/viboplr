@@ -88,6 +88,7 @@ export interface PluginManifest {
   icon?: string;
   apiUsage?: PluginApiUsage[];
   homepage?: string;
+  autoEnable?: boolean;
   contributes?: PluginManifestContributes;
   updateUrl?: string;
 }
@@ -149,8 +150,8 @@ export interface CardGridItem {
   // Defaults to "playlist" in PluginViewRenderer if unspecified.
   targetKind?: "playlist" | "album" | "artist";
   // Optional track data plumbed through plugin context menu targets,
-  // e.g. a Spotify playlist card carrying its tracks so that a TIDAL
-  // plugin action can download them without round-tripping to the DB.
+  // e.g. a playlist card carrying its tracks so that a download
+  // plugin action can resolve them without round-tripping to the DB.
   tracks?: Array<{ title: string; artistName?: string | null; albumName?: string | null }>;
 }
 

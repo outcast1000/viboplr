@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatDuration, isVideoTrack, getInitials, tidalCoverUrl, collectionKindLabel, parseSubsonicUrl, shouldScrobble } from "../utils";
+import { formatDuration, isVideoTrack, getInitials, collectionKindLabel, parseSubsonicUrl, shouldScrobble } from "../utils";
 import type { Track } from "../types";
 
 function makeTrack(overrides: Partial<Track> = {}): Track {
@@ -58,29 +58,10 @@ describe("getInitials", () => {
   });
 });
 
-describe("tidalCoverUrl", () => {
-  it("converts dashes to slashes and builds URL", () => {
-    expect(tidalCoverUrl("ab-cd-ef-gh")).toBe(
-      "https://resources.tidal.com/images/ab/cd/ef/gh/320x320.jpg"
-    );
-  });
-
-  it("accepts custom size", () => {
-    expect(tidalCoverUrl("ab-cd", 640)).toBe(
-      "https://resources.tidal.com/images/ab/cd/640x640.jpg"
-    );
-  });
-
-  it("returns null for null input", () => {
-    expect(tidalCoverUrl(null)).toBeNull();
-  });
-});
-
 describe("collectionKindLabel", () => {
   it("returns labels for known kinds", () => {
     expect(collectionKindLabel("local")).toBe("Local");
     expect(collectionKindLabel("subsonic")).toBe("Server");
-    expect(collectionKindLabel("tidal")).toBe("TIDAL");
     expect(collectionKindLabel("seed")).toBe("Test");
   });
 

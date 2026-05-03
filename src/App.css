@@ -1263,8 +1263,8 @@
   accent-color: var(--accent);
 }
 
-/* TIDAL art placeholder */
-.tidal-art-placeholder {
+/* Download art placeholder */
+.dl-art-placeholder {
   width: 100%;
   height: 100%;
   background: var(--bg-surface);

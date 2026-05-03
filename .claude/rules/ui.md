@@ -14,7 +14,7 @@ The app has 5 core entity types that appear across many surfaces. Every entity t
 | **Playlist** | id, name, track_count | Playlists view, plugin views |
 | **Tag** | id, name, track_count, liked | Tags view |
 
-Track paths use URL schemes: `file://` (local), `subsonic://`, `tidal://`.
+Track paths use URL schemes: `file://` (local), `subsonic://`, and plugin-registered schemes.
 
 ### Three Rendering Modes
 

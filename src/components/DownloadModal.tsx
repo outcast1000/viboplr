@@ -544,16 +544,16 @@ function SingleTrackDownload({
   return (
     <>
       <h2 className="ds-modal-title">{isUpgrade && !showDestPicker ? `Upgrade via ${providerName}` : `Download from ${providerName}`}</h2>
-      <p className="tidal-dl-track">
+      <p className="dl-track">
         {track.title}{track.artistName ? ` — ${track.artistName}` : ""}
       </p>
 
-      {error && <div className="tidal-dl-error">{error}</div>}
+      {error && <div className="dl-error">{error}</div>}
 
       {/* SEARCH STEP */}
       {step === "search" && (
         <>
-          <div className="tidal-dl-search-field">
+          <div className="dl-search-field">
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -563,34 +563,34 @@ function SingleTrackDownload({
             <button onClick={() => handleSearch()} disabled={searching}>Search</button>
           </div>
           {searching ? (
-            <div className="tidal-dl-loading"><div className="ds-spinner" /><span>Searching {providerName}...</span></div>
+            <div className="dl-loading"><div className="ds-spinner" /><span>Searching {providerName}...</span></div>
           ) : searchError ? (
-            <div className="tidal-dl-error">{searchError}</div>
+            <div className="dl-error">{searchError}</div>
           ) : results.length === 0 && !searching ? (
-            <div className="tidal-dl-empty">No matches found on {providerName}</div>
+            <div className="dl-empty">No matches found on {providerName}</div>
           ) : (
-            <div className="tidal-dl-results">
+            <div className="dl-results">
               {results.map((t) => (
-                <div key={t.id} className="tidal-dl-result" onClick={() => handleSelectMatch(t)}>
+                <div key={t.id} className="dl-result" onClick={() => handleSelectMatch(t)}>
                   {hasArt && (
-                    <div className="tidal-dl-result-art">
+                    <div className="dl-result-art">
                       {t.coverUrl ? (
                         <img src={t.coverUrl} alt="" />
                       ) : (
-                        <div className="tidal-art-placeholder" />
+                        <div className="dl-art-placeholder" />
                       )}
                     </div>
                   )}
-                  <div className="tidal-dl-result-info">
-                    <span className="tidal-dl-result-title">{t.title}</span>
+                  <div className="dl-result-info">
+                    <span className="dl-result-title">{t.title}</span>
                     {(hasArtist || hasAlbum) && (
-                      <span className="tidal-dl-result-meta">
+                      <span className="dl-result-meta">
                         {t.artistName}{t.albumTitle ? ` — ${t.albumTitle}` : ""}
                       </span>
                     )}
                   </div>
                   {hasDuration && (
-                    <span className="tidal-dl-result-duration">
+                    <span className="dl-result-duration">
                       {t.durationSecs ? formatDuration(t.durationSecs) : ""}
                     </span>
                   )}
@@ -598,7 +598,7 @@ function SingleTrackDownload({
               ))}
             </div>
           )}
-          <div className="tidal-dl-actions">
+          <div className="dl-actions">
             <button onClick={handleCancel}>Cancel</button>
           </div>
         </>
@@ -607,19 +607,19 @@ function SingleTrackDownload({
       {/* CONFIGURE STEP */}
       {step === "configure" && selectedMatch && (
         <>
-          <div className="tidal-dl-selected">
+          <div className="dl-selected">
             {selectedMatch.coverUrl && (
               <img src={selectedMatch.coverUrl} alt="" />
             )}
-            <div className="tidal-dl-selected-info">
-              <span className="tidal-dl-result-title">{selectedMatch.title}</span>
-              <span className="tidal-dl-result-meta">
+            <div className="dl-selected-info">
+              <span className="dl-result-title">{selectedMatch.title}</span>
+              <span className="dl-result-meta">
                 {selectedMatch.artistName}{selectedMatch.albumTitle ? ` — ${selectedMatch.albumTitle}` : ""}
               </span>
             </div>
           </div>
 
-          <div className="tidal-dl-config-row">
+          <div className="dl-config-row">
             <label>Quality</label>
             <select value={quality} onChange={(e) => setQuality(e.target.value as "flac" | "aac")}>
               <option value="flac">FLAC (Lossless)</option>
@@ -628,13 +628,13 @@ function SingleTrackDownload({
           </div>
 
           {isUpgrade && !showDestPicker && (
-            <button className="tidal-dl-save-elsewhere" onClick={() => setShowDestPicker(true)}>
+            <button className="dl-save-elsewhere" onClick={() => setShowDestPicker(true)}>
               Save elsewhere instead...
             </button>
           )}
 
           {showDestPicker && (
-            <div className="tidal-dl-config-row">
+            <div className="dl-config-row">
               <label>Save to</label>
               <select
                 value={destType === "collection" ? String(destCollectionId ?? "") : "__browse__"}
@@ -662,15 +662,15 @@ function SingleTrackDownload({
           )}
 
           {destType === "path" && destPath && showDestPicker && (
-            <div className="tidal-dl-config-row">
+            <div className="dl-config-row">
               <label />
-              <span className="tidal-dl-dest-display">{destPath}</span>
+              <span className="dl-dest-display">{destPath}</span>
             </div>
           )}
 
-          <div className="tidal-dl-actions">
+          <div className="dl-actions">
             <button onClick={directUri ? onClose : handleBackToSearch}>{directUri ? "Cancel" : "Back"}</button>
-            <button className="tidal-dl-btn-primary" onClick={handleStartDownload}>
+            <button className="dl-btn-primary" onClick={handleStartDownload}>
               Download
             </button>
           </div>
@@ -680,33 +680,33 @@ function SingleTrackDownload({
       {/* CONFLICT STEP */}
       {step === "conflict" && conflict && (
         <>
-          <div className="tidal-dl-conflict">
-            <div className="tidal-dl-conflict-filename">
+          <div className="dl-conflict">
+            <div className="dl-conflict-filename">
               &ldquo;{conflict.dest_path.split(/[\\/]/).pop()}&rdquo; already exists
             </div>
-            <div className="tidal-dl-conflict-size">
+            <div className="dl-conflict-size">
               Existing file: {conflict.existing_format ?? "Unknown"}, {formatFileSize(conflict.existing_size)}
             </div>
           </div>
-          <div className="tidal-dl-actions">
+          <div className="dl-actions">
             <button onClick={() => { setConflict(null); setStep("configure"); }}>Cancel</button>
-            <button className="tidal-dl-btn-secondary" onClick={handleConflictKeepBoth}>Keep Both</button>
-            <button className="tidal-dl-btn-primary" onClick={handleConflictReplace}>Replace</button>
+            <button className="dl-btn-secondary" onClick={handleConflictKeepBoth}>Keep Both</button>
+            <button className="dl-btn-primary" onClick={handleConflictReplace}>Replace</button>
           </div>
         </>
       )}
 
       {/* DOWNLOADING STEP */}
       {step === "downloading" && (
-        <div className="tidal-dl-downloading">
-          <div className="tidal-dl-loading"><div className="ds-spinner" /><span>Downloading from {providerName}...</span></div>
-          <div className="tidal-dl-progress">
-            <div className="tidal-dl-progress-bar">
-              <div className="tidal-dl-progress-fill" style={{ width: `${downloadProgress}%` }} />
+        <div className="dl-downloading">
+          <div className="dl-loading"><div className="ds-spinner" /><span>Downloading from {providerName}...</span></div>
+          <div className="dl-progress">
+            <div className="dl-progress-bar">
+              <div className="dl-progress-fill" style={{ width: `${downloadProgress}%` }} />
             </div>
-            <span className="tidal-dl-progress-pct">{downloadProgress}%</span>
+            <span className="dl-progress-pct">{downloadProgress}%</span>
           </div>
-          <div className="tidal-dl-actions">
+          <div className="dl-actions">
             <button onClick={handleCancel}>Cancel</button>
           </div>
         </div>
@@ -716,37 +716,37 @@ function SingleTrackDownload({
       {step === "result" && upgradePreview && (
         <>
           <h3>Compare files</h3>
-          <div className="tidal-dl-compare">
-            <div className="tidal-dl-compare-col">
+          <div className="dl-compare">
+            <div className="dl-compare-col">
               <h4>Current file</h4>
-              <div className="tidal-dl-field">
+              <div className="dl-field">
                 <span>Format</span>
                 <span>{upgradePreview.old_format?.toUpperCase() ?? "—"}</span>
               </div>
-              <div className="tidal-dl-field">
+              <div className="dl-field">
                 <span>Size</span>
                 <span>{formatFileSize(upgradePreview.old_file_size)}</span>
               </div>
             </div>
-            <div className="tidal-dl-compare-arrow">{"→"}</div>
-            <div className="tidal-dl-compare-col">
+            <div className="dl-compare-arrow">{"→"}</div>
+            <div className="dl-compare-col">
               <h4>{providerName} version</h4>
-              <div className="tidal-dl-field">
+              <div className="dl-field">
                 <span>Format</span>
                 <span>{upgradePreview.new_format?.toUpperCase() ?? "—"}</span>
               </div>
-              <div className="tidal-dl-field">
+              <div className="dl-field">
                 <span>Size</span>
                 <span>{formatFileSize(upgradePreview.new_file_size)}</span>
               </div>
             </div>
           </div>
-          <div className="tidal-dl-actions">
+          <div className="dl-actions">
             <button onClick={handleBackToSearch}>Back</button>
-            <button className="tidal-dl-btn-primary" onClick={handleReplace} disabled={confirming}>
+            <button className="dl-btn-primary" onClick={handleReplace} disabled={confirming}>
               {confirming ? "Replacing..." : "Replace"}
             </button>
-            <button className="tidal-dl-btn-secondary" onClick={handleSaveAsCopy} disabled={confirming}>
+            <button className="dl-btn-secondary" onClick={handleSaveAsCopy} disabled={confirming}>
               {confirming ? "Saving..." : "Save as Copy"}
             </button>
             <button onClick={handleCancel}>Cancel</button>
@@ -757,20 +757,20 @@ function SingleTrackDownload({
       {/* RESULT STEP -- Fresh download success */}
       {step === "result" && downloadResult && (
         <>
-          <div className="tidal-dl-success">
+          <div className="dl-success">
             <h3>Download complete</h3>
-            <div className="tidal-dl-field">
+            <div className="dl-field">
               <span>Format</span>
               <span>{downloadResult.format}</span>
             </div>
-            <div className="tidal-dl-field">
+            <div className="dl-field">
               <span>Size</span>
               <span>{formatFileSize(downloadResult.file_size)}</span>
             </div>
             {addedToLibrary && <p>Added to library.</p>}
-            <div className="tidal-dl-success-path">{downloadResult.path}</div>
+            <div className="dl-success-path">{downloadResult.path}</div>
           </div>
-          <div className="tidal-dl-actions">
+          <div className="dl-actions">
             <button onClick={() => invoke("show_in_folder_path", { filePath: downloadResult.path }).catch(console.error)}>
               Show in Folder
             </button>
@@ -779,7 +779,7 @@ function SingleTrackDownload({
                 Play
               </button>
             )}
-            <button className="tidal-dl-btn-primary" onClick={onClose}>Done</button>
+            <button className="dl-btn-primary" onClick={onClose}>Done</button>
           </div>
         </>
       )}
@@ -1195,13 +1195,13 @@ function MultiTrackDownload({
       </h2>
 
       {tracks.length === 0 && (
-        <div className="tidal-dl-error">No tracks to download</div>
+        <div className="dl-error">No tracks to download</div>
       )}
 
       {/* CONFIGURE STEP */}
       {step === "configure" && tracks.length > 0 && (
         <>
-          <div className="tidal-dl-config-row">
+          <div className="dl-config-row">
             <label>Quality</label>
             <select value={quality} onChange={(e) => setQuality(e.target.value as "flac" | "aac")}>
               <option value="flac">FLAC (Lossless)</option>
@@ -1209,7 +1209,7 @@ function MultiTrackDownload({
             </select>
           </div>
 
-          <div className="tidal-dl-config-row">
+          <div className="dl-config-row">
             <label>Save to</label>
             <select
               value={destType === "collection" ? String(destCollectionId ?? "") : "__browse__"}
@@ -1236,13 +1236,13 @@ function MultiTrackDownload({
           </div>
 
           {destType === "path" && destPath && (
-            <div className="tidal-dl-config-row">
+            <div className="dl-config-row">
               <label />
-              <span className="tidal-dl-dest-display">{destPath}</span>
+              <span className="dl-dest-display">{destPath}</span>
             </div>
           )}
 
-          <div className="tidal-dl-config-row">
+          <div className="dl-config-row">
             <label>File layout</label>
             <select value={pathPattern} onChange={(e) => setPathPattern(e.target.value)}>
               {PATH_PATTERNS.map(p => (
@@ -1251,14 +1251,14 @@ function MultiTrackDownload({
             </select>
           </div>
 
-          <div className="tidal-dl-config-row">
+          <div className="dl-config-row">
             <label />
-            <span className="tidal-dl-dest-display" style={{ opacity: 0.7 }}>{preview}</span>
+            <span className="dl-dest-display" style={{ opacity: 0.7 }}>{preview}</span>
           </div>
 
-          <div className="tidal-dl-actions">
+          <div className="dl-actions">
             <button onClick={onClose}>Cancel</button>
-            <button className="tidal-dl-btn-primary" onClick={handleStart}>
+            <button className="dl-btn-primary" onClick={handleStart}>
               Start Download
             </button>
           </div>
@@ -1268,31 +1268,31 @@ function MultiTrackDownload({
       {/* RESOLVE STEP */}
       {step === "resolve" && (
         <>
-          <div className="tidal-dl-batch-list">
+          <div className="dl-batch-list">
             {resolveStates.map((rs, i) => (
-              <div key={i} className="tidal-dl-batch-row">
-                <div className="tidal-dl-batch-status">
+              <div key={i} className="dl-batch-row">
+                <div className="dl-batch-status">
                   {rs.status === "searching" && <div className="ds-spinner ds-spinner--sm" />}
                   {rs.status === "matched" && <span style={{color: "var(--success)"}}>&#10003;</span>}
                   {rs.status === "not_found" && <span style={{color: "var(--error)"}}>&#10007;</span>}
                   {rs.status === "pending" && <span style={{color: "var(--text-tertiary)"}}>&#183;</span>}
                 </div>
-                <div className="tidal-dl-batch-info">
-                  <div className="tidal-dl-batch-title">{rs.originalTrack.title}</div>
+                <div className="dl-batch-info">
+                  <div className="dl-batch-title">{rs.originalTrack.title}</div>
                   {rs.status === "matched" && rs.match && (
-                    <div className="tidal-dl-batch-match">&rarr; {rs.match.title}{rs.match.artistName ? ` — ${rs.match.artistName}` : ""}</div>
+                    <div className="dl-batch-match">&rarr; {rs.match.title}{rs.match.artistName ? ` — ${rs.match.artistName}` : ""}</div>
                   )}
                   {rs.status === "not_found" && (
-                    <div className="tidal-dl-batch-match">No match found</div>
+                    <div className="dl-batch-match">No match found</div>
                   )}
                   {rs.status === "searching" && (
-                    <div className="tidal-dl-batch-match">Searching...</div>
+                    <div className="dl-batch-match">Searching...</div>
                   )}
                 </div>
               </div>
             ))}
           </div>
-          <div className="tidal-dl-actions">
+          <div className="dl-actions">
             <button onClick={() => { cancelledRef.current = true; onClose(); }}>Cancel</button>
           </div>
         </>
@@ -1310,40 +1310,40 @@ function MultiTrackDownload({
         return (
           <>
             {existingCount > 0 && (
-              <div className="tidal-dl-error" style={{background: "color-mix(in srgb, var(--warning) 15%, transparent)", color: "var(--warning)"}}>
+              <div className="dl-error" style={{background: "color-mix(in srgb, var(--warning) 15%, transparent)", color: "var(--warning)"}}>
                 {existingCount} track{existingCount > 1 ? "s" : ""} already in your library
               </div>
             )}
-            <div className="tidal-dl-batch-list">
+            <div className="dl-batch-list">
               {resolveStates.map((rs, i) => (
                 <div key={i}>
-                  <div className="tidal-dl-batch-row">
-                    <div className="tidal-dl-batch-status">
+                  <div className="dl-batch-row">
+                    <div className="dl-batch-status">
                       {rs.status === "matched" && !rs.libraryTrack && <span style={{color: "var(--success)"}}>&#10003;</span>}
                       {rs.status === "matched" && rs.libraryTrack && <span style={{color: "var(--warning)"}}>&#9679;</span>}
                       {rs.status === "not_found" && <span style={{color: "var(--error)"}}>&#10007;</span>}
                     </div>
-                    <div className="tidal-dl-batch-info">
-                      <div className="tidal-dl-batch-title">{rs.originalTrack.title}</div>
+                    <div className="dl-batch-info">
+                      <div className="dl-batch-title">{rs.originalTrack.title}</div>
                       {rs.status === "matched" && rs.match && (
-                        <div className="tidal-dl-batch-match">
+                        <div className="dl-batch-match">
                           &rarr; {rs.match.title}{rs.match.artistName ? ` — ${rs.match.artistName}` : ""}
                           {rs.match.durationSecs ? ` (${formatDuration(rs.match.durationSecs)})` : ""}
                         </div>
                       )}
                       {rs.status === "matched" && rs.libraryTrack && (
-                        <div className="tidal-dl-batch-match" style={{color: "var(--warning)"}}>
+                        <div className="dl-batch-match" style={{color: "var(--warning)"}}>
                           In library: {rs.libraryTrack.format?.toUpperCase() ?? "local"}
                           {rs.libraryTrack.file_size ? `, ${formatFileSize(rs.libraryTrack.file_size)}` : ""}
                           {rs.libraryTrack.duration_secs ? `, ${formatDuration(rs.libraryTrack.duration_secs)}` : ""}
                         </div>
                       )}
                       {rs.status === "not_found" && (
-                        <div className="tidal-dl-batch-match">No match found</div>
+                        <div className="dl-batch-match">No match found</div>
                       )}
                     </div>
                     {rs.status === "matched" && rs.libraryTrack && (
-                      <div className="tidal-dl-batch-action">
+                      <div className="dl-batch-action">
                         <select
                           value={rs.existingAction ?? "skip"}
                           onChange={e => {
@@ -1363,8 +1363,8 @@ function MultiTrackDownload({
                       </div>
                     )}
                     {rs.status === "not_found" && (
-                      <div className="tidal-dl-batch-action">
-                        <button className="tidal-dl-btn-small" onClick={() => {
+                      <div className="dl-batch-action">
+                        <button className="dl-btn-small" onClick={() => {
                           setManualSearchIndex(manualSearchIndex === i ? null : i);
                           setManualQuery([rs.originalTrack.title, rs.originalTrack.artistName].filter(Boolean).join(" "));
                           setManualResults([]);
@@ -1376,8 +1376,8 @@ function MultiTrackDownload({
                   </div>
 
                   {manualSearchIndex === i && (
-                    <div className="tidal-dl-batch-inline-search">
-                      <div className="tidal-dl-search-field">
+                    <div className="dl-batch-inline-search">
+                      <div className="dl-search-field">
                         <input
                           value={manualQuery}
                           onChange={e => setManualQuery(e.target.value)}
@@ -1386,21 +1386,21 @@ function MultiTrackDownload({
                         />
                         <button onClick={() => handleManualSearch(i)} disabled={manualSearching}>Search</button>
                       </div>
-                      {manualSearching && <div className="tidal-dl-loading"><div className="ds-spinner ds-spinner--sm" /></div>}
+                      {manualSearching && <div className="dl-loading"><div className="ds-spinner ds-spinner--sm" /></div>}
                       {!manualSearching && manualResults.length > 0 && (
-                        <div className="tidal-dl-batch-inline-results">
+                        <div className="dl-batch-inline-results">
                           {manualResults.map(r => (
-                            <div key={r.id} className="tidal-dl-batch-row" style={{cursor: "pointer"}} onClick={() => handlePickManualMatch(i, r)}>
-                              <div className="tidal-dl-batch-info">
-                                <div className="tidal-dl-batch-title">{r.title}</div>
-                                <div className="tidal-dl-batch-match">{r.artistName}{r.albumTitle ? ` — ${r.albumTitle}` : ""}</div>
+                            <div key={r.id} className="dl-batch-row" style={{cursor: "pointer"}} onClick={() => handlePickManualMatch(i, r)}>
+                              <div className="dl-batch-info">
+                                <div className="dl-batch-title">{r.title}</div>
+                                <div className="dl-batch-match">{r.artistName}{r.albumTitle ? ` — ${r.albumTitle}` : ""}</div>
                               </div>
                             </div>
                           ))}
                         </div>
                       )}
                       {!manualSearching && manualResults.length === 0 && manualQuery && (
-                        <div className="tidal-dl-empty" style={{padding: "8px"}}>No results</div>
+                        <div className="dl-empty" style={{padding: "8px"}}>No results</div>
                       )}
                     </div>
                   )}
@@ -1408,16 +1408,16 @@ function MultiTrackDownload({
               ))}
             </div>
 
-            <div className="tidal-dl-batch-footer">
+            <div className="dl-batch-footer">
               <span>
                 {matchedCount} matched{notFoundCount > 0 ? `, ${notFoundCount} not found` : ""}
                 {existingCount > 0 ? ` (${existingCount} existing)` : ""}
               </span>
             </div>
 
-            <div className="tidal-dl-actions">
+            <div className="dl-actions">
               <button onClick={onClose}>Cancel</button>
-              <button className="tidal-dl-btn-primary" onClick={() => setStep("downloading")}
+              <button className="dl-btn-primary" onClick={() => setStep("downloading")}
                 disabled={downloadableCount === 0}>
                 Download {downloadableCount} track{downloadableCount !== 1 ? "s" : ""}
               </button>
@@ -1429,16 +1429,16 @@ function MultiTrackDownload({
       {/* DOWNLOADING STEP */}
       {step === "downloading" && (
         <>
-          <div className="tidal-dl-batch-overall">
-            <div className="tidal-dl-progress">
-              <div className="tidal-dl-progress-bar">
-                <div className="tidal-dl-progress-fill" style={{
+          <div className="dl-batch-overall">
+            <div className="dl-progress">
+              <div className="dl-progress-bar">
+                <div className="dl-progress-fill" style={{
                   width: `${downloadStates.length > 0
                     ? (downloadStates.filter(t => t.status === "done" || t.status === "error" || t.status === "skipped").length / downloadStates.length * 100)
                     : 0}%`
                 }} />
               </div>
-              <span className="tidal-dl-progress-pct">
+              <span className="dl-progress-pct">
                 {downloadStates.filter(t => t.status === "done" || t.status === "error" || t.status === "skipped").length} / {downloadStates.length}
               </span>
             </div>
@@ -1446,80 +1446,80 @@ function MultiTrackDownload({
 
           {/* Inline conflict UI */}
           {batchConflict && (
-            <div className="tidal-dl-conflict">
-              <div className="tidal-dl-conflict-filename">
+            <div className="dl-conflict">
+              <div className="dl-conflict-filename">
                 &ldquo;{batchConflict.destPath.split(/[\\/]/).pop()}&rdquo; already exists
               </div>
-              <div className="tidal-dl-conflict-size">
+              <div className="dl-conflict-size">
                 Existing file: {batchConflict.existingFormat ?? "Unknown"}, {formatFileSize(batchConflict.existingSize)}
               </div>
-              <div className="tidal-dl-actions" style={{ marginTop: "12px", justifyContent: "center" }}>
+              <div className="dl-actions" style={{ marginTop: "12px", justifyContent: "center" }}>
                 <button onClick={() => conflictResolveRef.current?.("skip")}>Skip</button>
-                <button className="tidal-dl-btn-secondary" onClick={() => conflictResolveRef.current?.("keep_both")}>Keep Both</button>
-                <button className="tidal-dl-btn-primary" onClick={() => conflictResolveRef.current?.("replace")}>Replace</button>
+                <button className="dl-btn-secondary" onClick={() => conflictResolveRef.current?.("keep_both")}>Keep Both</button>
+                <button className="dl-btn-primary" onClick={() => conflictResolveRef.current?.("replace")}>Replace</button>
               </div>
             </div>
           )}
 
           {/* Inline upgrade comparison UI */}
           {upgradeComparison && (
-            <div className="tidal-dl-conflict">
+            <div className="dl-conflict">
               <h4 style={{margin: "0 0 8px"}}>{upgradeComparison.title}</h4>
-              <div className="tidal-dl-compare">
-                <div className="tidal-dl-compare-col">
+              <div className="dl-compare">
+                <div className="dl-compare-col">
                   <h4>Current file</h4>
-                  <div className="tidal-dl-field">
+                  <div className="dl-field">
                     <span>Format</span>
                     <span>{upgradeComparison.info.old_format?.toUpperCase() ?? "—"}</span>
                   </div>
-                  <div className="tidal-dl-field">
+                  <div className="dl-field">
                     <span>Size</span>
                     <span>{formatFileSize(upgradeComparison.info.old_file_size)}</span>
                   </div>
                 </div>
-                <div className="tidal-dl-compare-arrow">{"→"}</div>
-                <div className="tidal-dl-compare-col">
+                <div className="dl-compare-arrow">{"→"}</div>
+                <div className="dl-compare-col">
                   <h4>New version</h4>
-                  <div className="tidal-dl-field">
+                  <div className="dl-field">
                     <span>Format</span>
                     <span>{upgradeComparison.info.new_format?.toUpperCase() ?? "—"}</span>
                   </div>
-                  <div className="tidal-dl-field">
+                  <div className="dl-field">
                     <span>Size</span>
                     <span>{formatFileSize(upgradeComparison.info.new_file_size)}</span>
                   </div>
                 </div>
               </div>
-              <div className="tidal-dl-actions" style={{ marginTop: "12px", justifyContent: "center" }}>
+              <div className="dl-actions" style={{ marginTop: "12px", justifyContent: "center" }}>
                 <button onClick={() => upgradeResolveRef.current?.("skip")}>Skip</button>
-                <button className="tidal-dl-btn-secondary" onClick={() => upgradeResolveRef.current?.("copy")}>Save as Copy</button>
-                <button className="tidal-dl-btn-primary" onClick={() => upgradeResolveRef.current?.("replace")}>Replace</button>
+                <button className="dl-btn-secondary" onClick={() => upgradeResolveRef.current?.("copy")}>Save as Copy</button>
+                <button className="dl-btn-primary" onClick={() => upgradeResolveRef.current?.("replace")}>Replace</button>
               </div>
             </div>
           )}
 
-          <div className="tidal-dl-batch-list">
+          <div className="dl-batch-list">
             {downloadStates.map((ds) => (
-              <div key={ds.index} className="tidal-dl-batch-row">
-                <div className="tidal-dl-batch-status">
+              <div key={ds.index} className="dl-batch-row">
+                <div className="dl-batch-status">
                   {ds.status === "queued" && <span style={{color: "var(--text-tertiary)"}}>&#183;</span>}
                   {ds.status === "downloading" && <div className="ds-spinner ds-spinner--sm" />}
                   {ds.status === "done" && <span style={{color: "var(--success)"}}>&#10003;</span>}
                   {ds.status === "error" && <span style={{color: "var(--error)"}}>&#10007;</span>}
                   {ds.status === "skipped" && <span style={{color: "var(--text-tertiary)"}}>&ndash;</span>}
                 </div>
-                <div className="tidal-dl-batch-info">
-                  <div className="tidal-dl-batch-title">{ds.title}</div>
-                  {ds.artist && <div className="tidal-dl-batch-match">{ds.artist}</div>}
+                <div className="dl-batch-info">
+                  <div className="dl-batch-title">{ds.title}</div>
+                  {ds.artist && <div className="dl-batch-match">{ds.artist}</div>}
                   {ds.status === "error" && ds.error && (
-                    <div className="tidal-dl-batch-match" style={{color: "var(--error)"}}>{ds.error}</div>
+                    <div className="dl-batch-match" style={{color: "var(--error)"}}>{ds.error}</div>
                   )}
                 </div>
                 {ds.status === "downloading" && (
-                  <div className="tidal-dl-batch-progress">{ds.progress}%</div>
+                  <div className="dl-batch-progress">{ds.progress}%</div>
                 )}
                 {ds.status === "done" && ds.filePath && (
-                  <div className="tidal-dl-batch-action" style={{display: "flex", gap: "4px"}}>
+                  <div className="dl-batch-action" style={{display: "flex", gap: "4px"}}>
                     {onPlay && (
                       <button className="g-btn g-btn-xs" title="Play" onClick={() => onPlay(ds.filePath!)}>
                         <IconPlay size={10} />
@@ -1534,7 +1534,7 @@ function MultiTrackDownload({
             ))}
           </div>
 
-          <div className="tidal-dl-actions">
+          <div className="dl-actions">
             <button onClick={() => { cancelledRef.current = true; onClose(); }}>Cancel</button>
           </div>
         </>
@@ -1547,34 +1547,34 @@ function MultiTrackDownload({
         const skippedCount = downloadStates.filter(t => t.status === "skipped").length;
         return (
           <>
-            <div className="tidal-dl-batch-overall">
-              <div className="tidal-dl-progress">
-                <div className="tidal-dl-progress-bar">
-                  <div className="tidal-dl-progress-fill" style={{ width: "100%" }} />
+            <div className="dl-batch-overall">
+              <div className="dl-progress">
+                <div className="dl-progress-bar">
+                  <div className="dl-progress-fill" style={{ width: "100%" }} />
                 </div>
-                <span className="tidal-dl-progress-pct">
+                <span className="dl-progress-pct">
                   {doneCount} / {downloadStates.length}
                 </span>
               </div>
             </div>
 
-            <div className="tidal-dl-batch-list">
+            <div className="dl-batch-list">
               {downloadStates.map((ds) => (
-                <div key={ds.index} className="tidal-dl-batch-row">
-                  <div className="tidal-dl-batch-status">
+                <div key={ds.index} className="dl-batch-row">
+                  <div className="dl-batch-status">
                     {ds.status === "done" && <span style={{color: "var(--success)"}}>&#10003;</span>}
                     {ds.status === "error" && <span style={{color: "var(--error)"}}>&#10007;</span>}
                     {ds.status === "skipped" && <span style={{color: "var(--text-tertiary)"}}>&ndash;</span>}
                   </div>
-                  <div className="tidal-dl-batch-info">
-                    <div className="tidal-dl-batch-title">{ds.title}</div>
-                    {ds.artist && <div className="tidal-dl-batch-match">{ds.artist}</div>}
+                  <div className="dl-batch-info">
+                    <div className="dl-batch-title">{ds.title}</div>
+                    {ds.artist && <div className="dl-batch-match">{ds.artist}</div>}
                     {ds.status === "error" && ds.error && (
-                      <div className="tidal-dl-batch-match" style={{color: "var(--error)"}}>{ds.error}</div>
+                      <div className="dl-batch-match" style={{color: "var(--error)"}}>{ds.error}</div>
                     )}
                   </div>
                   {ds.status === "done" && ds.filePath && (
-                    <div className="tidal-dl-batch-action" style={{display: "flex", gap: "4px"}}>
+                    <div className="dl-batch-action" style={{display: "flex", gap: "4px"}}>
                       {onPlay && (
                         <button className="g-btn g-btn-xs" title="Play" onClick={() => onPlay(ds.filePath!)}>
                           <IconPlay size={10} />
@@ -1589,14 +1589,14 @@ function MultiTrackDownload({
               ))}
             </div>
 
-            <div className="tidal-dl-batch-footer">
+            <div className="dl-batch-footer">
               <span>
                 {doneCount} downloaded{errCount > 0 ? `, ${errCount} failed` : ""}{skippedCount > 0 ? `, ${skippedCount} skipped` : ""}
               </span>
             </div>
 
-            <div className="tidal-dl-actions">
-              <button className="tidal-dl-btn-primary" onClick={() => {
+            <div className="dl-actions">
+              <button className="dl-btn-primary" onClick={() => {
                 onComplete(`Downloaded ${doneCount} of ${downloadStates.length} tracks`);
                 onClose();
               }}>
@@ -1635,7 +1635,7 @@ export function DownloadModal({
 
   return (
     <div className="ds-modal-overlay" onClick={onClose}>
-      <div className="ds-modal tidal-dl-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="ds-modal dl-modal" onClick={(e) => e.stopPropagation()}>
         {isSingle ? (
           <SingleTrackDownload
             track={tracks[0]}

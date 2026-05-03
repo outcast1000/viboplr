@@ -27,7 +27,7 @@ export function EditCollectionModal({ collection, onSave, onClose }: EditCollect
   const [testing, setTesting] = useState(false);
   const [testStatus, setTestStatus] = useState<string | null>(null);
 
-  const canTest = collection.kind === "subsonic" || collection.kind === "tidal";
+  const canTest = collection.kind === "subsonic";
 
   async function handleTest() {
     if (!canTest) return;

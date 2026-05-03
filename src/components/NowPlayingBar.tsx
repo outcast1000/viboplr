@@ -616,18 +616,23 @@ export function NowPlayingBar({
       )}
       {sourceTooltipOpen && sourceAnchor && currentTrack && (() => {
         const path = currentTrack.path ?? "";
-        const isTidal = path.startsWith("tidal://");
         const isSubsonic = path.startsWith("subsonic://");
         const isLocal = path.startsWith("file://") || (!path.includes("://") && path.length > 0);
         const resolverName = resolvedSource?.name;
         const resolverId = resolvedSource?.id;
         const viaYouTube = resolverId === "youtube:youtube-fallback";
 
+        let pluginProtocol: string | null = null;
+        if (!isLocal && !isSubsonic && path.includes("://") && !path.startsWith("external://") && !path.startsWith("http://") && !path.startsWith("https://")) {
+          pluginProtocol = path.substring(0, path.indexOf("://"));
+        }
+
         const sourceLabel = viaYouTube
           ? "YouTube"
           : resolverName && resolverName !== "Library"
             ? resolverName
-            : isTidal ? "TIDAL" : isSubsonic ? "Subsonic" : isLocal ? "Local" : (resolverName || "Unknown");
+            : pluginProtocol ? pluginProtocol.charAt(0).toUpperCase() + pluginProtocol.slice(1)
+            : isSubsonic ? "Subsonic" : isLocal ? "Local" : (resolverName || "Unknown");
 
         const localPath = isLocal ? path.replace(/^file:\/\//, "") : null;
         const folder = localPath ? localPath.replace(/\/[^/]*$/, "") : null;
@@ -636,15 +641,11 @@ export function NowPlayingBar({
         let externalUrl: string | null = null;
         let externalLabel: string | null = null;
         if (viaYouTube && resolvedSource) {
-          // yt-dlp stream URLs are opaque googlevideo; prefer the youtube_url the track carries
           externalUrl = currentTrack.youtube_url || resolvedSource.url;
           externalLabel = "Open on YouTube";
         } else if (currentTrack.youtube_url && !isSubsonic && !isLocal) {
           externalUrl = currentTrack.youtube_url;
           externalLabel = "Open on YouTube";
-        } else if (isTidal) {
-          const m = path.match(/^tidal:\/\/[^/]+\/(.+)$/);
-          if (m) { externalUrl = `https://tidal.com/browse/track/${m[1]}`; externalLabel = "Open on TIDAL"; }
         } else if (isSubsonic && resolvedSource) {
           try {
             const u = new URL(resolvedSource.url);

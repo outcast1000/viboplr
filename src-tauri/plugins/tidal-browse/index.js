@@ -834,14 +834,13 @@ function activate(api) {
       api.ui.requestAction("hide-loading", {});
       if (album) {
         var tracks = (album.tracks || []).map(function (t) {
-          return { tidal_id: t.tidal_id, title: t.title, artist_name: t.artist_name || null };
+          return { title: t.title, artist_name: t.artist_name || null, uri: "tidal://" + t.tidal_id };
         });
-        api.ui.requestAction("tidal-download-album", {
-          albumId: album.tidal_id,
+        api.ui.requestAction("download-album", {
           title: album.title,
           artistName: album.artist_name || null,
-          coverId: album.cover_id || null,
-          trackCount: tracks.length,
+          providerId: "tidal-browse:tidal-download",
+          providerName: "TIDAL",
           tracks: tracks,
         });
       }
@@ -949,14 +948,13 @@ function activate(api) {
     var album = state.albumDetail;
     if (album) {
       var tracks = (album.tracks || []).map(function (t) {
-        return { tidal_id: t.tidal_id, title: t.title, artist_name: t.artist_name || null };
+        return { title: t.title, artist_name: t.artist_name || null, uri: "tidal://" + t.tidal_id };
       });
-      api.ui.requestAction("tidal-download-album", {
-        albumId: album.tidal_id,
+      api.ui.requestAction("download-album", {
         title: album.title,
         artistName: album.artist_name || null,
-        coverId: album.cover_id || null,
-        trackCount: tracks.length,
+        providerId: "tidal-browse:tidal-download",
+        providerName: "TIDAL",
         tracks: tracks,
       });
     }

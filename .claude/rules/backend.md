@@ -15,12 +15,11 @@
 - **models.rs** — Serde-serializable structs shared between commands and DB layer.
 - **lastfm.rs** — Last.fm API client. Token-based auth with MD5 API signature hashing. Read-only methods use unsigned GET, write methods use signed POST. Methods include: auth, scrobble, now_playing, similar artists/tracks, artist/album/track info, top tags, love/unlove, recent tracks. 90-day TTL cache in `lastfm_cache` table.
 - **subsonic.rs** — Subsonic/Navidrome API client. Tries token auth first (`md5(password+salt)`), falls back to plaintext.
-- **tidal.rs** — TIDAL Hi-Fi API client with instance failover and 24-hour TTL caching. BTS manifest decoding (base64 JSON with CDN URLs). Stream URLs fetched at play time to avoid token expiration.
 - **sync.rs** — Subsonic collection synchronization. Paginates `getAlbumList2`, fetches full album data, upserts artists/albums/tracks, stores genres as tags.
 - **downloader.rs** — Track download manager with queue/threading. `DownloadFormat` enum (Flac, Aac, Mp3). Writes ID3/Vorbis tags, embeds cover art.
 - **entity_image.rs** — Filesystem-safe canonical slug generation with diacritic stripping. Image paths use canonical slugs, not DB IDs.
 - **composite_image.rs** — Generates tag composite images from overlapping circles of 1-3 artist images via `image` crate.
-- **image_provider/** — Trait-based `ArtistImageProvider` / `AlbumImageProvider` with fallback chains. Artist: Tidal -> Deezer -> iTunes -> AudioDB -> MusicBrainz. Album: Embedded -> Tidal -> iTunes -> Deezer -> MusicBrainz. Adding a new provider: implement trait, add to chain in `lib.rs`.
+- **image_provider/** — Trait-based `ArtistImageProvider` / `AlbumImageProvider` with fallback chains. Artist/Album: Embedded (album only, Rust-native) -> plugin image providers in priority order (user-configurable via Settings > Providers). Adding a new provider: implement trait, add to chain in `lib.rs`.
 - **plugins.rs** — Plugin management: directory scanning, file reading (with path traversal protection), storage, gallery install.
 - **lyric_provider/** — Trait-based `LyricProvider` fallback chain. Currently: LRCLIB (lrclib.net). Returns synced (LRC) or plain text.
 - **skins.rs** — Skin file I/O, gallery fetching from GitHub, slug generation.
@@ -33,10 +32,11 @@
 All music sources are unified under a Collections abstraction with `kind` discriminator:
 - **`local`** — local folder, scanned for media files
 - **`subsonic`** — Subsonic/Navidrome server, synced via REST API
-- **`tidal`** — TIDAL instance via Hi-Fi API
 - **`seed`** — debug-only fake data
 
-Tracks belong to a collection via `collection_id`. Disabled collections are filtered via `ENABLED_COLLECTION_FILTER`. Track paths use URL schemes: `file://` (local), `subsonic://{collection_id}/{subsonic_id}`, `tidal://{collection_id}/{tidal_id}`.
+Plugins can register additional collection kinds.
+
+Tracks belong to a collection via `collection_id`. Disabled collections are filtered via `ENABLED_COLLECTION_FILTER`. Track paths use URL schemes: `file://` (local), `subsonic://{collection_id}/{subsonic_id}`. Plugins register custom URL schemes (e.g., `{scheme}://{id}`).
 
 **Track type classification:** Use `is_remote()` on `Track` (Rust) or `isLocalTrack()` / `isRemoteTrack()` (TypeScript, from `queueEntry.ts`) to classify tracks. These use an allow-list pattern: only `file://` is local, everything else is remote. Do not add new deny-list checks for specific schemes.
 
@@ -56,7 +56,7 @@ Long-running operations use `thread::spawn` with `AtomicBool` guards for cancell
 `get_track_path` returns different values based on track type:
 - **Local:** filesystem path, frontend wraps with `convertFileSrc()` for `asset://`
 - **Subsonic:** streaming URL `{server}/rest/stream.view?id={id}&{auth_params}`
-- **TIDAL:** blocking HTTP call to Hi-Fi API, base64-decodes BTS manifest, returns CDN URL
+- **Plugin schemes:** resolved via plugin `onResolveStreamByUri` handlers
 
 ## Database
 

@@ -130,7 +130,7 @@ Cross-cutting rules that apply to all code everywhere.
 
 ### Universal Track Actions
 
-- A "track" is a universal concept -- it can appear in the library list, queue/playlist, plugin views (e.g., TIDAL search, Spotify playlists), information sections (e.g., similar tracks, top tracks), or search results
+- A "track" is a universal concept -- it can appear in the library list, queue/playlist, plugin views (e.g., streaming service search, playlist browsing), information sections (e.g., similar tracks, top tracks), or search results
 - Every surface that displays track items must support right-click context menus with plugin-registered actions
 - Each surface defines its own base actions (e.g., queue has remove/reorder, library has delete/folder), but plugin actions appear everywhere
 - Plugins register context menu items via `contributes.contextMenuItems` in their manifest with target kinds (`track`, `album`, `artist`, `multi-track`)
@@ -142,7 +142,7 @@ Cross-cutting rules that apply to all code everywhere.
 
 - When checking if a track already exists in the library, **always use the backend** `invoke("find_track_by_metadata", { title, artistName, albumName })` command
 - Never do JS-side title/artist string comparison for library lookups — the backend uses `strip_diacritics(unicode_lower())` in SQL which correctly handles accented characters (Björk↔Bjork, Jóga↔Joga), Greek, Cyrillic, and other Unicode
-- The backend searches across all collection types (local, subsonic, tidal) and prefers local copies
+- The backend searches across all collection types (local, subsonic, and plugin-registered kinds) and prefers local copies
 - Use this for: duplicate detection before downloads, library existence checks, track matching in modals
 
 ### Fix As You Go

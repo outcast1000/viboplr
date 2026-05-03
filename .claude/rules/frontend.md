@@ -2,7 +2,7 @@
 
 ## Core Files
 
-- **App.tsx** — Single-file React app. All state, views, playback controls, context menu, sidebar. Views toggled via `View` union type: `"all" | "artists" | "albums" | "tags" | "liked" | "history" | "tidal" | "collections"`.
+- **App.tsx** — Single-file React app. All state, views, playback controls, context menu, sidebar. Views toggled via `View` union type: `"all" | "artists" | "albums" | "tags" | "liked" | "history" | "collections"`.
 - **App.css** — All styles. CSS Grid layout, CSS custom properties for skinning, 7-level type scale (`--fs-2xs` through `--fs-2xl`). Shared keyframe animations: `fade-in`, `scale-in`, `glow-pulse`, `slide-text-in`, `equalizer-bar-{1,2,3}`, `waveform-grow-in`.
 - **skinUtils.ts** — Skin validation, CSS generation, customCSS sanitization.
 - **types.ts** — Core TypeScript types (Track, Artist, Album, Tag, etc.).
@@ -19,7 +19,6 @@
 - **NowPlayingBar.tsx** — Footer playback controls. Full mode: seek bar (waveform or segmented), track info with like/dislike, transport controls, queue mode, auto-continue, volume. Mini mode: compact draggable bar with art, title/artist, play controls. Rank badges for top-100 tracks. Scrobble indicator checkmark.
 - **QueuePanel.tsx** — Right sidebar playlist panel. Drag-and-drop reorder, multi-select, duplicate detection banner (add all / add new / cancel with auto-approve countdown). Resizable width. Collapsed mode (40px strip).
 - **HistoryView.tsx** — Tabbed history: All Time, Last 30 Days, Recent (relative timestamps), Artists. Ghost entry reconnection on double-click. Exposes `reload()` via imperative handle.
-- **TidalView.tsx** — TIDAL search/browse (now powered by tidal-browse plugin).
 - **CollectionsView.tsx** — Collection management with kind badges, resync, edit (name, enabled, auto-update, frequency).
 - **PlaylistsView.tsx** — Saved playlists grid/detail.
 - **ArtistDetailContent.tsx** — Circular avatar, like/hate, collapsible sections (Top Songs, About, Albums, Similar Artists), horizontal album scroll. Section toggles persisted as `artistSections`.
@@ -35,9 +34,8 @@
 - **WaveformSeekBar.tsx** — Waveform visualization via Web Audio API (RMS amplitude, 95th percentile normalization, 1/sec buckets capped at 400). Cached as `{app_dir}/waveforms/v2/{track_id}.json`.
 - **LyricsPanel.tsx** — Synced lyrics with timed highlighting and auto-scroll (5s pause on manual scroll), plain lyrics display, edit mode with kind selector, provider badges.
 - **AlbumCardArt.tsx, ArtistCardArt.tsx, TagCardArt.tsx** — Entity card images with lazy loading via IntersectionObserver.
-- **AddServerModal.tsx, AddTidalModal.tsx, EditCollectionModal.tsx** — Collection modals.
+- **AddServerModal.tsx, EditCollectionModal.tsx** — Collection modals.
 - **TrackPropertiesModal.tsx** — Tabbed modal (Info, Tags, Similar, Artist, Album).
-- **UpgradeTrackModal.tsx** — TIDAL track upgrade: search -> download preview -> compare -> confirm/cancel.
 - **FullscreenControls.tsx** — Video fullscreen overlay.
 - **StatusBar.tsx, Icons.tsx, WindowControls.tsx** — Utility components.
 

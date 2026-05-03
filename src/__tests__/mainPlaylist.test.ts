@@ -391,9 +391,9 @@ describe("artist → queue → mixtape → queue roundtrip", () => {
   });
 });
 
-describe("TIDAL album → queue → mixtape → queue roundtrip", () => {
-  it("preserves tidal source and album metadata through the full trip", () => {
-    // Step 1: TIDAL plugin builds context with source and metadata
+describe("plugin album → queue → mixtape → queue roundtrip", () => {
+  it("preserves plugin source and album metadata through the full trip", () => {
+    // Step 1: plugin builds context with source and metadata
     const tidalContext = {
       name: "OK Computer - Radiohead",
       source: "tidal://albums/12345",

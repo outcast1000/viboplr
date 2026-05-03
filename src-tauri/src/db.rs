@@ -1098,7 +1098,7 @@ impl Database {
 
     /// Find a track by metadata (title, artist, album) with diacritic-insensitive matching.
     /// Matching cascade: title+artist+album → title+artist → title only.
-    /// When multiple matches exist, prefers local > subsonic > tidal.
+    /// When multiple matches exist, prefers local > subsonic > other.
     pub fn find_track_by_metadata(
         &self,
         title: &str,
@@ -1107,7 +1107,7 @@ impl Database {
     ) -> SqlResult<Option<Track>> {
         let conn = self.conn.lock().unwrap();
 
-        // Source preference: local files first, then subsonic, then tidal (by path prefix)
+        // Source preference: local files first, then subsonic, then other sources (by path prefix)
         let order_clause = "ORDER BY CASE \
             WHEN co.kind = 'local' THEN 0 \
             WHEN co.kind = 'subsonic' THEN 1 \

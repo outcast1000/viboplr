@@ -242,9 +242,6 @@ pub fn add_collection(
 
             Ok(collection)
         }
-        "tidal" => {
-            Err("TIDAL is configured as an integration in Settings, not as a collection".to_string())
-        }
         "seed" => {
             #[cfg(debug_assertions)]
             {
@@ -1568,17 +1565,6 @@ pub fn test_collection_connection(
             client.ping().map_err(|e| format!("{}", e))?;
             Ok("Connected successfully".to_string())
         }
-        "tidal" => {
-            let url = collection.url.ok_or("Collection has no URL")?;
-            let api_url = format!("{}/", url.trim_end_matches('/'));
-            let resp = reqwest::blocking::get(&api_url)
-                .map_err(|e| format!("HTTP error: {}", e))?;
-            let body = resp.text().map_err(|e| format!("Failed to read response: {}", e))?;
-            let json: serde_json::Value =
-                serde_json::from_str(&body).map_err(|e| format!("JSON parse error: {}", e))?;
-            let version = json["version"].as_str().unwrap_or("unknown");
-            Ok(format!("Connected (API v{})", version))
-        }
         _ => Err(format!("Connection test not supported for '{}' collections", collection.kind)),
     };
 
@@ -2628,18 +2614,18 @@ pub async fn save_track_as_copy(
             return Err("Preview file not found".to_string());
         }
 
-        // Rename: {stem}.upgrade.{ext} -> {stem} (TIDAL).{ext}
+        // Rename: {stem}.upgrade.{ext} -> {stem} (upgraded).{ext}
         let parent = new_file.parent().ok_or("No parent directory")?;
         let filename = new_file.file_name().and_then(|f| f.to_str()).ok_or("Invalid filename")?;
         let final_filename = if let Some(pos) = filename.find(".upgrade.") {
             let stem = &filename[..pos];
             let ext = &filename[pos + ".upgrade.".len()..];
-            format!("{} (TIDAL).{}", stem, ext)
+            format!("{} (upgraded).{}", stem, ext)
         } else {
             let p = std::path::Path::new(filename);
             let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("track");
             let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("flac");
-            format!("{} (TIDAL).{}", stem, ext)
+            format!("{} (upgraded).{}", stem, ext)
         };
         let final_path = parent.join(&final_filename);
 
@@ -4828,9 +4814,9 @@ mod tests {
     }
 
     #[test]
-    fn test_auto_update_not_due_tidal_kind() {
+    fn test_auto_update_not_due_plugin_kind() {
         let mut col = make_collection(true, 60, Some(0), None);
-        col.kind = "tidal".to_string();
+        col.kind = "plugin-example".to_string();
         assert!(!is_collection_due_for_auto_update(&col, 99999));
     }
 
