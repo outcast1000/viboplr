@@ -9,12 +9,18 @@ const MINI_ULTRA_HEIGHT = 24;
 const MINI_EXTRA_ROW_HEIGHT = 54;
 const MINI_EXPANDED_HEIGHT = MINI_COMPACT_HEIGHT + MINI_EXTRA_ROW_HEIGHT;
 const MINI_MIN_WIDTH = 280;
-const MINI_MAX_WIDTH = 550;
-const MINI_INITIAL_WIDTH = 500;
 const FULL_MIN_WIDTH = 300;
 const FULL_MIN_HEIGHT = 400;
 const MINI_HOVER_EXPAND_DELAY = 500;
 const MINI_HOVER_COLLAPSE_DELAY = 300;
+
+export type MiniWidthSize = "small" | "medium" | "large";
+
+const MINI_WIDTHS: Record<MiniWidthSize, number> = {
+  small: 280,
+  medium: 400,
+  large: 550,
+};
 
 type MonitorRect = { x: number; y: number; w: number; h: number };
 
@@ -62,6 +68,10 @@ export type MiniRestingSize = "ultra" | "compact";
 
 export function cycleRestingSize(current: MiniRestingSize): MiniRestingSize {
   return current === "compact" ? "ultra" : "compact";
+}
+
+export function cycleMiniWidth(current: MiniWidthSize): MiniWidthSize {
+  return current === "small" ? "medium" : current === "medium" ? "large" : "small";
 }
 
 interface HoverControllerOptions {
