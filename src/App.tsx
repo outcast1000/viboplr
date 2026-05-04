@@ -224,7 +224,7 @@ function App() {
 
   const queueHook = useQueue(restoredRef, playback.handlePlay, albumImageCache.images);
   const autoContinue = useAutoContinue(restoredRef);
-  const mini = useMiniMode(restoredRef, playback.currentTrack);
+  const mini = useMiniMode(restoredRef);
   const videoLayout = useVideoLayout(restoredRef);
 
   // Plugin system

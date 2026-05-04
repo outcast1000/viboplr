@@ -2,7 +2,6 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { getCurrentWindow, availableMonitors } from "@tauri-apps/api/window";
 import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import { store } from "../store";
-import type { Track } from "../types";
 
 const MINI_COMPACT_HEIGHT = 52;
 const MINI_ULTRA_HEIGHT = 24;
@@ -125,32 +124,7 @@ export function makeHoverController(opts: HoverControllerOptions): HoverControll
   };
 }
 
-function measureMiniFooter(): number {
-  const footer = document.querySelector(".now-playing-mini") as HTMLElement;
-  if (!footer) return MINI_INITIAL_WIDTH;
-
-  // Measure right-side controls (fixed width)
-  const rightEl = footer.querySelector(".mini-right") as HTMLElement;
-  const rightWidth = rightEl ? rightEl.offsetWidth : 0;
-
-  // Measure art (fixed width)
-  const artEl = footer.querySelector(".now-mini-art, .now-mini-art-fallback") as HTMLElement;
-  const artWidth = artEl ? artEl.offsetWidth : 0;
-
-  // Measure natural text width — must check individual spans since the container clips overflow
-  const titleEl = footer.querySelector(".now-title") as HTMLElement;
-  const artistEl = footer.querySelector(".now-artist") as HTMLElement;
-  const textWidth = Math.max(
-    titleEl ? titleEl.scrollWidth : 0,
-    artistEl ? artistEl.scrollWidth : 0,
-  );
-
-  // padding (12px * 2) + gaps (8px info gap + 10px footer gap) + some breathing room
-  const total = artWidth + textWidth + rightWidth + 24 + 8 + 10 + 8;
-  return Math.max(MINI_MIN_WIDTH, Math.min(Math.ceil(total), MINI_MAX_WIDTH));
-}
-
-export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack: Track | null) {
+export function useMiniMode(restoredRef: React.RefObject<boolean>) {
   const [miniMode, setMiniMode] = useState(false);
   const miniModeRef = useRef(false);
   const fullSizeRef = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
@@ -160,6 +134,9 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
   const [miniRestingSize, setMiniRestingSizeState] = useState<MiniRestingSize>("compact");
   const miniRestingSizeRef = useRef<MiniRestingSize>("compact");
   useEffect(() => { miniRestingSizeRef.current = miniRestingSize; }, [miniRestingSize]);
+  const [miniWidthSize, setMiniWidthSizeState] = useState<MiniWidthSize>("medium");
+  const miniWidthSizeRef = useRef<MiniWidthSize>("medium");
+  useEffect(() => { miniWidthSizeRef.current = miniWidthSize; }, [miniWidthSize]);
 
   // Used in Task 3 for expand/collapse paths
   const currentRestingHeight = useCallback(
@@ -265,7 +242,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         store.set("miniMode", true);
         await win.hide();
         await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, restingHeight));
-        await win.setSize(new LogicalSize(MINI_INITIAL_WIDTH, restingHeight));
+        await win.setSize(new LogicalSize(MINI_WIDTHS[miniWidthSizeRef.current], restingHeight));
         const [mx, my] = await Promise.all([
           store.get<number | null>("miniWindowX"),
           store.get<number | null>("miniWindowY"),
@@ -275,7 +252,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
           if (isPositionOnScreen(mx, my, bounds)) {
             await win.setPosition(new LogicalPosition(mx, my));
           } else if (bounds.length > 0) {
-            const clamped = clampToNearestMonitor(mx, my, MINI_INITIAL_WIDTH, restingHeight, bounds);
+            const clamped = clampToNearestMonitor(mx, my, MINI_WIDTHS[miniWidthSizeRef.current], restingHeight, bounds);
             await win.setPosition(new LogicalPosition(clamped.x, clamped.y));
           }
         }
@@ -328,39 +305,6 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
     }
   }, [cancelCollapseTimer, currentRestingHeight]);
 
-  // Auto-resize mini window when track changes or mini mode is entered
-  const miniSettledRef = useRef(false);
-  useEffect(() => {
-    if (!miniMode) { miniSettledRef.current = false; return; }
-    if (!miniSettledRef.current) {
-      // Just entered mini mode — delay measurement to let window resize settle (Windows/WebView2)
-      const timer = setTimeout(async () => {
-        if (!miniModeRef.current) return;
-        const win = getCurrentWindow();
-        const newWidth = measureMiniFooter();
-        const currentHeight = miniExpanded ? MINI_EXPANDED_HEIGHT : currentRestingHeight();
-        await win.setSize(new LogicalSize(newWidth, currentHeight));
-        miniSettledRef.current = true;
-      }, 60);
-      return () => clearTimeout(timer);
-    } else {
-      // Track changed while in mini mode — pin right edge
-      const frame = requestAnimationFrame(async () => {
-        if (!miniModeRef.current) return;
-        const win = getCurrentWindow();
-        const newWidth = measureMiniFooter();
-        const factor = await win.scaleFactor();
-        const size = await win.innerSize();
-        const pos = await win.outerPosition();
-        const rightEdge = pos.x / factor + size.width / factor;
-        const currentHeight = miniExpanded ? MINI_EXPANDED_HEIGHT : currentRestingHeight();
-        await win.setSize(new LogicalSize(newWidth, currentHeight));
-        await win.setPosition(new LogicalPosition(rightEdge - newWidth, pos.y / factor));
-      });
-      return () => cancelAnimationFrame(frame);
-    }
-  }, [miniMode, currentTrack, miniExpanded, miniRestingSize]);
-
   // Save window size and position on resize/move
   useEffect(() => {
     let cancelled = false;
@@ -406,6 +350,10 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
         const saved = await store.get<MiniRestingSize | null>("miniRestingSize");
         if (saved === "ultra" || saved === "compact") {
           setMiniRestingSizeState(saved);
+        }
+        const savedWidth = await store.get<MiniWidthSize | null>("miniWidthSize");
+        if (savedWidth === "small" || savedWidth === "medium" || savedWidth === "large") {
+          setMiniWidthSizeState(savedWidth);
         }
       } catch (err) {
         console.error("Failed to load miniRestingSize:", err);
@@ -455,8 +403,36 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>, currentTrack:
     });
   }, []);
 
+  const setMiniWidthSize = useCallback(async (next: MiniWidthSize) => {
+    setMiniWidthSizeState(next);
+    store.set("miniWidthSize", next).catch((err: unknown) => {
+      console.error("Failed to persist miniWidthSize:", err);
+    });
+    if (!miniModeRef.current) return;
+    try {
+      const win = getCurrentWindow();
+      const factor = await win.scaleFactor();
+      const pos = await win.outerPosition();
+      const newWidth = MINI_WIDTHS[next];
+      const currentHeight = miniExpandedRef.current
+        ? MINI_EXPANDED_HEIGHT
+        : (miniRestingSizeRef.current === "ultra" ? MINI_ULTRA_HEIGHT : MINI_COMPACT_HEIGHT);
+      await win.setSize(new LogicalSize(newWidth, currentHeight));
+      const bounds = await getLogicalMonitorBounds();
+      const clamped = clampToNearestMonitor(
+        pos.x / factor, pos.y / factor, newWidth, currentHeight, bounds,
+      );
+      if (clamped.x !== pos.x / factor || clamped.y !== pos.y / factor) {
+        await win.setPosition(new LogicalPosition(clamped.x, clamped.y));
+      }
+    } catch (err) {
+      console.error("Failed to resize mini window:", err);
+    }
+  }, []);
+
   return {
     miniMode, setMiniMode, miniModeRef, fullSizeRef, toggleMiniMode, miniExpanded,
     cancelCollapseTimer, miniRestingSize, setMiniRestingSize,
+    miniWidthSize, setMiniWidthSize,
   };
 }
