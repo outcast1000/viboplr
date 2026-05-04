@@ -7,6 +7,9 @@ export type ContextMenuTarget =
   | { kind: "artist"; artistId?: number; name: string }
   | { kind: "tag"; tagId: number; name: string }
   | { kind: "multi-track"; trackIds: number[] }
+  | { kind: "multi-album"; albumIds: number[] }
+  | { kind: "multi-artist"; artistIds: number[] }
+  | { kind: "multi-tag"; tagIds: number[] }
   | { kind: "queue-multi"; indices: number[]; trackIds: number[]; firstTrack: { title: string; artistName: string | null; isLocal: boolean } }
   | { kind: "video"; dockSide: DockSide; fitMode: FitMode };
 

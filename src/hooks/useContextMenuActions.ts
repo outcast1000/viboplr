@@ -95,6 +95,21 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     showMenu({ x: e.clientX, y: e.clientY, target: { kind: "tag", tagId: tag.id, name: tag.name } });
   }
 
+  function handleMultiAlbumContextMenu(e: React.MouseEvent, albumIds: number[]) {
+    e.preventDefault();
+    showMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-album", albumIds } });
+  }
+
+  function handleMultiArtistContextMenu(e: React.MouseEvent, artistIds: number[]) {
+    e.preventDefault();
+    showMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-artist", artistIds } });
+  }
+
+  function handleMultiTagContextMenu(e: React.MouseEvent, tagIds: number[]) {
+    e.preventDefault();
+    showMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-tag", tagIds } });
+  }
+
   async function handleContextPlay() {
     const cm = contextMenuRef.current;
     if (!cm) return;
@@ -115,7 +130,37 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } else if (target.kind === "queue-multi") {
       const selected = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
       if (selected.length > 0) queueHook.playTracks(selected, 0);
+    } else if (target.kind === "multi-album") {
+      const all = await fetchMultiEntityTracks(target);
+      if (all.length > 0) queueHook.playTracks(all, 0);
+    } else if (target.kind === "multi-artist") {
+      const all = await fetchMultiEntityTracks(target);
+      if (all.length > 0) queueHook.playTracks(all, 0);
+    } else if (target.kind === "multi-tag") {
+      const all = await fetchMultiEntityTracks(target);
+      if (all.length > 0) queueHook.playTracks(all, 0);
     }
+  }
+
+  async function fetchMultiEntityTracks(target: { kind: "multi-album"; albumIds: number[] } | { kind: "multi-artist"; artistIds: number[] } | { kind: "multi-tag"; tagIds: number[] }): Promise<Track[]> {
+    const results: Track[] = [];
+    if (target.kind === "multi-album") {
+      for (const id of target.albumIds) {
+        const tracks = await invoke<Track[]>("get_tracks", { opts: { albumId: id } });
+        results.push(...tracks);
+      }
+    } else if (target.kind === "multi-artist") {
+      for (const id of target.artistIds) {
+        const tracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: id });
+        results.push(...tracks);
+      }
+    } else if (target.kind === "multi-tag") {
+      for (const id of target.tagIds) {
+        const tracks = await invoke<Track[]>("get_tracks_by_tag", { tagId: id });
+        results.push(...tracks);
+      }
+    }
+    return results;
   }
 
   function handleEnqueue(tracks: Track[]) {
@@ -149,6 +194,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       const idSet = new Set(target.trackIds);
       const selected = library.sortedTracks.filter(t => t.id != null && idSet.has(t.id));
       handleEnqueue(selected);
+    } else if (target.kind === "multi-album" || target.kind === "multi-artist" || target.kind === "multi-tag") {
+      const all = await fetchMultiEntityTracks(target);
+      handleEnqueue(all);
     }
   }
 
@@ -493,6 +541,10 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleAlbumContextMenu,
     handleArtistContextMenu,
     handleTagContextMenu,
+    handleMultiAlbumContextMenu,
+    handleMultiArtistContextMenu,
+    handleMultiTagContextMenu,
+    fetchMultiEntityTracks,
     handleContextPlay,
     handleContextEnqueue,
     handleEnqueue,

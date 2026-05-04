@@ -1041,6 +1041,13 @@ function App() {
           specs.push({ kind: "item", text: item.label, action: () => plugins.dispatchContextMenuAction(item.pluginId, item.id, toPluginTarget(target)) });
         });
       }
+    } else if (target.kind === "multi-album" || target.kind === "multi-artist" || target.kind === "multi-tag") {
+      const count = target.kind === "multi-album" ? target.albumIds.length
+                  : target.kind === "multi-artist" ? target.artistIds.length
+                  : target.tagIds.length;
+      const label = target.kind === "multi-album" ? "albums" : target.kind === "multi-artist" ? "artists" : "tags";
+      specs.push({ kind: "item", text: `Play ${count} ${label}`, action: contextMenuActions.handleContextPlay });
+      specs.push({ kind: "item", text: `Enqueue ${count} ${label}`, action: contextMenuActions.handleContextEnqueue });
     } else {
       const isMulti = target.kind === "multi-track";
       const context = isMulti ? "track" : target.kind;
@@ -2913,11 +2920,21 @@ function App() {
             onTrackContextMenu={contextMenuActions.handleTrackContextMenu}
             onArtistContextMenu={contextMenuActions.handleArtistContextMenu}
             onAlbumContextMenu={contextMenuActions.handleAlbumContextMenu}
+            onMultiAlbumContextMenu={contextMenuActions.handleMultiAlbumContextMenu}
+            onMultiArtistContextMenu={contextMenuActions.handleMultiArtistContextMenu}
+            onMultiTagContextMenu={contextMenuActions.handleMultiTagContextMenu}
             onToggleLike={likeActions.handleToggleLike}
             onToggleDislike={likeActions.handleToggleDislike}
             onToggleArtistLike={likeActions.handleToggleArtistLike}
             onToggleAlbumLike={likeActions.handleToggleAlbumLike}
             onTrackDragStart={contextMenuActions.handleTrackDragStart}
+            onEntityDragStart={async (kind, ids) => {
+              const target = kind === "album" ? { kind: "multi-album" as const, albumIds: ids }
+                           : kind === "artist" ? { kind: "multi-artist" as const, artistIds: ids }
+                           : { kind: "multi-tag" as const, tagIds: ids };
+              const tracks = await contextMenuActions.fetchMultiEntityTracks(target);
+              if (tracks.length > 0) contextMenuActions.handleTrackDragStart(tracks);
+            }}
             onTagClick={library.handleTagClick}
             onTagContextMenu={contextMenuActions.handleTagContextMenu}
             onToggleTagLike={likeActions.handleToggleTagLike}

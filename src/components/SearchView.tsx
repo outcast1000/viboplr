@@ -20,6 +20,35 @@ function isLocalVideo(t: Track): boolean {
   return isLocalTrack(t);
 }
 
+function computeIdSelection(
+  current: Set<number>,
+  clickedIndex: number,
+  ids: number[],
+  lastIndex: number | null,
+  meta: boolean,
+  shift: boolean,
+): Set<number> {
+  if (shift) {
+    const start = lastIndex ?? 0;
+    const lo = Math.min(start, clickedIndex);
+    const hi = Math.max(start, clickedIndex);
+    const range = new Set(ids.slice(lo, hi + 1));
+    if (meta) {
+      const merged = new Set(current);
+      for (const id of range) merged.add(id);
+      return merged;
+    }
+    return range;
+  }
+  if (meta) {
+    const next = new Set(current);
+    if (next.has(ids[clickedIndex])) next.delete(ids[clickedIndex]);
+    else next.add(ids[clickedIndex]);
+    return next;
+  }
+  return new Set([ids[clickedIndex]]);
+}
+
 interface SearchSettings {
   activeTab: SearchTab;
   sortField?: string | null;
@@ -84,11 +113,15 @@ interface SearchViewProps {
   onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedIds: Set<string>) => void;
   onArtistContextMenu: (e: React.MouseEvent, id: number) => void;
   onAlbumContextMenu: (e: React.MouseEvent, id: number) => void;
+  onMultiAlbumContextMenu: (e: React.MouseEvent, albumIds: number[]) => void;
+  onMultiArtistContextMenu: (e: React.MouseEvent, artistIds: number[]) => void;
+  onMultiTagContextMenu: (e: React.MouseEvent, tagIds: number[]) => void;
   onToggleLike: (track: Track) => void;
   onToggleDislike: (track: Track) => void;
   onToggleArtistLike: (id: number) => void;
   onToggleAlbumLike: (id: number) => void;
   onTrackDragStart: (tracks: Track[]) => void;
+  onEntityDragStart: (entityKind: "album" | "artist" | "tag", ids: number[]) => void;
   onTagClick: (id: number) => void;
   onTagContextMenu: (e: React.MouseEvent, tag: Tag) => void;
   onToggleTagLike: (id: number) => void;
@@ -126,11 +159,15 @@ export function SearchView({
   onTrackContextMenu,
   onArtistContextMenu,
   onAlbumContextMenu,
+  onMultiAlbumContextMenu,
+  onMultiArtistContextMenu,
+  onMultiTagContextMenu,
   onToggleLike,
   onToggleDislike,
   onToggleArtistLike,
   onToggleAlbumLike,
   onTrackDragStart,
+  onEntityDragStart,
   onTagClick,
   onTagContextMenu,
   onToggleTagLike,
@@ -169,8 +206,17 @@ export function SearchView({
   tagSortRef.current = { tagSortChain };
 
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
+  const [selectedArtistIds, setSelectedArtistIds] = useState<Set<number>>(new Set());
+  const [selectedAlbumIds, setSelectedAlbumIds] = useState<Set<number>>(new Set());
+  const [selectedTagIds, setSelectedTagIds] = useState<Set<number>>(new Set());
   const lastClickedTrackRef = useRef<number | null>(null);
+  const lastClickedArtistRef = useRef<number | null>(null);
+  const lastClickedAlbumRef = useRef<number | null>(null);
+  const lastClickedTagRef = useRef<number | null>(null);
   const didDragRef = useRef(false);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const [lassoRect, setLassoRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const lassoRef = useRef<{ startX: number; startY: number; scrollTop: number; active: boolean; metaKey: boolean }>({ startX: 0, startY: 0, scrollTop: 0, active: false, metaKey: false });
 
   function getTrackFilterParams() {
     const s = sortRef.current;
@@ -488,6 +534,9 @@ export function SearchView({
     setSelectedTrackIds(new Set());
     lastClickedTrackRef.current = null;
   }, [results.tracks]);
+  useEffect(() => { setSelectedArtistIds(new Set()); lastClickedArtistRef.current = null; }, [results.artists]);
+  useEffect(() => { setSelectedAlbumIds(new Set()); lastClickedAlbumRef.current = null; }, [results.albums]);
+  useEffect(() => { setSelectedTagIds(new Set()); lastClickedTagRef.current = null; }, [results.tags]);
 
   function handleTrackItemClick(e: React.MouseEvent, index: number) {
     if (didDragRef.current) return;
@@ -540,19 +589,122 @@ export function SearchView({
   }
 
   useEffect(() => {
-    if (viewModes.tracks === "basic" || activeTab !== "tracks") return;
+    const currentMode = viewModes[activeTab];
+    if (currentMode === "basic") return;
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
-      if (e.key === "Escape" && selectedTrackIds.size > 0) {
-        setSelectedTrackIds(new Set());
-      } else if (e.key === "a" && (e.metaKey || e.ctrlKey) && results.tracks.length > 0) {
-        e.preventDefault();
-        setSelectedTrackIds(new Set(results.tracks.map(t => t.key)));
+      if (e.key === "Escape") {
+        if (activeTab === "tracks" && selectedTrackIds.size > 0) setSelectedTrackIds(new Set());
+        else if (activeTab === "artists" && selectedArtistIds.size > 0) setSelectedArtistIds(new Set());
+        else if (activeTab === "albums" && selectedAlbumIds.size > 0) setSelectedAlbumIds(new Set());
+        else if (activeTab === "tags" && selectedTagIds.size > 0) setSelectedTagIds(new Set());
+      } else if (e.key === "a" && (e.metaKey || e.ctrlKey)) {
+        if (activeTab === "tracks" && results.tracks.length > 0) { e.preventDefault(); setSelectedTrackIds(new Set(results.tracks.map(t => t.key))); }
+        else if (activeTab === "artists" && results.artists.length > 0) { e.preventDefault(); setSelectedArtistIds(new Set(results.artists.map(a => a.id))); }
+        else if (activeTab === "albums" && results.albums.length > 0) { e.preventDefault(); setSelectedAlbumIds(new Set(results.albums.map(a => a.id))); }
+        else if (activeTab === "tags" && results.tags.length > 0) { e.preventDefault(); setSelectedTagIds(new Set(results.tags.map(t => t.id))); }
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [viewModes.tracks, activeTab, selectedTrackIds, results.tracks]);
+  }, [viewModes, activeTab, selectedTrackIds, selectedArtistIds, selectedAlbumIds, selectedTagIds, results]);
+
+  function computeLassoHits(rect: { x: number; y: number; w: number; h: number }): Set<number> {
+    const container = resultsRef.current;
+    if (!container) return new Set();
+    const mode = viewModes[activeTab];
+    const itemSelector = mode === "list" ? ".entity-list-item" : mode === "basic" ? ".entity-table-row" : ".album-card, .artist-card, .tag-card";
+    const items = container.querySelectorAll<HTMLElement>(itemSelector);
+    const containerRect = container.getBoundingClientRect();
+    const scrollTop = container.scrollTop;
+    const hits = new Set<number>();
+    items.forEach((el, idx) => {
+      const elRect = el.getBoundingClientRect();
+      const elTop = elRect.top - containerRect.top + scrollTop;
+      const elBottom = elTop + elRect.height;
+      const elLeft = elRect.left - containerRect.left;
+      const elRight = elLeft + elRect.width;
+      if (rect.x + rect.w > elLeft && rect.x < elRight && rect.y + rect.h > elTop && rect.y < elBottom) {
+        hits.add(idx);
+      }
+    });
+    return hits;
+  }
+
+  function handleLassoMouseDown(e: React.MouseEvent) {
+    if (e.button !== 0) return;
+    if (viewModes[activeTab] === "basic" && activeTab === "tracks") return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.entity-list-item, .entity-table-row, .album-card, .artist-card, .tag-card, .sort-bar-wrapper, .ds-tabs, input, button')) return;
+    const container = resultsRef.current;
+    if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+    const startX = e.clientX - containerRect.left;
+    const startY = e.clientY - containerRect.top + container.scrollTop;
+    e.preventDefault();
+    lassoRef.current = { startX, startY, scrollTop: container.scrollTop, active: false, metaKey: e.metaKey || e.ctrlKey };
+    const tab = activeTab;
+
+    function applyLassoSelection(hits: Set<number>, meta: boolean) {
+      if (tab === "tracks") {
+        const sel = new Set<string>();
+        for (const idx of hits) if (idx < results.tracks.length) sel.add(results.tracks[idx].key);
+        if (meta) { const merged = new Set(selectedTrackIds); for (const k of sel) merged.add(k); setSelectedTrackIds(merged); }
+        else setSelectedTrackIds(sel);
+      } else if (tab === "artists") {
+        const sel = new Set<number>();
+        for (const idx of hits) if (idx < results.artists.length) sel.add(results.artists[idx].id);
+        if (meta) { const merged = new Set(selectedArtistIds); for (const k of sel) merged.add(k); setSelectedArtistIds(merged); }
+        else setSelectedArtistIds(sel);
+      } else if (tab === "albums") {
+        const sel = new Set<number>();
+        for (const idx of hits) if (idx < results.albums.length) sel.add(results.albums[idx].id);
+        if (meta) { const merged = new Set(selectedAlbumIds); for (const k of sel) merged.add(k); setSelectedAlbumIds(merged); }
+        else setSelectedAlbumIds(sel);
+      } else if (tab === "tags") {
+        const sel = new Set<number>();
+        for (const idx of hits) if (idx < results.tags.length) sel.add(results.tags[idx].id);
+        if (meta) { const merged = new Set(selectedTagIds); for (const k of sel) merged.add(k); setSelectedTagIds(merged); }
+        else setSelectedTagIds(sel);
+      }
+    }
+
+    function clearTabSelection() {
+      if (tab === "tracks") setSelectedTrackIds(new Set());
+      else if (tab === "artists") setSelectedArtistIds(new Set());
+      else if (tab === "albums") setSelectedAlbumIds(new Set());
+      else if (tab === "tags") setSelectedTagIds(new Set());
+    }
+
+    function onMouseMove(ev: MouseEvent) {
+      const curX = ev.clientX - containerRect.left;
+      const curY = ev.clientY - containerRect.top + container!.scrollTop;
+      const dx = curX - lassoRef.current.startX;
+      const dy = curY - lassoRef.current.startY;
+      if (!lassoRef.current.active && Math.abs(dx) + Math.abs(dy) < 5) return;
+      lassoRef.current.active = true;
+      const x = Math.min(lassoRef.current.startX, curX);
+      const y = Math.min(lassoRef.current.startY, curY);
+      const w = Math.abs(dx);
+      const h = Math.abs(dy);
+      const rect = { x, y, w, h };
+      setLassoRect(rect);
+      applyLassoSelection(computeLassoHits(rect), lassoRef.current.metaKey);
+    }
+
+    function onMouseUp() {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      if (!lassoRef.current.active) {
+        if (!lassoRef.current.metaKey) clearTabSelection();
+      }
+      lassoRef.current.active = false;
+      setLassoRect(null);
+    }
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
 
   const tabs: { id: SearchTab; label: string; count: number }[] = [
     { id: "tracks", label: "Tracks", count: counts.tracks },
@@ -604,7 +756,10 @@ export function SearchView({
         </div>
       )}
 
-      <div className="search-view-results">
+      <div className="search-view-results" ref={resultsRef} onMouseDown={handleLassoMouseDown}>
+        {lassoRect && (
+          <div className="lasso-rect" style={{ left: lassoRect.x, top: lassoRect.y, width: lassoRect.w, height: lassoRect.h }} />
+        )}
         {!searched && (
           <div className="search-view-empty">
             <svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4 }}>
@@ -803,6 +958,7 @@ export function SearchView({
             onAlbumClick={onAlbumClick}
             onToggleLike={onToggleAlbumLike}
             onContextMenu={onAlbumContextMenu}
+            onMultiContextMenu={onMultiAlbumContextMenu}
             onFetchImage={onFetchAlbumImage}
             onPlayAlbum={onPlayAlbum}
             hasMore={hasMore.albums}
@@ -811,6 +967,10 @@ export function SearchView({
             onSort={(field: string) => handleAlbumSortClick(field)}
             sortField={albumSortChain[0]?.field ?? null}
             sortIndicator={(field: string) => { const d = chainDir(albumSortChain, field); return d ? (d === "asc" ? " ▲" : " ▼") : ""; }}
+            selectedIds={selectedAlbumIds}
+            onSelectionChange={setSelectedAlbumIds}
+            lastClickedRef={lastClickedAlbumRef}
+            onDragStart={(ids) => onEntityDragStart("album", ids)}
           />
         )}
 
@@ -841,6 +1001,7 @@ export function SearchView({
             onArtistClick={onArtistClick}
             onToggleLike={onToggleArtistLike}
             onContextMenu={onArtistContextMenu}
+            onMultiContextMenu={onMultiArtistContextMenu}
             onFetchImage={onFetchArtistImage}
             onPlayArtist={onPlayArtist}
             hasMore={hasMore.artists}
@@ -849,6 +1010,10 @@ export function SearchView({
             onSort={(field: string) => handleArtistSortClick(field)}
             sortField={artistSortChain[0]?.field ?? null}
             sortIndicator={(field: string) => { const d = chainDir(artistSortChain, field); return d ? (d === "asc" ? " ▲" : " ▼") : ""; }}
+            selectedIds={selectedArtistIds}
+            onSelectionChange={setSelectedArtistIds}
+            lastClickedRef={lastClickedArtistRef}
+            onDragStart={(ids) => onEntityDragStart("artist", ids)}
           />
         )}
 
@@ -879,6 +1044,7 @@ export function SearchView({
             onTagClick={onTagClick}
             onToggleLike={onToggleTagLike}
             onContextMenu={onTagContextMenu}
+            onMultiContextMenu={onMultiTagContextMenu}
             onFetchImage={onFetchTagImage}
             onPlayTag={onPlayTag}
             hasMore={hasMore.tags}
@@ -887,6 +1053,10 @@ export function SearchView({
             onSort={(field: string) => handleTagSortClick(field)}
             sortField={tagSortChain[0]?.field ?? null}
             sortIndicator={(field: string) => { const d = chainDir(tagSortChain, field); return d ? (d === "asc" ? " ▲" : " ▼") : ""; }}
+            selectedIds={selectedTagIds}
+            onSelectionChange={setSelectedTagIds}
+            lastClickedRef={lastClickedTagRef}
+            onDragStart={(ids) => onEntityDragStart("tag", ids)}
           />
         )}
       </div>
@@ -896,8 +1066,8 @@ export function SearchView({
 
 function SearchTagResults({
   tags, viewMode, tagImages, onTagClick, onToggleLike,
-  onContextMenu, onFetchImage, onPlayTag, hasMore, loadingMore, onLoadMore,
-  onSort, sortField, sortIndicator,
+  onContextMenu, onMultiContextMenu, onFetchImage, onPlayTag, hasMore, loadingMore, onLoadMore,
+  onSort, sortField, sortIndicator, selectedIds, onSelectionChange, lastClickedRef, onDragStart,
 }: {
   tags: Tag[];
   viewMode: ViewMode;
@@ -905,6 +1075,7 @@ function SearchTagResults({
   onTagClick: (id: number) => void;
   onToggleLike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, tag: Tag) => void;
+  onMultiContextMenu: (e: React.MouseEvent, tagIds: number[]) => void;
   onFetchImage: (tag: { id: number }) => void;
   onPlayTag: (tagId: number) => void;
   hasMore: boolean;
@@ -913,7 +1084,41 @@ function SearchTagResults({
   onSort: (field: string) => void;
   sortField: string | null;
   sortIndicator: (field: string) => string;
+  selectedIds: Set<number>;
+  onSelectionChange: (ids: Set<number>) => void;
+  lastClickedRef: React.MutableRefObject<number | null>;
+  onDragStart: (ids: number[]) => void;
 }) {
+  const ids = tags.map(t => t.id);
+  function handleClick(e: React.MouseEvent, index: number) {
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-play-btn')) return;
+    if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      onSelectionChange(new Set());
+      onTagClick(tags[index].id);
+      return;
+    }
+    const sel = computeIdSelection(selectedIds, index, ids, lastClickedRef.current, e.metaKey || e.ctrlKey, e.shiftKey);
+    onSelectionChange(sel);
+    lastClickedRef.current = index;
+  }
+  function handleMouseDown(e: React.MouseEvent, id: number) {
+    if (e.button !== 0 || !selectedIds.has(id) || selectedIds.size < 2) return;
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn')) return;
+    const startX = e.clientX, startY = e.clientY;
+    let dragging = false;
+    function onMove(ev: MouseEvent) { if (!dragging && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) >= 5) { dragging = true; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); onDragStart([...selectedIds]); } }
+    function onUp() { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+  function handleCtxMenu(e: React.MouseEvent, tag: Tag) {
+    e.preventDefault();
+    if (selectedIds.size > 1 && selectedIds.has(tag.id)) {
+      onMultiContextMenu(e, [...selectedIds]);
+    } else {
+      onContextMenu(e, tag);
+    }
+  }
   return (
     <>
       {viewMode === "basic" && (
@@ -923,8 +1128,8 @@ function SearchTagResults({
             <span className={`entity-table-name sortable${sortField === "name" ? " sorted" : ""}`} onClick={() => onSort("name")}>Name{sortIndicator("name")}</span>
             <span className={`entity-table-count sortable${sortField === "tracks" ? " sorted" : ""}`} onClick={() => onSort("tracks")}>Tracks{sortIndicator("tracks")}</span>
           </div>
-          {tags.map(t => (
-            <div key={t.id} className="entity-table-row" onClick={() => onTagClick(t.id)} onContextMenu={e => { e.preventDefault(); onContextMenu(e, t); }}>
+          {tags.map((t, i) => (
+            <div key={t.id} className={`entity-table-row${selectedIds.has(t.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, t.id)} onContextMenu={e => handleCtxMenu(e, t)}>
               <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="inline" size={12} />
               <span className="entity-table-name">{t.name}</span>
               <span className="entity-table-count">{t.track_count}</span>
@@ -936,8 +1141,8 @@ function SearchTagResults({
 
       {viewMode === "list" && (
         <div className="entity-list">
-          {tags.map(t => (
-            <div key={t.id} className="entity-list-item" onClick={() => onTagClick(t.id)} onContextMenu={e => { e.preventDefault(); onContextMenu(e, t); }}>
+          {tags.map((t, i) => (
+            <div key={t.id} className={`entity-list-item${selectedIds.has(t.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, t.id)} onContextMenu={e => handleCtxMenu(e, t)}>
               <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="inline" size={12} />
               <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={onFetchImage} className="entity-list-img" />
               <div className="entity-list-info">
@@ -953,8 +1158,8 @@ function SearchTagResults({
       {viewMode === "tiles" && (
         <div className="tiles-scroll">
           <div className="album-grid">
-            {tags.map(t => (
-              <div key={t.id} className="tag-card" onClick={() => onTagClick(t.id)} onContextMenu={e => { e.preventDefault(); onContextMenu(e, t); }}>
+            {tags.map((t, i) => (
+              <div key={t.id} className={`tag-card${selectedIds.has(t.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, t.id)} onContextMenu={e => handleCtxMenu(e, t)}>
                 <div className="album-card-art-wrapper">
                   <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={onFetchImage} />
                   <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="overlay" size={12} />
@@ -980,8 +1185,8 @@ function SearchTagResults({
 
 function SearchAlbumResults({
   albums, viewMode, albumImages, onAlbumClick, onToggleLike,
-  onContextMenu, onFetchImage, onPlayAlbum, hasMore, loadingMore, onLoadMore,
-  onSort, sortField, sortIndicator,
+  onContextMenu, onMultiContextMenu, onFetchImage, onPlayAlbum, hasMore, loadingMore, onLoadMore,
+  onSort, sortField, sortIndicator, selectedIds, onSelectionChange, lastClickedRef, onDragStart,
 }: {
   albums: Album[];
   viewMode: ViewMode;
@@ -989,6 +1194,7 @@ function SearchAlbumResults({
   onAlbumClick: (id: number, artistId?: number | null) => void;
   onToggleLike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, id: number) => void;
+  onMultiContextMenu: (e: React.MouseEvent, albumIds: number[]) => void;
   onFetchImage: (album: Album) => void;
   onPlayAlbum: (albumId: number) => void;
   hasMore: boolean;
@@ -997,7 +1203,42 @@ function SearchAlbumResults({
   onSort: (field: string) => void;
   sortField: string | null;
   sortIndicator: (field: string) => string;
+  selectedIds: Set<number>;
+  onSelectionChange: (ids: Set<number>) => void;
+  lastClickedRef: React.MutableRefObject<number | null>;
+  onDragStart: (ids: number[]) => void;
 }) {
+  const ids = albums.map(a => a.id);
+  function handleClick(e: React.MouseEvent, index: number) {
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn')) return;
+    if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      onSelectionChange(new Set());
+      const a = albums[index];
+      onAlbumClick(a.id, a.artist_id);
+      return;
+    }
+    const sel = computeIdSelection(selectedIds, index, ids, lastClickedRef.current, e.metaKey || e.ctrlKey, e.shiftKey);
+    onSelectionChange(sel);
+    lastClickedRef.current = index;
+  }
+  function handleMouseDown(e: React.MouseEvent, id: number) {
+    if (e.button !== 0 || !selectedIds.has(id) || selectedIds.size < 2) return;
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn')) return;
+    const startX = e.clientX, startY = e.clientY;
+    let dragging = false;
+    function onMove(ev: MouseEvent) { if (!dragging && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) >= 5) { dragging = true; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); onDragStart([...selectedIds]); } }
+    function onUp() { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+  function handleCtxMenu(e: React.MouseEvent, album: Album) {
+    e.preventDefault();
+    if (selectedIds.size > 1 && selectedIds.has(album.id)) {
+      onMultiContextMenu(e, [...selectedIds]);
+    } else {
+      onContextMenu(e, album.id);
+    }
+  }
   return (
     <>
       {viewMode === "basic" && (
@@ -1009,8 +1250,8 @@ function SearchAlbumResults({
             <span className={`entity-table-year sortable${sortField === "year" ? " sorted" : ""}`} onClick={() => onSort("year")}>Year{sortIndicator("year")}</span>
             <span className={`entity-table-count sortable${sortField === "tracks" ? " sorted" : ""}`} onClick={() => onSort("tracks")}>Tracks{sortIndicator("tracks")}</span>
           </div>
-          {albums.map(a => (
-            <div key={a.id} className="entity-table-row" onClick={() => onAlbumClick(a.id, a.artist_id)} onContextMenu={e => onContextMenu(e, a.id)}>
+          {albums.map((a, i) => (
+            <div key={a.id} className={`entity-table-row${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a)}>
               <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="inline" size={12} />
               <span className="entity-table-name">{a.title}</span>
               <span className="entity-table-secondary">{a.artist_name ?? ""}</span>
@@ -1024,8 +1265,8 @@ function SearchAlbumResults({
 
       {viewMode === "list" && (
         <div className="entity-list">
-          {albums.map(a => (
-            <div key={a.id} className="entity-list-item" onClick={() => onAlbumClick(a.id, a.artist_id)} onContextMenu={e => onContextMenu(e, a.id)}>
+          {albums.map((a, i) => (
+            <div key={a.id} className={`entity-list-item${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a)}>
               <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="inline" size={12} />
               <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={onFetchImage} />
               <div className="entity-list-info">
@@ -1044,12 +1285,12 @@ function SearchAlbumResults({
       {viewMode === "tiles" && (
         <div className="tiles-scroll">
           <div className="album-grid">
-            {albums.map(a => (
-              <div key={a.id} className="album-card" onClick={() => onAlbumClick(a.id, a.artist_id)} onContextMenu={e => onContextMenu(e, a.id)}>
+            {albums.map((a, i) => (
+              <div key={a.id} className={`album-card${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a)}>
                 <div className="album-card-art-wrapper">
                   <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={onFetchImage} />
                   <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="overlay" size={12} />
-                  <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); onContextMenu(e, a.id); }} title="More options">&#x22EF;</button>
+                  <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); handleCtxMenu(e, a); }} title="More options">&#x22EF;</button>
                   <button className="album-card-play-btn" onClick={e => { e.stopPropagation(); onPlayAlbum(a.id); }} title="Play">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                   </button>
@@ -1074,8 +1315,8 @@ function SearchAlbumResults({
 
 function SearchArtistResults({
   artists, viewMode, artistImages, onArtistClick, onToggleLike,
-  onContextMenu, onFetchImage, onPlayArtist, hasMore, loadingMore, onLoadMore,
-  onSort, sortField, sortIndicator,
+  onContextMenu, onMultiContextMenu, onFetchImage, onPlayArtist, hasMore, loadingMore, onLoadMore,
+  onSort, sortField, sortIndicator, selectedIds, onSelectionChange, lastClickedRef, onDragStart,
 }: {
   artists: Artist[];
   viewMode: ViewMode;
@@ -1083,6 +1324,7 @@ function SearchArtistResults({
   onArtistClick: (id: number) => void;
   onToggleLike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, id: number) => void;
+  onMultiContextMenu: (e: React.MouseEvent, artistIds: number[]) => void;
   onFetchImage: (artist: Artist) => void;
   onPlayArtist: (artistId: number) => void;
   hasMore: boolean;
@@ -1091,7 +1333,41 @@ function SearchArtistResults({
   onSort: (field: string) => void;
   sortField: string | null;
   sortIndicator: (field: string) => string;
+  selectedIds: Set<number>;
+  onSelectionChange: (ids: Set<number>) => void;
+  lastClickedRef: React.MutableRefObject<number | null>;
+  onDragStart: (ids: number[]) => void;
 }) {
+  const ids = artists.map(a => a.id);
+  function handleClick(e: React.MouseEvent, index: number) {
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn')) return;
+    if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      onSelectionChange(new Set());
+      onArtistClick(artists[index].id);
+      return;
+    }
+    const sel = computeIdSelection(selectedIds, index, ids, lastClickedRef.current, e.metaKey || e.ctrlKey, e.shiftKey);
+    onSelectionChange(sel);
+    lastClickedRef.current = index;
+  }
+  function handleMouseDown(e: React.MouseEvent, id: number) {
+    if (e.button !== 0 || !selectedIds.has(id) || selectedIds.size < 2) return;
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn')) return;
+    const startX = e.clientX, startY = e.clientY;
+    let dragging = false;
+    function onMove(ev: MouseEvent) { if (!dragging && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) >= 5) { dragging = true; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); onDragStart([...selectedIds]); } }
+    function onUp() { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+  function handleCtxMenu(e: React.MouseEvent, artistId: number) {
+    e.preventDefault();
+    if (selectedIds.size > 1 && selectedIds.has(artistId)) {
+      onMultiContextMenu(e, [...selectedIds]);
+    } else {
+      onContextMenu(e, artistId);
+    }
+  }
   return (
     <>
       {viewMode === "basic" && (
@@ -1101,8 +1377,8 @@ function SearchArtistResults({
             <span className={`entity-table-name sortable${sortField === "name" ? " sorted" : ""}`} onClick={() => onSort("name")}>Name{sortIndicator("name")}</span>
             <span className={`entity-table-count sortable${sortField === "tracks" ? " sorted" : ""}`} onClick={() => onSort("tracks")}>Tracks{sortIndicator("tracks")}</span>
           </div>
-          {artists.map(a => (
-            <div key={a.id} className="entity-table-row" onClick={() => onArtistClick(a.id)} onContextMenu={e => onContextMenu(e, a.id)}>
+          {artists.map((a, i) => (
+            <div key={a.id} className={`entity-table-row${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a.id)}>
               <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="inline" size={12} />
               <span className="entity-table-name">{a.name}</span>
               <span className="entity-table-count">{a.track_count}</span>
@@ -1114,8 +1390,8 @@ function SearchArtistResults({
 
       {viewMode === "list" && (
         <div className="entity-list">
-          {artists.map(a => (
-            <div key={a.id} className="entity-list-item" onClick={() => onArtistClick(a.id)} onContextMenu={e => onContextMenu(e, a.id)}>
+          {artists.map((a, i) => (
+            <div key={a.id} className={`entity-list-item${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a.id)}>
               <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="inline" size={12} />
               <ArtistCardArt artist={a} imagePath={artistImages[a.id]} onVisible={onFetchImage} className="entity-list-img circular" />
               <div className="entity-list-info">
@@ -1131,12 +1407,12 @@ function SearchArtistResults({
       {viewMode === "tiles" && (
         <div className="tiles-scroll">
           <div className="album-grid">
-            {artists.map(a => (
-              <div key={a.id} className="artist-card" onClick={() => onArtistClick(a.id)} onContextMenu={e => onContextMenu(e, a.id)}>
+            {artists.map((a, i) => (
+              <div key={a.id} className={`artist-card${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a.id)}>
                 <div className="album-card-art-wrapper">
                   <ArtistCardArt artist={a} imagePath={artistImages[a.id]} onVisible={onFetchImage} />
                   <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="overlay" size={12} />
-                  <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); onContextMenu(e, a.id); }} title="More options">&#x22EF;</button>
+                  <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); handleCtxMenu(e, a.id); }} title="More options">&#x22EF;</button>
                   <button className="album-card-play-btn" onClick={e => { e.stopPropagation(); onPlayArtist(a.id); }} title="Play">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                   </button>
