@@ -4,9 +4,29 @@ use std::process::Command;
 const FRAME_COUNT: usize = 4;
 const FRAME_POSITIONS: [f64; 4] = [0.10, 0.30, 0.60, 0.90];
 
+#[cfg(target_os = "macos")]
+fn augmented_path() -> std::ffi::OsString {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    let extra_dirs: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"];
+    let mut new_path = Vec::new();
+    new_path.extend_from_slice(current.as_encoded_bytes());
+    for dir in extra_dirs {
+        if !current.to_string_lossy().contains(dir) {
+            new_path.push(b':');
+            new_path.extend_from_slice(dir.as_bytes());
+        }
+    }
+    OsString::from_vec(new_path)
+}
+
 #[allow(unused_mut)]
 fn ffmpeg_command() -> Command {
     let mut cmd = Command::new("ffmpeg");
+    #[cfg(target_os = "macos")]
+    cmd.env("PATH", augmented_path());
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;

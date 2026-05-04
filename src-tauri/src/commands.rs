@@ -1772,6 +1772,35 @@ pub fn search_youtube(title: String, artist_name: Option<String>, duration_secs:
 
 const ALLOWED_PROGRAMS: &[&str] = &["yt-dlp", "ffmpeg"];
 
+#[cfg(target_os = "macos")]
+pub fn augmented_path() -> std::ffi::OsString {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    let extra_dirs: &[&str] = &[
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/opt/local/bin",
+    ];
+    let mut new_path = Vec::new();
+    new_path.extend_from_slice(current.as_encoded_bytes());
+    for dir in extra_dirs {
+        if !current.to_string_lossy().contains(dir) {
+            new_path.push(b':');
+            new_path.extend_from_slice(dir.as_bytes());
+        }
+    }
+    OsString::from_vec(new_path)
+}
+
+fn command_with_path(program: &str) -> std::process::Command {
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(target_os = "macos")]
+    cmd.env("PATH", augmented_path());
+    cmd
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecResult {
@@ -1793,7 +1822,7 @@ pub async fn plugin_exec(
 
     let app_dir = state.app_dir.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let mut cmd = std::process::Command::new(&program);
+        let mut cmd = command_with_path(&program);
         cmd.args(&args);
         if let Some(dir) = cwd {
             cmd.current_dir(dir);
@@ -1822,7 +1851,7 @@ pub async fn plugin_exec(
 #[tauri::command]
 pub async fn yt_dlp_check() -> Option<String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let mut cmd = std::process::Command::new("yt-dlp");
+        let mut cmd = command_with_path("yt-dlp");
         cmd.arg("--version");
         #[cfg(target_os = "windows")]
         {
@@ -1847,7 +1876,7 @@ pub async fn yt_dlp_check() -> Option<String> {
 #[tauri::command]
 pub async fn ffmpeg_check() -> Option<String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let mut cmd = std::process::Command::new("ffmpeg");
+        let mut cmd = command_with_path("ffmpeg");
         cmd.arg("-version");
         #[cfg(target_os = "windows")]
         {
@@ -1897,7 +1926,7 @@ pub async fn yt_dlp_stream_audio(
         log::info!("yt-dlp downloading {} -> {}", youtube_url, dest.display());
 
         let dest_str = dest.to_string_lossy().to_string();
-        let mut cmd = std::process::Command::new("yt-dlp");
+        let mut cmd = command_with_path("yt-dlp");
         cmd.args(["-f", "bestaudio", "--no-warnings", "-o", &dest_str, &youtube_url]);
         #[cfg(target_os = "windows")]
         {
@@ -1941,7 +1970,7 @@ pub async fn ffmpeg_convert_audio(
         };
 
         let has_ffmpeg = {
-            let mut cmd = std::process::Command::new("ffmpeg");
+            let mut cmd = command_with_path("ffmpeg");
             cmd.arg("-version");
             #[cfg(target_os = "windows")]
             {
@@ -1973,7 +2002,7 @@ pub async fn ffmpeg_convert_audio(
             _ => "copy",
         };
 
-        let mut cmd = std::process::Command::new("ffmpeg");
+        let mut cmd = command_with_path("ffmpeg");
         cmd.args(["-i", &source_path, "-vn", "-c:a", codec, "-y", &dest_str]);
         #[cfg(target_os = "windows")]
         {

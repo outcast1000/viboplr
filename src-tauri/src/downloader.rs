@@ -506,6 +506,8 @@ fn process_webm_download(
         log::info!("Converting WebM to m4a: {} -> {}", temp_str, m4a_temp_str);
 
         let mut cmd = std::process::Command::new("ffmpeg");
+        #[cfg(target_os = "macos")]
+        cmd.env("PATH", crate::commands::augmented_path());
         cmd.args(["-i", &temp_str, "-vn", "-c:a", "aac", "-b:a", "192k", "-y", &m4a_temp_str]);
         #[cfg(target_os = "windows")]
         {
