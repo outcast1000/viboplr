@@ -31,7 +31,7 @@ import { usePasteImage } from "./hooks/usePasteImage";
 import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistory";
 import { useSessionLog } from "./hooks/useSessionLog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
-import { useMiniMode, cycleRestingSize } from "./hooks/useMiniMode";
+import { useMiniMode, cycleRestingSize, cycleMiniWidth } from "./hooks/useMiniMode";
 import { useVideoLayout } from "./hooks/useVideoLayout";
 import type { VideoLayoutState } from "./hooks/useVideoLayout";
 import { useWaveform } from "./hooks/useWaveform";
@@ -3638,8 +3638,10 @@ function App() {
         miniMode={mini.miniMode}
         miniExpanded={mini.miniExpanded}
         miniRestingSize={mini.miniRestingSize}
+        miniWidthSize={mini.miniWidthSize}
         onCancelCollapseTimer={mini.cancelCollapseTimer}
         onCycleRestingSize={() => mini.setMiniRestingSize(cycleRestingSize(mini.miniRestingSize))}
+        onCycleMiniWidth={() => mini.setMiniWidthSize(cycleMiniWidth(mini.miniWidthSize))}
         onToggleMiniMode={mini.toggleMiniMode}
         onClose={() => exit(0)}
         onPause={playback.handlePause}
@@ -3690,6 +3692,13 @@ function App() {
               specs.push({ kind: "item", text: isLiked ? "Unlike" : "Like", action: () => likeActions.handleToggleLike(t) });
             }
           }
+          const widthItems: MenuItemSpec[] = (["small", "medium", "large"] as const).map(size => ({
+            kind: "check" as const,
+            text: size === "small" ? "Small" : size === "medium" ? "Medium" : "Large",
+            checked: mini.miniWidthSize === size,
+            action: () => mini.setMiniWidthSize(size),
+          }));
+          specs.push({ kind: "submenu", text: "Width", items: widthItems });
           specs.push({ kind: "separator" });
           specs.push({ kind: "item", text: "Show Main Window", action: mini.toggleMiniMode });
           specs.push({ kind: "item", text: "Close App", action: () => exit(0) });

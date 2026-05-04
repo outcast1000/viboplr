@@ -4,7 +4,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
-import type { MiniRestingSize } from "../hooks/useMiniMode";
+import type { MiniRestingSize, MiniWidthSize } from "../hooks/useMiniMode";
 import { formatDuration } from "../utils";
 import { isRemoteScheme } from "../queueEntry";
 import { AutoContinuePopover } from "./AutoContinuePopover";
@@ -81,8 +81,10 @@ interface NowPlayingBarProps {
   miniMode: boolean;
   miniExpanded: boolean;
   miniRestingSize: MiniRestingSize;
+  miniWidthSize: MiniWidthSize;
   onCancelCollapseTimer: () => void;
   onCycleRestingSize: () => void;
+  onCycleMiniWidth: () => void;
   onToggleMiniMode: () => void;
   onClose: () => void;
   onPause: () => void;
@@ -124,7 +126,7 @@ export function NowPlayingBar({
   trackRank, artistRank,
   volume, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
-  imagePath, miniMode, miniExpanded, miniRestingSize, onCancelCollapseTimer, onCycleRestingSize, onToggleMiniMode, onClose,
+  imagePath, miniMode, miniExpanded, miniRestingSize, miniWidthSize, onCancelCollapseTimer, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
@@ -356,6 +358,13 @@ export function NowPlayingBar({
               <div className="mini-extra-right">
                 <button className="g-btn g-btn-sm" onClick={onPrevious} title="Previous">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                </button>
+                <button
+                  className="g-btn g-btn-sm"
+                  onClick={onCycleMiniWidth}
+                  title={`Width: ${miniWidthSize === "small" ? "Small" : miniWidthSize === "medium" ? "Medium" : "Large"}`}
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8l4 4-4 4"/><path d="M6 8l-4 4 4 4"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
                 </button>
                 <button
                   className="g-btn g-btn-sm"
