@@ -10,7 +10,7 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, View, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
+import type { Track, Tag, View, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
 import { isVideoTrack, parseSubsonicUrl } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, isLocalTrack, type QueueEntry } from "./queueEntry";
@@ -2628,6 +2628,7 @@ function App() {
                 onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
                 onNavigateToArtistByName={library.navigateToArtistByName}
                 onNavigateToAlbumByName={library.navigateToAlbumByName}
+                onTagsChanged={() => invoke<Tag[]>("get_tags").then(library.setTags).catch(console.error)}
               />
             );
           })()}
@@ -2692,6 +2693,7 @@ function App() {
                 onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
                 onNavigateToArtistByName={library.navigateToArtistByName}
                 onNavigateToAlbumByName={library.navigateToAlbumByName}
+                onTagsChanged={() => invoke<Tag[]>("get_tags").then(library.setTags).catch(console.error)}
               />
             );
           })()}

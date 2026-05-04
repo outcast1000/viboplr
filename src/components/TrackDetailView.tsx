@@ -97,6 +97,7 @@ interface TrackDetailViewProps {
   onEntityContextMenu?: (e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;
   onNavigateToArtistByName?: (name: string) => void;
   onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
+  onTagsChanged?: () => void;
 }
 
 export function TrackDetailView({
@@ -111,6 +112,7 @@ export function TrackDetailView({
   onEntityContextMenu,
   onNavigateToArtistByName,
   onNavigateToAlbumByName,
+  onTagsChanged,
 }: TrackDetailViewProps) {
   const isLibrary = trackId != null;
 
@@ -199,9 +201,10 @@ export function TrackDetailView({
         setTrackTags(prev => [...prev, ...result.map(([id, name]) => ({ id, name }))]);
         setCommunityTags(prev => prev.filter(t => t.name.toLowerCase() !== tagName.toLowerCase()));
         addLog(`Applied tag "${tagName}"`, "tags");
+        onTagsChanged?.();
       }
     } catch (e) { console.error("Failed to apply tag:", e); }
-  }, [trackId, addLog]);
+  }, [trackId, addLog, onTagsChanged]);
 
   const handleRemoveTag = useCallback(async (tagToRemove: { id: number; name: string }) => {
     const remaining = trackTags.filter(t => t.id !== tagToRemove.id).map(t => t.name);
@@ -209,8 +212,9 @@ export function TrackDetailView({
       const result = await invoke<Array<[number, string]>>("replace_track_tags", { trackId, tagNames: remaining });
       setTrackTags(result.map(([id, name]) => ({ id, name })));
       addLog(`Removed tag "${tagToRemove.name}"`, "tags");
+      onTagsChanged?.();
     } catch (e) { console.error("Failed to remove tag:", e); }
-  }, [trackId, trackTags, addLog]);
+  }, [trackId, trackTags, addLog, onTagsChanged]);
 
   const handleStartEditTags = useCallback(() => {
     setTagInput(trackTags.map(t => t.name).join(", "));
@@ -224,8 +228,9 @@ export function TrackDetailView({
       setTrackTags(result.map(([id, name]) => ({ id, name })));
       setEditingTags(false);
       addLog(`Updated tags`, "tags");
+      onTagsChanged?.();
     } catch (e) { console.error("Failed to save tags:", e); }
-  }, [trackId, tagInput, addLog]);
+  }, [trackId, tagInput, addLog, onTagsChanged]);
 
   const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
     if (actionId === "play-track") {
