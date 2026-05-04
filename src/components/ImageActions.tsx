@@ -77,7 +77,8 @@ export function ImageActions({ entityId, entityType, entityName, artistName, ima
                   kind: entityType,
                   id: entityId,
                 });
-                onImageSet(entityId, path);
+                onImageSet(entityId, "");
+                requestAnimationFrame(() => onImageSet(entityId, path));
               } catch (err) { console.error("Failed to paste image from clipboard:", err); }
             }}
           >
@@ -96,7 +97,8 @@ export function ImageActions({ entityId, entityType, entityName, artistName, ima
                   id: entityId,
                   sourcePath: selected,
                 });
-                onImageSet(entityId, newPath);
+                onImageSet(entityId, "");
+                requestAnimationFrame(() => onImageSet(entityId, newPath));
               }
             }}
           >

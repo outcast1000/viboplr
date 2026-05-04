@@ -67,7 +67,8 @@ export function usePasteImage({
           id: entityId,
           imageData,
         });
-        setImages((prev) => ({ ...prev, [entityId!]: path }));
+        setImages((prev) => ({ ...prev, [entityId!]: null }));
+        requestAnimationFrame(() => setImages((prev) => ({ ...prev, [entityId!]: path })));
 
         const label = isArtistDetail
           ? "Artist image set from clipboard: " + (artists.find(a => a.id === selectedArtist)?.name ?? "unknown")
