@@ -785,23 +785,5 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 500;
-}
-
-.mini-ultra-row .mini-right {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.mini-ultra-row .mini-play-btn {
-  width: 20px;
-  height: 20px;
-  padding: 0;
-}
-
-.mini-ultra-row .g-btn-sm {
-  width: 18px;
-  height: 18px;
-  padding: 0;
+  text-align: center;
 }

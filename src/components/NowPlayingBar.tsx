@@ -315,18 +315,6 @@ export function NowPlayingBar({
                     ? `Loading ${loadingTrack.title}…`
                     : "No track playing"}
             </span>
-            <div className="mini-right">
-              <div className="now-controls">
-                <button className="g-btn g-btn-md mini-play-btn" onClick={onPause} title="Play / Pause">
-                  {playing
-                    ? <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-                    : <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>}
-                </button>
-                <button className="g-btn g-btn-sm" onClick={onNext} title="Next">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zm-2 6L6 18V6z"/></svg>
-                </button>
-              </div>
-            </div>
           </div>
         )}
         {miniExpanded && (
