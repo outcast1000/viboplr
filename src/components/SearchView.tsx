@@ -5,7 +5,7 @@ import { formatDuration, isVideoTrack } from "../utils";
 import { store } from "../store";
 import { isLocalTrack } from "../queueEntry";
 import type { PlaylistContext } from "../hooks/useQueue";
-import { TrackList } from "./TrackList";
+import { TrackList, computeSelection } from "./TrackList";
 import { ArtistCardArt } from "./ArtistCardArt";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { TagCardArt } from "./TagCardArt";
@@ -167,6 +167,10 @@ export function SearchView({
   albumSortRef.current = { albumSortChain };
   const tagSortRef = useRef({ tagSortChain });
   tagSortRef.current = { tagSortChain };
+
+  const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
+  const lastClickedTrackRef = useRef<number | null>(null);
+  const didDragRef = useRef(false);
 
   function getTrackFilterParams() {
     const s = sortRef.current;
@@ -480,6 +484,76 @@ export function SearchView({
     onToggleDislike(track);
   }, [onToggleDislike]);
 
+  useEffect(() => {
+    setSelectedTrackIds(new Set());
+    lastClickedTrackRef.current = null;
+  }, [results.tracks]);
+
+  function handleTrackItemClick(e: React.MouseEvent, index: number) {
+    if (didDragRef.current) return;
+    if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .album-card-play-btn')) return;
+    const newSelection = computeSelection(
+      selectedTrackIds, index, results.tracks, lastClickedTrackRef.current,
+      e.metaKey || e.ctrlKey, e.shiftKey,
+    );
+    setSelectedTrackIds(newSelection);
+    lastClickedTrackRef.current = index;
+  }
+
+  function handleTrackItemContextMenu(e: React.MouseEvent, track: Track, index: number) {
+    if (!selectedTrackIds.has(track.key)) {
+      setSelectedTrackIds(new Set([track.key]));
+      lastClickedTrackRef.current = index;
+      onTrackContextMenu(e, track, new Set([track.key]));
+    } else {
+      onTrackContextMenu(e, track, selectedTrackIds.size > 1 ? selectedTrackIds : new Set([track.key]));
+    }
+  }
+
+  function handleTrackItemMouseDown(e: React.MouseEvent, index: number) {
+    if (e.button !== 0 || !onTrackDragStart) return;
+    if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .album-card-play-btn')) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    didDragRef.current = false;
+    function onMouseMove(ev: MouseEvent) {
+      if (didDragRef.current) return;
+      if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 5) return;
+      didDragRef.current = true;
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      let dragTracks: Track[];
+      if (selectedTrackIds.has(results.tracks[index].key) && selectedTrackIds.size > 1) {
+        dragTracks = results.tracks.filter(t => selectedTrackIds.has(t.key));
+      } else {
+        dragTracks = [results.tracks[index]];
+      }
+      onTrackDragStart(dragTracks);
+    }
+    function onMouseUp() {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+      setTimeout(() => { didDragRef.current = false; }, 0);
+    }
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }
+
+  useEffect(() => {
+    if (viewModes.tracks === "basic" || activeTab !== "tracks") return;
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
+      if (e.key === "Escape" && selectedTrackIds.size > 0) {
+        setSelectedTrackIds(new Set());
+      } else if (e.key === "a" && (e.metaKey || e.ctrlKey) && results.tracks.length > 0) {
+        e.preventDefault();
+        setSelectedTrackIds(new Set(results.tracks.map(t => t.key)));
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [viewModes.tracks, activeTab, selectedTrackIds, results.tracks]);
+
   const tabs: { id: SearchTab; label: string; count: number }[] = [
     { id: "tracks", label: "Tracks", count: counts.tracks },
     { id: "albums", label: "Albums", count: counts.albums },
@@ -602,12 +676,14 @@ export function SearchView({
         {searched && activeTab === "tracks" && viewModes.tracks === "list" && (
           <>
             <div className="entity-list">
-              {results.tracks.map((t) => (
+              {results.tracks.map((t, i) => (
                 <div
                   key={t.key}
-                  className={`entity-list-item${currentTrack?.key === t.key ? " playing" : ""}`}
-                  onDoubleClick={() => onPlayTracks([t], 0)}
-                  onContextMenu={(e) => onTrackContextMenu(e, t, new Set())}
+                  className={`entity-list-item${currentTrack?.key === t.key ? " playing" : ""}${selectedTrackIds.has(t.key) ? " selected" : ""}`}
+                  onClick={(e) => handleTrackItemClick(e, i)}
+                  onDoubleClick={() => { setSelectedTrackIds(new Set()); onPlayTracks([t], 0); }}
+                  onMouseDown={(e) => handleTrackItemMouseDown(e, i)}
+                  onContextMenu={(e) => handleTrackItemContextMenu(e, t, i)}
                 >
                   <LikeDislikeButtons
                     liked={t.liked}
@@ -651,12 +727,14 @@ export function SearchView({
           <>
             <div className="tiles-scroll">
               <div className="album-grid">
-                {results.tracks.map((t) => (
+                {results.tracks.map((t, i) => (
                   <div
                     key={t.key}
-                    className={`album-card${currentTrack?.key === t.key ? " playing" : ""}`}
-                    onDoubleClick={() => onPlayTracks([t], 0)}
-                    onContextMenu={(e) => onTrackContextMenu(e, t, new Set())}
+                    className={`album-card${currentTrack?.key === t.key ? " playing" : ""}${selectedTrackIds.has(t.key) ? " selected" : ""}`}
+                    onClick={(e) => handleTrackItemClick(e, i)}
+                    onDoubleClick={() => { setSelectedTrackIds(new Set()); onPlayTracks([t], 0); }}
+                    onMouseDown={(e) => handleTrackItemMouseDown(e, i)}
+                    onContextMenu={(e) => handleTrackItemContextMenu(e, t, i)}
                   >
                     <div className="album-card-art-wrapper">
                     {isLocalVideo(t) ? (
@@ -673,7 +751,7 @@ export function SearchView({
                       variant="overlay"
                       size={12}
                     />
-                    <button className="album-card-menu-btn" onClick={(e) => { e.stopPropagation(); onTrackContextMenu(e, t, new Set()); }} title="More options">&#x22EF;</button>
+                    <button className="album-card-menu-btn" onClick={(e) => { e.stopPropagation(); handleTrackItemContextMenu(e, t, i); }} title="More options">&#x22EF;</button>
                     <button className="album-card-play-btn" onClick={(e) => { e.stopPropagation(); onPlayTracks([t], 0); }} title="Play">
                       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                     </button>

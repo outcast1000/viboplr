@@ -587,6 +587,12 @@
   background: var(--bg-hover);
 }
 
+.album-card.selected {
+  background: rgba(var(--accent-rgb), 0.15);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .album-card-art {
   aspect-ratio: 1;
   background: var(--bg-surface);
@@ -1053,6 +1059,12 @@
 
 .entity-list-item.highlighted {
   background: var(--bg-hover);
+}
+
+.entity-list-item.selected {
+  background: rgba(var(--accent-rgb), 0.15);
+  border-left: 3px solid var(--accent);
+  padding-left: 13px;
 }
 
 .entity-list-img {
