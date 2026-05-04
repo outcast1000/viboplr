@@ -51,6 +51,7 @@
   color: var(--text-secondary);
   line-height: 1.5;
   overflow-y: auto;
+  padding: 8px 4px;
 }
 
 .info-section-content a {
