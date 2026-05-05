@@ -3735,8 +3735,15 @@ function App() {
             trackId: track.id ?? null,
           };
 
+          // If playing via a fallback stream resolver (e.g. YouTube), prefer that
+          // plugin's download provider over the original scheme's provider
+          const resolverPluginId = resolvedSource?.id?.split(":")[0] ?? null;
+          const resolverDownloadProvider = resolverPluginId
+            ? downloadProviders.find(p => p.source === resolverPluginId)
+            : null;
+
           // Direct URI resolution: for remote schemes, skip interactive search
-          if (isRemoteScheme(trackUri)) {
+          if (isRemoteScheme(trackUri) && !resolverDownloadProvider) {
             const scheme = trackUri.substring(0, trackUri.indexOf("://"));
             const directProvider = scheme === "subsonic"
               ? downloadProviders.find(p => p.id === "__builtin:subsonic")
@@ -3750,6 +3757,22 @@ function App() {
               });
               return;
             }
+          }
+
+          // If playing via a fallback resolver that has a download provider, use
+          // resolveByMetadata directly (skips interactive search)
+          if (resolverDownloadProvider) {
+            setDownloadModal({
+              tracks: [trackPayload],
+              providerId: resolverDownloadProvider.id,
+              providerName: resolverDownloadProvider.name,
+              resolveByUri: (_uri, format) =>
+                resolverDownloadProvider.resolveByMetadata(
+                  track.title, track.artist_name ?? null, track.album_title ?? null,
+                  track.duration_secs ?? null, format,
+                ),
+            });
+            return;
           }
 
           // Fallback: interactive search via plugin providers
