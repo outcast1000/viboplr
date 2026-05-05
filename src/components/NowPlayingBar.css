@@ -652,6 +652,10 @@
   color: var(--text-primary);
 }
 
+.now-playing-mini .g-btn:focus-visible {
+  outline: none;
+}
+
 
 .mini-progress {
   position: absolute;
