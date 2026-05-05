@@ -765,6 +765,22 @@
   color: var(--error);
 }
 
+.mini-resting-size-btn {
+  height: 22px;
+  padding: 0 8px 0 6px;
+  gap: 5px;
+  font-size: var(--fs-2xs);
+  color: var(--text-secondary);
+}
+
+.mini-resting-size-btn:hover {
+  color: var(--text-primary);
+}
+
+.mini-resting-size-label {
+  letter-spacing: 0.02em;
+}
+
 /* Ultra-compact mini player row (24px height) */
 .mini-ultra-row {
   display: flex;

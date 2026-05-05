@@ -355,15 +355,15 @@ export function NowPlayingBar({
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8l4 4-4 4"/><path d="M6 8l-4 4 4 4"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
                 </button>
                 <button
-                  className="g-btn g-btn-sm"
+                  className="g-btn g-btn-rect mini-resting-size-btn"
                   onClick={onCycleRestingSize}
-                  title={miniRestingSize === "compact" ? "Use ultra-compact resting size" : "Use compact resting size"}
+                  title={miniRestingSize === "compact" ? "Switch to ultra-compact" : "Switch to compact"}
                 >
-                  {miniRestingSize === "compact" ? (
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-                  ) : (
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-                  )}
+                  <svg width="12" height="10" viewBox="0 0 24 16" fill="none">
+                    <rect x="2" y="2" width="20" height="4" rx="1.5" fill="currentColor" opacity={miniRestingSize === "compact" ? 1 : 0.25} />
+                    <rect x="5" y="11" width="14" height="2" rx="1" fill="currentColor" opacity={miniRestingSize === "ultra" ? 1 : 0.25} />
+                  </svg>
+                  <span className="mini-resting-size-label">{miniRestingSize === "compact" ? "Compact" : "Ultra"}</span>
                 </button>
                 <button className="g-btn mini-expand-btn" onClick={() => { onCancelCollapseTimer(); onToggleMiniMode(); }} title="Exit mini mode">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/></svg>
