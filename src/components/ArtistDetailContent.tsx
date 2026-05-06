@@ -189,6 +189,7 @@ export function ArtistDetailContent({
                 liked={artist?.liked ?? 0}
                 onToggleLike={() => onToggleArtistLike(selectedArtist)}
                 onToggleDislike={() => onToggleArtistDislike(selectedArtist)}
+                size={20}
                 entityLabel="artist"
               />
             </h2>

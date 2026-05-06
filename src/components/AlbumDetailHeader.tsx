@@ -80,6 +80,7 @@ export function AlbumDetailHeader({
                 liked={album?.liked ?? 0}
                 onToggleLike={() => onToggleAlbumLike(selectedAlbum)}
                 onToggleDislike={() => onToggleAlbumDislike(selectedAlbum)}
+                size={20}
                 entityLabel="album"
               />
             </h2>

@@ -323,6 +323,7 @@ export function TrackDetailView({
                 liked={track.liked}
                 onToggleLike={onToggleLike}
                 onToggleDislike={onToggleDislike}
+                size={20}
                 disabled={!isLibrary}
               />
             </h2>
