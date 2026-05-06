@@ -526,6 +526,7 @@
   align-items: center;
   padding: 6px 12px;
   gap: 10px;
+  position: relative;
 }
 
 .now-playing-mini:active {
@@ -659,13 +660,15 @@
 
 .mini-progress {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  height: 3px;
+  bottom: 1px;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 1px;
   background: var(--accent);
-  opacity: 1;
-  box-shadow: 0 0 4px rgba(var(--accent-rgb), 0.5);
-  transition: width 0.3s linear;
+  opacity: 0.5;
+  transition: transform 0.3s linear;
+  transform-origin: left;
   pointer-events: none;
 }
 
@@ -795,6 +798,7 @@
   height: 24px;
   width: 100%;
   min-width: 0;
+  position: relative;
 }
 
 .mini-ultra-row .mini-ultra-title {

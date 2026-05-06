@@ -303,6 +303,7 @@ export function NowPlayingBar({
                 </button>
               </div>
             </div>
+            {!miniExpanded && <div className="mini-progress" style={{ transform: `scaleX(${progress / 100})` }} />}
           </div>
         ) : (
           <div className="mini-ultra-row">
@@ -331,6 +332,7 @@ export function NowPlayingBar({
                     ? `Loading ${loadingTrack.title}…`
                     : "No track playing"}
             </span>
+            <div className="mini-progress" style={{ transform: `scaleX(${progress / 100})` }} />
           </div>
         )}
         {miniExpanded && (
@@ -391,7 +393,6 @@ export function NowPlayingBar({
             </div>
           </>
         )}
-        {!miniExpanded && <div className="mini-progress" style={{ width: `${progress}%` }} />}
       </footer>
     );
   }
