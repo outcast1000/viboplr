@@ -306,6 +306,22 @@ export function NowPlayingBar({
           </div>
         ) : (
           <div className="mini-ultra-row">
+            {currentTrack && (
+              <span className={`mini-ultra-indicator${playing ? " playing" : ""}`}>
+                {playing ? (
+                  <svg width="8" height="8" viewBox="0 0 12 12" fill="currentColor">
+                    <rect x="0" y="2" width="2.5" height="8" rx="0.5" className="eq-bar eq-bar-1" />
+                    <rect x="4" y="0" width="2.5" height="12" rx="0.5" className="eq-bar eq-bar-2" />
+                    <rect x="8" y="3" width="2.5" height="7" rx="0.5" className="eq-bar eq-bar-3" />
+                  </svg>
+                ) : (
+                  <svg width="8" height="8" viewBox="0 0 12 12" fill="currentColor">
+                    <rect x="2" y="3" width="3" height="6" rx="0.75" />
+                    <rect x="7" y="3" width="3" height="6" rx="0.75" />
+                  </svg>
+                )}
+              </span>
+            )}
             <span className="mini-ultra-title">
               {playbackError
                 ? "Playback failed"

@@ -661,9 +661,9 @@
   position: absolute;
   bottom: 0;
   left: 0;
-  height: 2px;
+  height: 3px;
   background: var(--accent);
-  opacity: 0.6;
+  opacity: 0.8;
   transition: width 0.3s linear;
   pointer-events: none;
 }
@@ -818,4 +818,49 @@
 .mini-ultra-artist {
   font-weight: 400;
   color: var(--text-secondary);
+}
+
+.mini-ultra-indicator {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: var(--text-tertiary);
+}
+
+.mini-ultra-indicator.playing {
+  color: var(--accent);
+}
+
+.mini-ultra-indicator .eq-bar {
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+  transform-origin: bottom;
+}
+
+.mini-ultra-indicator .eq-bar-1 {
+  animation: mini-eq-1 0.45s infinite alternate;
+}
+
+.mini-ultra-indicator .eq-bar-2 {
+  animation: mini-eq-2 0.55s infinite alternate;
+}
+
+.mini-ultra-indicator .eq-bar-3 {
+  animation: mini-eq-3 0.4s infinite alternate;
+}
+
+@keyframes mini-eq-1 {
+  from { transform: scaleY(0.3); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes mini-eq-2 {
+  from { transform: scaleY(0.5); }
+  to { transform: scaleY(0.3); }
+}
+
+@keyframes mini-eq-3 {
+  from { transform: scaleY(0.4); }
+  to { transform: scaleY(1); }
 }
