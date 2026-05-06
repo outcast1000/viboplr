@@ -199,6 +199,8 @@ export type PluginViewData =
       placeholder?: string;
       action: string;
       value?: string;
+      multiline?: boolean;
+      rows?: number;
     }
   | {
       type: "tabs";
