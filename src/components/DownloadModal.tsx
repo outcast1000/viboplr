@@ -224,6 +224,7 @@ function SingleTrackDownload({
   const [resolvedTrackNumber, setResolvedTrackNumber] = useState<number | null>(null);
 
   // Download state
+  const [resolving, setResolving] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
 
   // Result state
@@ -301,6 +302,7 @@ function SingleTrackDownload({
   async function handleStartDownload() {
     if (!selectedMatch) return;
     setError(null);
+    setResolving(true);
 
     // Resolve stream URL and metadata from the provider
     let streamUrl: string;
@@ -308,6 +310,7 @@ function SingleTrackDownload({
       if (directUri && resolveByUri && track.uri) {
         const resolved = await resolveByUri(track.uri, quality);
         if (!resolved) {
+          setResolving(false);
           setError("Provider could not resolve this track for download");
           return;
         }
@@ -327,6 +330,7 @@ function SingleTrackDownload({
         setResolvedTrackNumber(resolved.metadata?.trackNumber ?? selectedMatch.trackNumber ?? null);
       }
     } catch (e) {
+      setResolving(false);
       setError(`Failed to resolve stream: ${String(e)}`);
       setStep("configure");
       return;
@@ -343,6 +347,7 @@ function SingleTrackDownload({
     if (isUpgrade && !showDestPicker) {
       // Upgrade path: download preview next to original file
       setStep("downloading");
+      setResolving(false);
       try {
         const info = await invoke<UpgradePreviewInfo>("download_preview", {
           trackId: track.trackId,
@@ -366,6 +371,7 @@ function SingleTrackDownload({
     // Fresh download path: check for conflicts first
     const destDir = resolveDestDir();
     if (!destDir) {
+      setResolving(false);
       setError("Please select a destination");
       return;
     }
@@ -379,6 +385,7 @@ function SingleTrackDownload({
       });
 
       if (check.has_conflict) {
+        setResolving(false);
         setConflict(check);
         setStep("conflict");
       } else {
@@ -396,9 +403,11 @@ function SingleTrackDownload({
     if (!selectedMatch) return;
     const url = streamUrlArg || resolvedStreamUrl;
     if (!url) {
+      setResolving(false);
       setError("No stream URL available");
       return;
     }
+    setResolving(false);
     setStep("downloading");
     setDownloadProgress(0);
 
@@ -668,10 +677,16 @@ function SingleTrackDownload({
             </div>
           )}
 
+          {resolving && (
+            <div className="dl-resolving"><div className="ds-spinner ds-spinner--sm" /><span>Preparing download...</span></div>
+          )}
+
           <div className="dl-actions">
-            <button onClick={directUri ? onClose : handleBackToSearch}>{directUri ? "Cancel" : "Back"}</button>
-            <button className="dl-btn-primary" onClick={handleStartDownload}>
-              Download
+            <button onClick={directUri ? onClose : handleBackToSearch} disabled={resolving}>
+              {directUri ? "Cancel" : "Back"}
+            </button>
+            <button className="dl-btn-primary" onClick={handleStartDownload} disabled={resolving}>
+              {resolving ? "Resolving..." : "Download"}
             </button>
           </div>
         </>
