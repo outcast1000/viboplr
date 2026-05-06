@@ -635,7 +635,7 @@ function App() {
     store.set("tagDetailBelowTabOrder", order);
   }, []);
   const [detailTrack, setDetailTrack] = useState<Track | null>(null);
-  const [syncWithPlaying, setSyncWithPlaying] = useState(false);
+  const [syncWithPlaying, setSyncWithPlaying] = useState<"disabled" | "enabled" | "active">("disabled");
   const [showAddServer, setShowAddServer] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
   const [deepLinkInstall, setDeepLinkInstall] = useState<{ kind: "plugin" | "skin"; url: string } | null>(null);
@@ -1445,11 +1445,14 @@ function App() {
 
   // Tracks last user navigation action for idle-based "Follow playing" feature
   const lastNavActionRef = useRef(Date.now());
+  const syncRef = useRef(syncWithPlaying);
+  syncRef.current = syncWithPlaying;
 
   // Push history and reset scroll for the new view.
   // Used by all navigation triggers (sidebar, keyboard, click handlers).
   const pushAndScroll = useCallback(() => {
     lastNavActionRef.current = Date.now();
+    if (syncRef.current === "active") setSyncWithPlaying("enabled");
     pushState();
     const sc = getScrollEl();
     if (sc) sc.scrollTop = 0;
@@ -1716,8 +1719,10 @@ function App() {
         if (savedDebugMode) setDebugMode(true);
         const savedArtistSections = await store.get<Record<string, boolean>>("artistSections");
         if (savedArtistSections) setArtistSections(savedArtistSections);
-        const savedSyncWithPlaying = await store.get<boolean>("syncWithPlaying");
-        if (savedSyncWithPlaying != null) setSyncWithPlaying(savedSyncWithPlaying);
+        const savedSyncWithPlaying = await store.get<"disabled" | "enabled" | "active" | boolean>("syncWithPlaying");
+        if (savedSyncWithPlaying === true) setSyncWithPlaying("enabled");
+        else if (savedSyncWithPlaying === "enabled" || savedSyncWithPlaying === "active") setSyncWithPlaying("enabled");
+        else if (savedSyncWithPlaying === false || savedSyncWithPlaying === "disabled") setSyncWithPlaying("disabled");
         const savedSelectedTrack = await store.get<string | number | null>("selectedTrack");
         if (savedSelectedTrack != null) {
           const key = typeof savedSelectedTrack === "number" ? `lib:${savedSelectedTrack}` : savedSelectedTrack;
@@ -1831,12 +1836,22 @@ function App() {
   }, [library.selectedTrack, detailTrackLocal]);
 
   // Sync detail view with currently playing track when user is idle (no navigation for 3 min)
-  const syncRef = useRef(syncWithPlaying);
-  syncRef.current = syncWithPlaying;
+
+  // Timer to transition enabled → active after 3 min idle
   useEffect(() => {
-    if (!syncRef.current || !playback.currentTrack) return;
-    const idleMs = Date.now() - lastNavActionRef.current;
-    if (idleMs < 180_000) return;
+    if (syncWithPlaying !== "enabled") return;
+    const remaining = 180_000 - (Date.now() - lastNavActionRef.current);
+    if (remaining <= 0) {
+      setSyncWithPlaying("active");
+      return;
+    }
+    const t = setTimeout(() => setSyncWithPlaying("active"), remaining);
+    return () => clearTimeout(t);
+  }, [syncWithPlaying]);
+
+  // Navigate on track change while active
+  useEffect(() => {
+    if (syncRef.current !== "active" || !playback.currentTrack) return;
     const ct = playback.currentTrack;
     if (ct.key && ct.key !== library.selectedTrack) {
       library.handleTrackClick(ct.key);
@@ -1845,14 +1860,11 @@ function App() {
 
   const handleToggleSync = useCallback(() => {
     setSyncWithPlaying(prev => {
-      const next = !prev;
+      const next = prev === "disabled" ? "enabled" : "disabled";
       store.set("syncWithPlaying", next);
-      if (next && playback.currentTrack?.key) {
-        library.handleTrackClick(playback.currentTrack.key);
-      }
       return next;
     });
-  }, [playback.currentTrack]);
+  }, []);
 
   // Fetch album/artist image when current track changes (for Now Playing bar)
   useEffect(() => {
@@ -3689,7 +3701,7 @@ function App() {
         onAlbumClick={library.handleAlbumClick}
         onNavigateToArtistByName={library.navigateToArtistByName}
         onNavigateToAlbumByName={library.navigateToAlbumByName}
-        syncWithPlaying={syncWithPlaying}
+        syncState={syncWithPlaying}
         onToggleSync={handleToggleSync}
         showHelp={showHelp}
         onToggleHelp={() => setShowHelp(h => !h)}

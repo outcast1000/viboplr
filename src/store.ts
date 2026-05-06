@@ -59,7 +59,7 @@ const STORE_DEFAULTS = {
   debugMode: false,
   artistSections: { topSongs: true, about: true, albums: true, similarArtists: true },
   albumSections: { review: true, unmatchedTracks: true },
-  syncWithPlaying: false,
+  syncWithPlaying: "disabled",
   trackDetailTabOrder: null,
   streamResolverOrder: null,
   minimizeToMiniPlayer: false,

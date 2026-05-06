@@ -106,7 +106,7 @@ interface NowPlayingBarProps {
   onAlbumClick: (albumId: number, artistId?: number | null) => void;
   onNavigateToArtistByName?: (name: string) => void;
   onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
-  syncWithPlaying: boolean;
+  syncState: "disabled" | "enabled" | "active";
   onToggleSync: () => void;
   showHelp: boolean;
   onToggleHelp: () => void;
@@ -132,7 +132,7 @@ export function NowPlayingBar({
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
   onToggleLike, onToggleDislike, onTrackClick, onArtistClick, onAlbumClick,
   onNavigateToArtistByName, onNavigateToAlbumByName,
-  syncWithPlaying, onToggleSync,
+  syncState, onToggleSync,
   showHelp, onToggleHelp,
   playbackError, resolvingStatus, resolvedSource, loadingTrack, onSkipError,
   onDownloadTrack,
@@ -150,7 +150,7 @@ export function NowPlayingBar({
 
   // Pulse the Follow button when sync navigates to a new track
   useEffect(() => {
-    if (!syncWithPlaying || !currentTrack?.key) return;
+    if (syncState !== "active" || !currentTrack?.key) return;
     setFollowPulse(true);
     const t = setTimeout(() => setFollowPulse(false), 600);
     return () => clearTimeout(t);
@@ -470,20 +470,6 @@ export function NowPlayingBar({
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </button>
                   )}
-                  <button
-                    className={`now-follow-btn${syncWithPlaying ? " active" : ""}${followPulse && syncWithPlaying ? " pulse" : ""}`}
-                    onClick={onToggleSync}
-                    title={syncWithPlaying ? "Stop following playback" : "Follow playback — auto-shows track details when idle"}
-                  >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      {syncWithPlaying ? (
-                        <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
-                      ) : (
-                        <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
-                      )}
-                    </svg>
-                    Follow
-                  </button>
                 </span>
                 <span className="now-subtitle">
                   {loadingTrack && loadingTrack.key !== currentTrack.key ? (
@@ -589,6 +575,19 @@ export function NowPlayingBar({
             />
           )}
         </div>
+        <button
+          className={`g-btn g-btn-sm${syncState !== "disabled" ? " active" : ""}${syncState === "active" ? " now-follow-active" : ""}${followPulse && syncState === "active" ? " now-follow-pulse" : ""}`}
+          onClick={onToggleSync}
+          title={syncState === "disabled" ? "Follow playback" : syncState === "enabled" ? "Follow playback (waiting for idle)" : "Follow playback (active)"}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {syncState === "disabled" ? (
+              <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
+            ) : (
+              <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+            )}
+          </svg>
+        </button>
         <div className="now-volume">
           <button className="g-btn g-btn-sm" onClick={onMute} title={`Mute (${mod}M)`}>
             {volume === 0
