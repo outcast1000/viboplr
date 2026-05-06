@@ -579,15 +579,19 @@ function activate(api) {
       statusVariant = "error";
     } else if (state.refreshSummary) {
       statusText = state.refreshSummary;
-    } else if (state.lastCheckAt) {
-      var relTime = formatRelativeTime(state.lastCheckAt);
-      statusText = "Last check " + relTime;
-      if (state.lastCheckResult) statusText += " — " + state.lastCheckResult;
+    } else if (state.lastCheckResult) {
+      statusText = state.lastCheckResult;
+    }
+
+    var title = "Spotify";
+    if (!isActive && state.lastCheckAt) {
+      var d = new Date(state.lastCheckAt);
+      title += " — " + d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
     }
 
     return {
       type: "toolbar",
-      title: "Spotify",
+      title: title,
       buttons: buttons,
       status: statusText || undefined,
       statusVariant: statusVariant,
