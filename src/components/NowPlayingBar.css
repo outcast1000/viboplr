@@ -796,14 +796,26 @@
   min-width: 0;
 }
 
-.mini-ultra-row .now-title.mini-ultra-title {
+.mini-ultra-row .mini-ultra-title {
   flex: 1 1 auto;
   min-width: 0;
   font-size: var(--fs-xs);
-  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-weight: 500;
   text-align: center;
+}
+
+.mini-ultra-track {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mini-ultra-sep {
+  color: var(--text-tertiary);
+}
+
+.mini-ultra-artist {
+  font-weight: 400;
+  color: var(--text-secondary);
 }
