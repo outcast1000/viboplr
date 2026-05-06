@@ -3228,6 +3228,10 @@ function App() {
             />
           )}
           </>}
+          <StatusBar
+            sessionLog={sessionLog}
+            activity={statusActivity}
+          />
         </div>
 
         {/* Video splitter + player area (below content, above now-playing) */}
@@ -3839,10 +3843,6 @@ function App() {
         </div>
       )}
 
-      <StatusBar
-        sessionLog={sessionLog}
-        activity={statusActivity}
-      />
 
     </div>
     </VideoFrameQueueProvider>

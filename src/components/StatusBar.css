@@ -9,37 +9,23 @@
 
 /* Status bar */
 .status-bar {
-  position: fixed;
-  bottom: 100px;
-  left: 220px;
+  position: absolute;
+  bottom: 0;
+  left: 0;
   right: 0;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
   height: 24px;
   z-index: 100;
   opacity: 0;
-  transform: translateY(100%);
-  transition: opacity 0.3s, transform 0.3s, left 0.2s ease, right 0.2s ease;
   pointer-events: none;
+  transition: opacity 0.3s;
   display: flex;
   align-items: center;
 }
 
-.app.sidebar-collapsed .status-bar {
-  left: 56px;
-}
-
-.app.queue-open .status-bar {
-  right: 300px;
-}
-
-.app.queue-open.queue-collapsed .status-bar {
-  right: 56px;
-}
-
 .status-bar.status-bar-visible {
   opacity: 1;
-  transform: translateY(0);
   pointer-events: auto;
 }
 
