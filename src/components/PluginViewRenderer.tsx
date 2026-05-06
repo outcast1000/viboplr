@@ -193,6 +193,8 @@ function PluginViewNode({
           placeholder={node.placeholder}
           action={node.action}
           value={node.value}
+          multiline={node.multiline}
+          rows={node.rows}
           onAction={onAction}
         />
       );
@@ -690,14 +692,33 @@ function PluginTextInput({
   placeholder,
   action,
   value,
+  multiline,
+  rows,
   onAction,
 }: {
   placeholder?: string;
   action: string;
   value?: string;
+  multiline?: boolean;
+  rows?: number;
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
   const [text, setText] = useState(value ?? "");
+  if (multiline) {
+    return (
+      <textarea
+        className="ds-input"
+        placeholder={placeholder ?? ""}
+        value={text}
+        rows={rows || 4}
+        onChange={(e) => {
+          setText(e.target.value);
+          onAction?.(action, { value: e.target.value });
+        }}
+        style={{ flex: 1, resize: "vertical" }}
+      />
+    );
+  }
   return (
     <input
       className="ds-input"
