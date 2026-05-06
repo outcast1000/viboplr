@@ -326,7 +326,7 @@ export function NowPlayingBar({
               {playbackError
                 ? "Playback failed"
                 : currentTrack
-                  ? <><span className="mini-ultra-track">{currentTrack.title}</span><span className="mini-ultra-sep"> — </span><span className="mini-ultra-artist">{currentTrack.artist_name || "Unknown"}</span></>
+                  ? <><span className="mini-ultra-track">{currentTrack.title}</span><span className="mini-ultra-sep"> — </span><span className="mini-ultra-artist">{currentTrack.artist_name || "Unknown"}{currentTrack.album_title && ` · ${currentTrack.album_title}`}</span></>
                   : loadingTrack
                     ? `Loading ${loadingTrack.title}…`
                     : "No track playing"}

@@ -663,7 +663,8 @@
   left: 0;
   height: 3px;
   background: var(--accent);
-  opacity: 0.8;
+  opacity: 1;
+  box-shadow: 0 0 4px rgba(var(--accent-rgb), 0.5);
   transition: width 0.3s linear;
   pointer-events: none;
 }
@@ -803,7 +804,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-align: center;
+  text-align: left;
 }
 
 .mini-ultra-track {
