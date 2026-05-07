@@ -1,4 +1,5 @@
 var SEARCH_TIMEOUT = 15000;
+var SETTLE_DELAY = 3000;
 var POLL_INTERVAL = 500;
 var showDebugWindow = false;
 var searchSuffix = "music genre";
@@ -14,7 +15,7 @@ var EXTRACT_SCRIPT =
   '    if (src.indexOf("data:image") !== 0) continue;' +
   '    var w = imgs[i].naturalWidth || imgs[i].width || 0;' +
   '    var h = imgs[i].naturalHeight || imgs[i].height || 0;' +
-  '    if (w < 80 || h < 80) continue;' +
+  '    if (w < 150 || h < 150) continue;' +
   '    window.__viboplr.send("image-result", { src: src, w: w, h: h });' +
   '    return;' +
   '  }' +
@@ -31,7 +32,7 @@ var EXTRACT_ALL_SCRIPT =
   '    if (src.indexOf("data:image") !== 0) continue;' +
   '    var w = imgs[i].naturalWidth || imgs[i].width || 0;' +
   '    var h = imgs[i].naturalHeight || imgs[i].height || 0;' +
-  '    if (w < 80 || h < 80) continue;' +
+  '    if (w < 150 || h < 150) continue;' +
   '    results.push({ src: src, w: w, h: h });' +
   '  }' +
   '  window.__viboplr.send("image-results", results);' +
@@ -81,11 +82,14 @@ function searchGoogleImages(api, tagName, keepOpen) {
           }
         });
 
-        pollTimer = setInterval(function () {
-          handle.eval(EXTRACT_SCRIPT).catch(function () {
-            finish(null);
-          });
-        }, POLL_INTERVAL);
+        // Wait for page to settle before polling for images
+        setTimeout(function () {
+          pollTimer = setInterval(function () {
+            handle.eval(EXTRACT_SCRIPT).catch(function () {
+              finish(null);
+            });
+          }, POLL_INTERVAL);
+        }, SETTLE_DELAY);
 
         deadline = setTimeout(function () {
           finish(null);
@@ -182,11 +186,14 @@ function activate(api) {
             }
           });
 
-          pollTimer = setInterval(function () {
-            handle.eval(EXTRACT_ALL_SCRIPT).catch(function () {
-              finish([]);
-            });
-          }, POLL_INTERVAL);
+          // Wait for page to settle before polling for images
+          setTimeout(function () {
+            pollTimer = setInterval(function () {
+              handle.eval(EXTRACT_ALL_SCRIPT).catch(function () {
+                finish([]);
+              });
+            }, POLL_INTERVAL);
+          }, SETTLE_DELAY);
 
           deadline = setTimeout(function () {
             finish([]);
