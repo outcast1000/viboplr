@@ -6,7 +6,6 @@ import { DEFAULT_PROVIDERS, getDomainFromUrl } from "../searchProviders";
 import { IconGoogle, IconX, IconYoutube, IconGenius } from "./Icons";
 import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
-import type { SkinInfo, GallerySkinEntry } from "../types/skin";
 import type { PluginState } from "../types/plugin";
 import type { Collection } from "../types";
 import { store } from "../store";
@@ -171,9 +170,11 @@ function parseProviderConfig(
 function ProviderPrioritySection({
   pluginStates,
   onStreamResolverOrderChanged,
+  filter,
 }: {
   pluginStates?: PluginState[];
   onStreamResolverOrderChanged?: () => void;
+  filter: "resolvers" | "information";
 }) {
   const [entityData, setEntityData] = useState<Map<string, ProviderRow[]>>(new Map());
   const [collapsedEntities, setCollapsedEntities] = useState<Set<string>>(new Set());
@@ -344,9 +345,13 @@ function ProviderPrioritySection({
     displayName: string,
   ) => {
     if (e.button !== 0) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
     dragRef.current = { entity, row, sourceIndex: index };
     dragOverIndexRef.current = null;
     didDragRef.current = false;
+
+    const sourcePill = e.currentTarget as HTMLElement;
 
     function findPillIndex(el: Element | null): number | null {
       while (el) {
@@ -355,6 +360,12 @@ function ProviderPrioritySection({
         el = el.parentElement;
       }
       return null;
+    }
+
+    function clearDropIndicators() {
+      document.querySelectorAll(".provider-pill-drop-before, .provider-pill-drop-after").forEach(el => {
+        el.classList.remove("provider-pill-drop-before", "provider-pill-drop-after");
+      });
     }
 
     function showGhost(x: number, y: number) {
@@ -379,18 +390,39 @@ function ProviderPrioritySection({
     function onMouseMove(ev: MouseEvent) {
       if (!dragRef.current) return;
       if (!didDragRef.current) {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
         didDragRef.current = true;
+        sourcePill.classList.add("provider-pill-dragging");
       }
       showGhost(ev.clientX, ev.clientY);
       const target = document.elementFromPoint(ev.clientX, ev.clientY);
       const overIdx = target ? findPillIndex(target) : null;
       dragOverIndexRef.current = overIdx;
+
+      clearDropIndicators();
+      if (overIdx !== null && overIdx !== dragRef.current.sourceIndex) {
+        const pillsContainer = sourcePill.closest(".provider-priority-pills");
+        if (pillsContainer) {
+          const targetPill = pillsContainer.querySelector(`[data-pill-index="${overIdx}"]`);
+          if (targetPill) {
+            if (overIdx < dragRef.current.sourceIndex) {
+              targetPill.classList.add("provider-pill-drop-before");
+            } else {
+              targetPill.classList.add("provider-pill-drop-after");
+            }
+          }
+        }
+      }
     }
 
     function onMouseUp() {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
       removeGhost();
+      clearDropIndicators();
+      sourcePill.classList.remove("provider-pill-dragging");
       const drag = dragRef.current;
       const targetIdx = dragOverIndexRef.current;
       if (didDragRef.current && drag && targetIdx !== null && targetIdx !== drag.sourceIndex) {
@@ -485,10 +517,14 @@ function ProviderPrioritySection({
     download: "Download",
   };
 
+  const infoEntities = ["artist", "album", "track", "tag"];
+  const filteredEntries = [...entityData.entries()].filter(([entity]) =>
+    filter === "information" ? infoEntities.includes(entity) : entity === "download"
+  );
+
   if (loading) {
     return (
       <div className="settings-group">
-        <div className="settings-group-title">Provider Priority</div>
         <div style={{ color: "var(--text-secondary)", fontSize: "var(--fs-sm)", padding: "12px 0" }}>
           Loading...
         </div>
@@ -496,83 +532,81 @@ function ProviderPrioritySection({
     );
   }
 
-  if (entityData.size === 0) {
+  if (filter === "information" && filteredEntries.length === 0) {
     return null;
   }
 
   return (
-    <div className="settings-group">
-      <div className="settings-group-title">Provider Priority</div>
-      <div className="provider-priority-container">
-        {[...entityData.entries()].map(([entity, rows]) => (
-          <div key={entity} className="provider-entity-group">
-            <button
-              className="provider-entity-header"
-              onClick={() => toggleEntity(entity)}
-            >
-              <span className={`provider-entity-chevron${collapsedEntities.has(entity) ? "" : " open"}`}>
-                {"\u25B8"}
-              </span>
-              <span className="provider-entity-label">{entityLabels[entity] ?? entity}</span>
-            </button>
-            {!collapsedEntities.has(entity) && (
-              <div className="provider-entity-rows">
-                {rows.map(row => {
-                  const isMulti = row.providers.length > 1;
-                  return (
-                    <div key={`${row.kind}-${row.typeId}`} className="provider-priority-row">
-                      <span className="provider-priority-label">{row.label}</span>
-                      <div className="provider-priority-pills">
-                        {row.hasLockedFirst && (
-                          <>
-                            <span className="provider-pill provider-pill-locked">
-                              <span className="provider-pill-lock">{"\uD83D\uDD12"}</span>
-                              Embedded
-                            </span>
-                            {row.providers.length > 0 && (
-                              <span className="provider-pill-arrow">{"\u2192"}</span>
+    <>
+      {filteredEntries.length > 0 && (
+        <div className="settings-group">
+          <div className="settings-group-title">{filter === "resolvers" ? "Download" : "Priority"}</div>
+          <div className="provider-priority-container">
+            {filteredEntries.map(([entity, rows]) => (
+              <div key={entity} className="provider-entity-group">
+                <button
+                  className="provider-entity-header"
+                  onClick={() => toggleEntity(entity)}
+                >
+                  <span className={`provider-entity-chevron${collapsedEntities.has(entity) ? "" : " open"}`}>
+                    {"\u25B8"}
+                  </span>
+                  <span className="provider-entity-label">{entityLabels[entity] ?? entity}</span>
+                </button>
+                {!collapsedEntities.has(entity) && (
+                  <div className="provider-entity-rows">
+                    {rows.map(row => {
+                      const isMulti = row.providers.length > 1;
+                      return (
+                        <div key={`${row.kind}-${row.typeId}`} className="provider-priority-row">
+                          <span className="provider-priority-label">{row.label}</span>
+                          <div className="provider-priority-pills">
+                            {row.hasLockedFirst && (
+                              <>
+                                <span className="provider-pill provider-pill-locked">
+                                  <span className="provider-pill-lock">{"\uD83D\uDD12"}</span>
+                                  Embedded
+                                </span>
+                                {row.providers.length > 0 && (
+                                  <span className="provider-pill-arrow">{"\u2192"}</span>
+                                )}
+                              </>
                             )}
-                          </>
-                        )}
-                        {row.providers.map((provider, i) => (
-                          <React.Fragment key={provider.pluginId}>
-                            {i > 0 && (
-                              <span className="provider-pill-arrow">{"\u2192"}</span>
-                            )}
-                            <span
-                              className={`provider-pill${!provider.active ? " provider-pill-disabled" : ""}${isMulti ? " provider-pill-draggable" : ""}`}
-                              data-pill-index={i}
-                              onMouseDown={isMulti ? (e) => handlePillMouseDown(e, entity, row, i, provider.displayName) : undefined}
-                              onClick={() => { if (!didDragRef.current) handleToggleActive(row, provider); }}
-                              title={`${provider.displayName} (priority ${provider.priority})${!provider.active ? " - disabled" : ""}\nClick to ${provider.active ? "disable" : "enable"}`}
-                            >
-                              {isMulti && (
-                                <span className="provider-pill-handle">{"\u2630"}</span>
-                              )}
-                              {provider.displayName}
-                            </span>
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
+                            {row.providers.map((provider, i) => (
+                              <React.Fragment key={provider.pluginId}>
+                                {i > 0 && (
+                                  <span className="provider-pill-arrow">{"\u2192"}</span>
+                                )}
+                                <span
+                                  className={`provider-pill${!provider.active ? " provider-pill-disabled" : ""}${isMulti ? " provider-pill-draggable" : ""}`}
+                                  data-pill-index={i}
+                                  onMouseDown={isMulti ? (e) => handlePillMouseDown(e, entity, row, i, provider.displayName) : undefined}
+                                  onClick={() => { if (!didDragRef.current) handleToggleActive(row, provider); }}
+                                  title={`${provider.displayName} (priority ${provider.priority})${!provider.active ? " - disabled" : ""}\nClick to ${provider.active ? "disable" : "enable"}`}
+                                >
+                                  {isMulti && (
+                                    <span className="provider-pill-handle">{"\u2630"}</span>
+                                  )}
+                                  {provider.displayName}
+                                </span>
+                              </React.Fragment>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
+            ))}
           </div>
-        ))}
-        {streamResolvers.length > 0 && (
-          <div className="provider-entity-group">
-            <button
-              className="provider-entity-header"
-              onClick={() => toggleEntity("__streamResolver")}
-            >
-              <span className={`provider-entity-chevron${collapsedEntities.has("__streamResolver") ? "" : " open"}`}>
-                {"\u25B8"}
-              </span>
-              <span className="provider-entity-label">Stream Resolvers</span>
-            </button>
-            {!collapsedEntities.has("__streamResolver") && (
+        </div>
+      )}
+      {filter === "resolvers" && streamResolvers.length > 0 && (
+        <div className="settings-group">
+          <div className="settings-group-title">Stream</div>
+          <div className="provider-priority-container">
+            <div className="provider-entity-group">
               <div className="provider-entity-rows">
                 <div className="provider-priority-row">
                   <span className="provider-priority-label">Source priority</span>
@@ -580,7 +614,7 @@ function ProviderPrioritySection({
                     {streamResolvers.map((fp, idx) => (
                       <React.Fragment key={fp.id}>
                         {idx > 0 && (
-                          <span className="provider-pill-arrow">{"\u2192"}</span>
+                          <span className="provider-pill-arrow">{"→"}</span>
                         )}
                         <span
                           className={`provider-pill${fp.enabled ? "" : " provider-pill-disabled"}${streamResolvers.length > 1 ? " provider-pill-draggable" : ""}`}
@@ -639,7 +673,7 @@ function ProviderPrioritySection({
                           title={`${fp.name} (${fp.source})${fp.enabled ? "" : " — disabled"}`}
                         >
                           {streamResolvers.length > 1 && (
-                            <span className="provider-pill-handle">{"\u2630"}</span>
+                            <span className="provider-pill-handle">{"☰"}</span>
                           )}
                           {fp.name}
                         </span>
@@ -648,14 +682,14 @@ function ProviderPrioritySection({
                   </div>
                 </div>
               </div>
-            )}
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
       <div className="settings-actions-row provider-priority-actions">
         <button className="ds-btn ds-btn--secondary" onClick={handleReset}>Reset to Defaults</button>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -741,17 +775,6 @@ interface SettingsPanelProps {
   onFetchBackendTimings: () => void;
   downloadFormat: string;
   onDownloadFormatChange: (format: string) => void;
-  // Skins
-  activeSkinId: string;
-  installedSkins: SkinInfo[];
-  onApplySkin: (id: string) => void;
-  onImportSkin: () => void;
-  onDeleteSkin: (id: string) => void;
-  gallerySkins: GallerySkinEntry[];
-  galleryLoading: boolean;
-  galleryError: string | null;
-  onFetchGallery: () => void;
-  onInstallFromGallery: (entry: GallerySkinEntry) => void;
   // Plugins (for provider priority section)
   pluginStates?: PluginState[];
   // Logging
@@ -779,7 +802,7 @@ interface ProviderFormData {
   trackUrl: string;
 }
 
-type SettingsTab = "general" | "skins" | "providers" | "debug";
+type SettingsTab = "general" | "resolvers" | "information" | "search" | "debug";
 
 export function SettingsPanel({
   searchProviders,
@@ -800,16 +823,6 @@ export function SettingsPanel({
   onFetchBackendTimings,
   downloadFormat,
   onDownloadFormatChange,
-  activeSkinId,
-  installedSkins,
-  onApplySkin,
-  onImportSkin,
-  onDeleteSkin,
-  gallerySkins,
-  galleryLoading,
-  galleryError,
-  onFetchGallery,
-  onInstallFromGallery,
   pluginStates,
   loggingEnabled,
   onLoggingEnabledChange,
@@ -829,7 +842,7 @@ export function SettingsPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<ProviderFormData>({ name: "", artistUrl: "", albumUrl: "", trackUrl: "" });
-  const [searchProvidersCollapsed, setSearchProvidersCollapsed] = useState(false);
+
   const [appPaths, setAppPaths] = useState<{ profile: string; logs: string } | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
 
@@ -916,12 +929,11 @@ export function SettingsPanel({
   const isEditing = editingId !== null || adding;
 
 
-  const skinsIcon = <svg {...iconProps}><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12" r="1.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.5-.7 1.5-1.5 0-.4-.1-.7-.4-1-.2-.3-.4-.6-.4-1 0-.8.7-1.5 1.5-1.5H16c3.3 0 6-2.7 6-6 0-5.5-4.5-9.5-10-9.5z"/></svg>;
-
   const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
     { key: "general", label: "General", icon: navIcons.general },
-    { key: "skins", label: "Skins", icon: skinsIcon },
-    { key: "providers", label: "Providers", icon: navIcons.providers },
+    { key: "resolvers", label: "Resolvers", icon: navIcons.providers },
+    { key: "information", label: "Information", icon: navIcons.providers },
+    { key: "search", label: "Search", icon: navIcons.providers },
     { key: "debug", label: "Debug", icon: navIcons.debug },
   ];
 
@@ -945,6 +957,64 @@ export function SettingsPanel({
       <div className="settings-content-body">
             {settingsTab === "general" && (
               <>
+                <div className="settings-group">
+                  <div className="settings-group-title">ViboPLR</div>
+                  <div className="settings-card">
+                    <div className="settings-about-content">
+                    <div className="settings-about-logo" style={{ cursor: "pointer" }} onClick={() => openUrl("https://viboplr.com")}>
+                      <svg width="32" height="32" viewBox="0 0 512 512" fill="none">
+                        <defs><linearGradient id="aboutVGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FF6B6B"/><stop offset="100%" stopColor="#E91E8A"/></linearGradient></defs>
+                        <path d="M120,110 L256,400 L392,110" fill="none" stroke="url(#aboutVGrad)" strokeWidth="56" strokeLinecap="round" strokeLinejoin="round"/>
+                        <circle cx="256" cy="400" r="16" fill="url(#aboutVGrad)" opacity="0.6"/>
+                      </svg>
+                    </div>
+                    <div className="settings-about-info">
+                      <span className="settings-about-name">Viboplr</span>
+                      <span className="settings-about-version">v{appVersion} &middot; <a href="#" className="settings-about-link" onClick={(e) => { e.preventDefault(); openUrl("https://viboplr.com"); }}>viboplr.com</a></span>
+                    </div>
+                    <div className="settings-about-actions">
+                      {updateState.available && !updateState.downloading && (
+                        <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={onInstallUpdate}>
+                          Update to v{updateState.available.version}
+                        </button>
+                      )}
+                      {updateState.downloading && (
+                        <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-secondary)" }}>Downloading...</span>
+                      )}
+                      {!updateState.available && !updateState.downloading && (
+                        <>
+                          {updateState.upToDate && (
+                            <span className="update-up-to-date">Up to date</span>
+                          )}
+                          {!updateState.upToDate && (
+                            <button
+                              className="ds-btn ds-btn--secondary ds-btn--sm"
+                              onClick={onCheckForUpdates}
+                              disabled={updateState.checking}
+                            >
+                              {updateState.checking ? "Checking..." : "Check for Updates"}
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="settings-support">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="settings-support-icon">
+                      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                    </svg>
+                    <div className="settings-support-info">
+                      <span className="settings-support-title">Support Viboplr</span>
+                      <span className="settings-support-text">Free and open source. Consider supporting development.</span>
+                    </div>
+                    <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => openUrl("https://github.com/sponsors/outcast1000")}>
+                      Sponsor
+                    </button>
+                  </div>
+                  </div>
+                </div>
+
                 <div className="settings-group">
                   <div className="settings-group-title">Playback</div>
                   <div className="settings-card">
@@ -1094,282 +1164,112 @@ export function SettingsPanel({
                   </div>
                 </div>
 
-                <div className="settings-about-content">
-                  <div className="settings-about-logo" style={{ cursor: "pointer" }} onClick={() => openUrl("https://viboplr.com")}>
-                    <svg width="48" height="48" viewBox="0 0 512 512" fill="none">
-                      <defs><linearGradient id="aboutVGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FF6B6B"/><stop offset="100%" stopColor="#E91E8A"/></linearGradient></defs>
-                      <circle cx="256" cy="256" r="230" fill="none" stroke="url(#aboutVGrad)" strokeWidth="6" opacity="0.15"/>
-                      <circle cx="256" cy="256" r="190" fill="none" stroke="url(#aboutVGrad)" strokeWidth="4" opacity="0.1"/>
-                      <path d="M120,110 L256,400 L392,110" fill="none" stroke="url(#aboutVGrad)" strokeWidth="56" strokeLinecap="round" strokeLinejoin="round"/>
-                      <circle cx="256" cy="400" r="16" fill="url(#aboutVGrad)" opacity="0.6"/>
-                    </svg>
-                  </div>
-                  <span className="settings-about-name">Viboplr</span>
-                  <span className="settings-about-version">v{appVersion}</span>
-                  <a href="#" className="settings-about-link" onClick={(e) => { e.preventDefault(); openUrl("https://viboplr.com"); }}>viboplr.com</a>
-
-                  {updateState.available && !updateState.downloading && (
-                    <div className="update-available">
-                      <span className="update-version">v{updateState.available.version} available</span>
-                      {updateState.available.body && (
-                        <p className="update-notes">{updateState.available.body}</p>
-                      )}
-                      <button className="ds-btn ds-btn--primary update-install-btn" onClick={onInstallUpdate}>
-                        Download &amp; Install
-                      </button>
-                    </div>
-                  )}
-
-                  {updateState.downloading && (
-                    <div className="update-progress">
-                      <span>Downloading update...</span>
-                      {updateState.progress && updateState.progress.total > 0 && (
-                        <div className="update-progress-bar">
-                          <div
-                            className="update-progress-fill"
-                            style={{ width: `${Math.round((updateState.progress.downloaded / updateState.progress.total) * 100)}%` }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {!updateState.available && !updateState.downloading && (
-                    <>
-                      {updateState.upToDate && (
-                        <span className="update-up-to-date">Up to date</span>
-                      )}
-                      <button
-                        className="ds-btn ds-btn--secondary"
-                        onClick={onCheckForUpdates}
-                        disabled={updateState.checking}
-                      >
-                        {updateState.checking ? "Checking..." : "Check for Updates"}
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                <div className="settings-support">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" className="settings-support-icon">
-                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-                  </svg>
-                  <span className="settings-support-title">Support Viboplr</span>
-                  <span className="settings-support-text">Viboplr is free and open source. If you enjoy it, consider supporting development.</span>
-                  <button className="ds-btn ds-btn--secondary" onClick={() => openUrl("https://github.com/sponsors/outcast1000")}>
-                    Sponsor on GitHub
-                  </button>
-                </div>
               </>
             )}
 
-            {settingsTab === "skins" && (() => {
-              const activeSkin = installedSkins.find(s => s.id === activeSkinId);
-              return (
-                <>
-                  <div className="skin-active-indicator">
-                    <div>
-                      <span style={{ fontWeight: 600 }}>{activeSkin?.name ?? "Default"}</span>
-                      <span style={{ marginLeft: 8, fontSize: "var(--fs-2xs)", color: "var(--text-secondary)" }}>
-                        {activeSkin?.source === "builtin" ? "Built-in" : activeSkin?.author ?? ""}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-secondary)" }}>Active</span>
-                  </div>
+            {settingsTab === "resolvers" && (
+                <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} filter="resolvers" />
+            )}
 
-                  <div className="settings-group">
-                    <div className="settings-group-title">Installed Skins</div>
-                    <div className="skin-cards-grid">
-                      {installedSkins.map(skin => (
-                        <div
-                          key={skin.id}
-                          className={`skin-card${skin.id === activeSkinId ? " active" : ""}`}
-                          onClick={() => onApplySkin(skin.id)}
-                        >
-                          <div className="skin-card-swatches">
-                            <div style={{ background: skin.colors["bg-primary"] }} />
-                            <div style={{ background: skin.colors["bg-secondary"] }} />
-                            <div style={{ background: skin.colors["accent"] }} />
-                            <div style={{ background: skin.colors["bg-surface"] }} />
-                          </div>
-                          <div className="skin-card-info">
-                            <div className="skin-card-name">{skin.name}</div>
-                            <div className="skin-card-meta">
-                              {skin.source === "builtin" ? "Built-in" : skin.author}
-                            </div>
-                            {skin.source === "user" && (
-                              <span
-                                className="skin-card-remove"
-                                onClick={e => { e.stopPropagation(); onDeleteSkin(skin.id); }}
-                              >
-                                Remove
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+            {settingsTab === "information" && (
+                <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} filter="information" />
+            )}
 
-                  <div className="skin-actions">
-                    <button className="ds-btn ds-btn--secondary" onClick={onImportSkin}>Import from file...</button>
-                    <button className="ds-btn ds-btn--secondary" onClick={onFetchGallery}>Browse Gallery</button>
-                  </div>
-
-                  {(gallerySkins.length > 0 || galleryLoading || galleryError) && (
-                    <div className="skin-gallery">
-                      <div className="settings-group-title" style={{ marginTop: 0 }}>Gallery</div>
-                      {galleryLoading && (
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-secondary)", fontSize: "var(--fs-xs)", padding: "12px 0" }}>
-                          <svg width="16" height="16" viewBox="0 0 16 16" style={{ animation: "status-spin 1s linear infinite" }}>
-                            <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="8" strokeLinecap="round" />
-                          </svg>
-                          Loading gallery...
-                        </div>
-                      )}
-                      {galleryError && (
-                        <div style={{ color: "var(--error)", fontSize: "var(--fs-xs)" }}>
-                          {galleryError}
-                          <button className="ds-btn ds-btn--secondary" style={{ marginLeft: 10 }} onClick={onFetchGallery}>Retry</button>
-                        </div>
-                      )}
-                      {!galleryLoading && !galleryError && gallerySkins.length > 0 && (
-                        <div className="skin-cards-grid">
-                          {gallerySkins.map(entry => (
-                            <div key={entry.id} className="skin-gallery-card">
-                              <div className="skin-card-swatches">
-                                <div style={{ background: entry.colors[0] }} />
-                                <div style={{ background: entry.colors[1] }} />
-                                <div style={{ background: entry.colors[2] }} />
-                                <div style={{ background: entry.colors[3] }} />
-                              </div>
-                              <div className="skin-gallery-card-footer">
-                                <div>
-                                  <div className="skin-card-name">{entry.name}</div>
-                                  <div className="skin-card-meta">{entry.author}</div>
-                                </div>
-                                <button className="skin-install-btn" onClick={() => onInstallFromGallery(entry)}>Install</button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-
-            {settingsTab === "providers" && (
+            {settingsTab === "search" && (
                 <>
                   <div className="settings-group">
-                    <button
-                      className="settings-group-title settings-group-title-collapsible"
-                      onClick={() => setSearchProvidersCollapsed(!searchProvidersCollapsed)}
-                    >
-                      <span className={`provider-entity-chevron${searchProvidersCollapsed ? "" : " open"}`}>
-                        {"\u25B8"}
-                      </span>
-                      Search Providers
-                    </button>
-                    {!searchProvidersCollapsed && (
+                    {isEditing ? (
+                      <div className="settings-card">
+                        <div className="provider-form">
+                          <h3>{adding ? "Add Provider" : "Edit Provider"}</h3>
+                          <div className="provider-form-field">
+                            <label>Name</label>
+                            <input
+                              type="text"
+                              value={form.name}
+                              onChange={(e) => setForm({ ...form, name: e.target.value })}
+                              placeholder="Provider name"
+                            />
+                          </div>
+                          <div className="provider-form-field">
+                            <label>Artist URL Template</label>
+                            <input
+                              type="text"
+                              value={form.artistUrl}
+                              onChange={(e) => setForm({ ...form, artistUrl: e.target.value })}
+                              placeholder="https://example.com/search?q={artist}"
+                            />
+                          </div>
+                          <div className="provider-form-field">
+                            <label>Album URL Template</label>
+                            <input
+                              type="text"
+                              value={form.albumUrl}
+                              onChange={(e) => setForm({ ...form, albumUrl: e.target.value })}
+                              placeholder="https://example.com/search?q={artist}+{title}"
+                            />
+                          </div>
+                          <div className="provider-form-field">
+                            <label>Track URL Template</label>
+                            <input
+                              type="text"
+                              value={form.trackUrl}
+                              onChange={(e) => setForm({ ...form, trackUrl: e.target.value })}
+                              placeholder="https://example.com/search?q={artist}+{title}"
+                            />
+                          </div>
+                          <div className="provider-form-hint">
+                            Use {"{artist}"} and {"{title}"} as placeholders. Leave a URL blank to hide this provider for that context.
+                          </div>
+                          <div className="provider-form-actions">
+                            <button className="ds-btn ds-btn--secondary" onClick={cancelEdit}>Cancel</button>
+                            <button className="ds-btn ds-btn--primary" onClick={saveEdit}>Save</button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
                       <>
-                        {isEditing ? (
-                          <div className="settings-card">
-                            <div className="provider-form">
-                              <h3>{adding ? "Add Provider" : "Edit Provider"}</h3>
-                              <div className="provider-form-field">
-                                <label>Name</label>
-                                <input
-                                  type="text"
-                                  value={form.name}
-                                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                                  placeholder="Provider name"
-                                />
+                        <div className="settings-card settings-card-flush">
+                          <div className="provider-list">
+                            {searchProviders.map((provider) => (
+                              <div key={provider.id} className={`provider-item ${!provider.enabled ? "provider-disabled" : ""}`}>
+                                <div className="provider-icon">
+                                  <SettingsProviderIcon provider={provider} />
+                                </div>
+                                <span className="provider-name">{provider.name}</span>
+                                <div className="provider-contexts">
+                                  {provider.artistUrl && <span className="provider-context-chip">Artist</span>}
+                                  {provider.albumUrl && <span className="provider-context-chip">Album</span>}
+                                  {provider.trackUrl && <span className="provider-context-chip">Track</span>}
+                                </div>
+                                <ToggleSwitch checked={provider.enabled} onChange={() => toggleEnabled(provider.id)} />
+                                <button
+                                  className="provider-action"
+                                  onClick={() => startEdit(provider)}
+                                  title="Edit"
+                                >
+                                  {"\u270E"}
+                                </button>
+                                {!provider.id.startsWith("builtin-") && (
+                                  <button
+                                    className="provider-action provider-delete"
+                                    onClick={() => deleteProvider(provider.id)}
+                                    title="Delete"
+                                  >
+                                    {"\u00D7"}
+                                  </button>
+                                )}
                               </div>
-                              <div className="provider-form-field">
-                                <label>Artist URL Template</label>
-                                <input
-                                  type="text"
-                                  value={form.artistUrl}
-                                  onChange={(e) => setForm({ ...form, artistUrl: e.target.value })}
-                                  placeholder="https://example.com/search?q={artist}"
-                                />
-                              </div>
-                              <div className="provider-form-field">
-                                <label>Album URL Template</label>
-                                <input
-                                  type="text"
-                                  value={form.albumUrl}
-                                  onChange={(e) => setForm({ ...form, albumUrl: e.target.value })}
-                                  placeholder="https://example.com/search?q={artist}+{title}"
-                                />
-                              </div>
-                              <div className="provider-form-field">
-                                <label>Track URL Template</label>
-                                <input
-                                  type="text"
-                                  value={form.trackUrl}
-                                  onChange={(e) => setForm({ ...form, trackUrl: e.target.value })}
-                                  placeholder="https://example.com/search?q={artist}+{title}"
-                                />
-                              </div>
-                              <div className="provider-form-hint">
-                                Use {"{artist}"} and {"{title}"} as placeholders. Leave a URL blank to hide this provider for that context.
-                              </div>
-                              <div className="provider-form-actions">
-                                <button className="ds-btn ds-btn--secondary" onClick={cancelEdit}>Cancel</button>
-                                <button className="ds-btn ds-btn--primary" onClick={saveEdit}>Save</button>
-                              </div>
-                            </div>
+                            ))}
                           </div>
-                        ) : (
-                          <>
-                            <div className="settings-card settings-card-flush">
-                              <div className="provider-list">
-                                {searchProviders.map((provider) => (
-                                  <div key={provider.id} className={`provider-item ${!provider.enabled ? "provider-disabled" : ""}`}>
-                                    <div className="provider-icon">
-                                      <SettingsProviderIcon provider={provider} />
-                                    </div>
-                                    <span className="provider-name">{provider.name}</span>
-                                    <div className="provider-contexts">
-                                      {provider.artistUrl && <span className="provider-context-chip">Artist</span>}
-                                      {provider.albumUrl && <span className="provider-context-chip">Album</span>}
-                                      {provider.trackUrl && <span className="provider-context-chip">Track</span>}
-                                    </div>
-                                    <ToggleSwitch checked={provider.enabled} onChange={() => toggleEnabled(provider.id)} />
-                                    <button
-                                      className="provider-action"
-                                      onClick={() => startEdit(provider)}
-                                      title="Edit"
-                                    >
-                                      {"\u270E"}
-                                    </button>
-                                    {!provider.id.startsWith("builtin-") && (
-                                      <button
-                                        className="provider-action provider-delete"
-                                        onClick={() => deleteProvider(provider.id)}
-                                        title="Delete"
-                                      >
-                                        {"\u00D7"}
-                                      </button>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                            <div className="settings-actions-row">
-                              <button className="ds-btn ds-btn--secondary" onClick={startAdd}>+ Add Provider</button>
-                              <button className="ds-btn ds-btn--secondary" onClick={resetToDefaults}>Reset to Defaults</button>
-                            </div>
-                          </>
-                        )}
+                        </div>
+                        <div className="settings-actions-row">
+                          <button className="ds-btn ds-btn--secondary" onClick={startAdd}>+ Add Provider</button>
+                          <button className="ds-btn ds-btn--secondary" onClick={resetToDefaults}>Reset to Defaults</button>
+                        </div>
                       </>
                     )}
                   </div>
-
-                  <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} />
                 </>
             )}
 

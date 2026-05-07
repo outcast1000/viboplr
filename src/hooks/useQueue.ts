@@ -71,11 +71,9 @@ export function useQueue(
       invoke("main_playlist_set_cover", { source: null }).catch(console.error);
       return;
     }
-    const coverSrc = ctx.coverUrl ?? ctx.imagePath ?? null;
-    const isUrl = coverSrc?.startsWith("http://") || coverSrc?.startsWith("https://");
-    const source = isUrl
-      ? { url: coverSrc, path: null }
-      : { path: coverSrc, url: null };
+    const source = ctx.coverUrl
+      ? { url: ctx.coverUrl, path: null }
+      : { path: ctx.imagePath, url: null };
     invoke("main_playlist_set_cover", { source }).catch(console.error);
   }, [playlistContext]);
 

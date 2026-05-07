@@ -210,32 +210,40 @@
 /* About page */
 .settings-about-content {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  padding-top: 32px;
-  gap: 6px;
+  padding: 12px 16px;
+  gap: 12px;
 }
 .settings-about-logo {
-  margin-bottom: 8px;
   opacity: 0.9;
+  flex-shrink: 0;
+}
+.settings-about-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
 }
 .settings-about-name {
-  font-size: var(--fs-lg);
+  font-size: var(--fs-base);
   font-weight: 600;
   color: var(--text-primary);
 }
 .settings-about-version {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
 }
 .settings-about-link {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   color: var(--accent);
   text-decoration: none;
-  margin-bottom: 16px;
 }
 .settings-about-link:hover {
   text-decoration: underline;
+}
+.settings-about-actions {
+  flex-shrink: 0;
 }
 .update-up-to-date {
   font-size: var(--fs-sm);
@@ -289,16 +297,16 @@
 /* Support section */
 .settings-support {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 8px;
-  padding-top: 24px;
-  margin-top: 24px;
+  gap: 10px;
+  padding: 12px 16px;
   border-top: 1px solid var(--border);
 }
 .settings-support-icon {
   color: var(--accent);
   opacity: 0.8;
+  flex-shrink: 0;
 }
 .settings-support-title {
   font-size: var(--fs-sm);
@@ -308,9 +316,13 @@
 .settings-support-text {
   font-size: var(--fs-xs);
   color: var(--text-secondary);
-  text-align: center;
-  max-width: 280px;
-  margin-bottom: 4px;
+  flex: 1;
+}
+.settings-support-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
 }
 
 /* Debug timing table */
@@ -743,6 +755,19 @@
   cursor: grab;
 }
 
+.provider-pill-dragging {
+  opacity: 0.3;
+  transform: scale(0.95);
+}
+
+.provider-pill-drop-before {
+  box-shadow: -3px 0 0 0 var(--accent);
+}
+
+.provider-pill-drop-after {
+  box-shadow: 3px 0 0 0 var(--accent);
+}
+
 .provider-pill-ghost {
   position: fixed;
   z-index: 9999;
@@ -754,20 +779,26 @@
   background: var(--bg-surface);
   color: var(--text-primary);
   border: 1px solid var(--accent);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
   white-space: nowrap;
+  animation: pill-ghost-in 0.1s ease-out;
+}
+
+@keyframes pill-ghost-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .provider-pill-handle {
   font-size: var(--fs-2xs);
   color: var(--text-secondary);
-  opacity: 0;
+  opacity: 0.4;
   transition: opacity 0.15s;
   line-height: 1;
 }
 
 .provider-pill:hover .provider-pill-handle {
-  opacity: 1;
+  opacity: 0.8;
 }
 
 .provider-pill-locked {

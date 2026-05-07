@@ -1241,19 +1241,6 @@ function App() {
     },
   };
 
-  async function handleImportSkin() {
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: "Skin Files", extensions: ["json"] }],
-    });
-    if (selected) {
-      const result = await skins.importSkin(selected as string);
-      if (!result.ok) {
-        console.error("Skin import failed:", result.error);
-      }
-    }
-  }
-
   // Event listeners
   useEventListeners({
     loadLibrary: library.loadLibrary,
@@ -3207,16 +3194,6 @@ function App() {
               onFetchBackendTimings={() => invoke<TimingEntry[]>("get_startup_timings").then(setBackendTimings)}
               downloadFormat={downloads.downloadFormat}
               onDownloadFormatChange={(format) => downloads.setFormat(format, store)}
-              activeSkinId={skins.activeSkinId}
-              installedSkins={skins.installedSkins}
-              onApplySkin={skins.applySkin}
-              onImportSkin={handleImportSkin}
-              onDeleteSkin={skins.deleteSkin}
-              gallerySkins={skins.gallerySkins}
-              galleryLoading={skins.galleryLoading}
-              galleryError={skins.galleryError}
-              onFetchGallery={skins.fetchGallery}
-              onInstallFromGallery={skins.installFromGallery}
               pluginStates={plugins.pluginStates}
               loggingEnabled={loggingEnabled}
               onLoggingEnabledChange={handleLoggingEnabledChange}
