@@ -61,6 +61,7 @@ pub struct AppState {
     pub direct_download_cancel: Arc<AtomicBool>,
     pub mixtape_cancel: Arc<AtomicBool>,
     pub resyncing_collections: Arc<Mutex<HashSet<i64>>>,
+    pub cursor_tracker_active: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -4493,6 +4494,11 @@ pub fn install_plugin_from_url(
 /// Note: Error backoff is handled naturally through last_synced_at updates.
 /// When a sync fails, update_collection_sync_error sets last_synced_at to the current time,
 /// so the full interval must elapse before the next retry.
+#[tauri::command]
+pub fn set_cursor_tracker(state: State<'_, AppState>, active: bool) {
+    state.cursor_tracker_active.store(active, Ordering::Relaxed);
+}
+
 pub fn is_collection_due_for_auto_update(collection: &Collection, now_secs: i64) -> bool {
     if !collection.enabled || !collection.auto_update {
         return false;
@@ -4531,7 +4537,7 @@ mod tests {
             direct_download_cancel: Arc::new(AtomicBool::new(false)),
             mixtape_cancel: Arc::new(AtomicBool::new(false)),
             resyncing_collections: Arc::new(Mutex::new(HashSet::new())),
-
+            cursor_tracker_active: Arc::new(AtomicBool::new(false)),
         }
     }
 

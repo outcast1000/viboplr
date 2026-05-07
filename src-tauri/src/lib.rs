@@ -20,6 +20,8 @@ mod timing;
 mod downloader;
 mod update_checker;
 mod video_frames;
+#[cfg(target_os = "macos")]
+mod cursor_tracker;
 use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry};
 use db::Database;
 use downloader::{DownloadManager, DownloadResolveRegistry};
@@ -218,6 +220,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::download_and_install_plugin_update,
         commands::download_and_install_skin_update,
         commands::install_plugin_from_url,
+        commands::set_cursor_tracker,
         browse_window::open_browse_window,
         browse_window::browse_window_eval,
         browse_window::close_browse_window,
@@ -416,6 +419,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::download_and_install_plugin_update,
         commands::download_and_install_skin_update,
         commands::install_plugin_from_url,
+        commands::set_cursor_tracker,
         browse_window::open_browse_window,
         browse_window::browse_window_eval,
         browse_window::close_browse_window,
@@ -1408,6 +1412,17 @@ pub fn run() {
                 None
             });
 
+            // Cursor tracker for mini mode hover-expand without focus
+            let cursor_tracker_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            #[cfg(target_os = "macos")]
+            {
+                let tracker_flag = Arc::clone(&cursor_tracker_active);
+                let tracker_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    crate::cursor_tracker::run(tracker_flag, tracker_handle);
+                });
+            }
+
             // Clone values before moving into AppState, for use in update checker
             let checker_app_dir = app_dir.clone();
             let checker_native_dir = native_plugins_dir.clone();
@@ -1425,6 +1440,7 @@ pub fn run() {
                     direct_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     resyncing_collections: Arc::clone(&resyncing_collections),
+                    cursor_tracker_active: Arc::clone(&cursor_tracker_active),
                 });
             });
 

@@ -1,6 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { getCurrentWindow, availableMonitors } from "@tauri-apps/api/window";
 import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
+import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { store } from "../store";
 
 const MINI_COMPACT_HEIGHT = 52;
@@ -362,7 +364,12 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
   }, []);
 
   useEffect(() => {
-    if (!miniMode) return;
+    if (!miniMode) {
+      invoke("set_cursor_tracker", { active: false }).catch(console.error);
+      return;
+    }
+
+    invoke("set_cursor_tracker", { active: true }).catch(console.error);
 
     const controller = makeHoverController({
       expandDelayMs: MINI_HOVER_EXPAND_DELAY,
@@ -372,27 +379,14 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
       isExpanded: () => miniExpandedRef.current,
     });
 
-    // Expand on mouse over OR on focus gained. Collapse on mouse out OR focus lost.
-    // The controller dedupes (handleEnter while expanded is a noop).
-    const root = document.documentElement;
-    const onEnter = () => controller.handleEnter();
-    const onLeave = () => controller.handleLeave();
-
-    root.addEventListener("mouseenter", onEnter);
-    root.addEventListener("mouseleave", onLeave);
-    window.addEventListener("focus", onEnter);
-    window.addEventListener("blur", onLeave);
-
-    if (root.matches(":hover") || document.hasFocus()) {
-      controller.handleEnter();
-    }
+    const unlistenEnter = listen("mini-cursor-entered", () => controller.handleEnter());
+    const unlistenLeave = listen("mini-cursor-left", () => controller.handleLeave());
 
     return () => {
       controller.cancel();
-      root.removeEventListener("mouseenter", onEnter);
-      root.removeEventListener("mouseleave", onLeave);
-      window.removeEventListener("focus", onEnter);
-      window.removeEventListener("blur", onLeave);
+      invoke("set_cursor_tracker", { active: false }).catch(console.error);
+      unlistenEnter.then((f) => f());
+      unlistenLeave.then((f) => f());
     };
   }, [miniMode, expandMini, collapseMini]);
 
