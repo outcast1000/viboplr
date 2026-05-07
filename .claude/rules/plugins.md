@@ -43,18 +43,15 @@ User-installed plugins (in app data directory) override built-in plugins with th
       "ttl": 7776000
     }],
     "imageProviders": [{
-      "entity": "artist|album",
-      "priority": 400
+      "entity": "artist|album|tag"
     }],
     "streamResolvers": [{
       "id": "resolver-id",
-      "name": "Resolver Name",
-      "priority": 300
+      "name": "Resolver Name"
     }],
     "downloadProviders": [{
       "id": "provider-id",
-      "name": "Provider Name",
-      "priority": 300
+      "name": "Provider Name"
     }],
     "contextMenuItems": [{
       "id": "action-id",
@@ -261,7 +258,7 @@ Image fetching uses a bridge between the Rust download worker and JS plugin hand
 
 ### Default Priority Order (user-configurable via Settings > Providers)
 
-Priority order is user-configurable via Settings > Providers. Plugins declare a default priority number in their manifest (lower number = higher priority). For albums, the Rust-native `EmbeddedArtworkProvider` always runs first before any plugin providers.
+Priority order is user-configurable via Settings > Providers. Default priority is hardcoded internally in `usePlugins.ts` (lower number = higher priority). Unknown plugins are added last (priority 999). For albums, the Rust-native `EmbeddedArtworkProvider` always runs first before any plugin providers.
 
 ## Stream Resolver Chain
 
@@ -291,7 +288,7 @@ Download providers implement URL resolution for the unified `DownloadModal`.
 - **By metadata:** a plugin accepts arbitrary `(title, artistName, albumName, durationSecs, format)` via `onResolveByMetadata`. Used for automatic fallbacks (e.g., YouTube search-and-download).
 - **Interactive:** a plugin contributes `onInteractiveSearch` + `onInteractiveResolve`, surfaced as manual search inside `DownloadModal` with per-track picking.
 
-Providers are prioritized by manifest `priority`. The built-in Subsonic provider handles `subsonic://` URIs natively.
+Providers are prioritized by internal hardcoded defaults (in `usePlugins.ts`); unknown plugins are added last. The built-in Subsonic provider handles `subsonic://` URIs natively.
 
 ## Plugin View Rendering
 

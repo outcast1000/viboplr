@@ -37,7 +37,7 @@ import type { VideoLayoutState } from "./hooks/useVideoLayout";
 import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useSkins } from "./hooks/useSkins";
-import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
+import { usePlugins, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY, type PluginHostCallbacks } from "./hooks/usePlugins";
 import { useImageResolver } from "./hooks/useImageResolver";
 import { useExtensions } from "./hooks/useExtensions";
 
@@ -485,7 +485,8 @@ function App() {
       const dps = ps.manifest.contributes?.downloadProviders;
       if (!dps) continue;
       for (const dp of dps) {
-        providerData.push([ps.id, dp.id, dp.name, dp.priority]);
+        const dlPriority = DEFAULT_DOWNLOAD_PROVIDER_PRIORITY[`${ps.id}:${dp.id}`] ?? 999;
+        providerData.push([ps.id, dp.id, dp.name, dlPriority]);
       }
     }
     if (providerData.length > 0) {

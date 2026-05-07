@@ -10,7 +10,7 @@ import type { SkinInfo, GallerySkinEntry } from "../types/skin";
 import type { PluginState } from "../types/plugin";
 import type { Collection } from "../types";
 import { store } from "../store";
-import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY } from "../hooks/usePlugins";
+import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY, DEFAULT_IMAGE_PROVIDER_PRIORITY, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY } from "../hooks/usePlugins";
 import "./SettingsPanel.css";
 
 // Provider config data shapes from backend
@@ -441,7 +441,8 @@ function ProviderPrioritySection({
         if (!contributes) continue;
         if (contributes.imageProviders) {
           for (const ip of contributes.imageProviders) {
-            imageDefaults.push([plugin.id, ip.entity, ip.priority]);
+            const imgPriority = DEFAULT_IMAGE_PROVIDER_PRIORITY[`${plugin.id}:${ip.entity}`] ?? 999;
+            imageDefaults.push([plugin.id, ip.entity, imgPriority]);
           }
         }
         if (contributes.informationTypes) {
@@ -453,7 +454,8 @@ function ProviderPrioritySection({
         }
         if (contributes.downloadProviders) {
           for (const dp of contributes.downloadProviders) {
-            downloadDefaults.push([plugin.id, dp.id, dp.name, dp.priority]);
+            const dlPriority = DEFAULT_DOWNLOAD_PROVIDER_PRIORITY[`${plugin.id}:${dp.id}`] ?? 999;
+            downloadDefaults.push([plugin.id, dp.id, dp.name, dlPriority]);
           }
         }
       }

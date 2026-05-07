@@ -51,9 +51,32 @@ export const DEFAULT_INFO_TYPE_ORDER: Record<string, number> = {
 };
 
 export const DEFAULT_INFO_TYPE_PRIORITY: Record<string, Record<string, number>> = {
-  lyrics: { lrclib: 100, genius: 200, "lyrics-ovh": 300, "greek-lyrics": 400, "lyrics-search": 500 },
+  lyrics: { lrclib: 100, genius: 200, "lyrics-ovh": 300, "google-lyrics": 400 },
   artist_bio: { lastfm: 100, genius: 200 },
   album_wiki: { lastfm: 100, genius: 200 },
+};
+
+// Internal priority for image providers (keyed by "pluginId:entity")
+export const DEFAULT_IMAGE_PROVIDER_PRIORITY: Record<string, number> = {
+  "tidal-browse:artist": 100,
+  "deezer:artist": 200,
+  "itunes:artist": 300,
+  "audiodb:artist": 400,
+  "musicbrainz:artist": 500,
+  "google-image-search:artist": 900,
+  "tidal-browse:album": 100,
+  "itunes:album": 200,
+  "deezer:album": 300,
+  "musicbrainz:album": 500,
+  "google-image-search:album": 900,
+  "google-image-search:tag": 900,
+};
+
+// Internal priority for download providers (keyed by "pluginId:providerId")
+export const DEFAULT_DOWNLOAD_PROVIDER_PRIORITY: Record<string, number> = {
+  "tidal-browse:tidal-download": 100,
+  "youtube:youtube-download": 300,
+  "mock-download:mock-dl": 900,
 };
 
 // Simple semver comparison: returns true if current >= required
@@ -1027,7 +1050,8 @@ export function usePlugins(
           }
           if (contrib.imageProviders) {
             for (const ip of contrib.imageProviders) {
-              allImageProviders.push([plugin.id, ip.entity, ip.priority]);
+              const imgPriority = DEFAULT_IMAGE_PROVIDER_PRIORITY[`${plugin.id}:${ip.entity}`] ?? 999;
+              allImageProviders.push([plugin.id, ip.entity, imgPriority]);
             }
           }
           if (contrib.settingsPanel) {

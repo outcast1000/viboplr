@@ -10,9 +10,9 @@
   ],
   "contributes": {
     "imageProviders": [
-      { "entity": "artist", "priority": 900 },
-      { "entity": "album", "priority": 900 },
-      { "entity": "tag", "priority": 900 }
+      { "entity": "artist" },
+      { "entity": "album" },
+      { "entity": "tag" }
     ],
     "settingsPanel": {
       "id": "google-image-search-settings",

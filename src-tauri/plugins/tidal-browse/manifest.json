@@ -9,8 +9,8 @@
   "autoEnable": false,
   "contributes": {
     "imageProviders": [
-      { "entity": "artist", "priority": 100 },
-      { "entity": "album", "priority": 100 }
+      { "entity": "artist" },
+      { "entity": "album" }
     ],
     "sidebarItems": [
       { "id": "tidal", "label": "TIDAL", "icon": "M2 12l5-5 5 5-5 5zM12 12l5-5 5 5-5 5zM7 7l5-5 5 5-5 5z" }
@@ -21,10 +21,10 @@
       { "id": "download-playlist-from-tidal", "label": "TIDAL: Download", "targets": ["playlist"] }
     ],
     "downloadProviders": [
-      { "id": "tidal-download", "name": "TIDAL", "priority": 100 }
+      { "id": "tidal-download", "name": "TIDAL" }
     ],
     "streamResolvers": [
-      { "id": "tidal-fallback", "name": "TIDAL", "priority": 200 }
+      { "id": "tidal-fallback", "name": "TIDAL" }
     ],
     "settingsPanel": {
       "id": "tidal-settings",

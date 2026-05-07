@@ -7,10 +7,10 @@
   "minAppVersion": "0.9.4",
   "contributes": {
     "streamResolvers": [
-      { "id": "youtube-fallback", "name": "YouTube", "priority": 300 }
+      { "id": "youtube-fallback", "name": "YouTube" }
     ],
     "downloadProviders": [
-      { "id": "youtube-download", "name": "YouTube", "priority": 300 }
+      { "id": "youtube-download", "name": "YouTube" }
     ],
     "settingsPanel": {
       "id": "youtube-settings",

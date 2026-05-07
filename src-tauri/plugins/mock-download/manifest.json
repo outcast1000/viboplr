@@ -8,7 +8,7 @@
   "debugOnly": true,
   "contributes": {
     "downloadProviders": [
-      { "id": "mock-dl", "name": "Mock", "priority": 900 }
+      { "id": "mock-dl", "name": "Mock" }
     ],
     "settingsPanel": {
       "id": "mock-download-settings",

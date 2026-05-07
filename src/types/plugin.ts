@@ -38,20 +38,17 @@ export interface PluginManifestInfoType {
 }
 
 export interface PluginManifestImageProvider {
-  entity: "artist" | "album";
-  priority: number;
+  entity: string;
 }
 
 export interface PluginManifestStreamResolver {
   id: string;
   name: string;
-  priority: number;
 }
 
 export interface PluginManifestDownloadProvider {
   id: string;
   name: string;
-  priority: number;
 }
 
 export interface PluginManifestSettingsPanel {
