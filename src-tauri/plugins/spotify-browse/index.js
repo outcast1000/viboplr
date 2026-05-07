@@ -1017,18 +1017,26 @@ function activate(api) {
     'function qs(sel){try{return document.querySelector(sel)}catch(e){console.log("[viboplr-login] bad selector: "+sel+" err: "+e);return null}}' +
     'function qsa(sel){try{return document.querySelectorAll(sel)}catch(e){console.log("[viboplr-login] bad selector: "+sel+" err: "+e);return[]}}' +
     'var signals={};' +
+    'var sessionEl=qs("script#session,script[data-testid=\\"session\\"]");' +
+    'signals.sessionTag=false;' +
+    'if(sessionEl){try{var sj=JSON.parse(sessionEl.textContent||"{}");signals.sessionTag=!!sj.accessToken}catch(e){}}' +
     'signals.userWidget=!!qs("[data-testid=\\"user-widget-link\\"]");' +
     'signals.userBox=!!qs(".main-userWidget-box");' +
     'signals.avatar=!!qs("img[alt*=\\"avatar\\"], img[alt*=\\"profile\\"]");' +
     'signals.accountLink=!!qs("a[href*=\\"/account\\"], button[data-testid=\\"user-widget-link\\"]");' +
-    'signals.libraryBtn=!!qs("[aria-label=\\"Your Library\\"], [aria-label*=\\"library\\"]");' +
+    'signals.libraryBtn=!!qs("[data-testid=\\"your-library-button\\"], [aria-label=\\"Your Library\\"], [aria-label*=\\"library\\"]");' +
     'signals.createPlaylist=!!qs("[aria-label*=\\"Create\\"]");' +
+    'signals.globalNav=!!qs("[data-testid=\\"global-nav-bar\\"], #global-nav-bar");' +
+    'signals.leftSidebar=!!qs("[data-testid=\\"Desktop_LeftSidebar_Id\\"]");' +
+    'signals.nowPlayingBar=!!qs("[data-testid=\\"now-playing-bar\\"], .Root__now-playing-bar");' +
+    'signals.mainNav=!!qs("nav[aria-label=\\"Main\\"]");' +
     'signals.loginBtn=!!qs("[data-testid=\\"login-button\\"]");' +
     'signals.signupBtn=!!qs("[data-testid=\\"signup-button\\"], a[href*=\\"signup\\"]");' +
+    'signals.signupBar=!!qs("[data-testid=\\"signup-bar\\"]");' +
     'signals.loginLink=!!qs("a[href*=\\"/login\\"]");' +
     'console.log("[viboplr-login] signals:",JSON.stringify(signals));' +
-    'var pos=signals.userWidget||signals.userBox||signals.avatar||signals.accountLink||signals.libraryBtn||signals.createPlaylist;' +
-    'var neg=signals.loginBtn||signals.signupBtn||signals.loginLink;' +
+    'var pos=signals.sessionTag||signals.userWidget||signals.userBox||signals.avatar||signals.accountLink||signals.libraryBtn||signals.createPlaylist||signals.globalNav||signals.leftSidebar||signals.nowPlayingBar||signals.mainNav;' +
+    'var neg=signals.loginBtn||signals.signupBtn||signals.signupBar||signals.loginLink;' +
     'var ok=pos&&!neg;' +
     'var pageDump=null;' +
     'if(!pos&&!neg){' +
@@ -1296,7 +1304,7 @@ function activate(api) {
 
         function checkLogin() {
           loginRetries++;
-          if (loginRetries > 10) {
+          if (loginRetries > 20) {
             if (loginTimer) { clearInterval(loginTimer); loginTimer = null; }
             done(null);
             return;
@@ -1312,7 +1320,7 @@ function activate(api) {
         });
 
         loginTimer = setInterval(checkLogin, 3000);
-        setTimeout(checkLogin, 3000);
+        setTimeout(checkLogin, 1500);
 
         // Phase 2: Iterate over sections
         function scrapeSections() {
