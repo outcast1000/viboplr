@@ -67,6 +67,44 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v0.9.55</span>
+          <span class="timeline-date">May 8, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li><strong>plugins</strong>: always show TIDAL server status banner in browse view</li>
+          <li><strong>plugins</strong>: extend google-image-search to artists and albums with per-entity suffixes</li>
+          <li><strong>plugins</strong>: add search suffix setting and image gallery to google-image-search</li>
+          <li><strong>mini</strong>: expand on hover without window focus via native cursor polling</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li><strong>queue</strong>: write cover.jpg from local path when coverUrl is not an HTTP URL</li>
+          <li><strong>queue</strong>: persist coverUrl in manifest so cover can be re-downloaded on restart</li>
+          <li><strong>ui</strong>: show original source URL in Now Playing tooltip instead of resolved playable URL</li>
+          <li><strong>plugins</strong>: improve google-image-search reliability with settle delay and size filter</li>
+          <li><strong>ui</strong>: move collection sync progress indicator to right of global search</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li><strong>images</strong>: remove automatic composite tag image generation</li>
+          <li><strong>settings</strong>: reorganize Settings panel layout and tabs</li>
+          <li><strong>plugins</strong>: remove priority from manifests, use internal defaults</li>
+          </ul>
+          <h4>Other</h4>
+          <ul>
+          <li>Revert &quot;fix(queue): persist coverUrl in manifest so cover can be re-downloaded on restart&quot;</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.55/Viboplr_0.9.55_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.55_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.55/Viboplr_0.9.55_x64_en-US.msi" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_0.9.55_x64_en-US.msi</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v0.9.54</span>
           <span class="timeline-date">May 7, 2026</span>
         </div>
