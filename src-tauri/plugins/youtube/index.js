@@ -237,7 +237,7 @@ async function searchAndDownload(api, title, artistName, durationSecs) {
   var cached = await findCachedDownload(api, videoId);
   if (cached) {
     api.log("info", "Using cached download: " + cached, "youtube");
-    return cached;
+    return { filePath: cached, youtubeUrl: result.url };
   }
 
   api.log("info", "Downloading audio via yt-dlp: " + result.url, "youtube");
@@ -273,7 +273,7 @@ async function searchAndDownload(api, title, artistName, durationSecs) {
   }
 
   api.log("info", "Downloaded to: " + filePath, "youtube");
-  return filePath;
+  return { filePath: filePath, youtubeUrl: result.url };
 }
 
 async function activate(api) {
@@ -301,13 +301,13 @@ async function activate(api) {
 
     title = stripRemasterSuffix(title);
     try {
-      var filePath = await searchAndDownload(api, title, artistName, durationSecs);
-      if (!filePath) {
+      var result = await searchAndDownload(api, title, artistName, durationSecs);
+      if (!result) {
         api.log("warn", "Stream resolve: no file returned for " + title, "youtube");
         return null;
       }
-      api.log("info", "Stream resolved to: " + filePath, "youtube");
-      return { url: "file://" + filePath, label: "YouTube" };
+      api.log("info", "Stream resolved to: " + result.filePath, "youtube");
+      return { url: "file://" + result.filePath, label: "YouTube", sourceUrl: result.youtubeUrl };
     } catch (e) {
       api.log("error", "Stream resolve failed: " + (e && e.message ? e.message : e), "youtube");
       return null;
@@ -327,11 +327,12 @@ async function activate(api) {
     }
     title = stripRemasterSuffix(title);
     try {
-      var srcPath = await searchAndDownload(api, title, artistName);
-      if (!srcPath) {
+      var dlResult = await searchAndDownload(api, title, artistName);
+      if (!dlResult) {
         api.log("warn", "Download resolve: no source file for " + title, "youtube");
         return null;
       }
+      var srcPath = dlResult.filePath;
       var fmt = format || "aac";
       api.log("info", "Preparing " + title + " as " + fmt, "youtube");
       var finalPath;

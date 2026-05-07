@@ -163,7 +163,7 @@ function App() {
   const streamResolversRef = useRef<StreamResolver[]>([]);
   const [streamResolverOrderVersion, setStreamResolverOrderVersion] = useState(0);
   const [resolvingStatus, setResolvingStatus] = useState<{ error: string | null; trying: string | null } | null>(null);
-  const [resolvedSource, setResolvedSource] = useState<{ name: string; url: string; id: string | null } | null>(null);
+  const [resolvedSource, setResolvedSource] = useState<{ name: string; url: string; sourceUrl: string | null; id: string | null } | null>(null);
   const resolveGenerationRef = useRef(0);
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef);
   const waveformPeaks = useWaveform(
@@ -330,7 +330,8 @@ function App() {
             albumName: stripRemasterSuffix(albumName),
           });
           if (!track || !track.path) return null;
-          return { url: track.path, label: "Library" };
+          const filePath = track.path.startsWith("file://") ? track.path.substring(7) : track.path;
+          return { url: track.path, label: "Library", sourceUrl: filePath };
         },
       };
 
@@ -1296,7 +1297,7 @@ function App() {
       setResolvedSource(null);
       const url = track.path;
 
-      interface ResolverEntry { name: string; id: string | null; resolve: () => Promise<string> }
+      interface ResolverEntry { name: string; id: string | null; sourceUrl: string | null; resolve: () => Promise<string> }
       const chain: ResolverEntry[] = [];
 
       // Pre-resolution: check if a local copy exists for remote tracks
@@ -1312,6 +1313,7 @@ function App() {
             chain.push({
               name: "Library",
               id: null,
+              sourceUrl: localPath,
               resolve: () => Promise.resolve(convertFileSrc(localPath)),
             });
           }
@@ -1323,26 +1325,29 @@ function App() {
       // Native resolver first (if track has a known URL)
       if (url) {
         if (url.startsWith("http://") || url.startsWith("https://")) {
-          chain.push({ name: "Direct URL", id: null, resolve: () => Promise.resolve(url) });
+          chain.push({ name: "Direct URL", id: null, sourceUrl: url, resolve: () => Promise.resolve(url) });
         } else {
-          chain.push({ name: nativeResolverName(url), id: null, resolve: () => resolveUrl(url) });
+          chain.push({ name: nativeResolverName(url), id: null, sourceUrl: url, resolve: () => resolveUrl(url) });
         }
       }
 
       // Append user-configured stream resolvers
       for (const sr of streamResolversRef.current) {
-        chain.push({
+        const entry: ResolverEntry = {
           name: sr.name,
           id: sr.id,
+          sourceUrl: null,
           resolve: async () => {
             const result = await Promise.race([
               sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null),
               new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
             ]);
             if (!result) throw new Error("No result");
+            if (result.sourceUrl) entry.sourceUrl = result.sourceUrl;
             return resolveUrl(result.url);
           },
-        });
+        };
+        chain.push(entry);
       }
 
       if (chain.length === 0) {
@@ -1359,7 +1364,7 @@ function App() {
           const src = await entry.resolve();
           if (resolveGenerationRef.current !== generation) return "";
           setResolvingStatus(null);
-          setResolvedSource({ name: entry.name, url: src, id: entry.id });
+          setResolvedSource({ name: entry.name, url: src, sourceUrl: entry.sourceUrl, id: entry.id });
           if (lastError) {
             addLog(`Playing from ${entry.name} (original unavailable)`, "playback");
           }

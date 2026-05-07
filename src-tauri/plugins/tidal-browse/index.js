@@ -1188,7 +1188,7 @@ function activate(api) {
       var results = await tidalSearch(query, 1);
       var tracks = results && results.tracks;
       if (tracks && tracks.length > 0) {
-        return { url: "tidal://" + tracks[0].tidal_id, label: "TIDAL" };
+        return { url: "tidal://" + tracks[0].tidal_id, label: "TIDAL", sourceUrl: "https://tidal.com/track/" + tracks[0].tidal_id };
       }
     } catch (e) {
       // TIDAL unavailable — skip

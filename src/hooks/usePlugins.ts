@@ -109,7 +109,7 @@ interface LoadedPlugin {
   downloadResolveByMetadataHandlers: Map<string, DownloadResolveByMetadataHandler>;
   interactiveSearchHandlers: Map<string, InteractiveSearchHandler>;
   interactiveResolveHandlers: Map<string, InteractiveResolveHandler>;
-  streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string } | null>>;
+  streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string; sourceUrl?: string } | null>>;
   streamUriResolvers: Map<string, (id: string, quality?: string | null) => Promise<string | null>>;
   schedulerHandlers: Map<string, () => void>;
 }
@@ -1337,7 +1337,7 @@ export function usePlugins(
       artistName: string | null,
       albumName: string | null,
       durationSecs: number | null,
-    ): Promise<{ url: string; label: string } | null> => {
+    ): Promise<{ url: string; label: string; sourceUrl?: string } | null> => {
       const loaded = loadedPluginsRef.current.get(pluginId);
       if (!loaded) return null;
       const handler = loaded.streamResolveHandlers.get(providerId);

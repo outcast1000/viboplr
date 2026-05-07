@@ -112,7 +112,7 @@ interface NowPlayingBarProps {
   onToggleHelp: () => void;
   playbackError?: string | null;
   resolvingStatus?: { error: string | null; trying: string | null } | null;
-  resolvedSource?: { name: string; url: string; id?: string | null } | null;
+  resolvedSource?: { name: string; url: string; sourceUrl?: string | null; id?: string | null } | null;
   loadingTrack?: Track | null;
   onSkipError?: () => void;
   onDownloadTrack?: () => void;
@@ -634,6 +634,7 @@ export function NowPlayingBar({
         const resolverName = resolvedSource?.name;
         const resolverId = resolvedSource?.id;
         const viaYouTube = resolverId === "youtube:youtube-fallback";
+        const sourceUrl = resolvedSource?.sourceUrl ?? null;
 
         let pluginProtocol: string | null = null;
         if (!isLocal && !isSubsonic && path.includes("://") && !path.startsWith("external://") && !path.startsWith("http://") && !path.startsWith("https://")) {
@@ -648,14 +649,20 @@ export function NowPlayingBar({
             : isSubsonic ? "Subsonic" : isLocal ? "Local" : (resolverName || "Unknown");
 
         const localPath = isLocal ? path.replace(/^file:\/\//, "") : null;
-        const folder = localPath ? localPath.replace(/\/[^/]*$/, "") : null;
+        // Library fallback: sourceUrl is the local file path
+        const libraryFallbackPath = resolverName === "Library" && sourceUrl ? sourceUrl : null;
+        const displayPath = localPath || libraryFallbackPath;
+        const folder = displayPath ? displayPath.replace(/\/[^/]*$/, "") : null;
 
         // External link for the "open URL" action
         let externalUrl: string | null = null;
         let externalLabel: string | null = null;
-        if (viaYouTube && resolvedSource) {
-          externalUrl = currentTrack.youtube_url || resolvedSource.url;
+        if (viaYouTube) {
+          externalUrl = sourceUrl || currentTrack.youtube_url || null;
           externalLabel = "Open on YouTube";
+        } else if (sourceUrl && sourceUrl.startsWith("https://tidal.com/")) {
+          externalUrl = sourceUrl;
+          externalLabel = "Open on TIDAL";
         } else if (currentTrack.youtube_url && !isSubsonic && !isLocal) {
           externalUrl = currentTrack.youtube_url;
           externalLabel = "Open on YouTube";
@@ -681,8 +688,10 @@ export function NowPlayingBar({
         }
         if (currentTrack.file_size) rows.push(["size", `${(currentTrack.file_size / 1048576).toFixed(1)} MB`]);
         if (currentTrack.collection_name) rows.push(["collection", currentTrack.collection_name]);
-        if (localPath) rows.push(["path", <span className="now-source-path" title={localPath}>{localPath}</span>]);
-        if (!isLocal && resolvedSource) {
+        if (displayPath) rows.push(["path", <span className="now-source-path" title={displayPath}>{displayPath}</span>]);
+        if (sourceUrl && !displayPath && !sourceUrl.startsWith("file://")) {
+          rows.push(["source", <span className="now-source-path" title={sourceUrl}>{sourceUrl}</span>]);
+        } else if (!displayPath && !sourceUrl && !isLocal && resolvedSource) {
           try {
             const u = new URL(resolvedSource.url);
             rows.push(["host", u.hostname]);
