@@ -905,41 +905,7 @@ pub fn run() {
                                 continue;
                             }
 
-                            // Try composite from artist images first
-                            let mut composite_ok = false;
-                            let top_artists = worker_db.get_top_artists_for_tag(*id, 3).unwrap_or_default();
-                            let artist_image_paths: Vec<std::path::PathBuf> = top_artists.iter()
-                                .filter_map(|(_, artist_name)| {
-                                    let artist_slug = entity_image::entity_image_slug("artist", artist_name, None);
-                                    entity_image::get_image_path(&worker_app_dir, "artist", &artist_slug)
-                                })
-                                .collect();
-                            if !artist_image_paths.is_empty() {
-                                let dest = worker_app_dir.join("tag_images").join(format!("{}.png", slug));
-                                log::info!("Generating composite tag image for: {} (id={}) with {} artist images", name, id, artist_image_paths.len());
-                                match composite_image::generate_tag_composite(&artist_image_paths, &dest, 400) {
-                                    Ok(()) => {
-                                        let path = dest.to_string_lossy().to_string();
-                                        log::info!("Generated composite tag image for: {} (id={})", name, id);
-                                        let _ = app_handle.emit(
-                                            "tag-image-ready",
-                                            serde_json::json!({ "tagId": id, "path": &path, "name": name, "source": "composite" }),
-                                        );
-                                        composite_ok = true;
-                                    }
-                                    Err(e) => {
-                                        log::warn!("Composite failed for tag {}: {}, falling back to plugin providers", name, e);
-                                    }
-                                }
-                            } else {
-                                log::info!("No artist images for tag {} (id={}), falling back to plugin providers", name, id);
-                            }
-
-                            if composite_ok {
-                                continue;
-                            }
-
-                            // Fall back to plugin image provider chain
+                            // Use plugin image provider chain
                             let dest = worker_app_dir.join("tag_images").join(format!("{}.jpg", slug));
                             let request_id = format!("tag-{}-{}", id, std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
