@@ -27,7 +27,7 @@ pub const LASTFM_API_SECRET: &str = env_or_empty!("LASTFM_API_SECRET");
 pub enum ImageDownloadRequest {
     Artist { id: i64, name: String, force: bool },
     Album { id: i64, title: String, artist_name: Option<String>, force: bool },
-    Tag { id: i64, name: String },
+    Tag { id: i64, name: String, force: bool },
 }
 
 pub struct DownloadQueue {
@@ -1079,10 +1079,18 @@ pub fn fetch_tag_image(
     state: State<'_, AppState>,
     tag_id: i64,
     tag_name: String,
+    force: Option<bool>,
 ) {
-    log::info!("Queued tag image generation: {} (id={})", tag_name, tag_id);
+    let force = force.unwrap_or(false);
+    if force {
+        let _ = state.db.clear_image_failure("tag", tag_id);
+        if let Ok(slug) = resolve_entity_slug(&state, "tag", tag_id) {
+            crate::entity_image::remove_image(&state.app_dir, "tag", &slug);
+        }
+    }
+    log::info!("Queued tag image generation: {} (id={}, force={})", tag_name, tag_id, force);
     let mut queue = state.download_queue.queue.lock().unwrap();
-    queue.push(ImageDownloadRequest::Tag { id: tag_id, name: tag_name });
+    queue.push(ImageDownloadRequest::Tag { id: tag_id, name: tag_name, force });
     state.download_queue.condvar.notify_one();
 }
 

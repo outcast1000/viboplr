@@ -98,6 +98,8 @@ export function useImageCache(
       invoke("fetch_artist_image", { artistId: entity.id, artistName: entity.name ?? "Unknown", force: true });
     } else if (kind === "album") {
       invoke("fetch_album_image", { albumId: entity.id, albumTitle: entity.title ?? "", artistName: entity.artist_name, force: true });
+    } else if (kind === "tag") {
+      invoke("fetch_tag_image", { tagId: entity.id, tagName: entity.name ?? "Unknown", force: true });
     }
   }, [kind]);
 

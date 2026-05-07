@@ -894,13 +894,13 @@ pub fn run() {
                                 }
                             }
                         }
-                        ImageDownloadRequest::Tag { id, name } => {
-                            if worker_db.is_image_failed("tag", *id).unwrap_or(false) {
+                        ImageDownloadRequest::Tag { id, name, force } => {
+                            if !force && worker_db.is_image_failed("tag", *id).unwrap_or(false) {
                                 log::info!("Skipping previously failed tag image: {} (id={})", name, id);
                                 continue;
                             }
                             let slug = entity_image::entity_image_slug("tag", name, None);
-                            if entity_image::get_image_path(&worker_app_dir, "tag", &slug).is_some() {
+                            if !force && entity_image::get_image_path(&worker_app_dir, "tag", &slug).is_some() {
                                 log::info!("Tag image already exists for {} (id={}), skipping", name, id);
                                 continue;
                             }
