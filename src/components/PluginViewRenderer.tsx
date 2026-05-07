@@ -625,6 +625,10 @@ const ALLOWED_TAGS = new Set([
   "ul",
   "ol",
   "li",
+  "div",
+  "span",
+  "code",
+  "img",
 ]);
 
 export function sanitizeHTML(html: string): string {
