@@ -87,6 +87,22 @@ export function CaptionBar({
             <polyline points="9 6 15 12 9 18" />
           </svg>
         </button>
+        <CentralSearchDropdown
+          query={centralSearch.query}
+          onQueryChange={centralSearch.setQuery}
+          results={centralSearch.results}
+          items={centralSearch.items}
+          isOpen={centralSearch.isOpen}
+          highlightedIndex={centralSearch.highlightedIndex}
+          onKeyDown={centralSearch.handleKeyDown}
+          onResultClick={centralSearch.handleResultClick}
+          onClose={centralSearch.close}
+          inputRef={searchInputRef}
+          albumImages={albumImages}
+          artistImages={artistImages}
+          onFetchAlbumImage={onFetchAlbumImage}
+          onFetchArtistImage={onFetchArtistImage}
+        />
         {(resyncProgress || resyncComplete) && (
           <button
             className={`caption-sync-indicator${resyncComplete?.error ? " caption-sync-error" : resyncComplete ? " caption-sync-done" : ""}`}
@@ -113,22 +129,6 @@ export function CaptionBar({
             </span>
           </button>
         )}
-        <CentralSearchDropdown
-          query={centralSearch.query}
-          onQueryChange={centralSearch.setQuery}
-          results={centralSearch.results}
-          items={centralSearch.items}
-          isOpen={centralSearch.isOpen}
-          highlightedIndex={centralSearch.highlightedIndex}
-          onKeyDown={centralSearch.handleKeyDown}
-          onResultClick={centralSearch.handleResultClick}
-          onClose={centralSearch.close}
-          inputRef={searchInputRef}
-          albumImages={albumImages}
-          artistImages={artistImages}
-          onFetchAlbumImage={onFetchAlbumImage}
-          onFetchArtistImage={onFetchArtistImage}
-        />
         <div className="caption-spacer" />
         <button
           className="g-btn g-btn-sm"
