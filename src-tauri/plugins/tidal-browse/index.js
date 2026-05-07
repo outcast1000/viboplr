@@ -377,27 +377,30 @@ function activate(api) {
     var children = [];
 
     var checkedSuffix = state.lastHealthCheck ? " (last checked at " + formatTime(state.lastHealthCheck) + ")" : "";
+    var bannerClass, bannerText;
     if (state.apiDown && state.streamingDown) {
-      children.push({
-        type: "layout",
-        direction: "horizontal",
-        className: "ds-banner ds-banner--error",
-        children: [
-          { type: "text", content: "TIDAL servers are currently unavailable" + checkedSuffix },
-          { type: "button", label: "Check Now", action: "check-health", className: "ds-btn ds-btn--sm ds-btn--secondary" },
-        ],
-      });
+      bannerClass = "ds-banner ds-banner--error";
+      bannerText = "TIDAL servers are currently unavailable" + checkedSuffix;
     } else if (state.streamingDown) {
-      children.push({
-        type: "layout",
-        direction: "horizontal",
-        className: "ds-banner ds-banner--warning",
-        children: [
-          { type: "text", content: "TIDAL streaming is unavailable — search may still work" + checkedSuffix },
-          { type: "button", label: "Check Now", action: "check-health", className: "ds-btn ds-btn--sm ds-btn--secondary" },
-        ],
-      });
+      bannerClass = "ds-banner ds-banner--warning";
+      bannerText = "TIDAL streaming is unavailable — search may still work" + checkedSuffix;
+    } else if (state.apiDown) {
+      bannerClass = "ds-banner ds-banner--warning";
+      bannerText = "TIDAL API is unavailable — streaming may still work" + checkedSuffix;
+    } else {
+      var count = instanceCache ? instanceCache.apiUrls.length : 0;
+      bannerClass = "ds-banner ds-banner--success";
+      bannerText = count + " server" + (count !== 1 ? "s" : "") + " online" + checkedSuffix;
     }
+    children.push({
+      type: "layout",
+      direction: "horizontal",
+      className: bannerClass,
+      children: [
+        { type: "text", content: bannerText },
+        { type: "button", label: "Check Now", action: "check-health", className: "ds-btn ds-btn--sm ds-btn--secondary" },
+      ],
+    });
 
     children.push({
       type: "search-input",
