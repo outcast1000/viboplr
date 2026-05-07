@@ -2,6 +2,7 @@ var SEARCH_TIMEOUT = 15000;
 var SETTLE_DELAY = 3000;
 var POLL_INTERVAL = 500;
 var showDebugWindow = false;
+var debugMode = false;
 var suffixes = { artist: "musician", album: "album cover", tag: "music genre" };
 var testQuery = "";
 var testState = { status: "idle", steps: [], images: [] };
@@ -20,6 +21,11 @@ var EXTRACT_SCRIPT =
   '    return;' +
   '  }' +
   '  window.__viboplr.send("image-result", null);' +
+  '})();';
+
+var EXTRACT_HTML_SCRIPT =
+  '(function() {' +
+  '  window.__viboplr.send("page-html", document.documentElement.outerHTML);' +
   '})();';
 
 // Collects all qualifying images for the test/debug view
@@ -50,6 +56,10 @@ function stripDataUriPrefix(dataUri) {
   return dataUri.substring(idx + 1);
 }
 
+function sanitizeFilename(str) {
+  return str.replace(/[^a-zA-Z0-9_-]/g, "_").substring(0, 100);
+}
+
 function searchGoogleImages(api, name, entity, keepOpen) {
   var searchUrl = buildSearchUrl(name, entity);
 
@@ -62,23 +72,36 @@ function searchGoogleImages(api, name, entity, keepOpen) {
     .then(function (handle) {
       return new Promise(function (resolve) {
         var settled = false;
+        var finalResult = null;
         var pollTimer = null;
         var deadline = null;
+
+        function closeAndResolve() {
+          if (!keepOpen) handle.close().catch(console.error);
+          resolve(finalResult);
+        }
 
         function finish(result) {
           if (settled) return;
           settled = true;
+          finalResult = result;
           if (pollTimer) clearInterval(pollTimer);
           if (deadline) clearTimeout(deadline);
-          if (!keepOpen) {
-            handle.close().catch(console.error);
+          if (debugMode) {
+            handle.eval(EXTRACT_HTML_SCRIPT).catch(function () { closeAndResolve(); });
+          } else {
+            closeAndResolve();
           }
-          resolve(result);
         }
 
         handle.onMessage(function (msg) {
           if (msg.type === "image-result") {
             finish(msg.data);
+          } else if (msg.type === "page-html" && msg.data) {
+            var suffix = finalResult ? "success" : "fail";
+            var filename = sanitizeFilename(name) + "-" + suffix + ".html";
+            api.storage.files.writeText(["debug", filename], msg.data).catch(console.error);
+            closeAndResolve();
           }
         });
 
@@ -121,6 +144,9 @@ function handleImageFetch(api, entity) {
 function activate(api) {
   api.storage.get("showDebugWindow").then(function (val) {
     if (val != null) showDebugWindow = !!val;
+    return api.storage.get("debugMode");
+  }).then(function (val) {
+    if (val != null) debugMode = !!val;
     return api.storage.get("suffixes");
   }).then(function (val) {
     if (val != null && typeof val === "object") {
@@ -140,6 +166,12 @@ function activate(api) {
   api.ui.onAction("gis-toggle-debug", function (payload) {
     showDebugWindow = !!(payload && payload.value);
     api.storage.set("showDebugWindow", showDebugWindow).catch(console.error);
+    renderSettings();
+  });
+
+  api.ui.onAction("gis-toggle-debug-mode", function (payload) {
+    debugMode = !!(payload && payload.value);
+    api.storage.set("debugMode", debugMode).catch(console.error);
     renderSettings();
   });
 
@@ -325,6 +357,12 @@ function activate(api) {
               label: "Always show scraping window",
               checked: showDebugWindow,
               action: "gis-toggle-debug",
+            },
+            {
+              type: "toggle",
+              label: "Debug mode (save HTML pages)",
+              checked: debugMode,
+              action: "gis-toggle-debug-mode",
             }
           ]
         }
@@ -335,6 +373,7 @@ function activate(api) {
 
 function deactivate() {
   showDebugWindow = false;
+  debugMode = false;
   suffixes = { artist: "musician", album: "album cover", tag: "music genre" };
   testQuery = "";
   testState = { status: "idle", steps: [], images: [] };
