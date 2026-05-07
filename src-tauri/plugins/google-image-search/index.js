@@ -2,8 +2,8 @@ var SEARCH_TIMEOUT = 15000;
 var SETTLE_DELAY = 3000;
 var POLL_INTERVAL = 500;
 var showDebugWindow = false;
-var searchSuffix = "music genre";
-var testTag = "";
+var suffixes = { artist: "musician", album: "album cover", tag: "music genre" };
+var testQuery = "";
 var testState = { status: "idle", steps: [], images: [] };
 
 // Finds the first <img> with a data:image src that meets minimum size
@@ -38,10 +38,10 @@ var EXTRACT_ALL_SCRIPT =
   '  window.__viboplr.send("image-results", results);' +
   '})();';
 
-function buildSearchUrl(tagName) {
-  var suffix = searchSuffix.trim() ? " " + searchSuffix.trim() : "";
-  return "https://www.google.com/search?udm=2&q=" +
-    encodeURIComponent(tagName + suffix);
+function buildSearchUrl(name, entity) {
+  var suffix = (suffixes[entity] || "").trim();
+  var q = suffix ? name + " " + suffix : name;
+  return "https://www.google.com/search?udm=2&q=" + encodeURIComponent(q);
 }
 
 function stripDataUriPrefix(dataUri) {
@@ -50,8 +50,8 @@ function stripDataUriPrefix(dataUri) {
   return dataUri.substring(idx + 1);
 }
 
-function searchGoogleImages(api, tagName, keepOpen) {
-  var searchUrl = buildSearchUrl(tagName);
+function searchGoogleImages(api, name, entity, keepOpen) {
+  var searchUrl = buildSearchUrl(name, entity);
 
   return api.network
     .openBrowseWindow(searchUrl, {
@@ -98,17 +98,13 @@ function searchGoogleImages(api, tagName, keepOpen) {
     });
 }
 
-function activate(api) {
-  api.storage.get("showDebugWindow").then(function (val) {
-    if (val != null) showDebugWindow = !!val;
-    return api.storage.get("searchSuffix");
-  }).then(function (val) {
-    if (val != null) searchSuffix = String(val);
-    renderSettings();
-  }).catch(console.error);
-
-  api.imageProviders.onFetch("tag", function (tagName) {
-    return searchGoogleImages(api, tagName, showDebugWindow)
+function handleImageFetch(api, entity) {
+  return function (name, artistName) {
+    var searchName = name;
+    if (entity === "album" && artistName) {
+      searchName = artistName + " " + name;
+    }
+    return searchGoogleImages(api, searchName, entity, showDebugWindow)
       .then(function (result) {
         if (!result || !result.src) {
           return { status: "not_found" };
@@ -116,10 +112,28 @@ function activate(api) {
         return { status: "ok", data: stripDataUriPrefix(result.src) };
       })
       .catch(function (e) {
-        api.log("warn", "Google image search failed: " + e);
+        api.log("warn", "Google image search failed for " + entity + ": " + e);
         return { status: "error", message: String(e) };
       });
-  });
+  };
+}
+
+function activate(api) {
+  api.storage.get("showDebugWindow").then(function (val) {
+    if (val != null) showDebugWindow = !!val;
+    return api.storage.get("suffixes");
+  }).then(function (val) {
+    if (val != null && typeof val === "object") {
+      if (val.artist !== undefined) suffixes.artist = String(val.artist);
+      if (val.album !== undefined) suffixes.album = String(val.album);
+      if (val.tag !== undefined) suffixes.tag = String(val.tag);
+    }
+    renderSettings();
+  }).catch(console.error);
+
+  api.imageProviders.onFetch("artist", handleImageFetch(api, "artist"));
+  api.imageProviders.onFetch("album", handleImageFetch(api, "album"));
+  api.imageProviders.onFetch("tag", handleImageFetch(api, "tag"));
 
   // --- Settings actions ---
 
@@ -129,15 +143,29 @@ function activate(api) {
     renderSettings();
   });
 
-  api.ui.onAction("gis-search-suffix", function (data) {
+  api.ui.onAction("gis-suffix-artist", function (data) {
     if (data && data.value !== undefined) {
-      searchSuffix = data.value;
-      api.storage.set("searchSuffix", searchSuffix).catch(console.error);
+      suffixes.artist = data.value;
+      api.storage.set("suffixes", suffixes).catch(console.error);
     }
   });
 
-  api.ui.onAction("gis-test-tag", function (data) {
-    if (data && data.value !== undefined) testTag = data.value;
+  api.ui.onAction("gis-suffix-album", function (data) {
+    if (data && data.value !== undefined) {
+      suffixes.album = data.value;
+      api.storage.set("suffixes", suffixes).catch(console.error);
+    }
+  });
+
+  api.ui.onAction("gis-suffix-tag", function (data) {
+    if (data && data.value !== undefined) {
+      suffixes.tag = data.value;
+      api.storage.set("suffixes", suffixes).catch(console.error);
+    }
+  });
+
+  api.ui.onAction("gis-test-query", function (data) {
+    if (data && data.value !== undefined) testQuery = data.value;
   });
 
   api.ui.onAction("gis-test-search", runTestSearch);
@@ -147,17 +175,17 @@ function activate(api) {
   // --- Test ---
 
   function runTestSearch() {
-    var tag = testTag.trim();
-    if (!tag) {
-      testState = { status: "done", steps: ["Enter a tag name."], images: [] };
+    var query = testQuery.trim();
+    if (!query) {
+      testState = { status: "done", steps: ["Enter a search query."], images: [] };
       renderSettings();
       return;
     }
 
-    var searchUrl = buildSearchUrl(tag);
+    var searchUrl = "https://www.google.com/search?udm=2&q=" + encodeURIComponent(query);
     var steps = [
-      "Tag: <b>" + tag + "</b>",
-      "Query URL: <code style=\"font-size:var(--fs-2xs);word-break:break-all\">" + searchUrl + "</code>",
+      "Query: <b>" + query + "</b>",
+      "URL: <code style=\"font-size:var(--fs-2xs);word-break:break-all\">" + searchUrl + "</code>",
       "Opening Google Images window" + (showDebugWindow ? " (visible)..." : " (hidden)..."),
     ];
     testState = { status: "searching", steps: steps, images: [] };
@@ -229,7 +257,7 @@ function activate(api) {
       {
         type: "layout", direction: "horizontal", style: { gap: "8px", "align-items": "center" },
         children: [
-          { type: "text-input", placeholder: "Tag name (e.g. rock, jazz)", action: "gis-test-tag", value: testTag, style: { flex: "1" } },
+          { type: "text-input", placeholder: "Search query (e.g. rock music genre)", action: "gis-test-query", value: testQuery, style: { flex: "1" } },
           { type: "button", label: busy ? "Searching..." : "Test", action: "gis-test-search", disabled: busy, variant: "accent", style: { padding: "3px 14px" } },
         ],
       },
@@ -266,14 +294,32 @@ function activate(api) {
         },
         {
           type: "section",
-          title: "Options",
+          title: "Search Suffixes",
           children: [
             {
               type: "settings-row",
-              label: "Search suffix",
-              description: "Appended to tag name in the Google Images query (e.g. \"rock\" becomes \"rock music genre\")",
-              control: { type: "text-input", placeholder: "music genre", action: "gis-search-suffix", value: searchSuffix }
+              label: "Artist suffix",
+              description: "Appended to artist name (e.g. \"Radiohead musician\")",
+              control: { type: "text-input", placeholder: "musician", action: "gis-suffix-artist", value: suffixes.artist }
             },
+            {
+              type: "settings-row",
+              label: "Album suffix",
+              description: "Appended to album title (e.g. \"OK Computer album cover\")",
+              control: { type: "text-input", placeholder: "album cover", action: "gis-suffix-album", value: suffixes.album }
+            },
+            {
+              type: "settings-row",
+              label: "Tag suffix",
+              description: "Appended to tag name (e.g. \"rock music genre\")",
+              control: { type: "text-input", placeholder: "music genre", action: "gis-suffix-tag", value: suffixes.tag }
+            }
+          ]
+        },
+        {
+          type: "section",
+          title: "Options",
+          children: [
             {
               type: "toggle",
               label: "Always show scraping window",
@@ -289,8 +335,8 @@ function activate(api) {
 
 function deactivate() {
   showDebugWindow = false;
-  searchSuffix = "music genre";
-  testTag = "";
+  suffixes = { artist: "musician", album: "album cover", tag: "music genre" };
+  testQuery = "";
   testState = { status: "idle", steps: [], images: [] };
 }
 

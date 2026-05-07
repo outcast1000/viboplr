@@ -398,7 +398,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS image_providers (
                 id          INTEGER PRIMARY KEY,
                 plugin_id   TEXT NOT NULL,
-                entity      TEXT NOT NULL CHECK(entity IN ('artist', 'album')),
+                entity      TEXT NOT NULL,
                 priority    INTEGER NOT NULL DEFAULT 500,
                 active      INTEGER NOT NULL DEFAULT 1,
                 UNIQUE (plugin_id, entity)
@@ -521,6 +521,24 @@ impl Database {
         if version < 31 {
             conn.execute_batch(
                 "UPDATE db_version SET version = 31 WHERE rowid = 1;"
+            )?;
+        }
+
+        if version < 32 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS image_providers_new (
+                    id          INTEGER PRIMARY KEY,
+                    plugin_id   TEXT NOT NULL,
+                    entity      TEXT NOT NULL,
+                    priority    INTEGER NOT NULL DEFAULT 500,
+                    active      INTEGER NOT NULL DEFAULT 1,
+                    UNIQUE (plugin_id, entity)
+                );
+                INSERT OR IGNORE INTO image_providers_new (id, plugin_id, entity, priority, active)
+                    SELECT id, plugin_id, entity, priority, active FROM image_providers;
+                DROP TABLE image_providers;
+                ALTER TABLE image_providers_new RENAME TO image_providers;
+                UPDATE db_version SET version = 32 WHERE rowid = 1;"
             )?;
         }
 
