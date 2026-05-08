@@ -1,11 +1,7 @@
 var SEARCH_TIMEOUT = 15000;
 var SETTLE_DELAY = 3000;
 var POLL_INTERVAL = 500;
-var showDebugWindow = false;
-var debugMode = false;
 var suffixes = { artist: "musician", album: "album cover", tag: "music genre" };
-var testQuery = "";
-var testState = { status: "idle", steps: [], images: [] };
 
 // Finds the first <img> with a data:image src that meets minimum size
 var EXTRACT_SCRIPT =
@@ -21,11 +17,6 @@ var EXTRACT_SCRIPT =
   '    return;' +
   '  }' +
   '  window.__viboplr.send("image-result", null);' +
-  '})();';
-
-var EXTRACT_HTML_SCRIPT =
-  '(function() {' +
-  '  window.__viboplr.send("page-html", document.documentElement.outerHTML);' +
   '})();';
 
 // Collects all qualifying images for the test/debug view
@@ -56,52 +47,33 @@ function stripDataUriPrefix(dataUri) {
   return dataUri.substring(idx + 1);
 }
 
-function sanitizeFilename(str) {
-  return str.replace(/[^a-zA-Z0-9_-]/g, "_").substring(0, 100);
-}
-
-function searchGoogleImages(api, name, entity, keepOpen) {
+function searchGoogleImages(api, name, entity) {
   var searchUrl = buildSearchUrl(name, entity);
 
   return api.network
     .openBrowseWindow(searchUrl, {
-      visible: showDebugWindow || keepOpen,
+      visible: false,
       width: 1024,
       height: 768,
     })
     .then(function (handle) {
       return new Promise(function (resolve) {
         var settled = false;
-        var finalResult = null;
         var pollTimer = null;
         var deadline = null;
-
-        function closeAndResolve() {
-          if (!keepOpen) handle.close().catch(console.error);
-          resolve(finalResult);
-        }
 
         function finish(result) {
           if (settled) return;
           settled = true;
-          finalResult = result;
           if (pollTimer) clearInterval(pollTimer);
           if (deadline) clearTimeout(deadline);
-          if (debugMode) {
-            handle.eval(EXTRACT_HTML_SCRIPT).catch(function () { closeAndResolve(); });
-          } else {
-            closeAndResolve();
-          }
+          handle.close().catch(console.error);
+          resolve(result);
         }
 
         handle.onMessage(function (msg) {
           if (msg.type === "image-result") {
             finish(msg.data);
-          } else if (msg.type === "page-html" && msg.data) {
-            var suffix = finalResult ? "success" : "fail";
-            var filename = sanitizeFilename(name) + "-" + suffix + ".html";
-            api.storage.files.writeText(["debug", filename], msg.data).catch(console.error);
-            closeAndResolve();
           }
         });
 
@@ -127,7 +99,7 @@ function handleImageFetch(api, entity) {
     if (entity === "album" && artistName) {
       searchName = artistName + " " + name;
     }
-    return searchGoogleImages(api, searchName, entity, showDebugWindow)
+    return searchGoogleImages(api, searchName, entity)
       .then(function (result) {
         if (!result || !result.src) {
           return { status: "not_found" };
@@ -142,13 +114,16 @@ function handleImageFetch(api, entity) {
 }
 
 function activate(api) {
-  api.storage.get("showDebugWindow").then(function (val) {
-    if (val != null) showDebugWindow = !!val;
-    return api.storage.get("debugMode");
-  }).then(function (val) {
-    if (val != null) debugMode = !!val;
-    return api.storage.get("suffixes");
-  }).then(function (val) {
+  // Step-by-step debugger state
+  var dbgTest = {
+    status: "idle", // idle | searching | done
+    handle: null,
+    query: "",
+    entity: "artist",
+    images: [],
+  };
+
+  api.storage.get("suffixes").then(function (val) {
     if (val != null && typeof val === "object") {
       if (val.artist !== undefined) suffixes.artist = String(val.artist);
       if (val.album !== undefined) suffixes.album = String(val.album);
@@ -162,18 +137,6 @@ function activate(api) {
   api.imageProviders.onFetch("tag", handleImageFetch(api, "tag"));
 
   // --- Settings actions ---
-
-  api.ui.onAction("gis-toggle-debug", function (payload) {
-    showDebugWindow = !!(payload && payload.value);
-    api.storage.set("showDebugWindow", showDebugWindow).catch(console.error);
-    renderSettings();
-  });
-
-  api.ui.onAction("gis-toggle-debug-mode", function (payload) {
-    debugMode = !!(payload && payload.value);
-    api.storage.set("debugMode", debugMode).catch(console.error);
-    renderSettings();
-  });
 
   api.ui.onAction("gis-suffix-artist", function (data) {
     if (data && data.value !== undefined) {
@@ -196,123 +159,146 @@ function activate(api) {
     }
   });
 
-  api.ui.onAction("gis-test-query", function (data) {
-    if (data && data.value !== undefined) testQuery = data.value;
+  // --- Step-by-step debugger ---
+
+  api.ui.onAction("gis-dbg-query", function (data) {
+    if (data && data.value !== undefined) dbgTest.query = data.value;
   });
 
-  api.ui.onAction("gis-test-search", runTestSearch);
-
-  renderSettings();
-
-  // --- Test ---
-
-  function runTestSearch() {
-    var query = testQuery.trim();
-    if (!query) {
-      testState = { status: "done", steps: ["Enter a search query."], images: [] };
+  api.ui.onAction("gis-dbg-entity", function (data) {
+    if (data && data.value !== undefined) {
+      dbgTest.entity = data.value;
       renderSettings();
-      return;
     }
+  });
 
-    var searchUrl = "https://www.google.com/search?udm=2&q=" + encodeURIComponent(query);
-    var steps = [
-      "Query: <b>" + query + "</b>",
-      "URL: <code style=\"font-size:var(--fs-2xs);word-break:break-all\">" + searchUrl + "</code>",
-      "Opening Google Images window" + (showDebugWindow ? " (visible)..." : " (hidden)..."),
-    ];
-    testState = { status: "searching", steps: steps, images: [] };
+  api.ui.onAction("gis-dbg-start", function () {
+    dbgStart();
+  });
+
+  api.ui.onAction("gis-dbg-stop", function () {
+    dbgStop();
+  });
+
+  api.ui.onAction("gis-dbg-devtools", function () {
+    if (dbgTest.handle && dbgTest.handle.devtools) {
+      dbgTest.handle.devtools().catch(console.error);
+    }
+  });
+
+  function dbgStart() {
+    var query = dbgTest.query.trim();
+    if (!query) return;
+
+    var searchUrl = buildSearchUrl(query, dbgTest.entity);
+    dbgTest.status = "searching";
+    dbgTest.images = [];
     renderSettings();
 
-    api.network
-      .openBrowseWindow(searchUrl, { visible: true, width: 1024, height: 768 })
-      .then(function (handle) {
-        return new Promise(function (resolve) {
-          var settled = false;
-          var pollTimer = null;
-          var deadline = null;
+    api.network.openBrowseWindow(searchUrl, {
+      visible: true,
+      title: "Google Images Debug",
+      width: 1024,
+      height: 768,
+    }).then(function (handle) {
+      dbgTest.handle = handle;
+      renderSettings();
 
-          function finish(results) {
-            if (settled) return;
-            settled = true;
-            if (pollTimer) clearInterval(pollTimer);
-            if (deadline) clearTimeout(deadline);
-            handle.close().catch(console.error);
-            resolve(results);
-          }
+      var settled = false;
+      var pollTimer = null;
+      var deadline = null;
 
-          handle.onMessage(function (msg) {
-            if (msg.type === "image-results") {
-              finish(msg.data || []);
-            }
-          });
+      function finish(results) {
+        if (settled) return;
+        settled = true;
+        if (pollTimer) clearInterval(pollTimer);
+        if (deadline) clearTimeout(deadline);
+        dbgTest.images = results || [];
+        dbgTest.status = "done";
+        renderSettings();
+      }
 
-          // Wait for page to settle before polling for images
-          setTimeout(function () {
-            pollTimer = setInterval(function () {
-              handle.eval(EXTRACT_ALL_SCRIPT).catch(function () {
-                finish([]);
-              });
-            }, POLL_INTERVAL);
-          }, SETTLE_DELAY);
-
-          deadline = setTimeout(function () {
-            finish([]);
-          }, SEARCH_TIMEOUT);
-        });
-      })
-      .then(function (results) {
-        if (!results || results.length === 0) {
-          steps.push("No images found — page may not have loaded or no data:image imgs matched.");
-          testState = { status: "done", steps: steps, images: [] };
-          renderSettings();
-          return;
+      handle.onMessage(function (msg) {
+        if (msg.type === "image-results") {
+          finish(msg.data || []);
         }
-
-        steps.push("Found <b>" + results.length + "</b> image(s)");
-        testState = { status: "done", steps: steps, images: results };
-        renderSettings();
-      })
-      .catch(function (e) {
-        console.error("Test search failed:", e);
-        steps.push("Error: " + e);
-        testState = { status: "done", steps: steps, images: [] };
-        renderSettings();
       });
+
+      setTimeout(function () {
+        pollTimer = setInterval(function () {
+          handle.eval(EXTRACT_ALL_SCRIPT).catch(function () {});
+        }, POLL_INTERVAL);
+      }, SETTLE_DELAY);
+
+      deadline = setTimeout(function () { finish([]); }, SEARCH_TIMEOUT);
+    }).catch(function (e) {
+      console.error("Debugger failed:", e);
+      dbgTest.status = "idle";
+      renderSettings();
+    });
+  }
+
+  function dbgStop() {
+    if (dbgTest.handle) {
+      dbgTest.handle.close().catch(console.error);
+      dbgTest.handle = null;
+    }
+    dbgTest.status = "idle";
+    dbgTest.images = [];
+    renderSettings();
   }
 
   // --- Render ---
 
   function renderSettings() {
-    var busy = testState.status === "searching";
+    var idle = dbgTest.status === "idle";
+    var searching = dbgTest.status === "searching";
+    var done = dbgTest.status === "done";
+    var hasHandle = !!dbgTest.handle;
 
-    var testRows = [
-      {
-        type: "layout", direction: "horizontal", style: { gap: "8px", "align-items": "center" },
-        children: [
-          { type: "text-input", placeholder: "Search query (e.g. rock music genre)", action: "gis-test-query", value: testQuery, style: { flex: "1" } },
-          { type: "button", label: busy ? "Searching..." : "Test", action: "gis-test-search", disabled: busy, variant: "accent", style: { padding: "3px 14px" } },
-        ],
-      },
-    ];
+    // Debugger section
+    var dbgChildren = [];
 
-    if (testState.steps.length > 0) {
-      var log = testState.steps.map(function (s) {
-        return "<p style=\"margin:2px 0;font-size:var(--fs-xs)\">" + s + "</p>";
-      }).join("");
-      testRows.push({ type: "text", content: log });
+    var buttons = [];
+    if (idle || done) {
+      buttons.push({ type: "button", label: "Start", action: "gis-dbg-start", variant: "accent", style: { padding: "3px 14px" } });
+    }
+    if (!idle) {
+      buttons.push({ type: "button", label: "Reset", action: "gis-dbg-stop", variant: "secondary", style: { padding: "3px 10px" } });
+    }
+    if (hasHandle) {
+      buttons.push({ type: "button", label: "DevTools", action: "gis-dbg-devtools", variant: "secondary", style: { padding: "3px 10px" } });
     }
 
-    if (testState.images.length > 0) {
-      var gallery = testState.images.map(function (img, i) {
-        return "<div style=\"display:inline-block;margin:4px;text-align:center\">" +
-          "<img src=\"" + img.src + "\" style=\"max-width:140px;max-height:140px;border-radius:var(--ds-radius-card);border:1px solid var(--border)\" />" +
-          "<div style=\"font-size:var(--fs-2xs);color:var(--text-secondary);margin-top:2px\">" + img.w + "×" + img.h + "</div>" +
-          "</div>";
-      }).join("");
-      testRows.push({
-        type: "text",
-        content: "<div style=\"margin-top:8px;display:flex;flex-wrap:wrap;gap:4px\">" + gallery + "</div>",
-      });
+    dbgChildren.push({
+      type: "layout", direction: "horizontal", style: { gap: "8px", "align-items": "center" },
+      children: [
+        { type: "text-input", placeholder: "Search query (e.g. Radiohead)", action: "gis-dbg-query", value: dbgTest.query, style: { flex: "1" }, disabled: searching },
+        { type: "select", options: [
+          { value: "artist", label: "Artist" },
+          { value: "album", label: "Album" },
+          { value: "tag", label: "Tag" },
+        ], value: dbgTest.entity, action: "gis-dbg-entity" },
+      ].concat(buttons),
+    });
+
+    if (searching) {
+      dbgChildren.push({ type: "text", content: "<p style=\"font-size:var(--fs-xs)\">Searching Google Images (visible window)...</p>" });
+    }
+
+    if (done) {
+      if (dbgTest.images.length === 0) {
+        dbgChildren.push({ type: "text", content: "<p style=\"font-size:var(--fs-xs);color:var(--error)\">No images found — page may not have loaded or no data:image imgs >= 150px matched.</p>" });
+      } else {
+        dbgChildren.push({ type: "text", content: "<p style=\"font-size:var(--fs-xs);color:var(--success)\"><b>Found " + dbgTest.images.length + " image(s)</b></p>" });
+        var gallery = dbgTest.images.map(function (img) {
+          return "<div style=\"display:inline-block;margin:4px;text-align:center\">" +
+            "<img src=\"" + img.src + "\" style=\"max-width:160px;max-height:160px;border-radius:var(--ds-radius-card);border:1px solid var(--border)\" />" +
+            "<div style=\"font-size:var(--fs-2xs);color:var(--text-secondary);margin-top:2px\">" + img.w + "×" + img.h + "</div>" +
+            "</div>";
+        }).join("");
+        dbgChildren.push({ type: "text", content: "<div style=\"margin-top:8px;display:flex;flex-wrap:wrap;gap:4px\">" + gallery + "</div>" });
+      }
     }
 
     api.ui.setViewData("google-image-search-settings", {
@@ -321,8 +307,8 @@ function activate(api) {
       children: [
         {
           type: "section",
-          title: "Test",
-          children: testRows,
+          title: "Step-by-Step Debugger",
+          children: dbgChildren,
         },
         {
           type: "section",
@@ -347,24 +333,6 @@ function activate(api) {
               control: { type: "text-input", placeholder: "music genre", action: "gis-suffix-tag", value: suffixes.tag }
             }
           ]
-        },
-        {
-          type: "section",
-          title: "Options",
-          children: [
-            {
-              type: "toggle",
-              label: "Always show scraping window",
-              checked: showDebugWindow,
-              action: "gis-toggle-debug",
-            },
-            {
-              type: "toggle",
-              label: "Debug mode (save HTML pages)",
-              checked: debugMode,
-              action: "gis-toggle-debug-mode",
-            }
-          ]
         }
       ]
     });
@@ -372,11 +340,7 @@ function activate(api) {
 }
 
 function deactivate() {
-  showDebugWindow = false;
-  debugMode = false;
   suffixes = { artist: "musician", album: "album cover", tag: "music genre" };
-  testQuery = "";
-  testState = { status: "idle", steps: [], images: [] };
 }
 
 return { activate: activate, deactivate: deactivate };
