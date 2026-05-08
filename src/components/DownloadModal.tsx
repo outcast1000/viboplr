@@ -196,9 +196,19 @@ function SingleTrackDownload({
     }
     return null;
   });
-  const [quality, setQuality] = useState<"flac" | "aac">(
+  const [quality, setQualityState] = useState<"flac" | "aac">(
     downloadFormat === "flac" ? "flac" : "aac"
   );
+  const setQuality = (q: "flac" | "aac") => {
+    setQualityState(q);
+    store.set("lastDownloadQuality", q);
+  };
+
+  useEffect(() => {
+    store.get<string>("lastDownloadQuality").then(saved => {
+      if (saved === "flac" || saved === "aac") setQualityState(saved);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Determine if this is an upgrade flow
   const isUpgrade = track.trackId != null;
@@ -840,9 +850,20 @@ function MultiTrackDownload({
   onPlay?: (path: string) => void;
 }) {
   const [step, setStep] = useState<BatchStep>("configure");
-  const [quality, setQuality] = useState<"flac" | "aac">(
+  const [quality, setQualityState] = useState<"flac" | "aac">(
     downloadFormat === "flac" ? "flac" : "aac"
   );
+  const setQuality = (q: "flac" | "aac") => {
+    setQualityState(q);
+    store.set("lastDownloadQuality", q);
+  };
+
+  useEffect(() => {
+    store.get<string>("lastDownloadQuality").then(saved => {
+      if (saved === "flac" || saved === "aac") setQualityState(saved);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [destType, setDestType] = useState<"collection" | "path">("collection");
   const [destCollectionId, setDestCollectionId] = useState<number | null>(() => {
     if (lastDest) {
