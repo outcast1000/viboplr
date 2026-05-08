@@ -120,6 +120,9 @@
   flex: 1;
   overflow-y: auto;
   padding: 20px 24px;
+  max-width: 1024px;
+  margin: 0 auto;
+  width: 100%;
 }
 
 /* Settings groups & cards */
