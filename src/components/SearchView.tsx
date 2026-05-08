@@ -1163,6 +1163,7 @@ function SearchTagResults({
                 <div className="album-card-art-wrapper">
                   <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={onFetchImage} />
                   <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="overlay" size={12} />
+                  <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); handleCtxMenu(e, t); }} title="More options">&#x22EF;</button>
                   <button className="album-card-play-btn" onClick={e => { e.stopPropagation(); onPlayTag(t.id); }} title="Play">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                   </button>

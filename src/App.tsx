@@ -1063,11 +1063,13 @@ function App() {
         specs.push({ kind: "item", text: isMulti ? `Play ${target.trackIds.length} tracks` : "Play", action: contextMenuActions.handleContextPlay });
         specs.push({ kind: "item", text: isMulti ? `Enqueue ${target.trackIds.length} tracks` : "Enqueue", action: contextMenuActions.handleContextEnqueue });
       }
-      if (hasId && (target.kind === "artist" || target.kind === "album")) {
+      if (hasId && (target.kind === "artist" || target.kind === "album" || target.kind === "tag")) {
         const refreshAction = target.kind === "artist" && target.artistId
           ? () => artistImageCache.forceFetchImage({ id: target.artistId!, name: target.name })
           : target.kind === "album" && target.albumId
           ? () => albumImageCache.forceFetchImage({ id: target.albumId!, title: target.title, artist_name: target.artistName })
+          : target.kind === "tag" && target.tagId
+          ? () => tagImageCache.forceFetchImage({ id: target.tagId!, name: target.name })
           : null;
         if (refreshAction) {
           specs.push({ kind: "item", text: "Refresh Image", action: refreshAction });
