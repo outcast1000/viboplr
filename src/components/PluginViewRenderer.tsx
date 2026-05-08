@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
 import type { PluginViewData, CardGridItem, StatItem, TrackRowItem, PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
@@ -708,6 +708,11 @@ function PluginTextInput({
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
   const [text, setText] = useState(value ?? "");
+  const prevValue = useRef(value);
+  if (value !== prevValue.current) {
+    prevValue.current = value;
+    setText(value ?? "");
+  }
   if (multiline) {
     return (
       <textarea

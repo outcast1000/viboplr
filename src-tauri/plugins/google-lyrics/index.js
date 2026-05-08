@@ -2,45 +2,24 @@ function activate(api) {
   var SEARCH_TIMEOUT = 10000;
   var POLL_INTERVAL = 500;
 
-  var blacklist = [];
+  var blacklist = ["chatzi.org"];
+  var preferred = ["stixoi.info", "genius.com"];
   var searchSuffix = "lyrics";
-  var showBrowser = false;
-  var debugDirPath = "";
   var domainStats = {};
   var testArtist = "Τρύπες";
   var testTitle = "Παράξενη Πόλη";
   var testState = { status: "idle", steps: [] };
 
+  // Step-by-step debugger state
+  var dbgTest = {
+    status: "idle", // idle | searching | results | scraping | done
+    handle: null,
+    results: [],
+    selectedUrl: "",
+    scrapeResult: null,
+  };
+
   var MIN_WORD_COUNT = 20;
-
-  // --- Debug helpers ---
-
-  function resolveDebugDir() {
-    return api.storage.files.getPath(["debug"]).then(function (p) {
-      debugDirPath = p;
-    }).catch(console.error);
-  }
-
-  function dumpDebug(domain, url, html, lyrics) {
-    if (!showBrowser) return Promise.resolve(null);
-    var ts = Date.now();
-    var base = domain.replace(/\./g, "_") + "_" + ts;
-    var htmlFile = base + ".html";
-    var lyricsFile = base + "_lyrics.txt";
-    var htmlPromise = api.storage.files.writeText(["debug", htmlFile], "<!-- " + url + " -->\n" + html).catch(console.error);
-    var lyricsPromise = lyrics
-      ? api.storage.files.writeText(["debug", lyricsFile], "<!-- " + url + " -->\n" + lyrics).catch(console.error)
-      : Promise.resolve();
-    return Promise.all([htmlPromise, lyricsPromise]).then(function () {
-      return api.storage.files.getPath(["debug", htmlFile]);
-    }).then(function (path) {
-      api.log("info", "Debug dump: " + path, "google-lyrics");
-      return path;
-    }).catch(function (e) {
-      console.error("Failed to write debug files:", e);
-      return null;
-    });
-  }
 
   // --- Domain statistics ---
 
@@ -85,21 +64,21 @@ function activate(api) {
     return api.storage.get("blacklist").then(function (saved) {
       if (Array.isArray(saved)) blacklist = saved;
     }).then(function () {
-      return api.storage.get("search_suffix").then(function (val) {
-        if (typeof val === "string") searchSuffix = val;
+      return api.storage.get("preferred").then(function (saved) {
+        if (Array.isArray(saved)) preferred = saved;
       });
     }).then(function () {
-      return api.storage.get("show_browser").then(function (val) {
-        if (val !== null && val !== undefined) showBrowser = !!val;
+      return api.storage.get("search_suffix").then(function (val) {
+        if (typeof val === "string") searchSuffix = val;
       });
     }).then(loadStats);
   }
 
   function saveSettings() {
     return api.storage.set("blacklist", blacklist).then(function () {
-      return api.storage.set("search_suffix", searchSuffix);
+      return api.storage.set("preferred", preferred);
     }).then(function () {
-      return api.storage.set("show_browser", showBrowser);
+      return api.storage.set("search_suffix", searchSuffix);
     });
   }
 
@@ -138,17 +117,15 @@ function activate(api) {
       { type: "text-input", placeholder: "lyrics", action: "update-suffix", value: searchSuffix },
     ];
 
+    var preferredChildren = [
+      { type: "text", content: "<span style=\"font-size:var(--fs-xs);color:var(--text-secondary)\">One domain per line. Results matching these domains are tried first.</span>" },
+      { type: "text-input", placeholder: "genius.com", action: "update-preferred", value: preferred.join("\n"), multiline: true, rows: 3 },
+    ];
+
     var blacklistChildren = [
       { type: "text", content: "<span style=\"font-size:var(--fs-xs);color:var(--text-secondary)\">One domain per line. Search results matching these domains will be skipped.</span>" },
       { type: "text-input", placeholder: "example.com", action: "update-blacklist", value: blacklist.join("\n"), multiline: true, rows: 4 },
     ];
-
-    var advancedChildren = [
-      { type: "toggle", label: "Show browser window while scraping", checked: showBrowser, action: "toggle-show-browser" },
-    ];
-    if (showBrowser && debugDirPath) {
-      advancedChildren.push({ type: "text", content: "<span style=\"font-size:var(--fs-xs);color:var(--text-secondary)\">Debug pages saved to: " + debugDirPath + "</span>" });
-    }
 
     var statsRows = [];
     var hasSomeStats = false;
@@ -182,9 +159,10 @@ function activate(api) {
       type: "layout",
       direction: "vertical",
       children: [
+        buildDebugTestSection(),
         {
           type: "section",
-          title: "Test",
+          title: "Test (auto)",
           children: testRows,
         },
         {
@@ -194,18 +172,18 @@ function activate(api) {
         },
         {
           type: "section",
-          title: "Blacklisted Domains",
+          title: "Preferred Sites",
+          children: preferredChildren,
+        },
+        {
+          type: "section",
+          title: "Blocked Domains",
           children: blacklistChildren,
         },
         {
           type: "section",
           title: "Statistics",
           children: statsRows,
-        },
-        {
-          type: "section",
-          title: "Advanced",
-          children: advancedChildren,
         },
       ],
     });
@@ -214,6 +192,13 @@ function activate(api) {
   api.ui.onAction("update-suffix", function (data) {
     if (data && data.value !== undefined) {
       searchSuffix = data.value;
+      saveSettings();
+    }
+  });
+
+  api.ui.onAction("update-preferred", function (data) {
+    if (data && data.value !== undefined) {
+      preferred = data.value.split("\n").map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
       saveSettings();
     }
   });
@@ -228,16 +213,6 @@ function activate(api) {
   api.ui.onAction("reset-stats", function () {
     domainStats = {};
     saveStats().then(renderSettings);
-  });
-
-  api.ui.onAction("toggle-show-browser", function () {
-    showBrowser = !showBrowser;
-    saveSettings();
-    if (showBrowser && !debugDirPath) {
-      resolveDebugDir().then(renderSettings);
-    } else {
-      renderSettings();
-    }
   });
 
   api.ui.onAction("test-artist", function (data) {
@@ -265,7 +240,7 @@ function activate(api) {
     }
 
     var query = buildQuery(artist, title);
-    var steps = ["Query: <b>" + query + "</b>", showBrowser ? "Opening Google window..." : "Opening hidden Google window..."];
+    var steps = ["Query: <b>" + query + "</b>", "Searching..."];
     testState = { status: "searching", steps: steps };
     renderSettings();
 
@@ -307,7 +282,6 @@ function activate(api) {
         return scrapeLyrics(found.url).then(function (result) {
           if (!result || !result.text) {
             steps.push("No lyrics found (score: " + (result ? result.score : 0) + ", need " + MIN_WORD_COUNT + "+ words).");
-            if (result && result.html) dumpDebug(found.domain, found.url, result.html, null);
             if (idx < candidates.length - 1) {
               steps.push("Trying next candidate...");
               renderSettings();
@@ -317,12 +291,9 @@ function activate(api) {
             var preview = result.text.length > 200 ? result.text.substring(0, 200) + "..." : result.text;
             steps.push("Found " + result.text.length + " chars (" + result.words + " words, score: " + Math.round(result.score) + ").");
             steps.push("<i>" + preview.replace(/\n/g, " / ") + "</i>");
-            dumpDebug(found.domain, found.url, result.html || "", result.text).then(function (path) {
-              if (path) steps.push("Saved debug dump: " + path);
-              closeScrapeWindow();
-              testState = { status: "done", steps: steps };
-              renderSettings();
-            });
+            closeScrapeWindow();
+            testState = { status: "done", steps: steps };
+            renderSettings();
             return;
           }
           closeScrapeWindow();
@@ -347,11 +318,261 @@ function activate(api) {
 
   api.ui.onAction("test-search", runTestSearch);
 
-  loadSettings().then(function () {
-    return resolveDebugDir();
-  }).then(function () {
+  // --- Step-by-step debugger ---
+
+  function dbgStart() {
+    var artist = testArtist.trim();
+    var title = testTitle.trim();
+    if (!artist && !title) return;
+
+    var query = buildQuery(artist, title);
+    var searchUrl = "https://www.google.com/search?q=" + encodeURIComponent(query);
+
+    dbgTest.status = "searching";
+    dbgTest.results = [];
+    dbgTest.selectedUrl = "";
+    dbgTest.scrapeResult = null;
+    renderSettings();
+
+    api.network.openBrowseWindow(searchUrl, {
+      visible: true,
+      title: "Google Lyrics Debug",
+      width: 900,
+      height: 700,
+    }).then(function (handle) {
+      dbgTest.handle = handle;
+      renderSettings();
+
+      var settled = false;
+      var pollTimer = null;
+      var deadline = null;
+
+      function finish(urls) {
+        if (settled) return;
+        settled = true;
+        if (pollTimer) clearInterval(pollTimer);
+        if (deadline) clearTimeout(deadline);
+        dbgTest.results = filterResults(urls || []);
+        dbgTest.status = "results";
+        if (dbgTest.results.length > 0) dbgTest.selectedUrl = dbgTest.results[0].url;
+        renderSettings();
+      }
+
+      handle.onMessage(function (msg) {
+        if (msg.type === "search-results" && Array.isArray(msg.data)) {
+          finish(msg.data);
+        }
+        if (msg.type === "lyrics-result" && dbgTest.status === "scraping") {
+          dbgTest.scrapeResult = msg.data;
+          dbgTest.status = "done";
+          renderSettings();
+        }
+      });
+
+      pollTimer = setInterval(function () {
+        handle.eval(GOOGLE_EXTRACT_SCRIPT).catch(function () {});
+      }, POLL_INTERVAL);
+
+      deadline = setTimeout(function () { finish([]); }, SEARCH_TIMEOUT);
+    }).catch(function (e) {
+      console.error("Debugger failed to open window:", e);
+      dbgTest.status = "idle";
+      renderSettings();
+    });
+  }
+
+  function dbgScrapeUrl(url) {
+    if (!dbgTest.handle || !url) return;
+    dbgTest.status = "scraping";
+    dbgTest.scrapeResult = null;
+    renderSettings();
+
+    var escaped = url.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    dbgTest.handle.eval("window.location.href = '" + escaped + "'").catch(function () {
+      dbgTest.status = "done";
+      dbgTest.scrapeResult = { text: null };
+      renderSettings();
+    });
+
+    setTimeout(function () {
+      if (dbgTest.status !== "scraping") return;
+      var pollTimer = setInterval(function () {
+        if (dbgTest.status !== "scraping") { clearInterval(pollTimer); return; }
+        dbgTest.handle.eval(LYRICS_EXTRACT_SCRIPT).catch(function () {});
+      }, POLL_INTERVAL);
+      setTimeout(function () {
+        clearInterval(pollTimer);
+        if (dbgTest.status === "scraping") {
+          dbgTest.status = "done";
+          dbgTest.scrapeResult = { text: null, timeout: true };
+          renderSettings();
+        }
+      }, SCRAPE_TIMEOUT);
+    }, SCRAPE_NAV_DELAY);
+  }
+
+  function dbgStop() {
+    if (dbgTest.handle) {
+      dbgTest.handle.close().catch(console.error);
+      dbgTest.handle = null;
+    }
+    dbgTest.status = "idle";
+    dbgTest.results = [];
+    dbgTest.scrapeResult = null;
+    renderSettings();
+  }
+
+  function buildDebugTestSection() {
+    var children = [];
+    var idle = dbgTest.status === "idle";
+    var searching = dbgTest.status === "searching";
+    var hasHandle = !!dbgTest.handle;
+
+    // Input + Start/Stop + DevTools
+    var buttons = [];
+    if (idle || dbgTest.status === "done") {
+      buttons.push({ type: "button", label: "Start", action: "dbg-start", variant: "accent", style: { padding: "3px 14px" } });
+    }
+    if (!idle) {
+      buttons.push({ type: "button", label: "Reset", action: "dbg-stop", variant: "secondary", style: { padding: "3px 10px" } });
+    }
+    if (hasHandle) {
+      buttons.push({ type: "button", label: "DevTools", action: "dbg-devtools", variant: "secondary", style: { padding: "3px 10px" } });
+    }
+
+    children.push({
+      type: "layout", direction: "horizontal", style: { gap: "8px", "align-items": "center" },
+      children: [
+        { type: "text-input", placeholder: "Artist", action: "test-artist", value: testArtist, style: { flex: "1" }, disabled: !idle },
+        { type: "text-input", placeholder: "Title", action: "test-title", value: testTitle, style: { flex: "1" }, disabled: !idle },
+      ].concat(buttons),
+    });
+
+    // Status
+    if (searching) {
+      children.push({ type: "text", content: "<p style=\"font-size:var(--fs-xs)\">Searching Google (visible window)...</p>" });
+    }
+
+    // Step 2: Show results as clickable links
+    if (dbgTest.status === "results" || dbgTest.status === "scraping" || dbgTest.status === "done") {
+      if (dbgTest.results.length === 0) {
+        children.push({ type: "text", content: "<p style=\"font-size:var(--fs-xs);color:var(--error)\">No results found from Google.</p>" });
+      } else {
+        children.push({ type: "text", content: "<p style=\"font-size:var(--fs-xs)\"><b>Search results (" + dbgTest.results.length + "):</b></p>" });
+        var resultOptions = dbgTest.results.map(function (r) { return { value: r.url, label: r.domain + " — " + r.url.substring(0, 60) }; });
+        children.push({
+          type: "select", options: resultOptions, value: dbgTest.selectedUrl, action: "dbg-select-url",
+        });
+        if (dbgTest.status === "results") {
+          children.push({
+            type: "button", label: "Scrape Lyrics", action: "dbg-scrape", variant: "accent", style: { padding: "3px 14px", "margin-top": "4px" },
+          });
+        }
+      }
+    }
+
+    // Step 3: Scrape status
+    if (dbgTest.status === "scraping") {
+      children.push({ type: "text", content: "<p style=\"font-size:var(--fs-xs)\">Navigating and extracting lyrics...</p>" });
+    }
+
+    // Step 4: Result
+    if (dbgTest.status === "done" && dbgTest.scrapeResult) {
+      var res = dbgTest.scrapeResult;
+      if (res.text) {
+        children.push({ type: "text", content: "<p style=\"font-size:var(--fs-xs);color:var(--success)\"><b>Lyrics found!</b> " + res.words + " words, score: " + Math.round(res.score) + "</p>" });
+        children.push({ type: "text", content: "<pre style=\"font-size:var(--fs-2xs);max-height:400px;overflow:auto;white-space:pre-wrap;padding:8px;background:var(--bg-tertiary);border-radius:var(--ds-radius)\">" + res.text.replace(/</g, "&lt;") + "</pre>" });
+      } else if (res.timeout) {
+        children.push({ type: "text", content: "<p style=\"font-size:var(--fs-xs);color:var(--error)\">Timeout — no lyrics extracted within " + (SCRAPE_TIMEOUT / 1000) + "s.</p>" });
+      } else {
+        children.push({ type: "text", content: "<p style=\"font-size:var(--fs-xs);color:var(--error)\">No lyrics found on this page (below " + MIN_WORD_COUNT + " word threshold).</p>" });
+      }
+      // Allow trying another URL + domain actions
+      var currentDomain = dbgTest.selectedUrl ? domainFromUrl(dbgTest.selectedUrl) : "";
+      if (dbgTest.results.length > 0) {
+        children.push({
+          type: "layout", direction: "horizontal", style: { gap: "8px", "align-items": "center", "margin-top": "4px" },
+          children: [
+            { type: "button", label: "Try Another URL", action: "dbg-retry", variant: "secondary", style: { padding: "3px 14px" } },
+            { type: "button", label: "Add \"" + currentDomain + "\" to Preferred", action: "dbg-add-preferred", variant: "secondary", style: { padding: "3px 10px", "font-size": "var(--fs-2xs)" } },
+            { type: "button", label: "Add \"" + currentDomain + "\" to Blocked", action: "dbg-add-blacklist", variant: "secondary", style: { padding: "3px 10px", "font-size": "var(--fs-2xs)" } },
+          ],
+        });
+      }
+    }
+
+    // Also show domain action buttons when viewing results (before scraping)
+    if (dbgTest.status === "results" && dbgTest.selectedUrl) {
+      var selDomain = domainFromUrl(dbgTest.selectedUrl);
+      children.push({
+        type: "layout", direction: "horizontal", style: { gap: "8px", "align-items": "center", "margin-top": "4px" },
+        children: [
+          { type: "button", label: "Add \"" + selDomain + "\" to Preferred", action: "dbg-add-preferred", variant: "secondary", style: { padding: "3px 10px", "font-size": "var(--fs-2xs)" } },
+          { type: "button", label: "Add \"" + selDomain + "\" to Blocked", action: "dbg-add-blacklist", variant: "secondary", style: { padding: "3px 10px", "font-size": "var(--fs-2xs)" } },
+        ],
+      });
+    }
+
+    return { type: "section", title: "Step-by-Step Debugger", children: children };
+  }
+
+  api.ui.onAction("dbg-start", dbgStart);
+  api.ui.onAction("dbg-stop", dbgStop);
+
+  api.ui.onAction("dbg-devtools", function () {
+    if (dbgTest.handle && dbgTest.handle.devtools) {
+      dbgTest.handle.devtools().catch(console.error);
+    }
+  });
+
+  api.ui.onAction("dbg-select-url", function (data) {
+    if (data && data.value !== undefined) {
+      dbgTest.selectedUrl = data.value;
+      renderSettings();
+    }
+  });
+
+  api.ui.onAction("dbg-scrape", function () {
+    dbgScrapeUrl(dbgTest.selectedUrl);
+  });
+
+  api.ui.onAction("dbg-retry", function () {
+    dbgTest.status = "results";
+    dbgTest.scrapeResult = null;
     renderSettings();
   });
+
+  api.ui.onAction("dbg-add-preferred", function () {
+    if (!dbgTest.selectedUrl) return;
+    var domain = domainFromUrl(dbgTest.selectedUrl);
+    if (!domain) return;
+    for (var i = 0; i < preferred.length; i++) {
+      if (preferred[i].toLowerCase() === domain.toLowerCase()) {
+        api.log("info", "Domain already in preferred: " + domain, "google-lyrics");
+        return;
+      }
+    }
+    preferred.push(domain);
+    api.log("info", "Added to preferred: " + domain, "google-lyrics");
+    saveSettings().then(renderSettings);
+  });
+
+  api.ui.onAction("dbg-add-blacklist", function () {
+    if (!dbgTest.selectedUrl) return;
+    var domain = domainFromUrl(dbgTest.selectedUrl);
+    if (!domain) return;
+    for (var i = 0; i < blacklist.length; i++) {
+      if (blacklist[i].toLowerCase() === domain.toLowerCase()) {
+        api.log("info", "Domain already in blacklist: " + domain, "google-lyrics");
+        return;
+      }
+    }
+    blacklist.push(domain);
+    api.log("info", "Added to blacklist: " + domain, "google-lyrics");
+    saveSettings().then(renderSettings);
+  });
+
+  loadSettings().then(renderSettings);
 
   // --- Browse window scraping ---
 
@@ -455,11 +676,8 @@ function activate(api) {
       scrapeHandle = null;
     }
 
-    var windowTitle = showBrowser ? "Google Lyrics Debug" + (debugDirPath ? " — " + debugDirPath : "") : undefined;
-
     return api.network.openBrowseWindow(searchUrl, {
-      visible: showBrowser,
-      title: windowTitle,
+      visible: false,
       width: 800,
       height: 600,
     }).then(function (handle) {
@@ -542,21 +760,34 @@ function activate(api) {
 
   function closeScrapeWindow() {
     if (!scrapeHandle) return;
-    if (!showBrowser) {
-      scrapeHandle.close().catch(console.error);
-    }
+    scrapeHandle.close().catch(console.error);
     scrapeHandle = null;
   }
 
+  function isPreferred(url) {
+    var lower = url.toLowerCase();
+    for (var i = 0; i < preferred.length; i++) {
+      if (preferred[i] && lower.indexOf(preferred[i].toLowerCase()) !== -1) return true;
+    }
+    return false;
+  }
+
   function filterResults(results) {
-    var found = [];
+    var preferredList = [];
+    var otherList = [];
+    var seen = {};
     for (var i = 0; i < results.length; i++) {
-      var url = results[i];
-      if (!isBlacklisted(url)) {
-        found.push({ url: url, domain: domainFromUrl(url) });
+      var url = results[i].split("#")[0];
+      if (!url || seen[url] || isBlacklisted(url)) continue;
+      seen[url] = true;
+      var entry = { url: url, domain: domainFromUrl(url) };
+      if (isPreferred(url)) {
+        preferredList.push(entry);
+      } else {
+        otherList.push(entry);
       }
     }
-    return found;
+    return preferredList.concat(otherList);
   }
 
   // --- Scrape & extract ---
@@ -564,11 +795,9 @@ function activate(api) {
   function fetchAndExtract(url, domain) {
     return scrapeLyrics(url).then(function (result) {
       if (!result || !result.text) {
-        if (result && result.html) dumpDebug(domain, url, result.html, null);
         recordStat(domain, false);
         return null;
       }
-      dumpDebug(domain, url, result.html || "", result.text);
       recordStat(domain, true);
       return result.text;
     }).catch(function (e) {
