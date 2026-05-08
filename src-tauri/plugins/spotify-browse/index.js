@@ -507,18 +507,6 @@ function activate(api) {
     }).catch(console.error);
   }
 
-  function formatRelativeTime(isoStr) {
-    if (!isoStr) return "";
-    var diff = Date.now() - new Date(isoStr).getTime();
-    var mins = Math.floor(diff / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return mins + "m ago";
-    var hrs = Math.floor(mins / 60);
-    if (hrs < 24) return hrs + "h ago";
-    var days = Math.floor(hrs / 24);
-    return days + "d ago";
-  }
-
   function recordCheckResult(playlists, errors) {
     state.lastCheckAt = new Date().toISOString();
     state.lastCheckResult = playlists + " playlists";
@@ -846,6 +834,7 @@ function activate(api) {
 
     ch.push({ type: "toggle", label: "Show browser window during refresh", checked: state.showBrowserOnRefresh, action: "toggle-show-browser-pref" });
 
+    ch.push(buildDebugTestSection());
     ch.push(buildDiagnosticsSection());
 
     api.ui.setViewData("spotify-settings", {
@@ -933,6 +922,327 @@ function activate(api) {
     children.push({ type: "text", content: "<p><i>Detailed logs are written to the app log file (filter by spotify-browse).</i></p>" });
 
     return { type: "section", title: "Diagnostics", children: children };
+  }
+
+  // ---- Interactive step-by-step debugger ----
+
+  var dbgTest = {
+    status: "idle", // idle | running | waiting | done
+    sectionName: "Made for You",
+    currentStep: 0,
+    steps: [],
+    handle: null,
+    playlists: [],
+    selectedPlaylist: "",
+  };
+
+  var DBG_STEPS = [
+    { id: "login", label: "1. Check Login" },
+    { id: "find-section", label: "2. Find Section" },
+    { id: "scrape-playlists", label: "3. Scrape Playlists" },
+    { id: "scrape-tracks", label: "4. Scrape Tracks" },
+  ];
+
+  function dbgStart() {
+    dbgTest.status = "waiting";
+    dbgTest.currentStep = 0;
+    dbgTest.steps = [];
+    dbgTest.playlists = [];
+    dbgTest.selectedPlaylist = "";
+    renderSettings();
+  }
+
+  function dbgRunStep(stepId) {
+    if (stepId === "login") {
+      dbgTest.steps.push({ id: "login", status: "running", source: "live", log: [] });
+      dbgTest.status = "running";
+      renderSettings();
+      dbgOpenLiveWindow().then(function () {
+        dbgCheckLogin();
+      }).catch(function (e) {
+        dbgStepFail("login", "Failed to open window: " + e);
+      });
+    } else if (stepId === "find-section") {
+      dbgTest.steps.push({ id: "find-section", status: "running", source: "live", log: [] });
+      dbgTest.status = "running";
+      renderSettings();
+      dbgEvalAndWait(scriptFindSection(dbgTest.sectionName), "section-found", 15000, function (data) {
+        setTimeout(function () {
+          dbgStepDone("find-section", "Section found: " + escapeHtml(safeStringify(data)));
+        }, 4000);
+      }, function () {
+        dbgStepFail("find-section", "Section '" + escapeHtml(dbgTest.sectionName) + "' not found");
+      });
+    } else if (stepId === "scrape-playlists") {
+      dbgTest.steps.push({ id: "scrape-playlists", status: "running", source: "live", log: [] });
+      dbgTest.status = "running";
+      renderSettings();
+      setTimeout(function () {
+        dbgEvalAndWait(SCRIPT_SCRAPE_PLAYLISTS, "playlists", 15000, function (data) {
+          var pls = Array.isArray(data) ? data : [];
+          dbgTest.playlists = pls;
+          if (pls.length > 0) dbgTest.selectedPlaylist = pls[0].id;
+          var names = pls.map(function (p) { return p.name; }).slice(0, 10);
+          dbgStepDone("scrape-playlists", "Found <b>" + pls.length + "</b> playlist(s): " + names.map(escapeHtml).join(", ") + (pls.length > 10 ? "..." : ""));
+        }, function () {
+          dbgStepFail("scrape-playlists", "No playlists found (timeout)");
+        });
+      }, 4000);
+    } else if (stepId === "scrape-tracks") {
+      dbgTest.steps.push({ id: "scrape-tracks", status: "running", source: "live", log: [] });
+      dbgTest.status = "running";
+      renderSettings();
+      var plId = dbgTest.selectedPlaylist;
+      if (!plId) {
+        dbgStepFail("scrape-tracks", "No playlist selected");
+        return;
+      }
+      dbgTest.handle.eval(scriptNavigatePlaylist(plId)).catch(console.error);
+      setTimeout(function () {
+        dbgTest.handle.eval(scriptScrollThenScrape(plId, 999)).catch(console.error);
+        dbgWaitForMessage("tracks", 30000, function (data) {
+          if (data && data.tracks) {
+            dbgStepDone("scrape-tracks", "Found <b>" + data.tracks.length + "</b> track(s)" + (data.error ? " (with error: " + escapeHtml(data.error) + ")" : ""));
+          } else {
+            dbgStepFail("scrape-tracks", "No tracks data received");
+          }
+        }, function () {
+          dbgStepFail("scrape-tracks", "Track scrape timeout");
+        });
+      }, 5000);
+    }
+  }
+
+  function dbgOpenLiveWindow() {
+    if (dbgTest.handle) return Promise.resolve();
+    return api.network.openBrowseWindow("https://open.spotify.com", {
+      title: "Spotify Debug",
+      width: 1200,
+      height: 800,
+      visible: true,
+    }).then(function (h) {
+      dbgTest.handle = h;
+      h.onMessage(function (msg) {
+        if (msg.type === "dbg" && msg.data) {
+          var step = dbgTest.steps[dbgTest.steps.length - 1];
+          if (step) step.log.push("[" + (msg.data.tag || "?") + "] " + (msg.data.msg || ""));
+        }
+        if (dbgTest._msgHandler) dbgTest._msgHandler(msg);
+      });
+    });
+  }
+
+  function dbgFormatLoginResult(data) {
+    var details = "";
+    if (data && data.signals) {
+      var pos = [];
+      var neg = [];
+      var sigs = data.signals;
+      if (sigs.sessionTag) pos.push("sessionTag");
+      if (sigs.userWidget) pos.push("userWidget");
+      if (sigs.userBox) pos.push("userBox");
+      if (sigs.avatar) pos.push("avatar");
+      if (sigs.accountLink) pos.push("accountLink");
+      if (sigs.libraryBtn) pos.push("libraryBtn");
+      if (sigs.createPlaylist) pos.push("createPlaylist");
+      if (sigs.globalNav) pos.push("globalNav");
+      if (sigs.leftSidebar) pos.push("leftSidebar");
+      if (sigs.nowPlayingBar) pos.push("nowPlayingBar");
+      if (sigs.mainNav) pos.push("mainNav");
+      if (sigs.loginBtn) neg.push("loginBtn");
+      if (sigs.signupBtn) neg.push("signupBtn");
+      if (sigs.signupBar) neg.push("signupBar");
+      if (sigs.loginLink) neg.push("loginLink");
+      details = "<br/>Positive signals: <b>" + (pos.length > 0 ? pos.join(", ") : "none") + "</b>";
+      details += "<br/>Negative signals: <b>" + (neg.length > 0 ? neg.join(", ") : "none") + "</b>";
+      if (data.url) details += "<br/>URL: " + escapeHtml(data.url);
+    }
+    if (data && data.pageDump) {
+      details += "<br/>Page dump: " + escapeHtml(safeStringify(data.pageDump)).substring(0, 300);
+    }
+    return details;
+  }
+
+  function dbgCheckLogin() {
+    var retries = 0;
+    var maxRetries = 15;
+    var lastData = null;
+    var pollTimer = null;
+
+    function finish(success, message) {
+      if (success) dbgStepDone("login", message);
+      else dbgStepFail("login", message);
+    }
+
+    function attempt() {
+      retries++;
+      dbgTest._msgHandler = function (msg) {
+        if (msg.type === "login-check" && msg.data) {
+          lastData = msg.data;
+          dbgTest._msgHandler = null;
+          var hasPositive = lastData.signals && (lastData.signals.sessionTag || lastData.signals.userWidget || lastData.signals.userBox || lastData.signals.avatar || lastData.signals.accountLink || lastData.signals.libraryBtn || lastData.signals.createPlaylist || lastData.signals.globalNav || lastData.signals.leftSidebar || lastData.signals.nowPlayingBar || lastData.signals.mainNav);
+          var hasNegative = lastData.signals && (lastData.signals.loginBtn || lastData.signals.signupBtn || lastData.signals.signupBar || lastData.signals.loginLink);
+
+          if (lastData.loggedIn) {
+            if (pollTimer) clearInterval(pollTimer);
+            var details = dbgFormatLoginResult(lastData);
+            finish(true, "Logged in (attempt " + retries + "/" + maxRetries + ")" + details);
+          } else if (hasNegative) {
+            if (pollTimer) clearInterval(pollTimer);
+            var details = dbgFormatLoginResult(lastData);
+            finish(false, "Not logged in (attempt " + retries + "/" + maxRetries + ")" + details);
+          } else if (retries >= maxRetries) {
+            if (pollTimer) clearInterval(pollTimer);
+            var details = dbgFormatLoginResult(lastData);
+            finish(false, "No clear signal after " + maxRetries + " attempts" + details);
+          }
+          // else: no clear signal yet, keep polling
+        }
+      };
+      dbgTest.handle.eval(SCRIPT_CHECK_LOGIN).catch(function () {
+        if (retries >= maxRetries) {
+          if (pollTimer) clearInterval(pollTimer);
+          finish(false, "Script evaluation failed");
+        }
+      });
+    }
+
+    // Wait 2s for initial page load, then poll every 3s
+    setTimeout(function () {
+      attempt();
+      pollTimer = setInterval(attempt, 3000);
+    }, 2000);
+  }
+
+  function dbgEvalAndWait(script, msgType, timeout, onSuccess, onTimeout) {
+    dbgWaitForMessage(msgType, timeout, onSuccess, onTimeout);
+    dbgTest.handle.eval(script).catch(function (e) {
+      onTimeout();
+    });
+  }
+
+  function dbgWaitForMessage(msgType, timeout, onSuccess, onTimeout) {
+    var settled = false;
+    var timer = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      dbgTest._msgHandler = null;
+      onTimeout();
+    }, timeout);
+
+    dbgTest._msgHandler = function (msg) {
+      if (msg.type === msgType) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        dbgTest._msgHandler = null;
+        onSuccess(msg.data);
+      }
+    };
+  }
+
+  function dbgStepDone(stepId, message) {
+    var step = dbgTest.steps.find(function (s) { return s.id === stepId; });
+    if (step) { step.status = "done"; step.result = message; }
+    dbgTest.status = "waiting";
+    dbgTest.currentStep++;
+    renderSettings();
+  }
+
+  function dbgStepFail(stepId, message) {
+    var step = dbgTest.steps.find(function (s) { return s.id === stepId; });
+    if (step) { step.status = "failed"; step.result = message; }
+    dbgTest.status = "waiting";
+    dbgTest.currentStep++;
+    renderSettings();
+  }
+
+  function dbgStop() {
+    if (dbgTest.handle) {
+      dbgTest.handle.close().catch(console.error);
+      dbgTest.handle = null;
+    }
+    dbgTest._msgHandler = null;
+    dbgTest.status = "idle";
+    dbgTest.steps = [];
+    dbgTest.playlists = [];
+    renderSettings();
+  }
+
+  function buildDebugTestSection() {
+    var children = [];
+    var running = dbgTest.status === "running";
+    var waiting = dbgTest.status === "waiting";
+    var idle = dbgTest.status === "idle";
+
+    // Section name input + Start/Stop
+    var headerButtons = [];
+    if (running) {
+      headerButtons.push({ type: "button", label: "Stop", action: "dbg-stop", variant: "secondary", style: { padding: "3px 14px" } });
+    } else if (idle) {
+      headerButtons.push({ type: "button", label: "Start", action: "dbg-start", variant: "accent", style: { padding: "3px 14px" } });
+    } else {
+      headerButtons.push({ type: "button", label: "Reset", action: "dbg-stop", variant: "secondary", style: { padding: "3px 10px" } });
+    }
+    if (dbgTest.handle) {
+      headerButtons.push({ type: "button", label: "DevTools", action: "dbg-devtools", variant: "secondary", style: { padding: "3px 10px" } });
+    }
+
+    children.push({
+      type: "layout", direction: "horizontal", style: { gap: "8px", "align-items": "center" },
+      children: [
+        { type: "text-input", placeholder: "Section name (e.g. Made for You)", action: "dbg-section-name", value: dbgTest.sectionName, style: { flex: "1" }, disabled: running || waiting },
+      ].concat(headerButtons),
+    });
+
+    // Step results
+    for (var i = 0; i < dbgTest.steps.length; i++) {
+      var step = dbgTest.steps[i];
+      var icon = step.status === "done" ? "✓" : step.status === "failed" ? "✗" : "⋯";
+      var color = step.status === "done" ? "var(--success)" : step.status === "failed" ? "var(--error)" : "var(--text-secondary)";
+      var stepLabel = DBG_STEPS.find(function (s) { return s.id === step.id; });
+      var content = "<div style=\"font-size:var(--fs-xs);padding:4px 0;border-bottom:1px solid var(--border)\">" +
+        "<span style=\"color:" + color + ";font-weight:bold\">" + icon + "</span> " +
+        "<b>" + (stepLabel ? stepLabel.label : step.id) + "</b>" +
+        " <span style=\"opacity:0.6\">(" + step.source + ")</span>" +
+        (step.result ? "<br/>" + step.result : "") +
+        "</div>";
+      children.push({ type: "text", content: content });
+
+      // Show logs if step failed
+      if (step.status === "failed" && step.log && step.log.length > 0) {
+        var logHtml = step.log.slice(-10).map(function (l) {
+          return "<p style=\"margin:1px 0;font-size:var(--fs-2xs);opacity:0.7\">" + escapeHtml(l) + "</p>";
+        }).join("");
+        children.push({ type: "text", content: "<div style=\"padding-left:16px\">" + logHtml + "</div>" });
+      }
+    }
+
+    // Next step source choice (when waiting and steps remain)
+    if (waiting && dbgTest.currentStep < DBG_STEPS.length) {
+      var nextStep = DBG_STEPS[dbgTest.currentStep];
+      children.push({ type: "text", content: "<p style=\"font-size:var(--fs-xs);margin-top:8px\"><b>Next:</b> " + nextStep.label + "</p>" });
+
+      // Playlist selector for track scraping step
+      if (nextStep.id === "scrape-tracks" && dbgTest.playlists.length > 0) {
+        children.push({
+          type: "select", label: "Playlist to scrape", action: "dbg-select-playlist",
+          value: dbgTest.selectedPlaylist,
+          options: dbgTest.playlists.map(function (p) { return { value: p.id, label: p.name || p.id }; }),
+        });
+      }
+
+      children.push({
+        type: "button", label: "Run Step", action: "dbg-next-step", variant: "accent", style: { padding: "3px 14px", "margin-top": "4px" },
+      });
+    }
+
+    // All done
+    if (waiting && dbgTest.currentStep >= DBG_STEPS.length) {
+      children.push({ type: "text", content: "<p style=\"font-size:var(--fs-xs);margin-top:8px;color:var(--success)\"><b>All steps completed.</b></p>" });
+    }
+
+    return { type: "section", title: "Step-by-Step Debugger", children: children };
   }
 
   // ---- Injected scripts (plain strings for eval) ----
@@ -1142,83 +1452,71 @@ function activate(api) {
       IMG_HELPER +
       'var _gen=' + gen + ';' +
       '_dbg("tracks","=== START scrape for ' + playlistId + '",{url:location.href,gen:_gen});' +
-      // Scope to main content area to avoid sidebar rows
+      // Find the actual scroll container by walking up from the tracklist
       'var mainEl=document.querySelector("[data-testid=\\"playlist-tracklist\\"]")' +
         '||document.querySelector("main")||document;' +
-      'var sc=mainEl.closest?mainEl:document.scrollingElement;' +
-      'if(mainEl.scrollHeight>mainEl.clientHeight){sc=mainEl}' +
-      'else{sc=document.querySelector("main")||document.scrollingElement}' +
-      '_dbg("tracks","scroll container",{tag:sc.tagName,testid:sc.getAttribute&&sc.getAttribute("data-testid"),scrollH:sc.scrollHeight});' +
-      'var ph=0,stable=0,n=0;' +
-      'function tick(){' +
-        'sc.scrollTop=sc.scrollHeight;n++;' +
-        'if(sc.scrollHeight===ph){stable++}else{stable=0}' +
-        'ph=sc.scrollHeight;' +
-        'if(n%10===0)_dbg("tracks","scrolling",{tick:n,stable:stable,scrollH:sc.scrollHeight});' +
-        'if(stable>=3||n>=50){_dbg("tracks","scroll done",{ticks:n,finalH:sc.scrollHeight});scrape()}else{setTimeout(tick,800)}' +
+      'var sc=document.scrollingElement;' +
+      // Walk up from the tracklist to find the nearest scrollable ancestor
+      'var walker=mainEl;' +
+      'while(walker&&walker!==document.body){' +
+        'var cs=window.getComputedStyle(walker);' +
+        'var ov=cs.overflowY;' +
+        'if((ov==="auto"||ov==="scroll")&&walker.scrollHeight>walker.clientHeight){sc=walker;break}' +
+        'walker=walker.parentElement;' +
       '}' +
-      'function scrape(){try{' +
-        'var out=[];var skipped=0;' +
-        // Query rows only inside main content, not sidebar
+      '_dbg("tracks","scroll container",{tag:sc.tagName,testid:sc.getAttribute&&sc.getAttribute("data-testid"),scrollH:sc.scrollHeight,clientH:sc.clientHeight,overflow:window.getComputedStyle(sc).overflowY});' +
+      // Incremental scroll: move one viewport at a time, scrape visible rows at each stop
+      'var allOut=[];var seenKeys={};var n=0;var maxSteps=60;' +
+      'var step=Math.max(sc.clientHeight-50,200);' +
+      'sc.scrollTop=0;' +
+      'function parseVisibleRows(){' +
         'var scope=document.querySelector("[data-testid=\\"playlist-tracklist\\"]")||document.querySelector("main")||document;' +
         'var rows=scope.querySelectorAll("[role=\\"row\\"]");' +
-        '_dbg("tracks","rows found (scoped to main)",{count:rows.length,scopeTag:scope.tagName,scopeTestid:scope.getAttribute&&scope.getAttribute("data-testid")});' +
-        'for(var d=0;d<Math.min(rows.length,3);d++){' +
-          'var dr=rows[d];' +
-          'var gcells=dr.querySelectorAll("[role=\\"gridcell\\"]");' +
-          'var cellInfo=[];for(var dc=0;dc<gcells.length;dc++){cellInfo.push({idx:dc,text:gcells[dc].textContent.trim().substring(0,80),childCount:gcells[dc].children.length})}' +
-          '_dbg("tracks","row["+d+"] structure",{' +
-            'gridcells:gcells.length,' +
-            'cells:cellInfo,' +
-            'hasTrackLink:!!dr.querySelector("a[href*=\\"/track/\\"]"),' +
-            'hasArtistLink:!!dr.querySelector("a[href*=\\"/artist/\\"]"),' +
-            'hasAlbumLink:!!dr.querySelector("a[href*=\\"/album/\\"]"),' +
-            'hasInternalTrackLink:!!dr.querySelector("[data-testid=\\"internal-track-link\\"]"),' +
-            'hasDuration:!!dr.querySelector("[data-testid=\\"tracklist-duration\\"]"),' +
-            'outerHTML:dr.outerHTML.substring(0,300)' +
-          '});' +
-        '}' +
+        'var added=0;' +
         'for(var i=0;i<rows.length;i++){var r=rows[i];' +
           'var ne=r.querySelector("[data-testid=\\"internal-track-link\\"] div")' +
             '||r.querySelector("a[href*=\\"/track/\\"]")' +
             '||r.querySelector("[data-testid=\\"tracklist-row\\"] a");' +
-          'var nameSource="testid|track-link|tracklist-a";' +
           'if(!ne){var cells=r.querySelectorAll("[role=\\"gridcell\\"]");' +
-            'if(cells.length>=2){ne=cells[1].querySelector("a")||cells[1].querySelector("div>div>span")||cells[1].querySelector("span");nameSource="gridcell[1]"}}' +
+            'if(cells.length>=2){ne=cells[1].querySelector("a")||cells[1].querySelector("div>div>span")||cells[1].querySelector("span")}}' +
           'var nm=ne?ne.textContent.trim():"";' +
-          'if(!nm){' +
-            'if(i<5)_dbg("tracks","row["+i+"] SKIPPED no name",{' +
-              'gridcells:r.querySelectorAll("[role=\\"gridcell\\"]").length,' +
-              'allText:r.textContent.trim().substring(0,120),' +
-              'innerHTML:r.innerHTML.substring(0,300)' +
-            '});' +
-            'skipped++;continue}' +
+          'if(!nm)continue;' +
+          'var trkLink=r.querySelector("a[href*=\\"/track/\\"]");' +
+          'var spId=trkLink?trkLink.getAttribute("href").split("/track/")[1].split("?")[0]:null;' +
+          'var key=spId||nm;' +
+          'if(seenKeys[key])continue;seenKeys[key]=1;' +
           'var aLinks=r.querySelectorAll("a[href*=\\"/artist/\\"]");' +
           'var arts=[];for(var j=0;j<aLinks.length;j++){var at=aLinks[j].textContent.trim();if(at&&arts.indexOf(at)===-1)arts.push(at)}' +
-          'var artistSource="artist-links("+aLinks.length+")";' +
           'if(!arts.length){var cells2=r.querySelectorAll("[role=\\"gridcell\\"]");' +
             'if(cells2.length>=2){var spans=cells2[1].querySelectorAll("span");' +
               'for(var s=0;s<spans.length;s++){var st=spans[s].textContent.trim();' +
-                'if(st&&st!==nm&&st.indexOf(nm)===-1&&nm.indexOf(st)===-1){arts.push(st);artistSource="gridcell-span";break}}}}' +
+                'if(st&&st!==nm&&st.indexOf(nm)===-1&&nm.indexOf(st)===-1){arts.push(st);break}}}}' +
           'var alEl=r.querySelector("a[href*=\\"/album/\\"]");' +
           'var al=alEl?alEl.textContent.trim():"";' +
           'var du=r.querySelector("[data-testid=\\"tracklist-duration\\"]");' +
-          'var durSource="testid";' +
           'if(!du){var cells3=r.querySelectorAll("[role=\\"gridcell\\"]");' +
-            'if(cells3.length>0){du=cells3[cells3.length-1];durSource="last-gridcell"}}' +
+            'if(cells3.length>0){du=cells3[cells3.length-1]}}' +
           'var dur="";if(du){var dt=du.textContent.trim();if(/^\\d+:\\d{2}$/.test(dt))dur=dt}' +
-          'var trkLink=r.querySelector("a[href*=\\"/track/\\"]");' +
-          'var spId=trkLink?trkLink.getAttribute("href").split("/track/")[1].split("?")[0]:null;' +
           'var imgUrl=bestImg(r);' +
-          'if(i<5)_dbg("tracks","row["+i+"] parsed",{name:nm,nameSource:nameSource,artist:arts.join(", "),artistSource:artistSource,album:al,dur:dur,durSource:durSource,hasImg:!!imgUrl,spotifyId:spId});' +
-          'out.push({name:nm,artist:arts.join(", "),album:al,duration:dur,imageUrl:imgUrl,spotifyId:spId})' +
+          'allOut.push({name:nm,artist:arts.join(", "),album:al,duration:dur,imageUrl:imgUrl,spotifyId:spId});' +
+          'added++;' +
         '}' +
-        'var descEl=document.querySelector("[data-testid=\\"playlist-description\\"]")||document.querySelector("main [data-testid=\\"entityTitle\\"] ~ span");' +
-        'var desc=descEl?descEl.textContent.trim():"";' +
-        '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:out.length,skipped:skipped,total:rows.length,gen:_gen,desc:desc.substring(0,80)});' +
-        'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:out,description:desc,gen:_gen});' +
-      '}catch(e){_dbg("tracks","ERROR",{error:""+e});window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:[],error:""+e,gen:_gen})}}' +
-      'tick()' +
+        'return added;' +
+      '}' +
+      'function tick(){' +
+        'parseVisibleRows();n++;' +
+        'var atBottom=sc.scrollTop+sc.clientHeight>=sc.scrollHeight-10;' +
+        'if(n%5===0)_dbg("tracks","scrolling",{tick:n,found:allOut.length,scrollTop:sc.scrollTop,scrollH:sc.scrollHeight,atBottom:atBottom});' +
+        'if(atBottom||n>=maxSteps){' +
+          // One final parse at the bottom
+          'parseVisibleRows();' +
+          'var descEl=document.querySelector("[data-testid=\\"playlist-description\\"]")||document.querySelector("main [data-testid=\\"entityTitle\\"] ~ span");' +
+          'var desc=descEl?descEl.textContent.trim():"";' +
+          '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:allOut.length,steps:n,gen:_gen,desc:desc.substring(0,80)});' +
+          'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:allOut,description:desc,gen:_gen});' +
+        '}else{sc.scrollTop+=step;setTimeout(tick,600)}' +
+      '}' +
+      'setTimeout(tick,500);' +
     '})()';
   }
 
@@ -1968,23 +2266,23 @@ function activate(api) {
     };
   }
 
+  function parseDuration(duration) {
+    if (!duration) return null;
+    var parts = duration.split(":");
+    if (parts.length === 2) return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    return null;
+  }
+
   function toPluginTracks(tracks) {
     var out = [];
     for (var i = 0; i < tracks.length; i++) {
       var t = tracks[i];
-      var durationSecs = null;
-      if (t.duration) {
-        var parts = t.duration.split(":");
-        if (parts.length === 2) {
-          durationSecs = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
-        }
-      }
       out.push({
         path: t.spotifyId ? "spotify://" + t.spotifyId : null,
         title: t.name || "Unknown",
         artist_name: t.artist || null,
         album_title: t.album || null,
-        duration_secs: durationSecs,
+        duration_secs: parseDuration(t.duration),
         image_url: t.imageUrl || null,
       });
     }
@@ -2042,18 +2340,11 @@ function activate(api) {
     var trackPayloads = [];
     for (var i = 0; i < tracks.length; i++) {
       var t = tracks[i];
-      var durationSecs = null;
-      if (t.duration) {
-        var parts = t.duration.split(":");
-        if (parts.length === 2) {
-          durationSecs = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
-        }
-      }
       trackPayloads.push({
         title: t.name || "Unknown",
         artistName: t.artist || null,
         albumName: t.album || null,
-        durationSecs: durationSecs,
+        durationSecs: parseDuration(t.duration),
         source: null,
         imageUrl: t.imageUrl || null,
       });
@@ -2097,29 +2388,6 @@ function activate(api) {
     if (parts[0] !== "archived") return null;
     var idx = parseInt(parts[1], 10);
     return (idx >= 0 && idx < state.archivedPlaylists.length) ? { index: idx, entry: state.archivedPlaylists[idx] } : null;
-  }
-
-  function archivedToPluginTracks(tracks) {
-    var out = [];
-    for (var i = 0; i < tracks.length; i++) {
-      var t = tracks[i];
-      var durationSecs = null;
-      if (t.duration) {
-        var parts = t.duration.split(":");
-        if (parts.length === 2) {
-          durationSecs = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
-        }
-      }
-      out.push({
-        path: t.spotifyId ? "spotify://" + t.spotifyId : null,
-        title: t.name || "Unknown",
-        artist_name: t.artist || null,
-        album_title: t.album || null,
-        duration_secs: durationSecs,
-        image_url: t.imageUrl || null,
-      });
-    }
-    return out;
   }
 
   function loadArchiveTracks(entry) {
@@ -2170,7 +2438,7 @@ function activate(api) {
       if (entry.archivedAt) meta["Archived"] = new Date(entry.archivedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
       if (entry.updatedAt) meta["Updated"] = new Date(entry.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
       if (entry.lastCheckedAt) meta["Retrieved"] = new Date(entry.lastCheckedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-      api.playback.playTracks(archivedToPluginTracks(tracks), 0, {
+      api.playback.playTracks(toPluginTracks(tracks), 0, {
         name: entry.name,
         coverUrl: entry.imageUrl || null,
         source: entry.spotifyId ? "spotify://playlists/" + entry.spotifyId : null,
@@ -2184,7 +2452,7 @@ function activate(api) {
     if (!found) return;
     loadArchiveTracks(found.entry).then(function (tracks) {
       if (!tracks.length) return;
-      api.playback.insertTracks(archivedToPluginTracks(tracks), -1);
+      api.playback.insertTracks(toPluginTracks(tracks), -1);
     }).catch(function (e) { console.error("Failed to enqueue archive:", e); });
   });
 
@@ -2259,6 +2527,34 @@ function activate(api) {
     savePreferences();
     renderSettings();
     render();
+  });
+
+  // Step-by-step debugger actions
+  api.ui.onAction("dbg-section-name", function(data) {
+    if (data && data.value !== undefined) dbgTest.sectionName = data.value;
+  });
+
+  api.ui.onAction("dbg-start", dbgStart);
+  api.ui.onAction("dbg-stop", dbgStop);
+
+  api.ui.onAction("dbg-devtools", function() {
+    if (dbgTest.handle && dbgTest.handle.devtools) {
+      dbgTest.handle.devtools().catch(console.error);
+    }
+  });
+
+  api.ui.onAction("dbg-select-playlist", function(data) {
+    if (data && data.value !== undefined) {
+      dbgTest.selectedPlaylist = data.value;
+      renderSettings();
+    }
+  });
+
+  api.ui.onAction("dbg-next-step", function() {
+    if (dbgTest.status !== "waiting" || dbgTest.currentStep >= DBG_STEPS.length) return;
+    dbgTest.status = "running";
+    renderSettings();
+    dbgRunStep(DBG_STEPS[dbgTest.currentStep].id);
   });
 
   api.ui.onAction("toggle-diagnostics", function() {
@@ -2490,7 +2786,6 @@ function activate(api) {
     }
   }).catch(console.error);
 
-  // Render settings panel
   renderSettings();
 }
 

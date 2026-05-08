@@ -600,6 +600,9 @@ export function usePlugins(
               async hide() {
                 await invoke("browse_window_set_visible", { label, visible: false });
               },
+              async devtools() {
+                await invoke("open_devtools_for_window", { label });
+              },
               onMessage(handler) {
                 messageHandlers.push(handler);
                 return () => {

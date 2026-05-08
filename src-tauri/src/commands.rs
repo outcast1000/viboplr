@@ -101,6 +101,13 @@ pub fn open_devtools(app: AppHandle) {
     }
 }
 
+#[tauri::command]
+pub fn open_devtools_for_window(app: AppHandle, label: String) {
+    if let Some(window) = app.get_webview_window(&label) {
+        window.open_devtools();
+    }
+}
+
 // --- Collection commands ---
 
 #[tauri::command]
