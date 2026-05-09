@@ -22,6 +22,8 @@ mod update_checker;
 mod video_frames;
 #[cfg(target_os = "macos")]
 mod cursor_tracker;
+#[cfg(target_os = "windows")]
+mod cursor_tracker_win;
 use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry};
 use db::Database;
 use downloader::{DownloadManager, DownloadResolveRegistry};
@@ -1388,6 +1390,14 @@ pub fn run() {
                 let tracker_handle = app.handle().clone();
                 std::thread::spawn(move || {
                     crate::cursor_tracker::run(tracker_flag, tracker_handle);
+                });
+            }
+            #[cfg(target_os = "windows")]
+            {
+                let tracker_flag = Arc::clone(&cursor_tracker_active);
+                let tracker_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    crate::cursor_tracker_win::run(tracker_flag, tracker_handle);
                 });
             }
 
