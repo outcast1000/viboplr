@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "browse-windows",
+  "description": "Capability for browse windows opened by plugins",
+  "windows": ["browse-*"],
+  "permissions": [
+    "core:default"
+  ]
+}
