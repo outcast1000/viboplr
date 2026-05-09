@@ -949,6 +949,12 @@ function activate(api) {
     dbgTest.steps = [];
     dbgTest.playlists = [];
     dbgTest.selectedPlaylist = "";
+    dbgOpenLiveWindow().then(function () {
+      renderSettings();
+    }).catch(function (e) {
+      api.log("error", "Failed to open debug window: " + e);
+      renderSettings();
+    });
     renderSettings();
   }
 
