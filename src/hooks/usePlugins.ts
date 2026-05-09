@@ -27,6 +27,8 @@ import type {
   InteractiveSearchHandler,
   InteractiveResolveHandler,
   InteractiveSearchResult,
+  GetQualitiesHandler,
+  DownloadQualityOption,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 
@@ -109,6 +111,7 @@ interface LoadedPlugin {
   downloadResolveByMetadataHandlers: Map<string, DownloadResolveByMetadataHandler>;
   interactiveSearchHandlers: Map<string, InteractiveSearchHandler>;
   interactiveResolveHandlers: Map<string, InteractiveResolveHandler>;
+  getQualitiesHandlers: Map<string, GetQualitiesHandler>;
   streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string; sourceUrl?: string } | null>>;
   streamUriResolvers: Map<string, (id: string, quality?: string | null) => Promise<string | null>>;
   schedulerHandlers: Map<string, () => void>;
@@ -777,6 +780,12 @@ export function usePlugins(
             trackUnsubscribe(unsub);
             return unsub;
           },
+          onGetQualities(providerId: string, handler: GetQualitiesHandler): () => void {
+            loaded.getQualitiesHandlers.set(providerId, handler);
+            const unsub = () => { loaded.getQualitiesHandlers.delete(providerId); };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
         },
 
         scheduler: {
@@ -901,6 +910,7 @@ export function usePlugins(
         downloadResolveByMetadataHandlers: new Map(),
         interactiveSearchHandlers: new Map(),
         interactiveResolveHandlers: new Map(),
+        getQualitiesHandlers: new Map(),
         streamResolveHandlers: new Map(),
         streamUriResolvers: new Map(),
         schedulerHandlers: new Map(),
@@ -1422,6 +1432,17 @@ export function usePlugins(
     [],
   );
 
+  const invokeGetQualities = useCallback(
+    (pluginId: string, providerId: string): DownloadQualityOption[] | null => {
+      const loaded = loadedPluginsRef.current.get(pluginId);
+      if (!loaded) return null;
+      const handler = loaded.getQualitiesHandlers.get(providerId);
+      if (!handler) return null;
+      return handler();
+    },
+    [],
+  );
+
   const resolveStreamByUri = useCallback(
     async (scheme: string, id: string, quality?: string | null): Promise<string> => {
       for (const [, lp] of loadedPluginsRef.current) {
@@ -1471,6 +1492,7 @@ export function usePlugins(
     invokeInteractiveSearch,
     invokeInteractiveResolve,
     hasInteractiveDownload,
+    invokeGetQualities,
     resolveStreamByUri,
   };
 }

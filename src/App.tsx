@@ -3380,7 +3380,10 @@ function App() {
 
 
 
-      {downloadModal && (
+      {downloadModal && (() => {
+        const parts = downloadModal.providerId.split(":");
+        const qualityOptions = parts.length >= 2 ? plugins.invokeGetQualities(parts[0], parts.slice(1).join(":")) : null;
+        return (
         <DownloadModal
           tracks={downloadModal.tracks}
           providerId={downloadModal.providerId}
@@ -3388,6 +3391,7 @@ function App() {
           confirmed={downloadModal.confirmed}
           resolveByUri={downloadModal.resolveByUri}
           downloadFormat={downloads.downloadFormat}
+          qualityOptions={qualityOptions}
           collections={localCollections}
           downloadsCollectionId={downloadsCollectionId}
           store={store}
@@ -3439,7 +3443,8 @@ function App() {
             queueHook.playTracks([fallback], 0);
           }}
         />
-      )}
+        );
+      })()}
 
       {contextMenuActions.bulkEditTracks && (
         <BulkEditModal

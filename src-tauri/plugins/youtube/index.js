@@ -320,6 +320,10 @@ async function activate(api) {
     return null;
   });
 
+  api.downloads.onGetQualities("youtube-download", function() {
+    return [{ value: "aac", label: "AAC (160kbps)" }];
+  });
+
   api.downloads.onResolveByMetadata("youtube-download", async function(title, artistName, albumName, durationSecs, format) {
     if (!ytDlpVersion) {
       api.log("warn", "Download resolve skipped — yt-dlp not available", "youtube");
