@@ -487,6 +487,13 @@ export type InteractiveResolveHandler = (
   format: string,
 ) => Promise<DownloadResolveResult>;
 
+export interface DownloadQualityOption {
+  value: string;
+  label: string;
+}
+
+export type GetQualitiesHandler = () => DownloadQualityOption[];
+
 export interface DownloadRequest {
   title: string;
   artistName?: string | null;
@@ -506,6 +513,7 @@ export interface PluginDownloadsAPI {
   onResolveByMetadata(providerId: string, handler: DownloadResolveByMetadataHandler): () => void;
   onInteractiveSearch(providerId: string, handler: InteractiveSearchHandler): () => void;
   onInteractiveResolve(providerId: string, handler: InteractiveResolveHandler): () => void;
+  onGetQualities(providerId: string, handler: GetQualitiesHandler): () => void;
 }
 
 export interface DownloadProvider {

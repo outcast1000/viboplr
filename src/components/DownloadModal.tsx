@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Track } from "../types";
-import type { InteractiveSearchResult, DownloadResolveResult } from "../types/plugin";
+import type { InteractiveSearchResult, DownloadResolveResult, DownloadQualityOption } from "../types/plugin";
 import { formatDuration } from "../utils";
 import type { AppStore } from "../store";
 import { IconPlay, IconFolder } from "./Icons";
@@ -27,6 +27,7 @@ interface DownloadModalProps {
   confirmed?: boolean;
   resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
   downloadFormat: string;
+  qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   downloadsCollectionId?: number | null;
   store: AppStore;
@@ -148,6 +149,7 @@ function SingleTrackDownload({
   providerName,
   resolveByUri,
   downloadFormat,
+  qualityOptions,
   collections,
   downloadsCollectionId,
   store,
@@ -163,6 +165,7 @@ function SingleTrackDownload({
   providerName: string;
   resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
   downloadFormat: string;
+  qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   downloadsCollectionId?: number | null;
   store: AppStore;
@@ -196,9 +199,28 @@ function SingleTrackDownload({
     }
     return null;
   });
-  const [quality, setQuality] = useState<"flac" | "aac">(
-    downloadFormat === "flac" ? "flac" : "aac"
-  );
+  const defaultQualities: DownloadQualityOption[] = [
+    { value: "flac", label: "FLAC (Lossless)" },
+    { value: "aac", label: "AAC (320kbps)" },
+  ];
+  const qualities = qualityOptions && qualityOptions.length > 0 ? qualityOptions : defaultQualities;
+  const hasProviderQualities = !!(qualityOptions && qualityOptions.length > 0);
+
+  const [quality, setQualityState] = useState<string>(() => {
+    if (hasProviderQualities) return qualities[0].value;
+    return downloadFormat === "flac" ? "flac" : "aac";
+  });
+  const setQuality = (q: string) => {
+    setQualityState(q);
+    if (!hasProviderQualities) store.set("lastDownloadQuality", q);
+  };
+
+  useEffect(() => {
+    if (hasProviderQualities) return;
+    store.get<string>("lastDownloadQuality").then(saved => {
+      if (saved && qualities.some(q => q.value === saved)) setQualityState(saved);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Determine if this is an upgrade flow
   const isUpgrade = track.trackId != null;
@@ -630,10 +652,15 @@ function SingleTrackDownload({
 
           <div className="dl-config-row">
             <label>Quality</label>
-            <select value={quality} onChange={(e) => setQuality(e.target.value as "flac" | "aac")}>
-              <option value="flac">FLAC (Lossless)</option>
-              <option value="aac">AAC (320kbps)</option>
-            </select>
+            {qualities.length === 1 ? (
+              <span>{qualities[0].label}</span>
+            ) : (
+              <select value={quality} onChange={(e) => setQuality(e.target.value)}>
+                {qualities.map(q => (
+                  <option key={q.value} value={q.value}>{q.label}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           {isUpgrade && !showDestPicker && (
@@ -814,6 +841,7 @@ function MultiTrackDownload({
   providerName,
   confirmed,
   downloadFormat,
+  qualityOptions,
   collections,
   downloadsCollectionId,
   store,
@@ -829,6 +857,7 @@ function MultiTrackDownload({
   providerName: string;
   confirmed?: boolean;
   downloadFormat: string;
+  qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   downloadsCollectionId?: number | null;
   store: AppStore;
@@ -839,10 +868,29 @@ function MultiTrackDownload({
   onComplete: (message: string) => void;
   onPlay?: (path: string) => void;
 }) {
+  const defaultQualities: DownloadQualityOption[] = [
+    { value: "flac", label: "FLAC (Lossless)" },
+    { value: "aac", label: "AAC (320kbps)" },
+  ];
+  const qualities = qualityOptions && qualityOptions.length > 0 ? qualityOptions : defaultQualities;
+  const hasProviderQualities = !!(qualityOptions && qualityOptions.length > 0);
+
   const [step, setStep] = useState<BatchStep>("configure");
-  const [quality, setQuality] = useState<"flac" | "aac">(
-    downloadFormat === "flac" ? "flac" : "aac"
+  const [quality, setQualityState] = useState<string>(
+    hasProviderQualities ? qualities[0].value : (downloadFormat === "flac" ? "flac" : "aac")
   );
+  const setQuality = (q: string) => {
+    setQualityState(q);
+    if (!hasProviderQualities) store.set("lastDownloadQuality", q);
+  };
+
+  useEffect(() => {
+    if (hasProviderQualities) return;
+    store.get<string>("lastDownloadQuality").then(saved => {
+      if (saved && qualities.some(q => q.value === saved)) setQualityState(saved);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const [destType, setDestType] = useState<"collection" | "path">("collection");
   const [destCollectionId, setDestCollectionId] = useState<number | null>(() => {
     if (lastDest) {
@@ -1218,10 +1266,15 @@ function MultiTrackDownload({
         <>
           <div className="dl-config-row">
             <label>Quality</label>
-            <select value={quality} onChange={(e) => setQuality(e.target.value as "flac" | "aac")}>
-              <option value="flac">FLAC (Lossless)</option>
-              <option value="aac">AAC (320kbps)</option>
-            </select>
+            {qualities.length === 1 ? (
+              <span>{qualities[0].label}</span>
+            ) : (
+              <select value={quality} onChange={(e) => setQuality(e.target.value)}>
+                {qualities.map(q => (
+                  <option key={q.value} value={q.value}>{q.label}</option>
+                ))}
+              </select>
+            )}
           </div>
 
           <div className="dl-config-row">
@@ -1636,6 +1689,7 @@ export function DownloadModal({
   confirmed,
   resolveByUri,
   downloadFormat,
+  qualityOptions,
   collections,
   downloadsCollectionId,
   store,
@@ -1658,6 +1712,7 @@ export function DownloadModal({
             providerName={providerName}
             resolveByUri={resolveByUri}
             downloadFormat={downloadFormat}
+            qualityOptions={qualityOptions}
             collections={collections}
             downloadsCollectionId={downloadsCollectionId}
             store={store}
@@ -1675,6 +1730,7 @@ export function DownloadModal({
             providerName={providerName}
             confirmed={confirmed}
             downloadFormat={downloadFormat}
+            qualityOptions={qualityOptions}
             collections={collections}
             downloadsCollectionId={downloadsCollectionId}
             store={store}

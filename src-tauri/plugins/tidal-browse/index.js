@@ -1085,6 +1085,13 @@ function activate(api) {
 
   // -- Download provider --
 
+  api.downloads.onGetQualities("tidal-download", function() {
+    return [
+      { value: "flac", label: "FLAC (Lossless)" },
+      { value: "aac", label: "AAC (320kbps)" },
+    ];
+  });
+
   api.downloads.onResolveByUri("tidal-download", async function(uri, format) {
     if (!uri.startsWith("tidal://")) return null;
     if (state.streamingDown) return null;

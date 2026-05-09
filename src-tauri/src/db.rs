@@ -447,7 +447,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
-            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 31);
+            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 33);
 
             CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id);
             CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);
@@ -540,6 +540,19 @@ impl Database {
                 ALTER TABLE image_providers_new RENAME TO image_providers;
                 UPDATE db_version SET version = 32 WHERE rowid = 1;"
             )?;
+        }
+
+        if version < 33 {
+            let has_desc: bool = conn
+                .prepare("SELECT 1 FROM pragma_table_info('playlists') WHERE name = 'description'")?
+                .exists([])?;
+            if !has_desc {
+                conn.execute_batch(
+                    "ALTER TABLE playlists ADD COLUMN description TEXT;
+                     ALTER TABLE playlists ADD COLUMN metadata TEXT;"
+                )?;
+            }
+            conn.execute("UPDATE db_version SET version = 33 WHERE rowid = 1", [])?;
         }
 
         // Rebuild FTS when schema predates current layout OR when bumping to v31
