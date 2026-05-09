@@ -47,9 +47,11 @@ export function useAppUpdater(addLog: (msg: string, module?: string) => void, on
         setUpdateState(s => ({ ...s, checking: false, available: { version: update.version, body: update.body ?? "" } }));
       } else {
         setUpdateState(s => ({ ...s, checking: false, upToDate: true }));
+        setTimeout(() => setUpdateState(s => ({ ...s, upToDate: false })), 5000);
       }
     } catch {
       setUpdateState(s => ({ ...s, checking: false, upToDate: true }));
+      setTimeout(() => setUpdateState(s => ({ ...s, upToDate: false })), 5000);
     }
   }
 
