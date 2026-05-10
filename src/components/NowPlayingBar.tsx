@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Track } from "../types";
+import type { QueueTrack } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import type { MiniRestingSize, MiniWidthSize } from "../hooks/useMiniMode";
 import { formatDuration } from "../utils";
@@ -64,7 +64,7 @@ function SlideText({ text, className }: { text: string; className?: string }) {
 
 interface NowPlayingBarProps {
   waveformPeaks: number[] | null;
-  currentTrack: Track | null;
+  currentTrack: QueueTrack | null;
   playing: boolean;
   positionSecs: number;
   durationSecs: number;
@@ -102,8 +102,6 @@ interface NowPlayingBarProps {
   onToggleLike: () => void;
   onToggleDislike?: () => void;
   onTrackClick: (trackKey: string) => void;
-  onArtistClick: (artistId: number) => void;
-  onAlbumClick: (albumId: number, artistId?: number | null) => void;
   onNavigateToArtistByName?: (name: string) => void;
   onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
   syncState: "disabled" | "enabled" | "active";
@@ -113,7 +111,7 @@ interface NowPlayingBarProps {
   playbackError?: string | null;
   resolvingStatus?: { error: string | null; trying: string | null } | null;
   resolvedSource?: { name: string; url: string; sourceUrl?: string | null; id?: string | null } | null;
-  loadingTrack?: Track | null;
+  loadingTrack?: QueueTrack | null;
   onSkipError?: () => void;
   onDownloadTrack?: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -130,7 +128,7 @@ export function NowPlayingBar({
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
-  onToggleLike, onToggleDislike, onTrackClick, onArtistClick, onAlbumClick,
+  onToggleLike, onToggleDislike, onTrackClick,
   onNavigateToArtistByName, onNavigateToAlbumByName,
   syncState, onToggleSync,
   showHelp, onToggleHelp,
@@ -164,19 +162,18 @@ export function NowPlayingBar({
   // Fetch audio properties for the current track (local files only). Reset on track change.
   useEffect(() => {
     setAudioProps(null);
-    if (!currentTrack?.id) return;
-    const path = currentTrack.path ?? "";
-    const isLocal = path.startsWith("file://") || (!path.includes("://") && path.length > 0);
+    if (!currentTrack?.path) return;
+    const isLocal = currentTrack.path.startsWith("file://") || (!currentTrack.path.includes("://") && currentTrack.path.length > 0);
     if (!isLocal) return;
     let cancelled = false;
     invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>(
-      "get_track_audio_properties",
-      { trackId: currentTrack.id }
+      "get_audio_properties_by_path",
+      { path: currentTrack.path }
     )
       .then(p => { if (!cancelled) setAudioProps(p); })
       .catch(e => console.error("Failed to load audio properties:", e));
     return () => { cancelled = true; };
-  }, [currentTrack?.id, currentTrack?.path]);
+  }, [currentTrack?.path]);
 
   // Auto-skip on error in mini mode (5s)
   useEffect(() => {
@@ -351,7 +348,7 @@ export function NowPlayingBar({
             </div>
             <div className="mini-extra-row">
               <div className="mini-extra-left">
-                {currentTrack && currentTrack.id != null && (
+                {currentTrack && (
                   <LikeDislikeButtons
                     liked={currentTrack.liked}
                     onToggleLike={onToggleLike}
@@ -442,7 +439,7 @@ export function NowPlayingBar({
             )}
           </div>
           <div className="now-like-col">
-            {currentTrack && currentTrack.id != null && (
+            {currentTrack && (
               <LikeDislikeButtons
                 liked={currentTrack.liked}
                 onToggleLike={onToggleLike}
@@ -505,10 +502,10 @@ export function NowPlayingBar({
                         </>
                       ) : (
                         <>
-                          <span className="now-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : (currentTrack.artist_name && onNavigateToArtistByName ? () => onNavigateToArtistByName(currentTrack.artist_name!) : undefined)}><SlideText text={currentTrack.artist_name || "Unknown"} /></span>
+                          <span className="now-link" onClick={currentTrack.artist_name && onNavigateToArtistByName ? () => onNavigateToArtistByName(currentTrack.artist_name!) : undefined}><SlideText text={currentTrack.artist_name || "Unknown"} /></span>
                           {artistRank != null && artistRank <= 100 && <span className="now-rank-badge" title={`Artist rank #${artistRank}`}>#{artistRank}</span>}
                           {currentTrack.album_title && (
-                            <><span className="now-sep"> — </span><span className="now-link" onClick={currentTrack.album_id ? () => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id) : (onNavigateToAlbumByName ? () => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name ?? undefined) : undefined)}>{currentTrack.album_title}</span></>
+                            <><span className="now-sep"> — </span><span className="now-link" onClick={onNavigateToAlbumByName ? () => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name ?? undefined) : undefined}>{currentTrack.album_title}</span></>
                           )}
                         </>
                       )}
@@ -658,14 +655,11 @@ export function NowPlayingBar({
         let externalUrl: string | null = null;
         let externalLabel: string | null = null;
         if (viaYouTube) {
-          externalUrl = sourceUrl || currentTrack.youtube_url || null;
+          externalUrl = sourceUrl || null;
           externalLabel = "Open on YouTube";
         } else if (sourceUrl && sourceUrl.startsWith("https://tidal.com/")) {
           externalUrl = sourceUrl;
           externalLabel = "Open on TIDAL";
-        } else if (currentTrack.youtube_url && !isSubsonic && !isLocal) {
-          externalUrl = currentTrack.youtube_url;
-          externalLabel = "Open on YouTube";
         } else if (isSubsonic && resolvedSource) {
           try {
             const u = new URL(resolvedSource.url);
@@ -686,8 +680,6 @@ export function NowPlayingBar({
           const label = audioProps.channels === 1 ? "Mono" : audioProps.channels === 2 ? "Stereo" : `${audioProps.channels} ch`;
           rows.push(["channels", label]);
         }
-        if (currentTrack.file_size) rows.push(["size", `${(currentTrack.file_size / 1048576).toFixed(1)} MB`]);
-        if (currentTrack.collection_name) rows.push(["collection", currentTrack.collection_name]);
         if (displayPath) rows.push(["path", <span className="now-source-path" title={displayPath}>{displayPath}</span>]);
         if (sourceUrl && !displayPath && !sourceUrl.startsWith("file://")) {
           rows.push(["source", <span className="now-source-path" title={sourceUrl}>{sourceUrl}</span>]);
@@ -721,11 +713,11 @@ export function NowPlayingBar({
             )}
             {(folder || externalUrl) && (
               <div className="now-source-actions">
-                {folder && currentTrack.id != null && (
+                {folder && currentTrack.path?.startsWith("file://") && (
                   <button
                     className="ds-btn ds-btn--ghost ds-btn--sm"
                     onClick={() => {
-                      invoke("show_in_folder", { trackId: currentTrack.id }).catch(e => console.error("Failed to show in folder:", e));
+                      invoke("show_in_folder_path", { filePath: currentTrack.path }).catch(e => console.error("Failed to show in folder:", e));
                     }}
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>

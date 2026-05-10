@@ -227,6 +227,7 @@ pub struct DeleteFailure {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteTracksResult {
     pub deleted_ids: Vec<i64>,
+    pub deleted_paths: Vec<String>,
     pub failures: Vec<DeleteFailure>,
 }
 

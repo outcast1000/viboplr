@@ -1,5 +1,6 @@
 import type {
   Track,
+  QueueTrack,
   HistoryEntry,
   HistoryMostPlayed,
 } from "../types";
@@ -309,7 +310,7 @@ export interface PluginLibraryAPI {
 }
 
 export interface PluginPlaybackAPI {
-  getCurrentTrack(): Track | null;
+  getCurrentTrack(): QueueTrack | null;
   isPlaying(): boolean;
   getPosition(): number;
   playTrack(track: PluginTrack): void;

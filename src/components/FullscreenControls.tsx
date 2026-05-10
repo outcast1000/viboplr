@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { Track } from "../types";
+import type { QueueTrack } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
 import { AutoContinuePopover } from "./AutoContinuePopover";
@@ -9,7 +9,7 @@ import { LikeDislikeButtons } from "./LikeDislikeButtons";
 
 interface FullscreenControlsProps {
   waveformPeaks: number[] | null;
-  currentTrack: Track | null;
+  currentTrack: QueueTrack | null;
   playing: boolean;
   positionSecs: number;
   durationSecs: number;
@@ -38,8 +38,8 @@ interface FullscreenControlsProps {
   onToggleFullscreen: () => void;
   showQueue: boolean;
   onToggleQueue: () => void;
-  onArtistClick: (artistId: number) => void;
-  onAlbumClick: (albumId: number, artistId?: number | null) => void;
+  onNavigateToArtistByName: (name: string) => void;
+  onNavigateToAlbumByName: (name: string, artistName?: string | null) => void;
 }
 
 const IDLE_TIMEOUT = 3000;
@@ -54,7 +54,7 @@ export function FullscreenControls({
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
-  onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, onArtistClick, onAlbumClick,
+  onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, onNavigateToArtistByName, onNavigateToAlbumByName,
 }: FullscreenControlsProps) {
   const [visible, setVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -171,9 +171,9 @@ export function FullscreenControls({
               <>
                 <span className="fs-title">{currentTrack.title}</span>
                 <span className="fs-subtitle">
-                  <span className="fs-link" onClick={currentTrack.artist_id ? () => onArtistClick(currentTrack.artist_id!) : undefined}>{currentTrack.artist_name || "Unknown"}</span>
-                  {currentTrack.album_id && currentTrack.album_title && (
-                    <><span className="fs-sep"> — </span><span className="fs-link" onClick={() => onAlbumClick(currentTrack.album_id!, currentTrack.artist_id)}>{currentTrack.album_title}</span></>
+                  <span className="fs-link" onClick={currentTrack.artist_name ? () => onNavigateToArtistByName(currentTrack.artist_name!) : undefined}>{currentTrack.artist_name || "Unknown"}</span>
+                  {currentTrack.album_title && (
+                    <><span className="fs-sep"> — </span><span className="fs-link" onClick={() => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name)}>{currentTrack.album_title}</span></>
                   )}
                 </span>
               </>

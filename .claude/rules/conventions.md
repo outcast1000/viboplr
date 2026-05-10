@@ -9,8 +9,8 @@ Each entry documents the gold standard implementation for a repeated user action
 ### Delete Tracks
 
 - **Canonical:** `useContextMenuActions.ts` -> `handleDeleteRequest()` / `handleDeleteConfirm()`
-- **Flow:** Show confirmation modal with track title/count -> `invoke("delete_tracks", { trackIds })` -> filter from `library.tracks` -> stop playback if deleted track is playing -> `addLog()` with result -> show error modal if partial/total failure
-- **Availability:** Local tracks only (`file://` scheme). Uses `isLocalTrack()` helper from `queueEntry.ts`. Single-track checks `target.isLocal` on the context menu target. Multi-track filters with `isLocalTrack(t) && t.id != null`.
+- **Flow:** Show confirmation modal with track title/count -> `invoke("delete_tracks", { trackIds })` -> filter from `library.tracks` -> remove matching queue entries by path -> stop playback if deleted track is playing -> `addLog()` with result -> show error modal if partial/total failure
+- **Availability:** Local tracks only (`file://` scheme). Uses `isLocalTrack()` helper from `queueEntry.ts`. Single-track checks `target.isLocal` on the context menu target. Multi-track filters with `isLocalTrack(t)`.
 
 ### Find in YouTube
 
@@ -22,8 +22,9 @@ Each entry documents the gold standard implementation for a repeated user action
 ### Like/Unlike Track
 
 - **Canonical:** `useLikeActions.ts` -> `handleToggleLike()` / `handleToggleDislike()`
-- **Like flow:** `invoke("toggle_liked", { kind: "track", id, liked: 1|0 })` -> update `library.tracks` + `playback.currentTrack` (if relevant) + `queue` -> dispatch plugin event `track:liked` -> catch must `console.error`
-- **Dislike flow:** `invoke("toggle_liked", { kind: "track", id, liked: -1|0 })` -> update `library.tracks` + `playback.currentTrack` (if relevant) + `queue` -> catch must `console.error` (note: dislike does NOT dispatch a plugin event)
+- **Like flow:** Resolve library track via `find_track_by_metadata` if needed -> `invoke("toggle_liked", { kind: "track", id, liked: 1|0 })` -> update `library.tracks` + `playback.currentTrack` (if relevant) + `queue` -> dispatch plugin event `track:liked` -> catch must `console.error`
+- **Dislike flow:** Resolve library track via `find_track_by_metadata` if needed -> `invoke("toggle_liked", { kind: "track", id, liked: -1|0 })` -> update `library.tracks` + `playback.currentTrack` (if relevant) + `queue` -> catch must `console.error` (note: dislike does NOT dispatch a plugin event)
+- **Non-library tracks:** If `find_track_by_metadata` returns null, show "Track not in library" via `addLog()` and return early
 
 ### Like/Unlike Artist, Album, Tag
 

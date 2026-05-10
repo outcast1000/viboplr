@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { Track } from "../types";
+import type { Track, QueueTrack } from "../types";
 import type { PluginViewData, CardGridItem, StatItem, TrackRowItem, PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { ViewSearchBar } from "./ViewSearchBar";
@@ -15,7 +15,7 @@ function resolveImageUrl(url: string | undefined): string | undefined {
 interface PluginViewRendererProps {
   pluginName: string;
   data: PluginViewData | undefined;
-  currentTrack: Track | null;
+  currentTrack: QueueTrack | null;
   onPlayTrack?: (track: Track) => void;
   onAction?: (actionId: string, data?: unknown) => void;
   onTrackContextMenu?: (e: React.MouseEvent, track: Track) => void;
@@ -91,7 +91,7 @@ export function PluginViewRenderer({
 
 interface PluginViewNodeProps {
   node: PluginViewData;
-  currentTrack: Track | null;
+  currentTrack: QueueTrack | null;
   onPlayTrack?: (track: Track) => void;
   onAction?: (actionId: string, data?: unknown) => void;
   onTrackContextMenu?: (e: React.MouseEvent, track: Track) => void;
@@ -446,7 +446,7 @@ function PluginTrackList({
 }: {
   tracks: Track[];
   title?: string;
-  currentTrack: Track | null;
+  currentTrack: QueueTrack | null;
   onDoubleClick?: (track: Track) => void;
   onContextMenu?: (e: React.MouseEvent, track: Track) => void;
 }) {
@@ -468,7 +468,7 @@ function PluginTrackList({
         </thead>
         <tbody>
           {tracks.map((track, i) => {
-            const isCurrent = currentTrack?.id === track.id;
+            const isCurrent = currentTrack?.path != null && currentTrack.path === track.path;
             return (
               <tr
                 key={track.id}

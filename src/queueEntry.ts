@@ -1,4 +1,4 @@
-import type { Track } from "./types";
+import type { Track, QueueTrack } from "./types";
 
 export interface QueueEntry {
   url: string;
@@ -36,11 +36,11 @@ export function isLibraryTrack(track: Track): boolean {
   return track.id != null;
 }
 
-export function isLocalTrack(track: Track): boolean {
+export function isLocalTrack(track: { path?: string | null }): boolean {
   return !!track.path?.startsWith("file://");
 }
 
-export function isRemoteTrack(track: Track): boolean {
+export function isRemoteTrack(track: { path?: string | null }): boolean {
   return !!track.path && track.path.length > 0 && !track.path.startsWith("file://");
 }
 
@@ -60,9 +60,9 @@ export function remoteId(track: Track): string | null {
 }
 
 /**
- * Converts a Track to a QueueEntry for serialization.
+ * Converts a Track or QueueTrack to a QueueEntry for serialization.
  */
-export function trackToQueueEntry(track: Track): QueueEntry {
+export function trackToQueueEntry(track: Track | QueueTrack): QueueEntry {
   return {
     url: track.path ?? "",
     key: track.key,
@@ -70,8 +70,26 @@ export function trackToQueueEntry(track: Track): QueueEntry {
     artist_name: track.artist_name,
     album_title: track.album_title,
     duration_secs: track.duration_secs,
-    track_number: track.track_number,
-    year: track.year,
+    track_number: "track_number" in track ? track.track_number : null,
+    year: "year" in track ? track.year : null,
+    format: track.format,
+    image_url: track.image_url,
+    liked: track.liked,
+  };
+}
+
+/**
+ * Converts a Track to a QueueTrack, stripping DB IDs and keeping only
+ * portable metadata needed for queue/playlist/now-playing contexts.
+ */
+export function trackToQueueTrack(track: Track): QueueTrack {
+  return {
+    key: track.key,
+    path: track.path,
+    title: track.title,
+    artist_name: track.artist_name,
+    album_title: track.album_title,
+    duration_secs: track.duration_secs,
     format: track.format,
     image_url: track.image_url,
     liked: track.liked,
@@ -105,6 +123,26 @@ export function queueEntryToTrack(entry: QueueEntry): Track {
     youtube_url: null,
     added_at: null,
     modified_at: null,
+    image_url: entry.image_url,
+  };
+}
+
+/**
+ * Converts a QueueEntry back to a QueueTrack.
+ *
+ * Produces a lightweight queue-only track without DB IDs.
+ * The key is preserved from the entry, or a new external key is generated.
+ */
+export function queueEntryToQueueTrack(entry: QueueEntry): QueueTrack {
+  return {
+    key: entry.key ?? nextExternalKey(),
+    path: entry.url,
+    title: entry.title,
+    artist_name: entry.artist_name,
+    album_title: entry.album_title,
+    duration_secs: entry.duration_secs,
+    format: entry.format,
+    liked: entry.liked ?? 0,
     image_url: entry.image_url,
   };
 }

@@ -22,11 +22,13 @@ cd src-tauri && cargo test bench_search_performance -- --ignored --nocapture  # 
 
 Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript frontend rendered in a native webview.
 
+**Two track types:** `Track` (full library type with DB IDs) is used by library list views. `QueueTrack` (metadata-only, no `id`/`album_id`/`artist_id`) is used by queue, now-playing, and playlists. Queue/playback surfaces never rely on DB IDs — they use name-based image lookups and on-demand metadata resolution for library operations.
+
 Detailed rules are in `.claude/rules/`:
 - `backend.md` — backend files, collections, background tasks, playback resolution, database, profiles
 - `frontend.md` — frontend files, components, hooks, keyboard shortcuts, state persistence
 - `conventions.md` — canonical action patterns and behavioral rules
 - `plugins.md` — plugin system API, manifest format, display kinds, existing plugins
-- `queue.md` — queue state, playback progression, mutations, persistence, duplicate detection
+- `queue.md` — queue state, QueueTrack type, playback progression, mutations, persistence, duplicate detection
 - `ui.md` — layout, entities, detail pages, information sections, context menus, skins
 - `testing.md` — test frameworks, commands, patterns for Rust/TS/E2E

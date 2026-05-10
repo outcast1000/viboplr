@@ -1,8 +1,7 @@
-import type { Track } from "./types";
 
 const VIDEO_FORMATS = ["mp4", "m4v", "mov", "webm"];
 
-export function isVideoTrack(track: Track): boolean {
+export function isVideoTrack(track: { format: string | null }): boolean {
   return VIDEO_FORMATS.includes(track.format?.toLowerCase() ?? "");
 }
 

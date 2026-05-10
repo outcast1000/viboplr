@@ -10,7 +10,7 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, Tag, View, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
+import type { Track, QueueTrack, Tag, View, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
 import { isVideoTrack, parseSubsonicUrl } from "./utils";
 import { store } from "./store";
 import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, isLocalTrack, type QueueEntry } from "./queueEntry";
@@ -113,8 +113,8 @@ function App() {
     confirmed?: boolean;
     resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
   } | null>(null);
-  const pendingRestoreTrackRef = useRef<Track | null>(null);
-  const pendingRestoreQueueRef = useRef<{ tracks: Track[]; index: number } | null>(null);
+  const pendingRestoreTrackRef = useRef<QueueTrack | null>(null);
+  const pendingRestoreQueueRef = useRef<{ tracks: QueueTrack[]; index: number } | null>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const getScrollEl = useCallback(() => {
@@ -127,7 +127,7 @@ function App() {
   const previousVolumeRef = useRef(1.0);
 
   // Core hooks
-  const peekNextRef = useRef<() => Track | null>(() => null);
+  const peekNextRef = useRef<() => QueueTrack | null>(() => null);
   const prefetchNextRef = useRef<() => void>(() => {});
   const crossfadeSecsRef = useRef(3);
   const [crossfadeSecs, setCrossfadeSecs] = useState(3);
@@ -151,7 +151,7 @@ function App() {
   const resolveStreamByUriRef = useRef<(scheme: string, id: string, quality?: string | null) => Promise<string>>(
     async () => { throw new Error("Stream URI resolver not ready"); }
   );
-  const resolveTrackSrcRef = useRef<(track: Track) => Promise<string>>(async (track) => {
+  const resolveTrackSrcRef = useRef<(track: QueueTrack) => Promise<string>>(async (track) => {
     const url = track.path;
     if (!url) throw new Error("Track has no URL");
     const parsed = parseUrlScheme(url);
@@ -171,7 +171,7 @@ function App() {
     playback.currentTrack?.title ?? null,
     playback.currentTrack?.artist_name ?? null,
     playback.currentTrack?.duration_secs ?? null,
-    playback.currentTrack?.file_size ?? null,
+    null,
     playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
     playback.currentAssetUrl,
   );
@@ -222,53 +222,46 @@ function App() {
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, trackPopularityState, setNavError);
   const downloadsCollection = useMemo(() => downloadsCollectionId != null ? library.collections.find(c => c.id === downloadsCollectionId) ?? null : null, [downloadsCollectionId, library.collections]);
 
-  const queueHook = useQueue(restoredRef, playback.handlePlay, albumImageCache.images);
+  const getQueueImageByNameRef = useRef<(albumTitle: string | null, artistName: string | null) => string | null>(() => null);
+  const getQueueImageByName = useCallback((albumTitle: string | null, artistName: string | null): string | null => {
+    return getQueueImageByNameRef.current(albumTitle, artistName);
+  }, []);
+  const queueHook = useQueue(restoredRef, playback.handlePlay, getQueueImageByName);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef);
   const videoLayout = useVideoLayout(restoredRef);
 
   // Plugin system
-  const pluginTrackRef = useRef<Track | null>(null);
+  const pluginTrackRef = useRef<QueueTrack | null>(null);
   pluginTrackRef.current = playback.currentTrack;
   const pluginPlayingRef = useRef(false);
   pluginPlayingRef.current = playback.playing;
   const pluginPositionRef = useRef(0);
   pluginPositionRef.current = playback.positionSecs;
-  const pluginTrackToTrackFn = useCallback((info: PluginTrack): Track => {
+  const pluginTrackToQueueTrack = useCallback((info: PluginTrack): QueueTrack => {
     return {
-      id: null,
       key: nextExternalKey(),
       path: info.path ?? null,
       title: info.title,
-      artist_id: null,
       artist_name: info.artist_name ?? null,
-      album_id: null,
       album_title: info.album_title ?? null,
-      year: null,
-      track_number: info.track_number ?? null,
       duration_secs: info.duration_secs ?? null,
       format: null,
-      file_size: null,
-      collection_id: null,
-      collection_name: null,
       liked: 0,
-      youtube_url: null,
-      added_at: null,
-      modified_at: null,
       image_url: info.image_url ?? undefined,
     };
   }, []);
   const downloadFormatRef = useRef("flac");
   const pluginPlaybackCallbacks = useMemo(() => ({
     playTrack: (track: PluginTrack) => {
-      queueHook.playTracks([pluginTrackToTrackFn(track)], 0);
+      queueHook.playTracks([pluginTrackToQueueTrack(track)], 0);
     },
     playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name?: string; playlistName?: string; coverUrl?: string | null; source?: string | null; description?: string | null; metadata?: Record<string, string> | null }) => {
       const displayName = context?.playlistName || context?.name || "";
       const cleanName = context?.name || context?.playlistName || "";
       const meta = { ...(context?.metadata ?? {}) };
       if (cleanName && cleanName !== displayName) meta.playlistName = cleanName;
-      queueHook.playTracks(tracks.map(pluginTrackToTrackFn), startIndex ?? 0, context && displayName ? { name: displayName, source: context.source ?? null, description: context.description ?? null, metadata: Object.keys(meta).length > 0 ? meta : null, remote: true, coverUrl: context.coverUrl ?? null } : undefined);
+      queueHook.playTracks(tracks.map(pluginTrackToQueueTrack), startIndex ?? 0, context && displayName ? { name: displayName, source: context.source ?? null, description: context.description ?? null, metadata: Object.keys(meta).length > 0 ? meta : null, remote: true, coverUrl: context.coverUrl ?? null } : undefined);
       if (context?.coverUrl) {
         if (context.coverUrl.startsWith("http://") || context.coverUrl.startsWith("https://")) {
           invoke<string>("download_url_to_playlist_images", { url: context.coverUrl })
@@ -280,7 +273,7 @@ function App() {
       }
     },
     insertTrack: (track: PluginTrack, position: number) => {
-      const converted = [pluginTrackToTrackFn(track)];
+      const converted = [pluginTrackToQueueTrack(track)];
       if (position === -1) {
         queueHook.enqueueTracks(converted);
       } else {
@@ -288,7 +281,7 @@ function App() {
       }
     },
     insertTracks: (tracks: PluginTrack[], position: number) => {
-      const converted = tracks.map(pluginTrackToTrackFn);
+      const converted = tracks.map(pluginTrackToQueueTrack);
       if (position === -1) {
         queueHook.enqueueTracks(converted);
       } else {
@@ -296,7 +289,7 @@ function App() {
       }
     },
     getDownloadFormat: () => downloadFormatRef.current,
-  }), [queueHook, pluginTrackToTrackFn]);
+  }), [queueHook, pluginTrackToQueueTrack]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode);
 
@@ -742,6 +735,18 @@ function App() {
   const artistImageCache = useImageCache("artist", addLog);
   const tagImageCache = useImageCache("tag", addLog);
 
+  // Wire up the image-by-name lookup ref now that both caches are available
+  getQueueImageByNameRef.current = (albumTitle, artistName) => {
+    if (albumTitle) {
+      const img = albumImageCache.getImageByName(albumTitle, artistName ?? undefined);
+      if (img) return img;
+    }
+    if (artistName) {
+      return artistImageCache.getImageByName(artistName);
+    }
+    return null;
+  };
+
   const playActions = usePlayActions({
     playTracks: queueHook.playTracks,
     setPlaylistContext: queueHook.setPlaylistContext,
@@ -760,10 +765,7 @@ function App() {
       navigator.mediaSession.metadata = null;
       return;
     }
-    const artSrc = (track.album_id != null && albumImageCache.images[track.album_id])
-      || (track.artist_id != null && artistImageCache.images[track.artist_id])
-      || track.image_url
-      || null;
+    const artSrc = track.image_url || null;
     const artwork: MediaImage[] = artSrc
       ? [{ src: artSrc.startsWith("http") ? artSrc : convertFileSrc(artSrc) }]
       : [];
@@ -773,7 +775,7 @@ function App() {
       album: track.album_title ?? undefined,
       artwork,
     });
-  }, [playback.currentTrack, albumImageCache.images, artistImageCache.images]);
+  }, [playback.currentTrack]);
 
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
@@ -844,7 +846,7 @@ function App() {
     const target = ctx.target;
 
     // Collect tracks for batch downloads
-    let batchTracks: Track[] | null = null;
+    let batchTracks: QueueTrack[] | null = null;
     if (target.kind === "multi-track") {
       const idSet = new Set(target.trackIds);
       batchTracks = library.tracks.filter(t => t.id != null && idSet.has(t.id));
@@ -861,7 +863,7 @@ function App() {
           albumTitle: t.album_title ?? null,
           uri: t.path ?? null,
           durationSecs: t.duration_secs ?? null,
-          trackId: t.id ?? null,
+          trackId: parseLibraryId(t.key),
         })),
         providerId,
         providerName: providerEntry?.name ?? providerId,
@@ -882,7 +884,7 @@ function App() {
     } else if (target.kind === "queue-multi" && target.indices.length === 1) {
       const queueTrack = queueHook.queue[target.indices[0]];
       if (queueTrack) {
-        trackId = queueTrack.id ?? null;
+        trackId = parseLibraryId(queueTrack.key);
         title = queueTrack.title;
         artistName = queueTrack.artist_name ?? null;
       }
@@ -981,7 +983,7 @@ function App() {
         specs.push({ kind: "item", text: "Find in YouTube", action: () => {
           const track = queueHook.queue[target.indices[0]];
           if (track) {
-            contextMenuActions.watchOnYoutube(track.id ?? 0, track.title, track.artist_name, track.youtube_url ?? null, track.duration_secs ?? null);
+            contextMenuActions.watchOnYoutube(parseLibraryId(track.key) ?? 0, track.title, track.artist_name, null, track.duration_secs ?? null);
           }
         }});
 
@@ -993,7 +995,7 @@ function App() {
 
       // Delete — local tracks only
       if (contextMenuActions.handleDeleteRequest) {
-        const localDeletable = selectedTracks.filter(t => isLocalTrack(t) && t.id != null);
+        const localDeletable = selectedTracks.filter(t => isLocalTrack(t) && parseLibraryId(t.key) != null);
         if (localDeletable.length > 0) {
           specs.push({ kind: "separator" });
           const deleteLabel = localDeletable.length === 1 ? "Delete" : `Delete ${localDeletable.length} local tracks`;
@@ -1281,7 +1283,7 @@ function App() {
       return "Unknown";
     };
 
-    resolveTrackSrcRef.current = async (track: Track) => {
+    resolveTrackSrcRef.current = async (track: QueueTrack) => {
       const generation = ++resolveGenerationRef.current;
       setResolvedSource(null);
       const url = track.path;
@@ -1661,7 +1663,7 @@ function App() {
             invoke<string>("main_playlist_dir"),
           ]);
           if (manifest) {
-            const tracks = tracksFromManifest(manifest);
+            const tracks = tracksFromManifest(manifest, dir);
             const ctx = contextFromManifest(manifest, dir);
             if (tracks.length > 0) {
               const idx = mpState?.queueIndex != null && mpState.queueIndex >= 0 && mpState.queueIndex < tracks.length ? mpState.queueIndex : -1;
@@ -1812,10 +1814,8 @@ function App() {
   // Resolve track for the detail view — try local lookups (sync), fall back to backend (async)
   const detailTrackLocal = useMemo(() => {
     if (library.selectedTrack === null) return null;
-    return library.tracks.find(t => t.key === library.selectedTrack)
-      ?? (playback.currentTrack?.key === library.selectedTrack ? playback.currentTrack : null)
-      ?? null;
-  }, [library.selectedTrack, library.tracks, playback.currentTrack]);
+    return library.tracks.find(t => t.key === library.selectedTrack) ?? null;
+  }, [library.selectedTrack, library.tracks]);
 
   useEffect(() => {
     if (library.selectedTrack === null) { setDetailTrack(null); return; }
@@ -1861,13 +1861,15 @@ function App() {
     });
   }, []);
 
-  // Fetch album/artist image when current track changes (for Now Playing bar)
+  // Resolve image for current track when name-based cache populates
   useEffect(() => {
     const track = playback.currentTrack;
-    if (!track) return;
-    if (track.album_id) albumImageCache.fetchOnDemand({ id: track.album_id, title: track.album_title ?? "", artist_name: track.artist_name });
-    if (track.artist_id) artistImageCache.fetchOnDemand({ id: track.artist_id, name: track.artist_name ?? "Unknown" });
-  }, [playback.currentTrack]);
+    if (!track || track.image_url) return;
+    const img = getQueueImageByNameRef.current(track.album_title, track.artist_name);
+    if (img) {
+      playback.setCurrentTrack(prev => prev && !prev.image_url ? { ...prev, image_url: img } : prev);
+    }
+  }, [playback.currentTrack, albumImageCache.nameImages, artistImageCache.nameImages]);
 
   // Ref for keyboard shortcut handler to avoid stale closures
   const shortcutStateRef = useRef({
@@ -1884,7 +1886,7 @@ function App() {
     handlePause: playback.handlePause,
     currentTrack: playback.currentTrack,
   };
-  const handleToggleLikeRef = useRef((_track: Track) => {});
+  const handleToggleLikeRef = useRef((_track: QueueTrack) => {});
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -1983,7 +1985,7 @@ function App() {
           break;
         case "l":
           e.preventDefault();
-          if (s.currentTrack && s.currentTrack.id != null) handleToggleLikeRef.current(s.currentTrack);
+          if (s.currentTrack) handleToggleLikeRef.current(s.currentTrack);
           break;
         case "p":
           e.preventDefault();
@@ -2060,8 +2062,7 @@ function App() {
     const track = currentTrackRef.current;
     if (!ac.enabled || !track) return;
     console.log(`[prefetch] Fetching auto-continue track (current: "${track.title}")`);
-    const excludeIds = queueRef.current.map(t => t.id).filter((id): id is number => id != null);
-    ac.fetchTrack(track, excludeIds).then(next => {
+    ac.fetchTrack(track).then(next => {
       if (next) {
         console.log(`[prefetch] Queued "${next.title}" by ${next.artist_name}`);
         addToQueueRef.current(next);
@@ -2076,8 +2077,7 @@ function App() {
       const ac = autoContinueRef.current;
       const track = currentTrackRef.current;
       if (ac.enabled && track) {
-        const excludeIds = queueRef.current.map(t => t.id).filter((id): id is number => id != null);
-        const next = await ac.fetchTrack(track, excludeIds);
+        const next = await ac.fetchTrack(track);
         if (next) {
           addToQueueAndPlayRef.current(next, source);
           return;
@@ -2285,12 +2285,11 @@ function App() {
     const tracks = queueHook.queue;
     if (tracks.length === 0) return;
     const exportTracks: ExportTrack[] = tracks.map(t => ({
-      id: t.id ?? undefined,
+      id: parseLibraryId(t.key) ?? undefined,
       title: t.title,
       artistName: t.artist_name || undefined,
       albumTitle: t.album_title || undefined,
       durationSecs: t.duration_secs || undefined,
-      fileSize: t.file_size || undefined,
       path: t.path || undefined,
       imageUrl: t.image_url || undefined,
     }));
@@ -3275,12 +3274,7 @@ function App() {
             autoContinueSameFormat={autoContinue.sameFormat}
             showAutoContinuePopover={autoContinue.showPopover}
             autoContinueWeights={autoContinue.weights}
-            imagePath={
-              (playback.currentTrack?.album_id != null && albumImageCache.images[playback.currentTrack.album_id])
-              || (playback.currentTrack?.artist_id != null && artistImageCache.images[playback.currentTrack.artist_id])
-              || playback.currentTrack?.image_url
-              || null
-            }
+            imagePath={playback.currentTrack?.image_url || null}
             onPause={playback.handlePause}
             onStop={playback.handleStop}
             onNext={handleNext}
@@ -3300,13 +3294,13 @@ function App() {
             onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
             onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
             onAdjustAutoContinueWeight={autoContinue.adjustWeight}
-            onToggleLike={() => playback.currentTrack && playback.currentTrack.id != null && likeActions.handleToggleLike(playback.currentTrack)}
-            onToggleDislike={() => { if (playback.currentTrack && playback.currentTrack.id != null) { likeActions.handleToggleDislike(playback.currentTrack); handleNext(); } }}
+            onToggleLike={() => playback.currentTrack && likeActions.handleToggleLike(playback.currentTrack)}
+            onToggleDislike={() => { if (playback.currentTrack) { likeActions.handleToggleDislike(playback.currentTrack); handleNext(); } }}
             onToggleFullscreen={playback.toggleFullscreen}
             showQueue={!queueCollapsed}
             onToggleQueue={handleToggleQueueCollapsed}
-            onArtistClick={library.handleArtistClick}
-            onAlbumClick={library.handleAlbumClick}
+            onNavigateToArtistByName={library.navigateToArtistByName}
+            onNavigateToAlbumByName={(name, artistName) => library.navigateToAlbumByName(name, artistName ?? undefined)}
           />
         </div>
       </main>
@@ -3335,7 +3329,7 @@ function App() {
           onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
           onRemove={queueHook.removeFromQueue}
           onLocateTrack={(track) => {
-            if (track.id != null) {
+            if (parseLibraryId(track.key) != null) {
               library.handleTrackClick(track.key);
             }
           }}
@@ -3351,12 +3345,10 @@ function App() {
             const first = tracks[0];
             buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: {
               kind: "queue-multi", indices,
-              trackIds: tracks.map(t => t.id).filter((id): id is number => id != null),
+              trackIds: tracks.map(t => parseLibraryId(t.key)).filter((id): id is number => id != null),
               firstTrack: first ? { title: first.title, artistName: first.artist_name, isLocal: isLocalTrack(first) } : { title: "", artistName: null, isLocal: false },
             } });
           }}
-          albumImages={albumImageCache.images}
-          artistImages={artistImageCache.images}
           externalDropTarget={contextMenuActions.externalDropTarget}
           collapsed={queueCollapsed}
           onToggleCollapsed={handleToggleQueueCollapsed}
@@ -3654,12 +3646,7 @@ function App() {
         autoContinueSameFormat={autoContinue.sameFormat}
         showAutoContinuePopover={autoContinue.showPopover}
         autoContinueWeights={autoContinue.weights}
-        imagePath={
-          (playback.currentTrack?.album_id != null && albumImageCache.images[playback.currentTrack.album_id])
-          || (playback.currentTrack?.artist_id != null && artistImageCache.images[playback.currentTrack.artist_id])
-          || playback.currentTrack?.image_url
-          || null
-        }
+        imagePath={playback.currentTrack?.image_url || null}
         miniMode={mini.miniMode}
         miniExpanded={mini.miniExpanded}
         miniRestingSize={mini.miniRestingSize}
@@ -3688,11 +3675,9 @@ function App() {
         onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
         onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
-        onToggleLike={() => playback.currentTrack && playback.currentTrack.id != null && likeActions.handleToggleLike(playback.currentTrack)}
-        onToggleDislike={() => { if (playback.currentTrack && playback.currentTrack.id != null) { likeActions.handleToggleDislike(playback.currentTrack); handleNext(); } }}
+        onToggleLike={() => playback.currentTrack && likeActions.handleToggleLike(playback.currentTrack)}
+        onToggleDislike={() => { if (playback.currentTrack) { likeActions.handleToggleDislike(playback.currentTrack); handleNext(); } }}
         onTrackClick={(trackId) => { library.handleTrackClick(trackId); }}
-        onArtistClick={library.handleArtistClick}
-        onAlbumClick={library.handleAlbumClick}
         onNavigateToArtistByName={library.navigateToArtistByName}
         onNavigateToAlbumByName={library.navigateToAlbumByName}
         syncState={syncWithPlaying}
@@ -3713,9 +3698,7 @@ function App() {
             specs.push({ kind: "item", text: "Previous", action: queueHook.playPrevious });
             specs.push({ kind: "separator" });
             const isLiked = t.liked === 1;
-            if (t.id != null) {
-              specs.push({ kind: "item", text: isLiked ? "Unlike" : "Like", action: () => likeActions.handleToggleLike(t) });
-            }
+            specs.push({ kind: "item", text: isLiked ? "Unlike" : "Like", action: () => likeActions.handleToggleLike(t) });
           }
           const widthItems: MenuItemSpec[] = (["small", "medium", "large"] as const).map(size => ({
             kind: "check" as const,
@@ -3738,7 +3721,7 @@ function App() {
             albumTitle: track.album_title ?? null,
             uri: track.path ?? null,
             durationSecs: track.duration_secs ?? null,
-            trackId: track.id ?? null,
+            trackId: parseLibraryId(track.key),
           };
 
           // If playing via a fallback stream resolver (e.g. YouTube), prefer that

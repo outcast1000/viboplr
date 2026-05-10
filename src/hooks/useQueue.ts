@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import type { Track, PlaylistLoadResult, PlaylistEntry } from "../types";
-import { trackToQueueEntry, queueEntryToTrack } from "../queueEntry";
+import type { QueueTrack, PlaylistLoadResult, PlaylistEntry } from "../types";
+import { trackToQueueEntry, queueEntryToQueueTrack } from "../queueEntry";
 import { buildManifest, buildState, diffThumbs, isContextRemote } from "../mainPlaylist";
 
 export interface PlaylistContext {
@@ -18,10 +18,10 @@ export interface PlaylistContext {
 
 export function useQueue(
   restoredRef: React.RefObject<boolean>,
-  handlePlay: (track: Track, source?: "user" | "auto") => void,
-  albumImages: Record<number, string | null>,
+  handlePlay: (track: QueueTrack, source?: "user" | "auto") => void,
+  getImageByName: (albumTitle: string | null, artistName: string | null) => string | null,
 ) {
-  const [queue, setQueue] = useState<Track[]>([]);
+  const [queue, setQueue] = useState<QueueTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
   const [queueMode, setQueueMode] = useState<"normal" | "loop" | "shuffle">("normal");
   const [shuffleOrder, setShuffleOrder] = useState<number[]>([]);
@@ -86,7 +86,7 @@ export function useQueue(
   }, [playlistContext]);
 
   // Thumb diff: write/remove thumbs when queue changes (remote-only)
-  const prevQueueRef = useRef<Track[]>([]);
+  const prevQueueRef = useRef<QueueTrack[]>([]);
   useEffect(() => {
     if (!restoredRef.current) { prevQueueRef.current = queue; return; }
     const remote = isContextRemote(playlistContext);
@@ -138,16 +138,17 @@ export function useQueue(
     return [startIndex, ...indices];
   }
 
-  function stamp(tracks: Track[]): Track[] {
+  function stamp(tracks: QueueTrack[]): QueueTrack[] {
     return tracks.map(t => {
-      if (!t.image_url && t.album_id != null && albumImages[t.album_id]) {
-        return { ...t, image_url: albumImages[t.album_id]! };
+      if (!t.image_url) {
+        const img = getImageByName(t.album_title, t.artist_name);
+        if (img) return { ...t, image_url: img };
       }
       return t;
     });
   }
 
-  function playTracks(tracks: Track[], startIndex: number, context?: PlaylistContext | null) {
+  function playTracks(tracks: QueueTrack[], startIndex: number, context?: PlaylistContext | null) {
     const stamped = stamp(tracks);
     setQueue(stamped);
     setQueueIndex(startIndex);
@@ -160,7 +161,7 @@ export function useQueue(
     setPlaylistContext(context ?? null);
   }
 
-  function findDuplicates(newTracks: Track[]): { duplicates: Track[]; unique: Track[] } {
+  function findDuplicates(newTracks: QueueTrack[]): { duplicates: QueueTrack[]; unique: QueueTrack[] } {
     const stamped = stamp(newTracks);
     const existing = new Set(queueRef.current.map(t => t.path));
     const duplicates = stamped.filter(t => existing.has(t.path));
@@ -168,7 +169,7 @@ export function useQueue(
     return { duplicates, unique };
   }
 
-  function enqueueTracks(newTracks: Track[]) {
+  function enqueueTracks(newTracks: QueueTrack[]) {
     setQueue(prev => [...prev, ...stamp(newTracks)]);
   }
 
@@ -380,7 +381,7 @@ export function useQueue(
     });
   }
 
-  function peekNext(): Track | null {
+  function peekNext(): QueueTrack | null {
     const q = queueRef.current;
     const idx = queueIndexRef.current;
     const mode = queueModeRef.current;
@@ -441,7 +442,7 @@ export function useQueue(
     return false;
   }
 
-  function insertAtPosition(newTracks: Track[], position: number) {
+  function insertAtPosition(newTracks: QueueTrack[], position: number) {
     const stamped = stamp(newTracks);
     setQueue(prev => {
       const next = [...prev];
@@ -451,7 +452,7 @@ export function useQueue(
     setQueueIndex(prev => position <= prev ? prev + stamped.length : prev);
   }
 
-  function playNextInQueue(track: Track) {
+  function playNextInQueue(track: QueueTrack) {
     const [stamped] = stamp([track]);
     const idx = queueIndexRef.current;
     setQueue(prev => {
@@ -461,12 +462,12 @@ export function useQueue(
     });
   }
 
-  function addToQueue(track: Track) {
+  function addToQueue(track: QueueTrack) {
     const [stamped] = stamp([track]);
     setQueue(prev => [...prev, stamped]);
   }
 
-  function addToQueueAndPlay(track: Track, source: "user" | "auto" = "user") {
+  function addToQueueAndPlay(track: QueueTrack, source: "user" | "auto" = "user") {
     const [stamped] = stamp([track]);
     const newIndex = queueRef.current.length;
     setQueue(prev => [...prev, stamped]);
@@ -499,7 +500,7 @@ export function useQueue(
     const result = await invoke<PlaylistLoadResult>("load_playlist", { path: filePath });
     if (result.entries.length > 0) {
       const tracks = result.entries.map((e: PlaylistEntry) =>
-        queueEntryToTrack({
+        queueEntryToQueueTrack({
           url: e.url,
           title: e.title,
           artist_name: e.artist_name,

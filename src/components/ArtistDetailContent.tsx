@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getInitials } from "../utils";
-import type { Artist, Album, Track, ColumnConfig, SortField } from "../types";
+import type { Artist, Album, Track, QueueTrack, ColumnConfig, SortField } from "../types";
 
 import type { SearchProviderConfig } from "../searchProviders";
 import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
@@ -28,7 +28,7 @@ interface ArtistDetailContentProps {
   onFetchAlbumImage: (album: Album) => void;
   onSetArtistImage: (images: Record<number, string | null>) => void;
   onForceFetchArtistImage: (entity: { id: number; name: string }) => void;
-  currentTrack: Track | null;
+  currentTrack: QueueTrack | null;
   playing: boolean;
   highlightedIndex: number;
   sortField: SortField | null;

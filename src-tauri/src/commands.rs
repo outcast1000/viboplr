@@ -881,7 +881,11 @@ pub fn delete_tracks(
             }
         }
     }
-    Ok(DeleteTracksResult { deleted_ids, failures })
+    let deleted_paths: Vec<String> = tracks.iter()
+        .filter(|t| deleted_ids.contains(&t.id))
+        .map(|t| t.path.clone())
+        .collect();
+    Ok(DeleteTracksResult { deleted_ids, deleted_paths, failures })
 }
 
 #[tauri::command]
@@ -1180,11 +1184,10 @@ pub fn get_auto_continue_track(
     current_title: String,
     current_artist: Option<String>,
     format_filter: Option<String>,
-    exclude_ids: Option<Vec<i64>>,
 ) -> Result<Option<Track>, String> {
     state
         .db
-        .get_auto_continue_track(&strategy, &current_title, current_artist.as_deref(), format_filter.as_deref(), exclude_ids.as_deref().unwrap_or(&[]))
+        .get_auto_continue_track(&strategy, &current_title, current_artist.as_deref(), format_filter.as_deref(), &[])
         .map_err(|e| e.to_string())
 }
 
@@ -2148,6 +2151,28 @@ pub fn get_track_audio_properties(
     use lofty::prelude::*;
 
     let tagged_file = lofty::probe::Probe::open(&bare_path)
+        .and_then(|p| p.read())
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+
+    let props = tagged_file.properties();
+
+    Ok(AudioProperties {
+        sample_rate: props.sample_rate(),
+        bit_depth: props.bit_depth(),
+        channels: props.channels(),
+        bitrate: props.overall_bitrate(),
+    })
+}
+
+#[tauri::command]
+pub fn get_audio_properties_by_path(
+    path: String,
+) -> Result<AudioProperties, String> {
+    let bare_path = path.strip_prefix("file://").unwrap_or(&path);
+
+    use lofty::prelude::*;
+
+    let tagged_file = lofty::probe::Probe::open(bare_path)
         .and_then(|p| p.read())
         .map_err(|e| format!("Failed to read file: {}", e))?;
 

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Track, Artist, Album, Tag } from "../types";
+import type { Track, Artist, Album, Tag, QueueTrack } from "../types";
 import type { PluginEventName } from "../types/plugin";
 
 interface LibraryDeps {
@@ -14,12 +14,12 @@ interface LibraryDeps {
 }
 
 interface PlaybackDeps {
-  currentTrack: Track | null;
-  setCurrentTrack: (t: Track) => void;
+  currentTrack: QueueTrack | null;
+  setCurrentTrack: React.Dispatch<React.SetStateAction<QueueTrack | null>>;
 }
 
 interface QueueDeps {
-  setQueue: React.Dispatch<React.SetStateAction<Track[]>>;
+  setQueue: React.Dispatch<React.SetStateAction<QueueTrack[]>>;
 }
 
 interface PluginsDeps {
@@ -31,19 +31,28 @@ interface UseLikeActionsDeps {
   playback: PlaybackDeps;
   queueHook: QueueDeps;
   plugins: PluginsDeps;
+  addLog?: (msg: string) => void;
 }
 
 export function useLikeActions(deps: UseLikeActionsDeps) {
   const { library, playback, queueHook, plugins } = deps;
 
-  async function handleToggleLike(track: Track) {
-    if (track.id == null) return;
+  async function handleToggleLike(track: QueueTrack) {
     const newLiked = track.liked === 1 ? 0 : 1;
     try {
-      await invoke("toggle_liked", { kind: "track", id: track.id, liked: newLiked });
+      const libTrack = await invoke<Track | null>("find_track_by_metadata", {
+        title: track.title,
+        artistName: track.artist_name ?? null,
+        albumName: track.album_title ?? null,
+      });
+      if (!libTrack) {
+        deps.addLog?.("Track not in library");
+        return;
+      }
+      await invoke("toggle_liked", { kind: "track", id: libTrack.id, liked: newLiked });
       library.setTracks(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
       if (playback.currentTrack?.key === track.key) {
-        playback.setCurrentTrack({ ...playback.currentTrack, liked: newLiked });
+        playback.setCurrentTrack(prev => prev ? { ...prev, liked: newLiked } : prev);
       }
       queueHook.setQueue(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
       plugins.dispatchEvent("track:liked", track, newLiked === 1);
@@ -52,14 +61,22 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     }
   }
 
-  async function handleToggleDislike(track: Track) {
-    if (track.id == null) return;
+  async function handleToggleDislike(track: QueueTrack) {
     const newLiked = track.liked === -1 ? 0 : -1;
     try {
-      await invoke("toggle_liked", { kind: "track", id: track.id, liked: newLiked });
+      const libTrack = await invoke<Track | null>("find_track_by_metadata", {
+        title: track.title,
+        artistName: track.artist_name ?? null,
+        albumName: track.album_title ?? null,
+      });
+      if (!libTrack) {
+        deps.addLog?.("Track not in library");
+        return;
+      }
+      await invoke("toggle_liked", { kind: "track", id: libTrack.id, liked: newLiked });
       library.setTracks(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
       if (playback.currentTrack?.key === track.key) {
-        playback.setCurrentTrack({ ...playback.currentTrack, liked: newLiked });
+        playback.setCurrentTrack(prev => prev ? { ...prev, liked: newLiked } : prev);
       }
       queueHook.setQueue(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
     } catch (e) {

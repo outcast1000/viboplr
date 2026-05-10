@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Track } from "../types";
+import type { Track, QueueTrack } from "../types";
 import { store } from "../store";
 import { isVideoTrack } from "../utils";
 
@@ -69,7 +69,7 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
     return "random";
   }
 
-  async function fetchTrack(currentTrack: Track, excludeIds?: number[]): Promise<Track | null> {
+  async function fetchTrack(currentTrack: QueueTrack): Promise<Track | null> {
     const strategy = pickStrategy();
     const formatFilter = sameFormat ? (isVideoTrack(currentTrack) ? "video" : "audio") : null;
     try {
@@ -78,7 +78,6 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
         currentTitle: currentTrack.title,
         currentArtist: currentTrack.artist_name,
         formatFilter,
-        excludeIds: excludeIds ?? null,
       });
       if (track) return track;
       if (strategy !== "random") {
@@ -87,7 +86,6 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
           currentTitle: currentTrack.title,
           currentArtist: currentTrack.artist_name,
           formatFilter,
-          excludeIds: excludeIds ?? null,
         });
       }
       return null;
