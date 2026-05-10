@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "allow-browse-window-send"
-description = "Enables the browse_window_send command for browse windows."
-commands.allow = ["browse_window_send"]

@@ -1738,7 +1738,7 @@ function App() {
         console.error("Failed to restore state:", e);
         await getCurrentWindow().show();
       }
-      await timeAsync("loadProviders", () => loadProviders(store).then(setSearchProviders));
+      await timeAsync("loadProviders", () => loadProviders(store).then(setSearchProviders)).catch(e => console.error("Failed to load providers:", e));
       restoredRef.current = true;
       setAppRestoring(false);
       await timeAsync("loadLibrary", () => library.loadLibrary());

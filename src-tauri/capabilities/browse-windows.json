@@ -8,6 +8,6 @@
   },
   "permissions": [
     "core:default",
-    "allow-browse-window-send"
+    "core:event:allow-emit"
   ]
 }

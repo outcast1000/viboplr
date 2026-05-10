@@ -46,13 +46,16 @@ pub async fn open_browse_window(
         send: function(type, data) {{
             if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {{
                 try {{
-                    window.__TAURI_INTERNALS__.invoke('browse_window_send', {{
-                        label: this._label,
-                        msgType: type,
-                        data: JSON.stringify(data)
+                    window.__TAURI_INTERNALS__.invoke('plugin:event|emit', {{
+                        event: 'browse-window-message',
+                        payload: {{
+                            label: this._label,
+                            msg_type: type,
+                            data: JSON.stringify(data)
+                        }}
                     }});
                 }} catch(e) {{
-                    console.error('[viboplr-bridge] invoke error:', e);
+                    console.error('[viboplr-bridge] emit error:', e);
                 }}
             }} else {{
                 console.warn('[viboplr-bridge] __TAURI_INTERNALS__ not available');

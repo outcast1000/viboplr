@@ -350,9 +350,27 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
     (async () => {
       try {
         const saved = await store.get<string | null>("miniRestingSize");
-        const migrated = saved === "ultra" ? "compact" : saved === "compact" ? "normal" : saved;
-        if (migrated === "normal" || migrated === "compact") {
-          setMiniRestingSizeState(migrated);
+        let value = saved;
+        if (saved === "ultra") {
+          // Old "ultra" (24px) -> new "compact"
+          value = "compact";
+          await store.set("miniRestingSize", value);
+        } else if (saved === "compact") {
+          // Ambiguous: could be old "compact" (52px) or new "compact" (24px).
+          // Check migration flag to distinguish.
+          const migrated = await store.get<boolean>("miniSizeMigrated");
+          if (!migrated) {
+            value = "normal";
+            await store.set("miniRestingSize", value);
+            await store.set("miniSizeMigrated", true);
+          }
+        } else if (saved === "normal") {
+          if (!await store.get<boolean>("miniSizeMigrated")) {
+            await store.set("miniSizeMigrated", true);
+          }
+        }
+        if (value === "normal" || value === "compact") {
+          setMiniRestingSizeState(value);
         }
         const savedWidth = await store.get<MiniWidthSize | null>("miniWidthSize");
         if (savedWidth === "small" || savedWidth === "medium" || savedWidth === "large") {

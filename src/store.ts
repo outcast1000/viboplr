@@ -85,6 +85,10 @@ class ProfileStore implements AppStore {
             defaults: STORE_DEFAULTS,
           });
           return this._inner;
+        })
+        .catch((e) => {
+          this._initPromise = undefined;
+          throw e;
         });
     }
     return this._initPromise;

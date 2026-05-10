@@ -1301,9 +1301,12 @@ pub fn run() {
 
                         let is_mini = json.get("miniMode").and_then(|v| v.as_bool()).unwrap_or(false);
                         if is_mini {
-                            let resting_size = json.get("miniRestingSize").and_then(|v| v.as_str()).unwrap_or("normal");
-                            let mini_height = match resting_size {
-                                "compact" | "ultra" => 24.0,
+                            let raw_resting = json.get("miniRestingSize").and_then(|v| v.as_str()).unwrap_or("normal");
+                            let size_migrated = json.get("miniSizeMigrated").and_then(|v| v.as_bool()).unwrap_or(false);
+                            let mini_height = match raw_resting {
+                                "ultra" => 24.0,
+                                "compact" if size_migrated => 24.0,
+                                "compact" => 52.0, // pre-migration: old "compact" = 52px
                                 _ => 52.0,
                             };
                             let mini_width = match json.get("miniWidthSize").and_then(|v| v.as_str()).unwrap_or("medium") {
