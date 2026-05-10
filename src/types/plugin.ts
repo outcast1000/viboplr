@@ -75,6 +75,12 @@ export interface PluginApiUsage {
   reason: string;
 }
 
+export interface PluginBinaryDependency {
+  name: string;
+  required: boolean;
+  reason: string;
+}
+
 export interface PluginManifest {
   id: string;
   name: string;
@@ -85,6 +91,7 @@ export interface PluginManifest {
   debugOnly?: boolean;
   icon?: string;
   apiUsage?: PluginApiUsage[];
+  binaryDependencies?: PluginBinaryDependency[];
   homepage?: string;
   autoEnable?: boolean;
   contributes?: PluginManifestContributes;

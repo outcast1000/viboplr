@@ -65,6 +65,7 @@ pub struct AppState {
     pub cursor_tracker_active: Arc<AtomicBool>,
     pub transcode_port: u16,
     pub transcode_sessions: transcode_server::Sessions,
+    pub dep_cache: Arc<crate::dependencies::DepCache>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1792,35 +1793,10 @@ pub fn search_youtube(title: String, artist_name: Option<String>, duration_secs:
 
 // --- Plugin system exec ---
 
-const ALLOWED_PROGRAMS: &[&str] = &["yt-dlp", "ffmpeg"];
-
-#[cfg(target_os = "macos")]
-pub fn augmented_path() -> std::ffi::OsString {
-    use std::ffi::OsString;
-    use std::os::unix::ffi::OsStringExt;
-
-    let current = std::env::var_os("PATH").unwrap_or_default();
-    let extra_dirs: &[&str] = &[
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "/opt/local/bin",
-    ];
-    let mut new_path = Vec::new();
-    new_path.extend_from_slice(current.as_encoded_bytes());
-    for dir in extra_dirs {
-        if !current.to_string_lossy().contains(dir) {
-            new_path.push(b':');
-            new_path.extend_from_slice(dir.as_bytes());
-        }
-    }
-    OsString::from_vec(new_path)
-}
+use crate::dependencies;
 
 fn command_with_path(program: &str) -> std::process::Command {
-    let mut cmd = std::process::Command::new(program);
-    #[cfg(target_os = "macos")]
-    cmd.env("PATH", augmented_path());
-    cmd
+    dependencies::command_with_path(program)
 }
 
 #[derive(Serialize)]
@@ -1838,8 +1814,9 @@ pub async fn plugin_exec(
     args: Vec<String>,
     cwd: Option<String>,
 ) -> Result<ExecResult, String> {
-    if !ALLOWED_PROGRAMS.contains(&program.as_str()) {
-        return Err(format!("Program not allowed: {}. Allowed: {:?}", program, ALLOWED_PROGRAMS));
+    let allowed = dependencies::allowed_names();
+    if !allowed.contains(&program.as_str()) {
+        return Err(format!("Program not allowed: {}. Allowed: {:?}", program, allowed));
     }
 
     let app_dir = state.app_dir.clone();
@@ -1871,61 +1848,84 @@ pub async fn plugin_exec(
 // --- yt-dlp commands ---
 
 #[tauri::command]
-pub async fn yt_dlp_check() -> Option<String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let mut cmd = command_with_path("yt-dlp");
-        cmd.arg("--version");
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+pub async fn yt_dlp_check(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let cache = Arc::clone(&state.dep_cache);
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match dependencies::check_single("yt-dlp", &cache) {
+            dependencies::DepStatus::Installed { version } => Some(version),
+            _ => None,
         }
-        cmd.output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
-                } else {
-                    None
-                }
-            })
     })
     .await
-    .ok()
-    .flatten()
+    .map_err(|e| e.to_string())?)
 }
 
 #[tauri::command]
-pub async fn ffmpeg_check() -> Option<String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let mut cmd = command_with_path("ffmpeg");
-        cmd.arg("-version");
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+pub async fn ffmpeg_check(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let cache = Arc::clone(&state.dep_cache);
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        match dependencies::check_single("ffmpeg", &cache) {
+            dependencies::DepStatus::Installed { version } => Some(version),
+            _ => None,
         }
-        cmd.output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    String::from_utf8(o.stdout).ok().and_then(|s| {
-                        s.lines()
-                            .next()
-                            .and_then(|line| {
-                                // "ffmpeg version 7.1 Copyright ..." or "ffmpeg version N-..."
-                                line.strip_prefix("ffmpeg version ")
-                                    .map(|rest| rest.split_whitespace().next().unwrap_or("unknown").to_string())
-                            })
-                    })
-                } else {
-                    None
-                }
-            })
     })
     .await
-    .ok()
-    .flatten()
+    .map_err(|e| e.to_string())?)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginDepDeclaration {
+    pub name: String,
+    pub plugin_name: String,
+}
+
+#[tauri::command]
+pub async fn check_dependencies(
+    state: State<'_, AppState>,
+    names: Option<Vec<String>>,
+    plugin_deps: Option<Vec<PluginDepDeclaration>>,
+    force_refresh: bool,
+) -> Result<Vec<dependencies::DependencyInfo>, String> {
+    let cache = Arc::clone(&state.dep_cache);
+    let plugin_deps = plugin_deps.unwrap_or_default();
+
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        if force_refresh {
+            cache.clear();
+        }
+
+        let defs_to_check: Vec<&dependencies::DependencyDef> = match &names {
+            Some(names) => dependencies::REGISTRY
+                .iter()
+                .filter(|d| names.iter().any(|n| n == d.name))
+                .collect(),
+            None => dependencies::REGISTRY.iter().collect(),
+        };
+
+        defs_to_check
+            .iter()
+            .map(|def| {
+                let status = dependencies::check_single(def.name, &cache);
+                let plugin_consumers: Vec<String> = plugin_deps
+                    .iter()
+                    .filter(|pd| pd.name == def.name)
+                    .map(|pd| pd.plugin_name.clone())
+                    .collect();
+
+                dependencies::DependencyInfo {
+                    name: def.name.to_string(),
+                    description: def.description.to_string(),
+                    status,
+                    internal_consumers: def.internal_consumers.iter().map(|s| s.to_string()).collect(),
+                    plugin_consumers,
+                    install: def.install.clone(),
+                }
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())?)
 }
 
 #[tauri::command]
@@ -4580,8 +4580,11 @@ pub async fn start_transcode(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<TranscodeInfo, String> {
-    let check = ffmpeg_check().await;
-    if check.is_none() {
+    let cache = Arc::clone(&state.dep_cache);
+    let available = tauri::async_runtime::spawn_blocking(move || {
+        dependencies::is_available("ffmpeg", &cache)
+    }).await.map_err(|e| e.to_string())?;
+    if !available {
         return Err("ffmpeg is not installed. Install ffmpeg to play MKV/AVI/WMV files.".to_string());
     }
 
@@ -4627,6 +4630,7 @@ mod tests {
             cursor_tracker_active: Arc::new(AtomicBool::new(false)),
             transcode_port: 0,
             transcode_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            dep_cache: Arc::new(crate::dependencies::DepCache::new()),
         }
     }
 

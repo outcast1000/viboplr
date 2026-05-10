@@ -45,26 +45,7 @@ struct StreamQuery {
 }
 
 fn ffmpeg_command() -> Command {
-    let mut cmd = Command::new("ffmpeg");
-    #[cfg(target_os = "macos")]
-    {
-        let current = std::env::var_os("PATH").unwrap_or_default();
-        let extra_dirs: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"];
-        let mut new_path = std::ffi::OsString::from(&current);
-        for dir in extra_dirs {
-            if !current.to_string_lossy().contains(dir) {
-                new_path.push(":");
-                new_path.push(dir);
-            }
-        }
-        cmd.env("PATH", new_path);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-    cmd
+    crate::dependencies::tokio_command_with_path("ffmpeg")
 }
 
 fn spawn_ffmpeg(file_path: &str, seek_secs: f64) -> Result<Child, String> {

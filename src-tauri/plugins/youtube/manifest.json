@@ -5,6 +5,10 @@
   "author": "Viboplr",
   "description": "Play and download tracks from YouTube via yt-dlp",
   "minAppVersion": "0.9.4",
+  "binaryDependencies": [
+    { "name": "yt-dlp", "required": true, "reason": "Download audio streams from YouTube" },
+    { "name": "ffmpeg", "required": false, "reason": "Convert downloaded audio to preferred format" }
+  ],
   "contributes": {
     "streamResolvers": [
       { "id": "youtube-fallback", "name": "YouTube" }

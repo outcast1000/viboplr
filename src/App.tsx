@@ -97,6 +97,8 @@ import { SearchView } from "./components/SearchView";
 import { StatusBar } from "./components/StatusBar";
 import { IconYoutube } from "./components/Icons";
 import { LikeDislikeButtons } from "./components/LikeDislikeButtons";
+import { useDependencies } from "./hooks/useDependencies";
+import { DependencyModal } from "./components/DependencyModal";
 
 
 function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<VideoFrameQueue | null> }) {
@@ -298,6 +300,8 @@ function App() {
   }), [queueHook, pluginTrackToQueueTrack]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode);
+  const dependencies = useDependencies(plugins.pluginStates);
+  if (import.meta.env.DEV) (window as any).__dependencies = dependencies;
 
   // Wire up image resolver to handle image-resolve-request events
   useImageResolver(plugins.invokeImageFetch);
@@ -1340,6 +1344,9 @@ function App() {
                   return result.url;
                 } catch (e) {
                   const msg = e instanceof Error ? e.message : String(e);
+                  if (msg.includes("ffmpeg is not installed")) {
+                    dependencies.requireDep("ffmpeg", "Video playback");
+                  }
                   addLog(msg, "playback");
                   throw e;
                 }
@@ -3267,6 +3274,7 @@ function App() {
               onSetDownloadsFolder={handleSetDownloadsFolder}
               onUnsetDownloadsCollection={handleUnsetDownloadsCollection}
               onAutoSaveStreamsChange={handleAutoSaveStreamsChange}
+              dependencies={dependencies}
             />
           )}
           </>}
@@ -3622,6 +3630,15 @@ function App() {
           trackTitle={playback.failedTrack?.title ?? null}
           onDismiss={playback.clearPlaybackError}
           onSkip={() => { playback.clearPlaybackError(); handleNext(); }}
+        />
+      )}
+
+      {dependencies.modalState && (
+        <DependencyModal
+          dep={dependencies.modalState.dep}
+          feature={dependencies.modalState.feature}
+          onDismiss={dependencies.dismissModal}
+          onRecheck={dependencies.recheckModal}
         />
       )}
 

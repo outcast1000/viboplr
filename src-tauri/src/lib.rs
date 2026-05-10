@@ -2,6 +2,7 @@ mod browse_window;
 mod commands;
 mod composite_image;
 mod db;
+pub mod dependencies;
 mod entity_image;
 mod image_provider;
 mod logging;
@@ -114,6 +115,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::test_collection_connection,
         commands::subsonic_test_connection,
         commands::search_youtube,
+        commands::check_dependencies,
         commands::plugin_exec,
         commands::yt_dlp_check,
         commands::ffmpeg_check,
@@ -317,6 +319,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::test_collection_connection,
         commands::subsonic_test_connection,
         commands::search_youtube,
+        commands::check_dependencies,
         commands::plugin_exec,
         commands::yt_dlp_check,
         commands::ffmpeg_check,
@@ -1447,6 +1450,7 @@ pub fn run() {
                     cursor_tracker_active: Arc::clone(&cursor_tracker_active),
                     transcode_port,
                     transcode_sessions,
+                    dep_cache: Arc::new(dependencies::DepCache::new()),
                 });
             });
 

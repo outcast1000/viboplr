@@ -753,6 +753,69 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   );
 }
 
+function DependenciesSection({ dependencies }: { dependencies?: SettingsPanelProps["dependencies"] }) {
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (dependencies && dependencies.deps.length === 0) {
+      dependencies.checkAll();
+    }
+  }, [dependencies]);
+
+  if (!dependencies) return null;
+
+  const handleRefresh = async () => {
+    setLoading(true);
+    await dependencies.checkAll(true);
+    setLoading(false);
+  };
+
+  return (
+    <div className="settings-group">
+      <h4 className="settings-group-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        Dependencies
+        <button
+          className="ds-btn ds-btn--ghost ds-btn--sm"
+          onClick={handleRefresh}
+          disabled={loading}
+          style={{ marginLeft: "auto" }}
+        >
+          {loading ? "Checking..." : "Refresh"}
+        </button>
+      </h4>
+      <div className="settings-card">
+        {dependencies.deps.length === 0 && (
+          <div className="settings-row">
+            <span className="settings-label" style={{ color: "var(--text-tertiary)" }}>Loading...</span>
+          </div>
+        )}
+        {dependencies.deps.map((dep) => (
+          <div className="settings-row" key={dep.name} style={{ flexDirection: "column", alignItems: "stretch", gap: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="settings-label" style={{ fontWeight: 600 }}>{dep.name}</span>
+              {dep.status === "installed" ? (
+                <span style={{ fontSize: "var(--fs-xs)", color: "var(--success)", fontWeight: 500 }}>
+                  Installed{dep.version ? ` (${dep.version})` : ""}
+                </span>
+              ) : (
+                <span style={{ fontSize: "var(--fs-xs)", color: "var(--warning)", fontWeight: 500 }}>
+                  Not Installed
+                </span>
+              )}
+            </div>
+            <span className="settings-description">{dep.description}</span>
+            {(dep.internalConsumers.length > 0 || dep.pluginConsumers.length > 0) && (
+              <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-tertiary)" }}>
+                Used by: {[...dep.internalConsumers, ...dep.pluginConsumers].join(", ")}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 interface SettingsPanelProps {
   searchProviders: SearchProviderConfig[];
   onSeedDatabase: () => void;
@@ -793,6 +856,18 @@ interface SettingsPanelProps {
   onSetDownloadsFolder: () => void;
   onUnsetDownloadsCollection: () => void;
   onAutoSaveStreamsChange: (resolverId: string, enabled: boolean) => void;
+  dependencies?: {
+    deps: Array<{
+      name: string;
+      description: string;
+      status: "installed" | "notFound" | "error";
+      version?: string;
+      internalConsumers: string[];
+      pluginConsumers: string[];
+      install: { macos: string; windows: string; linux: string; url: string };
+    }>;
+    checkAll: (forceRefresh?: boolean) => Promise<unknown>;
+  };
 }
 
 interface ProviderFormData {
@@ -837,6 +912,7 @@ export function SettingsPanel({
   onSetDownloadsFolder,
   onUnsetDownloadsCollection,
   onAutoSaveStreamsChange,
+  dependencies,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1163,6 +1239,8 @@ export function SettingsPanel({
                     </div>
                   </div>
                 </div>
+
+                <DependenciesSection dependencies={dependencies} />
 
               </>
             )}

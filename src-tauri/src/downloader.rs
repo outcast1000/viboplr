@@ -505,15 +505,8 @@ fn process_webm_download(
         let temp_str = temp_path.to_string_lossy().to_string();
         log::info!("Converting WebM to m4a: {} -> {}", temp_str, m4a_temp_str);
 
-        let mut cmd = std::process::Command::new("ffmpeg");
-        #[cfg(target_os = "macos")]
-        cmd.env("PATH", crate::commands::augmented_path());
+        let mut cmd = crate::dependencies::command_with_path("ffmpeg");
         cmd.args(["-i", &temp_str, "-vn", "-c:a", "aac", "-b:a", "192k", "-y", &m4a_temp_str]);
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
-        }
         let output = cmd.output().map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
 
         if output.status.success() {
