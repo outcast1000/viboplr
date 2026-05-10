@@ -789,28 +789,33 @@ function DependenciesSection({ dependencies }: { dependencies?: SettingsPanelPro
             <span className="settings-label" style={{ color: "var(--text-tertiary)" }}>Loading...</span>
           </div>
         )}
-        {dependencies.deps.map((dep) => (
-          <div className="settings-row" key={dep.name} style={{ flexDirection: "column", alignItems: "stretch", gap: 4 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span className="settings-label" style={{ fontWeight: 600 }}>{dep.name}</span>
-              {dep.status === "installed" ? (
-                <span style={{ fontSize: "var(--fs-xs)", color: "var(--success)", fontWeight: 500 }}>
-                  Installed{dep.version ? ` (${dep.version})` : ""}
-                </span>
-              ) : (
-                <span style={{ fontSize: "var(--fs-xs)", color: "var(--warning)", fontWeight: 500 }}>
-                  Not Installed
-                </span>
+        {dependencies.deps.map((dep) => {
+          const allConsumers = [...dep.internalConsumers, ...dep.pluginConsumers];
+          return (
+            <div className="settings-row" key={dep.name} style={{ flexDirection: "column", alignItems: "stretch", gap: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="settings-label" style={{ fontWeight: 600 }}>{dep.name}</span>
+                {dep.status === "installed" ? (
+                  <span style={{ fontSize: "var(--fs-xs)", color: "var(--success)", fontWeight: 500 }}>
+                    Installed{dep.version ? ` (${dep.version})` : ""}
+                  </span>
+                ) : (
+                  <span style={{ fontSize: "var(--fs-xs)", color: "var(--warning)", fontWeight: 500 }}>
+                    Not Installed
+                  </span>
+                )}
+              </div>
+              <span className="settings-description">{dep.description}</span>
+              {allConsumers.length > 0 && (
+                <div style={{ fontSize: "var(--fs-xs)", color: "var(--text-tertiary)", display: "flex", flexDirection: "column", gap: 2 }}>
+                  {allConsumers.map((c) => (
+                    <span key={c.name}>{c.name} — {c.reason}</span>
+                  ))}
+                </div>
               )}
             </div>
-            <span className="settings-description">{dep.description}</span>
-            {(dep.internalConsumers.length > 0 || dep.pluginConsumers.length > 0) && (
-              <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-tertiary)" }}>
-                Used by: {[...dep.internalConsumers, ...dep.pluginConsumers].join(", ")}
-              </span>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -862,8 +867,8 @@ interface SettingsPanelProps {
       description: string;
       status: "installed" | "notFound" | "error";
       version?: string;
-      internalConsumers: string[];
-      pluginConsumers: string[];
+      internalConsumers: Array<{ name: string; reason: string }>;
+      pluginConsumers: Array<{ name: string; reason: string }>;
       install: { macos: string; windows: string; linux: string; url: string };
     }>;
     checkAll: (forceRefresh?: boolean) => Promise<unknown>;

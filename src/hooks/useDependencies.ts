@@ -9,14 +9,19 @@ export interface InstallInstructions {
   url: string;
 }
 
+export interface ConsumerInfo {
+  name: string;
+  reason: string;
+}
+
 export interface DependencyInfo {
   name: string;
   description: string;
   status: "installed" | "notFound" | "error";
   version?: string;
   message?: string;
-  internalConsumers: string[];
-  pluginConsumers: string[];
+  internalConsumers: ConsumerInfo[];
+  pluginConsumers: ConsumerInfo[];
   install: InstallInstructions;
 }
 
@@ -33,8 +38,8 @@ function parseDependencyInfo(raw: Record<string, unknown>): DependencyInfo {
     status: status as DependencyInfo["status"],
     version: raw.version as string | undefined,
     message: raw.message as string | undefined,
-    internalConsumers: raw.internalConsumers as string[],
-    pluginConsumers: raw.pluginConsumers as string[],
+    internalConsumers: raw.internalConsumers as ConsumerInfo[],
+    pluginConsumers: raw.pluginConsumers as ConsumerInfo[],
     install: raw.install as InstallInstructions,
   };
 }
@@ -46,11 +51,11 @@ export function useDependencies(pluginStates: PluginState[]) {
   const shownModalsRef = useRef<Set<string>>(new Set());
 
   const getPluginDeps = useCallback(() => {
-    const result: { name: string; pluginName: string }[] = [];
+    const result: { name: string; pluginName: string; reason: string }[] = [];
     for (const ps of pluginStates) {
       if (ps.manifest.binaryDependencies) {
         for (const bd of ps.manifest.binaryDependencies) {
-          result.push({ name: bd.name, pluginName: ps.manifest.name });
+          result.push({ name: bd.name, pluginName: ps.manifest.name, reason: bd.reason });
         }
       }
     }

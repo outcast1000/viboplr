@@ -28,6 +28,10 @@ export function DependencyModal({ dep, feature, onDismiss, onRecheck }: Props) {
   const platform = getPlatform();
   const command = dep.install[platform];
 
+  const allConsumers = [...dep.internalConsumers, ...dep.pluginConsumers];
+  const matchingConsumer = allConsumers.find((c) => c.name === feature);
+  const reason = matchingConsumer?.reason;
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(command);
@@ -50,7 +54,7 @@ export function DependencyModal({ dep, feature, onDismiss, onRecheck }: Props) {
         <h3 className="ds-modal-title">{dep.name} is required</h3>
 
         <p style={{ margin: "0 0 16px", color: "var(--text-secondary)", fontSize: "var(--fs-sm)" }}>
-          <strong>{feature}</strong> requires <strong>{dep.name}</strong> to work.
+          <strong>{feature}</strong> requires <strong>{dep.name}</strong>{reason ? ` to ${reason.toLowerCase()}` : ""}.
           Install it to enable this feature.
         </p>
 

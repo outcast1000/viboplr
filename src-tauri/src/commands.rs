@@ -1878,6 +1878,7 @@ pub async fn ffmpeg_check(state: State<'_, AppState>) -> Result<Option<String>, 
 pub struct PluginDepDeclaration {
     pub name: String,
     pub plugin_name: String,
+    pub reason: String,
 }
 
 #[tauri::command]
@@ -1907,17 +1908,22 @@ pub async fn check_dependencies(
             .iter()
             .map(|def| {
                 let status = dependencies::check_single(def.name, &cache);
-                let plugin_consumers: Vec<String> = plugin_deps
+                let plugin_consumers: Vec<dependencies::ConsumerInfo> = plugin_deps
                     .iter()
                     .filter(|pd| pd.name == def.name)
-                    .map(|pd| pd.plugin_name.clone())
+                    .map(|pd| dependencies::ConsumerInfo {
+                        name: pd.plugin_name.clone(),
+                        reason: pd.reason.clone(),
+                    })
                     .collect();
 
                 dependencies::DependencyInfo {
                     name: def.name.to_string(),
                     description: def.description.to_string(),
                     status,
-                    internal_consumers: def.internal_consumers.iter().map(|s| s.to_string()).collect(),
+                    internal_consumers: def.internal_consumers.iter().map(|(n, r)| {
+                        dependencies::ConsumerInfo { name: n.to_string(), reason: r.to_string() }
+                    }).collect(),
                     plugin_consumers,
                     install: def.install.clone(),
                 }

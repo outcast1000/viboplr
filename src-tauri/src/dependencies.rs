@@ -18,7 +18,7 @@ pub struct DependencyDef {
     pub version_args: &'static [&'static str],
     pub parse_version: fn(&str) -> Option<String>,
     pub install: InstallInstructions,
-    pub internal_consumers: &'static [&'static str],
+    pub internal_consumers: &'static [(&'static str, &'static str)],
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,13 +31,20 @@ pub enum DepStatus {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ConsumerInfo {
+    pub name: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DependencyInfo {
     pub name: String,
     pub description: String,
     #[serde(flatten)]
     pub status: DepStatus,
-    pub internal_consumers: Vec<String>,
-    pub plugin_consumers: Vec<String>,
+    pub internal_consumers: Vec<ConsumerInfo>,
+    pub plugin_consumers: Vec<ConsumerInfo>,
     pub install: InstallInstructions,
 }
 
@@ -68,7 +75,11 @@ pub static REGISTRY: &[DependencyDef] = &[
             linux: "sudo apt install ffmpeg",
             url: "https://ffmpeg.org/download.html",
         },
-        internal_consumers: &["Video playback", "Video frame preview", "Audio format conversion"],
+        internal_consumers: &[
+            ("Video playback", "Transcode MKV/AVI/WMV to streamable MP4"),
+            ("Video frame preview", "Extract thumbnail frames from video files"),
+            ("Audio format conversion", "Convert WebM downloads to M4A"),
+        ],
     },
     DependencyDef {
         name: "yt-dlp",
@@ -95,7 +106,7 @@ pub static REGISTRY: &[DependencyDef] = &[
             linux: "sudo apt install fictional-tool",
             url: "https://example.com/fictional-tool",
         },
-        internal_consumers: &["Test feature"],
+        internal_consumers: &[("Test feature", "Verifies the dependency modal works in dev mode")],
     },
 ];
 
