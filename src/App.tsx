@@ -1329,11 +1329,19 @@ function App() {
           id: sr.id,
           sourceUrl: null,
           resolve: async () => {
+            const startTime = Date.now();
+            let timedOut = false;
             const result = await Promise.race([
               sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000)),
+              new Promise<null>((resolve) => setTimeout(() => { timedOut = true; resolve(null); }, 60000)),
             ]);
-            if (!result) throw new Error("No result");
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            if (!result) {
+              if (timedOut) {
+                addLog(`Stream resolver "${sr.name}" timed out after ${elapsed}s for: ${track.title}`, "playback");
+              }
+              throw new Error(timedOut ? `Timed out (${elapsed}s)` : "No result");
+            }
             if (result.sourceUrl) entry.sourceUrl = result.sourceUrl;
             return resolveUrl(result.url);
           },
@@ -1361,8 +1369,9 @@ function App() {
           }
           return src;
         } catch (e) {
+          const reason = e instanceof Error ? e.message : String(e);
           console.error(`Stream resolver "${entry.name}" failed:`, e);
-          lastError = entry.name === "Library" ? "Not in library" : `${entry.name} failed`;
+          lastError = entry.name === "Library" ? "Not in library" : `${entry.name}: ${reason}`;
           continue;
         }
       }

@@ -265,6 +265,7 @@ async function searchAndDownload(api, title, artistName, durationSecs) {
 
   api.log("info", "Downloading audio via yt-dlp: " + result.url, "youtube");
   var filePath;
+  var dlStartTime = Date.now();
   try {
     // Get the plugin's cache directory by writing a sentinel and reading its path
     var sentinelPath = await api.storage.files.writeText(["cache", ".init"], "");
@@ -281,13 +282,21 @@ async function searchAndDownload(api, title, artistName, durationSecs) {
       "-o", outputTemplate,
       result.url
     ], { cwd: null });
+    var dlElapsed = ((Date.now() - dlStartTime) / 1000).toFixed(1);
     if (dlResult.exitCode !== 0) {
-      api.log("error", "yt-dlp failed (exit " + dlResult.exitCode + "): " + (dlResult.stderr || "").trim(), "youtube");
+      api.log("error", "yt-dlp failed after " + dlElapsed + "s (exit " + dlResult.exitCode + "): " + (dlResult.stderr || "").trim(), "youtube");
+      // Check if file landed in cache despite non-zero exit
+      var salvaged = await findCachedDownload(api, videoId);
+      if (salvaged) {
+        api.log("info", "File found in cache despite yt-dlp error: " + salvaged, "youtube");
+        return { filePath: salvaged, youtubeUrl: result.url };
+      }
       return null;
     }
     filePath = dlResult.stdout.trim() || null;
   } catch (e) {
-    api.log("error", "yt-dlp exec failed: " + (e && e.message ? e.message : e), "youtube");
+    var dlElapsed2 = ((Date.now() - dlStartTime) / 1000).toFixed(1);
+    api.log("error", "yt-dlp exec failed after " + dlElapsed2 + "s: " + (e && e.message ? e.message : e), "youtube");
     return null;
   }
   if (!filePath) {
@@ -295,7 +304,8 @@ async function searchAndDownload(api, title, artistName, durationSecs) {
     return null;
   }
 
-  api.log("info", "Downloaded to: " + filePath, "youtube");
+  var dlElapsed3 = ((Date.now() - dlStartTime) / 1000).toFixed(1);
+  api.log("info", "Downloaded in " + dlElapsed3 + "s: " + filePath, "youtube");
   var dlFilename = filePath.replace(/^.*[\/\\]/, "");
   cleanupCache(api, dlFilename).catch(function(e) {
     api.log("warn", "Post-download cache cleanup failed: " + (e && e.message ? e.message : e), "youtube");
@@ -330,16 +340,19 @@ async function activate(api) {
     }
 
     title = stripRemasterSuffix(title);
+    var resolveStart = Date.now();
     try {
       var result = await searchAndDownload(api, title, artistName, durationSecs);
+      var resolveElapsed = ((Date.now() - resolveStart) / 1000).toFixed(1);
       if (!result) {
-        api.log("warn", "Stream resolve: no file returned for " + title, "youtube");
+        api.log("warn", "Stream resolve: no file returned for " + title + " (took " + resolveElapsed + "s)", "youtube");
         return null;
       }
-      api.log("info", "Stream resolved to: " + result.filePath, "youtube");
+      api.log("info", "Stream resolved in " + resolveElapsed + "s: " + result.filePath, "youtube");
       return { url: "file://" + result.filePath, label: "YouTube", sourceUrl: result.youtubeUrl };
     } catch (e) {
-      api.log("error", "Stream resolve failed: " + (e && e.message ? e.message : e), "youtube");
+      var resolveElapsed2 = ((Date.now() - resolveStart) / 1000).toFixed(1);
+      api.log("error", "Stream resolve failed after " + resolveElapsed2 + "s: " + (e && e.message ? e.message : e), "youtube");
       return null;
     }
   });

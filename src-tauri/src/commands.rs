@@ -1840,7 +1840,9 @@ pub async fn plugin_exec(
     }
 
     let app_dir = state.app_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let program_clone = program.clone();
+    let start = std::time::Instant::now();
+    let result = tauri::async_runtime::spawn_blocking(move || {
         let mut cmd = command_with_path(&program);
         cmd.args(&args);
         if let Some(dir) = cwd {
@@ -1855,6 +1857,10 @@ pub async fn plugin_exec(
         }
         let output = cmd.output()
             .map_err(|e| format!("Failed to run {}: {}", program, e))?;
+        let elapsed = start.elapsed();
+        log::info!("plugin_exec: {} exited with code {} in {:.1}s (stdout: {} bytes, stderr: {} bytes)",
+            program, output.status.code().unwrap_or(-1), elapsed.as_secs_f64(),
+            output.stdout.len(), output.stderr.len());
         Ok(ExecResult {
             exit_code: output.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -1862,7 +1868,9 @@ pub async fn plugin_exec(
         })
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
+    .map_err(|e| format!("Task join error: {}", e))?;
+    log::info!("plugin_exec: {} returned to caller in {:.1}s", program_clone, start.elapsed().as_secs_f64());
+    result
 }
 
 // --- yt-dlp commands ---
