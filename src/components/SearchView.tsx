@@ -756,6 +756,98 @@ export function SearchView({
         </div>
       )}
 
+      {searched && activeTab === "tracks" && (
+        <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
+          <div className="sort-bar">
+            <div className="sort-bar-row">
+              <span className="sort-bar-label">Sort:</span>
+              <div className="sort-bar-group">
+                <SortButton label="Title" field="title" chain={trackSortChain} onClick={handleTrackSort} />
+                <SortButton label="Artist" field="artist" chain={trackSortChain} onClick={handleTrackSort} />
+                <SortButton label="Album" field="album" chain={trackSortChain} onClick={handleTrackSort} />
+                <SortButton label="Year" field="year" chain={trackSortChain} onClick={handleTrackSort} />
+                <SortButton label="Duration" field="duration" chain={trackSortChain} onClick={handleTrackSort} />
+                <SortButton label="Added" field="added" chain={trackSortChain} onClick={handleTrackSort} />
+                <SortButton label="Modified" field="modified" chain={trackSortChain} onClick={handleTrackSort} />
+                <SortButton label={"\u2665 Liked"} field="liked" chain={trackSortChain} onClick={handleTrackSort} />
+                <SortButton label="Shuffle" field="random" chain={trackSortChain} onClick={handleTrackSort} />
+                {trackSortChain.length >= 2 && (
+                  <button className="sort-btn sort-btn-clear" onClick={() => setTrackSortChain([])}>Clear</button>
+                )}
+              </div>
+            </div>
+            <div className="sort-bar-row">
+              <span className="sort-bar-label">Filter:</span>
+              <div className="sort-bar-group sort-bar-group-filter">
+                <button className={`sort-btn${mediaTypeFilter === "all" ? " active" : ""}`} onClick={() => setMediaTypeFilter("all")}>All</button>
+                <button className={`sort-btn${mediaTypeFilter === "audio" ? " active" : ""}`} onClick={() => setMediaTypeFilter("audio")}>Audio</button>
+                <button className={`sort-btn${mediaTypeFilter === "video" ? " active" : ""}`} onClick={() => setMediaTypeFilter("video")}>Video</button>
+                <button className={`sort-btn${filterYoutubeOnly ? " active" : ""}`} onClick={() => setFilterYoutubeOnly(v => !v)}>YouTube</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {searched && activeTab === "albums" && (
+        <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
+          <div className="sort-bar">
+            <div className="sort-bar-row">
+              <span className="sort-bar-label">Sort:</span>
+              <div className="sort-bar-group">
+                <SortButton label="Name" field="name" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                <SortButton label="Artist" field="artist" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                <SortButton label="Year" field="year" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                <SortButton label="Tracks" field="tracks" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                <SortButton label={"\u2665 Liked"} field="liked" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                <SortButton label="Shuffle" field="random" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                {albumSortChain.length >= 2 && (
+                  <button className="sort-btn sort-btn-clear" onClick={() => setAlbumSortChain([])}>Clear</button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {searched && activeTab === "artists" && (
+        <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
+          <div className="sort-bar">
+            <div className="sort-bar-row">
+              <span className="sort-bar-label">Sort:</span>
+              <div className="sort-bar-group">
+                <SortButton label="Name" field="name" chain={artistSortChain} onClick={handleArtistSortClick} />
+                <SortButton label="Tracks" field="tracks" chain={artistSortChain} onClick={handleArtistSortClick} />
+                <SortButton label={"\u2665 Liked"} field="liked" chain={artistSortChain} onClick={handleArtistSortClick} />
+                <SortButton label="Shuffle" field="random" chain={artistSortChain} onClick={handleArtistSortClick} />
+                {artistSortChain.length >= 2 && (
+                  <button className="sort-btn sort-btn-clear" onClick={() => setArtistSortChain([])}>Clear</button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {searched && activeTab === "tags" && (
+        <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
+          <div className="sort-bar">
+            <div className="sort-bar-row">
+              <span className="sort-bar-label">Sort:</span>
+              <div className="sort-bar-group">
+                <SortButton label="Name" field="name" chain={tagSortChain} onClick={handleTagSortClick} />
+                <SortButton label="Tracks" field="tracks" chain={tagSortChain} onClick={handleTagSortClick} />
+                <SortButton label={"\u2665 Liked"} field="liked" chain={tagSortChain} onClick={handleTagSortClick} />
+                <SortButton label="Shuffle" field="random" chain={tagSortChain} onClick={handleTagSortClick} />
+                {tagSortChain.length >= 2 && (
+                  <button className="sort-btn sort-btn-clear" onClick={() => setTagSortChain([])}>Clear</button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="search-view-results" ref={resultsRef} onMouseDown={handleLassoMouseDown}>
         {lassoRect && (
           <div className="lasso-rect" style={{ left: lassoRect.x, top: lassoRect.y, width: lassoRect.w, height: lassoRect.h }} />
@@ -766,39 +858,6 @@ export function SearchView({
               <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
             <p>Search for tracks, albums, and artists</p>
-          </div>
-        )}
-
-        {searched && activeTab === "tracks" && (
-          <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
-            <div className="sort-bar">
-              <div className="sort-bar-row">
-                <span className="sort-bar-label">Sort:</span>
-                <div className="sort-bar-group">
-                  <SortButton label="Title" field="title" chain={trackSortChain} onClick={handleTrackSort} />
-                  <SortButton label="Artist" field="artist" chain={trackSortChain} onClick={handleTrackSort} />
-                  <SortButton label="Album" field="album" chain={trackSortChain} onClick={handleTrackSort} />
-                  <SortButton label="Year" field="year" chain={trackSortChain} onClick={handleTrackSort} />
-                  <SortButton label="Duration" field="duration" chain={trackSortChain} onClick={handleTrackSort} />
-                  <SortButton label="Added" field="added" chain={trackSortChain} onClick={handleTrackSort} />
-                  <SortButton label="Modified" field="modified" chain={trackSortChain} onClick={handleTrackSort} />
-                  <SortButton label={"\u2665 Liked"} field="liked" chain={trackSortChain} onClick={handleTrackSort} />
-                  <SortButton label="Shuffle" field="random" chain={trackSortChain} onClick={handleTrackSort} />
-                  {trackSortChain.length >= 2 && (
-                    <button className="sort-btn sort-btn-clear" onClick={() => setTrackSortChain([])}>Clear</button>
-                  )}
-                </div>
-              </div>
-              <div className="sort-bar-row">
-                <span className="sort-bar-label">Filter:</span>
-                <div className="sort-bar-group sort-bar-group-filter">
-                  <button className={`sort-btn${mediaTypeFilter === "all" ? " active" : ""}`} onClick={() => setMediaTypeFilter("all")}>All</button>
-                  <button className={`sort-btn${mediaTypeFilter === "audio" ? " active" : ""}`} onClick={() => setMediaTypeFilter("audio")}>Audio</button>
-                  <button className={`sort-btn${mediaTypeFilter === "video" ? " active" : ""}`} onClick={() => setMediaTypeFilter("video")}>Video</button>
-                  <button className={`sort-btn${filterYoutubeOnly ? " active" : ""}`} onClick={() => setFilterYoutubeOnly(v => !v)}>YouTube</button>
-                </div>
-              </div>
-            </div>
           </div>
         )}
 
@@ -930,27 +989,6 @@ export function SearchView({
         )}
 
         {searched && activeTab === "albums" && (
-          <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
-            <div className="sort-bar">
-              <div className="sort-bar-row">
-                <span className="sort-bar-label">Sort:</span>
-                <div className="sort-bar-group">
-                  <SortButton label="Name" field="name" chain={albumSortChain} onClick={handleAlbumSortClick} />
-                  <SortButton label="Artist" field="artist" chain={albumSortChain} onClick={handleAlbumSortClick} />
-                  <SortButton label="Year" field="year" chain={albumSortChain} onClick={handleAlbumSortClick} />
-                  <SortButton label="Tracks" field="tracks" chain={albumSortChain} onClick={handleAlbumSortClick} />
-                  <SortButton label={"\u2665 Liked"} field="liked" chain={albumSortChain} onClick={handleAlbumSortClick} />
-                  <SortButton label="Shuffle" field="random" chain={albumSortChain} onClick={handleAlbumSortClick} />
-                  {albumSortChain.length >= 2 && (
-                    <button className="sort-btn sort-btn-clear" onClick={() => setAlbumSortChain([])}>Clear</button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {searched && activeTab === "albums" && (
           <SearchAlbumResults
             albums={results.albums}
             viewMode={viewModes.albums}
@@ -975,25 +1013,6 @@ export function SearchView({
         )}
 
         {searched && activeTab === "artists" && (
-          <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
-            <div className="sort-bar">
-              <div className="sort-bar-row">
-                <span className="sort-bar-label">Sort:</span>
-                <div className="sort-bar-group">
-                  <SortButton label="Name" field="name" chain={artistSortChain} onClick={handleArtistSortClick} />
-                  <SortButton label="Tracks" field="tracks" chain={artistSortChain} onClick={handleArtistSortClick} />
-                  <SortButton label={"\u2665 Liked"} field="liked" chain={artistSortChain} onClick={handleArtistSortClick} />
-                  <SortButton label="Shuffle" field="random" chain={artistSortChain} onClick={handleArtistSortClick} />
-                  {artistSortChain.length >= 2 && (
-                    <button className="sort-btn sort-btn-clear" onClick={() => setArtistSortChain([])}>Clear</button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {searched && activeTab === "artists" && (
           <SearchArtistResults
             artists={results.artists}
             viewMode={viewModes.artists}
@@ -1015,25 +1034,6 @@ export function SearchView({
             lastClickedRef={lastClickedArtistRef}
             onDragStart={(ids) => onEntityDragStart("artist", ids)}
           />
-        )}
-
-        {searched && activeTab === "tags" && (
-          <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
-            <div className="sort-bar">
-              <div className="sort-bar-row">
-                <span className="sort-bar-label">Sort:</span>
-                <div className="sort-bar-group">
-                  <SortButton label="Name" field="name" chain={tagSortChain} onClick={handleTagSortClick} />
-                  <SortButton label="Tracks" field="tracks" chain={tagSortChain} onClick={handleTagSortClick} />
-                  <SortButton label={"\u2665 Liked"} field="liked" chain={tagSortChain} onClick={handleTagSortClick} />
-                  <SortButton label="Shuffle" field="random" chain={tagSortChain} onClick={handleTagSortClick} />
-                  {tagSortChain.length >= 2 && (
-                    <button className="sort-btn sort-btn-clear" onClick={() => setTagSortChain([])}>Clear</button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
         )}
 
         {searched && activeTab === "tags" && (
