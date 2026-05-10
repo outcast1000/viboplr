@@ -9,7 +9,6 @@ import { buildManifest, buildState, diffThumbs, isContextRemote } from "../mainP
 export interface PlaylistContext {
   name: string;
   imagePath?: string | null;
-  coverUrl?: string | null;
   source?: string | null;
   description?: string | null;
   metadata?: Record<string, string> | null;
@@ -63,25 +62,19 @@ export function useQueue(
     return () => clearTimeout(t);
   }, [queue, playlistContext, queueIndex, queueMode, shuffleOrder, shufflePosition]);
 
-  // Cover: write whenever playlistContext changes
-  const lastCoverSrcRef = useRef<string | null>(null);
+  // Cover: sync imagePath to main-playlist/cover.jpg
+  const lastCoverRef = useRef<string | null>(null);
   useEffect(() => {
     if (!restoredRef.current) return;
-    const ctx = playlistContext;
-    if (!ctx || (!ctx.imagePath && !ctx.coverUrl)) {
-      if (lastCoverSrcRef.current !== null) {
-        lastCoverSrcRef.current = null;
-        invoke("main_playlist_set_cover", { source: null }).catch(console.error);
-      }
+    const img = playlistContext?.imagePath ?? null;
+    if (img === lastCoverRef.current) return;
+    lastCoverRef.current = img;
+    if (!img) {
+      invoke("main_playlist_set_cover", { source: null }).catch(console.error);
       return;
     }
-    const coverSrc = ctx.coverUrl ?? ctx.imagePath ?? null;
-    if (coverSrc === lastCoverSrcRef.current) return;
-    lastCoverSrcRef.current = coverSrc;
-    const isUrl = coverSrc?.startsWith("http://") || coverSrc?.startsWith("https://");
-    const source = isUrl
-      ? { url: coverSrc, path: null }
-      : { path: coverSrc, url: null };
+    const isUrl = img.startsWith("http://") || img.startsWith("https://");
+    const source = isUrl ? { url: img, path: null } : { path: img, url: null };
     invoke("main_playlist_set_cover", { source }).catch(console.error);
   }, [playlistContext]);
 

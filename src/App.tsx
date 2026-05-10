@@ -276,16 +276,7 @@ function App() {
       const cleanName = context?.name || context?.playlistName || "";
       const meta = { ...(context?.metadata ?? {}) };
       if (cleanName && cleanName !== displayName) meta.playlistName = cleanName;
-      queueHook.playTracks(tracks.map(pluginTrackToQueueTrack), startIndex ?? 0, context && displayName ? { name: displayName, source: context.source ?? null, description: context.description ?? null, metadata: Object.keys(meta).length > 0 ? meta : null, remote: true, coverUrl: context.coverUrl ?? null } : undefined);
-      if (context?.coverUrl) {
-        if (context.coverUrl.startsWith("http://") || context.coverUrl.startsWith("https://")) {
-          invoke<string>("download_url_to_playlist_images", { url: context.coverUrl })
-            .then(path => queueHook.setPlaylistContext(prev => prev ? { ...prev, imagePath: path } : prev))
-            .catch(console.error);
-        } else {
-          queueHook.setPlaylistContext(prev => prev ? { ...prev, imagePath: context.coverUrl! } : prev);
-        }
-      }
+      queueHook.playTracks(tracks.map(pluginTrackToQueueTrack), startIndex ?? 0, context && displayName ? { name: displayName, source: context.source ?? null, description: context.description ?? null, metadata: Object.keys(meta).length > 0 ? meta : null, remote: true, imagePath: context.coverUrl ?? null } : undefined);
     },
     insertTrack: (track: PluginTrack, position: number) => {
       const converted = [pluginTrackToQueueTrack(track)];
@@ -3660,7 +3651,7 @@ function App() {
                 ? `${queueHook.playlistContext.name} ${dateStr}`
                 : `Queue ${dateStr}`;
             })()}
-          defaultImage={editPlaylistMode ? (queueHook.playlistContext?.imagePath ?? null) : null}
+          defaultImage={queueHook.playlistContext?.imagePath ?? null}
           title={editPlaylistMode ? "Edit Playlist" : "Save Playlist"}
           info={editPlaylistMode ? { source: queueHook.playlistContext?.source, description: queueHook.playlistContext?.description, metadata: queueHook.playlistContext?.metadata } : null}
           onSave={handleSavePlaylistConfirm}

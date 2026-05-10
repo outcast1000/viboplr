@@ -467,17 +467,11 @@ export function QueuePanel({
         {playlistContext && queue.length > 0 && (
           <div className="queue-context-banner">
             <div className="queue-context-cover">
-              {playlistContext.imagePath || playlistContext.coverUrl ? (
+              {playlistContext.imagePath ? (
                 <img
-                  src={playlistContext.imagePath ? convertFileSrc(playlistContext.imagePath) : playlistContext.coverUrl!}
+                  src={convertFileSrc(playlistContext.imagePath)}
                   alt=""
-                  onError={e => {
-                    if (playlistContext.coverUrl && e.currentTarget.src !== playlistContext.coverUrl) {
-                      e.currentTarget.src = playlistContext.coverUrl;
-                    } else {
-                      e.currentTarget.style.display = "none";
-                    }
-                  }}
+                  onError={e => { e.currentTarget.style.display = "none"; }}
                 />
               ) : (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

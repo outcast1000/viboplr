@@ -363,7 +363,7 @@
   .queue-item-art-wrapper { display: block; }
 }
 
-@container queue (min-width: 300px) {
+@container queue (min-width: 250px) {
   .queue-context-cover { display: flex; }
 }
 
