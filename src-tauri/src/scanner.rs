@@ -16,7 +16,7 @@ const AUDIO_EXTENSIONS: &[&str] = &[
 ];
 
 const VIDEO_EXTENSIONS: &[&str] = &[
-    "mp4", "m4v", "mov", "webm",
+    "mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv",
 ];
 
 fn is_media_file(path: &Path) -> bool {

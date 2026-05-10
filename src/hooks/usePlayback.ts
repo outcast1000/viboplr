@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
 import { isVideoTrack, shouldScrobble } from "../utils";
+import { parseUrlScheme } from "../queueEntry";
 import { store } from "../store";
 
 function logPlayback(message: string) {
@@ -16,6 +17,7 @@ export function usePlayback(
   trackVideoHistoryRef: React.RefObject<boolean>,
   resolveTrackSrcRef: React.RefObject<(track: QueueTrack) => Promise<string>>,
   prefetchNextRef: React.RefObject<() => void>,
+  transcodeSessionRef: React.RefObject<{ sessionId: string; baseUrl: string } | null>,
 ) {
   const [currentTrack, setCurrentTrack] = useState<QueueTrack | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -476,6 +478,34 @@ export function usePlayback(
     };
     const msg = messages[err.code] || `Playback error (code ${err.code})`;
     console.error("Media error:", msg, err.message);
+
+    // Attempt transcode fallback for decode/format errors on local video tracks
+    if ((err.code === 3 || err.code === 4) && currentTrack && isVideoTrack(currentTrack) && !transcodeSessionRef.current) {
+      const path = currentTrack.path;
+      if (path) {
+        const parsed = parseUrlScheme(path);
+        if (parsed.scheme === "file") {
+          invoke<{ url: string; sessionId: string }>("start_transcode", { path: parsed.path })
+            .then((result) => {
+              transcodeSessionRef.current = { sessionId: result.sessionId, baseUrl: result.url.replace(/\?seek=.*$/, "") };
+              if (videoRef.current) {
+                videoRef.current.src = result.url;
+                videoRef.current.volume = volumeRef.current;
+                videoRef.current.play().catch(console.error);
+                setPlaying(true);
+              }
+            })
+            .catch((te) => {
+              console.error("Transcode fallback failed:", te);
+              setPlaybackError(msg);
+              setFailedTrack(currentTrack);
+              setPlaying(false);
+            });
+          return;
+        }
+      }
+    }
+
     setPlaybackError(msg);
     setFailedTrack(currentTrack);
     setPlaying(false);
@@ -492,10 +522,18 @@ export function usePlayback(
 
   function handleSeek(secs: number) {
     const el = getMediaElement();
-    if (el) {
-      el.currentTime = secs;
+    if (!el) return;
+
+    if (transcodeSessionRef.current && currentTrack && isVideoTrack(currentTrack)) {
+      const url = `${transcodeSessionRef.current.baseUrl}?seek=${secs}`;
+      (el as HTMLVideoElement).src = url;
+      (el as HTMLVideoElement).play().catch(console.error);
       setPositionSecs(secs);
+      return;
     }
+
+    el.currentTime = secs;
+    setPositionSecs(secs);
   }
 
   function isActiveElement(el: HTMLMediaElement): boolean {

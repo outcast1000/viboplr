@@ -12,6 +12,13 @@ import "./App.css";
 
 import type { Track, QueueTrack, Tag, View, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
 import { isVideoTrack, parseSubsonicUrl } from "./utils";
+
+const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
+
+function needsTranscode(track: { format: string | null }): boolean {
+  return TRANSCODE_VIDEO_FORMATS.includes(track.format?.toLowerCase() ?? "");
+}
+
 import { store } from "./store";
 import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, isLocalTrack, type QueueEntry } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
@@ -165,7 +172,8 @@ function App() {
   const [resolvingStatus, setResolvingStatus] = useState<{ error: string | null; trying: string | null } | null>(null);
   const [resolvedSource, setResolvedSource] = useState<{ name: string; url: string; sourceUrl: string | null; id: string | null } | null>(null);
   const resolveGenerationRef = useRef(0);
-  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef);
+  const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string } | null>(null);
+  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef);
   const waveformPeaks = useWaveform(
     playback.currentTrack?.path ?? null,
     playback.currentTrack?.title ?? null,
@@ -175,6 +183,13 @@ function App() {
     playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
     playback.currentAssetUrl,
   );
+  useEffect(() => {
+    if (transcodeSessionRef.current && (!playback.currentTrack || !needsTranscode(playback.currentTrack))) {
+      invoke("stop_transcode", { sessionId: transcodeSessionRef.current.sessionId }).catch(console.error);
+      transcodeSessionRef.current = null;
+    }
+  }, [playback.currentTrack]);
+
   const [trackRank, setTrackRank] = useState<number | null>(null);
   const [artistRank, setArtistRank] = useState<number | null>(null);
 
@@ -1318,7 +1333,29 @@ function App() {
         if (url.startsWith("http://") || url.startsWith("https://")) {
           chain.push({ name: "Direct URL", id: null, sourceUrl: url, resolve: () => Promise.resolve(url) });
         } else {
-          chain.push({ name: nativeResolverName(url), id: null, sourceUrl: url, resolve: () => resolveUrl(url) });
+          chain.push({
+            name: nativeResolverName(url),
+            id: null,
+            sourceUrl: url,
+            resolve: async () => {
+              const parsed = parseUrlScheme(url);
+              if (parsed.scheme === "file" && needsTranscode(track)) {
+                if (transcodeSessionRef.current) {
+                  invoke("stop_transcode", { sessionId: transcodeSessionRef.current.sessionId }).catch(console.error);
+                }
+                try {
+                  const result = await invoke<{ url: string; sessionId: string }>("start_transcode", { path: parsed.path });
+                  transcodeSessionRef.current = { sessionId: result.sessionId, baseUrl: result.url.replace(/\?seek=.*$/, "") };
+                  return result.url;
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : String(e);
+                  addLog(msg, "playback");
+                  throw e;
+                }
+              }
+              return resolveUrl(url);
+            },
+          });
         }
       }
 
@@ -1329,19 +1366,11 @@ function App() {
           id: sr.id,
           sourceUrl: null,
           resolve: async () => {
-            const startTime = Date.now();
-            let timedOut = false;
             const result = await Promise.race([
               sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null),
-              new Promise<null>((resolve) => setTimeout(() => { timedOut = true; resolve(null); }, 60000)),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000)),
             ]);
-            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-            if (!result) {
-              if (timedOut) {
-                addLog(`Stream resolver "${sr.name}" timed out after ${elapsed}s for: ${track.title}`, "playback");
-              }
-              throw new Error(timedOut ? `Timed out (${elapsed}s)` : "No result");
-            }
+            if (!result) throw new Error("No result");
             if (result.sourceUrl) entry.sourceUrl = result.sourceUrl;
             return resolveUrl(result.url);
           },
@@ -1369,9 +1398,8 @@ function App() {
           }
           return src;
         } catch (e) {
-          const reason = e instanceof Error ? e.message : String(e);
           console.error(`Stream resolver "${entry.name}" failed:`, e);
-          lastError = entry.name === "Library" ? "Not in library" : `${entry.name}: ${reason}`;
+          lastError = entry.name === "Library" ? "Not in library" : `${entry.name} failed`;
           continue;
         }
       }
@@ -1832,36 +1860,7 @@ function App() {
     // Fetch from backend as last resort
     let cancelled = false;
     const libId = parseLibraryId(library.selectedTrack);
-    if (libId == null) {
-      // Non-library track (ext:N) — build synthetic Track from queue or currentTrack
-      const queueTrack = queueHook.queue.find(t => t.key === library.selectedTrack)
-        ?? (playback.currentTrack?.key === library.selectedTrack ? playback.currentTrack : null);
-      if (queueTrack) {
-        setDetailTrack({
-          id: null, key: queueTrack.key, path: queueTrack.path,
-          title: queueTrack.title, artist_id: null, artist_name: queueTrack.artist_name,
-          album_id: null, album_title: queueTrack.album_title, year: null,
-          track_number: null, duration_secs: queueTrack.duration_secs,
-          format: queueTrack.format, file_size: null, collection_id: null,
-          collection_name: null, liked: queueTrack.liked ?? 0,
-          youtube_url: null, added_at: null, modified_at: null,
-        });
-        // Trigger image downloads by resolving library entities by name
-        if (queueTrack.album_title) {
-          invoke<{ id: number; title: string; artist_name: string | null } | null>("find_album_by_name", { title: queueTrack.album_title, artistName: queueTrack.artist_name ?? null })
-            .then(album => { if (album) albumImageCache.fetchOnDemand(album); })
-            .catch(console.error);
-        }
-        if (queueTrack.artist_name) {
-          invoke<{ id: number; name: string } | null>("find_artist_by_name", { name: queueTrack.artist_name })
-            .then(artist => { if (artist) artistImageCache.fetchOnDemand(artist); })
-            .catch(console.error);
-        }
-      } else {
-        setDetailTrack(null);
-      }
-      return;
-    }
+    if (libId == null) { setDetailTrack(null); return; }
     invoke<Track>("get_track_by_id", { trackId: libId })
       .then(t => { if (!cancelled) setDetailTrack(t); })
       .catch(() => { if (!cancelled) setDetailTrack(null); });

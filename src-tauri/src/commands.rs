@@ -11,6 +11,7 @@ use crate::models::*;
 use crate::scanner;
 use crate::skins;
 use crate::subsonic::SubsonicClient;
+use crate::transcode_server;
 
 macro_rules! env_or_empty {
     ($name:expr) => {
@@ -62,6 +63,8 @@ pub struct AppState {
     pub mixtape_cancel: Arc<AtomicBool>,
     pub resyncing_collections: Arc<Mutex<HashSet<i64>>>,
     pub cursor_tracker_active: Arc<AtomicBool>,
+    pub transcode_port: u16,
+    pub transcode_sessions: transcode_server::Sessions,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1840,9 +1843,7 @@ pub async fn plugin_exec(
     }
 
     let app_dir = state.app_dir.clone();
-    let program_clone = program.clone();
-    let start = std::time::Instant::now();
-    let result = tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         let mut cmd = command_with_path(&program);
         cmd.args(&args);
         if let Some(dir) = cwd {
@@ -1857,10 +1858,6 @@ pub async fn plugin_exec(
         }
         let output = cmd.output()
             .map_err(|e| format!("Failed to run {}: {}", program, e))?;
-        let elapsed = start.elapsed();
-        log::info!("plugin_exec: {} exited with code {} in {:.1}s (stdout: {} bytes, stderr: {} bytes)",
-            program, output.status.code().unwrap_or(-1), elapsed.as_secs_f64(),
-            output.stdout.len(), output.stderr.len());
         Ok(ExecResult {
             exit_code: output.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -1868,9 +1865,7 @@ pub async fn plugin_exec(
         })
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?;
-    log::info!("plugin_exec: {} returned to caller in {:.1}s", program_clone, start.elapsed().as_secs_f64());
-    result
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 // --- yt-dlp commands ---
@@ -4571,6 +4566,38 @@ pub fn is_collection_due_for_auto_update(collection: &Collection, now_secs: i64)
         None => true,
         Some(last) => (now_secs - last) >= interval_secs,
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscodeInfo {
+    pub url: String,
+    pub session_id: String,
+}
+
+#[tauri::command]
+pub async fn start_transcode(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<TranscodeInfo, String> {
+    let check = ffmpeg_check().await;
+    if check.is_none() {
+        return Err("ffmpeg is not installed. Install ffmpeg to play MKV/AVI/WMV files.".to_string());
+    }
+
+    let session_id = transcode_server::create_session(&state.transcode_sessions, path).await;
+    let url = format!("http://127.0.0.1:{}/stream/{}?seek=0", state.transcode_port, session_id);
+
+    Ok(TranscodeInfo { url, session_id })
+}
+
+#[tauri::command]
+pub async fn stop_transcode(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<(), String> {
+    transcode_server::remove_session(&state.transcode_sessions, &session_id).await;
+    Ok(())
 }
 
 #[cfg(test)]

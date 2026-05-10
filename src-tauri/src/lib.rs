@@ -20,6 +20,7 @@ mod timing;
 mod downloader;
 mod update_checker;
 mod video_frames;
+mod transcode_server;
 #[cfg(target_os = "macos")]
 mod cursor_tracker;
 #[cfg(target_os = "windows")]
@@ -230,6 +231,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         browse_window::close_browse_window,
         browse_window::browse_window_set_visible,
         browse_window::browse_window_send,
+        commands::start_transcode,
+        commands::stop_transcode,
     ]
 }
 
@@ -431,6 +434,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         browse_window::close_browse_window,
         browse_window::browse_window_set_visible,
         browse_window::browse_window_send,
+        commands::start_transcode,
+        commands::stop_transcode,
     ]
 }
 
@@ -1416,6 +1421,12 @@ pub fn run() {
                 });
             }
 
+            let transcode_sessions: transcode_server::Sessions =
+                Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+            let transcode_port = timer.time("start_transcode_server", || {
+                tauri::async_runtime::block_on(transcode_server::start(transcode_sessions.clone()))
+            });
+
             // Clone values before moving into AppState, for use in update checker
             let checker_app_dir = app_dir.clone();
             let checker_native_dir = native_plugins_dir.clone();
@@ -1434,6 +1445,8 @@ pub fn run() {
                     mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     resyncing_collections: Arc::clone(&resyncing_collections),
                     cursor_tracker_active: Arc::clone(&cursor_tracker_active),
+                    transcode_port,
+                    transcode_sessions,
                 });
             });
 

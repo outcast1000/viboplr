@@ -1,5 +1,5 @@
 
-const VIDEO_FORMATS = ["mp4", "m4v", "mov", "webm"];
+const VIDEO_FORMATS = ["mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv"];
 
 export function isVideoTrack(track: { format: string | null }): boolean {
   return VIDEO_FORMATS.includes(track.format?.toLowerCase() ?? "");
