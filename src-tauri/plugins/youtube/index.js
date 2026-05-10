@@ -3,6 +3,7 @@ var ffmpegVersion = null;
 var latestYtDlp = null;
 var latestFfmpeg = null;
 var checking = false;
+var cacheMaxMb = 100;
 
 var REMASTER_SUFFIX = /\s*-\s*.*remaster.*$/i;
 function stripRemasterSuffix(s) {
@@ -176,11 +177,10 @@ async function findCachedDownload(api, videoId) {
   return null;
 }
 
-var CACHE_MAX_BYTES = 100 * 1024 * 1024; // 100 MB
-
 // Remove temp files and evict oldest cache entries when over budget.
 // `protectName` (optional) is a filename to never evict (the just-downloaded file).
 async function cleanupCache(api, protectName) {
+  var maxBytes = cacheMaxMb * 1024 * 1024;
   try {
     await api.storage.files.remove(["temp"]);
   } catch (e) {
@@ -218,7 +218,7 @@ async function cleanupCache(api, protectName) {
   }
 
   var evicted = 0;
-  while (totalSize > CACHE_MAX_BYTES && validFiles.length > 0) {
+  while (totalSize > maxBytes && validFiles.length > 0) {
     var oldest = validFiles[0];
     if (oldest.name === protectName) {
       // Don't evict the file we just downloaded — try the next oldest
@@ -304,6 +304,9 @@ async function searchAndDownload(api, title, artistName, durationSecs) {
 }
 
 async function activate(api) {
+  var storedMax = await api.storage.get("cacheMaxMb");
+  if (storedMax != null && typeof storedMax === "number") cacheMaxMb = storedMax;
+
   try {
     var ytRes = await api.system.exec("yt-dlp", ["--version"]);
     ytDlpVersion = ytRes.exitCode === 0 ? ytRes.stdout.trim() : null;
@@ -434,6 +437,15 @@ async function activate(api) {
     }
   });
 
+  api.ui.onAction("youtube-cache-size", async function(data) {
+    var val = parseInt(data, 10);
+    if (isNaN(val) || val < 0) return;
+    cacheMaxMb = val;
+    await api.storage.set("cacheMaxMb", val);
+    renderSettings(api);
+    cleanupCache(api).catch(console.error);
+  });
+
   api.ui.onAction("youtube-refresh", async function() {
     await checkTools(api);
   });
@@ -490,6 +502,31 @@ function renderSettings(api) {
         children: [
           makeToolRow("yt-dlp", ytDlpVersion, latestYtDlp, "youtube-install-ytdlp"),
           makeToolRow("ffmpeg", ffmpegVersion, latestFfmpeg, "youtube-install-ffmpeg"),
+        ]
+      },
+      { type: "spacer" },
+      {
+        type: "section",
+        title: "Cache",
+        children: [
+          {
+            type: "settings-row",
+            label: "Cache size limit",
+            description: cacheMaxMb === 0 ? "Files are deleted after playback" : cacheMaxMb + " MB",
+            control: {
+              type: "select",
+              action: "youtube-cache-size",
+              value: String(cacheMaxMb),
+              options: [
+                { value: "0", label: "Off (no caching)" },
+                { value: "50", label: "50 MB" },
+                { value: "100", label: "100 MB" },
+                { value: "200", label: "200 MB" },
+                { value: "500", label: "500 MB" },
+                { value: "1000", label: "1 GB" }
+              ]
+            }
+          }
         ]
       },
       { type: "spacer" },
