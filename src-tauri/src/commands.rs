@@ -3441,6 +3441,8 @@ fn ensure_within_root(root: &std::path::Path, target: &std::path::Path) -> Resul
 pub struct PluginDirEntry {
     pub name: String,
     pub is_dir: bool,
+    pub size: Option<u64>,
+    pub modified_at: Option<u64>,
 }
 
 #[tauri::command]
@@ -3599,7 +3601,17 @@ pub fn plugin_files_list(
             Err(_) => continue, // skip non-UTF8
         };
         let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-        out.push(PluginDirEntry { name, is_dir });
+        let (size, modified_at) = match entry.metadata() {
+            Ok(meta) => {
+                let sz = if is_dir { None } else { Some(meta.len()) };
+                let mt = meta.modified().ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs());
+                (sz, mt)
+            }
+            Err(_) => (None, None),
+        };
+        out.push(PluginDirEntry { name, is_dir, size, modified_at });
     }
     Ok(out)
 }

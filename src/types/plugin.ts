@@ -384,7 +384,7 @@ export interface PluginFileAPI {
   download(path: string[], url: string): Promise<string>;
   getPath(path: string[]): Promise<string | null>;
   exists(path: string[]): Promise<boolean>;
-  list(path: string[]): Promise<{ name: string; isDir: boolean }[]>;
+  list(path: string[]): Promise<{ name: string; isDir: boolean; size?: number; modifiedAt?: number }[]>;
   remove(path: string[]): Promise<void>;
   copy(src: string[], dst: string[]): Promise<void>;
   move(src: string[], dst: string[]): Promise<void>;

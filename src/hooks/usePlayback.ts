@@ -47,6 +47,7 @@ export function usePlayback(
   const preloadReadyRef = useRef(false);
   const isPreloadingRef = useRef(false);
   const prefetchRequestedRef = useRef(false);
+  const preloadPromiseRef = useRef<{ key: string; promise: Promise<string> } | null>(null);
 
   // Crossfade state
   const isCrossfadingRef = useRef(false);
@@ -133,6 +134,7 @@ export function usePlayback(
     preloadedTrackRef.current = null;
     preloadReadyRef.current = false;
     isPreloadingRef.current = false;
+    preloadPromiseRef.current = null;
 
     const inactiveEl = getInactiveAudioElement();
     if (inactiveEl) {
@@ -152,8 +154,10 @@ export function usePlayback(
 
     isPreloadingRef.current = true;
     logPlayback(`Preload: resolving "${nextTrack.artist_name ?? "?"} — ${nextTrack.title}"`);
+    const resolvePromise = resolveTrackSrcRef.current(nextTrack);
+    preloadPromiseRef.current = { key: nextTrack.key, promise: resolvePromise };
     try {
-      const src = await resolveTrackSrcRef.current(nextTrack);
+      const src = await resolvePromise;
       logPlayback(`Preload: resolved "${nextTrack.title}"`);
 
       const inactiveEl = getInactiveAudioElement();
@@ -178,6 +182,7 @@ export function usePlayback(
       preloadedTrackRef.current = null;
     } finally {
       isPreloadingRef.current = false;
+      preloadPromiseRef.current = null;
     }
   }
 
@@ -334,12 +339,18 @@ export function usePlayback(
 
   async function handlePlay(track: QueueTrack, source: "user" | "auto" = "user") {
     cancelCrossfade();
+    // Reuse in-flight preload resolution for the same track instead of starting over
+    const inflight = preloadPromiseRef.current;
+    const reusePreload = inflight && inflight.key === track.key;
+    const resolvePromise = reusePreload ? inflight.promise : null;
     invalidatePreload();
     setPlaybackError(null);
     setLoadingTrack(track);
 
     try {
-      const src = await resolveTrackSrcRef.current(track);
+      const src = resolvePromise
+        ? await resolvePromise
+        : await resolveTrackSrcRef.current(track);
       await playWithSrc(track, src, source);
     } catch (e) {
       console.error("Playback error:", e);
@@ -512,7 +523,9 @@ export function usePlayback(
     if (el.duration > 0 && el.duration - el.currentTime > 0) {
       const remaining = el.duration - el.currentTime;
       const cfSecs = crossfadeSecsRef.current;
-      const preloadAt = 20;
+      const nextPeek = peekNextRef.current();
+      const needsStreamResolve = nextPeek && (!nextPeek.path || (!nextPeek.path.startsWith("file://") && !nextPeek.path.startsWith("http")));
+      const preloadAt = needsStreamResolve ? 45 : 20;
 
       if (remaining <= preloadAt) {
         // If no next track in queue, request auto-continue prefetch

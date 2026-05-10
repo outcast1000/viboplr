@@ -489,8 +489,8 @@ export function usePlugins(
               return invoke<boolean>("plugin_files_exists", { pluginId, path });
             },
             async list(path: string[]): Promise<{ name: string; isDir: boolean }[]> {
-              return invoke<{ name: string; is_dir: boolean }[]>("plugin_files_list", { pluginId, path })
-                .then((entries) => entries.map((e) => ({ name: e.name, isDir: e.is_dir })));
+              return invoke<{ name: string; is_dir: boolean; size?: number; modified_at?: number }[]>("plugin_files_list", { pluginId, path })
+                .then((entries) => entries.map((e) => ({ name: e.name, isDir: e.is_dir, size: e.size, modifiedAt: e.modified_at })));
             },
             async remove(path: string[]): Promise<void> {
               await invoke("plugin_files_remove", { pluginId, path });

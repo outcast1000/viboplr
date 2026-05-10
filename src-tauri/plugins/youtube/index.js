@@ -176,40 +176,63 @@ async function findCachedDownload(api, videoId) {
   return null;
 }
 
-// Wipe any transcoded/temp files, leaving the cache dir with source files only.
-async function cleanupCache(api) {
-  var removed = 0;
-  var kept = 0;
+var CACHE_MAX_BYTES = 100 * 1024 * 1024; // 100 MB
+
+// Remove temp files and evict oldest cache entries when over budget.
+// `protectName` (optional) is a filename to never evict (the just-downloaded file).
+async function cleanupCache(api, protectName) {
   try {
     await api.storage.files.remove(["temp"]);
   } catch (e) {
     // temp dir may not exist — that's fine
   }
+  var entries;
   try {
-    var entries = await api.storage.files.list(["cache"]);
-    for (var i = 0; i < entries.length; i++) {
-      var entry = entries[i];
-      if (entry.isDir) continue;
-      var name = entry.name;
-      var dot = name.lastIndexOf(".");
-      var stem = dot > 0 ? name.substring(0, dot) : name;
-      if (!VIDEO_ID_RE.test(stem)) {
-        try {
-          await api.storage.files.remove(["cache", name]);
-          removed++;
-        } catch (e) {
-          api.log("warn", "Failed to remove stray cache file: " + name, "youtube");
-        }
-      } else {
-        kept++;
-      }
-    }
+    entries = await api.storage.files.list(["cache"]);
   } catch (e) {
     // cache dir may not exist — that's fine
     return;
   }
-  if (removed > 0 || kept > 0) {
-    api.log("info", "Cache cleanup: kept " + kept + " source file(s), removed " + removed + " stray file(s)", "youtube");
+
+  var validFiles = [];
+  var removedStray = 0;
+  for (var i = 0; i < entries.length; i++) {
+    var entry = entries[i];
+    if (entry.isDir) continue;
+    var name = entry.name;
+    var dot = name.lastIndexOf(".");
+    var stem = dot > 0 ? name.substring(0, dot) : name;
+    if (!VIDEO_ID_RE.test(stem)) {
+      try { await api.storage.files.remove(["cache", name]); removedStray++; } catch (e) {}
+    } else {
+      validFiles.push({ name: name, size: entry.size || 0, modifiedAt: entry.modifiedAt || 0 });
+    }
+  }
+
+  // Sort by modifiedAt ascending (oldest first) for LRU eviction
+  validFiles.sort(function(a, b) { return a.modifiedAt - b.modifiedAt; });
+
+  var totalSize = 0;
+  for (var j = 0; j < validFiles.length; j++) {
+    totalSize += validFiles[j].size;
+  }
+
+  var evicted = 0;
+  while (totalSize > CACHE_MAX_BYTES && validFiles.length > 0) {
+    var oldest = validFiles[0];
+    if (oldest.name === protectName) {
+      // Don't evict the file we just downloaded — try the next oldest
+      if (validFiles.length <= 1) break;
+      validFiles.shift();
+      continue;
+    }
+    validFiles.shift();
+    totalSize -= oldest.size;
+    try { await api.storage.files.remove(["cache", oldest.name]); evicted++; } catch (e) {}
+  }
+
+  if (removedStray > 0 || evicted > 0) {
+    api.log("info", "Cache cleanup: evicted " + evicted + " file(s), removed " + removedStray + " stray file(s), " + Math.round(totalSize / 1024 / 1024) + " MB remaining", "youtube");
   }
 }
 
@@ -273,6 +296,10 @@ async function searchAndDownload(api, title, artistName, durationSecs) {
   }
 
   api.log("info", "Downloaded to: " + filePath, "youtube");
+  var dlFilename = filePath.replace(/^.*[\/\\]/, "");
+  cleanupCache(api, dlFilename).catch(function(e) {
+    api.log("warn", "Post-download cache cleanup failed: " + (e && e.message ? e.message : e), "youtube");
+  });
   return { filePath: filePath, youtubeUrl: result.url };
 }
 

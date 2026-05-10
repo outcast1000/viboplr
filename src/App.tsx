@@ -1331,7 +1331,7 @@ function App() {
           resolve: async () => {
             const result = await Promise.race([
               sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000)),
             ]);
             if (!result) throw new Error("No result");
             if (result.sourceUrl) entry.sourceUrl = result.sourceUrl;
