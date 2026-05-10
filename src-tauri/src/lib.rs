@@ -1301,8 +1301,18 @@ pub fn run() {
 
                         let is_mini = json.get("miniMode").and_then(|v| v.as_bool()).unwrap_or(false);
                         if is_mini {
-                            let _ = window.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize { width: 280.0, height: 40.0 })));
-                            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 500.0, height: 52.0 }));
+                            let resting_size = json.get("miniRestingSize").and_then(|v| v.as_str()).unwrap_or("normal");
+                            let mini_height = match resting_size {
+                                "compact" | "ultra" => 24.0,
+                                _ => 52.0,
+                            };
+                            let mini_width = match json.get("miniWidthSize").and_then(|v| v.as_str()).unwrap_or("medium") {
+                                "small" => 280.0,
+                                "large" => 550.0,
+                                _ => 400.0,
+                            };
+                            let _ = window.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize { width: 280.0, height: mini_height })));
+                            let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: mini_width, height: mini_height }));
                             if let (Some(x), Some(y)) = (
                                 json.get("miniWindowX").and_then(|v| v.as_f64()),
                                 json.get("miniWindowY").and_then(|v| v.as_f64()),

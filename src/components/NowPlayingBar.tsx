@@ -218,7 +218,7 @@ export function NowPlayingBar({
         }} onDoubleClick={isMac ? (e) => {
           if (!(e.target as HTMLElement).closest("button")) onToggleMiniMode();
         } : undefined}>
-        {miniExpanded || miniRestingSize === "compact" ? (
+        {miniExpanded || miniRestingSize === "normal" ? (
           <div className="mini-compact-row">
             <div className="now-info">
               <div className="now-mini-art-wrapper">
@@ -372,13 +372,13 @@ export function NowPlayingBar({
                 <button
                   className="g-btn g-btn-rect mini-resting-size-btn"
                   onClick={onCycleRestingSize}
-                  title={miniRestingSize === "compact" ? "Switch to ultra-compact" : "Switch to compact"}
+                  title={miniRestingSize === "normal" ? "Switch to compact" : "Switch to normal"}
                 >
                   <svg width="12" height="10" viewBox="0 0 24 16" fill="none">
-                    <rect x="2" y="2" width="20" height="4" rx="1.5" fill="currentColor" opacity={miniRestingSize === "compact" ? 1 : 0.25} />
-                    <rect x="5" y="11" width="14" height="2" rx="1" fill="currentColor" opacity={miniRestingSize === "ultra" ? 1 : 0.25} />
+                    <rect x="2" y="2" width="20" height="4" rx="1.5" fill="currentColor" opacity={miniRestingSize === "normal" ? 1 : 0.25} />
+                    <rect x="5" y="11" width="14" height="2" rx="1" fill="currentColor" opacity={miniRestingSize === "compact" ? 1 : 0.25} />
                   </svg>
-                  <span className="mini-resting-size-label">{miniRestingSize === "compact" ? "Compact" : "Ultra"}</span>
+                  <span className="mini-resting-size-label">{miniRestingSize === "normal" ? "Normal" : "Compact"}</span>
                 </button>
                 <button className="g-btn mini-expand-btn" onClick={() => { onCancelCollapseTimer(); onToggleMiniMode(); }} title="Exit mini mode">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/></svg>

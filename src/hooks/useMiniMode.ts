@@ -5,10 +5,10 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { store } from "../store";
 
-const MINI_COMPACT_HEIGHT = 52;
-const MINI_ULTRA_HEIGHT = 24;
+const MINI_NORMAL_HEIGHT = 52;
+const MINI_COMPACT_HEIGHT = 24;
 const MINI_EXTRA_ROW_HEIGHT = 54;
-const MINI_EXPANDED_HEIGHT = MINI_COMPACT_HEIGHT + MINI_EXTRA_ROW_HEIGHT;
+const MINI_EXPANDED_HEIGHT = MINI_NORMAL_HEIGHT + MINI_EXTRA_ROW_HEIGHT;
 const MINI_MIN_WIDTH = 280;
 const FULL_MIN_WIDTH = 300;
 const FULL_MIN_HEIGHT = 400;
@@ -65,10 +65,10 @@ async function getLogicalMonitorBounds(): Promise<MonitorRect[]> {
   }
 }
 
-export type MiniRestingSize = "ultra" | "compact";
+export type MiniRestingSize = "normal" | "compact";
 
 export function cycleRestingSize(current: MiniRestingSize): MiniRestingSize {
-  return current === "compact" ? "ultra" : "compact";
+  return current === "normal" ? "compact" : "normal";
 }
 
 export function cycleMiniWidth(current: MiniWidthSize): MiniWidthSize {
@@ -133,8 +133,8 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
   const [miniExpanded, setMiniExpanded] = useState(false);
   const miniExpandedRef = useRef(false);
   useEffect(() => { miniExpandedRef.current = miniExpanded; }, [miniExpanded]);
-  const [miniRestingSize, setMiniRestingSizeState] = useState<MiniRestingSize>("compact");
-  const miniRestingSizeRef = useRef<MiniRestingSize>("compact");
+  const [miniRestingSize, setMiniRestingSizeState] = useState<MiniRestingSize>("normal");
+  const miniRestingSizeRef = useRef<MiniRestingSize>("normal");
   useEffect(() => { miniRestingSizeRef.current = miniRestingSize; }, [miniRestingSize]);
   const [miniWidthSize, setMiniWidthSizeState] = useState<MiniWidthSize>("medium");
   const miniWidthSizeRef = useRef<MiniWidthSize>("medium");
@@ -142,7 +142,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
 
   // Used in Task 3 for expand/collapse paths
   const currentRestingHeight = useCallback(
-    () => (miniRestingSizeRef.current === "ultra" ? MINI_ULTRA_HEIGHT : MINI_COMPACT_HEIGHT),
+    () => (miniRestingSizeRef.current === "compact" ? MINI_COMPACT_HEIGHT : MINI_NORMAL_HEIGHT),
     [],
   );
 
@@ -349,9 +349,10 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
   useEffect(() => {
     (async () => {
       try {
-        const saved = await store.get<MiniRestingSize | null>("miniRestingSize");
-        if (saved === "ultra" || saved === "compact") {
-          setMiniRestingSizeState(saved);
+        const saved = await store.get<string | null>("miniRestingSize");
+        const migrated = saved === "ultra" ? "compact" : saved === "compact" ? "normal" : saved;
+        if (migrated === "normal" || migrated === "compact") {
+          setMiniRestingSizeState(migrated);
         }
         const savedWidth = await store.get<MiniWidthSize | null>("miniWidthSize");
         if (savedWidth === "small" || savedWidth === "medium" || savedWidth === "large") {
@@ -410,7 +411,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
       const newWidth = MINI_WIDTHS[next];
       const currentHeight = miniExpandedRef.current
         ? MINI_EXPANDED_HEIGHT
-        : (miniRestingSizeRef.current === "ultra" ? MINI_ULTRA_HEIGHT : MINI_COMPACT_HEIGHT);
+        : (miniRestingSizeRef.current === "compact" ? MINI_COMPACT_HEIGHT : MINI_NORMAL_HEIGHT);
       await win.setSize(new LogicalSize(newWidth, currentHeight));
       const bounds = await getLogicalMonitorBounds();
       const clamped = clampToNearestMonitor(
