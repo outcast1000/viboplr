@@ -5,7 +5,7 @@
 - **App.tsx** — Single-file React app. All state, views, playback controls, context menu, sidebar. Views toggled via `View` union type: `"all" | "artists" | "albums" | "tags" | "liked" | "history" | "collections"`.
 - **App.css** — All styles. CSS Grid layout, CSS custom properties for skinning, 7-level type scale (`--fs-2xs` through `--fs-2xl`). Shared keyframe animations: `fade-in`, `scale-in`, `glow-pulse`, `slide-text-in`, `equalizer-bar-{1,2,3}`, `waveform-grow-in`.
 - **skinUtils.ts** — Skin validation, CSS generation, customCSS sanitization.
-- **types.ts** — Core TypeScript types (Track, Artist, Album, Tag, etc.).
+- **types.ts** — Core TypeScript types (Track, QueueTrack, Artist, Album, Tag, etc.). `Track` is the full library type with DB IDs; `QueueTrack` is the ID-less metadata type used by queue/playback/playlists.
 - **types/skin.ts** — Skin system types (SkinJson, SkinInfo, SkinColors, GallerySkinEntry).
 - **types/plugin.ts** — Plugin types (PluginManifest, PluginState, PluginContextMenuTarget, PluginViewData, ViboplrPluginAPI).
 - **types/informationTypes.ts** — InfoEntity, InfoFetchResult, InfoTypeDeclaration, DisplayKind.
@@ -41,8 +41,8 @@
 
 ## Hooks (src/hooks/)
 
-- **usePlayback.ts** — Dual A/B audio element architecture for gapless/crossfade. Preloads next track when remaining < `max(5, crossfadeSecs + 2)` seconds. Crossfade via requestAnimationFrame volume ramp. Video tracks don't crossfade.
-- **useQueue.ts** — Queue management. `playTracks()` / `enqueueTracks()` / `playNextInQueue()`. Duplicate detection via `findDuplicates()`.
+- **usePlayback.ts** — Dual A/B audio element architecture for gapless/crossfade. Preloads next track when remaining < `max(5, crossfadeSecs + 2)` seconds. Crossfade via requestAnimationFrame volume ramp. Video tracks don't crossfade. `currentTrack` is `QueueTrack | null`.
+- **useQueue.ts** — Queue management using `QueueTrack[]`. `playTracks()` / `enqueueTracks()` / `playNextInQueue()`. Duplicate detection via `findDuplicates()`. Image stamping uses name-based lookup (no DB IDs).
 - **useLibrary.ts** — Library data queries, column configuration, view modes, sort/filter state.
 - **usePlugins.ts** — Plugin discovery, loading (`new Function("api", code)`), activation, event dispatch, context menu dispatch, view data management, enable/disable, reload.
 - **useEventListeners.ts** — Tauri backend event subscriptions for all `listen<T>()` events.

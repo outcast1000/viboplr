@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   trackToQueueEntry,
+  trackToQueueTrack,
   queueEntryToTrack,
   parseUrlScheme,
   isLocalTrack,
@@ -403,5 +404,50 @@ describe("parseUrlScheme", () => {
   it("parses external:// with suffix", () => {
     const result = parseUrlScheme("external://yt/abc");
     expect(result).toEqual({ scheme: "external" });
+  });
+});
+
+describe("trackToQueueTrack", () => {
+  it("strips DB IDs and keeps metadata", () => {
+    const track: Track = {
+      id: 42,
+      key: "lib:42",
+      path: "file:///music/song.mp3",
+      title: "Test Song",
+      artist_id: 5,
+      artist_name: "Artist",
+      album_id: 10,
+      album_title: "Album",
+      year: 2020,
+      track_number: 3,
+      duration_secs: 240,
+      format: "mp3",
+      file_size: 5000000,
+      collection_id: 1,
+      collection_name: "Music",
+      liked: 1,
+      youtube_url: "https://youtube.com/watch?v=abc",
+      added_at: 1000,
+      modified_at: 2000,
+      image_url: "/path/to/image.jpg",
+    };
+
+    const qt = trackToQueueTrack(track);
+
+    expect(qt.key).toBe("lib:42");
+    expect(qt.path).toBe("file:///music/song.mp3");
+    expect(qt.title).toBe("Test Song");
+    expect(qt.artist_name).toBe("Artist");
+    expect(qt.album_title).toBe("Album");
+    expect(qt.duration_secs).toBe(240);
+    expect(qt.format).toBe("mp3");
+    expect(qt.image_url).toBe("/path/to/image.jpg");
+    expect(qt.liked).toBe(1);
+    // Verify no DB IDs, collection_id, or youtube_url exist on the result
+    expect("id" in qt).toBe(false);
+    expect("album_id" in qt).toBe(false);
+    expect("artist_id" in qt).toBe(false);
+    expect("collection_id" in qt).toBe(false);
+    expect("youtube_url" in qt).toBe(false);
   });
 });

@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Collection, Track } from "../types";
+import type { Collection, QueueTrack } from "../types";
 
 export function useCollectionActions(deps: {
   library: { loadLibrary: () => Promise<void>; loadTracks: () => Promise<void> };
-  playback: { currentTrack: Track | null; handleStop: () => void };
-  queueHook: { setQueue: React.Dispatch<React.SetStateAction<Track[]>> };
+  playback: { currentTrack: QueueTrack | null; handleStop: () => void };
+  queueHook: { setQueue: React.Dispatch<React.SetStateAction<QueueTrack[]>> };
   collections: Collection[];
 }) {
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
@@ -72,11 +72,19 @@ export function useCollectionActions(deps: {
   async function handleRemoveCollectionConfirm() {
     if (!removeCollectionConfirm) return;
     try {
-      await invoke("remove_collection", { collectionId: removeCollectionConfirm.id });
-      if (deps.playback.currentTrack && deps.playback.currentTrack.collection_id === removeCollectionConfirm.id) {
+      const col = removeCollectionConfirm;
+      const pathPrefix = col.kind === "local" && col.path
+        ? `file://${col.path}`
+        : col.kind === "subsonic" && col.url
+        ? `subsonic://${col.url.replace(/^https?:\/\//, "").replace(/\/$/, "")}/`
+        : null;
+      await invoke("remove_collection", { collectionId: col.id });
+      if (pathPrefix && deps.playback.currentTrack?.path?.startsWith(pathPrefix)) {
         deps.playback.handleStop();
       }
-      deps.queueHook.setQueue(prev => prev.filter(t => t.collection_id !== removeCollectionConfirm.id));
+      if (pathPrefix) {
+        deps.queueHook.setQueue(prev => prev.filter(t => !t.path?.startsWith(pathPrefix)));
+      }
       deps.library.loadLibrary();
       deps.library.loadTracks();
     } catch (e) {

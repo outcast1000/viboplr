@@ -107,7 +107,9 @@ export function usePlayActions({
     const tracks = opts?.tracks ?? await invoke<Track[]>("get_tracks", { opts: { albumId } });
     if (tracks.length === 0) return;
     const album = albums.find(a => a.id === albumId);
-    playTracks(tracks, opts?.startIndex ?? 0, buildAlbumContext(album, albumImages[albumId] ?? null));
+    const albumImg = albumImages[albumId] ?? null;
+    const stamped = tracks.map(t => !t.image_url && albumImg ? { ...t, image_url: albumImg } : t);
+    playTracks(stamped, opts?.startIndex ?? 0, buildAlbumContext(album, albumImg));
     if (album?.artist_name) {
       enrichDescription(`album:${album.artist_name}:${album.title}`, "album_wiki", setPlaylistContext);
     }
@@ -117,7 +119,9 @@ export function usePlayActions({
     const tracks = opts?.tracks ?? await invoke<Track[]>("get_tracks_by_artist", { artistId });
     if (tracks.length === 0) return;
     const artist = artists.find(a => a.id === artistId);
-    playTracks(tracks, opts?.startIndex ?? 0, buildArtistContext(artist, artistImages[artistId] ?? null));
+    const artistImg = artistImages[artistId] ?? null;
+    const stamped = tracks.map(t => !t.image_url && artistImg ? { ...t, image_url: artistImg } : t);
+    playTracks(stamped, opts?.startIndex ?? 0, buildArtistContext(artist, artistImg));
     if (artist) {
       enrichDescription(`artist:${artist.name}`, "artist_bio", setPlaylistContext);
     }
@@ -127,7 +131,9 @@ export function usePlayActions({
     const tracks = opts?.tracks ?? await invoke<Track[]>("get_tracks", { opts: { tagId } });
     if (tracks.length === 0) return;
     const tag = tags.find(t => t.id === tagId);
-    playTracks(tracks, opts?.startIndex ?? 0, buildTagContext(tag, tagImages[tagId] ?? null));
+    const tagImg = tagImages[tagId] ?? null;
+    const stamped = tracks.map(t => !t.image_url && tagImg ? { ...t, image_url: tagImg } : t);
+    playTracks(stamped, opts?.startIndex ?? 0, buildTagContext(tag, tagImg));
   }, [playTracks, tags, tagImages]);
 
   return { playAlbum, playArtist, playTag };

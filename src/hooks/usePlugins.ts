@@ -4,7 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { store } from "../store";
-import type { Track, Collection } from "../types";
+import type { Track, QueueTrack, Collection } from "../types";
 import type {
   InstalledPlugin,
   PluginManifest,
@@ -141,7 +141,7 @@ export interface PluginHostCallbacks {
 }
 
 export function usePlugins(
-  currentTrackRef: React.RefObject<Track | null>,
+  currentTrackRef: React.RefObject<QueueTrack | null>,
   playingRef: React.RefObject<boolean>,
   positionRef: React.RefObject<number>,
   playbackCallbacks?: PluginPlaybackCallbacks,

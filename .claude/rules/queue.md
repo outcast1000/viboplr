@@ -2,6 +2,50 @@
 
 The queue is the central playback pipeline. All tracks flow through `useQueue.ts` (state/logic) and render in `QueuePanel.tsx` (UI). This document is the behavioral contract — all code that touches the queue must preserve these invariants.
 
+## QueueTrack Type
+
+Queue entries, the currently playing track (`currentTrack`), and playlist tracks use the `QueueTrack` type — a metadata-only object with **no DB IDs**. This type is defined in `types.ts`.
+
+```typescript
+interface QueueTrack {
+  key: string;              // In-memory identity (ext:N, lib:N)
+  path: string | null;      // Scheme-prefixed URI (file://, subsonic://, custom://)
+  title: string;
+  artist_name: string | null;
+  album_title: string | null;
+  duration_secs: number | null;
+  format: string | null;
+  image_url?: string;       // Album art path/URL, set by stamp() or plugin
+  liked: number;            // -1/0/1, synced on-demand
+}
+```
+
+**No DB IDs, no `collection_id`, no `youtube_url`.** These are either on the library `Track` type only, derivable from `path` (local vs remote), or resolved on-demand via `find_track_by_metadata`.
+
+**Conversion:** Use `trackToQueueTrack(track: Track): QueueTrack` when adding library tracks to the queue. This strips DB IDs and keeps only portable metadata.
+
+**Why:** Queue tracks may not be in the library (external sources, plugin views, restored playlists). By removing DB ID dependencies, all queue/playback surfaces work uniformly regardless of track origin.
+
+### Image Resolution (Queue/NowPlaying)
+
+Priority order — no ID-based cache lookups:
+1. `track.image_url` (set by stamp, plugin, or restored thumbnail)
+2. Album image by name via `get_entity_image_by_name("album", album_title, artist_name)`
+3. Artist image by name via `get_entity_image_by_name("artist", artist_name)`
+
+### Library Operations on QueueTracks
+
+Operations that need a library ID (like, delete, show in folder, audio properties) use on-demand metadata lookup:
+- Call `invoke("find_track_by_metadata", { title, artistName, albumName })` to resolve the library track
+- If found, proceed with the resolved ID
+- If not found, show feedback "Track not in library" via `addLog()`
+
+### Navigation from QueueTracks
+
+Artist/album clicks in NowPlayingBar and FullscreenControls navigate by name, not ID:
+- `onNavigateToArtistByName(artist_name)` — searches library artists by name
+- `onNavigateToAlbumByName(album_title, artist_name)` — searches library albums by title + artist
+
 ## Track Entry
 
 Every way tracks enter the queue and what each must maintain.
@@ -16,9 +60,9 @@ Every way tracks enter the queue and what each must maintain.
 | **Add and play** | `addToQueueAndPlay(track, source?)` | Appends one track, sets `queueIndex` to new last position, calls `handlePlay`. |
 | **Load playlist** | `loadPlaylist()` | Replaces entire queue from `.m3u`/`.m3u8` file. Converts entries via `queueEntryToTrack`. Sets index to 0, plays first track, sets context to filename. `.mixtape` files delegate to `onOpenMixtape`. Does NOT call `stamp()` (playlist entries lack `album_id` so stamping would have no effect). |
 
-**Image stamping rule:** Every entry path that accepts library tracks calls `stamp()`, which assigns `image_url` from `albumImages` cache for tracks that lack one. This must happen before tracks are added to state. Exception: `loadPlaylist` — playlist entries have no `album_id`, so stamping is a no-op and is skipped.
+**Image stamping rule:** Every entry path that accepts tracks calls `stamp()`, which assigns `image_url` by name-based image lookup for tracks that lack one. This must happen before tracks are added to state. Exception: `loadPlaylist` — playlist entries already have thumbs restored from disk.
 
-**External tracks:** Tracks without a library ID (`id: null`) get a synthetic `key` (e.g., `ext:N`). They can be played and queued but cannot be deleted, liked, or edited.
+**Key generation:** Library tracks get `lib:N` keys, external tracks get `ext:N` keys. The `key` field is the in-memory identity used for React rendering and multi-select — never persisted to disk.
 
 ## Playback Progression
 
@@ -170,13 +214,14 @@ The visual and interaction layer.
 **Auto-scroll:** When `queueIndex` changes, the current track scrolls into view (`scrollIntoView({ block: "nearest", behavior: "smooth" })`). Also fires when panel un-collapses.
 
 **Image resolution for queue items (priority order):**
-1. Video frame (for video tracks with library ID)
-2. `image_url` on the track object
-3. Album image from cache (`albumImages[album_id]`)
-4. Artist image from cache (`artistImages[artist_id]`)
-5. Async name-based resolve via `get_entity_image_by_name` (cached in component state, deduped by `artist::title` key)
-6. Remote playlist local thumbnail from `mainPlaylistDir/thumbs/` (with cache-busting `?v=` param)
-7. Placeholder SVG
+1. Video frame (for video tracks, keyed by path)
+2. `image_url` on the track object (set by stamp, plugin, or restored thumb)
+3. Album image by name via `get_entity_image_by_name("album", album_title, artist_name)`
+4. Artist image by name via `get_entity_image_by_name("artist", artist_name)`
+5. Remote playlist local thumbnail from `mainPlaylistDir/thumbs/` (with cache-busting `?v=` param)
+6. Placeholder SVG
+
+No ID-based cache lookups — all image resolution is name-based or uses the track's own `image_url`.
 
 **Tooltips:** 400ms hover delay. Normal mode: title + artist/album/format. Debug mode: full track metadata. Positioned to avoid viewport overflow.
 
@@ -233,3 +278,4 @@ Shuffle order is generated once (on mode switch or `playTracks`) and not updated
 5. Adding a new persistence effect without the `restoredRef` guard — overwrites saved state on startup
 6. Assuming `track.path` is a playable URL — it's a scheme-prefixed identifier
 7. Forgetting to call `stamp()` on tracks before adding to queue — tracks lose image URLs
+8. Using `track.id`, `track.album_id`, or `track.artist_id` on queue/playlist/currentTrack — these are `QueueTrack` which has no DB IDs. Use name-based lookups or on-demand `find_track_by_metadata` instead.

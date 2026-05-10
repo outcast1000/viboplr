@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Track } from "../types";
+import type { QueueTrack } from "../types";
 import { isVideoTrack, shouldScrobble } from "../utils";
 import { store } from "../store";
 
@@ -10,14 +10,14 @@ function logPlayback(message: string) {
 
 export function usePlayback(
   restoredRef: React.RefObject<boolean>,
-  peekNextRef: React.RefObject<() => Track | null>,
+  peekNextRef: React.RefObject<() => QueueTrack | null>,
   crossfadeSecsRef: React.RefObject<number>,
   advanceIndexRef: React.RefObject<() => void>,
   trackVideoHistoryRef: React.RefObject<boolean>,
-  resolveTrackSrcRef: React.RefObject<(track: Track) => Promise<string>>,
+  resolveTrackSrcRef: React.RefObject<(track: QueueTrack) => Promise<string>>,
   prefetchNextRef: React.RefObject<() => void>,
 ) {
-  const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
+  const [currentTrack, setCurrentTrack] = useState<QueueTrack | null>(null);
   const [playing, setPlaying] = useState(false);
   const [positionSecs, setPositionSecs] = useState(0);
   const [durationSecs, setDurationSecs] = useState(0);
@@ -37,13 +37,13 @@ export function usePlayback(
   const scrobbledRef = useRef(false);
   const [scrobbled, setScrobbled] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
-  const [failedTrack, setFailedTrack] = useState<Track | null>(null);
+  const [failedTrack, setFailedTrack] = useState<QueueTrack | null>(null);
   const [currentAssetUrl, setCurrentAssetUrl] = useState<string | null>(null);
-  const [loadingTrack, setLoadingTrack] = useState<Track | null>(null);
+  const [loadingTrack, setLoadingTrack] = useState<QueueTrack | null>(null);
   const playStartedAtRef = useRef(0);
 
   // Preload state (refs for use in event handlers without stale closures)
-  const preloadedTrackRef = useRef<Track | null>(null);
+  const preloadedTrackRef = useRef<QueueTrack | null>(null);
   const preloadReadyRef = useRef(false);
   const isPreloadingRef = useRef(false);
   const prefetchRequestedRef = useRef(false);
@@ -142,7 +142,7 @@ export function usePlayback(
     }
   }
 
-  async function preloadNext(nextTrack: Track) {
+  async function preloadNext(nextTrack: QueueTrack) {
     if (isPreloadingRef.current) return;
     if (isVideoTrack(nextTrack)) {
       preloadedTrackRef.current = null;
@@ -332,7 +332,7 @@ export function usePlayback(
     return true;
   }
 
-  async function handlePlay(track: Track, source: "user" | "auto" = "user") {
+  async function handlePlay(track: QueueTrack, source: "user" | "auto" = "user") {
     cancelCrossfade();
     invalidatePreload();
     setPlaybackError(null);
@@ -356,7 +356,7 @@ export function usePlayback(
     pendingSeekRef.current = secs;
   }
 
-  async function handlePlayUrl(track: Track, url: string) {
+  async function handlePlayUrl(track: QueueTrack, url: string) {
     cancelCrossfade();
     invalidatePreload();
     setPlaybackError(null);
@@ -375,7 +375,7 @@ export function usePlayback(
     }
   }
 
-  async function playWithSrc(track: Track, src: string, source: "user" | "auto" = "user") {
+  async function playWithSrc(track: QueueTrack, src: string, source: "user" | "auto" = "user") {
     // Stop all elements
     [audioRefA.current, audioRefB.current].forEach(el => {
       if (el) { el.pause(); el.removeAttribute("src"); el.load(); }

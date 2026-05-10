@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { Track } from "../types";
+import type { Track, QueueTrack } from "../types";
 import type { AppStore } from "../store";
 import type { DownloadProvider, DownloadResolveResult } from "../types/plugin";
 
@@ -9,7 +9,7 @@ export interface UseDownloadsReturn {
   downloadFormat: string;
   setFormat: (format: string, store: AppStore) => void;
   downloadTrack: (trackId: number, destCollectionId: number, tracks: Track[]) => Promise<void>;
-  autoSaveTrack: (track: Track, downloadsCollectionId: number, format: string, libraryTracks?: Track[]) => Promise<void>;
+  autoSaveTrack: (track: QueueTrack, downloadsCollectionId: number, format: string, libraryTracks?: Track[]) => Promise<void>;
 }
 
 async function resolveTrackDownload(
@@ -137,7 +137,7 @@ export function useDownloads(
   }
 
   async function autoSaveTrack(
-    track: Track,
+    track: QueueTrack,
     downloadsCollectionId: number,
     format: string,
     libraryTracks?: Track[],

@@ -42,10 +42,20 @@ export interface Track {
   youtube_url: string | null;
   added_at: number | null;
   modified_at: number | null;
-  /** Playback URL computed when the track enters the queue (e.g. file://, subsonic://, plugin-scheme://) */
-  url?: string;
   /** Image URL for display in the queue (file path or HTTP URL, set by caller) */
   image_url?: string;
+}
+
+export interface QueueTrack {
+  key: string;
+  path: string | null;
+  title: string;
+  artist_name: string | null;
+  album_title: string | null;
+  duration_secs: number | null;
+  format: string | null;
+  image_url?: string;
+  liked: number;
 }
 
 export interface SearchAllResults {

@@ -1,19 +1,20 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { Track } from "../types";
+import type { QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
-import { formatDuration, isVideoTrack } from "../utils";
+import { formatDuration } from "../utils";
+import { isLocalTrack } from "../queueEntry";
 import { thumbFilenameForUri, isContextRemote } from "../mainPlaylist";
 import "./QueuePanel.css";
 
 export interface PendingEnqueue {
-  all: Track[];
-  duplicates: Track[];
-  unique: Track[];
+  all: QueueTrack[];
+  duplicates: QueueTrack[];
+  unique: QueueTrack[];
 }
 
-function formatTotalDuration(tracks: Track[]): string {
+function formatTotalDuration(tracks: QueueTrack[]): string {
   const totalSecs = tracks.reduce((sum, t) => sum + (t.duration_secs ?? 0), 0);
   const hours = Math.floor(totalSecs / 3600);
   const mins = Math.floor((totalSecs % 3600) / 60);
@@ -53,7 +54,7 @@ function computeIndexSelection(
 }
 
 interface QueuePanelProps {
-  queue: Track[];
+  queue: QueueTrack[];
   queueIndex: number;
   queuePanelRef: React.RefObject<HTMLDivElement | null>;
   playlistContext: PlaylistContext | null;
@@ -61,9 +62,9 @@ interface QueuePanelProps {
   onAllowAll: () => void;
   onSkipDuplicates: () => void;
   onCancelEnqueue: () => void;
-  onPlay: (track: Track, index: number) => void;
+  onPlay: (track: QueueTrack, index: number) => void;
   onRemove: (index: number) => void;
-  onLocateTrack?: (track: Track) => void;
+  onLocateTrack?: (track: QueueTrack) => void;
   onMoveMultiple: (indices: number[], targetIndex: number) => void;
   onClear: () => void;
   onSaveAsM3U: () => void;
@@ -73,8 +74,6 @@ interface QueuePanelProps {
   onLoadPlaylist: () => void;
   onContextMenu: (e: React.MouseEvent, indices: number[]) => void;
   externalDropTarget: number | null;
-  albumImages: Record<number, string | null>;
-  artistImages: Record<number, string | null>;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onResizeWidth: (width: number) => void;
@@ -117,7 +116,6 @@ export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
   onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onEditPlaylist, onLoadPlaylist, onContextMenu,
-  albumImages, artistImages,
   externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
   mainPlaylistDir, thumbVersions,
@@ -126,7 +124,7 @@ export function QueuePanel({
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [countdown, setCountdown] = useState(AUTO_APPROVE_SECS);
-  const [tooltip, setTooltip] = useState<{ track: Track; anchorX: number; anchorY: number } | null>(null);
+  const [tooltip, setTooltip] = useState<{ track: QueueTrack; anchorX: number; anchorY: number } | null>(null);
   const [saveMenuOpen, setSaveMenuOpen] = useState(false);
   const saveMenuRef = useRef<HTMLDivElement>(null);
   const [contextInfoAnchor, setContextInfoAnchor] = useState<{ x: number; y: number } | null>(null);
@@ -197,47 +195,19 @@ export function QueuePanel({
   // Fallback image resolution for tracks missing image_url
   const [resolvedImages, setResolvedImages] = useState<Record<string, string | null>>({});
   const resolvingRef = useRef<Set<string>>(new Set());
-  const [videoFrames, setVideoFrames] = useState<Record<number, string | null>>({});
-  const videoFramesReqRef = useRef<Set<number>>(new Set());
 
-  const getTrackImageKey = useCallback((t: Track) => `${t.artist_name ?? ""}::${t.title}`, []);
+  const getTrackImageKey = useCallback((t: QueueTrack) => `${t.artist_name ?? ""}::${t.title}`, []);
 
-  const getTrackImage = useCallback((t: Track): string | null => {
-    if (t.id != null && isVideoTrack(t)) {
-      const frame = videoFrames[t.id];
-      if (frame) return convertFileSrc(frame);
-    }
+  const getTrackImage = useCallback((t: QueueTrack): string | null => {
     if (t.image_url) return t.image_url.startsWith("http") ? t.image_url : convertFileSrc(t.image_url);
-    if (t.album_id != null && albumImages[t.album_id]) return convertFileSrc(albumImages[t.album_id]!);
-    if (t.artist_id != null && artistImages[t.artist_id]) return convertFileSrc(artistImages[t.artist_id]!);
     const resolved = resolvedImages[getTrackImageKey(t)];
     if (resolved) return convertFileSrc(resolved);
     return null;
-  }, [albumImages, artistImages, resolvedImages, getTrackImageKey, videoFrames]);
-
-  useEffect(() => {
-    for (const t of queue) {
-      if (t.id == null || !isVideoTrack(t)) continue;
-      if (t.id in videoFrames || videoFramesReqRef.current.has(t.id)) continue;
-      const trackId = t.id;
-      videoFramesReqRef.current.add(trackId);
-      invoke<{ status: string; paths?: string[] } | null>("get_video_frames", { trackId })
-        .then(result => {
-          const first = result?.status === "ok" && result.paths?.[0] ? result.paths[0] : null;
-          setVideoFrames(prev => ({ ...prev, [trackId]: first }));
-        })
-        .catch(e => {
-          console.error("Failed to load cached video frame for queue:", e);
-          setVideoFrames(prev => ({ ...prev, [trackId]: null }));
-        });
-    }
-  }, [queue, videoFrames]);
+  }, [resolvedImages, getTrackImageKey]);
 
   useEffect(() => {
     for (const t of queue) {
       if (t.image_url) continue;
-      if (t.album_id != null && albumImages[t.album_id]) continue;
-      if (t.artist_id != null && artistImages[t.artist_id]) continue;
       const key = getTrackImageKey(t);
       if (key in resolvedImages || resolvingRef.current.has(key)) continue;
       resolvingRef.current.add(key);
@@ -258,7 +228,7 @@ export function QueuePanel({
         }
       })();
     }
-  }, [queue, albumImages, artistImages, resolvedImages, getTrackImageKey]);
+  }, [queue, resolvedImages, getTrackImageKey]);
 
   // Scroll to currently playing track when panel opens or un-collapses
   useEffect(() => {
@@ -288,7 +258,7 @@ export function QueuePanel({
     if (pendingEnqueue && countdown === 0) onAllowAll();
   }, [countdown, pendingEnqueue]);
 
-  function handleClick(e: React.MouseEvent, _track: Track, index: number) {
+  function handleClick(e: React.MouseEvent, _track: QueueTrack, index: number) {
     // Ignore click if we just finished a drag
     if (didDragRef.current) return;
 
@@ -303,7 +273,7 @@ export function QueuePanel({
     lastClickedIndexRef.current = index;
   }
 
-  function handleDoubleClick(track: Track, index: number) {
+  function handleDoubleClick(track: QueueTrack, index: number) {
     onPlay(track, index);
   }
 
@@ -542,7 +512,7 @@ export function QueuePanel({
         )}
         {queue.map((t, i) => (
           <div
-            key={`${t.id}-${i}`}
+            key={t.key}
             data-queue-index={i}
             className={
               `queue-item${i === queueIndex ? " queue-current" : ""}${selectedIndices.has(i) ? " selected" : ""}`
@@ -598,7 +568,7 @@ export function QueuePanel({
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
                 </button>
               )}
-              {onLocateTrack && t.id != null && (
+              {onLocateTrack && isLocalTrack(t) && (
                 <button
                   className="queue-item-action"
                   onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
@@ -637,16 +607,10 @@ export function QueuePanel({
             {debugMode ? (
               <div className="ds-tooltip-rows">
                 {([
-                  ["key", t.key], ["id", t.id], ["path", t.path],
-                  ["artist_id", t.artist_id], ["artist", t.artist_name],
-                  ["album_id", t.album_id], ["album", t.album_title],
-                  ["year", t.year], ["track_number", t.track_number],
+                  ["key", t.key], ["path", t.path],
+                  ["artist", t.artist_name], ["album", t.album_title],
                   ["duration_secs", t.duration_secs], ["format", t.format],
-                  ["file_size", t.file_size], ["collection_id", t.collection_id],
-                  ["collection_name", t.collection_name], ["liked", t.liked],
-                  ["youtube_url", t.youtube_url], ["added_at", t.added_at],
-                  ["modified_at", t.modified_at], ["url", t.url],
-                  ["image_url", t.image_url],
+                  ["liked", t.liked], ["image_url", t.image_url],
                 ] as [string, unknown][]).map(([k, v]) => (
                   <div key={k} className="ds-tooltip-row">
                     <span className="ds-tooltip-key">{k}</span>

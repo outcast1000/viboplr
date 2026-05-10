@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import type { Track, SortField, TrackColumnId, ColumnConfig } from "../types";
+import type { Track, QueueTrack, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration } from "../utils";
 import { parseLibraryId } from "../queueEntry";
 import { IconYoutube } from "./Icons";
@@ -113,7 +113,7 @@ export function computeSelection(
 
 interface TrackListProps {
   tracks: Track[];
-  currentTrack: Track | null;
+  currentTrack: QueueTrack | null;
   playing?: boolean;
   highlightedIndex: number;
   sortField: SortField | null;

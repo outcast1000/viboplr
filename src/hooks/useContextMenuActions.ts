@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Track, Artist, Album } from "../types";
+import type { Track, Artist, Album, QueueTrack } from "../types";
 import { parseLibraryId, isLocalTrack } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
@@ -18,17 +18,17 @@ interface UseContextMenuActionsDeps {
     loadTracks: () => Promise<void>;
   };
   queueHook: {
-    playTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
-    enqueueTracks: (tracks: Track[]) => void;
-    findDuplicates: (tracks: Track[]) => { duplicates: Track[]; unique: Track[] };
-    insertAtPosition: (tracks: Track[], pos: number) => void;
+    playTracks: (tracks: QueueTrack[], index: number, context?: PlaylistContext | null) => void;
+    enqueueTracks: (tracks: QueueTrack[]) => void;
+    findDuplicates: (tracks: QueueTrack[]) => { duplicates: QueueTrack[]; unique: QueueTrack[] };
+    insertAtPosition: (tracks: QueueTrack[], pos: number) => void;
     removeMultiple: (indices: number[]) => void;
     moveToTop: (indices: number[]) => void;
     moveToBottom: (indices: number[]) => void;
-    queue: Track[];
-    addToQueue: (track: Track) => void;
+    queue: QueueTrack[];
+    addToQueue: (track: QueueTrack) => void;
   };
-  playback: { currentTrack: Track | null; handleStop: () => void };
+  playback: { currentTrack: QueueTrack | null; handleStop: () => void };
   addLog: (msg: string, module?: string) => void;
   playActions: {
     playAlbum: (albumId: number) => void;
@@ -54,8 +54,8 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
   const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
-  const [downloadConfirm, setDownloadConfirm] = useState<{ track: Track; localTitle: string; localTrackId: number } | null>(null);
-  const [pendingEnqueue, setPendingEnqueue] = useState<{ all: Track[]; duplicates: Track[]; unique: Track[]; position?: number } | null>(null);
+  const [downloadConfirm, setDownloadConfirm] = useState<{ track: QueueTrack; localTitle: string; localTrackId: number } | null>(null);
+  const [pendingEnqueue, setPendingEnqueue] = useState<{ all: QueueTrack[]; duplicates: QueueTrack[]; unique: QueueTrack[]; position?: number } | null>(null);
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
 
   function setContextMenu(state: ContextMenuState | null) {
@@ -310,8 +310,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } else if (cm && cm.target.kind === "queue-multi" && cm.target.indices.length === 1) {
       const track = queueHook.queue[cm.target.indices[0]];
       try {
-        if (track && track.id != null) {
-          await invoke("show_in_folder", { trackId: track.id });
+        const libId = track ? parseLibraryId(track.key) : null;
+        if (track && libId != null) {
+          await invoke("show_in_folder", { trackId: libId });
         } else if (track && track.path) {
           await invoke("show_in_folder_path", { filePath: track.path });
         }
@@ -342,9 +343,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       setDeleteConfirm({ trackIds: target.trackIds, title: `${target.trackIds.length} tracks` });
     } else if (target.kind === "queue-multi") {
       const tracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
-      const localTracks = tracks.filter(t => t.id != null && isLocalTrack(t));
+      const localTracks = tracks.filter(t => isLocalTrack(t) && parseLibraryId(t.key) != null);
       if (localTracks.length > 0) {
-        const ids = localTracks.map(t => t.id!);
+        const ids = localTracks.map(t => parseLibraryId(t.key)!);
         setDeleteConfirm({ trackIds: ids, title: localTracks.length === 1 ? localTracks[0].title : `${localTracks.length} tracks` });
       }
     }
@@ -356,16 +357,16 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     const { trackIds, title } = deleteConfirm;
     setDeleteConfirm(null);
     try {
-      const result: { deletedIds: number[]; failures: { title: string; reason: string }[] } = await invoke("delete_tracks", { trackIds });
-      const deletedSet = new Set(result.deletedIds);
-      if (deletedSet.size > 0) {
-        library.setTracks(prev => prev.filter(t => t.id == null || !deletedSet.has(t.id)));
-        if (playback.currentTrack && playback.currentTrack.id != null && deletedSet.has(playback.currentTrack.id)) {
+      const result: { deletedIds: number[]; deletedPaths: string[]; failures: { title: string; reason: string }[] } = await invoke("delete_tracks", { trackIds });
+      const deletedPaths = new Set(result.deletedPaths as string[]);
+      if (result.deletedIds.length > 0) {
+        library.setTracks(prev => prev.filter(t => t.id == null || !new Set(result.deletedIds).has(t.id)));
+        if (playback.currentTrack?.path && deletedPaths.has(playback.currentTrack.path)) {
           playback.handleStop();
         }
         const queueIndicesToRemove: number[] = [];
         queueHook.queue.forEach((t, i) => {
-          if (t.id != null && deletedSet.has(t.id)) queueIndicesToRemove.push(i);
+          if (t.path && deletedPaths.has(t.path)) queueIndicesToRemove.push(i);
         });
         if (queueIndicesToRemove.length > 0) {
           queueHook.removeMultiple(queueIndicesToRemove);
@@ -436,7 +437,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } });
   }
 
-  function findLocalCopy(track: Track): Track | undefined {
+  function findLocalCopy(track: QueueTrack): Track | undefined {
     const title = track.title.toLowerCase();
     const artist = (track.artist_name || "").toLowerCase();
     return library.tracks.find(t =>
@@ -446,7 +447,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     );
   }
 
-  const enqueueDownload = useCallback(async (track: Track) => {
+  const enqueueDownload = useCallback(async (track: QueueTrack) => {
     try {
       await invoke("enqueue_download", {
         title: track.title,
@@ -467,7 +468,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }, [addLog]);
 
-  const handleDownloadTrack = useCallback(async (track: Track) => {
+  const handleDownloadTrack = useCallback(async (track: QueueTrack) => {
     const localCopy = findLocalCopy(track);
     if (localCopy) {
       setDownloadConfirm({ track, localTitle: localCopy.title, localTrackId: localCopy.id! });
@@ -487,7 +488,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     setDownloadConfirm(null);
   }, []);
 
-  const handleDownloadMulti = useCallback(async (tracks: Track[]) => {
+  const handleDownloadMulti = useCallback(async (tracks: QueueTrack[]) => {
     for (let i = 0; i < tracks.length; i++) {
       const track = tracks[i];
       const isLast = i === tracks.length - 1;

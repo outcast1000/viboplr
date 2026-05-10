@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, type RefCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Track, Artist, Album, Tag, ViewMode, SortField } from "../types";
+import type { Track, Artist, Album, Tag, ViewMode, SortField, QueueTrack } from "../types";
 import { formatDuration, isVideoTrack } from "../utils";
 import { store } from "../store";
 import { isLocalTrack } from "../queueEntry";
@@ -98,7 +98,7 @@ interface SearchViewProps {
   deletedTrackKey: number;
   deletedTagIds: number[];
   deletedTagKey: number;
-  currentTrack: Track | null;
+  currentTrack: QueueTrack | null;
   playing: boolean;
   viewModes: SearchViewModes;
   onViewModesChange: (modes: SearchViewModes) => void;

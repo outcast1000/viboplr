@@ -1,4 +1,4 @@
-import type { Track } from "./types";
+import type { QueueTrack } from "./types";
 import type { PlaylistContext } from "./hooks/useQueue";
 
 export interface ManifestTrack {
@@ -66,7 +66,7 @@ export function isContextRemote(ctx: PlaylistContext | null | undefined): boolea
   return !LIBRARY_SOURCES.has(ctx.source);
 }
 
-export function buildManifest(queue: Track[], context: PlaylistContext | null | undefined): Manifest {
+export function buildManifest(queue: QueueTrack[], context: PlaylistContext | null | undefined): Manifest {
   const remote = isContextRemote(context);
   const metadata: Record<string, string> = {};
   if (context?.source) metadata.source = context.source;
@@ -102,10 +102,9 @@ export function buildState(
   return { queueIndex, queueMode, shuffleOrder, shufflePosition };
 }
 
-export function tracksFromManifest(manifest: Manifest): Track[] {
+export function tracksFromManifest(manifest: Manifest, mainPlaylistDir?: string | null): QueueTrack[] {
   let extCounter = 1;
-  return manifest.tracks.map((m): Track => ({
-    id: null,
+  return manifest.tracks.map((m): QueueTrack => ({
     // QueueEntry.key is an in-memory identity used for React rendering + multi-select.
     // It is not persisted. Generate fresh keys on restore. Thumbnail identity on disk
     // is keyed off the file URI (see thumbFilenameForUri), not this key, so thumbs
@@ -113,15 +112,12 @@ export function tracksFromManifest(manifest: Manifest): Track[] {
     key: `ext:${extCounter++}`,
     path: m.file,
     title: m.title,
-    artist_id: null, artist_name: m.artist || null,
-    album_id: null, album_title: m.album,
-    year: null, track_number: null,
+    artist_name: m.artist || null,
+    album_title: m.album,
     duration_secs: m.duration_secs,
-    format: null, file_size: null,
-    collection_id: null, collection_name: null,
-    liked: 0, youtube_url: null,
-    added_at: null, modified_at: null,
-    image_url: undefined,
+    format: null,
+    liked: 0,
+    image_url: m.thumb && mainPlaylistDir ? `${mainPlaylistDir}/${m.thumb}` : undefined,
   }));
 }
 
@@ -193,9 +189,9 @@ export function contextFromMixtapeMetadata(
  * of URIs to delete thumb files for.
  */
 export function diffThumbs(
-  prev: Track[],
-  next: Track[],
-): { added: Track[]; removed: string[] } {
+  prev: QueueTrack[],
+  next: QueueTrack[],
+): { added: QueueTrack[]; removed: string[] } {
   const prevUris = new Set(prev.map(t => t.path).filter((p): p is string => !!p));
   const nextUris = new Set(next.map(t => t.path).filter((p): p is string => !!p));
   const added = next.filter(t => t.path && !prevUris.has(t.path));
