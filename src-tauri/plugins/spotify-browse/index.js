@@ -1471,6 +1471,10 @@ function activate(api) {
         'walker=walker.parentElement;' +
       '}' +
       '_dbg("tracks","scroll container",{tag:sc.tagName,testid:sc.getAttribute&&sc.getAttribute("data-testid"),scrollH:sc.scrollHeight,clientH:sc.clientHeight,overflow:window.getComputedStyle(sc).overflowY});' +
+      // Extract playlist cover from header before scrolling begins
+      'var coverEl=document.querySelector("[data-testid=\\"playlist-image\\"]")||document.querySelector("main img[alt][src*=\\"mosaic\\"]")||document.querySelector("main img[alt][src*=\\"playlist\\"]")||document.querySelector("main [data-testid=\\"entity-image\\"] img")||document.querySelector("main picture img");' +
+      'var _coverUrl=null;if(coverEl){_coverUrl=coverEl.currentSrc||coverEl.src||null;if(_coverUrl&&_coverUrl.indexOf("data:")===0)_coverUrl=null}' +
+      'if(!_coverUrl){var headerEl=document.querySelector("[data-testid=\\"playlist-page\\"]")||document.querySelector("main header")||document.querySelector("main section");if(headerEl){_coverUrl=bestImg(headerEl)}}' +
       // Incremental scroll: move one viewport at a time, scrape visible rows at each stop
       'var allOut=[];var seenKeys={};var n=0;var maxSteps=60;' +
       'var step=Math.max(sc.clientHeight-50,200);' +
@@ -1518,8 +1522,8 @@ function activate(api) {
           'parseVisibleRows();' +
           'var descEl=document.querySelector("[data-testid=\\"playlist-description\\"]")||document.querySelector("main [data-testid=\\"entityTitle\\"] ~ span");' +
           'var desc=descEl?descEl.textContent.trim():"";' +
-          '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:allOut.length,steps:n,gen:_gen,desc:desc.substring(0,80)});' +
-          'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:allOut,description:desc,gen:_gen});' +
+          '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:allOut.length,steps:n,gen:_gen,desc:desc.substring(0,80),coverUrl:_coverUrl?_coverUrl.substring(0,60):null});' +
+          'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:allOut,description:desc,coverUrl:_coverUrl,gen:_gen});' +
         '}else{sc.scrollTop+=step;setTimeout(tick,600)}' +
       '}' +
       'setTimeout(tick,500);' +
@@ -1826,6 +1830,7 @@ function activate(api) {
                 var tracks = msg.data.tracks || [];
                 allTracks[pl.id] = tracks;
                 if (msg.data.description) pl.description = msg.data.description;
+                if (msg.data.coverUrl) pl.imageUrl = msg.data.coverUrl;
                 plReport.trackCount = tracks.length;
                 plReport.durationMs = Date.now() - plStart;
                 if (msg.data.error) {
