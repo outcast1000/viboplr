@@ -4625,6 +4625,8 @@ mod tests {
             mixtape_cancel: Arc::new(AtomicBool::new(false)),
             resyncing_collections: Arc::new(Mutex::new(HashSet::new())),
             cursor_tracker_active: Arc::new(AtomicBool::new(false)),
+            transcode_port: 0,
+            transcode_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
