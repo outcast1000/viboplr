@@ -7,6 +7,7 @@
     "urls": ["https://*", "http://*"]
   },
   "permissions": [
-    "core:default"
+    "core:default",
+    "allow-browse-window-send"
   ]
 }
