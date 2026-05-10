@@ -3749,17 +3749,20 @@ function App() {
           }
 
           // If playing via a fallback resolver that has a download provider, use
-          // resolveByMetadata directly (skips interactive search)
+          // the already-resolved playback URL directly (no re-search needed)
           if (resolverDownloadProvider) {
+            const resolvedUrl = playback.currentAssetUrl;
             setDownloadModal({
               tracks: [trackPayload],
               providerId: resolverDownloadProvider.id,
               providerName: resolverDownloadProvider.name,
-              resolveByUri: (_uri, format) =>
-                resolverDownloadProvider.resolveByMetadata(
-                  track.title, track.artist_name ?? null, track.album_title ?? null,
-                  track.duration_secs ?? null, format,
-                ),
+              resolveByUri: resolvedUrl
+                ? async () => ({ url: resolvedUrl })
+                : (_uri, format) =>
+                  resolverDownloadProvider.resolveByMetadata(
+                    track.title, track.artist_name ?? null, track.album_title ?? null,
+                    track.duration_secs ?? null, format,
+                  ),
             });
             return;
           }
