@@ -104,7 +104,7 @@ interface NowPlayingBarProps {
   onTrackClick: (trackKey: string) => void;
   onNavigateToArtistByName?: (name: string) => void;
   onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
-  syncState: "disabled" | "enabled" | "active";
+  syncState: boolean;
   onToggleSync: () => void;
   showHelp: boolean;
   onToggleHelp: () => void;
@@ -148,7 +148,7 @@ export function NowPlayingBar({
 
   // Pulse the Follow button when sync navigates to a new track
   useEffect(() => {
-    if (syncState !== "active" || !currentTrack?.key) return;
+    if (!syncState || !currentTrack?.key) return;
     setFollowPulse(true);
     const t = setTimeout(() => setFollowPulse(false), 600);
     return () => clearTimeout(t);
@@ -573,17 +573,18 @@ export function NowPlayingBar({
           )}
         </div>
         <button
-          className={`g-btn g-btn-sm${syncState !== "disabled" ? " active" : ""}${syncState === "active" ? " now-follow-active" : ""}${followPulse && syncState === "active" ? " now-follow-pulse" : ""}`}
+          className={`g-btn g-btn-rect now-follow-btn${syncState ? " active now-follow-active" : ""}${followPulse && syncState ? " now-follow-pulse" : ""}`}
           onClick={onToggleSync}
-          title={syncState === "disabled" ? "Follow playback" : syncState === "enabled" ? "Follow playback (waiting for idle)" : "Follow playback (active)"}
+          title={syncState ? "Following playback — click to stop" : "Follow playback"}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            {syncState === "disabled" ? (
-              <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
-            ) : (
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {syncState ? (
               <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
+            ) : (
+              <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
             )}
           </svg>
+          <span className="now-follow-label">{syncState ? "Following" : "Follow"}</span>
         </button>
         <div className="now-volume">
           <button className="g-btn g-btn-sm" onClick={onMute} title={`Mute (${mod}M)`}>

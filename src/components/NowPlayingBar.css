@@ -160,6 +160,10 @@
   transform: scale(0.95);
 }
 
+.now-follow-label {
+  font-size: var(--fs-2xs);
+}
+
 .now-follow-active {
   animation: follow-glow 2s ease-in-out infinite;
 }
