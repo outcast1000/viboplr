@@ -1851,7 +1851,36 @@ function App() {
     // Fetch from backend as last resort
     let cancelled = false;
     const libId = parseLibraryId(library.selectedTrack);
-    if (libId == null) { setDetailTrack(null); return; }
+    if (libId == null) {
+      // Non-library track (ext:N) — build synthetic Track from queue or currentTrack
+      const queueTrack = queueHook.queue.find(t => t.key === library.selectedTrack)
+        ?? (playback.currentTrack?.key === library.selectedTrack ? playback.currentTrack : null);
+      if (queueTrack) {
+        setDetailTrack({
+          id: null, key: queueTrack.key, path: queueTrack.path,
+          title: queueTrack.title, artist_id: null, artist_name: queueTrack.artist_name,
+          album_id: null, album_title: queueTrack.album_title, year: null,
+          track_number: null, duration_secs: queueTrack.duration_secs,
+          format: queueTrack.format, file_size: null, collection_id: null,
+          collection_name: null, liked: queueTrack.liked ?? 0,
+          youtube_url: null, added_at: null, modified_at: null,
+          image_url: queueTrack.image_url,
+        });
+        if (queueTrack.album_title) {
+          invoke<{ id: number; title: string; artist_name: string | null } | null>("find_album_by_name", { title: queueTrack.album_title, artistName: queueTrack.artist_name ?? null })
+            .then(album => { if (album) albumImageCache.fetchOnDemand(album); })
+            .catch(console.error);
+        }
+        if (queueTrack.artist_name) {
+          invoke<{ id: number; name: string } | null>("find_artist_by_name", { name: queueTrack.artist_name })
+            .then(artist => { if (artist) artistImageCache.fetchOnDemand(artist); })
+            .catch(console.error);
+        }
+      } else {
+        setDetailTrack(null);
+      }
+      return;
+    }
     invoke<Track>("get_track_by_id", { trackId: libId })
       .then(t => { if (!cancelled) setDetailTrack(t); })
       .catch(() => { if (!cancelled) setDetailTrack(null); });
@@ -2617,7 +2646,8 @@ function App() {
                 track={track}
                 albumImagePath={track.album_id
                   ? albumImageCache.images[track.album_id] ?? null
-                  : (track.album_title ? albumImageCache.getImageByName(track.album_title, track.artist_name ?? undefined) : null)}
+                  : (track.album_title ? albumImageCache.getImageByName(track.album_title, track.artist_name ?? undefined) : null)
+                    || track.image_url || null}
                 artistImagePath={track.artist_id
                   ? artistImageCache.images[track.artist_id] ?? null
                   : (track.artist_name ? artistImageCache.getImageByName(track.artist_name) : null)}
