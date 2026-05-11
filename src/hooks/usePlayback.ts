@@ -388,6 +388,24 @@ export function usePlayback(
     }
   }
 
+  async function attemptTranscodeFallback(track: QueueTrack): Promise<boolean> {
+    if (!isVideoTrack(track) || transcodeSessionRef.current) return false;
+    const path = track.path;
+    if (!path) return false;
+    const parsed = parseUrlScheme(path);
+    if (parsed.scheme !== "file") return false;
+
+    const result = await invoke<{ url: string; sessionId: string }>("start_transcode", { path: parsed.path });
+    transcodeSessionRef.current = { sessionId: result.sessionId, baseUrl: result.url.replace(/\?seek=.*$/, "") };
+    if (videoRef.current) {
+      videoRef.current.src = result.url;
+      videoRef.current.volume = volumeRef.current;
+      videoRef.current.play().catch(console.error);
+      setPlaying(true);
+    }
+    return true;
+  }
+
   async function playWithSrc(track: QueueTrack, src: string, source: "user" | "auto" = "user") {
     // Stop all elements
     [audioRefA.current, audioRefB.current].forEach(el => {
@@ -422,7 +440,12 @@ export function usePlayback(
         videoRef.current.src = src;
         videoRef.current.volume = volumeRef.current;
         if (seekTo > 0) videoRef.current.currentTime = seekTo;
-        await videoRef.current.play();
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          const handled = await attemptTranscodeFallback(track);
+          if (!handled) throw playErr;
+        }
       } else {
         pendingSrcRef.current = src;
         if (seekTo > 0) pendingSeekRef.current = seekTo;
@@ -480,30 +503,22 @@ export function usePlayback(
     console.error("Media error:", msg, err.message);
 
     // Attempt transcode fallback for decode/format errors on local video tracks
-    if ((err.code === 3 || err.code === 4) && currentTrack && isVideoTrack(currentTrack) && !transcodeSessionRef.current) {
-      const path = currentTrack.path;
-      if (path) {
-        const parsed = parseUrlScheme(path);
-        if (parsed.scheme === "file") {
-          invoke<{ url: string; sessionId: string }>("start_transcode", { path: parsed.path })
-            .then((result) => {
-              transcodeSessionRef.current = { sessionId: result.sessionId, baseUrl: result.url.replace(/\?seek=.*$/, "") };
-              if (videoRef.current) {
-                videoRef.current.src = result.url;
-                videoRef.current.volume = volumeRef.current;
-                videoRef.current.play().catch(console.error);
-                setPlaying(true);
-              }
-            })
-            .catch((te) => {
-              console.error("Transcode fallback failed:", te);
-              setPlaybackError(msg);
-              setFailedTrack(currentTrack);
-              setPlaying(false);
-            });
-          return;
-        }
-      }
+    if ((err.code === 3 || err.code === 4) && currentTrack) {
+      attemptTranscodeFallback(currentTrack)
+        .then((handled) => {
+          if (!handled) {
+            setPlaybackError(msg);
+            setFailedTrack(currentTrack);
+            setPlaying(false);
+          }
+        })
+        .catch((te) => {
+          console.error("Transcode fallback failed:", te);
+          setPlaybackError(msg);
+          setFailedTrack(currentTrack);
+          setPlaying(false);
+        });
+      return;
     }
 
     setPlaybackError(msg);
