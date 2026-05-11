@@ -19,10 +19,8 @@ interface CaptionBarProps {
     close: () => void;
   };
   searchInputRef: React.RefObject<HTMLInputElement | null>;
-  albumImages: Record<number, string | null>;
-  artistImages: Record<number, string | null>;
-  onFetchAlbumImage: (album: any) => void;
-  onFetchArtistImage: (artist: any) => void;
+  getAlbumImage: (title: string, artistName?: string | null) => string | null;
+  getArtistImage: (name: string) => string | null;
   onToggleMiniMode: () => void;
   onToggleHelp: () => void;
   minimizeToMiniPlayer: boolean;
@@ -38,10 +36,8 @@ export function CaptionBar({
   onGoForward,
   centralSearch,
   searchInputRef,
-  albumImages,
-  artistImages,
-  onFetchAlbumImage,
-  onFetchArtistImage,
+  getAlbumImage,
+  getArtistImage,
   onToggleMiniMode,
   onToggleHelp,
   minimizeToMiniPlayer,
@@ -98,10 +94,8 @@ export function CaptionBar({
           onResultClick={centralSearch.handleResultClick}
           onClose={centralSearch.close}
           inputRef={searchInputRef}
-          albumImages={albumImages}
-          artistImages={artistImages}
-          onFetchAlbumImage={onFetchAlbumImage}
-          onFetchArtistImage={onFetchArtistImage}
+          getAlbumImage={getAlbumImage}
+          getArtistImage={getArtistImage}
         />
         {(resyncProgress || resyncComplete) && (
           <button

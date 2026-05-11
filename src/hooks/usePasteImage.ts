@@ -11,9 +11,9 @@ export function usePasteImage({
   artists,
   albums,
   tags,
-  setArtistImages,
-  setAlbumImages,
-  setTagImages,
+  invalidateArtistImage,
+  invalidateAlbumImage,
+  invalidateTagImage,
   addLog,
 }: {
   view: View;
@@ -24,9 +24,9 @@ export function usePasteImage({
   artists: Artist[];
   albums: Album[];
   tags: Tag[];
-  setArtistImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
-  setAlbumImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
-  setTagImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
+  invalidateArtistImage: (name: string) => void;
+  invalidateAlbumImage: (name: string, artistName?: string) => void;
+  invalidateTagImage: (name: string) => void;
   addLog: (text: string, module?: string) => void;
 }) {
   useEffect(() => {
@@ -58,30 +58,52 @@ export function usePasteImage({
         const buffer = await blob.arrayBuffer();
         const imageData = Array.from(new Uint8Array(buffer));
 
-        const entityType = isArtistDetail ? "artist" : isAlbumDetail ? "album" : "tag";
-        const entityId = isArtistDetail ? selectedArtist : isAlbumDetail ? selectedAlbum : selectedTag;
-        const setImages = isArtistDetail ? setArtistImages : isAlbumDetail ? setAlbumImages : setTagImages;
+        let kind: "artist" | "album" | "tag";
+        let entityName: string;
+        let artistName: string | null = null;
 
-        const path = await invoke<string>("paste_entity_image", {
-          kind: entityType,
-          id: entityId,
+        if (isArtistDetail) {
+          kind = "artist";
+          const artist = artists.find(a => a.id === selectedArtist);
+          if (!artist) return;
+          entityName = artist.name;
+        } else if (isAlbumDetail) {
+          kind = "album";
+          const album = albums.find(a => a.id === selectedAlbum);
+          if (!album) return;
+          entityName = album.title;
+          artistName = album.artist_name ?? null;
+        } else {
+          kind = "tag";
+          const tag = tags.find(t => t.id === selectedTag);
+          if (!tag) return;
+          entityName = tag.name;
+        }
+
+        await invoke<string>("paste_entity_image", {
+          kind,
+          name: entityName,
+          artistName,
           imageData,
         });
-        setImages((prev) => ({ ...prev, [entityId!]: null }));
-        requestAnimationFrame(() => setImages((prev) => ({ ...prev, [entityId!]: path })));
 
-        const label = isArtistDetail
-          ? "Artist image set from clipboard: " + (artists.find(a => a.id === selectedArtist)?.name ?? "unknown")
-          : isAlbumDetail
-          ? "Album image set from clipboard: " + (albums.find(a => a.id === selectedAlbum)?.title ?? "unknown")
-          : "Tag image set from clipboard: " + (tags.find(t => t.id === selectedTag)?.name ?? "unknown");
-        addLog(label, "images");
+        if (kind === "artist") {
+          invalidateArtistImage(entityName);
+          addLog(`Artist image set from clipboard: ${entityName}`, "images");
+        } else if (kind === "album") {
+          invalidateAlbumImage(entityName, artistName ?? undefined);
+          addLog(`Album image set from clipboard: ${entityName}`, "images");
+        } else {
+          invalidateTagImage(entityName);
+          addLog(`Tag image set from clipboard: ${entityName}`, "images");
+        }
       } catch (err) {
+        console.error("Failed to paste image:", err);
         addLog(`Failed to paste image: ${err}`, "images");
       }
     };
 
     document.addEventListener("paste", handler);
     return () => document.removeEventListener("paste", handler);
-  }, [view, selectedArtist, selectedAlbum, selectedTag, searchQuery, artists, albums, tags, setArtistImages, setAlbumImages, setTagImages, addLog]);
+  }, [view, selectedArtist, selectedAlbum, selectedTag, searchQuery, artists, albums, tags, invalidateArtistImage, invalidateAlbumImage, invalidateTagImage, addLog]);
 }

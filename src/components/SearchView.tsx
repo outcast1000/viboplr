@@ -102,8 +102,9 @@ interface SearchViewProps {
   playing: boolean;
   viewModes: SearchViewModes;
   onViewModesChange: (modes: SearchViewModes) => void;
-  artistImages: Record<number, string | null>;
-  albumImages: Record<number, string | null>;
+  getArtistImage: (name: string) => string | null;
+  getAlbumImage: (title: string, artistName?: string | null) => string | null;
+  getTagImage: (name: string) => string | null;
   onPlayTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
   onPlayAlbum: (albumId: number) => void;
   onPlayArtist: (artistId: number) => void;
@@ -125,10 +126,6 @@ interface SearchViewProps {
   onTagClick: (id: number) => void;
   onTagContextMenu: (e: React.MouseEvent, tag: Tag) => void;
   onToggleTagLike: (id: number) => void;
-  onFetchArtistImage: (artist: Artist) => void;
-  onFetchAlbumImage: (album: Album) => void;
-  onFetchTagImage: (tag: { id: number }) => void;
-  tagImages: Record<number, string | null>;
   columns: import("../types").ColumnConfig[];
   onColumnsChange: (columns: import("../types").ColumnConfig[]) => void;
 }
@@ -148,8 +145,9 @@ export function SearchView({
   playing,
   viewModes,
   onViewModesChange,
-  artistImages,
-  albumImages,
+  getArtistImage,
+  getAlbumImage,
+  getTagImage,
   onPlayTracks,
   onPlayAlbum,
   onPlayArtist,
@@ -171,10 +169,6 @@ export function SearchView({
   onTagClick,
   onTagContextMenu,
   onToggleTagLike,
-  onFetchArtistImage,
-  onFetchAlbumImage,
-  onFetchTagImage,
-  tagImages,
   columns,
   onColumnsChange,
 }: SearchViewProps) {
@@ -908,8 +902,8 @@ export function SearchView({
                   />
                   {isLocalVideo(t) ? (
                     <VideoRowThumb trackId={t.id!} alt={t.title} className="entity-list-img" />
-                  ) : t.album_id ? (
-                    <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={onFetchAlbumImage} />
+                  ) : t.album_title ? (
+                    <AlbumCardArt album={{ id: t.album_id ?? 0, title: t.album_title, artist_name: t.artist_name } as Album} imagePath={getAlbumImage(t.album_title, t.artist_name)} />
                   ) : (
                     <div className="entity-list-img">{t.title[0]?.toUpperCase() ?? "?"}</div>
                   )}
@@ -953,8 +947,8 @@ export function SearchView({
                     <div className="album-card-art-wrapper">
                     {isLocalVideo(t) ? (
                       <VideoRowThumb trackId={t.id!} alt={t.title} className="album-card-art" />
-                    ) : t.album_id ? (
-                      <AlbumCardArt album={{ id: t.album_id, title: t.album_title ?? "", artist_name: t.artist_name } as Album} imagePath={albumImages[t.album_id]} onVisible={onFetchAlbumImage} />
+                    ) : t.album_title ? (
+                      <AlbumCardArt album={{ id: t.album_id ?? 0, title: t.album_title, artist_name: t.artist_name } as Album} imagePath={getAlbumImage(t.album_title, t.artist_name)} />
                     ) : (
                       <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
                     )}
@@ -992,12 +986,11 @@ export function SearchView({
           <SearchAlbumResults
             albums={results.albums}
             viewMode={viewModes.albums}
-            albumImages={albumImages}
+            getAlbumImage={getAlbumImage}
             onAlbumClick={onAlbumClick}
             onToggleLike={onToggleAlbumLike}
             onContextMenu={onAlbumContextMenu}
             onMultiContextMenu={onMultiAlbumContextMenu}
-            onFetchImage={onFetchAlbumImage}
             onPlayAlbum={onPlayAlbum}
             hasMore={hasMore.albums}
             loadingMore={loadingMore.albums}
@@ -1016,12 +1009,11 @@ export function SearchView({
           <SearchArtistResults
             artists={results.artists}
             viewMode={viewModes.artists}
-            artistImages={artistImages}
+            getArtistImage={getArtistImage}
             onArtistClick={onArtistClick}
             onToggleLike={onToggleArtistLike}
             onContextMenu={onArtistContextMenu}
             onMultiContextMenu={onMultiArtistContextMenu}
-            onFetchImage={onFetchArtistImage}
             onPlayArtist={onPlayArtist}
             hasMore={hasMore.artists}
             loadingMore={loadingMore.artists}
@@ -1040,12 +1032,11 @@ export function SearchView({
           <SearchTagResults
             tags={results.tags}
             viewMode={viewModes.tags}
-            tagImages={tagImages}
+            getTagImage={getTagImage}
             onTagClick={onTagClick}
             onToggleLike={onToggleTagLike}
             onContextMenu={onTagContextMenu}
             onMultiContextMenu={onMultiTagContextMenu}
-            onFetchImage={onFetchTagImage}
             onPlayTag={onPlayTag}
             hasMore={hasMore.tags}
             loadingMore={loadingMore.tags}
@@ -1065,18 +1056,17 @@ export function SearchView({
 }
 
 function SearchTagResults({
-  tags, viewMode, tagImages, onTagClick, onToggleLike,
-  onContextMenu, onMultiContextMenu, onFetchImage, onPlayTag, hasMore, loadingMore, onLoadMore,
+  tags, viewMode, getTagImage, onTagClick, onToggleLike,
+  onContextMenu, onMultiContextMenu, onPlayTag, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator, selectedIds, onSelectionChange, lastClickedRef, onDragStart,
 }: {
   tags: Tag[];
   viewMode: ViewMode;
-  tagImages: Record<number, string | null>;
+  getTagImage: (name: string) => string | null;
   onTagClick: (id: number) => void;
   onToggleLike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, tag: Tag) => void;
   onMultiContextMenu: (e: React.MouseEvent, tagIds: number[]) => void;
-  onFetchImage: (tag: { id: number }) => void;
   onPlayTag: (tagId: number) => void;
   hasMore: boolean;
   loadingMore: boolean;
@@ -1144,7 +1134,7 @@ function SearchTagResults({
           {tags.map((t, i) => (
             <div key={t.id} className={`entity-list-item${selectedIds.has(t.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, t.id)} onContextMenu={e => handleCtxMenu(e, t)}>
               <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="inline" size={12} />
-              <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={onFetchImage} className="entity-list-img" />
+              <TagCardArt tag={t} imagePath={getTagImage(t.name)} className="entity-list-img" />
               <div className="entity-list-info">
                 <span className="entity-list-name">{t.name}</span>
                 <span className="entity-list-secondary">{t.track_count} tracks</span>
@@ -1161,7 +1151,7 @@ function SearchTagResults({
             {tags.map((t, i) => (
               <div key={t.id} className={`tag-card${selectedIds.has(t.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, t.id)} onContextMenu={e => handleCtxMenu(e, t)}>
                 <div className="album-card-art-wrapper">
-                  <TagCardArt tag={t} imagePath={tagImages[t.id]} onVisible={onFetchImage} />
+                  <TagCardArt tag={t} imagePath={getTagImage(t.name)} />
                   <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="overlay" size={12} />
                   <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); handleCtxMenu(e, t); }} title="More options">&#x22EF;</button>
                   <button className="album-card-play-btn" onClick={e => { e.stopPropagation(); onPlayTag(t.id); }} title="Play">
@@ -1185,18 +1175,17 @@ function SearchTagResults({
 }
 
 function SearchAlbumResults({
-  albums, viewMode, albumImages, onAlbumClick, onToggleLike,
-  onContextMenu, onMultiContextMenu, onFetchImage, onPlayAlbum, hasMore, loadingMore, onLoadMore,
+  albums, viewMode, getAlbumImage, onAlbumClick, onToggleLike,
+  onContextMenu, onMultiContextMenu, onPlayAlbum, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator, selectedIds, onSelectionChange, lastClickedRef, onDragStart,
 }: {
   albums: Album[];
   viewMode: ViewMode;
-  albumImages: Record<number, string | null>;
+  getAlbumImage: (title: string, artistName?: string | null) => string | null;
   onAlbumClick: (id: number, artistId?: number | null) => void;
   onToggleLike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, id: number) => void;
   onMultiContextMenu: (e: React.MouseEvent, albumIds: number[]) => void;
-  onFetchImage: (album: Album) => void;
   onPlayAlbum: (albumId: number) => void;
   hasMore: boolean;
   loadingMore: boolean;
@@ -1269,7 +1258,7 @@ function SearchAlbumResults({
           {albums.map((a, i) => (
             <div key={a.id} className={`entity-list-item${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a)}>
               <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="inline" size={12} />
-              <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={onFetchImage} />
+              <AlbumCardArt album={a} imagePath={getAlbumImage(a.title, a.artist_name)} />
               <div className="entity-list-info">
                 <span className="entity-list-name">{a.title}</span>
                 <span className="entity-list-secondary">
@@ -1289,7 +1278,7 @@ function SearchAlbumResults({
             {albums.map((a, i) => (
               <div key={a.id} className={`album-card${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a)}>
                 <div className="album-card-art-wrapper">
-                  <AlbumCardArt album={a} imagePath={albumImages[a.id]} onVisible={onFetchImage} />
+                  <AlbumCardArt album={a} imagePath={getAlbumImage(a.title, a.artist_name)} />
                   <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="overlay" size={12} />
                   <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); handleCtxMenu(e, a); }} title="More options">&#x22EF;</button>
                   <button className="album-card-play-btn" onClick={e => { e.stopPropagation(); onPlayAlbum(a.id); }} title="Play">
@@ -1315,18 +1304,17 @@ function SearchAlbumResults({
 }
 
 function SearchArtistResults({
-  artists, viewMode, artistImages, onArtistClick, onToggleLike,
-  onContextMenu, onMultiContextMenu, onFetchImage, onPlayArtist, hasMore, loadingMore, onLoadMore,
+  artists, viewMode, getArtistImage, onArtistClick, onToggleLike,
+  onContextMenu, onMultiContextMenu, onPlayArtist, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator, selectedIds, onSelectionChange, lastClickedRef, onDragStart,
 }: {
   artists: Artist[];
   viewMode: ViewMode;
-  artistImages: Record<number, string | null>;
+  getArtistImage: (name: string) => string | null;
   onArtistClick: (id: number) => void;
   onToggleLike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, id: number) => void;
   onMultiContextMenu: (e: React.MouseEvent, artistIds: number[]) => void;
-  onFetchImage: (artist: Artist) => void;
   onPlayArtist: (artistId: number) => void;
   hasMore: boolean;
   loadingMore: boolean;
@@ -1394,7 +1382,7 @@ function SearchArtistResults({
           {artists.map((a, i) => (
             <div key={a.id} className={`entity-list-item${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a.id)}>
               <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="inline" size={12} />
-              <ArtistCardArt artist={a} imagePath={artistImages[a.id]} onVisible={onFetchImage} className="entity-list-img circular" />
+              <ArtistCardArt artist={a} imagePath={getArtistImage(a.name)} className="entity-list-img circular" />
               <div className="entity-list-info">
                 <span className="entity-list-name">{a.name}</span>
                 <span className="entity-list-secondary">{a.track_count} tracks</span>
@@ -1411,7 +1399,7 @@ function SearchArtistResults({
             {artists.map((a, i) => (
               <div key={a.id} className={`artist-card${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a.id)}>
                 <div className="album-card-art-wrapper">
-                  <ArtistCardArt artist={a} imagePath={artistImages[a.id]} onVisible={onFetchImage} />
+                  <ArtistCardArt artist={a} imagePath={getArtistImage(a.name)} />
                   <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="overlay" size={12} />
                   <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); handleCtxMenu(e, a.id); }} title="More options">&#x22EF;</button>
                   <button className="album-card-play-btn" onClick={e => { e.stopPropagation(); onPlayArtist(a.id); }} title="Play">

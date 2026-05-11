@@ -30,7 +30,7 @@ import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 import { usePlayback } from "./hooks/usePlayback";
 import { useQueue } from "./hooks/useQueue";
 import { usePlayActions } from "./hooks/usePlayActions";
-import { useLibrary, DEFAULT_TRACK_COLUMNS, ALBUM_DETAIL_COLUMNS } from "./hooks/useLibrary";
+import { useLibrary, DEFAULT_TRACK_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
 import { useImageCache } from "./hooks/useImageCache";
 import { useAutoContinue } from "./hooks/useAutoContinue";
@@ -51,7 +51,6 @@ import { useExtensions } from "./hooks/useExtensions";
 import { useDownloads } from "./hooks/useDownloads";
 import { useLikeActions } from "./hooks/useLikeActions";
 import { useCollectionActions } from "./hooks/useCollectionActions";
-import { useArtistInfo } from "./hooks/useArtistInfo";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
 import type { PluginTrack, DownloadProvider, DownloadResolveResult } from "./types/plugin";
 import { useViewSearchState } from "./hooks/useViewSearchState";
@@ -62,7 +61,6 @@ import { CaptionBar } from "./components/CaptionBar";
 import { ViewSearchBar } from "./components/ViewSearchBar";
 
 import { Sidebar } from "./components/Sidebar";
-import { TrackList } from "./components/TrackList";
 import { NowPlayingBar } from "./components/NowPlayingBar";
 import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -72,11 +70,8 @@ import { AddServerModal } from "./components/AddServerModal";
 import { showNativeMenu, type MenuItemSpec } from "./nativeMenu";
 import { toPluginTarget } from "./types/contextMenu";
 import { ArtistDetailContent } from "./components/ArtistDetailContent";
-import { FallbackArtistDetail } from "./components/FallbackArtistDetail";
-import { FallbackAlbumDetail } from "./components/FallbackAlbumDetail";
-import { ImageActions } from "./components/ImageActions";
-import { AlbumDetailHeader } from "./components/AlbumDetailHeader";
-import { InformationSections } from "./components/InformationSections";
+import { AlbumDetail } from "./components/AlbumDetail";
+import { TagDetail } from "./components/TagDetail";
 import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
 import { PlaylistsView } from "./components/PlaylistsView";
@@ -96,7 +91,6 @@ import type { ExportTrack } from "./components/MixtapeExportModal";
 import { SearchView } from "./components/SearchView";
 import { StatusBar } from "./components/StatusBar";
 import { IconYoutube } from "./components/Icons";
-import { LikeDislikeButtons } from "./components/LikeDislikeButtons";
 import { useDependencies } from "./hooks/useDependencies";
 import { DependencyModal } from "./components/DependencyModal";
 
@@ -124,7 +118,6 @@ function App() {
   } | null>(null);
   const pendingRestoreTrackRef = useRef<QueueTrack | null>(null);
   const pendingRestoreQueueRef = useRef<{ tracks: QueueTrack[]; index: number } | null>(null);
-  const trackListRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const getScrollEl = useCallback(() => {
     const el = contentRef.current;
@@ -234,9 +227,7 @@ function App() {
   const { sessionLog, addLog, setDebugLogging: setDebugLoggingRef } = useSessionLog();
   const albumImageCache = useImageCache("album", addLog);
 
-  // Need to initialize library first to get selection state, then artistInfo will compute popularity
-  const [trackPopularityState, setTrackPopularityState] = useState<Record<number, number>>({});
-  const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, trackPopularityState, setNavError);
+  const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, undefined, setNavError);
   const downloadsCollection = useMemo(() => downloadsCollectionId != null ? library.collections.find(c => c.id === downloadsCollectionId) ?? null : null, [downloadsCollectionId, library.collections]);
 
   const getQueueImageByNameRef = useRef<(albumTitle: string | null, artistName: string | null) => string | null>(() => null);
@@ -502,19 +493,6 @@ function App() {
     }
   }, [plugins.pluginStates, refreshProviderPriorities]);
 
-  const artistInfo = useArtistInfo({
-    selectedArtist: library.selectedArtist,
-    selectedAlbum: library.selectedAlbum,
-    artists: library.artists,
-    albums: library.albums,
-    tracks: library.tracks,
-    invokeInfoFetch: plugins.invokeInfoFetch,
-  });
-
-  // Update trackPopularity state when artistInfo changes
-  useEffect(() => {
-    setTrackPopularityState(artistInfo.trackPopularity);
-  }, [artistInfo.trackPopularity]);
 
   // Plugin event: track started
   const prevTrackKeyRef = useRef<string | null>(null);
@@ -609,36 +587,6 @@ function App() {
     removedTracks: number;
     error?: string;
   } | null>(null);
-  const [artistSections, setArtistSections] = useState<Record<string, boolean>>({ topSongs: true, about: true, albums: true, similarArtists: true });
-  const handleToggleArtistSection = (key: string) => {
-    setArtistSections(prev => {
-      const next = { ...prev, [key]: !prev[key] };
-      store.set("artistSections", next);
-      return next;
-    });
-  };
-  const [albumDetailColumns, setAlbumDetailColumns] = useState(ALBUM_DETAIL_COLUMNS);
-  const [albumBelowTabOrder, setAlbumBelowTabOrder] = useState<string[]>([]);
-  useEffect(() => {
-    store.get<string[]>("albumDetailBelowTabOrder").then(saved => {
-      if (saved && saved.length > 0) setAlbumBelowTabOrder(saved);
-    });
-  }, []);
-  const handleAlbumBelowTabOrderChange = useCallback((order: string[]) => {
-    setAlbumBelowTabOrder(order);
-    store.set("albumDetailBelowTabOrder", order);
-  }, []);
-  const [tagDetailColumns, setTagDetailColumns] = useState(ALBUM_DETAIL_COLUMNS);
-  const [tagBelowTabOrder, setTagBelowTabOrder] = useState<string[]>([]);
-  useEffect(() => {
-    store.get<string[]>("tagDetailBelowTabOrder").then(saved => {
-      if (saved && saved.length > 0) setTagBelowTabOrder(saved);
-    });
-  }, []);
-  const handleTagBelowTabOrderChange = useCallback((order: string[]) => {
-    setTagBelowTabOrder(order);
-    store.set("tagDetailBelowTabOrder", order);
-  }, []);
   const [detailTrack, setDetailTrack] = useState<Track | null>(null);
   const [syncWithPlaying, setSyncWithPlaying] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
@@ -745,14 +693,13 @@ function App() {
   const artistImageCache = useImageCache("artist", addLog);
   const tagImageCache = useImageCache("tag", addLog);
 
-  // Wire up the image-by-name lookup ref now that both caches are available
   getQueueImageByNameRef.current = (albumTitle, artistName) => {
     if (albumTitle) {
-      const img = albumImageCache.getImageByName(albumTitle, artistName ?? undefined);
+      const img = albumImageCache.getImage(albumTitle, artistName ?? undefined);
       if (img) return img;
     }
     if (artistName) {
-      return artistImageCache.getImageByName(artistName);
+      return artistImageCache.getImage(artistName);
     }
     return null;
   };
@@ -763,9 +710,9 @@ function App() {
     albums: library.albums,
     artists: library.artists,
     tags: library.tags,
-    albumImages: albumImageCache.images,
-    artistImages: artistImageCache.images,
-    tagImages: tagImageCache.images,
+    getAlbumImage: albumImageCache.getImage,
+    getArtistImage: artistImageCache.getImage,
+    getTagImage: tagImageCache.getImage,
   });
 
   useEffect(() => {
@@ -1076,12 +1023,12 @@ function App() {
         specs.push({ kind: "item", text: isMulti ? `Enqueue ${target.trackIds.length} tracks` : "Enqueue", action: contextMenuActions.handleContextEnqueue });
       }
       if (hasId && (target.kind === "artist" || target.kind === "album" || target.kind === "tag")) {
-        const refreshAction = target.kind === "artist" && target.artistId
-          ? () => artistImageCache.forceFetchImage({ id: target.artistId!, name: target.name })
-          : target.kind === "album" && target.albumId
-          ? () => albumImageCache.forceFetchImage({ id: target.albumId!, title: target.title, artist_name: target.artistName })
-          : target.kind === "tag" && target.tagId
-          ? () => tagImageCache.forceFetchImage({ id: target.tagId!, name: target.name })
+        const refreshAction = target.kind === "artist"
+          ? () => artistImageCache.requestFetch(target.name)
+          : target.kind === "album"
+          ? () => albumImageCache.requestFetch(target.title, target.artistName)
+          : target.kind === "tag"
+          ? () => tagImageCache.requestFetch(target.name)
           : null;
         if (refreshAction) {
           specs.push({ kind: "item", text: "Refresh Image", action: refreshAction });
@@ -1434,9 +1381,9 @@ function App() {
     artists: library.artists,
     albums: library.albums,
     tags: library.tags,
-    setArtistImages: artistImageCache.setImages,
-    setAlbumImages: albumImageCache.setImages,
-    setTagImages: tagImageCache.setImages,
+    invalidateArtistImage: (name: string) => artistImageCache.invalidate(name),
+    invalidateAlbumImage: (name: string, artistName?: string) => albumImageCache.invalidate(name, artistName),
+    invalidateTagImage: (name: string) => tagImageCache.invalidate(name),
     addLog,
   });
 
@@ -1745,8 +1692,6 @@ function App() {
         if (savedDebugLogging) { setDebugLogging(true); setDebugLoggingRef(true); }
         const savedDebugMode = await store.get<boolean>("debugMode");
         if (savedDebugMode) setDebugMode(true);
-        const savedArtistSections = await store.get<Record<string, boolean>>("artistSections");
-        if (savedArtistSections) setArtistSections(savedArtistSections);
         const savedSyncWithPlaying = await store.get<boolean | string>("syncWithPlaying");
         if (savedSyncWithPlaying === true || savedSyncWithPlaying === "enabled" || savedSyncWithPlaying === "active") setSyncWithPlaying(true);
         const savedSelectedTrack = await store.get<string | number | null>("selectedTrack");
@@ -1822,23 +1767,24 @@ function App() {
     };
   }, []);
 
-  // Fetch images for selected entities
+  // Trigger image fetch for selected entities (getImage auto-fetches on first access)
   useEffect(() => {
     if (library.selectedArtist === null) return;
     const artist = library.artists.find(a => a.id === library.selectedArtist);
-    if (artist) artistImageCache.fetchOnDemand(artist);
+    if (artist) artistImageCache.getImage(artist.name);
   }, [library.selectedArtist, library.artists]);
 
   useEffect(() => {
     if (library.selectedAlbum === null) return;
     const album = library.albums.find(a => a.id === library.selectedAlbum);
-    if (album) albumImageCache.fetchOnDemand(album);
+    if (album) albumImageCache.getImage(album.title, album.artist_name);
   }, [library.selectedAlbum, library.albums]);
 
   useEffect(() => {
     if (library.selectedTag === null) return;
-    tagImageCache.fetchOnDemand({ id: library.selectedTag });
-  }, [library.selectedTag]);
+    const tag = library.tags.find(t => t.id === library.selectedTag);
+    if (tag) tagImageCache.getImage(tag.name);
+  }, [library.selectedTag, library.tags]);
 
   // Resolve track for the detail view — try local lookups (sync), fall back to backend (async)
   const detailTrackLocal = useMemo(() => {
@@ -1868,14 +1814,10 @@ function App() {
           image_url: queueTrack.image_url,
         });
         if (queueTrack.album_title) {
-          invoke<{ id: number; title: string; artist_name: string | null } | null>("find_album_by_name", { title: queueTrack.album_title, artistName: queueTrack.artist_name ?? null })
-            .then(album => { if (album) albumImageCache.fetchOnDemand(album); })
-            .catch(console.error);
+          albumImageCache.getImage(queueTrack.album_title, queueTrack.artist_name);
         }
         if (queueTrack.artist_name) {
-          invoke<{ id: number; name: string } | null>("find_artist_by_name", { name: queueTrack.artist_name })
-            .then(artist => { if (artist) artistImageCache.fetchOnDemand(artist); })
-            .catch(console.error);
+          artistImageCache.getImage(queueTrack.artist_name);
         }
       } else {
         setDetailTrack(null);
@@ -1915,7 +1857,7 @@ function App() {
     if (img) {
       playback.setCurrentTrack(prev => prev && !prev.image_url ? { ...prev, image_url: img } : prev);
     }
-  }, [playback.currentTrack, albumImageCache.nameImages, artistImageCache.nameImages]);
+  }, [playback.currentTrack, albumImageCache.getImage, artistImageCache.getImage]);
 
   // Ref for keyboard shortcut handler to avoid stale closures
   const shortcutStateRef = useRef({
@@ -2426,7 +2368,7 @@ function App() {
   handleExportAsMixtapeRef.current = handleExportAsMixtape;
 
   const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags,
-    sortedTracks, sortField, highlightedIndex, highlightedListIndex } = library;
+    highlightedListIndex } = library;
 
   const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name, path: c.path ?? "" }));
 
@@ -2603,10 +2545,8 @@ function App() {
         onGoForward={goForward}
         centralSearch={centralSearch}
         searchInputRef={searchInputRef}
-        albumImages={albumImageCache.images}
-        artistImages={artistImageCache.images}
-        onFetchAlbumImage={albumImageCache.fetchOnDemand}
-        onFetchArtistImage={artistImageCache.fetchOnDemand}
+        getAlbumImage={albumImageCache.getImage}
+        getArtistImage={artistImageCache.getImage}
         onToggleMiniMode={mini.toggleMiniMode}
         onToggleHelp={() => setShowHelp(h => !h)}
         resyncProgress={resyncProgress}
@@ -2633,13 +2573,10 @@ function App() {
               <TrackDetailView
                 trackId={parseLibraryId(library.selectedTrack!)}
                 track={track}
-                albumImagePath={track.album_id
-                  ? albumImageCache.images[track.album_id] ?? null
-                  : (track.album_title ? albumImageCache.getImageByName(track.album_title, track.artist_name ?? undefined) : null)
+                albumImagePath={
+                  (track.album_title ? albumImageCache.getImage(track.album_title, track.artist_name) : null)
                     || track.image_url || null}
-                artistImagePath={track.artist_id
-                  ? artistImageCache.images[track.artist_id] ?? null
-                  : (track.artist_name ? artistImageCache.getImageByName(track.artist_name) : null)}
+                artistImagePath={track.artist_name ? artistImageCache.getImage(track.artist_name) : null}
                 positionSecs={isCurrentTrack ? playback.positionSecs : 0}
                 isCurrentTrack={isCurrentTrack}
                 onArtistClick={library.handleArtistClick}
@@ -2661,17 +2598,13 @@ function App() {
                 onShowInFolder={async () => { const libId = parseLibraryId(library.selectedTrack!); if (libId == null) return; try { await invoke("show_in_folder", { trackId: libId }); } catch (e) { console.error("Failed to open containing folder:", e); contextMenuActions.setFolderError(String(e)); } }}
                 collections={library.collections}
                 searchProviders={searchProviders}
-                onImageSet={(entityType, id, path) => {
-                  if (entityType === "album") albumImageCache.setImages(prev => ({ ...prev, [id]: path }));
-                  else artistImageCache.setImages(prev => ({ ...prev, [id]: path }));
+                onImageChanged={(entityType) => {
+                  if (entityType === "album" && track.album_title) albumImageCache.invalidate(track.album_title, track.artist_name);
+                  else if (entityType === "artist" && track.artist_name) artistImageCache.invalidate(track.artist_name);
                 }}
-                onImageRemoved={(entityType, id) => {
-                  if (entityType === "album") albumImageCache.setImages(prev => ({ ...prev, [id]: null }));
-                  else artistImageCache.setImages(prev => ({ ...prev, [id]: null }));
-                }}
-                onImageRefresh={(entityType, id, name) => {
-                  if (entityType === "album") albumImageCache.forceFetchImage({ id, title: name, artist_name: track.artist_name });
-                  else artistImageCache.forceFetchImage({ id, name });
+                onImageRefresh={(entityType) => {
+                  if (entityType === "album" && track.album_title) albumImageCache.requestFetch(track.album_title, track.artist_name);
+                  else if (entityType === "artist" && track.artist_name) artistImageCache.requestFetch(track.artist_name);
                 }}
                 addLog={addLog}
                 onUpdateTrack={(update) => library.setTracks(prev => prev.map(t => t.id === library.selectedTrack ? { ...t, ...update } : t))}
@@ -2710,10 +2643,10 @@ function App() {
               modified_at: null,
             };
             const albumImg = syntheticTrack.album_title
-              ? albumImageCache.getImageByName(syntheticTrack.album_title, syntheticTrack.artist_name ?? undefined)
+              ? albumImageCache.getImage(syntheticTrack.album_title, syntheticTrack.artist_name)
               : null;
             const artistImg = syntheticTrack.artist_name
-              ? artistImageCache.getImageByName(syntheticTrack.artist_name)
+              ? artistImageCache.getImage(syntheticTrack.artist_name)
               : null;
             return (
               <TrackDetailView
@@ -2735,8 +2668,7 @@ function App() {
                 onShowInFolder={() => {}}
                 collections={library.collections}
                 searchProviders={searchProviders}
-                onImageSet={() => {}}
-                onImageRemoved={() => {}}
+                onImageChanged={() => {}}
                 onImageRefresh={() => {}}
                 addLog={addLog}
                 onUpdateTrack={() => {}}
@@ -2752,71 +2684,30 @@ function App() {
           })()}
 
           {library.selectedTrack === null && !library.fallbackTrackName && <>
-          {/* Fallback artist detail (non-library) */}
-          {view === "artists" && library.fallbackArtistName && !selectedArtist && !selectedAlbum && (
-            <FallbackArtistDetail
-              name={library.fallbackArtistName}
-              invokeInfoFetch={plugins.invokeInfoFetch}
-              pluginNames={plugins.pluginNames}
-              onNavigateToArtistByName={library.navigateToArtistByName}
-              onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
-              onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
-            />
-          )}
-
-          {/* Fallback album detail (non-library) */}
-          {view === "albums" && library.fallbackAlbumName && !selectedAlbum && (
-            <FallbackAlbumDetail
-              name={library.fallbackAlbumName.name}
-              artistName={library.fallbackAlbumName.artistName}
-              invokeInfoFetch={plugins.invokeInfoFetch}
-              pluginNames={plugins.pluginNames}
-              onNavigateToArtistByName={library.navigateToArtistByName}
-              onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
-              onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
-            />
-          )}
-
-          {/* Artist detail view */}
-          {view === "artists" && selectedArtist !== null && selectedAlbum === null && (() => {
-            const artist = artists.find(a => a.id === selectedArtist);
-            const artistImagePath = artistImageCache.images[selectedArtist] ?? null;
+          {/* Artist detail (unified: library + fallback) */}
+          {view === "artists" && (selectedArtist !== null || library.fallbackArtistName) && selectedAlbum === null && (() => {
+            const detailArtistName = library.fallbackArtistName ?? artists.find(a => a.id === selectedArtist)?.name ?? "Unknown";
             return (
               <ArtistDetailContent
-                selectedArtist={selectedArtist}
-                artist={artist}
-                artistImagePath={artistImagePath}
-                artistTrackPopularity={artistInfo.artistTrackPopularity}
-                sections={artistSections}
-                onToggleSection={handleToggleArtistSection}
-                sortedTracks={sortedTracks}
-                artistAlbums={library.artistAlbums}
-                artistImages={artistImageCache.images}
-                albumImages={albumImageCache.images}
-                onFetchAlbumImage={albumImageCache.fetchOnDemand}
-                onSetArtistImage={artistImageCache.setImages}
-                onForceFetchArtistImage={artistImageCache.forceFetchImage}
+                name={detailArtistName}
+                getArtistImage={artistImageCache.getImage}
+                getAlbumImage={albumImageCache.getImage}
+                onImageChanged={() => artistImageCache.invalidate(detailArtistName)}
+                onRefreshImage={() => artistImageCache.requestFetch(detailArtistName)}
+                searchProviders={searchProviders}
                 currentTrack={playback.currentTrack}
                 playing={playback.playing}
-                highlightedIndex={highlightedIndex}
-                sortField={sortField}
-                trackListRef={trackListRef}
                 onPlayTracks={handleArtistPlayTracks}
                 onPlayAlbum={playActions.playAlbum}
-                onTrackContextMenu={contextMenuActions.handleTrackContextMenu}
                 onArtistClick={library.handleArtistClick}
                 onAlbumClick={library.handleAlbumClick}
-                onSort={library.handleSort}
-                sortIndicator={library.sortIndicator}
+                onNavigateToArtistByName={library.navigateToArtistByName}
+                onTrackContextMenu={contextMenuActions.handleTrackContextMenu}
+                onAlbumContextMenu={contextMenuActions.handleAlbumContextMenu}
                 onToggleLike={likeActions.handleToggleLike}
                 onToggleDislike={likeActions.handleToggleDislike}
                 onTrackDragStart={contextMenuActions.handleTrackDragStart}
                 onDeleteTracks={handleDeleteTracks}
-                onToggleArtistLike={likeActions.handleToggleArtistLike}
-                onToggleArtistDislike={likeActions.handleToggleArtistDislike}
-                onAlbumContextMenu={contextMenuActions.handleAlbumContextMenu}
-                searchProviders={searchProviders}
-                artists={artists}
                 invokeInfoFetch={plugins.invokeInfoFetch}
                 pluginNames={plugins.pluginNames}
                 onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
@@ -2828,125 +2719,66 @@ function App() {
           {/* Tag detail — header + track list + information sections */}
           {view === "tags" && selectedTag !== null && (() => {
             const tag = tags.find(t => t.id === selectedTag);
-            const tagImagePath = tagImageCache.images[selectedTag] ?? null;
-            const tagEntity = tag ? {
-              kind: "tag" as const,
-              name: tag.name,
-              id: tag.id,
-            } : null;
+            const tagName = tag?.name ?? "Unknown";
             return (
-              <div className="album-detail">
-                <div
-                  className="album-detail-top"
-                  style={tagImagePath ? { '--artist-bg': `url(${convertFileSrc(tagImagePath)})` } as React.CSSProperties : undefined}
-                >
-                  <div className="album-detail-header">
-                    <div className="album-detail-art">
-                      {tagImagePath ? (
-                        <img className="album-detail-art-img" src={convertFileSrc(tagImagePath)} alt={tag?.name} />
-                      ) : (
-                        tag?.name[0]?.toUpperCase() ?? "#"
-                      )}
-                      {sortedTracks.length > 0 && (
-                        <button
-                          className="detail-art-play"
-                          title="Play All"
-                          onClick={() => playActions.playTag(selectedTag, { tracks: sortedTracks.filter(t => t.liked !== -1) })}
-                        >
-                          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-                        </button>
-                      )}
-                    </div>
-                    <div className="album-detail-info">
-                      <h2>
-                        {tag?.name ?? "Unknown"}
-                        <LikeDislikeButtons
-                          liked={tag?.liked ?? 0}
-                          onToggleLike={() => likeActions.handleToggleTagLike(selectedTag)}
-                          onToggleDislike={() => likeActions.handleToggleTagDislike(selectedTag)}
-                          entityLabel="tag"
-                        />
-                      </h2>
-                      <span className="artist-meta">{tag?.track_count ?? 0} tracks</span>
-                      <ImageActions
-                        entityId={selectedTag}
-                        entityType="tag"
-                        imagePath={tagImagePath}
-                        onImageSet={(id, path) => tagImageCache.setImages(prev => ({ ...prev, [id]: path }))}
-                        onImageRemoved={(id) => {
-                          tagImageCache.setImages(prev => ({ ...prev, [id]: null }));
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <TrackList
-                  tracks={sortedTracks}
-                  currentTrack={playback.currentTrack}
-                  playing={playback.playing}
-                  highlightedIndex={highlightedIndex}
-                  sortField={sortField}
-                  trackListRef={trackListRef}
-                  columns={tagDetailColumns}
-                  onColumnsChange={setTagDetailColumns}
-                  onDoubleClick={(tracks, index) => playActions.playTag(selectedTag, { tracks, startIndex: index })}
-                  onContextMenu={contextMenuActions.handleTrackContextMenu}
-                  onArtistClick={library.handleArtistClick}
-                  onAlbumClick={library.handleAlbumClick}
-                  onSort={library.handleSort}
-                  sortIndicator={library.sortIndicator}
-                  onToggleLike={likeActions.handleToggleLike}
-                  onToggleDislike={likeActions.handleToggleDislike}
-                  onTrackDragStart={contextMenuActions.handleTrackDragStart}
-                  onDeleteTracks={handleDeleteTracks}
-                  emptyMessage="No tracks found."
-                />
-                {tagEntity && (
-                  <div className="section-wide">
-                    <InformationSections
-                      entity={tagEntity}
-                      exclude={[]}
-                      placement="below"
-                      invokeInfoFetch={plugins.invokeInfoFetch}
-                      pluginNames={plugins.pluginNames}
-                      tabOrder={tagBelowTabOrder}
-                      onTabOrderChange={handleTagBelowTabOrderChange}
-                      onAction={(actionId, payload) => {
-                        if (actionId === "play-track") {
-                          const t = payload as Track | undefined;
-                          if (t) queueHook.playTracks([t], 0);
-                        }
-                      }}
-                      onTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
-                      onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
-                    />
-                  </div>
-                )}
-              </div>
+              <TagDetail
+                name={tagName}
+                getTagImage={tagImageCache.getImage}
+                onImageChanged={() => { if (tag) tagImageCache.invalidate(tag.name); }}
+                currentTrack={playback.currentTrack}
+                playing={playback.playing}
+                onPlayTracks={(tracks, index) => playActions.playTag(selectedTag, { tracks, startIndex: index })}
+                onArtistClick={library.handleArtistClick}
+                onAlbumClick={library.handleAlbumClick}
+                onTrackContextMenu={contextMenuActions.handleTrackContextMenu}
+                onToggleLike={likeActions.handleToggleLike}
+                onToggleDislike={likeActions.handleToggleDislike}
+                onTrackDragStart={contextMenuActions.handleTrackDragStart}
+                onDeleteTracks={handleDeleteTracks}
+                invokeInfoFetch={plugins.invokeInfoFetch}
+                pluginNames={plugins.pluginNames}
+                onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
+                onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
+              />
             );
           })()}
 
-          {/* Album detail header (albums view only; artists view renders inside .album-detail below) */}
-          {view === "albums" && selectedAlbum !== null && (() => {
-            const album = albums.find(a => a.id === selectedAlbum);
-            const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
+          {/* Album detail (unified: albums view + artists sub-album + fallback) */}
+          {((view === "albums" && selectedAlbum !== null) || (view === "albums" && library.fallbackAlbumName) || (view === "artists" && selectedAlbum !== null)) && (() => {
+            let detailAlbumName: string;
+            let detailAlbumArtistName: string | undefined;
+            if (library.fallbackAlbumName && !selectedAlbum) {
+              detailAlbumName = library.fallbackAlbumName.name;
+              detailAlbumArtistName = library.fallbackAlbumName.artistName;
+            } else {
+              const album = albums.find(a => a.id === selectedAlbum);
+              detailAlbumName = album?.title ?? "Unknown";
+              detailAlbumArtistName = album?.artist_name ?? undefined;
+            }
             return (
-              <AlbumDetailHeader
-                selectedAlbum={selectedAlbum}
-                album={album}
-                albumImagePath={albumImagePath}
-                sortedTracks={sortedTracks}
+              <AlbumDetail
+                name={detailAlbumName}
+                artistName={detailAlbumArtistName}
+                getAlbumImage={albumImageCache.getImage}
+                getArtistImage={artistImageCache.getImage}
+                onImageChanged={() => albumImageCache.invalidate(detailAlbumName, detailAlbumArtistName)}
+                onRefreshImage={() => albumImageCache.requestFetch(detailAlbumName, detailAlbumArtistName)}
                 searchProviders={searchProviders}
-                onArtistClick={library.handleArtistClick}
-                onToggleAlbumLike={likeActions.handleToggleAlbumLike}
-                onToggleAlbumDislike={likeActions.handleToggleAlbumDislike}
+                currentTrack={playback.currentTrack}
+                playing={playback.playing}
                 onPlayTracks={handleAlbumPlayTracks}
-                onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
-                onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}
-                onRetrieveImage={() => {
-                  if (!album) return;
-                  albumImageCache.forceFetchImage({ id: selectedAlbum, title: album.title, artist_name: album.artist_name });
-                }}
+                onArtistClick={library.handleArtistClick}
+                onNavigateToArtistByName={library.navigateToArtistByName}
+                onAlbumClick={library.handleAlbumClick}
+                onTrackContextMenu={contextMenuActions.handleTrackContextMenu}
+                onToggleLike={likeActions.handleToggleLike}
+                onToggleDislike={likeActions.handleToggleDislike}
+                onTrackDragStart={contextMenuActions.handleTrackDragStart}
+                onDeleteTracks={handleDeleteTracks}
+                invokeInfoFetch={plugins.invokeInfoFetch}
+                pluginNames={plugins.pluginNames}
+                onInfoTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
+                onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
               />
             );
           })()}
@@ -2964,8 +2796,9 @@ function App() {
             playing={playback.playing}
             viewModes={searchViewModes}
             onViewModesChange={handleSearchViewModesChange}
-            artistImages={artistImageCache.images}
-            albumImages={albumImageCache.images}
+            getArtistImage={artistImageCache.getImage}
+            getAlbumImage={albumImageCache.getImage}
+            getTagImage={tagImageCache.getImage}
             onPlayTracks={queueHook.playTracks}
             onPlayAlbum={playActions.playAlbum}
             onPlayArtist={playActions.playArtist}
@@ -2993,121 +2826,11 @@ function App() {
             onTagClick={library.handleTagClick}
             onTagContextMenu={contextMenuActions.handleTagContextMenu}
             onToggleTagLike={likeActions.handleToggleTagLike}
-            onFetchArtistImage={artistImageCache.fetchOnDemand}
-            onFetchAlbumImage={albumImageCache.fetchOnDemand}
-            onFetchTagImage={tagImageCache.fetchOnDemand}
-            tagImages={tagImageCache.images}
             columns={library.trackColumns}
             onColumnsChange={library.setTrackColumns}
           />
 
-          {/* Artist album detail — unified scrollable container like artist-detail */}
-          {(view === "artists" && selectedAlbum !== null) && (() => {
-            const album = albums.find(a => a.id === selectedAlbum);
-            const albumImagePath = albumImageCache.images[selectedAlbum] ?? null;
-            const albumEntity = album ? {
-              kind: "album" as const,
-              name: album.title,
-              id: album.id,
-              artistName: album.artist_name ?? undefined,
-            } : null;
-            return (
-              <div className="album-detail">
-                <AlbumDetailHeader
-                  selectedAlbum={selectedAlbum}
-                  album={album}
-                  albumImagePath={albumImagePath}
-                  sortedTracks={sortedTracks}
-                  searchProviders={searchProviders}
-                  onArtistClick={library.handleArtistClick}
-                  onToggleAlbumLike={likeActions.handleToggleAlbumLike}
-                  onToggleAlbumDislike={likeActions.handleToggleAlbumDislike}
-                  onPlayTracks={handleAlbumPlayTracks}
-                  onImageSet={(id, path) => albumImageCache.setImages(prev => ({ ...prev, [id]: path }))}
-                  onImageRemoved={(id) => albumImageCache.setImages(prev => ({ ...prev, [id]: null }))}
-                  onRetrieveImage={() => {
-                    if (!album) return;
-                    albumImageCache.forceFetchImage({ id: selectedAlbum, title: album.title, artist_name: album.artist_name });
-                  }}
-                />
-                <TrackList
-                  tracks={sortedTracks}
-                  currentTrack={playback.currentTrack}
-                  playing={playback.playing}
-                  highlightedIndex={highlightedIndex}
-                  sortField={sortField}
-                  trackListRef={trackListRef}
-                  columns={albumDetailColumns}
-                  onColumnsChange={setAlbumDetailColumns}
-                  onDoubleClick={handleAlbumPlayTracks}
-                  onContextMenu={contextMenuActions.handleTrackContextMenu}
-                  onArtistClick={library.handleArtistClick}
-                  onAlbumClick={library.handleAlbumClick}
-                  onSort={library.handleSort}
-                  sortIndicator={library.sortIndicator}
-                  onToggleLike={likeActions.handleToggleLike}
-                  onToggleDislike={likeActions.handleToggleDislike}
-                  onTrackDragStart={contextMenuActions.handleTrackDragStart}
-                  onDeleteTracks={handleDeleteTracks}
-                  trackPopularity={artistInfo.albumTrackPopularity}
-                  emptyMessage="No tracks found."
-                />
-                {albumEntity && (
-                  <div className="section-wide">
-                    <InformationSections
-                      entity={albumEntity}
-                      exclude={[]}
-                      placement="below"
-                      invokeInfoFetch={plugins.invokeInfoFetch}
-                      pluginNames={plugins.pluginNames}
-                      tabOrder={albumBelowTabOrder}
-                      onTabOrderChange={handleAlbumBelowTabOrderChange}
-                      onAction={(actionId, payload) => {
-                        if (actionId === "play-track") {
-                          const t = payload as Track | undefined;
-                          if (t) queueHook.playTracks([t], 0);
-                        }
-                      }}
-                      onTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
-                      onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          })()}
 
-          {/* Album detail "below" information sections (albums view only) */}
-          {view === "albums" && selectedAlbum !== null && (() => {
-            const album = albums.find(a => a.id === selectedAlbum);
-            const albumEntity = album ? {
-              kind: "album" as const,
-              name: album.title,
-              id: album.id,
-              artistName: album.artist_name ?? undefined,
-            } : null;
-            return (
-              <div className="section-wide">
-                <InformationSections
-                  entity={albumEntity}
-                  exclude={[]}
-                  placement="below"
-                  invokeInfoFetch={plugins.invokeInfoFetch}
-                  pluginNames={plugins.pluginNames}
-                  tabOrder={albumBelowTabOrder}
-                  onTabOrderChange={handleAlbumBelowTabOrderChange}
-                  onAction={(actionId, payload) => {
-                    if (actionId === "play-track") {
-                      const t = payload as Track | undefined;
-                      if (t) queueHook.playTracks([t], 0);
-                    }
-                  }}
-                  onTrackContextMenu={contextMenuActions.handleInfoTrackContextMenu}
-                  onEntityContextMenu={contextMenuActions.handleEntityContextMenu}
-                />
-              </div>
-            );
-          })()}
 
           {/* History view */}
           {view === "history" && (

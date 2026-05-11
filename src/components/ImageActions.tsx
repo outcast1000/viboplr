@@ -29,18 +29,16 @@ function ProviderIcon({ provider }: { provider: SearchProviderConfig }) {
 }
 
 interface ImageActionsProps {
-  entityId: number;
   entityType: "artist" | "album" | "tag";
-  entityName?: string;
+  entityName: string;
   artistName?: string;
   imagePath: string | null | undefined;
   providers?: SearchProviderConfig[];
-  onImageSet: (id: number, path: string) => void;
-  onImageRemoved: (id: number) => void;
+  onImageChanged: () => void;
   onRefresh?: () => void;
 }
 
-export function ImageActions({ entityId, entityType, entityName, artistName, imagePath, providers, onImageSet, onImageRemoved, onRefresh }: ImageActionsProps) {
+export function ImageActions({ entityType, entityName, artistName, imagePath, providers, onImageChanged, onRefresh }: ImageActionsProps) {
   const [open_menu, setOpenMenu] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -73,12 +71,12 @@ export function ImageActions({ entityId, entityType, entityName, artistName, ima
             onClick={async () => {
               setOpenMenu(false);
               try {
-                const path = await invoke<string>("paste_entity_image_from_clipboard", {
+                await invoke<string>("paste_entity_image_from_clipboard", {
                   kind: entityType,
-                  id: entityId,
+                  name: entityName,
+                  artistName: artistName ?? null,
                 });
-                onImageSet(entityId, "");
-                requestAnimationFrame(() => onImageSet(entityId, path));
+                onImageChanged();
               } catch (err) { console.error("Failed to paste image from clipboard:", err); }
             }}
           >
@@ -92,13 +90,13 @@ export function ImageActions({ entityId, entityType, entityName, artistName, ima
                 filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
               });
               if (selected) {
-                const newPath = await invoke<string>("set_entity_image", {
+                await invoke<string>("set_entity_image", {
                   kind: entityType,
-                  id: entityId,
+                  name: entityName,
+                  artistName: artistName ?? null,
                   sourcePath: selected,
                 });
-                onImageSet(entityId, "");
-                requestAnimationFrame(() => onImageSet(entityId, newPath));
+                onImageChanged();
               }
             }}
           >
@@ -106,10 +104,14 @@ export function ImageActions({ entityId, entityType, entityName, artistName, ima
           </button>
           {imagePath && (
             <button
-              onClick={() => {
+              onClick={async () => {
                 setOpenMenu(false);
-                invoke("remove_entity_image", { kind: entityType, id: entityId });
-                onImageRemoved(entityId);
+                await invoke("remove_entity_image", {
+                  kind: entityType,
+                  name: entityName,
+                  artistName: artistName ?? null,
+                });
+                onImageChanged();
               }}
             >
               <IconRemoveImage size={14} /><span>Remove Image</span>
@@ -141,7 +143,7 @@ export function ImageActions({ entityId, entityType, entityName, artistName, ima
               <div className="artist-image-menu-separator" />
               <div className="artist-image-menu-submenu">
                 <button className="artist-image-menu-submenu-trigger">
-                  <IconGlobe size={14} /><span>Web Search</span><span className="artist-image-menu-chevron">{"\u203A"}</span>
+                  <IconGlobe size={14} /><span>Web Search</span><span className="artist-image-menu-chevron">{"›"}</span>
                 </button>
                 <div className="artist-image-menu-submenu-list">
                   {activeProviders.map((provider) => {

@@ -357,9 +357,9 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS image_fetch_failures (
                 kind       TEXT NOT NULL,
-                item_id    INTEGER NOT NULL,
+                slug       TEXT NOT NULL,
                 failed_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-                UNIQUE(kind, item_id)
+                UNIQUE(kind, slug)
             );
 
             CREATE TABLE IF NOT EXISTS plugin_storage (
@@ -447,7 +447,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
-            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 33);
+            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 34);
 
             CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id);
             CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);
@@ -553,6 +553,19 @@ impl Database {
                 )?;
             }
             conn.execute("UPDATE db_version SET version = 33 WHERE rowid = 1", [])?;
+        }
+
+        if version < 34 {
+            conn.execute_batch(
+                "DROP TABLE IF EXISTS image_fetch_failures;
+                 CREATE TABLE IF NOT EXISTS image_fetch_failures (
+                     kind       TEXT NOT NULL,
+                     slug       TEXT NOT NULL,
+                     failed_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                     UNIQUE(kind, slug)
+                 );
+                 UPDATE db_version SET version = 34 WHERE rowid = 1;"
+            )?;
         }
 
         // Rebuild FTS when schema predates current layout OR when bumping to v31
@@ -776,6 +789,22 @@ impl Database {
                 liked: row.get::<_, i32>(3).unwrap_or(0),
             }),
         ).optional()
+    }
+
+    pub fn find_tag_by_name(&self, name: &str) -> SqlResult<Option<Tag>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, track_count, liked FROM tags WHERE name = ?1 COLLATE NOCASE LIMIT 1"
+        )?;
+        let result = stmt.query_row(params![name], |row| {
+            Ok(Tag {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                track_count: row.get(2)?,
+                liked: row.get::<_, i32>(3).unwrap_or(0),
+            })
+        }).optional()?;
+        Ok(result)
     }
 
     pub fn get_tags(&self) -> SqlResult<Vec<Tag>> {
@@ -2325,30 +2354,30 @@ impl Database {
 
     // --- Image fetch failures ---
 
-    pub fn record_image_failure(&self, kind: &str, item_id: i64) -> SqlResult<()> {
+    pub fn record_image_failure(&self, kind: &str, slug: &str) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT OR REPLACE INTO image_fetch_failures (kind, item_id) VALUES (?1, ?2)",
-            params![kind, item_id],
+            "INSERT OR REPLACE INTO image_fetch_failures (kind, slug) VALUES (?1, ?2)",
+            params![kind, slug],
         )?;
         Ok(())
     }
 
-    pub fn is_image_failed(&self, kind: &str, item_id: i64) -> SqlResult<bool> {
+    pub fn is_image_failed(&self, kind: &str, slug: &str) -> SqlResult<bool> {
         let conn = self.conn.lock().unwrap();
         let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM image_fetch_failures WHERE kind = ?1 AND item_id = ?2",
-            params![kind, item_id],
+            "SELECT COUNT(*) FROM image_fetch_failures WHERE kind = ?1 AND slug = ?2",
+            params![kind, slug],
             |row| row.get(0),
         )?;
         Ok(count > 0)
     }
 
-    pub fn clear_image_failure(&self, kind: &str, item_id: i64) -> SqlResult<()> {
+    pub fn clear_image_failure(&self, kind: &str, slug: &str) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "DELETE FROM image_fetch_failures WHERE kind = ?1 AND item_id = ?2",
-            params![kind, item_id],
+            "DELETE FROM image_fetch_failures WHERE kind = ?1 AND slug = ?2",
+            params![kind, slug],
         )?;
         Ok(())
     }

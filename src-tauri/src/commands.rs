@@ -26,9 +26,9 @@ pub const LASTFM_API_KEY: &str = env_or_empty!("LASTFM_API_KEY");
 pub const LASTFM_API_SECRET: &str = env_or_empty!("LASTFM_API_SECRET");
 
 pub enum ImageDownloadRequest {
-    Artist { id: i64, name: String, force: bool },
-    Album { id: i64, title: String, artist_name: Option<String>, force: bool },
-    Tag { id: i64, name: String, force: bool },
+    Artist { name: String, force: bool },
+    Album { title: String, artist_name: Option<String>, force: bool },
+    Tag { name: String, force: bool },
 }
 
 pub struct DownloadQueue {
@@ -723,6 +723,11 @@ pub fn get_tag_by_id(state: State<'_, AppState>, tag_id: i64) -> Result<Option<T
 }
 
 #[tauri::command]
+pub fn find_tag_by_name(state: State<'_, AppState>, name: String) -> Result<Option<Tag>, String> {
+    state.db.find_tag_by_name(&name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_tags_for_track(
     state: State<'_, AppState>,
     track_id: i64,
@@ -946,44 +951,18 @@ pub fn bulk_update_tracks(
 
 // --- Entity image commands (generic) ---
 
-fn resolve_entity_slug(state: &AppState, kind: &str, id: i64) -> Result<String, String> {
-    let (name, artist_name) = state.db.get_entity_image_name(kind, id).map_err(|e| e.to_string())?;
-    Ok(crate::entity_image::entity_image_slug(kind, &name, artist_name.as_deref()))
-}
-
 #[tauri::command]
-pub fn get_entity_image(state: State<'_, AppState>, kind: String, id: i64) -> Option<String> {
-    let slug = resolve_entity_slug(&state, &kind, id).ok()?;
-    crate::entity_image::get_image_path(&state.app_dir, &kind, &slug)
-        .map(|p| p.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-pub fn get_entity_image_by_name(
-    state: State<'_, AppState>,
-    kind: String,
-    name: String,
-    artist_name: Option<String>,
-) -> Option<String> {
+pub fn get_entity_image(state: State<'_, AppState>, kind: String, name: String, artist_name: Option<String>) -> Option<String> {
     let slug = crate::entity_image::entity_image_slug(&kind, &name, artist_name.as_deref());
     crate::entity_image::get_image_path(&state.app_dir, &kind, &slug)
         .map(|p| p.to_string_lossy().to_string())
 }
 
 #[tauri::command]
-pub fn set_entity_image(
-    state: State<'_, AppState>,
-    kind: String,
-    id: i64,
-    source_path: String,
-) -> Result<String, String> {
-    let slug = resolve_entity_slug(&state, &kind, id)?;
+pub fn set_entity_image(state: State<'_, AppState>, kind: String, name: String, artist_name: Option<String>, source_path: String) -> Result<String, String> {
+    let slug = crate::entity_image::entity_image_slug(&kind, &name, artist_name.as_deref());
     let source = std::path::Path::new(&source_path);
-    let ext = source
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("jpg")
-        .to_lowercase();
+    let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("jpg").to_lowercase();
     crate::entity_image::remove_image(&state.app_dir, &kind, &slug);
     let dest_dir = crate::entity_image::image_dir(&state.app_dir, &kind);
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
@@ -993,13 +972,8 @@ pub fn set_entity_image(
 }
 
 #[tauri::command]
-pub fn paste_entity_image(
-    state: State<'_, AppState>,
-    kind: String,
-    id: i64,
-    image_data: Vec<u8>,
-) -> Result<String, String> {
-    let slug = resolve_entity_slug(&state, &kind, id)?;
+pub fn paste_entity_image(state: State<'_, AppState>, kind: String, name: String, artist_name: Option<String>, image_data: Vec<u8>) -> Result<String, String> {
+    let slug = crate::entity_image::entity_image_slug(&kind, &name, artist_name.as_deref());
     let ext = detect_image_format(&image_data);
     crate::entity_image::remove_image(&state.app_dir, &kind, &slug);
     let dest_dir = crate::entity_image::image_dir(&state.app_dir, &kind);
@@ -1010,14 +984,10 @@ pub fn paste_entity_image(
 }
 
 #[tauri::command]
-pub fn paste_entity_image_from_clipboard(
-    state: State<'_, AppState>,
-    kind: String,
-    id: i64,
-) -> Result<String, String> {
+pub fn paste_entity_image_from_clipboard(state: State<'_, AppState>, kind: String, name: String, artist_name: Option<String>) -> Result<String, String> {
+    let slug = crate::entity_image::entity_image_slug(&kind, &name, artist_name.as_deref());
     let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("Clipboard error: {}", e))?;
     let img = clipboard.get_image().map_err(|_| "No image in clipboard".to_string())?;
-    // Encode RGBA data as PNG
     let mut buf = Vec::new();
     {
         let encoder = image::codecs::png::PngEncoder::new(&mut buf);
@@ -1030,7 +1000,6 @@ pub fn paste_entity_image_from_clipboard(
         )
         .map_err(|e| format!("Failed to encode image: {}", e))?;
     }
-    let slug = resolve_entity_slug(&state, &kind, id)?;
     crate::entity_image::remove_image(&state.app_dir, &kind, &slug);
     let dest_dir = crate::entity_image::image_dir(&state.app_dir, &kind);
     std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
@@ -1040,72 +1009,43 @@ pub fn paste_entity_image_from_clipboard(
 }
 
 #[tauri::command]
-pub fn remove_entity_image(state: State<'_, AppState>, kind: String, id: i64) {
-    if let Ok(slug) = resolve_entity_slug(&state, &kind, id) {
-        crate::entity_image::remove_image(&state.app_dir, &kind, &slug);
-    }
+pub fn remove_entity_image(state: State<'_, AppState>, kind: String, name: String, artist_name: Option<String>) {
+    let slug = crate::entity_image::entity_image_slug(&kind, &name, artist_name.as_deref());
+    crate::entity_image::remove_image(&state.app_dir, &kind, &slug);
 }
 
 // --- Artist/album image fetch commands ---
 
 #[tauri::command]
-pub fn fetch_artist_image(
-    state: State<'_, AppState>,
-    artist_id: i64,
-    artist_name: String,
-    force: Option<bool>,
-) {
-    let force = force.unwrap_or(false);
-    if force {
-        let _ = state.db.clear_image_failure("artist", artist_id);
-        if let Ok(slug) = resolve_entity_slug(&state, "artist", artist_id) {
-            crate::entity_image::remove_image(&state.app_dir, "artist", &slug);
-        }
-    }
-    log::info!("Queued artist image download: {} (id={}, force={})", artist_name, artist_id, force);
+pub fn fetch_artist_image(state: State<'_, AppState>, artist_name: String) {
+    let slug = crate::entity_image::entity_image_slug("artist", &artist_name, None);
+    crate::entity_image::remove_image(&state.app_dir, "artist", &slug);
+    let _ = state.db.clear_image_failure("artist", &slug);
+    log::info!("Queued artist image download: {}", artist_name);
     let mut queue = state.download_queue.queue.lock().unwrap();
-    queue.push(ImageDownloadRequest::Artist { id: artist_id, name: artist_name, force });
+    queue.push(ImageDownloadRequest::Artist { name: artist_name, force: true });
     state.download_queue.condvar.notify_one();
 }
 
 #[tauri::command]
-pub fn fetch_album_image(
-    state: State<'_, AppState>,
-    album_id: i64,
-    album_title: String,
-    artist_name: Option<String>,
-    force: Option<bool>,
-) {
-    let force = force.unwrap_or(false);
-    if force {
-        let _ = state.db.clear_image_failure("album", album_id);
-        if let Ok(slug) = resolve_entity_slug(&state, "album", album_id) {
-            crate::entity_image::remove_image(&state.app_dir, "album", &slug);
-        }
-    }
-    log::info!("Queued album image download: {} (id={}, force={})", album_title, album_id, force);
+pub fn fetch_album_image(state: State<'_, AppState>, album_title: String, artist_name: Option<String>) {
+    let slug = crate::entity_image::entity_image_slug("album", &album_title, artist_name.as_deref());
+    crate::entity_image::remove_image(&state.app_dir, "album", &slug);
+    let _ = state.db.clear_image_failure("album", &slug);
+    log::info!("Queued album image download: {}", album_title);
     let mut queue = state.download_queue.queue.lock().unwrap();
-    queue.push(ImageDownloadRequest::Album { id: album_id, title: album_title, artist_name, force });
+    queue.push(ImageDownloadRequest::Album { title: album_title, artist_name, force: true });
     state.download_queue.condvar.notify_one();
 }
 
 #[tauri::command]
-pub fn fetch_tag_image(
-    state: State<'_, AppState>,
-    tag_id: i64,
-    tag_name: String,
-    force: Option<bool>,
-) {
-    let force = force.unwrap_or(false);
-    if force {
-        let _ = state.db.clear_image_failure("tag", tag_id);
-        if let Ok(slug) = resolve_entity_slug(&state, "tag", tag_id) {
-            crate::entity_image::remove_image(&state.app_dir, "tag", &slug);
-        }
-    }
-    log::info!("Queued tag image generation: {} (id={}, force={})", tag_name, tag_id, force);
+pub fn fetch_tag_image(state: State<'_, AppState>, tag_name: String) {
+    let slug = crate::entity_image::entity_image_slug("tag", &tag_name, None);
+    crate::entity_image::remove_image(&state.app_dir, "tag", &slug);
+    let _ = state.db.clear_image_failure("tag", &slug);
+    log::info!("Queued tag image download: {}", tag_name);
     let mut queue = state.download_queue.queue.lock().unwrap();
-    queue.push(ImageDownloadRequest::Tag { id: tag_id, name: tag_name, force });
+    queue.push(ImageDownloadRequest::Tag { name: tag_name, force: true });
     state.download_queue.condvar.notify_one();
 }
 

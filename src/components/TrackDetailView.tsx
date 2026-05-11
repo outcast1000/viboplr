@@ -86,9 +86,8 @@ interface TrackDetailViewProps {
   onToggleDislike: () => void;
   collections: Collection[];
   searchProviders: SearchProviderConfig[];
-  onImageSet: (entityType: "artist" | "album", id: number, path: string) => void;
-  onImageRemoved: (entityType: "artist" | "album", id: number) => void;
-  onImageRefresh: (entityType: "artist" | "album", id: number, name: string) => void;
+  onImageChanged: (entityType: "artist" | "album") => void;
+  onImageRefresh: (entityType: "artist" | "album") => void;
   addLog: (msg: string, module?: string) => void;
   onUpdateTrack: (update: Partial<Track>) => void;
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
@@ -106,7 +105,7 @@ export function TrackDetailView({
   onArtistClick, onAlbumClick, onTagClick,
   onPlay, onPlayAt, onShowInFolder, onPlayTrack, onWatchOnYoutube,
   onToggleLike, onToggleDislike,
-  collections: _collections, searchProviders, onImageSet, onImageRemoved, onImageRefresh,
+  collections: _collections, searchProviders, onImageChanged, onImageRefresh,
   addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
   onInfoTrackContextMenu,
   onEntityContextMenu,
@@ -291,28 +290,24 @@ export function TrackDetailView({
             >
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
             </button>
-            {isLibrary && albumImagePath && track.album_id ? (
+            {isLibrary && albumImagePath && track.album_title ? (
               <ImageActions
-                entityId={track.album_id}
                 entityType="album"
-                entityName={track.album_title ?? undefined}
+                entityName={track.album_title}
                 artistName={track.artist_name ?? undefined}
                 imagePath={albumImagePath}
                 providers={getProvidersForContext(searchProviders, "album")}
-                onImageSet={(id, path) => onImageSet("album", id, path)}
-                onImageRemoved={(id) => onImageRemoved("album", id)}
-                onRefresh={() => onImageRefresh("album", track.album_id!, track.album_title ?? "")}
+                onImageChanged={() => onImageChanged("album")}
+                onRefresh={() => onImageRefresh("album")}
               />
-            ) : isLibrary && track.artist_id ? (
+            ) : isLibrary && track.artist_name ? (
               <ImageActions
-                entityId={track.artist_id}
                 entityType="artist"
-                entityName={track.artist_name ?? undefined}
+                entityName={track.artist_name}
                 imagePath={artistImagePath}
                 providers={getProvidersForContext(searchProviders, "artist")}
-                onImageSet={(id, path) => onImageSet("artist", id, path)}
-                onImageRemoved={(id) => onImageRemoved("artist", id)}
-                onRefresh={() => onImageRefresh("artist", track.artist_id!, track.artist_name ?? "")}
+                onImageChanged={() => onImageChanged("artist")}
+                onRefresh={() => onImageRefresh("artist")}
               />
             ) : null}
           </div>

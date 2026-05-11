@@ -9,9 +9,9 @@ interface PlayActionsArgs {
   albums: Album[];
   artists: Artist[];
   tags: Tag[];
-  albumImages: Record<number, string | null>;
-  artistImages: Record<number, string | null>;
-  tagImages: Record<number, string | null>;
+  getAlbumImage: (title: string, artistName?: string | null) => string | null;
+  getArtistImage: (name: string) => string | null;
+  getTagImage: (name: string) => string | null;
 }
 
 export type InfoRow = [number, string, string, string, number];
@@ -99,42 +99,42 @@ export function usePlayActions({
   albums,
   artists,
   tags,
-  albumImages,
-  artistImages,
-  tagImages,
+  getAlbumImage,
+  getArtistImage,
+  getTagImage,
 }: PlayActionsArgs) {
   const playAlbum = useCallback(async (albumId: number, opts?: { tracks?: Track[]; startIndex?: number }) => {
     const tracks = opts?.tracks ?? await invoke<Track[]>("get_tracks", { opts: { albumId } });
     if (tracks.length === 0) return;
     const album = albums.find(a => a.id === albumId);
-    const albumImg = albumImages[albumId] ?? null;
+    const albumImg = album ? getAlbumImage(album.title, album.artist_name) : null;
     const stamped = tracks.map(t => !t.image_url && albumImg ? { ...t, image_url: albumImg } : t);
     playTracks(stamped, opts?.startIndex ?? 0, buildAlbumContext(album, albumImg));
     if (album?.artist_name) {
       enrichDescription(`album:${album.artist_name}:${album.title}`, "album_wiki", setPlaylistContext);
     }
-  }, [playTracks, setPlaylistContext, albums, albumImages]);
+  }, [playTracks, setPlaylistContext, albums, getAlbumImage]);
 
   const playArtist = useCallback(async (artistId: number, opts?: { tracks?: Track[]; startIndex?: number }) => {
     const tracks = opts?.tracks ?? await invoke<Track[]>("get_tracks_by_artist", { artistId });
     if (tracks.length === 0) return;
     const artist = artists.find(a => a.id === artistId);
-    const artistImg = artistImages[artistId] ?? null;
+    const artistImg = artist ? getArtistImage(artist.name) : null;
     const stamped = tracks.map(t => !t.image_url && artistImg ? { ...t, image_url: artistImg } : t);
     playTracks(stamped, opts?.startIndex ?? 0, buildArtistContext(artist, artistImg));
     if (artist) {
       enrichDescription(`artist:${artist.name}`, "artist_bio", setPlaylistContext);
     }
-  }, [playTracks, setPlaylistContext, artists, artistImages]);
+  }, [playTracks, setPlaylistContext, artists, getArtistImage]);
 
   const playTag = useCallback(async (tagId: number, opts?: { tracks?: Track[]; startIndex?: number }) => {
     const tracks = opts?.tracks ?? await invoke<Track[]>("get_tracks", { opts: { tagId } });
     if (tracks.length === 0) return;
     const tag = tags.find(t => t.id === tagId);
-    const tagImg = tagImages[tagId] ?? null;
+    const tagImg = tag ? getTagImage(tag.name) : null;
     const stamped = tracks.map(t => !t.image_url && tagImg ? { ...t, image_url: tagImg } : t);
     playTracks(stamped, opts?.startIndex ?? 0, buildTagContext(tag, tagImg));
-  }, [playTracks, tags, tagImages]);
+  }, [playTracks, tags, getTagImage]);
 
   return { playAlbum, playArtist, playTag };
 }

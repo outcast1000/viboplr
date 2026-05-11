@@ -73,12 +73,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   // View mode state
   const [trackViewMode, setTrackViewMode] = useState<ViewMode>("basic");
 
-  // Artist-filtered albums for artist detail view (derived, never mutates albums state)
-  const artistAlbums = useMemo(() => {
-    if (selectedArtist === null) return [];
-    return albums.filter(a => a.artist_id === selectedArtist)
-      .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
-  }, [albums, selectedArtist]);
 
   // Persist state
   useEffect(() => { if (restoredRef.current) store.set("view", view); }, [view]);
@@ -450,7 +444,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     sortedTracks,
     handleSort, sortIndicator,
     trackColumns, setTrackColumns,
-    artistAlbums,
     handleTrackClick, handleArtistClick, handleAlbumClick, handleTagClick, handleLocateTrack,
     fallbackArtistName, setFallbackArtistName,
     fallbackAlbumName, setFallbackAlbumName,

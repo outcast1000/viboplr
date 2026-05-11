@@ -2,133 +2,147 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
+export function imageCacheKey(kind: "artist" | "album" | "tag", name: string, artistName?: string | null): string {
+  if (kind === "album") {
+    return `album:${(artistName ?? "").toLowerCase()}:${name.toLowerCase()}`;
+  }
+  return `${kind}:${name.toLowerCase()}`;
+}
+
 export interface UseImageCacheReturn {
-  images: Record<number, string | null>;
-  nameImages: Record<string, string | null>;
-  getImageByName: (name: string, artistName?: string) => string | null;
-  fetchOnDemand: (entity: { id: number; name?: string; title?: string; artist_name?: string | null }) => void;
-  forceFetchImage: (entity: { id: number; name?: string; title?: string; artist_name?: string | null }) => void;
-  setLocalImage: (id: number, path: string) => void;
-  clearImage: (id: number) => void;
+  getImage: (name: string, artistName?: string | null) => string | null;
+  invalidate: (name: string, artistName?: string | null) => void;
+  requestFetch: (name: string, artistName?: string | null) => void;
   clearAllFailures: () => void;
-  setImages: React.Dispatch<React.SetStateAction<Record<number, string | null>>>;
 }
 
 export function useImageCache(
   kind: "artist" | "album" | "tag",
   addLog?: (msg: string, module?: string) => void,
 ): UseImageCacheReturn {
-  const [images, setImages] = useState<Record<number, string | null>>({});
-  const [nameImages, setNameImages] = useState<Record<string, string | null>>({});
-  const fetched = useRef(new Set<number>());
-  const failed = useRef(new Set<number>());
-  const imagesRef = useRef(images);
-  imagesRef.current = images;
-  const nameCache = useRef<Record<string, string | null>>({});
-  const inFlightNames = useRef(new Set<string>());
+  const [cache, setCache] = useState<Record<string, string | null>>({});
+  const cacheRef = useRef(cache);
+  cacheRef.current = cache;
+  const inFlight = useRef(new Set<string>());
 
-  const getImageByName = useCallback((name: string, artistName?: string): string | null => {
-    const cacheKey = kind === "album"
-      ? `album:${artistName?.toLowerCase() ?? ""}:${name.toLowerCase()}`
-      : `${kind}:${name.toLowerCase()}`;
+  const getImage = useCallback((name: string, artistName?: string | null): string | null => {
+    const key = imageCacheKey(kind, name, artistName);
 
-    if (cacheKey in nameCache.current) {
-      return nameCache.current[cacheKey];
+    if (key in cacheRef.current) {
+      return cacheRef.current[key];
     }
 
-    if (inFlightNames.current.has(cacheKey)) {
+    if (inFlight.current.has(key)) {
       return null;
     }
 
-    inFlightNames.current.add(cacheKey);
+    inFlight.current.add(key);
 
-    invoke<string | null>("get_entity_image_by_name", { kind, name, artistName: artistName ?? null })
+    invoke<string | null>("get_entity_image", { kind, name, artistName: artistName ?? null })
       .then((path) => {
-        nameCache.current[cacheKey] = path;
-        setNameImages((prev) => ({ ...prev, [cacheKey]: path }));
+        setCache((prev) => ({ ...prev, [key]: path }));
+        if (path === null) {
+          // No image on disk — trigger a fetch
+          if (kind === "artist") {
+            invoke("fetch_artist_image", { artistName: name }).catch(console.error);
+          } else if (kind === "album") {
+            invoke("fetch_album_image", { albumTitle: name, artistName: artistName ?? null }).catch(console.error);
+          } else if (kind === "tag") {
+            invoke("fetch_tag_image", { tagName: name }).catch(console.error);
+          }
+        }
       })
       .catch((err) => {
-        console.error(`Failed to get ${kind} image by name for "${name}":`, err);
-        nameCache.current[cacheKey] = null;
-        setNameImages((prev) => ({ ...prev, [cacheKey]: null }));
+        console.error(`Failed to get ${kind} image for "${name}":`, err);
+        setCache((prev) => ({ ...prev, [key]: null }));
       })
       .finally(() => {
-        inFlightNames.current.delete(cacheKey);
+        inFlight.current.delete(key);
       });
 
     return null;
   }, [kind]);
 
-  const fetchOnDemand = useCallback((entity: { id: number; name?: string; title?: string; artist_name?: string | null }) => {
-    if (imagesRef.current[entity.id] !== undefined) return;
-    if (fetched.current.has(entity.id)) return;
-    if (failed.current.has(entity.id)) return;
-    fetched.current = new Set(fetched.current).add(entity.id);
-
-    invoke<string | null>("get_entity_image", { kind, id: entity.id }).then((path) => {
-      if (path) {
-        setImages((prev) => ({ ...prev, [entity.id]: path }));
-      } else if (kind === "artist") {
-        invoke("fetch_artist_image", { artistId: entity.id, artistName: entity.name ?? "Unknown" });
-      } else if (kind === "album") {
-        invoke("fetch_album_image", { albumId: entity.id, albumTitle: entity.title ?? "", artistName: entity.artist_name });
-      } else if (kind === "tag") {
-        invoke("fetch_tag_image", { tagId: entity.id, tagName: entity.name ?? "Unknown" });
-      }
+  const invalidate = useCallback((name: string, artistName?: string | null) => {
+    const key = imageCacheKey(kind, name, artistName);
+    inFlight.current.delete(key);
+    setCache((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
     });
   }, [kind]);
 
-  const setLocalImage = useCallback((id: number, path: string) => {
-    setImages((prev) => ({ ...prev, [id]: path }));
-  }, []);
-
-  const clearImage = useCallback((id: number) => {
-    setImages((prev) => ({ ...prev, [id]: null }));
-  }, []);
-
-  const forceFetchImage = useCallback((entity: { id: number; name?: string; title?: string; artist_name?: string | null }) => {
-    failed.current = new Set([...failed.current].filter(id => id !== entity.id));
-    fetched.current = new Set([...fetched.current].filter(id => id !== entity.id));
-    setImages((prev) => {
+  const requestFetch = useCallback((name: string, artistName?: string | null) => {
+    const key = imageCacheKey(kind, name, artistName);
+    inFlight.current.delete(key);
+    setCache((prev) => {
       const next = { ...prev };
-      delete next[entity.id];
+      delete next[key];
       return next;
     });
     if (kind === "artist") {
-      invoke("fetch_artist_image", { artistId: entity.id, artistName: entity.name ?? "Unknown", force: true });
+      invoke("fetch_artist_image", { artistName: name }).catch(console.error);
     } else if (kind === "album") {
-      invoke("fetch_album_image", { albumId: entity.id, albumTitle: entity.title ?? "", artistName: entity.artist_name, force: true });
+      invoke("fetch_album_image", { albumTitle: name, artistName: artistName ?? null }).catch(console.error);
     } else if (kind === "tag") {
-      invoke("fetch_tag_image", { tagId: entity.id, tagName: entity.name ?? "Unknown", force: true });
+      invoke("fetch_tag_image", { tagName: name }).catch(console.error);
     }
   }, [kind]);
 
   const clearAllFailures = useCallback(() => {
-    failed.current = new Set();
-    fetched.current = new Set();
+    inFlight.current = new Set();
+    setCache({});
   }, []);
 
   // Listen for image-ready and image-error events
   useEffect(() => {
-    const eventIdKey = kind === "artist" ? "artistId" : kind === "album" ? "albumId" : "tagId";
     const readyEvent = `${kind}-image-ready`;
     const errorEvent = `${kind}-image-error`;
 
     const unlistenReady = listen<Record<string, unknown>>(readyEvent, (event) => {
-      const id = event.payload[eventIdKey] as number;
       const path = event.payload.path as string;
-      const entityName = (event.payload.name ?? event.payload.title ?? `id=${id}`) as string;
       const source = event.payload.source as string | undefined;
+      let entityName: string;
+      let key: string;
+
+      if (kind === "artist") {
+        entityName = event.payload.name as string;
+        key = imageCacheKey("artist", entityName);
+      } else if (kind === "album") {
+        const title = event.payload.title as string;
+        const artist = event.payload.artist_name as string | null;
+        entityName = title;
+        key = imageCacheKey("album", title, artist);
+      } else {
+        entityName = event.payload.name as string;
+        key = imageCacheKey("tag", entityName);
+      }
+
       addLog?.(`${kind.charAt(0).toUpperCase() + kind.slice(1)} image downloaded for "${entityName}"${source ? ` from ${source}` : ""}`);
-      setImages((prev) => ({ ...prev, [id]: path }));
+      setCache((prev) => ({ ...prev, [key]: path }));
     });
 
     const unlistenError = listen<Record<string, unknown>>(errorEvent, (event) => {
-      const id = event.payload[eventIdKey] as number;
       const error = event.payload.error as string;
-      const entityName = (event.payload.name ?? event.payload.title ?? `id=${id}`) as string;
+      let entityName: string;
+      let key: string;
+
+      if (kind === "artist") {
+        entityName = event.payload.name as string;
+        key = imageCacheKey("artist", entityName);
+      } else if (kind === "album") {
+        const title = event.payload.title as string;
+        const artist = event.payload.artist_name as string | null;
+        entityName = title;
+        key = imageCacheKey("album", title, artist);
+      } else {
+        entityName = event.payload.name as string;
+        key = imageCacheKey("tag", entityName);
+      }
+
       addLog?.(`${kind.charAt(0).toUpperCase() + kind.slice(1)} image failed for "${entityName}": ${error}`);
-      failed.current = new Set(failed.current).add(id);
+      setCache((prev) => ({ ...prev, [key]: null }));
     });
 
     return () => {
@@ -137,5 +151,5 @@ export function useImageCache(
     };
   }, [kind, addLog]);
 
-  return { images, nameImages, getImageByName, fetchOnDemand, forceFetchImage, setLocalImage, clearImage, clearAllFailures, setImages };
+  return { getImage, invalidate, requestFetch, clearAllFailures };
 }

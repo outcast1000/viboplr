@@ -34,17 +34,15 @@ interface CentralSearchDropdownProps {
   onResultClick: (item: SearchResultItem) => void;
   onClose: () => void;
   inputRef?: React.RefObject<HTMLInputElement | null>;
-  albumImages: Record<number, string | null>;
-  artistImages: Record<number, string | null>;
-  onFetchAlbumImage: (entity: { id: number; title: string; artist_name: string | null }) => void;
-  onFetchArtistImage: (entity: { id: number; name: string }) => void;
+  getAlbumImage: (title: string, artistName?: string | null) => string | null;
+  getArtistImage: (name: string) => string | null;
 }
 
-function ArtistImage({ artist, artistImages }: {
+function ArtistImage({ artist, getArtistImage }: {
   artist: Artist;
-  artistImages: Record<number, string | null>;
+  getArtistImage: (name: string) => string | null;
 }) {
-  const path = artistImages[artist.id];
+  const path = getArtistImage(artist.name);
   if (path) {
     return <img className="result-img result-img-round" src={convertFileSrc(path)} alt="" />;
   }
@@ -52,13 +50,13 @@ function ArtistImage({ artist, artistImages }: {
   return <span className="result-img-fallback result-img-round">{initial}</span>;
 }
 
-function AlbumImage({ album, albumImages, artistImages }: {
+function AlbumImage({ album, getAlbumImage, getArtistImage }: {
   album: Album;
-  albumImages: Record<number, string | null>;
-  artistImages: Record<number, string | null>;
+  getAlbumImage: (title: string, artistName?: string | null) => string | null;
+  getArtistImage: (name: string) => string | null;
 }) {
-  const albumPath = albumImages[album.id];
-  const artistPath = album.artist_id != null ? artistImages[album.artist_id] : undefined;
+  const albumPath = getAlbumImage(album.title, album.artist_name);
+  const artistPath = album.artist_name ? getArtistImage(album.artist_name) : null;
   const imagePath = albumPath || artistPath;
   if (imagePath) {
     return <img className="result-img" src={convertFileSrc(imagePath)} alt="" />;
@@ -67,13 +65,13 @@ function AlbumImage({ album, albumImages, artistImages }: {
   return <span className="result-img-fallback">{initial}</span>;
 }
 
-function TrackImage({ track, albumImages, artistImages }: {
+function TrackImage({ track, getAlbumImage, getArtistImage }: {
   track: Track;
-  albumImages: Record<number, string | null>;
-  artistImages: Record<number, string | null>;
+  getAlbumImage: (title: string, artistName?: string | null) => string | null;
+  getArtistImage: (name: string) => string | null;
 }) {
-  const albumPath = track.album_id != null ? albumImages[track.album_id] : undefined;
-  const artistPath = track.artist_id != null ? artistImages[track.artist_id] : undefined;
+  const albumPath = track.album_title ? getAlbumImage(track.album_title, track.artist_name) : null;
+  const artistPath = track.artist_name ? getArtistImage(track.artist_name) : null;
   const imagePath = albumPath || artistPath;
   if (imagePath) {
     return <img className="result-img" src={convertFileSrc(imagePath)} alt="" />;
@@ -93,10 +91,8 @@ export function CentralSearchDropdown({
   onResultClick,
   onClose,
   inputRef: externalInputRef,
-  albumImages,
-  artistImages,
-  onFetchAlbumImage,
-  onFetchArtistImage,
+  getAlbumImage,
+  getArtistImage,
 }: CentralSearchDropdownProps) {
   const internalRef = useRef<HTMLInputElement>(null);
   const inputRef = externalInputRef ?? internalRef;
@@ -124,32 +120,6 @@ export function CentralSearchDropdown({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [showOverlay, onClose]);
-
-  // Trigger image fetching for visible results
-  useEffect(() => {
-    if (!isOpen) return;
-    for (const artist of results.artists) {
-      if (artistImages[artist.id] === undefined) {
-        onFetchArtistImage({ id: artist.id, name: artist.name });
-      }
-    }
-    for (const album of results.albums) {
-      if (albumImages[album.id] === undefined) {
-        onFetchAlbumImage({ id: album.id, title: album.title, artist_name: album.artist_name });
-      }
-      if (album.artist_id != null && artistImages[album.artist_id] === undefined) {
-        onFetchArtistImage({ id: album.artist_id, name: album.artist_name ?? "Unknown" });
-      }
-    }
-    for (const track of results.tracks) {
-      if (track.album_id != null && albumImages[track.album_id] === undefined) {
-        onFetchAlbumImage({ id: track.album_id, title: track.album_title ?? "", artist_name: track.artist_name });
-      }
-      if (track.artist_id != null && artistImages[track.artist_id] === undefined) {
-        onFetchArtistImage({ id: track.artist_id, name: track.artist_name ?? "Unknown" });
-      }
-    }
-  }, [isOpen, results, albumImages, artistImages, onFetchAlbumImage, onFetchArtistImage]);
 
   // Scroll highlighted item into view
   useEffect(() => {
@@ -233,7 +203,7 @@ export function CentralSearchDropdown({
                     }}
                   >
                     <div className="result-art">
-                      <ArtistImage artist={artist} artistImages={artistImages} />
+                      <ArtistImage artist={artist} getArtistImage={getArtistImage} />
                     </div>
                     <div className="result-info">
                       <div className="result-title">{artist.name}</div>
@@ -257,7 +227,7 @@ export function CentralSearchDropdown({
                     }}
                   >
                     <div className="result-art">
-                      <AlbumImage album={album} albumImages={albumImages} artistImages={artistImages} />
+                      <AlbumImage album={album} getAlbumImage={getAlbumImage} getArtistImage={getArtistImage} />
                     </div>
                     <div className="result-info">
                       <div className="result-title">{album.title}</div>
@@ -285,7 +255,7 @@ export function CentralSearchDropdown({
                     }}
                   >
                     <div className="result-art">
-                      <TrackImage track={track} albumImages={albumImages} artistImages={artistImages} />
+                      <TrackImage track={track} getAlbumImage={getAlbumImage} getArtistImage={getArtistImage} />
                     </div>
                     <div className="result-info">
                       <div className="result-title">{track.title}</div>
