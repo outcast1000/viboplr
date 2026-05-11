@@ -1453,24 +1453,41 @@ function activate(api) {
   }
 
   function scriptScrollThenScrape(playlistId, gen) {
-    return '(function(){' +
+    return '(function(){try{' +
       DBG_HELPER +
       IMG_HELPER +
       'var _gen=' + gen + ';' +
       '_dbg("tracks","=== START scrape for ' + playlistId + '",{url:location.href,gen:_gen});' +
-      // Find the actual scroll container by walking up from the tracklist
-      'var mainEl=document.querySelector("[data-testid=\\"playlist-tracklist\\"]")' +
-        '||document.querySelector("main")||document;' +
-      'var sc=document.scrollingElement;' +
-      // Walk up from the tracklist to find the nearest scrollable ancestor
-      'var walker=mainEl;' +
-      'while(walker&&walker!==document.body){' +
-        'var cs=window.getComputedStyle(walker);' +
-        'var ov=cs.overflowY;' +
-        'if((ov==="auto"||ov==="scroll")&&walker.scrollHeight>walker.clientHeight){sc=walker;break}' +
-        'walker=walker.parentElement;' +
+      // Find the scroll container, retrying if the page hasn't rendered yet
+      'var sc=null;var _waitAttempts=0;var _maxWait=16;' +
+      'function findScrollContainer(){' +
+        'var mainEl=document.querySelector("[data-testid=\\"playlist-tracklist\\"]")' +
+          '||document.querySelector("main")||document;' +
+        'var found=document.scrollingElement;' +
+        'var walker=mainEl;' +
+        'while(walker&&walker!==document.body){' +
+          'var cs=window.getComputedStyle(walker);' +
+          'var ov=cs.overflowY;' +
+          'if((ov==="auto"||ov==="scroll")&&walker.scrollHeight>walker.clientHeight){found=walker;break}' +
+          'walker=walker.parentElement;' +
+        '}' +
+        'return found;' +
       '}' +
-      '_dbg("tracks","scroll container",{tag:sc.tagName,testid:sc.getAttribute&&sc.getAttribute("data-testid"),scrollH:sc.scrollHeight,clientH:sc.clientHeight,overflow:window.getComputedStyle(sc).overflowY});' +
+      'function waitForContent(){' +
+        '_waitAttempts++;' +
+        'sc=findScrollContainer();' +
+        'var hasRows=!!document.querySelector("[role=\\"row\\"]");' +
+        'var contentReady=(sc.tagName!=="HTML"&&sc.scrollHeight>sc.clientHeight)||hasRows;' +
+        'if(!contentReady&&_waitAttempts<_maxWait){' +
+          'setTimeout(waitForContent,500);return;' +
+        '}' +
+        'if(!contentReady){' +
+          '_dbg("tracks","content not ready after wait, proceeding with fallback",{attempts:_waitAttempts,tag:sc.tagName,hasRows:hasRows});' +
+        '}' +
+        '_dbg("tracks","scroll container",{tag:sc.tagName,testid:sc.getAttribute&&sc.getAttribute("data-testid"),scrollH:sc.scrollHeight,clientH:sc.clientHeight,overflow:window.getComputedStyle(sc).overflowY,waitAttempts:_waitAttempts});' +
+        'beginScrape();' +
+      '}' +
+      'function beginScrape(){' +
       // Extract playlist cover from header before scrolling begins
       'var coverEl=document.querySelector("[data-testid=\\"playlist-image\\"]")||document.querySelector("main img[alt][src*=\\"mosaic\\"]")||document.querySelector("main img[alt][src*=\\"playlist\\"]")||document.querySelector("main [data-testid=\\"entity-image\\"] img")||document.querySelector("main picture img");' +
       'var _coverUrl=null;if(coverEl){_coverUrl=coverEl.currentSrc||coverEl.src||null;if(_coverUrl&&_coverUrl.indexOf("data:")===0)_coverUrl=null}' +
@@ -1513,21 +1530,27 @@ function activate(api) {
         '}' +
         'return added;' +
       '}' +
-      'function tick(){' +
+      'function tick(){try{' +
         'parseVisibleRows();n++;' +
         'var atBottom=sc.scrollTop+sc.clientHeight>=sc.scrollHeight-10;' +
         'if(n%5===0)_dbg("tracks","scrolling",{tick:n,found:allOut.length,scrollTop:sc.scrollTop,scrollH:sc.scrollHeight,atBottom:atBottom});' +
         'if(atBottom||n>=maxSteps){' +
-          // One final parse at the bottom
           'parseVisibleRows();' +
           'var descEl=document.querySelector("[data-testid=\\"playlist-description\\"]")||document.querySelector("main [data-testid=\\"entityTitle\\"] ~ span");' +
           'var desc=descEl?descEl.textContent.trim():"";' +
           '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:allOut.length,steps:n,gen:_gen,desc:desc.substring(0,80),coverUrl:_coverUrl?_coverUrl.substring(0,60):null});' +
           'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:allOut,description:desc,coverUrl:_coverUrl,gen:_gen});' +
         '}else{sc.scrollTop+=step;setTimeout(tick,600)}' +
-      '}' +
+      '}catch(e){' +
+        '_dbg("tracks","=== ERROR in tick ' + playlistId + '",{error:""+e,step:n});' +
+        'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:allOut,error:""+e,gen:_gen});' +
+      '}}' +
       'setTimeout(tick,500);' +
-    '})()';
+      '}' +
+      'waitForContent();' +
+    '}catch(e){' +
+      'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:[],error:"script error: "+e,gen:' + gen + '});' +
+    '}})()';
   }
 
   // ---- Consolidated scrape function ----
@@ -1859,6 +1882,7 @@ function activate(api) {
               if (gen !== scrapeGeneration) return;
               h.eval(scriptScrollThenScrape(pl.id, gen));
               trackTimeout = setTimeout(function() {
+                dbg("tracks", "=== TIMEOUT " + pl.id, { elapsed: Date.now() - plStart, name: pl.name });
                 allTracks[pl.id] = allTracks[pl.id] || [];
                 plReport.status = "timeout";
                 plReport.durationMs = Date.now() - plStart;
