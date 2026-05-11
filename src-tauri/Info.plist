@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Viboplr needs access to your Desktop folder to scan for music files and manage your library.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Viboplr needs access to your Documents folder to scan for music files and manage your library.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Viboplr needs access to your Downloads folder to scan for music files and save downloaded tracks.</string>
+    <key>NSMusicFolderUsageDescription</key>
+    <string>Viboplr needs access to your Music folder to scan for music files and manage your library.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>Viboplr needs access to removable volumes to scan for music files.</string>
+</dict>
+</plist>
