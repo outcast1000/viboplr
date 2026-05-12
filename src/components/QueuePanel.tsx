@@ -214,11 +214,11 @@ export function QueuePanel({
       (async () => {
         try {
           if (t.album_title) {
-            const albumPath = await invoke<string | null>("get_entity_image_by_name", { kind: "album", name: t.album_title, artistName: t.artist_name ?? null });
+            const albumPath = await invoke<string | null>("get_entity_image", { kind: "album", name: t.album_title, artistName: t.artist_name ?? null });
             if (albumPath) { setResolvedImages(prev => ({ ...prev, [key]: albumPath })); return; }
           }
           if (t.artist_name) {
-            const artistPath = await invoke<string | null>("get_entity_image_by_name", { kind: "artist", name: t.artist_name, artistName: null });
+            const artistPath = await invoke<string | null>("get_entity_image", { kind: "artist", name: t.artist_name, artistName: null });
             if (artistPath) { setResolvedImages(prev => ({ ...prev, [key]: artistPath })); return; }
           }
           setResolvedImages(prev => ({ ...prev, [key]: null }));
