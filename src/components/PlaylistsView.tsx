@@ -214,7 +214,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
   );
 
   const folderErrorModal = folderError && (
-    <div className="ds-modal-overlay" onClick={() => setFolderError(null)}>
+    <div className="ds-modal-overlay">
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
         <h2 className="ds-modal-title">Open Containing Folder</h2>
         <p className="delete-confirm-warning">{folderError}</p>

@@ -27,7 +27,7 @@ export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSki
   }, []);
 
   return (
-    <div className="ds-modal-overlay" onClick={onDismiss}>
+    <div className="ds-modal-overlay">
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
         <h2 className="ds-modal-title">Playback Failed</h2>
         {trackTitle && <p className="playback-error-track">{trackTitle}</p>}

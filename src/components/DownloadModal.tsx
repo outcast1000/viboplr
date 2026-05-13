@@ -1703,7 +1703,7 @@ export function DownloadModal({
   const isSingle = tracks.length === 1;
 
   return (
-    <div className="ds-modal-overlay" onClick={onClose}>
+    <div className="ds-modal-overlay">
       <div className="ds-modal dl-modal" onClick={(e) => e.stopPropagation()}>
         {isSingle ? (
           <SingleTrackDownload

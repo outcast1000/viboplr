@@ -49,7 +49,7 @@ export function DependencyModal({ dep, feature, onDismiss, onRecheck }: Props) {
   };
 
   return (
-    <div className="ds-modal-overlay" onClick={onDismiss}>
+    <div className="ds-modal-overlay">
       <div className="ds-modal" style={{ width: 440 }} onClick={(e) => e.stopPropagation()}>
         <h3 className="ds-modal-title">{dep.name} is required</h3>
 

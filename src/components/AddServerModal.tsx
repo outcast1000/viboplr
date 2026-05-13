@@ -58,7 +58,7 @@ export function AddServerModal({ onAdded, onClose, initialUrl = "", initialUsern
   }
 
   return (
-    <div className="ds-modal-overlay" onClick={onClose}>
+    <div className="ds-modal-overlay">
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
         <h2 className="ds-modal-title">Add Subsonic Server</h2>
         <div className="modal-field">

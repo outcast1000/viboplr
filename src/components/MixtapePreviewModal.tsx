@@ -172,7 +172,7 @@ export function MixtapePreviewModal({
   };
 
   return (
-    <div className="ds-modal-overlay" onClick={onClose}>
+    <div className="ds-modal-overlay">
       <div className="ds-modal mixtape-preview-modal" onClick={(e) => e.stopPropagation()}>
         {loading && (
           <div className="mixtape-preview-loading">

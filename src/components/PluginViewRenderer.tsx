@@ -924,7 +924,7 @@ function PluginConfirm({
     : "ds-btn ds-btn--primary";
 
   return (
-    <div className="ds-modal-overlay" onClick={() => onAction?.(cancelAction, data)}>
+    <div className="ds-modal-overlay">
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
         {title && <div className="ds-modal-title">{title}</div>}
         <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{message}</div>

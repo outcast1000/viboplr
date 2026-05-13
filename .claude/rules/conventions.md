@@ -99,6 +99,12 @@ Cross-cutting rules that apply to all code everywhere.
 - Use progress indicators for multi-step operations (downloads, syncs, imports)
 - On failure, the user must know something went wrong -- either `addLog()` with error, or error modal for critical failures
 
+### Modal Dismiss Behavior
+
+- Modals must NOT close when clicking outside (on the overlay)
+- Never add `onClick` handlers to `.ds-modal-overlay` elements
+- Users must explicitly dismiss modals via Cancel/Close/Done buttons
+
 ### Skin System Compatibility
 
 - When creating or modifying any UI element, verify it uses CSS custom properties from the skin system (defined in `App.css` and `skinUtils.ts`) rather than hardcoded colors

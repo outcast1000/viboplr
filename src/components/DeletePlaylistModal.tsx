@@ -6,7 +6,7 @@ interface DeletePlaylistModalProps {
 
 export function DeletePlaylistModal({ playlistName, onConfirm, onClose }: DeletePlaylistModalProps) {
   return (
-    <div className="ds-modal-overlay" onClick={onClose}>
+    <div className="ds-modal-overlay">
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
         <h2 className="ds-modal-title">Delete Playlist</h2>
         <p className="delete-confirm-warning">

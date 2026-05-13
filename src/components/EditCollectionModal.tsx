@@ -58,7 +58,7 @@ export function EditCollectionModal({ collection, onSave, onClose }: EditCollect
   }
 
   return (
-    <div className="ds-modal-overlay" onClick={onClose}>
+    <div className="ds-modal-overlay">
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
         <h2 className="ds-modal-title">Edit Collection</h2>
 

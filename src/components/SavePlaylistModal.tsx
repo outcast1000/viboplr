@@ -106,7 +106,7 @@ export function SavePlaylistModal({ defaultName, defaultImage, title, info, onSa
   const editable = !!info;
 
   return (
-    <div className="ds-modal-overlay" onClick={onClose}>
+    <div className="ds-modal-overlay">
       <div className="ds-modal ds-modal--lg" onClick={(e) => e.stopPropagation()}>
         <h2 className="ds-modal-title">{title || "Save Playlist"}</h2>
         <div className="save-playlist-image-row">
