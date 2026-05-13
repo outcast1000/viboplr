@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
-import { formatDuration } from "../utils";
+import { formatDuration, isVideoTrack } from "../utils";
 import { isLocalTrack } from "../queueEntry";
 import { thumbFilenameForUri, isContextRemote } from "../mainPlaylist";
 import "./QueuePanel.css";
@@ -213,6 +213,16 @@ export function QueuePanel({
       resolvingRef.current.add(key);
       (async () => {
         try {
+          if (isVideoTrack(t) && t.path) {
+            const trackId = await invoke<number | null>("find_track_id_by_path", { path: t.path });
+            if (trackId) {
+              const frames = await invoke<{ status: string; paths?: string[] } | null>("get_video_frames", { trackId });
+              if (frames?.status === "ok" && frames.paths?.[0]) {
+                setResolvedImages(prev => ({ ...prev, [key]: frames.paths![0] }));
+                return;
+              }
+            }
+          }
           if (t.album_title) {
             const albumPath = await invoke<string | null>("get_entity_image", { kind: "album", name: t.album_title, artistName: t.artist_name ?? null });
             if (albumPath) { setResolvedImages(prev => ({ ...prev, [key]: albumPath })); return; }

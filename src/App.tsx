@@ -230,11 +230,7 @@ function App() {
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, undefined, setNavError);
   const downloadsCollection = useMemo(() => downloadsCollectionId != null ? library.collections.find(c => c.id === downloadsCollectionId) ?? null : null, [downloadsCollectionId, library.collections]);
 
-  const getQueueImageByNameRef = useRef<(albumTitle: string | null, artistName: string | null) => string | null>(() => null);
-  const getQueueImageByName = useCallback((albumTitle: string | null, artistName: string | null): string | null => {
-    return getQueueImageByNameRef.current(albumTitle, artistName);
-  }, []);
-  const queueHook = useQueue(restoredRef, playback.handlePlay, getQueueImageByName);
+  const queueHook = useQueue(restoredRef, playback.handlePlay);
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef);
   const videoLayout = useVideoLayout(restoredRef);
@@ -689,20 +685,9 @@ function App() {
     collections: library.collections,
   });
 
-  // Image caches (albumImageCache moved above useQueue for image_url stamping)
+  // Image caches
   const artistImageCache = useImageCache("artist", addLog);
   const tagImageCache = useImageCache("tag", addLog);
-
-  getQueueImageByNameRef.current = (albumTitle, artistName) => {
-    if (albumTitle) {
-      const img = albumImageCache.getImage(albumTitle, artistName ?? undefined);
-      if (img) return img;
-    }
-    if (artistName) {
-      return artistImageCache.getImage(artistName);
-    }
-    return null;
-  };
 
   const playActions = usePlayActions({
     playTracks: queueHook.playTracks,
@@ -1853,7 +1838,9 @@ function App() {
   useEffect(() => {
     const track = playback.currentTrack;
     if (!track || track.image_url) return;
-    const img = getQueueImageByNameRef.current(track.album_title, track.artist_name);
+    const img = (track.album_title && albumImageCache.getImage(track.album_title, track.artist_name ?? undefined))
+      || (track.artist_name && artistImageCache.getImage(track.artist_name))
+      || null;
     if (img) {
       playback.setCurrentTrack(prev => prev && !prev.image_url ? { ...prev, image_url: img } : prev);
     }

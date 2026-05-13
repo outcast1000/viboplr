@@ -18,7 +18,6 @@ export interface PlaylistContext {
 export function useQueue(
   restoredRef: React.RefObject<boolean>,
   handlePlay: (track: QueueTrack, source?: "user" | "auto") => void,
-  getImageByName: (albumTitle: string | null, artistName: string | null) => string | null,
 ) {
   const [queue, setQueue] = useState<QueueTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -131,23 +130,12 @@ export function useQueue(
     return [startIndex, ...indices];
   }
 
-  function stamp(tracks: QueueTrack[]): QueueTrack[] {
-    return tracks.map(t => {
-      if (!t.image_url) {
-        const img = getImageByName(t.album_title, t.artist_name);
-        if (img) return { ...t, image_url: img };
-      }
-      return t;
-    });
-  }
-
   function playTracks(tracks: QueueTrack[], startIndex: number, context?: PlaylistContext | null) {
-    const stamped = stamp(tracks);
-    setQueue(stamped);
+    setQueue(tracks);
     setQueueIndex(startIndex);
-    handlePlay(stamped[startIndex]);
+    handlePlay(tracks[startIndex]);
     if (queueModeRef.current === "shuffle") {
-      const order = generateShuffleOrder(stamped.length, startIndex);
+      const order = generateShuffleOrder(tracks.length, startIndex);
       setShuffleOrder(order);
       setShufflePosition(0);
     }
@@ -155,15 +143,14 @@ export function useQueue(
   }
 
   function findDuplicates(newTracks: QueueTrack[]): { duplicates: QueueTrack[]; unique: QueueTrack[] } {
-    const stamped = stamp(newTracks);
     const existing = new Set(queueRef.current.map(t => t.path));
-    const duplicates = stamped.filter(t => existing.has(t.path));
-    const unique = stamped.filter(t => !existing.has(t.path));
+    const duplicates = newTracks.filter(t => existing.has(t.path));
+    const unique = newTracks.filter(t => !existing.has(t.path));
     return { duplicates, unique };
   }
 
   function enqueueTracks(newTracks: QueueTrack[]) {
-    setQueue(prev => [...prev, ...stamp(newTracks)]);
+    setQueue(prev => [...prev, ...newTracks]);
   }
 
   function playNext(source: "user" | "auto" = "user"): boolean {
@@ -436,36 +423,32 @@ export function useQueue(
   }
 
   function insertAtPosition(newTracks: QueueTrack[], position: number) {
-    const stamped = stamp(newTracks);
     setQueue(prev => {
       const next = [...prev];
-      next.splice(position, 0, ...stamped);
+      next.splice(position, 0, ...newTracks);
       return next;
     });
-    setQueueIndex(prev => position <= prev ? prev + stamped.length : prev);
+    setQueueIndex(prev => position <= prev ? prev + newTracks.length : prev);
   }
 
   function playNextInQueue(track: QueueTrack) {
-    const [stamped] = stamp([track]);
     const idx = queueIndexRef.current;
     setQueue(prev => {
       const next = [...prev];
-      next.splice(idx + 1, 0, stamped);
+      next.splice(idx + 1, 0, track);
       return next;
     });
   }
 
   function addToQueue(track: QueueTrack) {
-    const [stamped] = stamp([track]);
-    setQueue(prev => [...prev, stamped]);
+    setQueue(prev => [...prev, track]);
   }
 
   function addToQueueAndPlay(track: QueueTrack, source: "user" | "auto" = "user") {
-    const [stamped] = stamp([track]);
     const newIndex = queueRef.current.length;
-    setQueue(prev => [...prev, stamped]);
+    setQueue(prev => [...prev, track]);
     setQueueIndex(newIndex);
-    handlePlay(stamped, source);
+    handlePlay(track, source);
   }
 
   async function savePlaylist() {

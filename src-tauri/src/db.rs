@@ -1214,6 +1214,22 @@ impl Database {
             .optional()
     }
 
+    pub fn find_track_id_by_path(&self, full_path: &str) -> SqlResult<Option<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let sql = "SELECT t.id FROM tracks t \
+            LEFT JOIN collections co ON t.collection_id = co.id \
+            WHERE CASE \
+              WHEN co.kind = 'local' AND co.path IS NOT NULL \
+                THEN 'file://' || co.path || '/' || t.path \
+              WHEN co.kind = 'subsonic' AND co.url IS NOT NULL \
+                THEN 'subsonic://' || REPLACE(REPLACE(RTRIM(co.url, '/'), 'https://', ''), 'http://', '') || '/' || t.path \
+              ELSE t.path \
+            END = ?1 \
+            AND (t.collection_id IS NULL OR co.enabled = 1) \
+            LIMIT 1";
+        conn.query_row(sql, params![full_path], |row| row.get(0)).optional()
+    }
+
     fn search_tracks_inner(&self, conn: &rusqlite::Connection, opts: &TrackQuery, query: &str) -> SqlResult<Vec<Track>> {
         let normalized = strip_diacritics(query);
         let words = normalized

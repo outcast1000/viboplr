@@ -602,6 +602,14 @@ pub fn find_track_by_metadata(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn find_track_id_by_path(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Option<i64>, String> {
+    state.db.find_track_id_by_path(&path).map_err(|e| e.to_string())
+}
+
 // --- Track path command ---
 
 #[tauri::command]
