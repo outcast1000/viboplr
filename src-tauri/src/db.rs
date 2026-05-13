@@ -711,9 +711,10 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = artist_id {
             let mut stmt = conn.prepare(
-                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked
+                "SELECT DISTINCT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked
                  FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id
-                 WHERE a.artist_id = ?1 AND a.track_count > 0
+                 WHERE a.track_count > 0
+                   AND (a.artist_id = ?1 OR a.id IN (SELECT album_id FROM tracks WHERE artist_id = ?1))
                  ORDER BY a.year, a.title"
             )?;
             let rows = stmt.query_map(params![aid], |row| album_from_row(row))?;
