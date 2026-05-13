@@ -1510,6 +1510,8 @@ pub fn run() {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
+                    } else {
+                        let _ = app.emit("restore-from-mini", ());
                     }
                 }
                 _ => {}

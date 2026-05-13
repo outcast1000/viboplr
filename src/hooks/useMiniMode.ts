@@ -383,6 +383,14 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
   }, []);
 
   useEffect(() => {
+    if (!miniMode) return;
+    const unlisten = listen("restore-from-mini", () => {
+      if (miniModeRef.current) toggleMiniMode();
+    });
+    return () => { unlisten.then(f => f()); };
+  }, [miniMode, toggleMiniMode]);
+
+  useEffect(() => {
     if (!miniMode) {
       invoke("set_cursor_tracker", { active: false }).catch(console.error);
       return;
