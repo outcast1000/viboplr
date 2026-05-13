@@ -79,7 +79,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   useEffect(() => { if (restoredRef.current) store.set("selectedArtist", selectedArtist); }, [selectedArtist]);
   useEffect(() => { if (restoredRef.current) store.set("selectedAlbum", selectedAlbum); }, [selectedAlbum]);
   useEffect(() => { if (restoredRef.current) store.set("selectedTag", selectedTag); }, [selectedTag]);
-  useEffect(() => { if (restoredRef.current) store.set("selectedTrack", selectedTrack?.startsWith("ext:") ? null : selectedTrack); }, [selectedTrack]);
+  useEffect(() => { if (restoredRef.current) store.set("selectedTrack", selectedTrack); }, [selectedTrack]);
   useEffect(() => { if (restoredRef.current) store.set("trackSortField", sortField); }, [sortField]);
   useEffect(() => { if (restoredRef.current) store.set("trackSortDir", sortDir); }, [sortDir]);
   useEffect(() => { if (restoredRef.current) store.set("trackColumns", trackColumns); }, [trackColumns]);

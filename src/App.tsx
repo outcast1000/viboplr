@@ -1514,7 +1514,7 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, savedCurrentTrackEntry, vol, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastDownloadDest, savedSearchViewModes, savedAutoSaveStreams, savedDownloadsCollectionId, savedMinimizeToMiniPlayer] = await timeAsync("store.restore", () => Promise.all([
+        const [v, sa, sal, st, , vol, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastDownloadDest, savedSearchViewModes, savedAutoSaveStreams, savedDownloadsCollectionId, savedMinimizeToMiniPlayer] = await timeAsync("store.restore", () => Promise.all([
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -1678,16 +1678,9 @@ function App() {
         if (savedDebugMode) setDebugMode(true);
         const savedSyncWithPlaying = await store.get<boolean | string>("syncWithPlaying");
         if (savedSyncWithPlaying === true || savedSyncWithPlaying === "enabled" || savedSyncWithPlaying === "active") setSyncWithPlaying(true);
-        const savedSelectedTrack = await store.get<string | number | null>("selectedTrack");
-        if (savedSelectedTrack != null) {
-          const key = typeof savedSelectedTrack === "number" ? `lib:${savedSelectedTrack}` : savedSelectedTrack;
-          if (key.startsWith("ext:")) {
-            if (savedCurrentTrackEntry) {
-              library.setFallbackTrackName({ name: savedCurrentTrackEntry.title, artistName: savedCurrentTrackEntry.artist_name ?? undefined, albumTitle: savedCurrentTrackEntry.album_title ?? undefined });
-            }
-          } else {
-            library.setSelectedTrack(key);
-          }
+        const savedFallbackTrack = await store.get<{ name: string; artistName?: string; albumTitle?: string } | null>("fallbackTrackName");
+        if (savedFallbackTrack) {
+          library.setFallbackTrackName(savedFallbackTrack);
         }
 
         await timeAsync("window.restore", async () => {
@@ -1820,6 +1813,15 @@ function App() {
       .catch(() => { if (!cancelled) setDetailTrack(null); });
     return () => { cancelled = true; };
   }, [library.selectedTrack, detailTrackLocal]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    if (detailTrack) {
+      store.set("fallbackTrackName", { name: detailTrack.title, artistName: detailTrack.artist_name ?? undefined, albumTitle: detailTrack.album_title ?? undefined });
+    } else {
+      store.set("fallbackTrackName", null);
+    }
+  }, [detailTrack]);
 
   // Sync detail view with currently playing track when user is idle (no navigation for 3 min)
 
