@@ -108,8 +108,7 @@ export function usePlayActions({
     if (tracks.length === 0) return;
     const album = albums.find(a => a.id === albumId);
     const albumImg = album ? getAlbumImage(album.title, album.artist_name) : null;
-    const stamped = tracks.map(t => !t.image_url && albumImg ? { ...t, image_url: albumImg } : t);
-    playTracks(stamped, opts?.startIndex ?? 0, buildAlbumContext(album, albumImg));
+    playTracks(tracks, opts?.startIndex ?? 0, buildAlbumContext(album, albumImg));
     if (album?.artist_name) {
       enrichDescription(`album:${album.artist_name}:${album.title}`, "album_wiki", setPlaylistContext);
     }
@@ -120,8 +119,7 @@ export function usePlayActions({
     if (tracks.length === 0) return;
     const artist = artists.find(a => a.id === artistId);
     const artistImg = artist ? getArtistImage(artist.name) : null;
-    const stamped = tracks.map(t => !t.image_url && artistImg ? { ...t, image_url: artistImg } : t);
-    playTracks(stamped, opts?.startIndex ?? 0, buildArtistContext(artist, artistImg));
+    playTracks(tracks, opts?.startIndex ?? 0, buildArtistContext(artist, artistImg));
     if (artist) {
       enrichDescription(`artist:${artist.name}`, "artist_bio", setPlaylistContext);
     }
@@ -132,8 +130,7 @@ export function usePlayActions({
     if (tracks.length === 0) return;
     const tag = tags.find(t => t.id === tagId);
     const tagImg = tag ? getTagImage(tag.name) : null;
-    const stamped = tracks.map(t => !t.image_url && tagImg ? { ...t, image_url: tagImg } : t);
-    playTracks(stamped, opts?.startIndex ?? 0, buildTagContext(tag, tagImg));
+    playTracks(tracks, opts?.startIndex ?? 0, buildTagContext(tag, tagImg));
   }, [playTracks, tags, getTagImage]);
 
   return { playAlbum, playArtist, playTag };
