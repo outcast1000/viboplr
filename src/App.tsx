@@ -3487,8 +3487,12 @@ function App() {
             specs.push({ kind: "item", text: "Next", action: handleNext });
             specs.push({ kind: "item", text: "Previous", action: queueHook.playPrevious });
             specs.push({ kind: "separator" });
-            const isLiked = t.liked === 1;
-            specs.push({ kind: "item", text: isLiked ? "Unlike" : "Like", action: () => likeActions.handleToggleLike(t) });
+            const ratingItems: MenuItemSpec[] = [
+              { kind: "check", text: "Like", checked: t.liked === 1, action: () => likeActions.handleToggleLike(t) },
+              { kind: "check", text: "None", checked: t.liked === 0, action: () => { if (t.liked === 1) likeActions.handleToggleLike(t); else if (t.liked === -1) likeActions.handleToggleDislike(t); } },
+              { kind: "check", text: "Dislike", checked: t.liked === -1, action: () => likeActions.handleToggleDislike(t) },
+            ];
+            specs.push({ kind: "submenu", text: "Rating", items: ratingItems });
           }
           const widthItems: MenuItemSpec[] = (["small", "medium", "large"] as const).map(size => ({
             kind: "check" as const,
@@ -3497,9 +3501,14 @@ function App() {
             action: () => mini.setMiniWidthSize(size),
           }));
           specs.push({ kind: "submenu", text: "Width", items: widthItems });
+          const heightItems: MenuItemSpec[] = [
+            { kind: "check", text: "Normal", checked: mini.miniRestingSize === "normal", action: () => mini.setMiniRestingSize("normal") },
+            { kind: "check", text: "Compact", checked: mini.miniRestingSize === "compact", action: () => mini.setMiniRestingSize("compact") },
+          ];
+          specs.push({ kind: "submenu", text: "Height", items: heightItems });
           specs.push({ kind: "separator" });
           specs.push({ kind: "item", text: "Show Main Window", action: mini.toggleMiniMode });
-          specs.push({ kind: "item", text: "Close App", action: () => exit(0) });
+          specs.push({ kind: "item", text: "Exit App", action: () => exit(0) });
           showNativeMenu(e.clientX, e.clientY, specs);
         }}
         onDownloadTrack={playback.currentTrack ? async () => {
