@@ -15,7 +15,7 @@ interface QueueTrack {
   album_title: string | null;
   duration_secs: number | null;
   format: string | null;
-  image_url?: string;       // Album art path/URL, set by stamp() or plugin
+  image_url?: string;       // Album art path/URL, set by plugin or async resolution
   liked: number;            // -1/0/1, synced on-demand
 }
 ```
@@ -28,10 +28,19 @@ interface QueueTrack {
 
 ### Image Resolution (Queue/NowPlaying)
 
-Priority order — no ID-based cache lookups:
-1. `track.image_url` (set by stamp, plugin, or restored thumbnail)
-2. Album image by name via `get_entity_image_by_name("album", album_title, artist_name)`
-3. Artist image by name via `get_entity_image_by_name("artist", artist_name)`
+Image resolution is **async-only** — there is no synchronous stamping. Tracks enter the queue with `image_url` unset (unless explicitly provided by a plugin). Both `QueuePanel.tsx` and the `currentTrack` effect in `App.tsx` resolve images using the same priority chain:
+
+1. `track.image_url` already set (explicit — from plugin, restored thumbnail). **Skip async resolution.**
+2. Video frame capture — for video tracks (`isVideoTrack(t)`), resolve library ID via `find_track_id_by_path`, then check `get_video_frames` for a cached first frame
+3. Album image by name via `get_entity_image("album", album_title, artist_name)`
+4. Artist image by name via `get_entity_image("artist", artist_name)`
+5. Placeholder disc SVG (QueuePanel only)
+
+**Rules:**
+- Never pre-stamp tracks with entity images before adding to queue — this bypasses the priority chain
+- Only plugin-provided `image_url` (via `PluginTrack.image_url`) should be set before queue entry
+- Video frame resolution only checks the cache (`get_video_frames`), never triggers extraction
+- The `find_track_id_by_path` command matches against the full computed path (with scheme prefix)
 
 ### Library Operations on QueueTracks
 
@@ -52,15 +61,15 @@ Every way tracks enter the queue and what each must maintain.
 
 | Operation | Canonical | Invariants |
 |---|---|---|
-| **Play tracks** | `playTracks(tracks, startIndex, context?)` | Replaces entire queue. Stamps images. Sets `queueIndex` to `startIndex`. If shuffle active, regenerates shuffle order with `startIndex` first. Sets or clears `playlistContext`. |
-| **Enqueue tracks** | `enqueueTracks(tracks)` | Appends to end. Stamps images. Does NOT change `queueIndex`. Does NOT clear `playlistContext`. Caller must run `findDuplicates()` first and present the duplicate banner — `enqueueTracks` itself has no dedup guard. |
-| **Play next** | `playNextInQueue(track)` | Inserts single track at `queueIndex + 1`. Stamps image. Does NOT advance index or trigger playback. |
+| **Play tracks** | `playTracks(tracks, startIndex, context?)` | Replaces entire queue. Sets `queueIndex` to `startIndex`. If shuffle active, regenerates shuffle order with `startIndex` first. Sets or clears `playlistContext`. |
+| **Enqueue tracks** | `enqueueTracks(tracks)` | Appends to end. Does NOT change `queueIndex`. Does NOT clear `playlistContext`. Caller must run `findDuplicates()` first and present the duplicate banner — `enqueueTracks` itself has no dedup guard. |
+| **Play next** | `playNextInQueue(track)` | Inserts single track at `queueIndex + 1`. Does NOT advance index or trigger playback. |
 | **Insert at position** | `insertAtPosition(tracks, position)` | Inserts at arbitrary index. If `position <= queueIndex`, shifts index up by `tracks.length`. |
-| **Add single** | `addToQueue(track)` | Appends one track. Stamps image. No index change. |
+| **Add single** | `addToQueue(track)` | Appends one track. No index change. |
 | **Add and play** | `addToQueueAndPlay(track, source?)` | Appends one track, sets `queueIndex` to new last position, calls `handlePlay`. |
-| **Load playlist** | `loadPlaylist()` | Replaces entire queue from `.m3u`/`.m3u8` file. Converts entries via `queueEntryToTrack`. Sets index to 0, plays first track, sets context to filename. `.mixtape` files delegate to `onOpenMixtape`. Does NOT call `stamp()` (playlist entries lack `album_id` so stamping would have no effect). |
+| **Load playlist** | `loadPlaylist()` | Replaces entire queue from `.m3u`/`.m3u8` file. Converts entries via `queueEntryToTrack`. Sets index to 0, plays first track, sets context to filename. `.mixtape` files delegate to `onOpenMixtape`. |
 
-**Image stamping rule:** Every entry path that accepts tracks calls `stamp()`, which assigns `image_url` by name-based image lookup for tracks that lack one. This must happen before tracks are added to state. Exception: `loadPlaylist` — playlist entries already have thumbs restored from disk.
+**Image resolution rule:** There is no synchronous image stamping. Image resolution happens asynchronously in `QueuePanel.tsx` (for queue thumbnails) and in the `currentTrack` effect in `App.tsx` (for now-playing art). Both use the same priority chain defined in "Image Resolution (Queue/NowPlaying)" above.
 
 **Key generation:** Library tracks get `lib:N` keys, external tracks get `ext:N` keys. The `key` field is the in-memory identity used for React rendering and multi-select — never persisted to disk.
 
@@ -166,7 +175,7 @@ How the app prevents accidental duplicate enqueues.
 - `enqueueTracks()` itself has NO built-in dedup. Callers are responsible for running `findDuplicates()` and presenting the banner. If you add a new enqueue entry point, it must follow this pattern.
 - The countdown resets to 10s whenever `pendingEnqueue` changes (new batch replaces previous).
 - Auto-approve fires via a `useEffect` watching `[countdown, pendingEnqueue]` — when `countdown === 0 && pendingEnqueue !== null`, calls `onAllowAll`.
-- `stamp()` runs on the incoming tracks before duplicate comparison, so `image_url` is populated regardless of which resolution path the user picks.
+- Image resolution happens async after tracks are added to the queue, regardless of which duplicate resolution path the user picks.
 
 ## Queue Panel UI
 
@@ -214,14 +223,11 @@ The visual and interaction layer.
 **Auto-scroll:** When `queueIndex` changes, the current track scrolls into view (`scrollIntoView({ block: "nearest", behavior: "smooth" })`). Also fires when panel un-collapses.
 
 **Image resolution for queue items (priority order):**
-1. Video frame (for video tracks, keyed by path)
-2. `image_url` on the track object (set by stamp, plugin, or restored thumb)
-3. Album image by name via `get_entity_image_by_name("album", album_title, artist_name)`
-4. Artist image by name via `get_entity_image_by_name("artist", artist_name)`
-5. Remote playlist local thumbnail from `mainPlaylistDir/thumbs/` (with cache-busting `?v=` param)
-6. Placeholder SVG
+1. `image_url` on the track object (explicit — from plugin or restored thumb) — skips async resolution
+2. Remote playlist local thumbnail from `mainPlaylistDir/thumbs/` (with cache-busting `?v=` param)
+3. Async resolution chain (see "Image Resolution (Queue/NowPlaying)" section above): video frame → album → artist → placeholder SVG
 
-No ID-based cache lookups — all image resolution is name-based or uses the track's own `image_url`.
+No ID-based cache lookups — all image resolution is name-based, path-based, or uses the track's own `image_url`.
 
 **Tooltips:** 400ms hover delay. Normal mode: title + artist/album/format. Debug mode: full track metadata. Positioned to avoid viewport overflow.
 
@@ -277,5 +283,5 @@ Shuffle order is generated once (on mode switch or `playTracks`) and not updated
 4. Mutating the queue array without recalculating `queueIndex` — breaks "what's playing"
 5. Adding a new persistence effect without the `restoredRef` guard — overwrites saved state on startup
 6. Assuming `track.path` is a playable URL — it's a scheme-prefixed identifier
-7. Forgetting to call `stamp()` on tracks before adding to queue — tracks lose image URLs
+7. Pre-stamping tracks with entity images before adding to queue — bypasses the async resolution priority chain (video frame → album → artist)
 8. Using `track.id`, `track.album_id`, or `track.artist_id` on queue/playlist/currentTrack — these are `QueueTrack` which has no DB IDs. Use name-based lookups or on-demand `find_track_by_metadata` instead.

@@ -1834,16 +1834,31 @@ function App() {
     });
   }, []);
 
-  // Resolve image for current track when name-based cache populates
+  // Resolve image for current track: video frame → album → artist
   useEffect(() => {
     const track = playback.currentTrack;
     if (!track || track.image_url) return;
-    const img = (track.album_title && albumImageCache.getImage(track.album_title, track.artist_name ?? undefined))
-      || (track.artist_name && artistImageCache.getImage(track.artist_name))
-      || null;
-    if (img) {
-      playback.setCurrentTrack(prev => prev && !prev.image_url ? { ...prev, image_url: img } : prev);
-    }
+    let cancelled = false;
+    (async () => {
+      if (isVideoTrack(track) && track.path) {
+        const trackId = await invoke<number | null>("find_track_id_by_path", { path: track.path });
+        if (trackId && !cancelled) {
+          const frames = await invoke<{ status: string; paths?: string[] } | null>("get_video_frames", { trackId });
+          if (!cancelled && frames?.status === "ok" && frames.paths?.[0]) {
+            playback.setCurrentTrack(prev => prev && !prev.image_url ? { ...prev, image_url: frames.paths![0] } : prev);
+            return;
+          }
+        }
+      }
+      if (cancelled) return;
+      const img = (track.album_title && albumImageCache.getImage(track.album_title, track.artist_name ?? undefined))
+        || (track.artist_name && artistImageCache.getImage(track.artist_name))
+        || null;
+      if (img) {
+        playback.setCurrentTrack(prev => prev && !prev.image_url ? { ...prev, image_url: img } : prev);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [playback.currentTrack, albumImageCache.getImage, artistImageCache.getImage]);
 
   // Ref for keyboard shortcut handler to avoid stale closures
