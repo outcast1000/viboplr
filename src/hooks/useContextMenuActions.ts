@@ -10,7 +10,6 @@ import { store } from "../store";
 interface UseContextMenuActionsDeps {
   library: {
     tracks: Track[];
-    sortedTracks: Track[];
     artists: Artist[];
     albums: Album[];
     setTracks: React.Dispatch<React.SetStateAction<Track[]>>;
@@ -115,8 +114,10 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     if (!cm) return;
     const { target } = cm;
     if (target.kind === "track" && target.trackId) {
-      const track = library.tracks.find(t => t.id === target.trackId);
-      if (track) queueHook.playTracks([track], 0);
+      try {
+        const track = await invoke<Track>("get_track_by_id", { trackId: target.trackId });
+        queueHook.playTracks([track], 0);
+      } catch (e) { console.error("Failed to play track:", e); }
     } else if (target.kind === "album" && target.albumId) {
       playActions.playAlbum(target.albumId);
     } else if (target.kind === "artist" && target.artistId) {
@@ -124,9 +125,10 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } else if (target.kind === "tag" && target.tagId) {
       playActions.playTag(target.tagId);
     } else if (target.kind === "multi-track") {
-      const idSet = new Set(target.trackIds);
-      const selected = library.sortedTracks.filter(t => t.id != null && idSet.has(t.id));
-      if (selected.length > 0) queueHook.playTracks(selected, 0);
+      try {
+        const selected = await invoke<Track[]>("get_tracks_by_ids", { ids: target.trackIds });
+        if (selected.length > 0) queueHook.playTracks(selected, 0);
+      } catch (e) { console.error("Failed to play tracks:", e); }
     } else if (target.kind === "queue-multi") {
       const selected = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
       if (selected.length > 0) queueHook.playTracks(selected, 0);
@@ -179,8 +181,10 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     if (!cm) return;
     const { target } = cm;
     if (target.kind === "track" && target.trackId) {
-      const track = library.tracks.find(t => t.id === target.trackId);
-      if (track) handleEnqueue([track]);
+      try {
+        const track = await invoke<Track>("get_track_by_id", { trackId: target.trackId });
+        handleEnqueue([track]);
+      } catch (e) { console.error("Failed to enqueue track:", e); }
     } else if (target.kind === "album" && target.albumId) {
       const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
       handleEnqueue(albumTracks);
@@ -191,9 +195,10 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       const tagTracks = await invoke<Track[]>("get_tracks_by_tag", { tagId: target.tagId });
       handleEnqueue(tagTracks);
     } else if (target.kind === "multi-track") {
-      const idSet = new Set(target.trackIds);
-      const selected = library.sortedTracks.filter(t => t.id != null && idSet.has(t.id));
-      handleEnqueue(selected);
+      try {
+        const selected = await invoke<Track[]>("get_tracks_by_ids", { ids: target.trackIds });
+        handleEnqueue(selected);
+      } catch (e) { console.error("Failed to enqueue tracks:", e); }
     } else if (target.kind === "multi-album" || target.kind === "multi-artist" || target.kind === "multi-tag") {
       const all = await fetchMultiEntityTracks(target);
       handleEnqueue(all);

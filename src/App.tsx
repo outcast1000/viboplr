@@ -736,7 +736,6 @@ function App() {
   const contextMenuActions = useContextMenuActions({
     library: {
       tracks: library.tracks,
-      sortedTracks: library.sortedTracks,
       artists: library.artists,
       albums: library.albums,
       setTracks: library.setTracks,
