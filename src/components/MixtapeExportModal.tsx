@@ -26,6 +26,7 @@ interface MixtapeExportModalProps {
 
 type MixtapeType = "custom" | "album" | "best_of_artist";
 type ExportMode = "playlist" | "full";
+type ExportTab = "details" | "metadata" | "tracks";
 
 interface MixtapeExportProgress {
   currentTrack: number;
@@ -41,7 +42,7 @@ function trackStatus(t: ExportTrack): "local" | "remote" | "unknown" {
 }
 
 const formatDuration = (secs?: number): string => {
-  if (!secs) return "\u2014";
+  if (!secs) return "—";
   const mins = Math.floor(secs / 60);
   const s = Math.floor(secs % 60);
   return `${mins}:${s.toString().padStart(2, "0")}`;
@@ -74,7 +75,7 @@ function formatPhase(phase: string): string {
 }
 
 const formatFileSize = (bytes?: number): string => {
-  if (!bytes) return "\u2014";
+  if (!bytes) return "—";
   const mb = bytes / (1024 * 1024);
   if (mb < 1024) return `${mb.toFixed(1)} MB`;
   return `${(mb / 1024).toFixed(2)} GB`;
@@ -91,6 +92,7 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
   const [error, setError] = useState<string | null>(null);
   const trackList = tracks;
   const [exportMode, setExportMode] = useState<ExportMode>("full");
+  const [activeTab, setActiveTab] = useState<ExportTab>("details");
   const [metadataEntries, setMetadataEntries] = useState<{ key: string; value: string }[]>(() => {
     const entries: { key: string; value: string }[] = [];
     if (defaultMetadata) {
@@ -282,7 +284,7 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
   };
 
   return (
-    <div className="ds-modal-overlay" onClick={handleCancel}>
+    <div className="ds-modal-overlay">
       <div className="ds-modal mixtape-export-modal" onClick={(e) => e.stopPropagation()}>
         <h2 className="ds-modal-title">Export Mixtape</h2>
 
@@ -295,138 +297,154 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
           </div>
         ) : !exporting ? (
           <>
-            <div className="mixtape-export-form">
-              <div className="mixtape-export-cover-section">
-                {coverPath ? (
-                  <img className="mixtape-export-cover-preview" src={convertFileSrc(coverPath)} alt="Cover" />
-                ) : (
-                  <div className="mixtape-export-cover-placeholder" onClick={handleCoverChoose}>No cover</div>
-                )}
-                <div className="mixtape-export-cover-actions">
-                  <button onClick={handleCoverChoose}>Choose</button>
-                  <button onClick={handleCoverPaste}>Paste</button>
-                  {coverPath && <button onClick={handleCoverRemove}>Remove</button>}
-                </div>
-              </div>
+            <div className="ds-tabs ds-tabs--compact" style={{ padding: "0 16px" }}>
+              <button className={`ds-tab${activeTab === "details" ? " active" : ""}`} onClick={() => setActiveTab("details")}>Details</button>
+              <button className={`ds-tab${activeTab === "metadata" ? " active" : ""}`} onClick={() => setActiveTab("metadata")}>Metadata</button>
+              <button className={`ds-tab${activeTab === "tracks" ? " active" : ""}`} onClick={() => setActiveTab("tracks")}>
+                Tracks
+                <span className="ds-tab-badge">{trackList.length}</span>
+              </button>
+            </div>
 
-              <div className="mixtape-export-fields">
-                <label>
-                  Title
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Mixtape title"
-                    autoFocus
-                  />
-                </label>
-                <div className="mixtape-export-mode">
-                  <label>Export mode</label>
-                  <div className="mixtape-export-mode-options">
-                    <button className={`mixtape-mode-btn${exportMode === "full" ? " active" : ""}`} onClick={() => setExportMode("full")}>Full (with audio)</button>
-                    <button className={`mixtape-mode-btn${exportMode === "playlist" ? " active" : ""}`} onClick={() => setExportMode("playlist")}>Playlist only</button>
+            {activeTab === "details" ? (
+              <div className="mixtape-export-form">
+                <div className="mixtape-export-cover-section">
+                  {coverPath ? (
+                    <img className="mixtape-export-cover-preview" src={convertFileSrc(coverPath)} alt="Cover" />
+                  ) : (
+                    <div className="mixtape-export-cover-placeholder" onClick={handleCoverChoose}>No cover</div>
+                  )}
+                  <div className="mixtape-export-cover-actions">
+                    <button onClick={handleCoverChoose}>Choose</button>
+                    <button onClick={handleCoverPaste}>Paste</button>
+                    {coverPath && <button onClick={handleCoverRemove}>Remove</button>}
                   </div>
-                  {exportMode === "full" && trackList.some(t => trackStatus(t) !== "local") && (
-                    <p className="mixtape-export-hint">{trackList.filter(t => trackStatus(t) !== "local").length} remote track{trackList.filter(t => trackStatus(t) !== "local").length > 1 ? "s" : ""} will be downloaded during export</p>
-                  )}
-                  {exportMode === "playlist" && (
-                    <p className="mixtape-export-hint">Track list and cover only — no audio files</p>
-                  )}
                 </div>
-                <div className="mixtape-export-row">
+
+                <div className="mixtape-export-fields">
                   <label>
-                    Type
-                    <select value={mixtapeType} onChange={(e) => setMixtapeType(e.target.value as MixtapeType)}>
-                      <option value="custom">{mixtapeTypeLabel("custom")}</option>
-                      <option value="album">{mixtapeTypeLabel("album")}</option>
-                      <option value="best_of_artist">{mixtapeTypeLabel("best_of_artist")}</option>
-                    </select>
+                    Title
+                    <input
+                      type="text"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder="Mixtape title"
+                      autoFocus
+                    />
+                  </label>
+                  <div className="mixtape-export-mode">
+                    <label>Export mode</label>
+                    <div className="mixtape-export-mode-options">
+                      <button className={`mixtape-mode-btn${exportMode === "full" ? " active" : ""}`} onClick={() => setExportMode("full")}>Full (with audio)</button>
+                      <button className={`mixtape-mode-btn${exportMode === "playlist" ? " active" : ""}`} onClick={() => setExportMode("playlist")}>Playlist only</button>
+                    </div>
+                    {exportMode === "full" && trackList.some(t => trackStatus(t) !== "local") && (
+                      <p className="mixtape-export-hint">{trackList.filter(t => trackStatus(t) !== "local").length} remote track{trackList.filter(t => trackStatus(t) !== "local").length > 1 ? "s" : ""} will be downloaded during export</p>
+                    )}
+                    {exportMode === "playlist" && (
+                      <p className="mixtape-export-hint">Track list and cover only — no audio files</p>
+                    )}
+                  </div>
+                  <div className="mixtape-export-row">
+                    <label>
+                      Type
+                      <select value={mixtapeType} onChange={(e) => setMixtapeType(e.target.value as MixtapeType)}>
+                        <option value="custom">{mixtapeTypeLabel("custom")}</option>
+                        <option value="album">{mixtapeTypeLabel("album")}</option>
+                        <option value="best_of_artist">{mixtapeTypeLabel("best_of_artist")}</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label className="mixtape-export-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={includeThumb}
+                      onChange={(e) => setIncludeThumb(e.target.checked)}
+                    />
+                    Include track thumbnails
                   </label>
                 </div>
-                <div className="mixtape-metadata-editor">
-                  <label>Metadata</label>
-                  {metadataEntries.map((entry, idx) => {
-                    const isDuplicate = metadataEntries.some((e, i) => i !== idx && e.key === entry.key && entry.key !== "");
-                    return (
-                      <div key={idx} className="mixtape-metadata-row">
-                        <input
-                          type="text"
-                          value={entry.key}
-                          onChange={(e) => handleMetadataKeyChange(idx, e.target.value)}
-                          onBlur={() => handleMetadataKeyBlur(idx)}
-                          placeholder="Key"
-                          className={isDuplicate ? "mixtape-metadata-error" : ""}
-                        />
-                        <input
-                          type="text"
-                          value={entry.value}
-                          onChange={(e) => handleMetadataValueChange(idx, e.target.value)}
-                          placeholder="Value"
-                        />
-                        <button className="mixtape-metadata-remove" onClick={() => handleRemoveMetadata(idx)}>x</button>
-                      </div>
-                    );
-                  })}
-                  <select
-                    className="mixtape-metadata-add-select"
-                    value=""
-                    onChange={(e) => {
-                      const key = e.target.value;
-                      if (key === "__custom__") {
-                        handleAddMetadata();
-                      } else if (key) {
-                        setMetadataEntries(prev => [...prev, { key, value: "" }]);
-                      }
-                    }}
-                  >
-                    <option value="">+ Add field</option>
-                    {RECOMMENDED_METADATA_KEYS
-                      .filter(rec => !metadataEntries.some(e => e.key === rec.key))
-                      .map(rec => (
-                        <option key={rec.key} value={rec.key}>{rec.label}</option>
-                      ))}
-                    <option value="__custom__">Custom...</option>
-                  </select>
-                </div>
-                <label className="mixtape-export-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={includeThumb}
-                    onChange={(e) => setIncludeThumb(e.target.checked)}
-                  />
-                  Include track thumbnails
-                </label>
               </div>
-            </div>
-
-            <div className="mixtape-export-tracklist">
-              <div className="mixtape-export-tracklist-header">
-                <span>{trackList.length} tracks</span>
-                {exportMode === "full" && estimatedSize > 0 && <span>~{formatFileSize(estimatedSize)}</span>}
-              </div>
-              {trackList.map((track, idx) => (
-                <div
-                  key={track.id ?? `track-${idx}`}
-                  className="mixtape-export-track"
-                >
-                  <span className="mixtape-track-num">{idx + 1}</span>
-                  {track.imageUrl && (
-                    <img
-                      className="mixtape-track-thumb"
-                      src={track.imageUrl.startsWith("http") ? track.imageUrl : convertFileSrc(track.imageUrl)}
-                      alt=""
-                    />
-                  )}
-                  <div className="mixtape-track-info">
-                    <span className="mixtape-track-title">{track.title}</span>
-                    <span className="mixtape-track-artist">
-                      {track.artistName}{track.albumTitle ? ` \u00B7 ${track.albumTitle}` : ""}
-                    </span>
+            ) : activeTab === "metadata" ? (
+              <div className="mixtape-export-form">
+                <div className="mixtape-export-fields" style={{ flex: 1 }}>
+                  <div className="mixtape-metadata-editor">
+                    <label>Metadata</label>
+                    {metadataEntries.map((entry, idx) => {
+                      const isDuplicate = metadataEntries.some((e, i) => i !== idx && e.key === entry.key && entry.key !== "");
+                      return (
+                        <div key={idx} className="mixtape-metadata-row">
+                          <input
+                            type="text"
+                            value={entry.key}
+                            onChange={(e) => handleMetadataKeyChange(idx, e.target.value)}
+                            onBlur={() => handleMetadataKeyBlur(idx)}
+                            placeholder="Key"
+                            className={isDuplicate ? "mixtape-metadata-error" : ""}
+                          />
+                          <input
+                            type="text"
+                            value={entry.value}
+                            onChange={(e) => handleMetadataValueChange(idx, e.target.value)}
+                            placeholder="Value"
+                          />
+                          <button className="mixtape-metadata-remove" onClick={() => handleRemoveMetadata(idx)}>x</button>
+                        </div>
+                      );
+                    })}
+                    <select
+                      className="mixtape-metadata-add-select"
+                      value=""
+                      onChange={(e) => {
+                        const key = e.target.value;
+                        if (key === "__custom__") {
+                          handleAddMetadata();
+                        } else if (key) {
+                          setMetadataEntries(prev => [...prev, { key, value: "" }]);
+                        }
+                      }}
+                    >
+                      <option value="">+ Add field</option>
+                      {RECOMMENDED_METADATA_KEYS
+                        .filter(rec => !metadataEntries.some(e => e.key === rec.key))
+                        .map(rec => (
+                          <option key={rec.key} value={rec.key}>{rec.label}</option>
+                        ))}
+                      <option value="__custom__">Custom...</option>
+                    </select>
                   </div>
-                  <span className="mixtape-track-duration">{formatDuration(track.durationSecs)}</span>
                 </div>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <div className="mixtape-export-tracklist">
+                <div className="mixtape-export-tracklist-header">
+                  <span>{trackList.length} tracks</span>
+                  {exportMode === "full" && estimatedSize > 0 && <span>~{formatFileSize(estimatedSize)}</span>}
+                </div>
+                {trackList.map((track, idx) => (
+                  <div
+                    key={track.id ?? `track-${idx}`}
+                    className="mixtape-export-track"
+                  >
+                    <span className="mixtape-track-num">{idx + 1}</span>
+                    {track.imageUrl && (
+                      <img
+                        className="mixtape-track-thumb"
+                        src={track.imageUrl.startsWith("http") ? track.imageUrl : convertFileSrc(track.imageUrl)}
+                        alt=""
+                      />
+                    )}
+                    <div className="mixtape-track-info">
+                      <span className="mixtape-track-title">{track.title}</span>
+                      <span className="mixtape-track-artist">
+                        {track.artistName}{track.albumTitle ? ` · ${track.albumTitle}` : ""}
+                      </span>
+                    </div>
+                    <span className="mixtape-track-duration">{formatDuration(track.durationSecs)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {error && <p className="mixtape-preview-error">{error}</p>}
 
