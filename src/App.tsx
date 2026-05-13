@@ -2241,20 +2241,28 @@ function App() {
     store.set("searchViewModes", modes);
   }
   const handleAlbumPlayTracks = useCallback((tracks: Track[], index: number) => {
+    queueHook.playTracks(tracks, index);
+  }, [queueHook.playTracks]);
+
+  const handleAlbumPlayAll = useCallback((tracks: Track[]) => {
     const albumId = tracks[0]?.album_id;
     if (albumId != null) {
-      playActions.playAlbum(albumId, { tracks, startIndex: index });
+      playActions.playAlbum(albumId, { tracks, startIndex: 0 });
     } else {
-      queueHook.playTracks(tracks, index);
+      queueHook.playTracks(tracks, 0);
     }
   }, [playActions.playAlbum, queueHook.playTracks]);
 
   const handleArtistPlayTracks = useCallback((tracks: Track[], index: number) => {
+    queueHook.playTracks(tracks, index);
+  }, [queueHook.playTracks]);
+
+  const handleArtistPlayAll = useCallback((tracks: Track[]) => {
     const artistId = tracks[0]?.artist_id;
     if (artistId != null) {
-      playActions.playArtist(artistId, { tracks, startIndex: index });
+      playActions.playArtist(artistId, { tracks, startIndex: 0 });
     } else {
-      queueHook.playTracks(tracks, index);
+      queueHook.playTracks(tracks, 0);
     }
   }, [playActions.playArtist, queueHook.playTracks]);
 
@@ -2698,6 +2706,7 @@ function App() {
                 currentTrack={playback.currentTrack}
                 playing={playback.playing}
                 onPlayTracks={handleArtistPlayTracks}
+                onPlayAll={handleArtistPlayAll}
                 onPlayAlbum={playActions.playAlbum}
                 onArtistClick={library.handleArtistClick}
                 onAlbumClick={library.handleAlbumClick}
@@ -2767,6 +2776,7 @@ function App() {
                 currentTrack={playback.currentTrack}
                 playing={playback.playing}
                 onPlayTracks={handleAlbumPlayTracks}
+                onPlayAll={handleAlbumPlayAll}
                 onArtistClick={library.handleArtistClick}
                 onNavigateToArtistByName={library.navigateToArtistByName}
                 onAlbumClick={library.handleAlbumClick}

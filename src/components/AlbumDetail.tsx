@@ -25,6 +25,7 @@ interface AlbumDetailProps {
   currentTrack: QueueTrack | null;
   playing: boolean;
   onPlayTracks: (tracks: Track[], index: number) => void;
+  onPlayAll: (tracks: Track[]) => void;
   onArtistClick: (id: number) => void;
   onNavigateToArtistByName: (name: string) => void;
   onAlbumClick: (id: number) => void;
@@ -50,6 +51,7 @@ export function AlbumDetail({
   currentTrack,
   playing,
   onPlayTracks,
+  onPlayAll,
   onArtistClick,
   onNavigateToArtistByName,
   onAlbumClick,
@@ -147,7 +149,7 @@ export function AlbumDetail({
               <button
                 className="detail-art-play"
                 title="Play All"
-                onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
+                onClick={() => onPlayAll(sortedTracks.filter(t => t.liked !== -1))}
               >
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
               </button>
