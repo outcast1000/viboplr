@@ -4,6 +4,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import type { PlaylistContext } from "../hooks/useQueue";
+import type { ExportTrack } from "./MixtapeExportModal";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import playlistDefault from "../assets/playlist-default.png";
 import "./PlaylistsView.css";
@@ -63,7 +64,7 @@ interface PlaylistsViewProps {
   searchQuery: string;
   onPlayTracks: (tracks: any[], startIndex: number, context?: PlaylistContext | null) => void;
   onEnqueueTracks: (tracks: any[]) => void;
-  onExportAsMixtape?: (trackIds: number[], defaultTitle?: string) => void;
+  onExportAsMixtape?: (tracks: ExportTrack[], defaultTitle?: string, coverPath?: string | null, metadata?: Record<string, string> | null) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
 }
@@ -157,10 +158,16 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
       specs.push({ kind: "item", text: "Export as Mixtape", action: async () => {
         try {
           const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
-          const paths = rows.map(t => t.source).filter((s): s is string => s != null);
-          if (paths.length === 0) return;
-          const libraryTracks = await invoke<{ id: number }[]>("get_tracks_by_paths", { paths });
-          if (libraryTracks.length > 0) onExportAsMixtape(libraryTracks.map(t => t.id), pl.name);
+          if (rows.length === 0) return;
+          const meta = pl.metadata ? JSON.parse(pl.metadata) as Record<string, string> : null;
+          onExportAsMixtape(rows.map(t => ({
+            title: t.title,
+            artistName: t.artist_name || undefined,
+            albumTitle: t.album_name || undefined,
+            durationSecs: t.duration_secs || undefined,
+            path: t.source || undefined,
+            imageUrl: t.image_path || undefined,
+          })), pl.name, pl.image_path, meta);
         } catch (e) {
           console.error("Failed to prepare mixtape export:", e);
         }
@@ -245,17 +252,17 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
               <button className="playlists-action-btn playlists-action-btn-play" onClick={() => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0, playlistContext(selectedPlaylist))} disabled={tracks.length === 0}>Play</button>
               <button className="playlists-action-btn" onClick={() => handleExport(selectedPlaylist)}>Export as M3U</button>
               {onExportAsMixtape && (
-                <button className="playlists-action-btn" onClick={async () => {
-                  const paths = tracks.map(t => t.source).filter((s): s is string => s != null);
-                  if (paths.length === 0) return;
-                  try {
-                    const libraryTracks = await invoke<{ id: number }[]>("get_tracks_by_paths", { paths });
-                    if (libraryTracks.length > 0) {
-                      onExportAsMixtape(libraryTracks.map(t => t.id), selectedPlaylist.name);
-                    }
-                  } catch (e) {
-                    console.error("Failed to prepare mixtape export:", e);
-                  }
+                <button className="playlists-action-btn" onClick={() => {
+                  if (tracks.length === 0) return;
+                  const meta = selectedPlaylist.metadata ? JSON.parse(selectedPlaylist.metadata) as Record<string, string> : null;
+                  onExportAsMixtape(tracks.map(t => ({
+                    title: t.title,
+                    artistName: t.artist_name || undefined,
+                    albumTitle: t.album_name || undefined,
+                    durationSecs: t.duration_secs || undefined,
+                    path: t.source || undefined,
+                    imageUrl: t.image_path || undefined,
+                  })), selectedPlaylist.name, selectedPlaylist.image_path, meta);
                 }} disabled={tracks.length === 0}>Export as Mixtape</button>
               )}
               <button className="playlists-action-btn playlists-action-btn-danger" onClick={() => setDeleteConfirm(selectedPlaylist)}>Delete</button>

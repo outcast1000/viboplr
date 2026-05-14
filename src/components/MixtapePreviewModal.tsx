@@ -79,14 +79,14 @@ export function MixtapePreviewModal({
       setProgress(null);
     });
 
-    const unlistenJustPlay = listen<Track[]>("mixtape-just-play", (event) => {
+    const unlistenJustPlay = listen<{ tracks: Track[]; coverPath?: string }>("mixtape-just-play", (event) => {
       if (onQueueTracks && preview) {
         const meta = preview.manifest.metadata && Object.keys(preview.manifest.metadata).length > 0
           ? preview.manifest.metadata as Record<string, string>
           : null;
-        onQueueTracks(event.payload, {
+        onQueueTracks(event.payload.tracks, {
           name: preview.manifest.title,
-          imagePath: preview.cover_temp_path,
+          imagePath: event.payload.coverPath || preview.cover_temp_path,
           metadata: meta,
         });
       }

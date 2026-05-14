@@ -2358,6 +2358,7 @@ function App() {
         albumTitle: t.album_title || undefined,
         durationSecs: t.duration_secs || undefined,
         fileSize: t.file_size || undefined,
+        path: t.path || undefined,
       })));
       let inferredType = defaultType;
       if (!inferredType) {
@@ -2376,9 +2377,29 @@ function App() {
     }
   }, [library.selectedAlbum, library.selectedArtist]);
 
+  const handleExportAsMixtapeDirect = useCallback((tracks: ExportTrack[], defaultTitle?: string, coverPath?: string | null, metadata?: Record<string, string> | null) => {
+    if (tracks.length === 0) return;
+    setMixtapeExportTracks(tracks);
+    setMixtapeExportDefaultTitle(defaultTitle || "");
+    setMixtapeExportDefaultCover(coverPath ?? null);
+    setMixtapeExportDefaultMetadata(metadata ?? null);
+    setMixtapeExportDefaultType("custom");
+  }, []);
+
   // Queue handler for mixtape "Just Play" mode — replaces the queue with mixtape tracks
   const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; imagePath?: string | null; metadata?: Record<string, string> | null }) => {
-    queueHook.playTracks(tracks, 0, contextFromMixtapeMetadata(context.name, context.imagePath ?? null, context.metadata ?? null));
+    const queueTracks: QueueTrack[] = tracks.map(t => ({
+      key: t.key || nextExternalKey(),
+      path: t.path ?? null,
+      title: t.title,
+      artist_name: t.artist_name ?? null,
+      album_title: t.album_title ?? null,
+      duration_secs: t.duration_secs ?? null,
+      format: t.format ?? null,
+      image_url: t.image_url,
+      liked: t.liked ?? 0,
+    }));
+    queueHook.playTracks(queueTracks, 0, contextFromMixtapeMetadata(context.name, context.imagePath ?? null, context.metadata ?? null));
   }, [queueHook.playTracks]);
 
   // Bridge for keyboard shortcuts
@@ -2878,7 +2899,7 @@ function App() {
                 searchQuery={viewSearch.getQuery("playlists")}
                 onPlayTracks={queueHook.playTracks}
                 onEnqueueTracks={queueHook.enqueueTracks}
-                onExportAsMixtape={handleExportAsMixtape}
+                onExportAsMixtape={handleExportAsMixtapeDirect}
                 pluginMenuItems={plugins.menuItems}
                 onPluginAction={plugins.dispatchContextMenuAction}
               />

@@ -548,8 +548,15 @@ impl Database {
                 .exists([])?;
             if !has_desc {
                 conn.execute_batch(
-                    "ALTER TABLE playlists ADD COLUMN description TEXT;
-                     ALTER TABLE playlists ADD COLUMN metadata TEXT;"
+                    "ALTER TABLE playlists ADD COLUMN description TEXT;"
+                )?;
+            }
+            let has_meta: bool = conn
+                .prepare("SELECT 1 FROM pragma_table_info('playlists') WHERE name = 'metadata'")?
+                .exists([])?;
+            if !has_meta {
+                conn.execute_batch(
+                    "ALTER TABLE playlists ADD COLUMN metadata TEXT;"
                 )?;
             }
             conn.execute("UPDATE db_version SET version = 33 WHERE rowid = 1", [])?;
@@ -566,6 +573,16 @@ impl Database {
                  );
                  UPDATE db_version SET version = 34 WHERE rowid = 1;"
             )?;
+        }
+
+        if version < 35 {
+            let has_meta: bool = conn
+                .prepare("SELECT 1 FROM pragma_table_info('playlists') WHERE name = 'metadata'")?
+                .exists([])?;
+            if !has_meta {
+                conn.execute_batch("ALTER TABLE playlists ADD COLUMN metadata TEXT;")?;
+            }
+            conn.execute("UPDATE db_version SET version = 35 WHERE rowid = 1", [])?;
         }
 
         // Rebuild FTS when schema predates current layout OR when bumping to v31

@@ -4395,12 +4395,17 @@ pub fn import_mixtape(
                 };
 
                 let track_paths: Vec<serde_json::Value> = manifest.tracks.iter().map(|t| {
+                    let thumb_path = t.thumb.as_ref()
+                        .map(|th| playback_dir.join(th))
+                        .filter(|p| p.exists())
+                        .map(|p| p.to_string_lossy().to_string());
                     serde_json::json!({
                         "title": t.title,
-                        "artist": t.artist,
-                        "album": t.album,
-                        "durationSecs": t.duration_secs,
+                        "artist_name": t.artist,
+                        "album_title": t.album,
+                        "duration_secs": t.duration_secs,
                         "path": t.file.as_ref().map(|f| format!("file://{}", playback_dir.join(f).to_string_lossy())).unwrap_or_default(),
+                        "image_url": thumb_path,
                     })
                 }).collect();
 
