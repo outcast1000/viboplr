@@ -31,7 +31,7 @@ if (!version) {
   console.log(`No version specified, bumping patch: ${pkg.version} -> ${version}`);
 }
 
-console.log(`\nBumping version to ${version}...\n`);
+
 
 if (!/^\d+\.\d+\.\d+$/.test(version)) {
   console.error("Usage: node scripts/bump.mjs [version]  (e.g. 0.2.0)");
@@ -129,6 +129,8 @@ function markdownToHtml(body) {
 // ---------------------------------------------------------------------------
 // Step 2 — Bump version in source files
 // ---------------------------------------------------------------------------
+
+console.log(`\nBumping version to ${version}...\n`);
 
 const versionFiles = [
   { path: "package.json", replace: (s) => s.replace(/"version":\s*"[^"]*"/, `"version": "${version}"`) },
