@@ -1,75 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getInitials } from "../utils";
-import type { Track, QueueTrack, ColumnConfig } from "../types";
+import type { Track, Artist, ColumnConfig } from "../types";
 
-import type { SearchProviderConfig } from "../searchProviders";
 import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
-import { useArtistDetail } from "../hooks/useArtistDetail";
+import { useEntityDetail } from "../hooks/useEntityDetail";
+import { useDetailActions, useDetailState } from "../contexts/DetailViewContext";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { ImageActions } from "./ImageActions";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
-import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
+import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
 
 interface ArtistDetailContentProps {
   name: string;
-  getArtistImage: (name: string) => string | null;
-  getAlbumImage: (title: string, artistName?: string | null) => string | null;
-  onImageChanged: () => void;
-  onRefreshImage: () => void;
-  searchProviders: SearchProviderConfig[];
-  currentTrack: QueueTrack | null;
-  playing: boolean;
-  onPlayTracks: (tracks: Track[], index: number) => void;
-  onPlayAll: (tracks: Track[]) => void;
-  onPlayAlbum: (albumId: number) => void;
-  onArtistClick: (id: number) => void;
-  onAlbumClick: (id: number) => void;
-  onNavigateToArtistByName: (name: string) => void;
-  onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<string>) => void;
-  onAlbumContextMenu: (e: React.MouseEvent, albumId: number) => void;
-  onToggleLike: (track: Track) => void;
-  onToggleDislike: (track: Track) => void;
-  onTrackDragStart: (tracks: Track[]) => void;
-  onDeleteTracks?: (trackIds: number[]) => void;
-  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
-  pluginNames?: Map<string, string>;
-  onInfoTrackContextMenu?: (e: React.MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
-  onEntityContextMenu?: (e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;
 }
 
-export function ArtistDetailContent({
-  name,
-  getArtistImage,
-  getAlbumImage,
-  onImageChanged,
-  onRefreshImage,
-  searchProviders,
-  currentTrack,
-  playing,
-  onPlayTracks,
-  onPlayAll,
-  onPlayAlbum,
-  onArtistClick,
-  onAlbumClick,
-  onNavigateToArtistByName,
-  onTrackContextMenu,
-  onAlbumContextMenu,
-  onToggleLike,
-  onToggleDislike,
-  onTrackDragStart,
-  onDeleteTracks,
-  invokeInfoFetch,
-  pluginNames,
-  onInfoTrackContextMenu,
-  onEntityContextMenu,
-}: ArtistDetailContentProps) {
+export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
+  const actions = useDetailActions();
+  const state = useDetailState();
   const {
-    artist,
+    entity,
     sortedTracks,
     albums,
     isLibrary,
@@ -77,9 +31,11 @@ export function ArtistDetailContent({
     handleSort,
     sortIndicator,
     trackPopularity,
-    handleToggleArtistLike,
-    handleToggleArtistDislike,
-  } = useArtistDetail(name, invokeInfoFetch);
+    handleToggleLike: handleToggleArtistLike,
+    handleToggleDislike: handleToggleArtistDislike,
+  } = useEntityDetail({ kind: "artist", name, invokeInfoFetch: actions.invokeInfoFetch });
+
+  const artist = entity as Artist | null;
 
   const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(ARTIST_DETAIL_COLUMNS);
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -107,7 +63,7 @@ export function ArtistDetailContent({
 
   const resolveEntity = useCallback((kind: string, entityName: string) => {
     if (kind === "artist") {
-      const imgPath = getArtistImage(entityName);
+      const imgPath = actions.getArtistImage(entityName);
       if (artist && artist.name.toLowerCase() === entityName.toLowerCase()) {
         return { id: artist.id, imageSrc: imgPath ? convertFileSrc(imgPath) : undefined };
       }
@@ -122,26 +78,32 @@ export function ArtistDetailContent({
       if (match) return { id: match.id ?? undefined };
     }
     return undefined;
-  }, [artist, sortedTracks, getArtistImage]);
+  }, [artist, sortedTracks, actions.getArtistImage]);
 
   const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
     if (actionId === "play-track") {
       const t = payload as Track | undefined;
-      if (t) onPlayTracks([t], 0);
+      if (t) actions.playTracks([t], 0);
     }
-  }, [onPlayTracks]);
+  }, [actions.playTracks]);
 
-  const entity: InfoEntity = artist
+  const infoEntity: InfoEntity = artist
     ? { kind: "artist", name: artist.name, id: artist.id }
     : { kind: "artist", name, id: 0 };
 
   const handleEntityClick = useCallback((kind: string, id?: number, entityName?: string) => {
-    if (kind === "artist" && id) onArtistClick(id);
-    else if (kind === "artist" && entityName) onNavigateToArtistByName(entityName);
-    if (kind === "album" && id) onAlbumClick(id);
-  }, [onArtistClick, onAlbumClick, onNavigateToArtistByName]);
+    if (kind === "artist") actions.navigateToArtist(id ?? 0, entityName);
+    else if (kind === "album") actions.navigateToAlbum(id ?? 0, undefined, entityName);
+  }, [actions.navigateToArtist, actions.navigateToAlbum]);
 
-  const artistImagePath = getArtistImage(name);
+  const artistImagePath = actions.getArtistImage(name);
+
+  const handlePlayAll = useCallback(() => {
+    actions.playEntityAll("artist", name, undefined, {
+      tracks: sortedTracks.filter(t => t.liked !== -1),
+      entityId: artist?.id,
+    });
+  }, [actions.playEntityAll, name, sortedTracks, artist]);
 
   return (
     <div className="artist-detail">
@@ -160,7 +122,7 @@ export function ArtistDetailContent({
               <button
                 className="detail-art-play"
                 title="Play All"
-                onClick={() => onPlayAll(sortedTracks.filter(t => t.liked !== -1))}
+                onClick={handlePlayAll}
               >
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
               </button>
@@ -169,9 +131,9 @@ export function ArtistDetailContent({
               entityType="artist"
               entityName={name}
               imagePath={artistImagePath}
-              providers={searchProviders}
-              onImageChanged={onImageChanged}
-              onRefresh={onRefreshImage}
+              providers={actions.searchProviders}
+              onImageChanged={() => actions.invalidateImage("artist", name)}
+              onRefresh={() => actions.requestFetchImage("artist", name)}
             />
           </div>
           <div className="artist-header-info">
@@ -189,14 +151,14 @@ export function ArtistDetailContent({
             </h2>
             {isLibrary && <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>}
             <span className="artist-bio-stats">
-              <TitleLineInfo entity={entity} invokeInfoFetch={invokeInfoFetch} />
+              <TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />
             </span>
           </div>
         </div>
       </div>
       <div className="section-wide">
         <InformationSections
-          entity={entity}
+          entity={infoEntity}
           exclude={["artist_stats"]}
           placement="header"
           customTabs={albums.length > 0 ? [{
@@ -205,12 +167,12 @@ export function ArtistDetailContent({
             content: (
               <div className="album-scroll">
                 {albums.map((a) => (
-                  <div key={a.id} className="album-card" onClick={() => onAlbumClick(a.id)} onContextMenu={(e) => onAlbumContextMenu(e, a.id)}>
+                  <div key={a.id} className="album-card" onClick={() => actions.navigateToAlbum(a.id)} onContextMenu={(e) => actions.handleAlbumContextMenu(e, a.id)}>
                     <div className="album-card-art-wrapper">
-                      <AlbumCardArt album={a} imagePath={getAlbumImage(a.title, a.artist_name)} />
+                      <AlbumCardArt album={a} imagePath={actions.getAlbumImage(a.title, a.artist_name)} />
                       <button className="album-card-play-btn" title="Play album" onClick={(e) => {
                         e.stopPropagation();
-                        onPlayAlbum(a.id);
+                        actions.playAlbum(a.id);
                       }}><svg viewBox="0 0 24 24" width="25" height="25" fill="white" style={{marginLeft: 2}}><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg></button>
                     </div>
                     <div className="album-card-body">
@@ -224,15 +186,15 @@ export function ArtistDetailContent({
               </div>
             ),
           }] : undefined}
-          invokeInfoFetch={invokeInfoFetch}
-          pluginNames={pluginNames}
+          invokeInfoFetch={actions.invokeInfoFetch}
+          pluginNames={actions.pluginNames}
           tabOrder={headerTabOrder}
           onTabOrderChange={handleHeaderTabOrderChange}
           onEntityClick={handleEntityClick}
           onAction={handleInfoAction}
           resolveEntity={resolveEntity}
-          onTrackContextMenu={onInfoTrackContextMenu}
-          onEntityContextMenu={onEntityContextMenu}
+          onTrackContextMenu={actions.handleInfoTrackContextMenu}
+          onEntityContextMenu={actions.handleEntityContextMenu}
         />
       </div>
 
@@ -241,23 +203,23 @@ export function ArtistDetailContent({
           <div className="section-title">All Tracks</div>
           <TrackList
             tracks={sortedTracks}
-            currentTrack={currentTrack}
-            playing={playing}
+            currentTrack={state.currentTrack}
+            playing={state.playing}
             highlightedIndex={-1}
             sortField={sortField}
             trackListRef={trackListRef}
             columns={trackColumns}
             onColumnsChange={setTrackColumns}
-            onDoubleClick={onPlayTracks}
-            onContextMenu={onTrackContextMenu}
-            onArtistClick={onArtistClick}
-            onAlbumClick={onAlbumClick}
+            onDoubleClick={actions.playTracks}
+            onContextMenu={actions.handleTrackContextMenu}
+            onArtistClick={actions.navigateToArtist}
+            onAlbumClick={actions.navigateToAlbum}
             onSort={handleSort}
             sortIndicator={sortIndicator}
-            onToggleLike={onToggleLike}
-            onToggleDislike={onToggleDislike}
-            onTrackDragStart={onTrackDragStart}
-            onDeleteTracks={onDeleteTracks}
+            onToggleLike={actions.toggleLike}
+            onToggleDislike={actions.toggleDislike}
+            onTrackDragStart={actions.handleTrackDragStart}
+            onDeleteTracks={actions.deleteTracks}
             trackPopularity={trackPopularity}
             emptyMessage="No tracks found for this artist."
           />
@@ -266,18 +228,18 @@ export function ArtistDetailContent({
 
       <div className="section-wide">
         <InformationSections
-          entity={entity}
+          entity={infoEntity}
           exclude={["artist_stats"]}
           placement="below"
-          invokeInfoFetch={invokeInfoFetch}
-          pluginNames={pluginNames}
+          invokeInfoFetch={actions.invokeInfoFetch}
+          pluginNames={actions.pluginNames}
           tabOrder={belowTabOrder}
           onTabOrderChange={handleBelowTabOrderChange}
           onEntityClick={handleEntityClick}
           onAction={handleInfoAction}
           resolveEntity={resolveEntity}
-          onTrackContextMenu={onInfoTrackContextMenu}
-          onEntityContextMenu={onEntityContextMenu}
+          onTrackContextMenu={actions.handleInfoTrackContextMenu}
+          onEntityContextMenu={actions.handleEntityContextMenu}
         />
       </div>
     </div>

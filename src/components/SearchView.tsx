@@ -109,8 +109,8 @@ interface SearchViewProps {
   onPlayAlbum: (albumId: number) => void;
   onPlayArtist: (artistId: number) => void;
   onPlayTag: (tagId: number) => void;
-  onArtistClick: (id: number) => void;
-  onAlbumClick: (id: number, artistId?: number | null) => void;
+  onArtistClick: (id: number, name?: string) => void;
+  onAlbumClick: (id: number, artistId?: number | null, name?: string, artistName?: string) => void;
   onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedIds: Set<string>) => void;
   onArtistContextMenu: (e: React.MouseEvent, id: number) => void;
   onAlbumContextMenu: (e: React.MouseEvent, id: number) => void;
@@ -910,13 +910,11 @@ export function SearchView({
                   <div className="entity-list-info">
                     <span className="entity-list-name">{t.title}</span>
                     <span className="entity-list-secondary">
-                      {t.artist_name && (t.artist_id
-                        ? <span className="track-link" onClick={(e) => { e.stopPropagation(); onArtistClick(t.artist_id!); }}>{t.artist_name}</span>
-                        : <>{t.artist_name}</>
+                      {t.artist_name && (
+                        <span className="track-link" onClick={(e) => { e.stopPropagation(); onArtistClick(t.artist_id ?? 0, t.artist_name!); }}>{t.artist_name}</span>
                       )}
-                      {t.album_title && <> {"\u00B7"} {t.album_id
-                        ? <span className="track-link" onClick={(e) => { e.stopPropagation(); onAlbumClick(t.album_id!, t.artist_id); }}>{t.album_title}</span>
-                        : <>{t.album_title}</>
+                      {t.album_title && <> {"\u00B7"} {
+                        <span className="track-link" onClick={(e) => { e.stopPropagation(); onAlbumClick(t.album_id ?? 0, t.artist_id, t.album_title!, t.artist_name ?? undefined); }}>{t.album_title}</span>
                       }</>}
                     </span>
                   </div>

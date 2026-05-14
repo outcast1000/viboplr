@@ -19,7 +19,7 @@ interface HistoryViewProps {
   onPlayTrack: (tracks: Track[], index: number) => void;
   onEnqueueTrack: (tracks: Track[]) => void;
   addLog: (message: string, module?: string) => void;
-  onArtistClick: (artistId: number) => void;
+  onArtistClick: (artistId: number, name?: string) => void;
 }
 
 function formatRelativeTime(unixSecs: number): string {

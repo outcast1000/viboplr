@@ -122,8 +122,8 @@ interface TrackListProps {
   onColumnsChange: (columns: ColumnConfig[]) => void;
   onDoubleClick: (tracks: Track[], index: number) => void;
   onContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<string>) => void;
-  onArtistClick: (artistId: number) => void;
-  onAlbumClick: (albumId: number, artistId?: number | null) => void;
+  onArtistClick: (artistId: number, name?: string) => void;
+  onAlbumClick: (albumId: number, artistId?: number | null, name?: string, artistName?: string) => void;
   onSort: (field: SortField) => void;
   sortIndicator: (field: SortField) => string;
   onToggleLike: (track: Track) => void;
@@ -433,17 +433,17 @@ export function TrackList({
       case "artist":
         return (
           <span key="artist" className="col-artist">
-            {t.artist_id ? (
-              <span className="track-link" onClick={(e) => { e.stopPropagation(); onArtistClick(t.artist_id!); }}>{t.artist_name || "Unknown"}</span>
-            ) : (t.artist_name || "Unknown")}
+            {t.artist_name ? (
+              <span className="track-link" onClick={(e) => { e.stopPropagation(); onArtistClick(t.artist_id ?? 0, t.artist_name!); }}>{t.artist_name}</span>
+            ) : "Unknown"}
           </span>
         );
       case "album":
         return (
           <span key="album" className="col-album">
-            {t.album_id ? (
-              <span className="track-link" onClick={(e) => { e.stopPropagation(); onAlbumClick(t.album_id!, t.artist_id); }}>{t.album_title || "Unknown"}</span>
-            ) : (t.album_title || "Unknown")}
+            {t.album_title ? (
+              <span className="track-link" onClick={(e) => { e.stopPropagation(); onAlbumClick(t.album_id ?? 0, t.artist_id, t.album_title!, t.artist_name ?? undefined); }}>{t.album_title}</span>
+            ) : "Unknown"}
           </span>
         );
       case "duration":

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Album, Track, SortField, SortDir } from "../types";
+import type { Artist, Album, Tag, Track, SortField, SortDir } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { stripAccents } from "../utils";
 
@@ -8,91 +8,114 @@ const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().replace(/\([^
 
 type BackendTypeRow = [string, string, string, number, number, Array<[string, number]>];
 
-export interface UseAlbumDetailReturn {
-  album: Album | null;
+interface EntityDetailConfig {
+  kind: "artist" | "album" | "tag";
+  name: string;
+  artistName?: string;
+  invokeInfoFetch?: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
+}
+
+export interface EntityDetailReturn {
+  entity: Artist | Album | Tag | null;
   tracks: Track[];
   sortedTracks: Track[];
+  albums: Album[];
   isLibrary: boolean;
   sortField: SortField | null;
   handleSort: (field: SortField) => void;
   sortIndicator: (field: SortField) => string;
   trackPopularity: Record<number, number>;
-  handleToggleAlbumLike: () => void;
-  handleToggleAlbumDislike: () => void;
+  handleToggleLike: () => void;
+  handleToggleDislike: () => void;
   reload: () => void;
 }
 
-export function useAlbumDetail(
-  name: string,
-  artistName?: string,
-  invokeInfoFetch?: (pluginId: string, infoTypeId: string, entity: InfoEntity) => Promise<InfoFetchResult>,
-): UseAlbumDetailReturn {
-  const [album, setAlbum] = useState<Album | null>(null);
+export function useEntityDetail({ kind, name, artistName, invokeInfoFetch }: EntityDetailConfig): EntityDetailReturn {
+  const [entity, setEntity] = useState<Artist | Album | Tag | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [albums, setAlbums] = useState<Album[]>([]);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [shuffleKey, setShuffleKey] = useState(0);
   const [loadKey, setLoadKey] = useState(0);
   const [trackPopularity, setTrackPopularity] = useState<Record<number, number>>({});
 
-  // Resolve album and fetch tracks
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const found = await invoke<Album | null>("find_album_by_name", {
-          title: name,
-          artistName: artistName ?? null,
-        });
+        let found: Artist | Album | Tag | null = null;
+
+        if (kind === "artist") {
+          found = await invoke<Artist | null>("find_artist_by_name", { name });
+        } else if (kind === "album") {
+          found = await invoke<Album | null>("find_album_by_name", { title: name, artistName: artistName ?? null });
+        } else {
+          found = await invoke<Tag | null>("find_tag_by_name", { name });
+        }
+
         if (cancelled) return;
-        setAlbum(found);
+        setEntity(found);
 
         if (found) {
-          const fetchedTracks = await invoke<Track[]>("get_tracks", {
-            opts: { albumId: found.id },
-          });
-          if (cancelled) return;
-          setTracks(fetchedTracks);
+          if (kind === "artist") {
+            const [fetchedTracks, fetchedAlbums] = await Promise.all([
+              invoke<Track[]>("get_tracks_by_artist", { artistId: found.id }),
+              invoke<Album[]>("get_albums", { artistId: found.id }),
+            ]);
+            if (cancelled) return;
+            setTracks(fetchedTracks);
+            setAlbums(fetchedAlbums.sort((a, b) => (b.year ?? 0) - (a.year ?? 0)));
+          } else if (kind === "album") {
+            const fetchedTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: found.id } });
+            if (cancelled) return;
+            setTracks(fetchedTracks);
+            setAlbums([]);
+          } else {
+            const fetchedTracks = await invoke<Track[]>("get_tracks_by_tag", { tagId: found.id });
+            if (cancelled) return;
+            setTracks(fetchedTracks);
+            setAlbums([]);
+          }
         } else {
           setTracks([]);
+          setAlbums([]);
         }
       } catch (e) {
-        console.error("Failed to load album detail:", e);
+        console.error(`Failed to load ${kind} detail:`, e);
         if (!cancelled) {
-          setAlbum(null);
+          setEntity(null);
           setTracks([]);
+          setAlbums([]);
         }
       }
     })();
 
     return () => { cancelled = true; };
-  }, [name, artistName, loadKey]);
+  }, [kind, name, artistName, loadKey]);
 
-  // Fetch track popularity from ranked_list info types
+  // Fetch track popularity from ranked_list info types (artist and album only)
   useEffect(() => {
     setTrackPopularity({});
-    if (!album || !invokeInfoFetch) return;
+    if (!entity || !invokeInfoFetch || kind === "tag") return;
 
     let cancelled = false;
     (async () => {
       try {
-        const types = await invoke<BackendTypeRow[]>("info_get_types_for_entity", { entity: "album" });
+        const types = await invoke<BackendTypeRow[]>("info_get_types_for_entity", { entity: kind });
         const rankedType = types.find(([, , displayKind]) => displayKind === "ranked_list");
         if (!rankedType || cancelled) return;
 
         const [typeId, , , , , providers] = rankedType;
-        const entity: InfoEntity = {
-          kind: "album",
-          name: album.title,
-          id: album.id,
-          artistName: album.artist_name ?? undefined,
-        };
+        const infoEntity: InfoEntity = kind === "artist"
+          ? { kind: "artist", name: (entity as Artist).name, id: entity.id }
+          : { kind: "album", name: (entity as Album).title, id: entity.id, artistName: (entity as Album).artist_name ?? undefined };
 
         for (const [pluginId] of providers) {
           if (cancelled) return;
           try {
-            const result = await invokeInfoFetch(pluginId, typeId, entity);
+            const result = await invokeInfoFetch(pluginId, typeId, infoEntity);
             if (cancelled || result.status !== "ok") continue;
             const items = (result.value as Record<string, unknown>)?.items as Array<{ name: string; value: number }> | undefined;
             if (!items) continue;
@@ -107,12 +130,12 @@ export function useAlbumDetail(
           } catch { continue; }
         }
       } catch (e) {
-        console.error("Failed to fetch album track popularity:", e);
+        console.error(`Failed to fetch ${kind} track popularity:`, e);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [album, tracks, invokeInfoFetch]);
+  }, [entity, tracks, invokeInfoFetch, kind]);
 
   const handleSort = useCallback((field: SortField) => {
     if (field === "random") {
@@ -185,37 +208,38 @@ export function useAlbumDetail(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tracks, sortField, sortDir, shuffleKey, trackPopularity]);
 
-  const handleToggleAlbumLike = useCallback(() => {
-    if (!album) return;
-    const newLiked = album.liked === 1 ? 0 : 1;
-    invoke("toggle_liked", { kind: "album", id: album.id, liked: newLiked })
-      .then(() => setAlbum(prev => prev ? { ...prev, liked: newLiked } : null))
-      .catch((e) => console.error("Failed to toggle album like:", e));
-  }, [album]);
+  const handleToggleLike = useCallback(() => {
+    if (!entity) return;
+    const newLiked = entity.liked === 1 ? 0 : 1;
+    invoke("toggle_liked", { kind, id: entity.id, liked: newLiked })
+      .then(() => setEntity(prev => prev ? { ...prev, liked: newLiked } : null))
+      .catch((e) => console.error(`Failed to toggle ${kind} like:`, e));
+  }, [entity, kind]);
 
-  const handleToggleAlbumDislike = useCallback(() => {
-    if (!album) return;
-    const newLiked = album.liked === -1 ? 0 : -1;
-    invoke("toggle_liked", { kind: "album", id: album.id, liked: newLiked })
-      .then(() => setAlbum(prev => prev ? { ...prev, liked: newLiked } : null))
-      .catch((e) => console.error("Failed to toggle album dislike:", e));
-  }, [album]);
+  const handleToggleDislike = useCallback(() => {
+    if (!entity) return;
+    const newLiked = entity.liked === -1 ? 0 : -1;
+    invoke("toggle_liked", { kind, id: entity.id, liked: newLiked })
+      .then(() => setEntity(prev => prev ? { ...prev, liked: newLiked } : null))
+      .catch((e) => console.error(`Failed to toggle ${kind} dislike:`, e));
+  }, [entity, kind]);
 
   const reload = useCallback(() => {
     setLoadKey(k => k + 1);
   }, []);
 
   return {
-    album,
+    entity,
     tracks,
     sortedTracks,
-    isLibrary: album !== null,
+    albums,
+    isLibrary: entity !== null,
     sortField,
     handleSort,
     sortIndicator,
     trackPopularity,
-    handleToggleAlbumLike,
-    handleToggleAlbumDislike,
+    handleToggleLike,
+    handleToggleDislike,
     reload,
   };
 }

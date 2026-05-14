@@ -1,65 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { Track, QueueTrack, ColumnConfig } from "../types";
+import type { Track, Tag, ColumnConfig } from "../types";
 
 import { TAG_DETAIL_COLUMNS } from "../hooks/useLibrary";
-import { useTagDetail } from "../hooks/useTagDetail";
+import { useEntityDetail } from "../hooks/useEntityDetail";
+import { useDetailActions, useDetailState } from "../contexts/DetailViewContext";
 import { ImageActions } from "./ImageActions";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
-import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
+import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
 
 interface TagDetailProps {
   name: string;
-  getTagImage: (name: string) => string | null;
-  onImageChanged: () => void;
-  currentTrack: QueueTrack | null;
-  playing: boolean;
-  onPlayTracks: (tracks: Track[], index: number) => void;
-  onArtistClick: (id: number) => void;
-  onAlbumClick: (id: number) => void;
-  onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<string>) => void;
-  onToggleLike: (track: Track) => void;
-  onToggleDislike: (track: Track) => void;
-  onTrackDragStart: (tracks: Track[]) => void;
-  onDeleteTracks?: (trackIds: number[]) => void;
-  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
-  pluginNames?: Map<string, string>;
-  onInfoTrackContextMenu?: (e: React.MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
-  onEntityContextMenu?: (e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;
 }
 
-export function TagDetail({
-  name,
-  getTagImage,
-  onImageChanged,
-  currentTrack,
-  playing,
-  onPlayTracks,
-  onArtistClick,
-  onAlbumClick,
-  onTrackContextMenu,
-  onToggleLike,
-  onToggleDislike,
-  onTrackDragStart,
-  onDeleteTracks,
-  invokeInfoFetch,
-  pluginNames,
-  onInfoTrackContextMenu,
-  onEntityContextMenu,
-}: TagDetailProps) {
+export function TagDetail({ name }: TagDetailProps) {
+  const actions = useDetailActions();
+  const state = useDetailState();
   const {
-    tag,
+    entity,
     sortedTracks,
     isLibrary,
     sortField,
     handleSort,
     sortIndicator,
-    handleToggleTagLike,
-    handleToggleTagDislike,
-  } = useTagDetail(name, invokeInfoFetch);
+    handleToggleLike: handleToggleTagLike,
+    handleToggleDislike: handleToggleTagDislike,
+  } = useEntityDetail({ kind: "tag", name, invokeInfoFetch: actions.invokeInfoFetch });
+
+  const tag = entity as Tag | null;
 
   const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(TAG_DETAIL_COLUMNS);
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -76,18 +47,18 @@ export function TagDetail({
     store.set("tagDetailBelowTabOrder", order);
   }, []);
 
-  const tagImagePath = getTagImage(name);
+  const tagImagePath = actions.getTagImage(name);
 
-  const entity: InfoEntity = tag
+  const infoEntity: InfoEntity = tag
     ? { kind: "tag", name: tag.name, id: tag.id }
     : { kind: "tag", name, id: 0 };
 
   const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
     if (actionId === "play-track") {
       const t = payload as Track | undefined;
-      if (t) onPlayTracks([t], 0);
+      if (t) actions.playTracks([t], 0);
     }
-  }, [onPlayTracks]);
+  }, [actions.playTracks]);
 
   return (
     <div className="album-detail">
@@ -106,7 +77,7 @@ export function TagDetail({
               <button
                 className="detail-art-play"
                 title="Play All"
-                onClick={() => onPlayTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
+                onClick={() => actions.playTracks(sortedTracks.filter(t => t.liked !== -1), 0)}
               >
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
               </button>
@@ -131,7 +102,7 @@ export function TagDetail({
               entityType="tag"
               entityName={name}
               imagePath={tagImagePath}
-              onImageChanged={onImageChanged}
+              onImageChanged={() => actions.invalidateImage("tag", name)}
             />
           </div>
         </div>
@@ -140,39 +111,39 @@ export function TagDetail({
       {sortedTracks.length > 0 && (
         <TrackList
           tracks={sortedTracks}
-          currentTrack={currentTrack}
-          playing={playing}
+          currentTrack={state.currentTrack}
+          playing={state.playing}
           highlightedIndex={-1}
           sortField={sortField}
           trackListRef={trackListRef}
           columns={trackColumns}
           onColumnsChange={setTrackColumns}
-          onDoubleClick={onPlayTracks}
-          onContextMenu={onTrackContextMenu}
-          onArtistClick={onArtistClick}
-          onAlbumClick={onAlbumClick}
+          onDoubleClick={actions.playTracks}
+          onContextMenu={actions.handleTrackContextMenu}
+          onArtistClick={actions.navigateToArtist}
+          onAlbumClick={actions.navigateToAlbum}
           onSort={handleSort}
           sortIndicator={sortIndicator}
-          onToggleLike={onToggleLike}
-          onToggleDislike={onToggleDislike}
-          onTrackDragStart={onTrackDragStart}
-          onDeleteTracks={onDeleteTracks}
+          onToggleLike={actions.toggleLike}
+          onToggleDislike={actions.toggleDislike}
+          onTrackDragStart={actions.handleTrackDragStart}
+          onDeleteTracks={actions.deleteTracks}
           emptyMessage="No tracks found."
         />
       )}
 
       <div className="section-wide">
         <InformationSections
-          entity={entity}
+          entity={infoEntity}
           exclude={[]}
           placement="below"
-          invokeInfoFetch={invokeInfoFetch}
-          pluginNames={pluginNames}
+          invokeInfoFetch={actions.invokeInfoFetch}
+          pluginNames={actions.pluginNames}
           tabOrder={belowTabOrder}
           onTabOrderChange={handleBelowTabOrderChange}
           onAction={handleInfoAction}
-          onTrackContextMenu={onInfoTrackContextMenu}
-          onEntityContextMenu={onEntityContextMenu}
+          onTrackContextMenu={actions.handleInfoTrackContextMenu}
+          onEntityContextMenu={actions.handleEntityContextMenu}
         />
       </div>
     </div>

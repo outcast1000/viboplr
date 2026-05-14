@@ -2,11 +2,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Track, Collection } from "../types";
-import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
-import type { SearchProviderConfig } from "../searchProviders";
+import type { Track } from "../types";
+import type { InfoEntity } from "../types/informationTypes";
 import { getProvidersForContext } from "../searchProviders";
 import { isLocalTrack } from "../queueEntry";
+import { useDetailActions } from "../contexts/DetailViewContext";
 import { IconFolder, IconLastfm, IconYoutube } from "./Icons";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { ImageActions } from "./ImageActions";
@@ -74,45 +74,26 @@ interface TrackDetailViewProps {
   artistImagePath: string | null;
   positionSecs: number;
   isCurrentTrack: boolean;
-  onArtistClick: (artistId: number) => void;
-  onAlbumClick: (albumId: number, artistId?: number | null) => void;
-  onTagClick: (tagId: number) => void;
   onPlay: () => void;
   onPlayAt: (secs: number) => void;
   onShowInFolder: () => void;
-  onPlayTrack: (track: Track) => void;
   onWatchOnYoutube?: () => void;
   onToggleLike: () => void;
   onToggleDislike: () => void;
-  collections: Collection[];
-  searchProviders: SearchProviderConfig[];
-  onImageChanged: (entityType: "artist" | "album") => void;
-  onImageRefresh: (entityType: "artist" | "album") => void;
   addLog: (msg: string, module?: string) => void;
   onUpdateTrack: (update: Partial<Track>) => void;
-  invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
-  pluginNames?: Map<string, string>;
-  onInfoTrackContextMenu?: (e: React.MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
-  onEntityContextMenu?: (e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;
-  onNavigateToArtistByName?: (name: string) => void;
-  onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
   onTagsChanged?: () => void;
 }
 
 export function TrackDetailView({
   trackId, track, albumImagePath, artistImagePath,
   positionSecs, isCurrentTrack,
-  onArtistClick, onAlbumClick, onTagClick,
-  onPlay, onPlayAt, onShowInFolder, onPlayTrack, onWatchOnYoutube,
+  onPlay, onPlayAt, onShowInFolder, onWatchOnYoutube,
   onToggleLike, onToggleDislike,
-  collections: _collections, searchProviders, onImageChanged, onImageRefresh,
-  addLog, onUpdateTrack, invokeInfoFetch, pluginNames,
-  onInfoTrackContextMenu,
-  onEntityContextMenu,
-  onNavigateToArtistByName,
-  onNavigateToAlbumByName,
+  addLog, onUpdateTrack,
   onTagsChanged,
 }: TrackDetailViewProps) {
+  const actions = useDetailActions();
   const isLibrary = trackId != null;
 
   const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
@@ -166,14 +147,14 @@ export function TrackDetailView({
     if (track.artist_name) {
       const trackEntity: InfoEntity = { kind: "track", name: track.title, id: trackId ?? 0, artistName: track.artist_name };
       // Fetch track tags + artist tags (combined in one info type)
-      invokeInfoFetch("lastfm", "track_tags", trackEntity).then(result => {
+      actions.invokeInfoFetch("lastfm", "track_tags", trackEntity).then(result => {
         if (result.status !== "ok") return;
         const val = result.value as any;
         if (val?.tags?.length) setCommunityTags(val.tags);
         if (val?.artistTags?.length) setArtistTags(val.artistTags);
       }).catch(e => console.error("Failed to load community/artist tags:", e));
     }
-  }, [trackId, isLibrary, track.artist_name, track.title, invokeInfoFetch]);
+  }, [trackId, isLibrary, track.artist_name, track.title, actions.invokeInfoFetch]);
 
   // Receive track_info data from InformationSections (via onTitleData callback)
   const handleTitleData = useCallback((typeId: string, data: unknown) => {
@@ -234,9 +215,9 @@ export function TrackDetailView({
   const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
     if (actionId === "play-track") {
       const t = payload as Track | undefined;
-      if (t) onPlayTrack(t);
+      if (t) actions.playTracks([t], 0);
     }
-  }, [onPlayTrack]);
+  }, [actions.playTracks]);
 
   const assignedTagNames = new Set(trackTags.map(t => t.name.toLowerCase()));
 
@@ -296,18 +277,18 @@ export function TrackDetailView({
                 entityName={track.album_title}
                 artistName={track.artist_name ?? undefined}
                 imagePath={albumImagePath}
-                providers={getProvidersForContext(searchProviders, "album")}
-                onImageChanged={() => onImageChanged("album")}
-                onRefresh={() => onImageRefresh("album")}
+                providers={getProvidersForContext(actions.searchProviders, "album")}
+                onImageChanged={() => actions.invalidateImage("album", track.album_title!, track.artist_name ?? undefined)}
+                onRefresh={() => actions.requestFetchImage("album", track.album_title!, track.artist_name ?? undefined)}
               />
             ) : isLibrary && track.artist_name ? (
               <ImageActions
                 entityType="artist"
                 entityName={track.artist_name}
                 imagePath={artistImagePath}
-                providers={getProvidersForContext(searchProviders, "artist")}
-                onImageChanged={() => onImageChanged("artist")}
-                onRefresh={() => onImageRefresh("artist")}
+                providers={getProvidersForContext(actions.searchProviders, "artist")}
+                onImageChanged={() => actions.invalidateImage("artist", track.artist_name!)}
+                onRefresh={() => actions.requestFetchImage("artist", track.artist_name!)}
               />
             ) : null}
           </div>
@@ -324,32 +305,16 @@ export function TrackDetailView({
             </h2>
             <div className="track-detail-meta">
               {track.artist_name && (
-                track.artist_id ? (
-                  <span className="track-detail-link" onClick={() => onArtistClick(track.artist_id!)}>
-                    {track.artist_name}
-                  </span>
-                ) : onNavigateToArtistByName ? (
-                  <span className="track-detail-link" onClick={() => onNavigateToArtistByName(track.artist_name!)}>
-                    {track.artist_name}
-                  </span>
-                ) : (
-                  <span>{track.artist_name}</span>
-                )
+                <span className="track-detail-link" onClick={() => actions.navigateToArtist(track.artist_id ?? 0, track.artist_name!)}>
+                  {track.artist_name}
+                </span>
               )}
               {track.album_title && (
                 <>
                   <span className="track-detail-sep"> — </span>
-                  {track.album_id ? (
-                    <span className="track-detail-link" onClick={() => onAlbumClick(track.album_id!, track.artist_id)}>
-                      {track.album_title}
-                    </span>
-                  ) : onNavigateToAlbumByName ? (
-                    <span className="track-detail-link" onClick={() => onNavigateToAlbumByName(track.album_title!, track.artist_name ?? undefined)}>
-                      {track.album_title}
-                    </span>
-                  ) : (
-                    <span>{track.album_title}</span>
-                  )}
+                  <span className="track-detail-link" onClick={() => actions.navigateToAlbum(track.album_id ?? 0, track.artist_id, track.album_title!, track.artist_name ?? undefined)}>
+                    {track.album_title}
+                  </span>
                 </>
               )}
               {track.year && <span className="track-detail-sep"> ({track.year})</span>}
@@ -401,8 +366,8 @@ export function TrackDetailView({
         <InformationSections
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId ?? 0, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
           exclude={["track_tags"]}
-          invokeInfoFetch={invokeInfoFetch}
-          pluginNames={pluginNames}
+          invokeInfoFetch={actions.invokeInfoFetch}
+          pluginNames={actions.pluginNames}
           tabOrder={tabOrder}
           onTabOrderChange={handleTabOrderChange}
           onTitleData={handleTitleData}
@@ -490,7 +455,7 @@ export function TrackDetailView({
                       <span className="track-detail-label">Tags</span>
                       {trackTags.map(tag => (
                         <span key={tag.id} className="track-tag-chip track-tag-assigned">
-                          <span className="track-tag-name" onClick={() => onTagClick(tag.id)}>{tag.name}</span>
+                          <span className="track-tag-name" onClick={() => actions.navigateToTag(tag.id)}>{tag.name}</span>
                           <span className="track-tag-remove" onClick={() => handleRemoveTag(tag)} title="Remove tag">&times;</span>
                         </span>
                       ))}
@@ -540,14 +505,14 @@ export function TrackDetailView({
               ),
             },
           ]}
-          onEntityClick={(kind, id) => {
-            if (kind === "artist" && id) onArtistClick(id);
-            if (kind === "album" && id) onAlbumClick(id);
-            if (kind === "tag" && id) onTagClick(id);
+          onEntityClick={(kind, id, name) => {
+            if (kind === "artist") actions.navigateToArtist(id ?? 0, name);
+            else if (kind === "album") actions.navigateToAlbum(id ?? 0, undefined, name);
+            else if (kind === "tag" && id) actions.navigateToTag(id);
           }}
           onAction={handleInfoAction}
-          onTrackContextMenu={onInfoTrackContextMenu}
-          onEntityContextMenu={onEntityContextMenu}
+          onTrackContextMenu={actions.handleInfoTrackContextMenu}
+          onEntityContextMenu={actions.handleEntityContextMenu}
         />
       </div>
 
