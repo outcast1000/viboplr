@@ -23,20 +23,7 @@ const autocommit = args.includes("--autocommit");
 const withScreenshots = args.includes("--screenshots");
 let version = args.find((a) => !a.startsWith("--"));
 
-if (!version) {
-  const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
-  const parts = pkg.version.split(".").map(Number);
-  parts[parts.length - 1] += 1;
-  version = parts.join(".");
-  console.log(`No version specified, bumping patch: ${pkg.version} -> ${version}`);
-}
 
-
-
-if (!/^\d+\.\d+\.\d+$/.test(version)) {
-  console.error("Usage: node scripts/bump.mjs [version]  (e.g. 0.2.0)");
-  process.exit(1);
-}
 
 // ---------------------------------------------------------------------------
 // Step 1 — Run CI checks
@@ -130,7 +117,20 @@ function markdownToHtml(body) {
 // Step 2 — Bump version in source files
 // ---------------------------------------------------------------------------
 
+if (!version) {
+  const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+  const parts = pkg.version.split(".").map(Number);
+  parts[parts.length - 1] += 1;
+  version = parts.join(".");
+  console.log(`No version specified, bumping patch: ${pkg.version} -> ${version}`);
+}
+
 console.log(`\nBumping version to ${version}...\n`);
+
+if (!/^\d+\.\d+\.\d+$/.test(version)) {
+  console.error("Usage: node scripts/bump.mjs [version]  (e.g. 0.2.0)");
+  process.exit(1);
+}
 
 const versionFiles = [
   { path: "package.json", replace: (s) => s.replace(/"version":\s*"[^"]*"/, `"version": "${version}"`) },
