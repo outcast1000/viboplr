@@ -166,11 +166,11 @@
 .queue-item {
   display: flex;
   align-items: center;
-  padding: 8px 16px;
+  padding: 8px 12px 8px 8px;
   cursor: pointer;
   transition: background 0.1s;
   font-size: var(--fs-sm);
-  gap: 8px;
+  gap: 6px;
 }
 
 .queue-item:hover {
@@ -178,19 +178,61 @@
 }
 
 .queue-item.queue-current {
-  background: rgba(var(--accent-rgb), 0.08);
-  border-left: 3px solid var(--accent);
-  padding-left: 13px;
+  position: relative;
+  background: rgba(var(--accent-rgb), 0.1);
+  overflow: hidden;
+}
+
+.queue-item.queue-current::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(var(--accent-rgb), 0.25) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: queue-shimmer 3s linear infinite;
+  pointer-events: none;
+}
+
+.queue-item.queue-current.paused {
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.queue-item.queue-current.paused::after {
+  animation: none;
+  background: none;
+}
+
+@keyframes queue-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.queue-item.queue-current .queue-item-title {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.queue-item.queue-current .queue-item-artist,
+.queue-item.queue-current .queue-item-album {
+  color: var(--text-primary);
 }
 
 .queue-item.queue-current.selected {
-  background: rgba(var(--accent-rgb), 0.15);
+  animation: none;
+  background: rgba(var(--accent-rgb), 0.2);
+  border-left: 3px solid var(--accent);
+  padding-left: calc(8px - 3px);
 }
 
 .queue-item.selected {
-  background: rgba(var(--accent-rgb), 0.15);
-  border-left: 3px solid var(--accent);
-  padding-left: 13px;
+  background: rgba(var(--accent-rgb), 0.12);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 60%, var(--text-secondary));
+  padding-left: calc(8px - 3px);
 }
 
 .queue-item.dragging {
@@ -242,16 +284,6 @@
   min-width: 0;
 }
 
-.queue-item.queue-current .queue-item-title {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.queue-item-eq {
-  height: 12px;
-  width: 12px;
-  flex-shrink: 0;
-}
 
 .queue-item-artist {
   font-size: var(--fs-xs);
@@ -307,10 +339,12 @@
 }
 
 .queue-item-actions {
-  display: none;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
+  width: 16px;
 }
 
 .queue-item-action {
@@ -319,7 +353,7 @@
   color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--fs-base);
-  padding: 0 4px;
+  padding: 2px;
   opacity: 0;
   transition: opacity 0.15s;
   line-height: 1;
@@ -372,9 +406,6 @@
   .queue-item-album { display: block; }
 }
 
-@container queue (min-width: 400px) {
-  .queue-item-actions { display: flex; }
-}
 
 @container queue (min-width: 300px) and (min-height: 500px) {
   .queue-context-banner {

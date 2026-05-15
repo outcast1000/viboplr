@@ -4,7 +4,6 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 import { formatDuration, isVideoTrack } from "../utils";
-import { isLocalTrack } from "../queueEntry";
 import { thumbFilenameForUri, isContextRemote } from "../mainPlaylist";
 import "./QueuePanel.css";
 
@@ -519,7 +518,7 @@ export function QueuePanel({
             key={t.key}
             data-queue-index={i}
             className={
-              `queue-item${i === queueIndex ? " queue-current" : ""}${selectedIndices.has(i) ? " selected" : ""}`
+              `queue-item${i === queueIndex ? ` queue-current${isPlaying ? "" : " paused"}` : ""}${selectedIndices.has(i) ? " selected" : ""}`
               + `${(dropTarget === i || externalDropTarget === i) ? " drop-above" : ""}`
               + `${((dropTarget === i + 1 || externalDropTarget === i + 1) && i === queue.length - 1) ? " drop-below" : ""}`
               + `${isDragging && dragIndicesRef.current?.includes(i) ? " dragging" : ""}`
@@ -529,6 +528,26 @@ export function QueuePanel({
             onDoubleClick={() => handleDoubleClick(t, i)}
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
+            <div className="queue-item-actions">
+              {i !== queueIndex && (
+                <button
+                  className="queue-item-action"
+                  onClick={(e) => { e.stopPropagation(); onPlay(t, i); }}
+                  title="Play"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                </button>
+              )}
+              {onLocateTrack && (
+                <button
+                  className="queue-item-action"
+                  onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
+                  title="Track Details"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </button>
+              )}
+            </div>
             <div className="queue-item-art-wrapper">
               <QueueItemThumb
                 localThumb={(() => {
@@ -549,11 +568,6 @@ export function QueuePanel({
               onMouseLeave={() => { if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current); setTooltip(null); setTooltipPos(null); }}
             >
               <div className="queue-item-line1">
-                {i === queueIndex && (
-                  <span className={`eq-bars queue-item-eq${isPlaying ? "" : " paused"}`}>
-                    <span className="eq-bar" /><span className="eq-bar" /><span className="eq-bar" />
-                  </span>
-                )}
                 <span className="queue-item-title">{t.title}</span>
                 <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
               </div>
@@ -561,26 +575,6 @@ export function QueuePanel({
                 <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
                 {t.album_title && <span className="queue-item-album">{t.album_title}</span>}
               </div>
-            </div>
-            <div className="queue-item-actions">
-              {i !== queueIndex && (
-                <button
-                  className="queue-item-action"
-                  onClick={(e) => { e.stopPropagation(); onPlay(t, i); }}
-                  title="Play"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-                </button>
-              )}
-              {onLocateTrack && isLocalTrack(t) && (
-                <button
-                  className="queue-item-action"
-                  onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
-                  title="Locate Track"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                </button>
-              )}
             </div>
           </div>
         ))}
