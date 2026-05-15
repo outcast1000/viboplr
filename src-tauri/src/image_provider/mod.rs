@@ -15,7 +15,7 @@ pub trait AlbumImageProvider: Send + Sync {
 
 pub fn http_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
-        .user_agent("Viboplr/0.1.0 (https://github.com/viboplr)")
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15")
         .build()
         .map_err(|e| e.to_string())
 }

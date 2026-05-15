@@ -353,15 +353,19 @@ function activate(api) {
   // fetches for images already local.
   function cacheAllImages() {
     var promises = [];
+    var stats = { covers: 0, tracks: 0, coverFails: 0, trackFails: 0 };
     for (var pi = 0; pi < state.playlists.length; pi++) {
       (function (pl) {
         var dir = playlistDir(pl);
         if (pl.imageUrl && pl.imageUrl.indexOf("http") === 0) {
+          stats.covers++;
+          var coverUrl = pl.imageUrl;
           promises.push(
-            api.storage.files.download(dir.concat(["cover.jpg"]), pl.imageUrl).then(function (path) {
+            api.storage.files.download(dir.concat(["cover.jpg"]), coverUrl).then(function (path) {
               pl.imageUrl = path;
             }).catch(function (e) {
-              api.log("warn", "Failed to cache playlist cover for " + pl.name + ": " + e);
+              stats.coverFails++;
+              api.log("warn", "Failed to cache playlist cover for " + pl.name + ": " + e + " | url: " + coverUrl.substring(0, 120));
               pl.imageUrl = null;
             })
           );
@@ -370,13 +374,16 @@ function activate(api) {
         for (var ti = 0; ti < tracks.length; ti++) {
           (function (track) {
             if (track.imageUrl && track.imageUrl.indexOf("http") === 0) {
+              stats.tracks++;
+              var trackUrl = track.imageUrl;
               var filename = "track-" + djb2Hash(track.name + " - " + track.artist) + ".jpg";
               promises.push(
-                api.storage.files.download(dir.concat([filename]), track.imageUrl).then(function (path) {
+                api.storage.files.download(dir.concat([filename]), trackUrl).then(function (path) {
                   track.imageUrl = path;
                   track.coverFile = filename;
                 }).catch(function (e) {
-                  api.log("warn", "Failed to cache track image (" + track.name + "): " + e);
+                  stats.trackFails++;
+                  api.log("warn", "Failed to cache track image (" + track.name + "): " + e + " | url: " + trackUrl.substring(0, 120));
                   track.imageUrl = null;
                   track.coverFile = null;
                 })
@@ -388,7 +395,13 @@ function activate(api) {
     }
 
     if (promises.length > 0) {
+      dbg("images", "Caching " + stats.covers + " covers + " + stats.tracks + " track images");
       Promise.all(promises).then(function () {
+        if (stats.coverFails || stats.trackFails) {
+          api.log("warn", "Image cache complete: " + stats.coverFails + "/" + stats.covers + " covers failed, " + stats.trackFails + "/" + stats.tracks + " tracks failed");
+        } else {
+          dbg("images", "All images cached successfully (" + stats.covers + " covers, " + stats.tracks + " tracks)");
+        }
         saveAllPlaylists();
         render();
       }).catch(function () {

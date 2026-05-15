@@ -3100,7 +3100,7 @@ pub fn image_resolve_response(
 #[tauri::command]
 pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>, insecure: Option<bool>) -> Result<serde_json::Value, String> {
     let mut builder = reqwest::Client::builder()
-        .user_agent("Viboplr/0.1.0 (https://github.com/viboplr)");
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15");
     if insecure.unwrap_or(false) {
         builder = builder.danger_accept_invalid_certs(true);
     }
@@ -3221,7 +3221,7 @@ pub async fn plugin_cache_image(
     }
 
     let client = reqwest::Client::builder()
-        .user_agent("Viboplr/0.1.0 (https://github.com/viboplr)")
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -3470,7 +3470,7 @@ pub async fn plugin_files_download(
     ensure_within_root(&root, &target)?;
 
     let client = reqwest::Client::builder()
-        .user_agent("Viboplr/0.1.0 (https://github.com/viboplr)")
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15")
         .build()
         .map_err(|e| e.to_string())?;
     let resp = client.get(&url).send().await.map_err(|e| format!("Download failed: {}", e))?;
