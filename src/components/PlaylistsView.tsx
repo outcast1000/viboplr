@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { formatDuration } from "../utils";
 import { save } from "@tauri-apps/plugin-dialog";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
@@ -41,12 +42,6 @@ function formatDate(ts: number): string {
   });
 }
 
-function formatDuration(secs: number | null): string {
-  if (secs == null) return "";
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
 
 function playlistTrackToMinimalTrack(t: PlaylistTrack): { title: string; artist_name: string | null; album_title: string | null; duration_secs: number | null; url: string | null; path: string; image_url?: string } {
   return {

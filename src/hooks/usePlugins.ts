@@ -857,7 +857,9 @@ export function usePlugins(
     for (const unsub of loaded.unsubscribers) {
       try {
         unsub();
-      } catch {}
+      } catch (e) {
+        console.error(`Failed to unsubscribe plugin handler:`, e);
+      }
     }
 
     // Clear handlers

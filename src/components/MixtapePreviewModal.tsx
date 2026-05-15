@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { useState, useEffect, useCallback } from "react";
 import type { MixtapePreview, MixtapeImportProgress, Track } from "../types";
+import { formatDuration, formatFileSize } from "../utils";
 import playlistDefault from "../assets/playlist-default.png";
 
 interface MixtapePreviewModalProps {
@@ -148,20 +149,6 @@ export function MixtapePreviewModal({
     }
   }, []);
 
-  const formatDuration = (secs: number | undefined) => {
-    if (!secs) return "\u2014";
-    const mins = Math.floor(secs / 60);
-    const s = Math.floor(secs % 60);
-    return `${mins}:${s.toString().padStart(2, "0")}`;
-  };
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024)
-      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  };
 
   const formatTotalDuration = (secs: number) => {
     const hours = Math.floor(secs / 3600);

@@ -33,7 +33,7 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
     trackPopularity,
     handleToggleLike: handleToggleArtistLike,
     handleToggleDislike: handleToggleArtistDislike,
-  } = useEntityDetail({ kind: "artist", name, invokeInfoFetch: actions.invokeInfoFetch });
+  } = useEntityDetail({ kind: "artist", name, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike });
 
   const artist = entity as Artist | null;
 

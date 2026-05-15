@@ -15,6 +15,8 @@ export interface DetailViewActions {
 
   toggleLike: (track: Track | QueueTrack) => void;
   toggleDislike: (track: Track | QueueTrack) => void;
+  toggleEntityLike: (kind: "artist" | "album" | "tag", id: number) => void;
+  toggleEntityDislike: (kind: "artist" | "album" | "tag", id: number) => void;
   deleteTracks: (trackIds: number[]) => void;
 
   handleTrackContextMenu: (e: React.MouseEvent, track: Track, selectedIds: Set<string>) => void;
@@ -63,7 +65,7 @@ export function DetailViewProvider({ actions, state, children }: DetailViewProvi
   const stableActions = useMemo(() => actions, [
     actions.navigateToArtist, actions.navigateToAlbum, actions.navigateToTag,
     actions.playTracks, actions.playEntityAll, actions.playAlbum,
-    actions.toggleLike, actions.toggleDislike, actions.deleteTracks,
+    actions.toggleLike, actions.toggleDislike, actions.toggleEntityLike, actions.toggleEntityDislike, actions.deleteTracks,
     actions.handleTrackContextMenu, actions.handleAlbumContextMenu,
     actions.handleInfoTrackContextMenu, actions.handleEntityContextMenu,
     actions.handleTrackDragStart,

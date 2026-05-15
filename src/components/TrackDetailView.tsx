@@ -5,6 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track } from "../types";
 import type { InfoEntity } from "../types/informationTypes";
 import { getProvidersForContext } from "../searchProviders";
+import { formatDuration } from "../utils";
 import { isLocalTrack } from "../queueEntry";
 import { useDetailActions } from "../contexts/DetailViewContext";
 import { IconFolder, IconLastfm, IconYoutube } from "./Icons";
@@ -37,12 +38,6 @@ function formatCount(n: number): string {
   return String(n);
 }
 
-function formatDuration(secs: number | null): string {
-  if (secs == null || secs <= 0) return "";
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
 
 function formatTimestamp(ts: number): string {
   const d = new Date(ts * 1000);

@@ -3,6 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, QueueTrack } from "../types";
 import type { PluginViewData, CardGridItem, StatItem, TrackRowItem, PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
+import { formatDuration } from "../utils";
 import { ViewSearchBar } from "./ViewSearchBar";
 import "./PluginViewRenderer.css";
 
@@ -494,11 +495,6 @@ function PluginTrackList({
   );
 }
 
-function formatDuration(secs: number): string {
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
 
 // -- Card Grid --
 

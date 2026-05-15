@@ -28,7 +28,7 @@ export function TagDetail({ name }: TagDetailProps) {
     sortIndicator,
     handleToggleLike: handleToggleTagLike,
     handleToggleDislike: handleToggleTagDislike,
-  } = useEntityDetail({ kind: "tag", name, invokeInfoFetch: actions.invokeInfoFetch });
+  } = useEntityDetail({ kind: "tag", name, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike });
 
   const tag = entity as Tag | null;
 

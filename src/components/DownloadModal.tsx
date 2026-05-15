@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Track } from "../types";
 import type { InteractiveSearchResult, DownloadResolveResult, DownloadQualityOption } from "../types/plugin";
-import { formatDuration } from "../utils";
+import { formatDuration, formatFileSize } from "../utils";
 import type { AppStore } from "../store";
 import { IconPlay, IconFolder } from "./Icons";
 import "./DownloadModal.css";
@@ -95,12 +95,6 @@ interface BatchConflict {
 
 // -- Helpers --
 
-function formatFileSize(bytes: number | null | undefined): string {
-  if (!bytes) return "—";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 const PATH_PATTERNS = [
   { value: "[artist]/[album]/[track_number] - [title]", label: "Artist / Album / 01 - Title" },
@@ -505,11 +499,12 @@ function SingleTrackDownload({
   }
 
   async function handleCancel() {
+    // Best-effort cleanup — modal is closing regardless
     if (step === "downloading") {
-      await invoke("cancel_direct_download").catch(() => {});
+      await invoke("cancel_direct_download").catch(console.error);
     }
     if (upgradePreview) {
-      await invoke("cancel_track_upgrade", { newPath: upgradePreview.new_path }).catch(() => {});
+      await invoke("cancel_track_upgrade", { newPath: upgradePreview.new_path }).catch(console.error);
     }
     onClose();
   }
@@ -546,7 +541,7 @@ function SingleTrackDownload({
 
   async function handleBackToSearch() {
     if (upgradePreview) {
-      await invoke("cancel_track_upgrade", { newPath: upgradePreview.new_path }).catch(() => {});
+      await invoke("cancel_track_upgrade", { newPath: upgradePreview.new_path }).catch(console.error);
       setUpgradePreview(null);
     }
     setSelectedMatch(null);
@@ -1149,7 +1144,7 @@ function MultiTrackDownload({
                   s.index === i ? { ...s, status: "done", progress: 100, filePath: info.new_path } : s
                 ));
               } else {
-                await invoke("cancel_track_upgrade", { newPath: info.new_path }).catch(() => {});
+                await invoke("cancel_track_upgrade", { newPath: info.new_path }).catch(console.error);
                 setDownloadStates(prev => prev.map(s =>
                   s.index === i ? { ...s, status: "skipped" } : s
                 ));

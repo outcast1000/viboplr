@@ -13,6 +13,8 @@ interface EntityDetailConfig {
   name: string;
   artistName?: string;
   invokeInfoFetch?: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
+  onEntityLike?: (kind: "artist" | "album" | "tag", id: number) => void;
+  onEntityDislike?: (kind: "artist" | "album" | "tag", id: number) => void;
 }
 
 export interface EntityDetailReturn {
@@ -30,7 +32,7 @@ export interface EntityDetailReturn {
   reload: () => void;
 }
 
-export function useEntityDetail({ kind, name, artistName, invokeInfoFetch }: EntityDetailConfig): EntityDetailReturn {
+export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEntityLike, onEntityDislike }: EntityDetailConfig): EntityDetailReturn {
   const [entity, setEntity] = useState<Artist | Album | Tag | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -210,19 +212,29 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch }: Ent
 
   const handleToggleLike = useCallback(() => {
     if (!entity) return;
-    const newLiked = entity.liked === 1 ? 0 : 1;
-    invoke("toggle_liked", { kind, id: entity.id, liked: newLiked })
-      .then(() => setEntity(prev => prev ? { ...prev, liked: newLiked } : null))
-      .catch((e) => console.error(`Failed to toggle ${kind} like:`, e));
-  }, [entity, kind]);
+    if (onEntityLike) {
+      onEntityLike(kind, entity.id);
+      setEntity(prev => prev ? { ...prev, liked: prev.liked === 1 ? 0 : 1 } : null);
+    } else {
+      const newLiked = entity.liked === 1 ? 0 : 1;
+      invoke("toggle_liked", { kind, id: entity.id, liked: newLiked })
+        .then(() => setEntity(prev => prev ? { ...prev, liked: newLiked } : null))
+        .catch((e) => console.error(`Failed to toggle ${kind} like:`, e));
+    }
+  }, [entity, kind, onEntityLike]);
 
   const handleToggleDislike = useCallback(() => {
     if (!entity) return;
-    const newLiked = entity.liked === -1 ? 0 : -1;
-    invoke("toggle_liked", { kind, id: entity.id, liked: newLiked })
-      .then(() => setEntity(prev => prev ? { ...prev, liked: newLiked } : null))
-      .catch((e) => console.error(`Failed to toggle ${kind} dislike:`, e));
-  }, [entity, kind]);
+    if (onEntityDislike) {
+      onEntityDislike(kind, entity.id);
+      setEntity(prev => prev ? { ...prev, liked: prev.liked === -1 ? 0 : -1 } : null);
+    } else {
+      const newLiked = entity.liked === -1 ? 0 : -1;
+      invoke("toggle_liked", { kind, id: entity.id, liked: newLiked })
+        .then(() => setEntity(prev => prev ? { ...prev, liked: newLiked } : null))
+        .catch((e) => console.error(`Failed to toggle ${kind} dislike:`, e));
+    }
+  }, [entity, kind, onEntityDislike]);
 
   const reload = useCallback(() => {
     setLoadKey(k => k + 1);

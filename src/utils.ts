@@ -54,6 +54,14 @@ export function shouldScrobble(
 
 export const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes == null || bytes === 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export function formatCount(n: number): string {
   if (n >= 1_000_000) {
     const v = n / 1_000_000;

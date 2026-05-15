@@ -13,6 +13,7 @@ export function useSessionLog() {
     setSessionLog(prev => [...prev, { time: new Date(), message }]);
     if (debugLoggingRef.current) {
       const section = module ? `fr-${module}` : "fr-app";
+      // Fire-and-forget: the logger itself cannot usefully report its own failures
       invoke("write_frontend_log", { level: "info", message, section }).catch(() => {});
     }
   }, []);

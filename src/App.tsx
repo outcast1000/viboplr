@@ -2311,6 +2311,16 @@ function App() {
     playAlbum: playActions.playAlbum,
     toggleLike: likeActions.handleToggleLike,
     toggleDislike: likeActions.handleToggleDislike,
+    toggleEntityLike: (kind: "artist" | "album" | "tag", id: number) => {
+      if (kind === "artist") likeActions.handleToggleArtistLike(id);
+      else if (kind === "album") likeActions.handleToggleAlbumLike(id);
+      else likeActions.handleToggleTagLike(id);
+    },
+    toggleEntityDislike: (kind: "artist" | "album" | "tag", id: number) => {
+      if (kind === "artist") likeActions.handleToggleArtistDislike(id);
+      else if (kind === "album") likeActions.handleToggleAlbumDislike(id);
+      else likeActions.handleToggleTagDislike(id);
+    },
     deleteTracks: handleDeleteTracks,
     handleTrackContextMenu: contextMenuActions.handleTrackContextMenu,
     handleAlbumContextMenu: contextMenuActions.handleAlbumContextMenu,
@@ -2336,7 +2346,11 @@ function App() {
   }), [
     library.handleArtistClick, library.handleAlbumClick, library.handleTagClick,
     queueHook.playTracks, handlePlayEntityAll, playActions.playAlbum,
-    likeActions.handleToggleLike, likeActions.handleToggleDislike, handleDeleteTracks,
+    likeActions.handleToggleLike, likeActions.handleToggleDislike,
+    likeActions.handleToggleArtistLike, likeActions.handleToggleArtistDislike,
+    likeActions.handleToggleAlbumLike, likeActions.handleToggleAlbumDislike,
+    likeActions.handleToggleTagLike, likeActions.handleToggleTagDislike,
+    handleDeleteTracks,
     contextMenuActions.handleTrackContextMenu, contextMenuActions.handleAlbumContextMenu,
     contextMenuActions.handleInfoTrackContextMenu, contextMenuActions.handleEntityContextMenu,
     contextMenuActions.handleTrackDragStart,

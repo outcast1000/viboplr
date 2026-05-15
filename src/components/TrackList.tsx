@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Track, QueueTrack, SortField, TrackColumnId, ColumnConfig } from "../types";
-import { isVideoTrack, formatDuration } from "../utils";
+import { isVideoTrack, formatDuration, formatFileSize } from "../utils";
 import { parseLibraryId } from "../queueEntry";
 import { IconYoutube } from "./Icons";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
@@ -56,13 +56,6 @@ const COLUMN_SORT_FIELDS: Partial<Record<TrackColumnId, SortField>> = {
   popularity: "popularity",
 };
 
-function formatFileSize(bytes: number | null): string {
-  if (!bytes) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
 
 function formatQuality(track: Track): string {
   const fmt = track.format?.toUpperCase() ?? "";

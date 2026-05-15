@@ -2,6 +2,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { useState, useEffect, useCallback } from "react";
+import { formatDuration, formatFileSize } from "../utils";
 
 export interface ExportTrack {
   id?: number;
@@ -41,12 +42,6 @@ function trackStatus(t: ExportTrack): "local" | "remote" | "unknown" {
   return "remote";
 }
 
-const formatDuration = (secs?: number): string => {
-  if (!secs) return "—";
-  const mins = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${mins}:${s.toString().padStart(2, "0")}`;
-};
 
 const RECOMMENDED_METADATA_KEYS = [
   { key: "liner_notes", label: "Liner Notes" },
@@ -74,12 +69,6 @@ function formatPhase(phase: string): string {
   return "Packing";
 }
 
-const formatFileSize = (bytes?: number): string => {
-  if (!bytes) return "—";
-  const mb = bytes / (1024 * 1024);
-  if (mb < 1024) return `${mb.toFixed(1)} MB`;
-  return `${(mb / 1024).toFixed(2)} GB`;
-};
 
 export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, defaultMetadata, defaultMixtapeType, downloadFormat, onClose }: MixtapeExportModalProps) {
   const [title, setTitle] = useState(defaultTitle || "");
