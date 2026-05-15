@@ -139,12 +139,12 @@
 }
 
 .collections-view-feedback-ok {
-  background: rgba(76, 175, 80, 0.15);
+  background: rgba(var(--success-rgb), 0.15);
   color: var(--success);
 }
 
 .collections-view-feedback-err {
-  background: rgba(244, 67, 54, 0.15);
+  background: rgba(var(--error-rgb), 0.15);
   color: var(--error);
 }
 

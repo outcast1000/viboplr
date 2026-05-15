@@ -1173,8 +1173,8 @@
   flex-direction: column;
   gap: 6px;
   padding: 8px 10px;
-  background: rgba(255, 180, 50, 0.12);
-  border-bottom: 1px solid rgba(255, 180, 50, 0.25);
+  background: rgba(var(--warning-rgb), 0.12);
+  border-bottom: 1px solid rgba(var(--warning-rgb), 0.25);
   font-size: var(--fs-sm);
   flex-shrink: 0;
 }
@@ -2516,11 +2516,11 @@
   color: var(--accent);
 }
 .ext-badge--active {
-  background: rgba(76, 175, 80, 0.2);
+  background: rgba(var(--success-rgb), 0.2);
   color: var(--success);
 }
 .ext-badge--error {
-  background: rgba(244, 67, 54, 0.2);
+  background: rgba(var(--error-rgb), 0.2);
   color: var(--error);
 }
 .ext-badge--disabled {
