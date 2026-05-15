@@ -87,6 +87,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   useEffect(() => { if (restoredRef.current) store.set("filterYoutubeOnly", filterYoutubeOnly); }, [filterYoutubeOnly]);
   useEffect(() => { if (restoredRef.current) store.set("mediaTypeFilter", mediaTypeFilter); }, [mediaTypeFilter]);
   useEffect(() => { if (restoredRef.current) store.set("trackLikedFirst", trackLikedFirst); }, [trackLikedFirst]);
+
   const loadLibrary = useCallback(async () => {
     try {
       const [a, al, c, cs, t, tc] = await Promise.all([
@@ -358,6 +359,15 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [fallbackArtistName, setFallbackArtistName] = useState<string | null>(null);
   const [fallbackAlbumName, setFallbackAlbumName] = useState<{ name: string; artistName?: string } | null>(null);
   const [fallbackTrackName, setFallbackTrackName] = useState<{ name: string; artistName?: string; albumTitle?: string } | null>(null);
+
+  // Entity views without a selection have no standalone list — redirect to search
+  useEffect(() => {
+    if ((view === "artists" && selectedArtist === null && !fallbackArtistName) ||
+        (view === "albums" && selectedAlbum === null && !fallbackAlbumName) ||
+        (view === "tags" && selectedTag === null)) {
+      setView("search");
+    }
+  }, [view, selectedArtist, selectedAlbum, selectedTag, fallbackArtistName, fallbackAlbumName]);
 
   function clearFallback() {
     setFallbackArtistName(null);

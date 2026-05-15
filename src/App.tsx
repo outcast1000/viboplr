@@ -1563,7 +1563,11 @@ function App() {
           store.get<number | null>("downloadsCollectionId"),
           store.get<boolean>("minimizeToMiniPlayer"),
         ]));
-        if (v && ["search", "artists", "albums", "tags", "history"].includes(v)) library.setView(v as View);
+        if (v && ["search", "artists", "albums", "tags", "history"].includes(v)) {
+          // Entity views without a matching selection have no standalone list — redirect to search
+          const entityViewNeedsSelection = (v === "artists" && !sa) || (v === "albums" && !sal) || (v === "tags" && !st);
+          library.setView(entityViewNeedsSelection ? "search" : v as View);
+        }
         if (sa !== undefined && sa !== null) {
           library.setSelectedArtist(sa);
         }
