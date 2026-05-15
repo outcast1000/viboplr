@@ -1491,7 +1491,7 @@ function activate(api) {
           'setTimeout(waitForContent,500);return;' +
         '}' +
         'if(!contentReady){' +
-          '_dbg("tracks","content not ready after wait, proceeding with fallback",{attempts:_waitAttempts,tag:sc.tagName,hasRows:hasRows});' +
+          '_dbg("tracks","content not ready after wait, proceeding with fallback",{attempts:_waitAttempts,tag:sc.tagName,hasRows:hasRows,url:location.href,hasLogin:!!document.querySelector("[data-testid=\\"login-button\\"]")});' +
         '}' +
         '_dbg("tracks","scroll container",{tag:sc.tagName,testid:sc.getAttribute&&sc.getAttribute("data-testid"),scrollH:sc.scrollHeight,clientH:sc.clientHeight,overflow:window.getComputedStyle(sc).overflowY,waitAttempts:_waitAttempts});' +
         'beginScrape();' +
@@ -1547,6 +1547,14 @@ function activate(api) {
           'parseVisibleRows();' +
           'var descEl=document.querySelector("[data-testid=\\"playlist-description\\"]")||document.querySelector("main [data-testid=\\"entityTitle\\"] ~ span");' +
           'var desc=descEl?descEl.textContent.trim():"";' +
+          'if(allOut.length===0){' +
+            'var diag={rows:document.querySelectorAll("[role=\\"row\\"]").length,' +
+              'trackLinks:document.querySelectorAll("a[href*=\\"/track/\\"]").length,' +
+              'tracklist:!!document.querySelector("[data-testid=\\"playlist-tracklist\\"]"),' +
+              'url:location.href,title:document.title,' +
+              'mainText:(document.querySelector("main")?document.querySelector("main").textContent:"").substring(0,200)};' +
+            '_dbg("tracks","=== EMPTY ' + playlistId + ' - page diagnostics",diag);' +
+          '}' +
           '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:allOut.length,steps:n,gen:_gen,desc:desc.substring(0,80),coverUrl:_coverUrl?_coverUrl.substring(0,60):null});' +
           'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:allOut,description:desc,coverUrl:_coverUrl,gen:_gen});' +
         '}else{sc.scrollTop+=step;setTimeout(tick,600)}' +
@@ -1868,16 +1876,20 @@ function activate(api) {
                 if (msg.data.error) {
                   plReport.status = "error";
                   plReport.error = String(msg.data.error);
+                  plog("warn", "tracks", "Scrape error for \"" + pl.name + "\" (" + pl.id + "): " + msg.data.error, { trackCount: tracks.length, durationMs: plReport.durationMs });
                   captureSnapshot("tracks-error:" + pl.id, function (snap) {
                     plReport.snapshot = snap;
+                    if (snap && snap.counts) plog("warn", "tracks", "Error snapshot for \"" + pl.name + "\"", { url: snap.url, counts: snap.counts });
                     setTimeout(scrapeNext, 1000);
                   });
                   return;
                 }
                 if (tracks.length === 0) {
                   plReport.status = "empty";
+                  plog("warn", "tracks", "Got 0 tracks for \"" + pl.name + "\" (" + pl.id + ")", { durationMs: plReport.durationMs });
                   captureSnapshot("tracks-empty:" + pl.id, function (snap) {
                     plReport.snapshot = snap;
+                    if (snap && snap.counts) plog("warn", "tracks", "Empty snapshot for \"" + pl.name + "\"", { url: snap.url, counts: snap.counts, testids: (snap.testids || []).slice(0, 10) });
                     setTimeout(scrapeNext, 1000);
                   });
                   return;
@@ -1891,12 +1903,13 @@ function activate(api) {
               if (gen !== scrapeGeneration) return;
               h.eval(scriptScrollThenScrape(pl.id, gen));
               trackTimeout = setTimeout(function() {
-                dbg("tracks", "=== TIMEOUT " + pl.id, { elapsed: Date.now() - plStart, name: pl.name });
+                plog("warn", "tracks", "Timeout scraping \"" + pl.name + "\" (" + pl.id + ") after 45s", { elapsed: Date.now() - plStart });
                 allTracks[pl.id] = allTracks[pl.id] || [];
                 plReport.status = "timeout";
                 plReport.durationMs = Date.now() - plStart;
                 captureSnapshot("tracks-timeout:" + pl.id, function (snap) {
                   plReport.snapshot = snap;
+                  if (snap && snap.counts) plog("warn", "tracks", "Timeout snapshot for \"" + pl.name + "\"", { url: snap.url, counts: snap.counts });
                   scrapeNext();
                 });
               }, 45000);
