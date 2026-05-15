@@ -361,7 +361,8 @@ function activate(api) {
             api.storage.files.download(dir.concat(["cover.jpg"]), pl.imageUrl).then(function (path) {
               pl.imageUrl = path;
             }).catch(function (e) {
-              console.error("Failed to cache playlist cover:", e);
+              api.log("warn", "Failed to cache playlist cover for " + pl.name + ": " + e);
+              pl.imageUrl = null;
             })
           );
         }
@@ -375,7 +376,9 @@ function activate(api) {
                   track.imageUrl = path;
                   track.coverFile = filename;
                 }).catch(function (e) {
-                  console.error("Failed to cache track image:", e);
+                  api.log("warn", "Failed to cache track image (" + track.name + "): " + e);
+                  track.imageUrl = null;
+                  track.coverFile = null;
                 })
               );
             }
@@ -1306,23 +1309,29 @@ function activate(api) {
     '}catch(e){window.__viboplr.send("music-clicked",{ok:false,error:""+e})}})()';
 
   var IMG_HELPER =
+    'function isValidImgUrl(u){' +
+      'if(!u||u.length<20)return false;' +
+      'if(u.indexOf("data:")===0||u.indexOf("blob:")===0)return false;' +
+      'if(u.indexOf("pickasso.spotifycdn.com")!==-1&&u.split("/").length<7)return false;' +
+      'return true;' +
+    '}' +
     'function bestImg(el){' +
       'var imgs=el.querySelectorAll("img");' +
       'for(var k=0;k<imgs.length;k++){' +
         'var s=imgs[k].currentSrc||imgs[k].src||"";' +
-        'if(s&&s.indexOf("data:")!==0&&s.indexOf("blob:")!==0)return s;' +
+        'if(isValidImgUrl(s))return s;' +
         'var ss=imgs[k].getAttribute("srcset");' +
         'if(ss){var parts=ss.split(",");for(var p=parts.length-1;p>=0;p--){' +
-          'var u=parts[p].trim().split(/\\s+/)[0];if(u)return u;' +
+          'var u=parts[p].trim().split(/\\s+/)[0];if(isValidImgUrl(u))return u;' +
         '}}' +
         'var ds=imgs[k].getAttribute("data-src");' +
-        'if(ds)return ds;' +
+        'if(isValidImgUrl(ds))return ds;' +
       '}' +
       'var bgs=el.querySelectorAll("[style]");' +
       'for(var b=0;b<bgs.length;b++){' +
         'var bg=bgs[b].style.backgroundImage||"";' +
         'var bm=bg.match(/url\\([\\"\\\']*([^\\"\\\'\\)]+)/);' +
-        'if(bm&&bm[1])return bm[1];' +
+        'if(bm&&isValidImgUrl(bm[1]))return bm[1];' +
       '}' +
       'return null;' +
     '}';
@@ -2692,7 +2701,7 @@ function activate(api) {
         if (entry.imageUrl && entry.imageUrl.indexOf("http") === 0) {
           p = p.then(function () {
             return api.storage.files.download(["archives", archiveId, "cover.jpg"], entry.imageUrl)
-              .catch(function () { /* non-fatal */ });
+              .catch(function (e) { api.log("warn", "Failed to cache archive cover for " + entry.name + ": " + e); });
           });
         }
         promises.push(p);
