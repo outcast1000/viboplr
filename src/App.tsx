@@ -1479,24 +1479,46 @@ function App() {
     };
   }, [plugins.forwardDeepLink]);
 
-  // Listen for mixtape file opened events (from file association / CLI)
+  // Listen for mixtape file opened events (from file association / CLI) — play immediately
   useEffect(() => {
     const unlistenMixtapeOpen = listen<string>("mixtape-file-opened", (event) => {
-      setMixtapePreviewPath(event.payload);
+      invoke("import_mixtape", { path: event.payload, mode: "just_play", destDir: null })
+        .catch(err => console.error("Failed to play mixtape:", err));
     });
+
+    const unlistenJustPlay = listen<{ tracks: Track[]; coverPath?: string | null; title?: string; metadata?: Record<string, string> | null }>("mixtape-just-play", (event) => {
+      if (mixtapePreviewPath) return;
+      const { tracks, coverPath, title, metadata } = event.payload;
+      const queueTracks: QueueTrack[] = tracks.map(t => ({
+        key: nextExternalKey(),
+        path: t.path ?? null,
+        title: t.title,
+        artist_name: t.artist_name ?? null,
+        album_title: t.album_title ?? null,
+        duration_secs: t.duration_secs ?? null,
+        format: t.format ?? null,
+        image_url: t.image_url,
+        liked: 0,
+      }));
+      const name = title || "Mixtape";
+      queueHook.playTracks(queueTracks, 0, contextFromMixtapeMetadata(name, coverPath ?? null, metadata ?? null));
+    });
+
     return () => {
       unlistenMixtapeOpen.then(f => f());
+      unlistenJustPlay.then(f => f());
     };
-  }, []);
+  }, [mixtapePreviewPath, queueHook.playTracks]);
 
-  // Handle drag-and-drop of .mixtape files onto the window
+  // Handle drag-and-drop of .mixtape files onto the window — play immediately
   useEffect(() => {
     const unlisten = getCurrentWindow().onDragDropEvent((event) => {
       if (event.payload.type === "drop") {
         const paths: string[] = event.payload.paths;
         const mixtapePath = paths.find(p => p.endsWith(".mixtape"));
         if (mixtapePath) {
-          setMixtapePreviewPath(mixtapePath);
+          invoke("import_mixtape", { path: mixtapePath, mode: "just_play", destDir: null })
+            .catch(err => console.error("Failed to play mixtape:", err));
         }
       }
     });

@@ -4411,9 +4411,18 @@ pub fn import_mixtape(
 
                 let track_count = manifest.tracks.len() as u32;
 
+                let cover_path = playback_dir.join("cover.jpg");
+                let cover_value = if cover_path.exists() {
+                    serde_json::Value::String(cover_path.to_string_lossy().to_string())
+                } else {
+                    serde_json::Value::Null
+                };
+
                 let _ = app.emit("mixtape-just-play", serde_json::json!({
                     "tracks": track_paths,
-                    "coverPath": playback_dir.join("cover.jpg").to_string_lossy(),
+                    "coverPath": cover_value,
+                    "title": manifest.title,
+                    "metadata": manifest.metadata,
                 }));
 
                 let _ = app.emit("mixtape-import-complete", serde_json::json!({

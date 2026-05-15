@@ -27,6 +27,7 @@ export function MixtapePreviewModal({
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<MixtapeImportProgress | null>(null);
+  const [showImportOptions, setShowImportOptions] = useState(false);
 
   // Load mixtape preview on mount
   useEffect(() => {
@@ -279,28 +280,41 @@ export function MixtapePreviewModal({
               <div className="mixtape-preview-actions">
                 <button
                   className="mixtape-action-btn primary"
-                  onClick={() => handleImport("playlist_and_files")}
-                >
-                  Import Playlist + Files
-                </button>
-                <button
-                  className="mixtape-action-btn"
-                  onClick={() => handleImport("playlist_only")}
-                >
-                  Import Playlist Only
-                </button>
-                <button
-                  className="mixtape-action-btn"
-                  onClick={() => handleImport("files_only")}
-                >
-                  Import Files Only
-                </button>
-                <button
-                  className="mixtape-action-btn"
                   onClick={() => handleImport("just_play")}
                 >
-                  Just Play
+                  ▶ Play
                 </button>
+                <div className="mixtape-import-disclosure">
+                  <button
+                    className="mixtape-disclosure-toggle"
+                    onClick={() => setShowImportOptions(!showImportOptions)}
+                  >
+                    <span className={`mixtape-disclosure-arrow${showImportOptions ? " open" : ""}`}>▸</span>
+                    Import options
+                  </button>
+                  {showImportOptions && (
+                    <div className="mixtape-import-options">
+                      <button
+                        className="mixtape-action-btn secondary"
+                        onClick={() => handleImport("playlist_and_files")}
+                      >
+                        Import Playlist + Files
+                      </button>
+                      <button
+                        className="mixtape-action-btn secondary"
+                        onClick={() => handleImport("playlist_only")}
+                      >
+                        Import Playlist Only
+                      </button>
+                      <button
+                        className="mixtape-action-btn secondary"
+                        onClick={() => handleImport("files_only")}
+                      >
+                        Extract Files Only
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <button className="mixtape-action-btn cancel" onClick={onClose}>
                   Cancel
                 </button>
