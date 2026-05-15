@@ -73,12 +73,36 @@ function activate(api) {
   // -- TIDAL HTTP client --
 
   var UPTIME_URLS = [
+    "https://tidal-uptime.geeked.wtf",
     "https://tidal-uptime.jiffy-puffs-1j.workers.dev/",
     "https://tidal-uptime.props-76styles.workers.dev/",
   ];
-  var CACHE_TTL_MS = 1800000; // 30 minutes
+  var CACHE_TTL_MS = 900000; // 15 minutes
 
-  var instanceCache = null; // { apiUrls: [], streamingUrls: [], fetchedAt: number }
+  var FALLBACK_INSTANCES = {
+    api: [
+      { url: "https://hifi.geeked.wtf", version: "2.7" },
+      { url: "https://eu-central.monochrome.tf", version: "2.7" },
+      { url: "https://us-west.monochrome.tf", version: "2.7" },
+      { url: "https://api.monochrome.tf", version: "2.5" },
+      { url: "https://monochrome-api.samidy.com", version: "2.3" },
+      { url: "https://maus.qqdl.site", version: "2.6" },
+      { url: "https://vogel.qqdl.site", version: "2.6" },
+      { url: "https://katze.qqdl.site", version: "2.6" },
+      { url: "https://hund.qqdl.site", version: "2.6" },
+      { url: "https://wolf.qqdl.site", version: "2.2" },
+    ],
+    streaming: [
+      { url: "https://hifi.geeked.wtf", version: "2.7" },
+      { url: "https://maus.qqdl.site", version: "2.6" },
+      { url: "https://vogel.qqdl.site", version: "2.6" },
+      { url: "https://katze.qqdl.site", version: "2.6" },
+      { url: "https://hund.qqdl.site", version: "2.6" },
+      { url: "https://wolf.qqdl.site", version: "2.6" },
+    ],
+  };
+
+  var instanceCache = null; // { apiInstances: [], streamingInstances: [], fetchedAt: number }
 
   async function fetchInstances() {
     if (state.mockMode) {
@@ -90,23 +114,29 @@ function activate(api) {
         var resp = await api.network.fetch(UPTIME_URLS[i]);
         if (resp.status !== 200) continue;
         var json = await resp.json();
-        var apiUrls = (json.api || []).map(function (item) {
-          return item.url.replace(/\/+$/, "");
+        var apiInstances = (json.api || []).map(function (item) {
+          return { url: item.url.replace(/\/+$/, ""), version: item.version || null };
         });
-        var streamingUrls = (json.streaming || []).map(function (item) {
-          return item.url.replace(/\/+$/, "");
+        var streamingInstances = (json.streaming || []).map(function (item) {
+          return { url: item.url.replace(/\/+$/, ""), version: item.version || null };
         });
-        instanceCache = { apiUrls: apiUrls, streamingUrls: streamingUrls, fetchedAt: Date.now() };
+        instanceCache = { apiInstances: apiInstances, streamingInstances: streamingInstances, fetchedAt: Date.now() };
         state.lastHealthCheck = Date.now();
-        updateHealthState(apiUrls.length > 0, streamingUrls.length > 0);
+        updateHealthState(apiInstances.length > 0, streamingInstances.length > 0);
         return;
       } catch (e) {
         // try next uptime URL
       }
     }
-    // all uptime URLs failed — mark everything down
+    // all uptime URLs failed — use hardcoded fallback list
     state.lastHealthCheck = Date.now();
-    updateHealthState(false, false);
+    instanceCache = {
+      apiInstances: FALLBACK_INSTANCES.api.slice(),
+      streamingInstances: FALLBACK_INSTANCES.streaming.slice(),
+      fetchedAt: Date.now(),
+    };
+    rustLog("warn", "TIDAL uptime APIs unreachable — using fallback instance list (" + instanceCache.apiInstances.length + " API, " + instanceCache.streamingInstances.length + " streaming)");
+    updateHealthState(true, true);
   }
 
   function updateHealthState(apiUp, streamingUp) {
@@ -122,21 +152,21 @@ function activate(api) {
     render();
   }
 
-  async function getApiUrls() {
+  async function getApiInstances() {
     if (instanceCache && (Date.now() - instanceCache.fetchedAt) < CACHE_TTL_MS) {
-      return instanceCache.apiUrls;
+      return instanceCache.apiInstances;
     }
     await fetchInstances();
-    return instanceCache ? instanceCache.apiUrls : [];
+    return instanceCache ? instanceCache.apiInstances : [];
   }
 
-  async function getStreamingUrls() {
+  async function getStreamingInstances() {
     if (instanceCache && (Date.now() - instanceCache.fetchedAt) < CACHE_TTL_MS) {
-      return instanceCache.streamingUrls.length > 0 ? instanceCache.streamingUrls : instanceCache.apiUrls;
+      return instanceCache.streamingInstances.length > 0 ? instanceCache.streamingInstances : instanceCache.apiInstances;
     }
     await fetchInstances();
     if (!instanceCache) return [];
-    return instanceCache.streamingUrls.length > 0 ? instanceCache.streamingUrls : instanceCache.apiUrls;
+    return instanceCache.streamingInstances.length > 0 ? instanceCache.streamingInstances : instanceCache.apiInstances;
   }
 
   async function tidalFetch(path) {
@@ -147,22 +177,38 @@ function activate(api) {
     if (!isStreaming && state.apiDown) {
       throw new Error("TIDAL API servers are currently unavailable");
     }
-    var urls = isStreaming ? await getStreamingUrls() : await getApiUrls();
-    if (urls.length === 0) {
+    var instances = isStreaming ? await getStreamingInstances() : await getApiInstances();
+    if (instances.length === 0) {
       throw new Error("No TIDAL instances available");
     }
-    for (var i = 0; i < urls.length; i++) {
+    // Randomize starting instance for load distribution
+    var startIdx = Math.floor(Math.random() * instances.length);
+    var maxAttempts = Math.min(instances.length * 2, instances.length + 3);
+    var lastError = null;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      var inst = instances[(startIdx + attempt) % instances.length];
+      var url = inst.url + path;
       try {
-        var resp = await api.network.fetch(urls[i] + path, { insecure: true });
+        var resp = await api.network.fetch(url, { insecure: true });
         if (resp.status >= 200 && resp.status < 300) {
           return resp.json();
         }
+        if (resp.status === 429) {
+          // Rate limited — try next instance
+          continue;
+        }
+        if (resp.status >= 500) {
+          // Server error — try next
+          continue;
+        }
+        lastError = new Error("TIDAL request failed with status " + resp.status);
       } catch (e) {
-        // try next instance
+        lastError = e;
+        // Network error — try next instance
       }
     }
     instanceCache = null;
-    throw new Error("All TIDAL instances failed");
+    throw lastError || new Error("All TIDAL instances failed");
   }
 
   async function tidalGetStreamUrl(trackId, quality) {
@@ -300,8 +346,8 @@ function activate(api) {
   async function tidalCheckStatus() {
     if (state.mockMode) return { available: true, instance_count: 1 };
     try {
-      var urls = await getApiUrls();
-      return { available: urls.length > 0, instance_count: urls.length };
+      var instances = await getApiInstances();
+      return { available: instances.length > 0, instance_count: instances.length };
     } catch (e) {
       return { available: false, instance_count: 0 };
     }
@@ -388,7 +434,7 @@ function activate(api) {
       bannerClass = "ds-banner ds-banner--warning";
       bannerText = "TIDAL API is unavailable — streaming may still work" + checkedSuffix;
     } else {
-      var count = instanceCache ? instanceCache.apiUrls.length : 0;
+      var count = instanceCache ? instanceCache.apiInstances.length : 0;
       bannerClass = "ds-banner ds-banner--success";
       bannerText = count + " server" + (count !== 1 ? "s" : "") + " online" + checkedSuffix;
     }
@@ -629,7 +675,7 @@ function activate(api) {
     if (state.mockMode) {
       serverStatus = "Mock mode — using fake data";
     } else if (!state.apiDown && !state.streamingDown) {
-      var count = instanceCache ? instanceCache.apiUrls.length : 0;
+      var count = instanceCache ? instanceCache.apiInstances.length : 0;
       serverStatus = count + " server" + (count !== 1 ? "s" : "") + " online";
     } else if (state.apiDown && state.streamingDown) {
       serverStatus = "servers offline";
