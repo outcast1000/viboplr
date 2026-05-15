@@ -3124,9 +3124,7 @@ function App() {
           onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
           onRemove={queueHook.removeFromQueue}
           onLocateTrack={(track) => {
-            if (parseLibraryId(track.key) != null) {
-              library.handleTrackClick(track.key);
-            }
+            library.handleTrackClick(track.key);
           }}
           onMoveMultiple={queueHook.moveMultiple}
           onClear={queueHook.clearQueue}
