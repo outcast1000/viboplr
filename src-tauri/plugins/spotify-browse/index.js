@@ -566,12 +566,6 @@ function activate(api) {
       buttons.push({ label: "Sync", action: "sync" });
     }
 
-    // Always show a browser-visibility toggle for debugging scrapes.
-    buttons.push({
-      label: state.showBrowserOnRefresh ? "Hide browser during refresh" : "Show browser during refresh",
-      action: "toggle-show-browser-pref",
-      variant: "secondary",
-    });
 
     var statusText = "";
     var statusVariant = "default";
@@ -716,8 +710,10 @@ function activate(api) {
       }
     }
 
+    var toolbar = buildToolbar();
+    toolbar.buttons.push({ label: state.showBrowserOnRefresh ? "Browser: ON" : "Browser: OFF", action: "toggle-show-browser-pref", variant: state.showBrowserOnRefresh ? "accent" : "secondary" });
     var view = [
-      buildToolbar(),
+      toolbar,
       { type: "tabs", activeTab: state.activeTab, action: "switch-tab", tabs: buildTabs() },
     ];
 
@@ -1325,7 +1321,7 @@ function activate(api) {
     'function isValidImgUrl(u){' +
       'if(!u||u.length<20)return false;' +
       'if(u.indexOf("data:")===0||u.indexOf("blob:")===0)return false;' +
-      'if(u.indexOf("pickasso.spotifycdn.com")!==-1&&u.split("/").length<7)return false;' +
+      'if(u.indexOf("pickasso.spotifycdn.com")!==-1&&u.split("/").length<10)return false;' +
       'return true;' +
     '}' +
     'function bestImg(el){' +
@@ -1568,7 +1564,7 @@ function activate(api) {
               'mainText:(document.querySelector("main")?document.querySelector("main").textContent:"").substring(0,200)};' +
             '_dbg("tracks","=== EMPTY ' + playlistId + ' - page diagnostics",diag);' +
           '}' +
-          '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:allOut.length,steps:n,gen:_gen,desc:desc.substring(0,80),coverUrl:_coverUrl?_coverUrl.substring(0,60):null});' +
+          '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:allOut.length,steps:n,gen:_gen,desc:desc.substring(0,80),coverUrl:_coverUrl});' +
           'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:allOut,description:desc,coverUrl:_coverUrl,gen:_gen});' +
         '}else{sc.scrollTop+=step;setTimeout(tick,600)}' +
       '}catch(e){' +
