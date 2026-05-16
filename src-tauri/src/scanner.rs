@@ -208,40 +208,10 @@ static BRACKET_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\(([^)]+)\)|\[([^\]]+)\]").unwrap()
 });
 
-/// Extract tags for a video file from its folder hierarchy and filename keywords.
-/// Returns up to 2 folder-name tags + any non-noise bracketed/parenthesized keywords.
-fn extract_video_tags(path: &Path, collection_root: Option<&str>) -> Vec<String> {
+/// Extract tags for a video file from bracketed/parenthesized keywords in the filename.
+fn extract_video_tags(path: &Path, _collection_root: Option<&str>) -> Vec<String> {
     let mut tags: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-
-    // 1. Folder tags: walk up from parent, up to 2 levels, stopping at collection root
-    let root = collection_root.map(Path::new);
-    if let Some(mut dir) = path.parent() {
-        for _ in 0..2 {
-            // Stop if we've reached the collection root
-            if let Some(r) = root {
-                if dir == r {
-                    break;
-                }
-            }
-            if let Some(name) = dir.file_name().and_then(|n| n.to_str()) {
-                let trimmed = name.trim().to_string();
-                if !trimmed.is_empty() {
-                    let key = trimmed.to_lowercase();
-                    if !seen.contains(&key) {
-                        seen.insert(key);
-                        tags.push(trimmed);
-                    }
-                }
-            }
-            match dir.parent() {
-                Some(p) => dir = p,
-                None => break,
-            }
-        }
-    }
-
-    // 2. Keyword tags: extract bracketed/parenthesized groups from filename
     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
         for cap in BRACKET_RE.captures_iter(stem) {
             let text = cap.get(1).or_else(|| cap.get(2)).map(|m| m.as_str().trim().to_string());
