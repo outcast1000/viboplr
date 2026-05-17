@@ -1118,9 +1118,7 @@ function App() {
       return;
     }
 
-    showNativeMenu(cm.x, cm.y, specs).finally(() => {
-      contextMenuActions.setContextMenu(null);
-    });
+    showNativeMenu(cm.x, cm.y, specs);
   }, [contextMenuActions, videoLayout, queueHook.queue, library, downloadProviderEntries, plugins.menuItems, plugins.dispatchContextMenuAction, searchProviders, handleDownloadFromProvider, artistImageCache, albumImageCache]);
   showNativeMenuRef.current = buildAndShowNativeMenu;
 
