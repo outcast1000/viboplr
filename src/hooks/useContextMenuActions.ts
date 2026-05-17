@@ -329,13 +329,17 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }
 
-  function handleBulkEdit() {
+  async function handleBulkEdit() {
     const cm = contextMenuRef.current;
     if (!cm || cm.target.kind !== "multi-track") return;
     const { trackIds } = cm.target;
-    const selected = library.tracks.filter(t => t.id != null && trackIds.includes(t.id));
-    if (selected.length > 0) setBulkEditTracks(selected);
     setContextMenu(null);
+    try {
+      const selected = await invoke<Track[]>("get_tracks_by_ids", { ids: trackIds });
+      if (selected.length > 0) setBulkEditTracks(selected);
+    } catch (e) {
+      console.error("Failed to load tracks for bulk edit:", e);
+    }
   }
 
   function handleDeleteRequest() {

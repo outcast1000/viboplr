@@ -930,6 +930,8 @@ pub fn bulk_update_tracks(
         genre: fields.tag_names.as_ref().map(|tags| tags.join(", ")),
     };
 
+    const VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv"];
+
     for (_track_id, path, _collection_id) in &track_info {
         // Skip non-local files
         if !path.starts_with("file://") {
@@ -940,6 +942,15 @@ pub fn bulk_update_tracks(
         let bare_path = path.strip_prefix("file://").unwrap_or(path);
         let file_path = std::path::Path::new(bare_path);
         if !file_path.exists() {
+            continue;
+        }
+
+        // Skip video files — they don't support embedded metadata tags
+        let is_video = file_path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| VIDEO_EXTENSIONS.contains(&e.to_lowercase().as_str()))
+            .unwrap_or(false);
+        if is_video {
             continue;
         }
 
