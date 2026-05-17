@@ -111,7 +111,7 @@ function activate(api) {
     }
     for (var i = 0; i < UPTIME_URLS.length; i++) {
       try {
-        var resp = await api.network.fetch(UPTIME_URLS[i]);
+        var resp = await api.network.fetch(UPTIME_URLS[i], { insecure: true });
         if (resp.status !== 200) continue;
         var json = await resp.json();
         var apiInstances = (json.api || []).map(function (item) {
