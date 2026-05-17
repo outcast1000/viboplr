@@ -535,22 +535,10 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_video_tags_folders() {
+    fn test_extract_video_tags_no_folders() {
         let path = Path::new("/Music/Concerts/Rock/show.mp4");
         let tags = extract_video_tags(path, Some("/Music"));
-        assert!(tags.contains(&"Rock".to_string()));
-        assert!(tags.contains(&"Concerts".to_string()));
-        assert!(!tags.contains(&"Music".to_string())); // collection root excluded
-    }
-
-    #[test]
-    fn test_extract_video_tags_max_two_levels() {
-        let path = Path::new("/root/A/B/C/video.mp4");
-        let tags = extract_video_tags(path, Some("/root"));
-        // Only C and B, not A
-        assert!(tags.contains(&"C".to_string()));
-        assert!(tags.contains(&"B".to_string()));
-        assert!(!tags.contains(&"A".to_string()));
+        assert!(tags.is_empty()); // folder names are not added as tags
     }
 
     #[test]
@@ -579,8 +567,8 @@ mod tests {
 
     #[test]
     fn test_extract_video_tags_deduplicates() {
-        // Folder named "Live" + keyword (Live) should produce only one tag
-        let path = Path::new("/root/Live/Concert (Live).mp4");
+        // (Live) and [live] in filename should produce only one tag
+        let path = Path::new("/root/Concert (Live) [live].mp4");
         let tags = extract_video_tags(path, Some("/root"));
         let live_count = tags.iter().filter(|t| t.to_lowercase() == "live").count();
         assert_eq!(live_count, 1);
@@ -588,9 +576,9 @@ mod tests {
 
     #[test]
     fn test_extract_video_tags_no_collection_root() {
-        let path = Path::new("/A/B/video.mp4");
+        let path = Path::new("/A/B/video (Live).mp4");
         let tags = extract_video_tags(path, None);
-        assert!(tags.contains(&"B".to_string()));
-        assert!(tags.contains(&"A".to_string()));
+        assert!(tags.contains(&"Live".to_string()));
+        assert!(!tags.contains(&"B".to_string())); // folder names not added
     }
 }
