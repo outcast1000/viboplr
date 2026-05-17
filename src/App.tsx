@@ -596,7 +596,7 @@ function App() {
   const [mixtapeExportDefaultMetadata, setMixtapeExportDefaultMetadata] = useState<Record<string, string> | null>(null);
   const [mixtapeExportDefaultType, setMixtapeExportDefaultType] = useState<"custom" | "album" | "best_of_artist">("custom");
 
-  const [deleteTagConfirm, setDeleteTagConfirm] = useState<{ id: number; name: string } | null>(null);
+  const [deleteTagConfirm, setDeleteTagConfirm] = useState<{ id: number; name: string }[] | null>(null);
 
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
@@ -994,6 +994,16 @@ function App() {
       const label = target.kind === "multi-album" ? "albums" : target.kind === "multi-artist" ? "artists" : "tags";
       specs.push({ kind: "item", text: `Play ${count} ${label}`, action: contextMenuActions.handleContextPlay });
       specs.push({ kind: "item", text: `Enqueue ${count} ${label}`, action: contextMenuActions.handleContextEnqueue });
+      if (target.kind === "multi-tag") {
+        const tagsToDelete = target.tagIds.map(id => {
+          const tag = library.tags.find(t => t.id === id);
+          return { id, name: tag?.name ?? "Unknown" };
+        });
+        specs.push({ kind: "separator" });
+        specs.push({ kind: "item", text: `Delete ${count} tags`, action: () => {
+          setDeleteTagConfirm(tagsToDelete);
+        }});
+      }
     } else {
       const isMulti = target.kind === "multi-track";
       const context = isMulti ? "track" : target.kind;
@@ -1108,7 +1118,7 @@ function App() {
       if (target.kind === "tag" && target.tagId) {
         specs.push({ kind: "separator" });
         specs.push({ kind: "item", text: "Delete Tag", action: () => {
-          setDeleteTagConfirm({ id: target.tagId, name: target.name });
+          setDeleteTagConfirm([{ id: target.tagId, name: target.name }]);
         }});
       }
     }
@@ -3252,24 +3262,42 @@ function App() {
       {deleteTagConfirm && (
         <div className="ds-modal-overlay">
           <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">Delete tag "{deleteTagConfirm.name}"?</h2>
-            <p className="delete-confirm-warning">This will remove the tag from all tracks. The tracks themselves will not be deleted.</p>
+            <h2 className="ds-modal-title">
+              {deleteTagConfirm.length === 1
+                ? `Delete tag "${deleteTagConfirm[0].name}"?`
+                : `Delete ${deleteTagConfirm.length} tags?`}
+            </h2>
+            <p className="delete-confirm-warning">
+              {deleteTagConfirm.length === 1
+                ? "This will remove the tag from all tracks. The tracks themselves will not be deleted."
+                : "This will remove these tags from all tracks. The tracks themselves will not be deleted."}
+            </p>
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--ghost" onClick={() => setDeleteTagConfirm(null)}>Cancel</button>
               <button className="ds-btn ds-btn--danger" onClick={async () => {
-                const { id, name } = deleteTagConfirm;
+                const tags = deleteTagConfirm;
                 setDeleteTagConfirm(null);
-                try {
-                  await invoke("delete_tag", { tagId: id });
-                  library.setTags(prev => prev.filter(t => t.id !== id));
-                  setSearchDeletedTagBatch(prev => ({ ids: [id], key: prev.key + 1 }));
-                  if (library.selectedTag === id) {
+                const deletedIds: number[] = [];
+                for (const { id, name } of tags) {
+                  try {
+                    await invoke("delete_tag", { tagId: id });
+                    deletedIds.push(id);
+                  } catch (e) {
+                    console.error("Failed to delete tag:", e);
+                    addLog(`Failed to delete tag "${name}": ${String(e)}`, "library");
+                  }
+                }
+                if (deletedIds.length > 0) {
+                  library.setTags(prev => prev.filter(t => !deletedIds.includes(t.id)));
+                  setSearchDeletedTagBatch(prev => ({ ids: deletedIds, key: prev.key + 1 }));
+                  if (library.selectedTag !== null && deletedIds.includes(library.selectedTag)) {
                     library.setSelectedTag(null);
                   }
-                  addLog(`Deleted tag "${name}"`, "library");
-                } catch (e) {
-                  console.error("Failed to delete tag:", e);
-                  addLog(`Failed to delete tag "${name}": ${String(e)}`, "library");
+                  if (deletedIds.length === 1) {
+                    addLog(`Deleted tag "${tags[0].name}"`, "library");
+                  } else {
+                    addLog(`Deleted ${deletedIds.length} tags`, "library");
+                  }
                 }
               }} autoFocus>Delete</button>
             </div>
