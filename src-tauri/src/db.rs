@@ -1398,6 +1398,42 @@ impl Database {
         Ok(SearchAllResults { artists, albums, tracks })
     }
 
+    pub fn p2p_search_tracks(&self, query: &str, collection_ids: &[i64], limit: usize) -> SqlResult<Vec<Track>> {
+        if collection_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let conn = self.conn.lock().unwrap();
+        let normalized = strip_diacritics(query);
+        let words: Vec<String> = normalized
+            .split_whitespace()
+            .map(|w| format!("\"{}\"*", w.replace('"', "")))
+            .collect();
+        if words.is_empty() {
+            return Ok(vec![]);
+        }
+        let fts_query = format!("{{title artist_name album_title tag_names}}:{}", words.join(" AND "));
+        let placeholders: Vec<String> = collection_ids.iter().enumerate()
+            .map(|(i, _)| format!("?{}", i + 3))
+            .collect();
+        let sql = format!(
+            "{} JOIN tracks_fts ON tracks_fts.rowid = t.id \
+             WHERE tracks_fts MATCH ?1 AND t.collection_id IN ({}) \
+             ORDER BY t.title LIMIT ?2",
+            TRACK_SELECT,
+            placeholders.join(", ")
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        params.push(Box::new(fts_query));
+        params.push(Box::new(limit as i64));
+        for id in collection_ids {
+            params.push(Box::new(*id));
+        }
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let rows = stmt.query_map(param_refs.as_slice(), |row| track_from_row(row))?;
+        rows.collect()
+    }
+
     fn list_entity(&self, conn: &rusqlite::Connection, entity: &str, opts: &TrackQuery) -> SqlResult<SearchEntityResult> {
         let limit = opts.limit.unwrap_or(100);
         let offset = opts.offset.unwrap_or(0);

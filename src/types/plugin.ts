@@ -252,6 +252,7 @@ export type PluginViewData =
 // -- Plugin API (what plugins receive) --
 
 export interface PluginLibraryAPI {
+  getTrackCount(): Promise<number>;
   getTracks(opts?: {
     artistId?: number;
     albumId?: number;
@@ -602,6 +603,19 @@ export interface PluginEnvAPI {
   get(key: string): Promise<string | null>;
 }
 
+export interface PluginP2pAPI {
+  start(relayMultiaddr?: string): Promise<unknown>;
+  stop(): Promise<void>;
+  getStatus(): Promise<unknown>;
+  searchPeer(peerId: string, multiaddr: string, query: string, limit?: number): Promise<unknown>;
+  streamFromPeer(peerId: string, multiaddr: string, trackId: string): Promise<string>;
+  downloadFromPeer(peerId: string, multiaddr: string, trackId: string, destCollectionId: number): Promise<void>;
+  getSharedCollections(): Promise<number[]>;
+  setSharedCollections(ids: number[]): Promise<void>;
+  reserveRelay(multiaddr: string): Promise<void>;
+  getMultiaddrs(): Promise<string[]>;
+}
+
 export interface ViboplrPluginAPI {
   log(level: string, message: string, section?: string): void;
   library: PluginLibraryAPI;
@@ -618,6 +632,7 @@ export interface ViboplrPluginAPI {
   scheduler: PluginSchedulerAPI;
   system: PluginSystemAPI;
   env: PluginEnvAPI;
+  p2p: PluginP2pAPI;
 }
 
 // -- Gallery types --

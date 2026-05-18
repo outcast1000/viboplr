@@ -22,6 +22,7 @@ mod downloader;
 mod update_checker;
 mod video_frames;
 mod transcode_server;
+mod p2p;
 #[cfg(target_os = "macos")]
 mod cursor_tracker;
 #[cfg(target_os = "windows")]
@@ -236,6 +237,16 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         browse_window::browse_window_send,
         commands::start_transcode,
         commands::stop_transcode,
+        commands::p2p_start,
+        commands::p2p_stop,
+        commands::p2p_get_status,
+        commands::p2p_get_multiaddrs,
+        commands::p2p_search_peer,
+        commands::p2p_stream_from_peer,
+        commands::p2p_download_from_peer,
+        commands::p2p_get_shared_collections,
+        commands::p2p_set_shared_collections,
+        commands::p2p_reserve_relay,
     ]
 }
 
@@ -441,6 +452,16 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         browse_window::browse_window_send,
         commands::start_transcode,
         commands::stop_transcode,
+        commands::p2p_start,
+        commands::p2p_stop,
+        commands::p2p_get_status,
+        commands::p2p_get_multiaddrs,
+        commands::p2p_search_peer,
+        commands::p2p_stream_from_peer,
+        commands::p2p_download_from_peer,
+        commands::p2p_get_shared_collections,
+        commands::p2p_set_shared_collections,
+        commands::p2p_reserve_relay,
     ]
 }
 
@@ -1450,6 +1471,7 @@ pub fn run() {
                     transcode_port,
                     transcode_sessions,
                     dep_cache: Arc::new(dependencies::DepCache::new()),
+                    p2p_node: Arc::new(tokio::sync::RwLock::new(None)),
                 });
             });
 
