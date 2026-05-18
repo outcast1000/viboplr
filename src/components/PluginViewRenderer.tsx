@@ -186,6 +186,7 @@ function PluginViewNode({
           placeholder={node.placeholder}
           action={node.action}
           value={node.value}
+          submitOnly={node.submitOnly}
           onAction={onAction}
         />
       );
@@ -669,22 +670,30 @@ function PluginSearchInput({
   placeholder,
   action,
   value,
+  submitOnly,
   onAction,
 }: {
   placeholder?: string;
   action: string;
   value?: string;
+  submitOnly?: boolean;
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
   const [query, setQuery] = useState(value ?? "");
   const handleChange = useCallback((q: string) => {
     setQuery(q);
-    onAction?.(action, { query: q });
-  }, [action, onAction]);
+    if (!submitOnly) {
+      onAction?.(action, { query: q });
+    }
+  }, [action, onAction, submitOnly]);
+  const handleSubmit = useCallback(() => {
+    onAction?.(action, { query });
+  }, [action, query, onAction]);
   return (
     <ViewSearchBar
       query={query}
       onQueryChange={handleChange}
+      onEnter={handleSubmit}
       placeholder={placeholder ?? "Search..."}
     />
   );

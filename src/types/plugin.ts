@@ -200,6 +200,7 @@ export type PluginViewData =
       placeholder?: string;
       action: string;
       value?: string;
+      submitOnly?: boolean;
     }
   | {
       type: "text-input";

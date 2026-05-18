@@ -409,12 +409,13 @@ function activate(api) {
       ],
     });
 
-    // Search input
+    // Search input (fires on Enter only)
     children.push({
       type: "search-input",
       placeholder: "Search the network...",
       action: "p2p-search",
       value: state.lastQuery,
+      submitOnly: true,
     });
 
     // Search state
