@@ -172,6 +172,7 @@ export interface TrackRowItem {
   imageUrl?: string;
   duration?: string;
   action?: string;
+  checked?: string[];
 }
 
 export type PluginViewData =
@@ -182,6 +183,7 @@ export type PluginViewData =
       items: TrackRowItem[];
       selectable?: boolean;
       actions?: { id: string; label: string; icon?: string }[];
+      categories?: string[];
     }
   | { type: "text"; content: string; className?: string }
   | { type: "stats-grid"; items: StatItem[] }
@@ -312,6 +314,12 @@ export interface PluginLibraryAPI {
   recordHistoryPlaysBatch(plays: { artist: string; track: string; playedAt: number }[]): Promise<{ imported: number; skipped: number }>;
   applyTags(trackId: number, tagNames: string[]): Promise<Array<{ id: number; name: string }>>;
   applyTagsBulk(assignments: Array<[number, string[]]>): Promise<number>;
+  bulkUpdateTracks(trackIds: number[], fields: {
+    artist_name?: string | null;
+    album_title?: string | null;
+    year?: number | null;
+    tag_names?: string[] | null;
+  }): Promise<string[]>;
   onTrackAdded(handler: (track: { trackId: number; path: string; title: string; artistName: string | null; albumTitle: string | null; collectionId: number }) => void): () => void;
   onTrackRemoved(handler: (track: { trackId: number; path: string }) => void): () => void;
   onScanComplete(handler: (result: { collectionId: number; newTracks: number; removedTracks: number }) => void): () => void;

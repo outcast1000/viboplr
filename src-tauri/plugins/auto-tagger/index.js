@@ -10,6 +10,7 @@ function activate(api) {
   ];
 
   var STRIP_CHARS_RE = /[()[\]{}<>!?@#$%^&*+=~`|;:'",\-]/g;
+  var CATEGORIES = ["Tag", "Artist", "Album", "Year"];
 
   var state = {
     activeTab: "analyze",
@@ -19,29 +20,42 @@ function activate(api) {
     candidates: [],
     analyzeSearch: "",
     threshold: 3,
-    approvedTags: [],
+    ngramSize: 3,
     stopwords: DEFAULT_STOPWORDS.slice(),
     autoAssign: true,
+    autoAssignMetadata: true,
+    approvedItems: [],
     processedTrackIds: {},
   };
 
   function loadSettings() {
     return Promise.all([
+      api.storage.get("approved-items"),
       api.storage.get("approved-tags"),
       api.storage.get("stopwords"),
       api.storage.get("settings"),
     ]).then(function (results) {
-      if (results[0]) state.approvedTags = results[0];
-      if (results[1]) state.stopwords = results[1];
-      if (results[2]) {
-        if (results[2].threshold != null) state.threshold = results[2].threshold;
-        if (results[2].autoAssign != null) state.autoAssign = results[2].autoAssign;
+      if (results[0]) {
+        state.approvedItems = results[0];
+      } else if (results[1]) {
+        state.approvedItems = results[1].map(function (tag) {
+          return { ngram: tag, type: "tag" };
+        });
+        api.storage.set("approved-items", state.approvedItems);
+        api.storage.delete("approved-tags");
+      }
+      if (results[2]) state.stopwords = results[2];
+      if (results[3]) {
+        if (results[3].threshold != null) state.threshold = results[3].threshold;
+        if (results[3].autoAssign != null) state.autoAssign = results[3].autoAssign;
+        if (results[3].autoAssignMetadata != null) state.autoAssignMetadata = results[3].autoAssignMetadata;
+        if (results[3].ngramSize != null) state.ngramSize = results[3].ngramSize;
       }
     });
   }
 
-  function saveApprovedTags() {
-    return api.storage.set("approved-tags", state.approvedTags);
+  function saveApprovedItems() {
+    return api.storage.set("approved-items", state.approvedItems);
   }
 
   function saveStopwords() {
@@ -52,6 +66,8 @@ function activate(api) {
     return api.storage.set("settings", {
       threshold: state.threshold,
       autoAssign: state.autoAssign,
+      autoAssignMetadata: state.autoAssignMetadata,
+      ngramSize: state.ngramSize,
     });
   }
 
@@ -86,13 +102,11 @@ function activate(api) {
     return result;
   }
 
-  function generateNgrams(words, maxN) {
-    if (!maxN) maxN = 3;
+  function generateNgrams(words, n) {
+    if (!n) n = 3;
     var ngrams = [];
-    for (var n = 1; n <= maxN; n++) {
-      for (var i = 0; i <= words.length - n; i++) {
-        ngrams.push(words.slice(i, i + n).join(" "));
-      }
+    for (var i = 0; i <= words.length - n; i++) {
+      ngrams.push(words.slice(i, i + n).join(" "));
     }
     return ngrams;
   }
@@ -115,7 +129,7 @@ function activate(api) {
           if (stopwordsSet[norm]) return false;
           return true;
         });
-        var ngrams = generateNgrams(words);
+        var ngrams = generateNgrams(words, state.ngramSize);
         for (var k = 0; k < ngrams.length; k++) {
           var norm = normalizeStr(ngrams[k]);
           if (norm.length <= 1) continue;
@@ -153,15 +167,50 @@ function activate(api) {
     return tokenizeMetadata(track.title || "", track.artist_name || null, track.album_title || null);
   }
 
+  function getCollectionRoots() {
+    var roots = {};
+    for (var i = 0; i < state.collections.length; i++) {
+      roots[state.collections[i].id] = state.collections[i].path || "";
+    }
+    return roots;
+  }
+
+  function fetchAllTracks() {
+    var allTracks = [];
+    var pageSize = 500;
+    function fetchPage(offset) {
+      return api.library.getTracks({ limit: pageSize, offset: offset }).then(function (tracks) {
+        allTracks = allTracks.concat(tracks);
+        if (tracks.length >= pageSize) {
+          return fetchPage(offset + pageSize);
+        }
+        return allTracks;
+      });
+    }
+    return fetchPage(0);
+  }
+
+  function findMatchingTrackIds(ngram, tracks, collectionRoots) {
+    var normalizedNgram = normalizeStr(ngram);
+    var matchingIds = [];
+    for (var i = 0; i < tracks.length; i++) {
+      var trackNgrams = tokenizeTrack(tracks[i], collectionRoots);
+      for (var j = 0; j < trackNgrams.length; j++) {
+        if (trackNgrams[j] === normalizedNgram) {
+          matchingIds.push(tracks[i].id);
+          break;
+        }
+      }
+    }
+    return matchingIds;
+  }
+
   function analyzeCollection(collectionId) {
     state.analyzing = true;
     state.candidates = [];
     render();
 
-    var collectionRoots = {};
-    for (var i = 0; i < state.collections.length; i++) {
-      collectionRoots[state.collections[i].id] = state.collections[i].path || "";
-    }
+    var collectionRoots = getCollectionRoots();
 
     fetchAllTracks().then(function (tracks) {
       if (collectionId != null) {
@@ -185,13 +234,12 @@ function activate(api) {
       var keys = Object.keys(globalFreq);
       for (var k = 0; k < keys.length; k++) {
         if (globalFreq[keys[k]] >= state.threshold) {
-          candidateList.push({ ngram: keys[k], count: globalFreq[keys[k]] });
+          var wordCount = keys[k].split(/\s+/).length;
+          candidateList.push({ ngram: keys[k], count: globalFreq[keys[k]], words: wordCount });
         }
       }
       candidateList.sort(function (a, b) {
-        var aWords = a.ngram.split(/\s+/).length;
-        var bWords = b.ngram.split(/\s+/).length;
-        if (bWords !== aWords) return bWords - aWords;
+        if (b.words !== a.words) return b.words - a.words;
         return b.count - a.count;
       });
 
@@ -205,91 +253,38 @@ function activate(api) {
     });
   }
 
-  function fetchAllTracks() {
-    var allTracks = [];
-    var pageSize = 500;
-    function fetchPage(offset) {
-      return api.library.getTracks({ limit: pageSize, offset: offset }).then(function (tracks) {
-        allTracks = allTracks.concat(tracks);
-        if (tracks.length >= pageSize) {
-          return fetchPage(offset + pageSize);
-        }
-        return allTracks;
-      });
+  function applyClassifications(itemsMap) {
+    var keys = Object.keys(itemsMap);
+    var added = 0;
+    for (var i = 0; i < keys.length; i++) {
+      var categories = itemsMap[keys[i]];
+      if (!categories || categories.length === 0) continue;
+      var ngram = keys[i];
+      for (var c = 0; c < categories.length; c++) {
+        state.approvedItems.push({ ngram: ngram, type: categories[c].toLowerCase() });
+        added++;
+      }
     }
-    return fetchPage(0);
-  }
 
-  function approveSelected(selectedNgrams) {
-    var newTags = [];
-    for (var i = 0; i < selectedNgrams.length; i++) {
-      var ng = selectedNgrams[i];
-      var alreadyApproved = false;
-      for (var j = 0; j < state.approvedTags.length; j++) {
-        if (normalizeStr(state.approvedTags[j]) === normalizeStr(ng)) {
-          alreadyApproved = true;
-          break;
-        }
-      }
-      if (!alreadyApproved) {
-        newTags.push(ng);
-        state.approvedTags.push(ng);
+    if (added === 0) return;
+    saveApprovedItems();
+
+    // Remove added candidates from the list
+    var addedSet = {};
+    for (var j = 0; j < keys.length; j++) {
+      if (itemsMap[keys[j]] && itemsMap[keys[j]].length > 0) {
+        addedSet[normalizeStr(keys[j])] = true;
       }
     }
-    saveApprovedTags();
-    if (newTags.length > 0) {
-      applyTagsToMatchingTracks(newTags, true);
-    }
+    state.candidates = state.candidates.filter(function (c) {
+      return !addedSet[normalizeStr(c.ngram)];
+    });
     render();
   }
 
-  function applyTagsToMatchingTracks(tagsToCheck, refreshAfter) {
-    var collectionRoots = {};
-    for (var i = 0; i < state.collections.length; i++) {
-      collectionRoots[state.collections[i].id] = state.collections[i].path || "";
-    }
-    var normalizedTags = {};
-    for (var t = 0; t < tagsToCheck.length; t++) {
-      normalizedTags[normalizeStr(tagsToCheck[t])] = tagsToCheck[t];
-    }
-
-    fetchAllTracks().then(function (tracks) {
-      var assignments = [];
-      for (var i = 0; i < tracks.length; i++) {
-        var ngrams = tokenizeTrack(tracks[i], collectionRoots);
-        var matchedTags = [];
-        for (var j = 0; j < ngrams.length; j++) {
-          var original = normalizedTags[ngrams[j]];
-          if (original && matchedTags.indexOf(original) === -1) {
-            matchedTags.push(original);
-          }
-        }
-        if (matchedTags.length > 0) {
-          assignments.push([tracks[i].id, matchedTags]);
-        }
-        state.processedTrackIds[tracks[i].id] = true;
-      }
-      if (assignments.length === 0) return 0;
-      return api.library.applyTagsBulk(assignments);
-    }).then(function () {
-      if (refreshAfter) {
-        api.ui.requestAction("refresh-library", {});
-      }
-    }).catch(function (err) {
-      console.error("Failed to apply tags to matching tracks:", err);
-    });
-  }
-
-  function runNow() {
-    applyTagsToMatchingTracks(state.approvedTags, true);
-  }
-
   function autoAssignTrack(trackData) {
-    if (!state.autoAssign || state.approvedTags.length === 0) return;
-    var collectionRoots = {};
-    for (var i = 0; i < state.collections.length; i++) {
-      collectionRoots[state.collections[i].id] = state.collections[i].path || "";
-    }
+    if (!state.autoAssign || state.approvedItems.length === 0) return;
+    var collectionRoots = getCollectionRoots();
     var ngrams;
     if (trackData.path && trackData.path.indexOf("file://") === 0) {
       var root = collectionRoots[trackData.collectionId] || "";
@@ -301,20 +296,49 @@ function activate(api) {
         trackData.albumTitle || null
       );
     }
-    var normalizedApproved = {};
-    for (var t = 0; t < state.approvedTags.length; t++) {
-      normalizedApproved[normalizeStr(state.approvedTags[t])] = state.approvedTags[t];
-    }
+
     var matchedTags = [];
-    for (var j = 0; j < ngrams.length; j++) {
-      var original = normalizedApproved[ngrams[j]];
-      if (original && matchedTags.indexOf(original) === -1) {
-        matchedTags.push(original);
+    var matchedArtist = null;
+    var matchedAlbum = null;
+    var matchedYear = null;
+
+    for (var i = 0; i < state.approvedItems.length; i++) {
+      var item = state.approvedItems[i];
+      var normalizedNgram = normalizeStr(item.ngram);
+      var found = false;
+      for (var j = 0; j < ngrams.length; j++) {
+        if (ngrams[j] === normalizedNgram) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) continue;
+
+      if (item.type === "tag") {
+        matchedTags.push(item.ngram);
+      } else if (item.type === "artist" && state.autoAssignMetadata) {
+        if (!trackData.artistName) matchedArtist = item.ngram;
+      } else if (item.type === "album" && state.autoAssignMetadata) {
+        if (!trackData.albumTitle) matchedAlbum = item.ngram;
+      } else if (item.type === "year" && state.autoAssignMetadata) {
+        var yearVal = parseInt(item.ngram, 10);
+        if (!isNaN(yearVal)) matchedYear = yearVal;
       }
     }
+
     if (matchedTags.length > 0) {
       api.library.applyTags(trackData.trackId, matchedTags).catch(function (err) {
         console.error("Auto-tagger: failed to apply tags to track " + trackData.trackId + ":", err);
+      });
+    }
+
+    if (matchedArtist || matchedAlbum || matchedYear) {
+      var fields = {};
+      if (matchedArtist) fields.artist_name = matchedArtist;
+      if (matchedAlbum) fields.album_title = matchedAlbum;
+      if (matchedYear) fields.year = matchedYear;
+      api.library.bulkUpdateTracks([trackData.trackId], fields).catch(function (err) {
+        console.error("Auto-tagger: failed to update metadata for track " + trackData.trackId + ":", err);
       });
     }
   }
@@ -324,45 +348,96 @@ function activate(api) {
   });
 
   api.library.onScanComplete(function (result) {
-    if (!state.autoAssign || state.approvedTags.length === 0) return;
+    if (!state.autoAssign || state.approvedItems.length === 0) return;
     if ((result.newTracks || 0) <= 0) return;
-    var collectionRoots = {};
-    for (var i = 0; i < state.collections.length; i++) {
-      collectionRoots[state.collections[i].id] = state.collections[i].path || "";
-    }
+    var collectionRoots = getCollectionRoots();
+
     fetchAllTracks().then(function (tracks) {
       if (result.collectionId != null) {
         tracks = tracks.filter(function (t) { return t.collection_id === result.collectionId; });
       }
-      var normalizedApproved = {};
-      for (var t = 0; t < state.approvedTags.length; t++) {
-        normalizedApproved[normalizeStr(state.approvedTags[t])] = state.approvedTags[t];
-      }
-      var assignments = [];
+
+      var tagAssignments = [];
+      var artistBatches = {};
+      var albumBatches = {};
+      var yearBatches = {};
+
       for (var i = 0; i < tracks.length; i++) {
         if (state.processedTrackIds[tracks[i].id]) continue;
         var ngrams = tokenizeTrack(tracks[i], collectionRoots);
-        var matchedTags = [];
-        for (var j = 0; j < ngrams.length; j++) {
-          var original = normalizedApproved[ngrams[j]];
-          if (original && matchedTags.indexOf(original) === -1) {
-            matchedTags.push(original);
+
+        var trackTags = [];
+        for (var j = 0; j < state.approvedItems.length; j++) {
+          var item = state.approvedItems[j];
+          var normalizedNgram = normalizeStr(item.ngram);
+          var found = false;
+          for (var k = 0; k < ngrams.length; k++) {
+            if (ngrams[k] === normalizedNgram) {
+              found = true;
+              break;
+            }
+          }
+          if (!found) continue;
+
+          if (item.type === "tag") {
+            if (trackTags.indexOf(item.ngram) === -1) trackTags.push(item.ngram);
+          } else if (item.type === "artist" && state.autoAssignMetadata) {
+            if (!tracks[i].artist_name) {
+              if (!artistBatches[item.ngram]) artistBatches[item.ngram] = [];
+              artistBatches[item.ngram].push(tracks[i].id);
+            }
+          } else if (item.type === "album" && state.autoAssignMetadata) {
+            if (!tracks[i].album_title) {
+              if (!albumBatches[item.ngram]) albumBatches[item.ngram] = [];
+              albumBatches[item.ngram].push(tracks[i].id);
+            }
+          } else if (item.type === "year" && state.autoAssignMetadata) {
+            var yearVal = parseInt(item.ngram, 10);
+            if (!isNaN(yearVal)) {
+              if (!yearBatches[item.ngram]) yearBatches[item.ngram] = [];
+              yearBatches[item.ngram].push(tracks[i].id);
+            }
           }
         }
-        if (matchedTags.length > 0) {
-          assignments.push([tracks[i].id, matchedTags]);
+
+        if (trackTags.length > 0) {
+          tagAssignments.push([tracks[i].id, trackTags]);
         }
         state.processedTrackIds[tracks[i].id] = true;
       }
-      if (assignments.length > 0) {
-        return api.library.applyTagsBulk(assignments).catch(function (err) {
-          console.error("Auto-tagger: failed to apply tags in bulk:", err);
-        });
+
+      var promises = [];
+      if (tagAssignments.length > 0) {
+        promises.push(api.library.applyTagsBulk(tagAssignments));
+      }
+
+      var artistKeys = Object.keys(artistBatches);
+      for (var ai = 0; ai < artistKeys.length; ai++) {
+        promises.push(api.library.bulkUpdateTracks(artistBatches[artistKeys[ai]], { artist_name: artistKeys[ai] }));
+      }
+
+      var albumKeys = Object.keys(albumBatches);
+      for (var bi = 0; bi < albumKeys.length; bi++) {
+        promises.push(api.library.bulkUpdateTracks(albumBatches[albumKeys[bi]], { album_title: albumKeys[bi] }));
+      }
+
+      var yearKeys = Object.keys(yearBatches);
+      for (var yi = 0; yi < yearKeys.length; yi++) {
+        var yv = parseInt(yearKeys[yi], 10);
+        if (!isNaN(yv)) {
+          promises.push(api.library.bulkUpdateTracks(yearBatches[yearKeys[yi]], { year: yv }));
+        }
+      }
+
+      if (promises.length > 0) {
+        return Promise.all(promises);
       }
     }).catch(function (err) {
       console.error("Auto-tagger: scan:complete handler failed:", err);
     });
   });
+
+  // --- UI Rendering ---
 
   function render() {
     if (state.activeTab === "analyze") {
@@ -374,21 +449,6 @@ function activate(api) {
     }
   }
 
-  function buildToolbar() {
-    return {
-      type: "toolbar",
-      title: "Auto-Tagger",
-      buttons: [
-        {
-          label: "Apply Tags In Database",
-          action: "run-now",
-          disabled: state.approvedTags.length === 0,
-          icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>',
-        },
-      ],
-    };
-  }
-
   function buildTabs() {
     return {
       type: "tabs",
@@ -396,14 +456,14 @@ function activate(api) {
       action: "switch-tab",
       tabs: [
         { id: "analyze", label: "Analyze" },
-        { id: "approved", label: "Approved Tags", count: state.approvedTags.length || undefined },
+        { id: "approved", label: "Approved", count: state.approvedItems.length || undefined },
         { id: "settings", label: "Settings" },
       ],
     };
   }
 
   function renderAnalyze() {
-    var children = [buildToolbar(), buildTabs()];
+    var children = [buildTabs()];
 
     var collectionOptions = [{ value: "all", label: "All Collections" }];
     for (var i = 0; i < state.collections.length; i++) {
@@ -412,6 +472,8 @@ function activate(api) {
         label: state.collections[i].name,
       });
     }
+
+    // Options row 1: Collection + N-gram + Min frequency
     children.push({
       type: "layout",
       direction: "horizontal",
@@ -424,23 +486,20 @@ function activate(api) {
           action: "select-collection",
         },
         {
-          type: "button",
-          label: state.analyzing ? "Analyzing..." : "Analyze",
-          action: "run-analyze",
-          disabled: state.analyzing,
-        },
-      ],
-    });
-
-    if (state.analyzing) {
-      children.push({ type: "loading", message: "Analyzing tracks..." });
-    } else if (state.candidates.length > 0) {
-      children.push({
-        type: "settings-row",
-        label: "Min frequency",
-        description: "Only show n-grams appearing in at least this many tracks",
-        control: {
           type: "select",
+          label: "N-gram",
+          value: String(state.ngramSize),
+          options: [
+            { value: "1", label: "1" },
+            { value: "2", label: "2" },
+            { value: "3", label: "3" },
+            { value: "4", label: "4" },
+          ],
+          action: "set-ngram-size",
+        },
+        {
+          type: "select",
+          label: "Min freq",
           value: String(state.threshold),
           options: [
             { value: "2", label: "2" },
@@ -452,18 +511,36 @@ function activate(api) {
           ],
           action: "set-threshold",
         },
-      });
+      ],
+    });
 
-      children.push({
-        type: "search-input",
-        value: state.analyzeSearch,
-        placeholder: "Filter candidates...",
-        action: "analyze-search",
-      });
+    // Options row 2: Search + Analyze button
+    children.push({
+      type: "layout",
+      direction: "horizontal",
+      children: [
+        {
+          type: "search-input",
+          value: state.analyzeSearch,
+          placeholder: "Filter candidates...",
+          action: "analyze-search",
+        },
+        {
+          type: "button",
+          label: state.analyzing ? "Analyzing..." : "Analyze",
+          action: "run-analyze",
+          disabled: state.analyzing,
+          variant: "accent",
+        },
+      ],
+    });
 
+    if (state.analyzing) {
+      children.push({ type: "loading", message: "Analyzing tracks..." });
+    } else if (state.candidates.length > 0) {
       var approvedSet = {};
-      for (var a = 0; a < state.approvedTags.length; a++) {
-        approvedSet[normalizeStr(state.approvedTags[a])] = true;
+      for (var a = 0; a < state.approvedItems.length; a++) {
+        approvedSet[normalizeStr(state.approvedItems[a].ngram)] = true;
       }
       var searchTerm = normalizeStr(state.analyzeSearch);
       var filtered = state.candidates.filter(function (c) {
@@ -472,25 +549,33 @@ function activate(api) {
         if (searchTerm && normalizeStr(c.ngram).indexOf(searchTerm) === -1) return false;
         return true;
       });
+
       var items = [];
       for (var j = 0; j < filtered.length; j++) {
         items.push({
           id: filtered[j].ngram,
           title: filtered[j].ngram,
-          subtitle: filtered[j].count + " tracks",
+          subtitle: filtered[j].count + " tracks · " + filtered[j].words + "-gram",
         });
       }
+
       children.push({
         type: "track-row-list",
         items: items,
-        selectable: true,
+        categories: CATEGORIES,
         actions: [
-          { id: "approve-selected", label: "Approve Selected" },
+          { id: "apply-classifications", label: "Add" },
         ],
       });
-      children.push({ type: "text", content: filtered.length + " candidates above threshold" });
-    } else {
-      children.push({ type: "text", content: "Select a collection and click Analyze to discover tag candidates." });
+
+      if (filtered.length !== state.candidates.length) {
+        children.push({ type: "text", content: filtered.length + " of " + state.candidates.length + " candidates shown" });
+      }
+    } else if (!state.analyzing) {
+      children.push({
+        type: "text",
+        content: "Click Analyze to scan your library and discover recurring patterns in file paths and metadata.",
+      });
     }
 
     api.ui.setViewData("auto-tagger-view", {
@@ -501,24 +586,31 @@ function activate(api) {
   }
 
   function renderApproved() {
-    var children = [buildToolbar(), buildTabs()];
+    var children = [buildTabs()];
 
-    if (state.approvedTags.length === 0) {
-      children.push({ type: "text", content: "No approved tags yet. Use the Analyze tab to discover and approve tag candidates." });
+    if (state.approvedItems.length === 0) {
+      children.push({
+        type: "text",
+        content: "No approved items yet. Use the Analyze tab to classify candidates.",
+      });
     } else {
       var items = [];
-      for (var i = 0; i < state.approvedTags.length; i++) {
+      for (var i = 0; i < state.approvedItems.length; i++) {
+        var item = state.approvedItems[i];
         items.push({
-          id: "tag:" + i,
-          title: state.approvedTags[i],
+          id: "item:" + i,
+          title: item.ngram,
+          subtitle: item.type.charAt(0).toUpperCase() + item.type.slice(1),
+          checked: [item.type.charAt(0).toUpperCase() + item.type.slice(1)],
         });
       }
       children.push({
         type: "track-row-list",
         items: items,
-        selectable: true,
+        categories: CATEGORIES,
         actions: [
-          { id: "remove-selected", label: "Remove Selected" },
+          { id: "save-approved", label: "Save" },
+          { id: "remove-unchecked-approved", label: "Remove Unchecked" },
         ],
       });
     }
@@ -531,7 +623,7 @@ function activate(api) {
   }
 
   function renderSettings() {
-    var children = [buildToolbar(), buildTabs()];
+    var children = [buildTabs()];
 
     children.push({
       type: "settings-row",
@@ -553,13 +645,25 @@ function activate(api) {
 
     children.push({
       type: "settings-row",
-      label: "Auto-assign on new tracks",
-      description: "Automatically apply approved tags to new tracks when they are added",
+      label: "Auto-assign tags on new tracks",
+      description: "Apply rules when tracks are added",
       control: {
         type: "toggle",
         label: "Auto-assign",
         checked: state.autoAssign,
         action: "toggle-auto-assign",
+      },
+    });
+
+    children.push({
+      type: "settings-row",
+      label: "Auto-assign artist/album/year",
+      description: "Set metadata on new tracks with empty fields",
+      control: {
+        type: "toggle",
+        label: "Auto-assign metadata",
+        checked: state.autoAssignMetadata,
+        action: "toggle-auto-assign-metadata",
       },
     });
 
@@ -584,6 +688,8 @@ function activate(api) {
     });
   }
 
+  // --- Action Handlers ---
+
   api.ui.onAction("switch-tab", function (data) {
     if (data && data.tabId) {
       state.activeTab = data.tabId;
@@ -594,7 +700,6 @@ function activate(api) {
   api.ui.onAction("select-collection", function (data) {
     if (data && data.value) {
       state.selectedCollectionId = data.value === "all" ? null : parseInt(data.value, 10);
-      render();
     }
   });
 
@@ -616,31 +721,64 @@ function activate(api) {
     }
   });
 
-  api.ui.onAction("approve-selected", function (data) {
-    if (data && data.selectedIds && data.selectedIds.length > 0) {
-      approveSelected(data.selectedIds);
-    }
-  });
-
-  api.ui.onAction("remove-selected", function (data) {
-    if (data && data.selectedIds && data.selectedIds.length > 0) {
-      var indicesToRemove = [];
-      for (var i = 0; i < data.selectedIds.length; i++) {
-        var match = data.selectedIds[i].match(/^tag:(\d+)$/);
-        if (match) indicesToRemove.push(parseInt(match[1], 10));
-      }
-      indicesToRemove.sort(function (a, b) { return b - a; });
-      for (var j = 0; j < indicesToRemove.length; j++) {
-        state.approvedTags.splice(indicesToRemove[j], 1);
-      }
-      saveApprovedTags();
+  api.ui.onAction("set-ngram-size", function (data) {
+    if (data && data.value) {
+      state.ngramSize = parseInt(data.value, 10);
+      saveSettings();
       render();
     }
   });
 
-  api.ui.onAction("run-now", function () {
-    runNow();
-    api.ui.showNotification("Applying approved tags to all matching tracks...");
+  api.ui.onAction("apply-classifications", function (data) {
+    if (data && data.items) {
+      applyClassifications(data.items);
+    }
+  });
+
+
+  api.ui.onAction("save-approved", function (data) {
+    if (data && data.items) {
+      var newItems = [];
+      var keys = Object.keys(data.items);
+      for (var i = 0; i < keys.length; i++) {
+        var id = keys[i];
+        var categories = data.items[id];
+        if (!categories || categories.length === 0) continue;
+        var match = id.match(/^item:(\d+)$/);
+        if (match) {
+          var idx = parseInt(match[1], 10);
+          if (idx < state.approvedItems.length) {
+            for (var c = 0; c < categories.length; c++) {
+              newItems.push({ ngram: state.approvedItems[idx].ngram, type: categories[c].toLowerCase() });
+            }
+          }
+        }
+      }
+      state.approvedItems = newItems;
+      saveApprovedItems();
+      render();
+    }
+  });
+
+  api.ui.onAction("remove-unchecked-approved", function (data) {
+    if (data && data.items) {
+      var keepIndices = {};
+      var keys = Object.keys(data.items);
+      for (var i = 0; i < keys.length; i++) {
+        var categories = data.items[keys[i]];
+        if (categories && categories.length > 0) {
+          var match = keys[i].match(/^item:(\d+)$/);
+          if (match) keepIndices[parseInt(match[1], 10)] = true;
+        }
+      }
+      var newItems = [];
+      for (var j = 0; j < state.approvedItems.length; j++) {
+        if (keepIndices[j]) newItems.push(state.approvedItems[j]);
+      }
+      state.approvedItems = newItems;
+      saveApprovedItems();
+      render();
+    }
   });
 
   api.ui.onAction("set-default-threshold", function (data) {
@@ -657,12 +795,20 @@ function activate(api) {
     render();
   });
 
+  api.ui.onAction("toggle-auto-assign-metadata", function () {
+    state.autoAssignMetadata = !state.autoAssignMetadata;
+    saveSettings();
+    render();
+  });
+
   api.ui.onAction("update-stopwords", function (data) {
     if (data && typeof data.query === "string") {
       state.stopwords = data.query.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
       saveStopwords();
     }
   });
+
+  // --- Init ---
 
   loadSettings().then(function () {
     return api.collections.getLocalCollections();

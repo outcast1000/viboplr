@@ -138,6 +138,7 @@ function PluginViewNode({
           items={node.items}
           selectable={node.selectable}
           actions={node.actions}
+          categories={node.categories}
           onAction={onAction}
           onContextMenu={onTrackRowContextMenu}
         />
@@ -213,7 +214,7 @@ function PluginViewNode({
         <div className="plugin-toolbar">
           {node.title && <span className="plugin-toolbar-title">{node.title}</span>}
           <div className="plugin-toolbar-buttons">
-            {node.buttons.map((btn, i) => (
+            {node.buttons?.map((btn, i) => (
               <button
                 key={i}
                 className={btn.variant === "accent" ? "ds-btn ds-btn--primary ds-btn--sm" : "plugin-toolbar-btn"}
@@ -676,14 +677,15 @@ function PluginSearchInput({
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
   const [query, setQuery] = useState(value ?? "");
+  const handleChange = useCallback((q: string) => {
+    setQuery(q);
+    onAction?.(action, { query: q });
+  }, [action, onAction]);
   return (
     <ViewSearchBar
       query={query}
-      onQueryChange={setQuery}
+      onQueryChange={handleChange}
       placeholder={placeholder ?? "Search..."}
-      onEnter={() => {
-        if (query.trim()) onAction?.(action, { query: query.trim() });
-      }}
     />
   );
 }
@@ -781,16 +783,37 @@ function PluginTrackRowList({
   items,
   selectable,
   actions,
+  categories,
   onAction,
   onContextMenu,
 }: {
   items: TrackRowItem[];
   selectable?: boolean;
   actions?: { id: string; label: string; icon?: string }[];
+  categories?: string[];
   onAction?: (actionId: string, data?: unknown) => void;
   onContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [itemCategories, setItemCategories] = useState<Record<string, string[]>>(() => {
+    if (!categories) return {};
+    const init: Record<string, string[]> = {};
+    for (const item of items) {
+      init[item.id] = item.checked || [];
+    }
+    return init;
+  });
+
+  useEffect(() => {
+    if (!categories) return;
+    setItemCategories(prev => {
+      const next: Record<string, string[]> = {};
+      for (const item of items) {
+        next[item.id] = prev[item.id] || item.checked || [];
+      }
+      return next;
+    });
+  }, [items, categories]);
 
   const toggleSelect = useCallback((id: string) => {
     setSelected(prev => {
@@ -809,7 +832,16 @@ function PluginTrackRowList({
     setSelected(new Set());
   }, []);
 
-  const hasSelection = selected.size > 0;
+  const toggleCategory = useCallback((itemId: string, cat: string) => {
+    setItemCategories(prev => {
+      const current = prev[itemId] || [];
+      const next = current.includes(cat) ? current.filter(c => c !== cat) : [...current, cat];
+      return { ...prev, [itemId]: next };
+    });
+  }, []);
+
+  const hasSelection = selectable ? selected.size > 0 : false;
+  const hasAnyCategories = categories ? Object.values(itemCategories).some(cats => cats.length > 0) : false;
 
   return (
     <div className="ptr-list">
@@ -835,6 +867,34 @@ function PluginTrackRowList({
               ))}
             </div>
           )}
+        </div>
+      )}
+      {!selectable && categories && actions && actions.length > 0 && (
+        <div className="ptr-toolbar">
+          <div className="ptr-toolbar-left">
+            <span className="ptr-toolbar-count">{items.length} candidates</span>
+          </div>
+          <div className="ptr-toolbar-right">
+            {actions.map(a => (
+              <button
+                key={a.id}
+                className="ptr-toolbar-btn"
+                disabled={!hasAnyCategories}
+                onClick={() => onAction?.(a.id, { items: itemCategories })}
+              >
+                {a.icon && <span className="ptr-toolbar-icon">{a.icon}</span>}
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {categories && (
+        <div className="ptr-category-header">
+          <span className="ptr-category-spacer" />
+          {categories.map(cat => (
+            <span key={cat} className="ptr-category-label">{cat}</span>
+          ))}
         </div>
       )}
       <div className="ptr-rows">
@@ -864,6 +924,20 @@ function PluginTrackRowList({
               {item.subtitle && <span className="ptr-subtitle">{item.subtitle}</span>}
             </div>
             {item.duration && <span className="ptr-duration">{item.duration}</span>}
+            {categories && (
+              <div className="ptr-categories">
+                {categories.map(cat => (
+                  <input
+                    key={cat}
+                    type="checkbox"
+                    className="ptr-cat-checkbox"
+                    checked={(itemCategories[item.id] || []).includes(cat)}
+                    onChange={(e) => { e.stopPropagation(); toggleCategory(item.id, cat); }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

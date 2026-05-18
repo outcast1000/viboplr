@@ -326,6 +326,17 @@ export function usePlugins(
           async applyTagsBulk(assignments) {
             return invoke<number>("plugin_apply_tags_bulk", { assignments });
           },
+          async bulkUpdateTracks(trackIds, fields) {
+            return invoke<string[]>("bulk_update_tracks", {
+              trackIds,
+              fields: {
+                artist_name: fields.artist_name ?? null,
+                album_title: fields.album_title ?? null,
+                year: fields.year ?? null,
+                tag_names: fields.tag_names ?? null,
+              },
+            });
+          },
           onTrackAdded: (handler) =>
             subscribeEvent(
               "track:added",
