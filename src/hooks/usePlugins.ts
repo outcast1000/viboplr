@@ -960,8 +960,32 @@ export function usePlugins(
         });
 
         const api = buildAPI(id, loaded);
-        const factory = new Function("api", code);
-        const pluginExports = factory(api);
+        const pluginSandbox = Object.create(null);
+        pluginSandbox.setTimeout = window.setTimeout.bind(window);
+        pluginSandbox.clearTimeout = window.clearTimeout.bind(window);
+        pluginSandbox.setInterval = window.setInterval.bind(window);
+        pluginSandbox.clearInterval = window.clearInterval.bind(window);
+        pluginSandbox.console = { log: console.log, warn: console.warn, error: console.error, info: console.info, debug: console.debug };
+        pluginSandbox.Math = Math;
+        pluginSandbox.JSON = JSON;
+        pluginSandbox.Date = Date;
+        pluginSandbox.Promise = Promise;
+        pluginSandbox.Object = Object;
+        pluginSandbox.Array = Array;
+        pluginSandbox.String = String;
+        pluginSandbox.Number = Number;
+        pluginSandbox.RegExp = RegExp;
+        pluginSandbox.Error = Error;
+        pluginSandbox.encodeURIComponent = encodeURIComponent;
+        pluginSandbox.decodeURIComponent = decodeURIComponent;
+        pluginSandbox.parseInt = parseInt;
+        pluginSandbox.parseFloat = parseFloat;
+        pluginSandbox.isNaN = isNaN;
+        pluginSandbox.isFinite = isFinite;
+        Object.freeze(pluginSandbox);
+
+        const factory = new Function("api", "window", "globalThis", "self", "document", code);
+        const pluginExports = factory(api, pluginSandbox, pluginSandbox, pluginSandbox, undefined);
 
         if (pluginExports && typeof pluginExports.activate === "function") {
           await pluginExports.activate(api);
