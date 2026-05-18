@@ -179,6 +179,7 @@ export function usePlugins(
     "scan:complete": [],
   });
   const enabledPluginsRef = useRef<Set<string>>(new Set());
+  const appVersionRef = useRef<string>("0.0.0");
   const viewDataRef = useRef<Map<string, PluginViewData>>(new Map());
   const badgeMapRef = useRef<Map<string, PluginBadge>>(new Map());
   const [badgeMap, setBadgeMap] = useState<Map<string, PluginBadge>>(new Map());
@@ -206,6 +207,7 @@ export function usePlugins(
       };
 
       return {
+        appVersion: appVersionRef.current,
         log: (level: string, message: string, section?: string) => {
           invoke("write_frontend_log", { level, message, section: section ?? pluginId }).catch(() => {});
         },
@@ -854,6 +856,9 @@ export function usePlugins(
           async getMultiaddrs() {
             return invoke<string[]>("p2p_get_multiaddrs", {});
           },
+          async getDiagnostics() {
+            return invoke("p2p_get_diagnostics", {});
+          },
         },
       };
     },
@@ -1018,6 +1023,7 @@ export function usePlugins(
       const installed =
         await invoke<InstalledPlugin[]>("plugin_list_installed");
       const appVersion = await getVersion().catch(() => "0.0.0");
+      appVersionRef.current = appVersion;
       const enabled =
         (await store.get<string[]>("enabledPlugins")) ?? null;
       const enabledSet =

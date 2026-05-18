@@ -4788,6 +4788,24 @@ pub async fn p2p_reserve_relay(
     rx.await.map_err(|_| "Relay reservation timed out".to_string())?
 }
 
+#[tauri::command]
+pub async fn p2p_get_diagnostics(
+    state: State<'_, AppState>,
+) -> Result<crate::p2p::P2pDiagnostics, String> {
+    let node_guard = state.p2p_node.read().await;
+    let node = node_guard.as_ref().ok_or("P2P not running")?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    node.cmd_tx
+        .send(crate::p2p::P2pCommand::GetDiagnostics {
+            response_tx: tx,
+        })
+        .await
+        .map_err(|_| "Failed to send command".to_string())?;
+
+    rx.await.map_err(|_| "Failed to get diagnostics".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

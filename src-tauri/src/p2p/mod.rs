@@ -31,6 +31,33 @@ pub enum P2pStatus {
     Degraded { reason: String },
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SharedCollectionInfo {
+    pub id: i64,
+    pub name: String,
+    pub track_count: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct P2pDiagnostics {
+    pub peer_id: String,
+    pub listen_addrs: Vec<String>,
+    pub nat_status: String,
+    pub can_relay: bool,
+    pub connected_peers: usize,
+    pub protocol_version: String,
+    pub search_protocol: String,
+    pub transfer_protocol: String,
+    pub shared_collections: Vec<SharedCollectionInfo>,
+    pub uptime_secs: u64,
+    pub transfers_completed: u64,
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+    pub pending_dials: usize,
+    pub pending_searches: usize,
+    pub pending_transfers: usize,
+}
+
 pub enum P2pCommand {
     SearchPeer {
         peer_id: PeerId,
@@ -59,6 +86,9 @@ pub enum P2pCommand {
     },
     GetMultiaddrs {
         response_tx: tokio::sync::oneshot::Sender<Vec<String>>,
+    },
+    GetDiagnostics {
+        response_tx: tokio::sync::oneshot::Sender<P2pDiagnostics>,
     },
     Stop,
 }
@@ -200,6 +230,14 @@ async fn run_event_loop(
 
     let mut listening_addrs: Vec<Multiaddr> = Vec::new();
 
+    // Diagnostics counters (session-scoped)
+    let start_time = std::time::Instant::now();
+    let mut connected_peers: std::collections::HashSet<PeerId> = std::collections::HashSet::new();
+    let mut transfers_completed: u64 = 0;
+    let mut bytes_sent: u64 = 0;
+    let mut bytes_received: u64 = 0;
+    let mut nat_status = "unknown".to_string();
+
     loop {
         tokio::select! {
             event = swarm.select_next_some() => {
@@ -219,6 +257,7 @@ async fn run_event_loop(
                     }
                     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                         log::info!("P2P connected to: {}", peer_id);
+                        connected_peers.insert(peer_id);
                         // Flush any pending requests for this peer
                         if let Some(pending) = pending_dials.remove(&peer_id) {
                             for dial in pending {
@@ -258,6 +297,9 @@ async fn run_event_loop(
                     }
                     SwarmEvent::ConnectionClosed { peer_id, .. } => {
                         log::info!("P2P disconnected from: {}", peer_id);
+                        if !swarm.is_connected(&peer_id) {
+                            connected_peers.remove(&peer_id);
+                        }
                     }
                     SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                         if let Some(pid) = peer_id {
@@ -311,10 +353,13 @@ async fn run_event_loop(
                                 match message {
                                     request_response::Message::Request { request, channel, .. } => {
                                         let response = handler.handle_transfer(request).await;
+                                        bytes_sent += response.1.len() as u64;
                                         let _ = swarm.behaviour_mut().transfer.send_response(channel, response);
                                     }
                                     request_response::Message::Response { request_id, response } => {
                                         if let Some(pending) = pending_transfers.remove(&request_id) {
+                                            bytes_received += response.1.len() as u64;
+                                            transfers_completed += 1;
                                             handle_transfer_response(pending, response, &app_handle).await;
                                         }
                                     }
@@ -337,6 +382,11 @@ async fn run_event_loop(
                             }
                             ViboplrBehaviourEvent::Autonat(autonat::Event::StatusChanged { old, new }) => {
                                 log::info!("AutoNAT status changed: {:?} -> {:?}", old, new);
+                                nat_status = match new {
+                                    autonat::NatStatus::Public(_) => "public".to_string(),
+                                    autonat::NatStatus::Private => "private".to_string(),
+                                    autonat::NatStatus::Unknown => "unknown".to_string(),
+                                };
                             }
                             ViboplrBehaviourEvent::Identify(identify::Event::Received { peer_id, info, .. }) => {
                                 log::debug!("Identified peer {}: {:?}", peer_id, info.protocols);
@@ -409,13 +459,44 @@ async fn run_event_loop(
                             .collect();
                         let _ = response_tx.send(addrs);
                     }
+                    Some(P2pCommand::GetDiagnostics { response_tx }) => {
+                        let shared_ids = shared_collection_ids.read().await;
+                        let shared_info: Vec<SharedCollectionInfo> = shared_ids.iter().filter_map(|&id| {
+                            let name = db.get_collection_by_id(id).ok().map(|c| c.name).unwrap_or_default();
+                            let track_count = db.get_collection_stats().ok()
+                                .and_then(|stats| stats.iter().find(|s| s.collection_id == id).map(|s| s.track_count))
+                                .unwrap_or(0);
+                            Some(SharedCollectionInfo { id, name, track_count })
+                        }).collect();
+
+                        let diag = P2pDiagnostics {
+                            peer_id: local_peer_id.to_string(),
+                            listen_addrs: listening_addrs.iter()
+                                .map(|a| format!("{}/p2p/{}", a, local_peer_id))
+                                .collect(),
+                            nat_status: nat_status.clone(),
+                            can_relay: nat_status == "public",
+                            connected_peers: connected_peers.len(),
+                            protocol_version: "/viboplr/0.1.0".to_string(),
+                            search_protocol: swarm::SEARCH_PROTOCOL.to_string(),
+                            transfer_protocol: swarm::TRANSFER_PROTOCOL.to_string(),
+                            shared_collections: shared_info,
+                            uptime_secs: start_time.elapsed().as_secs(),
+                            transfers_completed,
+                            bytes_sent,
+                            bytes_received,
+                            pending_dials: pending_dials.len(),
+                            pending_searches: pending_searches.len(),
+                            pending_transfers: pending_transfers.len(),
+                        };
+                        let _ = response_tx.send(diag);
+                    }
                     Some(P2pCommand::Stop) | None => {
                         log::info!("P2P event loop stopping");
                         let mut s = status.write().await;
                         *s = P2pStatus::Stopped;
                         break;
                     }
-                    _ => {}
                 }
             }
         }

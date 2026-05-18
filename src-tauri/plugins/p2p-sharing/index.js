@@ -3,9 +3,11 @@
 
 var heartbeatInterval = null;
 var peerCountInterval = null;
+var diagnosticsInterval = null;
 
 var CONFIG_KEYS = {
   enabled: "p2p_enabled",
+  deviceName: "p2p_device_name",
   supabaseUrl: "p2p_supabase_url",
   supabaseKey: "p2p_supabase_key",
   relayMultiaddr: "p2p_relay_multiaddr",
@@ -15,6 +17,25 @@ var CONFIG_KEYS = {
 
 var DEFAULT_SUPABASE_URL = "https://jyosmcvtyfvrajvffqyi.supabase.co";
 var DEFAULT_SUPABASE_KEY = "sb_publishable_ZVIAR8SJ8nLvUnrN-arjDw_LkD5spiX";
+
+var NAME_ADJECTIVES = [
+  "swift", "bright", "calm", "bold", "warm", "cool", "keen", "wild",
+  "soft", "deep", "clear", "fair", "kind", "proud", "rare", "true",
+  "blue", "gold", "jade", "red", "silver", "amber", "violet", "coral",
+  "gentle", "quiet", "steady", "vivid", "lunar", "solar", "misty", "sonic"
+];
+var NAME_NOUNS = [
+  "fox", "owl", "wave", "star", "wind", "leaf", "moon", "sun",
+  "cloud", "peak", "brook", "fern", "crow", "hawk", "reef", "pine",
+  "spark", "echo", "drift", "bloom", "frost", "dusk", "vale", "cove",
+  "raven", "finch", "grove", "shore", "flame", "tide", "haze", "glow"
+];
+
+function generateDeviceName() {
+  var adj = NAME_ADJECTIVES[Math.floor(Math.random() * NAME_ADJECTIVES.length)];
+  var noun = NAME_NOUNS[Math.floor(Math.random() * NAME_NOUNS.length)];
+  return adj + " " + noun;
+}
 
 function activate(api) {
   var state = {
@@ -29,6 +50,7 @@ function activate(api) {
     peerCount: 0,
     error: null,
     config: {
+      deviceName: "",
       supabaseUrl: DEFAULT_SUPABASE_URL,
       supabaseKey: DEFAULT_SUPABASE_KEY,
       relayMultiaddr: "",
@@ -36,6 +58,8 @@ function activate(api) {
       maxPeers: 50,
     },
     collections: [],
+    diagnostics: null,
+    lastHeartbeatTs: null,
   };
 
   // --- Config management ---
@@ -48,6 +72,7 @@ function activate(api) {
       api.storage.get(CONFIG_KEYS.relayMultiaddr),
       api.storage.get(CONFIG_KEYS.sharedCollections),
       api.storage.get(CONFIG_KEYS.maxPeers),
+      api.storage.get(CONFIG_KEYS.deviceName),
     ]).then(function (values) {
       state.enabled = values[0] === null ? true : values[0]; // default ON
       state.config.supabaseUrl = values[1] || DEFAULT_SUPABASE_URL;
@@ -55,6 +80,13 @@ function activate(api) {
       state.config.relayMultiaddr = values[3] || "";
       state.config.sharedCollections = values[4] || [];
       state.config.maxPeers = values[5] || 50;
+
+      if (values[6]) {
+        state.config.deviceName = values[6];
+      } else {
+        state.config.deviceName = generateDeviceName();
+        saveConfig(CONFIG_KEYS.deviceName, state.config.deviceName);
+      }
     });
   }
 
@@ -79,25 +111,43 @@ function activate(api) {
     return api.network.fetch(url, opts);
   }
 
+  function getSharedTrackCount() {
+    if (state.diagnostics && state.diagnostics.shared_collections) {
+      var total = 0;
+      for (var i = 0; i < state.diagnostics.shared_collections.length; i++) {
+        total += state.diagnostics.shared_collections[i].track_count || 0;
+      }
+      return total;
+    }
+    return 0;
+  }
+
   function heartbeat() {
     if (!state.online || !state.config.supabaseUrl || !state.peerId) return;
+
+    var meta = {
+      device_name: state.config.deviceName || null,
+      app_version: api.appVersion || "0.0.0",
+      nat_status: state.diagnostics ? state.diagnostics.nat_status : null,
+      uptime_secs: state.diagnostics ? state.diagnostics.uptime_secs : null,
+      transfers_completed: state.diagnostics ? state.diagnostics.transfers_completed : null,
+      bytes_sent: state.diagnostics ? state.diagnostics.bytes_sent : null,
+      bytes_received: state.diagnostics ? state.diagnostics.bytes_received : null,
+      connected_peers: state.diagnostics ? state.diagnostics.connected_peers : null,
+    };
 
     supabaseFetch("POST", "/devices", {
       peer_id: state.peerId,
       multiaddrs: state.multiaddrs,
       can_relay: state.canRelay,
-      app_version: "0.9.78",
-      shared_track_count: state.trackCount || 0,
+      shared_track_count: getSharedTrackCount(),
+      metadata: meta,
       last_seen: new Date().toISOString(),
+    }).then(function () {
+      state.lastHeartbeatTs = Date.now();
     }).catch(function (e) {
       api.log("warn", "P2P heartbeat failed: " + e);
     });
-  }
-
-  function updateTrackCount() {
-    api.library.getTrackCount().then(function (count) {
-      state.trackCount = count || 0;
-    }).catch(function () {});
   }
 
   function removePresence() {
@@ -138,6 +188,36 @@ function activate(api) {
         renderView();
       }
     }).catch(function () {});
+  }
+
+  // --- Diagnostics ---
+
+  function fetchDiagnostics() {
+    if (!state.online) return;
+    api.p2p.getDiagnostics().then(function (diag) {
+      state.diagnostics = diag;
+      renderSettings();
+    }).catch(function (e) {
+      api.log("warn", "P2P diagnostics fetch failed: " + e);
+    });
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return "0 B";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+    if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + " MB";
+    return (bytes / 1073741824).toFixed(2) + " GB";
+  }
+
+  function formatUptime(secs) {
+    if (!secs) return "0s";
+    var h = Math.floor(secs / 3600);
+    var m = Math.floor((secs % 3600) / 60);
+    var s = secs % 60;
+    if (h > 0) return h + "h " + m + "m";
+    if (m > 0) return m + "m " + s + "s";
+    return s + "s";
   }
 
   // --- Search ---
@@ -387,36 +467,21 @@ function activate(api) {
   function renderSettings() {
     var settingsChildren = [];
 
-    // Connection section
+    // Enable/disable toggle
     settingsChildren.push({
-      type: "section",
-      title: "Connection",
-      children: [
-        {
-          type: "settings-row",
-          label: "P2P Sharing",
-          description: state.online
-            ? "Connected as " + (state.peerId ? state.peerId.substring(0, 16) + "..." : "unknown")
-            : "Disconnected",
-          child: { type: "toggle", checked: state.enabled, action: "p2p-toggle-enabled" },
-        },
-      ],
+      type: "settings-row",
+      label: "P2P Sharing",
+      description: state.online ? "Connected" : "Disconnected",
+      child: { type: "toggle", checked: state.enabled, action: "p2p-toggle-enabled" },
     });
 
-    // Sharing info — all local collections are shared
-    if (state.collections.length > 0) {
-      settingsChildren.push({
-        type: "section",
-        title: "Sharing",
-        children: [
-          {
-            type: "settings-row",
-            label: "All local collections are shared",
-            description: state.collections.length + " collection" + (state.collections.length > 1 ? "s" : "") + " available to peers on the network",
-          },
-        ],
-      });
-    }
+    // Device name
+    settingsChildren.push({
+      type: "settings-row",
+      label: "Device Name",
+      description: "How this device appears to other peers",
+      child: { type: "text-input", value: state.config.deviceName, placeholder: "e.g. swift fox", action: "p2p-set-device-name" },
+    });
 
     // Advanced section
     settingsChildren.push({
@@ -449,6 +514,46 @@ function activate(api) {
         },
       ],
     });
+
+    // Diagnostics section
+    if (state.diagnostics) {
+      var d = state.diagnostics;
+      var diagRows = [
+        { type: "settings-row", label: "Status", description: state.online ? "Online" : "Offline" },
+        { type: "settings-row", label: "Peer ID", description: d.peer_id },
+        { type: "settings-row", label: "Listen Addresses", description: d.listen_addrs.length > 0 ? d.listen_addrs.join("\n") : "None" },
+        { type: "settings-row", label: "NAT Status", description: d.nat_status === "public" ? "Public (directly reachable)" : d.nat_status === "private" ? "Behind NAT" : "Unknown" },
+        { type: "settings-row", label: "Can Relay", description: d.can_relay ? "Yes" : "No" },
+        { type: "settings-row", label: "Connected Peers", description: String(d.connected_peers) },
+        { type: "settings-row", label: "Protocol Version", description: d.protocol_version },
+        { type: "settings-row", label: "Search Protocol", description: d.search_protocol },
+        { type: "settings-row", label: "Transfer Protocol", description: d.transfer_protocol },
+        { type: "settings-row", label: "Uptime", description: formatUptime(d.uptime_secs) },
+        { type: "settings-row", label: "Transfers Completed", description: String(d.transfers_completed) },
+        { type: "settings-row", label: "Data Sent", description: formatBytes(d.bytes_sent) },
+        { type: "settings-row", label: "Data Received", description: formatBytes(d.bytes_received) },
+        { type: "settings-row", label: "Pending Dials", description: String(d.pending_dials) },
+        { type: "settings-row", label: "Pending Searches", description: String(d.pending_searches) },
+        { type: "settings-row", label: "Pending Transfers", description: String(d.pending_transfers) },
+      ];
+
+      if (d.shared_collections && d.shared_collections.length > 0) {
+        var colDesc = d.shared_collections.map(function (c) {
+          return c.name + " (" + c.track_count + " tracks)";
+        }).join(", ");
+        diagRows.push({ type: "settings-row", label: "Shared Collections", description: colDesc });
+      }
+
+      if (state.lastHeartbeatTs) {
+        diagRows.push({ type: "settings-row", label: "Last Heartbeat", description: new Date(state.lastHeartbeatTs).toLocaleTimeString() });
+      }
+
+      settingsChildren.push({
+        type: "section",
+        title: "Diagnostics",
+        children: diagRows,
+      });
+    }
 
     api.ui.setViewData("p2p-settings", {
       type: "layout",
@@ -492,6 +597,17 @@ function activate(api) {
     }
     renderSettings();
     renderView();
+  });
+
+  api.ui.onAction("p2p-set-device-name", function (payload) {
+    var name = (payload && payload.value) || "";
+    if (name.trim()) {
+      state.config.deviceName = name.trim();
+    } else {
+      state.config.deviceName = generateDeviceName();
+    }
+    saveConfig(CONFIG_KEYS.deviceName, state.config.deviceName);
+    renderSettings();
   });
 
   api.ui.onAction("p2p-set-supabase-url", function (payload) {
@@ -694,14 +810,17 @@ function activate(api) {
         renderView();
         renderSettings();
 
-        // Get track count then start heartbeat
-        updateTrackCount();
+        // Start heartbeat
         heartbeat();
         heartbeatInterval = setInterval(heartbeat, 60000);
 
         // Start peer count polling
         countPeers();
         peerCountInterval = setInterval(countPeers, 30000);
+
+        // Start diagnostics polling
+        fetchDiagnostics();
+        diagnosticsInterval = setInterval(fetchDiagnostics, 5000);
 
         // Set shared collections
         if (state.config.sharedCollections.length > 0) {
@@ -740,6 +859,8 @@ function activate(api) {
             heartbeatInterval = setInterval(heartbeat, 60000);
             countPeers();
             peerCountInterval = setInterval(countPeers, 30000);
+            fetchDiagnostics();
+            diagnosticsInterval = setInterval(fetchDiagnostics, 5000);
           });
         }
         state.error = "Failed to start: " + msg;
@@ -758,6 +879,10 @@ function activate(api) {
       clearInterval(peerCountInterval);
       peerCountInterval = null;
     }
+    if (diagnosticsInterval) {
+      clearInterval(diagnosticsInterval);
+      diagnosticsInterval = null;
+    }
     removePresence();
     api.p2p.stop().catch(function () {});
     state.online = false;
@@ -766,6 +891,8 @@ function activate(api) {
     state.peerCount = 0;
     state.searchResults = [];
     state.error = null;
+    state.diagnostics = null;
+    state.lastHeartbeatTs = null;
   }
 
   // --- Startup ---
@@ -810,6 +937,10 @@ function deactivate() {
   if (peerCountInterval) {
     clearInterval(peerCountInterval);
     peerCountInterval = null;
+  }
+  if (diagnosticsInterval) {
+    clearInterval(diagnosticsInterval);
+    diagnosticsInterval = null;
   }
 }
 

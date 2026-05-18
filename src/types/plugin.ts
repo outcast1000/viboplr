@@ -603,6 +603,31 @@ export interface PluginEnvAPI {
   get(key: string): Promise<string | null>;
 }
 
+export interface P2pSharedCollectionInfo {
+  id: number;
+  name: string;
+  track_count: number;
+}
+
+export interface P2pDiagnostics {
+  peer_id: string;
+  listen_addrs: string[];
+  nat_status: string;
+  can_relay: boolean;
+  connected_peers: number;
+  protocol_version: string;
+  search_protocol: string;
+  transfer_protocol: string;
+  shared_collections: P2pSharedCollectionInfo[];
+  uptime_secs: number;
+  transfers_completed: number;
+  bytes_sent: number;
+  bytes_received: number;
+  pending_dials: number;
+  pending_searches: number;
+  pending_transfers: number;
+}
+
 export interface PluginP2pAPI {
   start(relayMultiaddr?: string): Promise<unknown>;
   stop(): Promise<void>;
@@ -614,9 +639,11 @@ export interface PluginP2pAPI {
   setSharedCollections(ids: number[]): Promise<void>;
   reserveRelay(multiaddr: string): Promise<void>;
   getMultiaddrs(): Promise<string[]>;
+  getDiagnostics(): Promise<P2pDiagnostics>;
 }
 
 export interface ViboplrPluginAPI {
+  appVersion: string;
   log(level: string, message: string, section?: string): void;
   library: PluginLibraryAPI;
   playback: PluginPlaybackAPI;

@@ -247,6 +247,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::p2p_get_shared_collections,
         commands::p2p_set_shared_collections,
         commands::p2p_reserve_relay,
+        commands::p2p_get_diagnostics,
     ]
 }
 
@@ -462,6 +463,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::p2p_get_shared_collections,
         commands::p2p_set_shared_collections,
         commands::p2p_reserve_relay,
+        commands::p2p_get_diagnostics,
     ]
 }
 
