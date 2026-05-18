@@ -11,7 +11,7 @@ export interface UpdateState {
   upToDate: boolean;
 }
 
-export function useAppUpdater(addLog: (msg: string, module?: string) => void, onBeforeInstall?: () => void) {
+export function useAppUpdater(onBeforeInstall?: () => void) {
   const [appVersion, setAppVersion] = useState("");
   const [updateState, setUpdateState] = useState<UpdateState>({
     available: null,
@@ -77,7 +77,7 @@ export function useAppUpdater(addLog: (msg: string, module?: string) => void, on
       await relaunch();
     } catch {
       setUpdateState(s => ({ ...s, downloading: false, progress: null }));
-      addLog("Failed to install update.", "updater");
+      console.debug("Failed to install update");
     }
   }
 

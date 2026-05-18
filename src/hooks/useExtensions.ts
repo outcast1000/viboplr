@@ -30,7 +30,6 @@ interface UseExtensionsProps {
   onFetchPluginGallery: () => void;
   onFetchSkinGallery: () => void;
   onReloadAllPlugins: () => void;
-  addLog: (msg: string, module?: string) => void;
 }
 
 export function useExtensions(props: UseExtensionsProps) {
@@ -50,7 +49,6 @@ export function useExtensions(props: UseExtensionsProps) {
     onFetchPluginGallery,
     onFetchSkinGallery,
     onReloadAllPlugins,
-    addLog,
   } = props;
 
   const [updates, setUpdates] = useState<ExtensionUpdate[]>([]);
@@ -89,11 +87,10 @@ export function useExtensions(props: UseExtensionsProps) {
       setLastChecked(Date.now());
     } catch (e) {
       console.error("Failed to check for updates:", e);
-      addLog("Failed to check for updates: " + String(e), "extensions");
     } finally {
       setChecking(false);
     }
-  }, [addLog]);
+  }, []);
 
   const updateExtension = useCallback(
     async (id: string) => {
@@ -108,18 +105,15 @@ export function useExtensions(props: UseExtensionsProps) {
             downloadUrl: update.downloadUrl,
           });
           onReloadPlugin(id);
-          addLog(`Updated ${update.name} to v${update.latestVersion}`, "extensions");
         } else {
           await invoke("download_and_install_skin_update", {
             skinId: id,
             downloadUrl: update.downloadUrl,
           });
-          addLog(`Updated ${update.name} to v${update.latestVersion}`, "extensions");
         }
         setUpdates((prev) => prev.filter((u) => u.id !== id));
       } catch (e) {
         console.error("Failed to update extension:", e);
-        addLog(`Failed to update ${update.name}: ${String(e)}`, "extensions");
       } finally {
         setInstalling((prev) => {
           const next = new Set(prev);
@@ -128,7 +122,7 @@ export function useExtensions(props: UseExtensionsProps) {
         });
       }
     },
-    [updates, onReloadPlugin, addLog],
+    [updates, onReloadPlugin],
   );
 
   const updateAll = useCallback(async () => {
@@ -143,23 +137,13 @@ export function useExtensions(props: UseExtensionsProps) {
       setInstalling((prev) => new Set(prev).add(entry.id));
       try {
         if ("files" in entry) {
-          const result = await onInstallPluginFromGallery(
+          await onInstallPluginFromGallery(
             entry as GalleryPluginEntry,
           );
-          if (result.ok) {
-            addLog(`Installed plugin ${entry.name}`, "extensions");
-          } else {
-            addLog(`Failed to install ${entry.name}: ${result.error}`, "extensions");
-          }
         } else {
-          const result = await onInstallSkinFromGallery(
+          await onInstallSkinFromGallery(
             entry as GallerySkinEntry,
           );
-          if (result.ok) {
-            addLog(`Installed skin ${entry.name}`, "extensions");
-          } else {
-            addLog(`Failed to install ${entry.name}: ${result.error}`, "extensions");
-          }
         }
       } finally {
         setInstalling((prev) => {
@@ -169,7 +153,7 @@ export function useExtensions(props: UseExtensionsProps) {
         });
       }
     },
-    [onInstallPluginFromGallery, onInstallSkinFromGallery, addLog],
+    [onInstallPluginFromGallery, onInstallSkinFromGallery],
   );
 
   const uninstall = useCallback(
@@ -177,17 +161,14 @@ export function useExtensions(props: UseExtensionsProps) {
       try {
         if (kind === "plugin") {
           await onDeletePlugin(id);
-          addLog(`Uninstalled plugin ${id}`, "extensions");
         } else {
           onDeleteSkin(id);
-          addLog(`Uninstalled skin ${id}`, "extensions");
         }
       } catch (e) {
         console.error("Failed to uninstall:", e);
-        addLog(`Failed to uninstall ${id}: ${String(e)}`, "extensions");
       }
     },
-    [onDeletePlugin, onDeleteSkin, addLog],
+    [onDeletePlugin, onDeleteSkin],
   );
 
   const toggleEnabled = useCallback(
@@ -204,15 +185,13 @@ export function useExtensions(props: UseExtensionsProps) {
   const installFromUrl = useCallback(
     async (url: string) => {
       try {
-        const pluginId = await invoke<string>("install_plugin_from_url", { url });
-        addLog(`Installed plugin ${pluginId} from URL`, "extensions");
+        await invoke<string>("install_plugin_from_url", { url });
         onReloadAllPlugins();
       } catch (e) {
         console.error("Failed to install from URL:", e);
-        addLog(`Failed to install from URL: ${String(e)}`, "extensions");
       }
     },
-    [addLog, onReloadAllPlugins],
+    [onReloadAllPlugins],
   );
 
   const extensions: ExtensionItem[] = useMemo(() => {

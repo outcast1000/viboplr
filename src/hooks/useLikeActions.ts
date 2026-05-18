@@ -32,7 +32,6 @@ interface UseLikeActionsDeps {
   playback: PlaybackDeps;
   queueHook: QueueDeps;
   plugins: PluginsDeps;
-  addLog?: (msg: string) => void;
 }
 
 export function useLikeActions(deps: UseLikeActionsDeps) {
@@ -52,7 +51,6 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
           albumName: track.album_title ?? null,
         });
         if (!libTrack || libTrack.id == null) {
-          deps.addLog?.("Track not in library");
           return;
         }
         trackId = libTrack.id;
@@ -84,7 +82,6 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
           albumName: track.album_title ?? null,
         });
         if (!libTrack || libTrack.id == null) {
-          deps.addLog?.("Track not in library");
           return;
         }
         trackId = libTrack.id;

@@ -18,7 +18,6 @@ export interface UseImageCacheReturn {
 
 export function useImageCache(
   kind: "artist" | "album" | "tag",
-  addLog?: (msg: string, module?: string) => void,
 ): UseImageCacheReturn {
   const [cache, setCache] = useState<Record<string, string | null>>({});
   const cacheRef = useRef(cache);
@@ -102,46 +101,34 @@ export function useImageCache(
 
     const unlistenReady = listen<Record<string, unknown>>(readyEvent, (event) => {
       const path = event.payload.path as string;
-      const source = event.payload.source as string | undefined;
-      let entityName: string;
       let key: string;
 
       if (kind === "artist") {
-        entityName = event.payload.name as string;
-        key = imageCacheKey("artist", entityName);
+        key = imageCacheKey("artist", event.payload.name as string);
       } else if (kind === "album") {
         const title = event.payload.title as string;
         const artist = event.payload.artist_name as string | null;
-        entityName = title;
         key = imageCacheKey("album", title, artist);
       } else {
-        entityName = event.payload.name as string;
-        key = imageCacheKey("tag", entityName);
+        key = imageCacheKey("tag", event.payload.name as string);
       }
 
-      addLog?.(`${kind.charAt(0).toUpperCase() + kind.slice(1)} image downloaded for "${entityName}"${source ? ` from ${source}` : ""}`);
       setCache((prev) => ({ ...prev, [key]: path }));
     });
 
     const unlistenError = listen<Record<string, unknown>>(errorEvent, (event) => {
-      const error = event.payload.error as string;
-      let entityName: string;
       let key: string;
 
       if (kind === "artist") {
-        entityName = event.payload.name as string;
-        key = imageCacheKey("artist", entityName);
+        key = imageCacheKey("artist", event.payload.name as string);
       } else if (kind === "album") {
         const title = event.payload.title as string;
         const artist = event.payload.artist_name as string | null;
-        entityName = title;
         key = imageCacheKey("album", title, artist);
       } else {
-        entityName = event.payload.name as string;
-        key = imageCacheKey("tag", entityName);
+        key = imageCacheKey("tag", event.payload.name as string);
       }
 
-      addLog?.(`${kind.charAt(0).toUpperCase() + kind.slice(1)} image failed for "${entityName}": ${error}`);
       setCache((prev) => ({ ...prev, [key]: null }));
     });
 
@@ -149,7 +136,7 @@ export function useImageCache(
       unlistenReady.then((f) => f());
       unlistenError.then((f) => f());
     };
-  }, [kind, addLog]);
+  }, [kind]);
 
   return { getImage, invalidate, requestFetch, clearAllFailures };
 }

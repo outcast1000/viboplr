@@ -57,29 +57,9 @@ async function resolveTrackDownload(
 
 export function useDownloads(
   downloadFormatRef: React.MutableRefObject<string>,
-  addLog: (msg: string, module?: string) => void,
   downloadProvidersRef: React.MutableRefObject<DownloadProvider[]>,
 ): UseDownloadsReturn {
   const [downloadFormat, setDownloadFormat] = useState("flac");
-
-  useEffect(() => {
-    const unlisten1 = listen<{ id: number; trackTitle: string; destPath: string }>(
-      "download-complete",
-      (event) => {
-        addLog(`Downloaded: ${event.payload.trackTitle}`, "downloads");
-      }
-    );
-    const unlisten2 = listen<{ id: number; trackTitle: string; error: string }>(
-      "download-error",
-      (event) => {
-        addLog(`Download failed: ${event.payload.trackTitle}`, "downloads");
-      }
-    );
-    return () => {
-      unlisten1.then((f) => f());
-      unlisten2.then((f) => f());
-    };
-  }, [addLog]);
 
   useEffect(() => {
     const unlisten = listen<{
@@ -116,7 +96,6 @@ export function useDownloads(
     if (!track) return;
     const path = track.path ?? "";
     if (path.startsWith("file://")) {
-      addLog("Cannot download local tracks", "downloads");
       return;
     }
 
@@ -130,9 +109,8 @@ export function useDownloads(
         destCollectionId,
         format: downloadFormat,
       });
-      addLog(`Downloading: ${track.title}`, "downloads");
     } catch (e) {
-      addLog(`Download failed: ${e}`, "downloads");
+      console.error("Failed to enqueue download:", e);
     }
   }
 
@@ -170,10 +148,8 @@ export function useDownloads(
         destCollectionId: downloadsCollectionId,
         format,
       });
-      addLog(`Auto-saving: ${track.artist_name ? track.artist_name + " - " : ""}${track.title}`, "downloads");
     } catch (e) {
       console.error("Auto-save failed:", e);
-      addLog(`Failed to auto-save: ${track.title}`, "downloads");
     }
   }
 

@@ -18,7 +18,6 @@ interface HistoryViewProps {
   highlightedIndex: number;
   onPlayTrack: (tracks: Track[], index: number) => void;
   onEnqueueTrack: (tracks: Track[]) => void;
-  addLog: (message: string, module?: string) => void;
   onArtistClick: (artistId: number, name?: string) => void;
 }
 
@@ -40,7 +39,7 @@ function HistoryArt({ imagePath }: { imagePath: string | null | undefined }) {
 }
 
 export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
-  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, addLog, onArtistClick }, ref) {
+  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, onArtistClick }, ref) {
   const [activeTab, setActiveTab] = useState<HistoryTab>("all-time");
   const [mostPlayedAllTime, setMostPlayedAllTime] = useState<HistoryMostPlayed[]>([]);
   const [mostPlayedRecent, setMostPlayedRecent] = useState<HistoryMostPlayed[]>([]);
@@ -152,12 +151,9 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
       const track = await invoke<Track | null>("reconnect_history_track", { historyTrackId });
       if (track) {
         onPlayTrack([track], 0);
-      } else {
-        addLog("Track not found in library \u2014 it may have been removed", "history");
       }
     } catch (e) {
       console.error("Failed to reconnect track:", e);
-      addLog("Track not found in library \u2014 it may have been removed", "history");
     }
   }
 
@@ -166,12 +162,9 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
       const track = await invoke<Track | null>("reconnect_history_track", { historyTrackId });
       if (track) {
         onEnqueueTrack([track]);
-      } else {
-        addLog("Track not found in library \u2014 it may have been removed", "history");
       }
     } catch (e) {
       console.error("Failed to reconnect track:", e);
-      addLog("Track not found in library \u2014 it may have been removed", "history");
     }
   }
 
@@ -180,12 +173,9 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
       const artistId = await invoke<number | null>("reconnect_history_artist", { historyArtistId });
       if (artistId) {
         onArtistClick(artistId);
-      } else {
-        addLog("Artist not found in library \u2014 they may have been removed", "history");
       }
     } catch (e) {
       console.error("Failed to reconnect artist:", e);
-      addLog("Artist not found in library \u2014 they may have been removed", "history");
     }
   }
 

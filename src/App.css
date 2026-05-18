@@ -20,7 +20,6 @@
 }
 
 .app.app-restoring .sidebar,
-.app.app-restoring .status-bar,
 .app.app-restoring {
   transition: none !important;
 }

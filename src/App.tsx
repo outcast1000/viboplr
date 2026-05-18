@@ -36,7 +36,6 @@ import { useImageCache } from "./hooks/useImageCache";
 import { useAutoContinue } from "./hooks/useAutoContinue";
 import { usePasteImage } from "./hooks/usePasteImage";
 import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistory";
-import { useSessionLog } from "./hooks/useSessionLog";
 import { useAppUpdater } from "./hooks/useAppUpdater";
 import { useMiniMode, cycleRestingSize, cycleMiniWidth } from "./hooks/useMiniMode";
 import { useVideoLayout } from "./hooks/useVideoLayout";
@@ -90,7 +89,6 @@ import { MixtapeExportModal } from "./components/MixtapeExportModal";
 import type { ExportTrack } from "./components/MixtapeExportModal";
 
 import { SearchView } from "./components/SearchView";
-import { StatusBar } from "./components/StatusBar";
 import { IconYoutube } from "./components/Icons";
 import { useDependencies } from "./hooks/useDependencies";
 import { DependencyModal } from "./components/DependencyModal";
@@ -229,8 +227,11 @@ function App() {
   const beforeNavRef = useRef<() => void>(() => {});
   const viewSearch = useViewSearchState();
 
-  const { sessionLog, addLog, setDebugLogging: setDebugLoggingRef } = useSessionLog();
-  const albumImageCache = useImageCache("album", addLog);
+  const debugLoggingRef = useRef(false);
+  const setDebugLoggingRef = useCallback((enabled: boolean) => {
+    debugLoggingRef.current = enabled;
+  }, []);
+  const albumImageCache = useImageCache("album");
 
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, undefined, setNavError);
   const downloadsCollection = useMemo(() => downloadsCollectionId != null ? library.collections.find(c => c.id === downloadsCollectionId) ?? null : null, [downloadsCollectionId, library.collections]);
@@ -569,11 +570,11 @@ function App() {
   advanceIndexRef.current = queueHook.advanceIndex;
 
   // UI state
-  const [scanning, setScanning] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [, setScanning] = useState(false);
+  const [, setSyncing] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 0 });
-  const [syncProgress, setSyncProgress] = useState({ synced: 0, total: 0, collection: "" });
+  const [, setScanProgress] = useState({ scanned: 0, total: 0 });
+  const [, setSyncProgress] = useState({ synced: 0, total: 0, collection: "" });
   const [resyncProgress, setResyncProgress] = useState<{
     collectionId: number;
     collectionName: string;
@@ -617,7 +618,7 @@ function App() {
   const [searchDeletedTagBatch, setSearchDeletedTagBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
 
   // Updater
-  const updater = useAppUpdater(addLog, playback.handleStop);
+  const updater = useAppUpdater(playback.handleStop);
 
   // Skins
   const skins = useSkins();
@@ -644,11 +645,10 @@ function App() {
     onFetchPluginGallery: plugins.fetchPluginGallery,
     onFetchSkinGallery: skins.fetchGallery,
     onReloadAllPlugins: plugins.reloadAllPlugins,
-    addLog,
   });
 
   // Downloads
-  const downloads = useDownloads(downloadFormatRef, addLog, downloadProvidersRef);
+  const downloads = useDownloads(downloadFormatRef, downloadProvidersRef);
 
   // Like actions
   const likeActions = useLikeActions({
@@ -691,8 +691,8 @@ function App() {
   });
 
   // Image caches
-  const artistImageCache = useImageCache("artist", addLog);
-  const tagImageCache = useImageCache("tag", addLog);
+  const artistImageCache = useImageCache("artist");
+  const tagImageCache = useImageCache("tag");
 
   const playActions = usePlayActions({
     playTracks: queueHook.playTracks,
@@ -762,7 +762,6 @@ function App() {
       currentTrack: playback.currentTrack,
       handleStop: playback.handleStop,
     },
-    addLog,
     playActions,
     queueCollapsed,
     setQueueCollapsed,
@@ -864,14 +863,11 @@ function App() {
         destCollectionId: null,
         format: downloadFormatRef.current,
         provider: providerId,
-      }).then(() => {
-        addLog(`Downloading: ${track?.title ?? title}`, "downloads");
       }).catch((e: unknown) => {
         console.error("Failed to enqueue download:", e);
-        addLog(`Download failed: ${e}`, "downloads");
       });
     }
-  }, [contextMenuActions.contextMenu, downloadProviderEntries, library.tracks, queueHook.queue, addLog]);
+  }, [contextMenuActions.contextMenu, downloadProviderEntries, library.tracks, queueHook.queue]);
 
   const buildAndShowNativeMenu = useCallback((cm: { x: number; y: number; target: import("./types/contextMenu").ContextMenuTarget }) => {
     contextMenuActions.setContextMenu(cm);
@@ -1136,7 +1132,7 @@ function App() {
   }, [contextMenuActions, videoLayout, queueHook.queue, library, downloadProviderEntries, plugins.menuItems, plugins.dispatchContextMenuAction, searchProviders, handleDownloadFromProvider, artistImageCache, albumImageCache]);
   showNativeMenuRef.current = buildAndShowNativeMenu;
 
-  // Wire plugin host callbacks (uses addLog, library, contextMenuActions defined above)
+  // Wire plugin host callbacks (uses library, contextMenuActions defined above)
   pluginHostCallbacksRef.current = {
     navigateToPluginView: (pluginId, viewId) => {
       library.setView(`plugin:${pluginId}:${viewId}`);
@@ -1195,7 +1191,7 @@ function App() {
       }
     },
     showNotification: (message) => {
-      addLog(message, "plugins");
+      console.debug("[plugin]", message);
     },
   };
 
@@ -1203,7 +1199,6 @@ function App() {
   useEventListeners({
     loadLibrary: library.loadLibrary,
     loadTracks: library.loadTracks,
-    addLog,
     setScanning, setScanProgress,
     setSyncing, setSyncProgress,
     onResyncDone: collectionActions.clearResyncingState,
@@ -1291,7 +1286,6 @@ function App() {
                   if (msg.includes("ffmpeg is not installed")) {
                     dependencies.requireDep("ffmpeg", "Video playback");
                   }
-                  addLog(msg, "playback");
                   throw e;
                 }
               }
@@ -1336,7 +1330,7 @@ function App() {
           setResolvingStatus(null);
           setResolvedSource({ name: entry.name, url: src, sourceUrl: entry.sourceUrl, id: entry.id });
           if (lastError) {
-            addLog(`Playing from ${entry.name} (original unavailable)`, "playback");
+            console.debug(`Playing from ${entry.name} (original unavailable)`);
           }
           return src;
         } catch (e) {
@@ -1351,22 +1345,16 @@ function App() {
       }
       throw new Error(`No playback source found for: ${track.title}`);
     };
-  }, [addLog]);
+  }, []);
 
   useEffect(() => {
     if (playback.playbackError && playback.failedTrack) {
       const t = playback.failedTrack;
       const src = t.path?.startsWith("subsonic://") ? "Subsonic" : isLocalTrack(t) ? "Local" : "Remote";
-      addLog(`Playback failed (${src}): ${t.artist_name ? t.artist_name + " — " : ""}${t.title}: ${playback.playbackError}`, "playback");
+      console.debug(`Playback failed (${src}): ${t.artist_name ? t.artist_name + " — " : ""}${t.title}: ${playback.playbackError}`);
     }
-  }, [playback.playbackError, playback.failedTrack, addLog]);
+  }, [playback.playbackError, playback.failedTrack]);
 
-  const statusActivity = scanning
-    ? (scanProgress.total > 0 ? `Scanning... ${scanProgress.scanned}/${scanProgress.total}` : "Scanning... preparing")
-
-    : syncing
-    ? `Syncing ${syncProgress.collection}... ${syncProgress.synced}/${syncProgress.total} albums`
-    : null;
 
   // Paste image onto artist/album
   usePasteImage({
@@ -1381,7 +1369,6 @@ function App() {
     invalidateArtistImage: (name: string) => artistImageCache.invalidate(name),
     invalidateAlbumImage: (name: string, artistName?: string) => albumImageCache.invalidate(name, artistName),
     invalidateTagImage: (name: string) => tagImageCache.invalidate(name),
-    addLog,
   });
 
   const applyNavState = useCallback((s: NavState) => {
@@ -2157,7 +2144,6 @@ function App() {
       const folderName = selected.split("/").pop() || selected.split("\\").pop() || selected;
       setScanning(true);
       setScanProgress({ scanned: 0, total: 0 });
-      addLog("Adding folder: " + folderName, "library");
       await invoke("add_collection", { kind: "local", name: folderName, path: selected });
       library.loadLibrary();
     }
@@ -2192,7 +2178,6 @@ function App() {
       await invoke("clear_image_failures");
       artistImageCache.clearAllFailures();
       albumImageCache.clearAllFailures();
-      addLog("Cleared image fetch failures", "images");
     } catch (e) {
       console.error("Failed to clear image failures:", e);
     }
@@ -2243,7 +2228,6 @@ function App() {
       setDownloadsCollectionId(col.id);
       store.set("downloadsCollectionId", col.id);
       library.loadLibrary();
-      addLog(`Downloads folder set: ${selected}`, "settings");
     } catch (e) {
       console.error("Failed to set downloads collection:", e);
     }
@@ -2417,7 +2401,6 @@ function App() {
         imagePath: imagePath ?? prev?.imagePath ?? null,
         ...(info ? { source: info.source, description: info.description, metadata: info.metadata } : {}),
       }));
-      addLog("Playlist updated: " + name, "playlist");
       return;
     }
     const tracks = queueHook.queue.map((t) => ({
@@ -2441,10 +2424,8 @@ function App() {
       if (imagePath) {
         await invoke("update_playlist_image", { playlistId, imagePath });
       }
-      addLog("Playlist saved: " + name, "playlist");
     } catch (err) {
       console.error("Failed to save playlist:", err);
-      addLog(`Failed to save playlist: ${err}`, "playlist");
     }
   }
 
@@ -2664,11 +2645,9 @@ function App() {
                   await extensionsHook.installFromUrl(url);
                 } else {
                   try {
-                    const id = await invoke<string>("install_gallery_skin", { url });
-                    addLog(`Installed skin ${id} from URL`, "extensions");
+                    await invoke<string>("install_gallery_skin", { url });
                   } catch (e) {
                     console.error("Failed to install skin from URL:", e);
-                    addLog(`Failed to install skin: ${String(e)}`, "extensions");
                   }
                 }
               }}>Install</button>
@@ -2733,7 +2712,6 @@ function App() {
                 onToggleLike={() => likeActions.handleToggleLike(track)}
                 onToggleDislike={() => likeActions.handleToggleDislike(track)}
                 onShowInFolder={async () => { const libId = parseLibraryId(library.selectedTrack!); if (libId == null) return; try { await invoke("show_in_folder", { trackId: libId }); } catch (e) { console.error("Failed to open containing folder:", e); contextMenuActions.setFolderError(String(e)); } }}
-                addLog={addLog}
                 onUpdateTrack={(update) => library.setTracks(prev => prev.map(t => t.id === library.selectedTrack ? { ...t, ...update } : t))}
                 onTagsChanged={() => invoke<Tag[]>("get_tags").then(library.setTags).catch(console.error)}
               />
@@ -2783,7 +2761,6 @@ function App() {
                 onToggleLike={() => {}}
                 onToggleDislike={() => {}}
                 onShowInFolder={() => {}}
-                addLog={addLog}
                 onUpdateTrack={() => {}}
                 onTagsChanged={() => invoke<Tag[]>("get_tags").then(library.setTags).catch(console.error)}
               />
@@ -2876,7 +2853,7 @@ function App() {
                 placeholder="Search history..."
                 {...historySearchNav}
               />
-              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={contextMenuActions.handleEnqueue} addLog={addLog} onArtistClick={library.handleArtistClick} />
+              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={contextMenuActions.handleEnqueue} onArtistClick={library.handleArtistClick} />
             </>
           )}
 
@@ -3018,10 +2995,6 @@ function App() {
             />
           )}
           </>}
-          <StatusBar
-            sessionLog={sessionLog}
-            activity={statusActivity}
-          />
           </DetailViewProvider>
         </div>
 
@@ -3202,7 +3175,7 @@ function App() {
             return plugins.invokeInteractiveResolve(parts[0], parts.slice(1).join(":"), matchId, format);
           }}
           onClose={() => setDownloadModal(null)}
-          onComplete={(msg) => { setDownloadModal(null); library.loadLibrary(); library.loadTracks(); addLog(msg, "downloads"); }}
+          onComplete={(_msg) => { setDownloadModal(null); library.loadLibrary(); library.loadTracks(); }}
           onPlay={async (path) => {
             const uri = `file://${path}`;
             try {
@@ -3282,13 +3255,12 @@ function App() {
                 const tags = deleteTagConfirm;
                 setDeleteTagConfirm(null);
                 const deletedIds: number[] = [];
-                for (const { id, name } of tags) {
+                for (const { id } of tags) {
                   try {
                     await invoke("delete_tag", { tagId: id });
                     deletedIds.push(id);
                   } catch (e) {
                     console.error("Failed to delete tag:", e);
-                    addLog(`Failed to delete tag "${name}": ${String(e)}`, "library");
                   }
                 }
                 if (deletedIds.length > 0) {
@@ -3296,11 +3268,6 @@ function App() {
                   setSearchDeletedTagBatch(prev => ({ ids: deletedIds, key: prev.key + 1 }));
                   if (library.selectedTag !== null && deletedIds.includes(library.selectedTag)) {
                     library.setSelectedTag(null);
-                  }
-                  if (deletedIds.length === 1) {
-                    addLog(`Deleted tag "${tags[0].name}"`, "library");
-                  } else {
-                    addLog(`Deleted ${deletedIds.length} tags`, "library");
                   }
                 }
               }} autoFocus>Delete</button>

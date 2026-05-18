@@ -14,7 +14,6 @@ export function usePasteImage({
   invalidateArtistImage,
   invalidateAlbumImage,
   invalidateTagImage,
-  addLog,
 }: {
   view: View;
   selectedArtist: number | null;
@@ -27,7 +26,6 @@ export function usePasteImage({
   invalidateArtistImage: (name: string) => void;
   invalidateAlbumImage: (name: string, artistName?: string) => void;
   invalidateTagImage: (name: string) => void;
-  addLog: (text: string, module?: string) => void;
 }) {
   useEffect(() => {
     const handler = async (e: ClipboardEvent) => {
@@ -89,21 +87,17 @@ export function usePasteImage({
 
         if (kind === "artist") {
           invalidateArtistImage(entityName);
-          addLog(`Artist image set from clipboard: ${entityName}`, "images");
         } else if (kind === "album") {
           invalidateAlbumImage(entityName, artistName ?? undefined);
-          addLog(`Album image set from clipboard: ${entityName}`, "images");
         } else {
           invalidateTagImage(entityName);
-          addLog(`Tag image set from clipboard: ${entityName}`, "images");
         }
       } catch (err) {
         console.error("Failed to paste image:", err);
-        addLog(`Failed to paste image: ${err}`, "images");
       }
     };
 
     document.addEventListener("paste", handler);
     return () => document.removeEventListener("paste", handler);
-  }, [view, selectedArtist, selectedAlbum, selectedTag, searchQuery, artists, albums, tags, invalidateArtistImage, invalidateAlbumImage, invalidateTagImage, addLog]);
+  }, [view, selectedArtist, selectedAlbum, selectedTag, searchQuery, artists, albums, tags, invalidateArtistImage, invalidateAlbumImage, invalidateTagImage]);
 }

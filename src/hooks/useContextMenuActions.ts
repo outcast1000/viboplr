@@ -29,7 +29,6 @@ interface UseContextMenuActionsDeps {
     addToQueue: (track: QueueTrack) => void;
   };
   playback: { currentTrack: QueueTrack | null; handleStop: () => void };
-  addLog: (msg: string, module?: string) => void;
   playActions: {
     playAlbum: (albumId: number) => void;
     playArtist: (artistId: number) => void;
@@ -42,7 +41,7 @@ interface UseContextMenuActionsDeps {
 }
 
 export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
-  const { library, queueHook, playback, addLog, playActions, queueCollapsed, setQueueCollapsed, onTracksDeleted, onShowMenu } = deps;
+  const { library, queueHook, playback, playActions, queueCollapsed, setQueueCollapsed, onTracksDeleted, onShowMenu } = deps;
 
   const [contextMenu, setContextMenuState] = useState<ContextMenuState | null>(null);
   const contextMenuRef = useRef<ContextMenuState | null>(null);
@@ -387,10 +386,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       if (result.failures.length === trackIds.length) {
         setDeleteError({ message: `Failed to move ${title} to ${trashLabel}`, failures: result.failures });
       } else if (result.failures.length > 0) {
-        addLog(`Moved ${result.deletedIds.length} of ${trackIds.length} tracks to ${trashLabel}`, "library");
         setDeleteError({ message: `${result.failures.length} of ${trackIds.length} tracks could not be moved to ${trashLabel}`, failures: result.failures });
-      } else {
-        addLog(`Moved ${title} to ${trashLabel}`, "library");
       }
     } catch (e) {
       console.error("Failed to move tracks to trash:", e);
@@ -401,22 +397,18 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   async function watchOnYoutube(trackId: number, title: string, artistName: string | null, youtubeUrl: string | null, durationSecs: number | null = null) {
     if (youtubeUrl) {
       await openUrl(youtubeUrl);
-      addLog(`Opened YouTube: ${title}`, "youtube");
       return;
     }
 
-    addLog("Searching YouTube...", "youtube");
     try {
       const result = await invoke<{ url: string; video_title: string | null }>(
         "search_youtube", { title, artistName, durationSecs }
       );
       await openUrl(result.url);
-      addLog(`Opened YouTube: ${result.video_title ?? title}`, "youtube");
       setYoutubeFeedback({ trackId, url: result.url, videoTitle: result.video_title ?? title });
     } catch {
       const q = encodeURIComponent(`${title} ${artistName ?? ""}`);
       await openUrl(`https://www.youtube.com/results?search_query=${q}`);
-      addLog("YouTube search failed, opened search results", "youtube");
     }
   }
 
@@ -436,7 +428,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         url: youtubeFeedback.url,
       });
       library.setTracks(prev => prev.map(t => t.id === youtubeFeedback.trackId ? { ...t, youtube_url: youtubeFeedback.url } : t));
-      addLog("Saved YouTube link for future use", "youtube");
     }
     setYoutubeFeedback(null);
   }
@@ -471,12 +462,10 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         pathPattern: null,
         isBatchLast: false,
       });
-      addLog(`Downloading: ${track.title}`, "downloads");
     } catch (e) {
       console.error("Failed to enqueue download:", e);
-      addLog(`Download failed: ${e}`, "downloads");
     }
-  }, [addLog]);
+  }, []);
 
   const handleDownloadTrack = useCallback(async (track: QueueTrack) => {
     const localCopy = findLocalCopy(track);
@@ -517,11 +506,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         });
       } catch (e) {
         console.error("Failed to enqueue download:", e);
-        addLog(`Download failed: ${track.title} - ${e}`, "downloads");
       }
     }
-    addLog(`Downloading ${tracks.length} track${tracks.length > 1 ? "s" : ""}`, "downloads");
-  }, [addLog]);
+  }, []);
 
   function handleEntityContextMenu(e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) {
     e.preventDefault();
