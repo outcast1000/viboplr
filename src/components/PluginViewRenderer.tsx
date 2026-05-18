@@ -891,10 +891,10 @@ function PluginTrackRowList({
       )}
       {categories && (
         <div className="ptr-category-header">
-          <span className="ptr-category-spacer" />
           {categories.map(cat => (
             <span key={cat} className="ptr-category-label">{cat}</span>
           ))}
+          <span className="ptr-category-spacer" />
         </div>
       )}
       <div className="ptr-rows">
@@ -905,6 +905,20 @@ function PluginTrackRowList({
             onClick={() => item.action && onAction?.(item.action, { itemId: item.id })}
             onContextMenu={onContextMenu ? (e) => { e.preventDefault(); onContextMenu(e, item); } : undefined}
           >
+            {categories && (
+              <div className="ptr-categories">
+                {categories.map(cat => (
+                  <input
+                    key={cat}
+                    type="checkbox"
+                    className="ptr-cat-checkbox"
+                    checked={(itemCategories[item.id] || []).includes(cat)}
+                    onChange={(e) => { e.stopPropagation(); toggleCategory(item.id, cat); }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ))}
+              </div>
+            )}
             {selectable && (
               <input
                 type="checkbox"
@@ -924,20 +938,6 @@ function PluginTrackRowList({
               {item.subtitle && <span className="ptr-subtitle">{item.subtitle}</span>}
             </div>
             {item.duration && <span className="ptr-duration">{item.duration}</span>}
-            {categories && (
-              <div className="ptr-categories">
-                {categories.map(cat => (
-                  <input
-                    key={cat}
-                    type="checkbox"
-                    className="ptr-cat-checkbox"
-                    checked={(itemCategories[item.id] || []).includes(cat)}
-                    onChange={(e) => { e.stopPropagation(); toggleCategory(item.id, cat); }}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                ))}
-              </div>
-            )}
           </div>
         ))}
       </div>

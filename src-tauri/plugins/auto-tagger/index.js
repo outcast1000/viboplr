@@ -254,6 +254,11 @@ function activate(api) {
   }
 
   function applyClassifications(itemsMap) {
+    var existingSet = {};
+    for (var e = 0; e < state.approvedItems.length; e++) {
+      existingSet[normalizeStr(state.approvedItems[e].ngram) + ":" + state.approvedItems[e].type] = true;
+    }
+
     var keys = Object.keys(itemsMap);
     var added = 0;
     for (var i = 0; i < keys.length; i++) {
@@ -261,7 +266,11 @@ function activate(api) {
       if (!categories || categories.length === 0) continue;
       var ngram = keys[i];
       for (var c = 0; c < categories.length; c++) {
-        state.approvedItems.push({ ngram: ngram, type: categories[c].toLowerCase() });
+        var type = categories[c].toLowerCase();
+        var key = normalizeStr(ngram) + ":" + type;
+        if (existingSet[key]) continue;
+        state.approvedItems.push({ ngram: ngram, type: type });
+        existingSet[key] = true;
         added++;
       }
     }
@@ -594,14 +603,29 @@ function activate(api) {
         content: "No approved items yet. Use the Analyze tab to classify candidates.",
       });
     } else {
-      var items = [];
+      // Group by ngram so multi-type items show as one row
+      var grouped = {};
+      var order = [];
       for (var i = 0; i < state.approvedItems.length; i++) {
         var item = state.approvedItems[i];
+        var key = normalizeStr(item.ngram);
+        if (!grouped[key]) {
+          grouped[key] = { ngram: item.ngram, types: [] };
+          order.push(key);
+        }
+        var typeLabel = item.type.charAt(0).toUpperCase() + item.type.slice(1);
+        if (grouped[key].types.indexOf(typeLabel) === -1) {
+          grouped[key].types.push(typeLabel);
+        }
+      }
+      var items = [];
+      for (var g = 0; g < order.length; g++) {
+        var entry = grouped[order[g]];
         items.push({
-          id: "item:" + i,
-          title: item.ngram,
-          subtitle: item.type.charAt(0).toUpperCase() + item.type.slice(1),
-          checked: [item.type.charAt(0).toUpperCase() + item.type.slice(1)],
+          id: entry.ngram,
+          title: entry.ngram,
+          subtitle: entry.types.join(", "),
+          checked: entry.types,
         });
       }
       children.push({
@@ -609,6 +633,7 @@ function activate(api) {
         items: items,
         categories: CATEGORIES,
         actions: [
+          { id: "run-approved", label: "Run Now" },
           { id: "save-approved", label: "Save" },
           { id: "remove-unchecked-approved", label: "Remove Unchecked" },
         ],
@@ -736,22 +761,96 @@ function activate(api) {
   });
 
 
+  api.ui.onAction("run-approved", function () {
+    if (state.approvedItems.length === 0) return;
+    var collectionRoots = getCollectionRoots();
+    api.ui.showNotification("Running " + state.approvedItems.length + " rules...");
+
+    fetchAllTracks().then(function (tracks) {
+      var promises = [];
+      var tagAssignments = [];
+      var artistBatches = {};
+      var albumBatches = {};
+      var yearBatches = {};
+
+      for (var i = 0; i < tracks.length; i++) {
+        var ngrams = tokenizeTrack(tracks[i], collectionRoots);
+        var trackTags = [];
+
+        for (var j = 0; j < state.approvedItems.length; j++) {
+          var item = state.approvedItems[j];
+          var normalizedNgram = normalizeStr(item.ngram);
+          var found = false;
+          for (var k = 0; k < ngrams.length; k++) {
+            if (ngrams[k] === normalizedNgram) {
+              found = true;
+              break;
+            }
+          }
+          if (!found) continue;
+
+          if (item.type === "tag") {
+            if (trackTags.indexOf(item.ngram) === -1) trackTags.push(item.ngram);
+          } else if (item.type === "artist") {
+            if (!artistBatches[item.ngram]) artistBatches[item.ngram] = [];
+            artistBatches[item.ngram].push(tracks[i].id);
+          } else if (item.type === "album") {
+            if (!albumBatches[item.ngram]) albumBatches[item.ngram] = [];
+            albumBatches[item.ngram].push(tracks[i].id);
+          } else if (item.type === "year") {
+            var yearVal = parseInt(item.ngram, 10);
+            if (!isNaN(yearVal)) {
+              if (!yearBatches[item.ngram]) yearBatches[item.ngram] = [];
+              yearBatches[item.ngram].push(tracks[i].id);
+            }
+          }
+        }
+
+        if (trackTags.length > 0) {
+          tagAssignments.push([tracks[i].id, trackTags]);
+        }
+      }
+
+      if (tagAssignments.length > 0) {
+        promises.push(api.library.applyTagsBulk(tagAssignments));
+      }
+      var artistKeys = Object.keys(artistBatches);
+      for (var ai = 0; ai < artistKeys.length; ai++) {
+        promises.push(api.library.bulkUpdateTracks(artistBatches[artistKeys[ai]], { artist_name: artistKeys[ai] }));
+      }
+      var albumKeys = Object.keys(albumBatches);
+      for (var bi = 0; bi < albumKeys.length; bi++) {
+        promises.push(api.library.bulkUpdateTracks(albumBatches[albumKeys[bi]], { album_title: albumKeys[bi] }));
+      }
+      var yearKeys = Object.keys(yearBatches);
+      for (var yi = 0; yi < yearKeys.length; yi++) {
+        var yv = parseInt(yearKeys[yi], 10);
+        if (!isNaN(yv)) {
+          promises.push(api.library.bulkUpdateTracks(yearBatches[yearKeys[yi]], { year: yv }));
+        }
+      }
+
+      if (promises.length > 0) {
+        return Promise.all(promises);
+      }
+    }).then(function () {
+      api.ui.requestAction("refresh-library", {});
+      api.ui.showNotification("Done — rules applied to library.");
+    }).catch(function (err) {
+      console.error("Auto-tagger: run-approved failed:", err);
+    });
+  });
+
   api.ui.onAction("save-approved", function (data) {
     if (data && data.items) {
       var newItems = [];
       var keys = Object.keys(data.items);
       for (var i = 0; i < keys.length; i++) {
-        var id = keys[i];
-        var categories = data.items[id];
+        var ngram = keys[i];
+        var categories = data.items[ngram];
         if (!categories || categories.length === 0) continue;
-        var match = id.match(/^item:(\d+)$/);
-        if (match) {
-          var idx = parseInt(match[1], 10);
-          if (idx < state.approvedItems.length) {
-            for (var c = 0; c < categories.length; c++) {
-              newItems.push({ ngram: state.approvedItems[idx].ngram, type: categories[c].toLowerCase() });
-            }
-          }
+        for (var c = 0; c < categories.length; c++) {
+          newItems.push({ ngram: ngram, type: categories[c].toLowerCase() });
         }
       }
       state.approvedItems = newItems;
@@ -762,18 +861,16 @@ function activate(api) {
 
   api.ui.onAction("remove-unchecked-approved", function (data) {
     if (data && data.items) {
-      var keepIndices = {};
+      var newItems = [];
       var keys = Object.keys(data.items);
       for (var i = 0; i < keys.length; i++) {
-        var categories = data.items[keys[i]];
+        var ngram = keys[i];
+        var categories = data.items[ngram];
         if (categories && categories.length > 0) {
-          var match = keys[i].match(/^item:(\d+)$/);
-          if (match) keepIndices[parseInt(match[1], 10)] = true;
+          for (var c = 0; c < categories.length; c++) {
+            newItems.push({ ngram: ngram, type: categories[c].toLowerCase() });
+          }
         }
-      }
-      var newItems = [];
-      for (var j = 0; j < state.approvedItems.length; j++) {
-        if (keepIndices[j]) newItems.push(state.approvedItems[j]);
       }
       state.approvedItems = newItems;
       saveApprovedItems();
