@@ -5,13 +5,14 @@ import { Track } from "../types";
 interface BulkEditModalProps {
   tracks: Track[];
   onClose: () => void;
+  onSave: () => void;
 }
 
 interface TagEntry {
   name: string;
 }
 
-export default function BulkEditModal({ tracks, onClose }: BulkEditModalProps) {
+export default function BulkEditModal({ tracks, onClose, onSave }: BulkEditModalProps) {
   const count = tracks.length;
 
   // Compute shared values
@@ -114,7 +115,7 @@ export default function BulkEditModal({ tracks, onClose }: BulkEditModalProps) {
       if (result.length > 0) {
         setErrors(result);
       } else {
-        onClose();
+        onSave();
       }
     } catch (e) {
       setErrors([String(e)]);

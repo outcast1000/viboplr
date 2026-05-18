@@ -3220,6 +3220,7 @@ function App() {
         <BulkEditModal
           tracks={contextMenuActions.bulkEditTracks}
           onClose={() => contextMenuActions.setBulkEditTracks(null)}
+          onSave={() => { contextMenuActions.setBulkEditTracks(null); library.loadLibrary(); library.loadTracks(); }}
         />
       )}
 
