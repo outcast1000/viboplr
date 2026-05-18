@@ -6,6 +6,7 @@ import { parseLibraryId, isLocalTrack } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
 import { store } from "../store";
+import { trashLabel } from "../utils";
 
 interface UseContextMenuActionsDeps {
   library: {
@@ -384,16 +385,16 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         onTracksDeleted?.(result.deletedIds);
       }
       if (result.failures.length === trackIds.length) {
-        setDeleteError({ message: `Failed to delete ${title}`, failures: result.failures });
+        setDeleteError({ message: `Failed to move ${title} to ${trashLabel}`, failures: result.failures });
       } else if (result.failures.length > 0) {
-        addLog(`Deleted ${result.deletedIds.length} of ${trackIds.length} tracks`, "library");
-        setDeleteError({ message: `${result.failures.length} of ${trackIds.length} tracks could not be deleted`, failures: result.failures });
+        addLog(`Moved ${result.deletedIds.length} of ${trackIds.length} tracks to ${trashLabel}`, "library");
+        setDeleteError({ message: `${result.failures.length} of ${trackIds.length} tracks could not be moved to ${trashLabel}`, failures: result.failures });
       } else {
-        addLog(`Deleted ${title}`, "library");
+        addLog(`Moved ${title} to ${trashLabel}`, "library");
       }
     } catch (e) {
-      console.error("Failed to delete tracks:", e);
-      setDeleteError({ message: `Failed to delete ${title}`, failures: [{ title, reason: String(e) }] });
+      console.error("Failed to move tracks to trash:", e);
+      setDeleteError({ message: `Failed to move ${title} to ${trashLabel}`, failures: [{ title, reason: String(e) }] });
     }
   }
 

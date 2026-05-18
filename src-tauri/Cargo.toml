@@ -52,6 +52,7 @@ libp2p = { version = "0.54", features = [
 ] }
 futures = "0.3"
 async-trait = "0.1"
+trash = "5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"

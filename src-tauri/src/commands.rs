@@ -874,8 +874,8 @@ pub fn delete_tracks(
         let fs_path = track.filesystem_path().unwrap_or(&track.path);
         let path = std::path::Path::new(fs_path);
         if path.exists() {
-            if let Err(e) = std::fs::remove_file(path) {
-                log::warn!("Failed to delete file {}: {}", track.path, e);
+            if let Err(e) = trash::delete(path) {
+                log::warn!("Failed to trash file {}: {}", track.path, e);
                 failures.push(DeleteFailure {
                     title: track.title.clone(),
                     reason: e.to_string(),

@@ -11,7 +11,7 @@ import "./design-system.css";
 import "./App.css";
 
 import type { Track, QueueTrack, Tag, View, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
-import { isVideoTrack, parseSubsonicUrl } from "./utils";
+import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 
 const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
 
@@ -935,12 +935,12 @@ function App() {
         }
       }
 
-      // Delete — local tracks only
+      // Move to Trash — local tracks only
       if (contextMenuActions.handleDeleteRequest) {
         const localDeletable = selectedTracks.filter(t => isLocalTrack(t) && parseLibraryId(t.key) != null);
         if (localDeletable.length > 0) {
           specs.push({ kind: "separator" });
-          const deleteLabel = localDeletable.length === 1 ? "Delete" : `Delete ${localDeletable.length} local tracks`;
+          const deleteLabel = localDeletable.length === 1 ? `Move to ${trashLabel}` : `Move ${localDeletable.length} local tracks to ${trashLabel}`;
           specs.push({ kind: "item", text: deleteLabel, action: contextMenuActions.handleDeleteRequest });
         }
       }
@@ -1044,12 +1044,12 @@ function App() {
       if (contextMenuActions.handleDeleteRequest && (target.kind === "track" && target.isLocal || target.kind === "multi-track")) {
         if (target.kind === "track") {
           specs.push({ kind: "separator" });
-          specs.push({ kind: "item", text: "Delete", action: contextMenuActions.handleDeleteRequest });
+          specs.push({ kind: "item", text: `Move to ${trashLabel}`, action: contextMenuActions.handleDeleteRequest });
         } else {
           const localCount = library.tracks.filter(t => target.trackIds.includes(t.id!) && isLocalTrack(t)).length;
           if (localCount > 0) {
             specs.push({ kind: "separator" });
-            specs.push({ kind: "item", text: `Delete ${localCount} local track${localCount > 1 ? "s" : ""}`, action: contextMenuActions.handleDeleteRequest });
+            specs.push({ kind: "item", text: `Move ${localCount} local track${localCount > 1 ? "s" : ""} to ${trashLabel}`, action: contextMenuActions.handleDeleteRequest });
           }
         }
       }
@@ -3249,11 +3249,11 @@ function App() {
       {contextMenuActions.deleteConfirm && (
         <div className="ds-modal-overlay">
           <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">Delete {contextMenuActions.deleteConfirm.title}?</h2>
-            <p className="delete-confirm-warning">This will permanently delete the file{contextMenuActions.deleteConfirm.trackIds.length > 1 ? "s" : ""} from disk.</p>
+            <h2 className="ds-modal-title">Move {contextMenuActions.deleteConfirm.title} to {trashLabel}?</h2>
+            <p className="delete-confirm-warning">This will move the file{contextMenuActions.deleteConfirm.trackIds.length > 1 ? "s" : ""} to {trashLabel} and remove from library.</p>
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--ghost" onClick={() => contextMenuActions.setDeleteConfirm(null)}>Cancel</button>
-              <button className="ds-btn ds-btn--danger" onClick={contextMenuActions.handleDeleteConfirm} autoFocus>Delete</button>
+              <button className="ds-btn ds-btn--danger" onClick={contextMenuActions.handleDeleteConfirm} autoFocus>Move to {trashLabel}</button>
             </div>
           </div>
         </div>
