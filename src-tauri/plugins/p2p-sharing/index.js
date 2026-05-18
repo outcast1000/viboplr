@@ -404,9 +404,7 @@ function activate(api) {
       type: "toolbar",
       title: "P2P Sharing",
       status: statusText,
-      buttons: [
-        { label: "Disconnect", action: "p2p-toggle-enabled" },
-      ],
+      buttons: [],
     });
 
     // Search input (fires on Enter only)
@@ -467,14 +465,6 @@ function activate(api) {
 
   function renderSettings() {
     var settingsChildren = [];
-
-    // Enable/disable toggle
-    settingsChildren.push({
-      type: "settings-row",
-      label: "P2P Sharing",
-      description: state.online ? "Connected" : "Disconnected",
-      child: { type: "toggle", checked: state.enabled, action: "p2p-toggle-enabled" },
-    });
 
     // Device name
     settingsChildren.push({
