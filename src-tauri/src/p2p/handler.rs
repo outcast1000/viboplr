@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use sha2::{Sha256, Digest};
 use tokio::sync::RwLock;
 
 use crate::db::Database;
 use super::protocols::{
-    SearchMatch, SearchRequest, SearchResponse, TransferHeader, TransferRequest, TransferResponse,
+    SearchMatch, SearchRequest, SearchResponse, TransferRequest, TransferResponseHeader,
 };
+use super::swarm::binary_transfer_codec::TransferResponse;
 
 const MAX_QUERY_LENGTH: usize = 100;
 const RATE_LIMIT_PER_MINUTE: usize = 10;
@@ -90,84 +92,69 @@ impl RequestHandler {
     }
 
     pub async fn handle_transfer(&self, request: TransferRequest) -> TransferResponse {
+        log::info!("P2P handle_transfer: track_id={}, mode={:?}", request.track_id, request.mode);
         let track_id: i64 = match request.track_id.parse() {
             Ok(id) => id,
             Err(_) => {
-                return TransferResponse {
-                    header: None,
-                    error: Some("Invalid track ID".to_string()),
-                    data: vec![],
-                };
+                return (TransferResponseHeader { error: Some("Invalid track ID".to_string()), ..Default::default() }, vec![]);
             }
         };
 
         let track = match self.db.get_track_by_id(track_id) {
             Ok(t) => t,
             Err(e) => {
-                return TransferResponse {
-                    header: None,
-                    error: Some(format!("Track not found: {}", e)),
-                    data: vec![],
-                };
+                return (TransferResponseHeader { error: Some(format!("Track not found: {}", e)), ..Default::default() }, vec![]);
             }
         };
 
-        // Verify track is in a shared collection
         let shared_ids = self.shared_collection_ids.read().await;
         if let Some(cid) = track.collection_id {
             if !shared_ids.contains(&cid) {
-                return TransferResponse {
-                    header: None,
-                    error: Some("Track not in shared collection".to_string()),
-                    data: vec![],
-                };
+                return (TransferResponseHeader { error: Some("Track not in shared collection".to_string()), ..Default::default() }, vec![]);
             }
         } else {
-            return TransferResponse {
-                header: None,
-                error: Some("Track has no collection".to_string()),
-                data: vec![],
-            };
+            return (TransferResponseHeader { error: Some("Track has no collection".to_string()), ..Default::default() }, vec![]);
         }
 
-        // Get filesystem path
         let file_path = match track.path.strip_prefix("file://") {
             Some(p) => p.to_string(),
             None => {
-                return TransferResponse {
-                    header: None,
-                    error: Some("Track is not a local file".to_string()),
-                    data: vec![],
-                };
+                return (TransferResponseHeader { error: Some("Track is not a local file".to_string()), ..Default::default() }, vec![]);
             }
         };
 
-        // Read file
-        let data = match std::fs::read(&file_path) {
+        let full_data = match std::fs::read(&file_path) {
             Ok(d) => d,
             Err(e) => {
-                return TransferResponse {
-                    header: None,
-                    error: Some(format!("Failed to read file: {}", e)),
-                    data: vec![],
-                };
+                return (TransferResponseHeader { error: Some(format!("Failed to read file: {}", e)), ..Default::default() }, vec![]);
             }
         };
 
-        let file_size = data.len() as u64;
+        let offset = request.offset.unwrap_or(0) as usize;
+        let data = if offset > 0 && offset < full_data.len() {
+            full_data[offset..].to_vec()
+        } else {
+            full_data
+        };
 
-        TransferResponse {
-            header: Some(TransferHeader {
-                title: track.title,
-                artist_name: track.artist_name,
-                album_title: track.album_title,
-                format: track.format.unwrap_or_else(|| "unknown".to_string()),
-                file_size,
-                duration_secs: track.duration_secs,
-            }),
+        let mut hasher = Sha256::new();
+        hasher.update(&data);
+        let checksum = format!("{:x}", hasher.finalize());
+
+        let file_size = data.len() as u64;
+        log::info!("P2P handle_transfer: sending {} bytes (offset={}, {} format)", file_size, offset, track.format.as_deref().unwrap_or("unknown"));
+
+        let header = TransferResponseHeader {
             error: None,
-            data,
-        }
+            title: Some(track.title),
+            artist_name: track.artist_name,
+            album_title: track.album_title,
+            format: Some(track.format.unwrap_or_else(|| "unknown".to_string())),
+            file_size: Some(file_size),
+            duration_secs: track.duration_secs,
+            checksum: Some(checksum),
+        };
+        (header, data)
     }
 
     async fn check_rate_limit(&self, peer_id: &str) -> bool {

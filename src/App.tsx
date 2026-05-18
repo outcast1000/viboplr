@@ -159,7 +159,11 @@ function App() {
     if (!url) throw new Error("Track has no URL");
     const parsed = parseUrlScheme(url);
     if (parsed.scheme === "file") return convertFileSrc(parsed.path);
-    if (parsed.scheme === "plugin") return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null);
+    if (parsed.scheme === "plugin") {
+      const resolved = await resolveStreamByUriRef.current(parsed.protocol, parsed.id, null);
+      if (resolved.startsWith("file://")) return convertFileSrc(resolved.substring(7));
+      return resolved;
+    }
     if (parsed.scheme === "external") throw new Error("Cannot play external track directly — requires stream resolver");
     return invoke<string>("resolve_subsonic_location", { location: parsed.url });
   });
@@ -1219,7 +1223,7 @@ function App() {
       if (url.startsWith("http://") || url.startsWith("https://")) return Promise.resolve(url);
       const parsed = parseUrlScheme(url);
       if (parsed.scheme === "file") return Promise.resolve(convertFileSrc(parsed.path));
-      if (parsed.scheme === "plugin") return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null);
+      if (parsed.scheme === "plugin") return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null).then(r => resolveUrl(r));
       if (parsed.scheme === "subsonic") return invoke<string>("resolve_subsonic_location", { location: url });
       return Promise.reject(new Error(`Unplayable URL scheme: ${url}`));
     };

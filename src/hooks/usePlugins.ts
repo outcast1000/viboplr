@@ -77,6 +77,7 @@ export const DEFAULT_IMAGE_PROVIDER_PRIORITY: Record<string, number> = {
 // Internal priority for download providers (keyed by "pluginId:providerId")
 export const DEFAULT_DOWNLOAD_PROVIDER_PRIORITY: Record<string, number> = {
   "tidal-browse:tidal-download": 100,
+  "p2p-sharing:p2p-download": 200,
   "youtube:youtube-download": 300,
   "mock-download:mock-dl": 900,
 };

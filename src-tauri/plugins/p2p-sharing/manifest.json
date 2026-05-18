@@ -17,6 +17,9 @@
     "streamResolvers": [
       { "id": "p2p-stream", "name": "P2P Network" }
     ],
+    "downloadProviders": [
+      { "id": "p2p-download", "name": "P2P Network" }
+    ],
     "contextMenuItems": [
       { "id": "p2p-download", "label": "Download from peer", "targets": ["track"] }
     ],

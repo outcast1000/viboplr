@@ -87,13 +87,12 @@ pub struct P2pConfig {
     pub app_dir: PathBuf,
     pub db: Arc<Database>,
     pub relay_multiaddr: Option<Multiaddr>,
-    pub transcode_port: u16,
+    pub app_handle: tauri::AppHandle,
 }
 
 enum PendingTransfer {
     Stream {
         tx: tokio::sync::oneshot::Sender<Result<StreamSession, String>>,
-        transcode_port: u16,
         app_dir: PathBuf,
     },
     Download {
@@ -133,8 +132,8 @@ pub async fn start_node(config: P2pConfig) -> Result<P2pNode, String> {
     let event_loop_db = Arc::clone(&config.db);
     let event_loop_shared_ids = Arc::clone(&shared_collection_ids);
     let event_loop_peer_id = peer_id;
-    let event_loop_transcode_port = config.transcode_port;
     let event_loop_app_dir = config.app_dir.clone();
+    let event_loop_app_handle = config.app_handle.clone();
 
     tokio::spawn(async move {
         run_event_loop(
@@ -144,8 +143,8 @@ pub async fn start_node(config: P2pConfig) -> Result<P2pNode, String> {
             event_loop_db,
             event_loop_shared_ids,
             event_loop_peer_id,
-            event_loop_transcode_port,
             event_loop_app_dir,
+            event_loop_app_handle,
         ).await;
     });
 
@@ -165,8 +164,8 @@ async fn run_event_loop(
     db: Arc<Database>,
     shared_collection_ids: Arc<RwLock<Vec<i64>>>,
     local_peer_id: PeerId,
-    transcode_port: u16,
     app_dir: PathBuf,
+    app_handle: tauri::AppHandle,
 ) {
     use libp2p::swarm::SwarmEvent;
     use libp2p::request_response;
@@ -234,18 +233,17 @@ async fn run_event_loop(
                                     PendingDial::Stream { track_id, response_tx } => {
                                         let request_id = swarm.behaviour_mut().transfer.send_request(
                                             &peer_id,
-                                            protocols::TransferRequest { track_id, mode: protocols::TransferMode::Stream },
+                                            protocols::TransferRequest { track_id, mode: protocols::TransferMode::Stream, offset: None },
                                         );
                                         pending_transfers.insert(request_id, PendingTransfer::Stream {
                                             tx: response_tx,
-                                            transcode_port,
                                             app_dir: app_dir.clone(),
                                         });
                                     }
                                     PendingDial::Download { track_id, dest_collection_id, dest_collection_path, response_tx } => {
                                         let request_id = swarm.behaviour_mut().transfer.send_request(
                                             &peer_id,
-                                            protocols::TransferRequest { track_id, mode: protocols::TransferMode::Download },
+                                            protocols::TransferRequest { track_id, mode: protocols::TransferMode::Download, offset: None },
                                         );
                                         pending_transfers.insert(request_id, PendingTransfer::Download {
                                             tx: response_tx,
@@ -317,7 +315,7 @@ async fn run_event_loop(
                                     }
                                     request_response::Message::Response { request_id, response } => {
                                         if let Some(pending) = pending_transfers.remove(&request_id) {
-                                            handle_transfer_response(pending, response).await;
+                                            handle_transfer_response(pending, response, &app_handle).await;
                                         }
                                     }
                                 }
@@ -325,6 +323,7 @@ async fn run_event_loop(
                             ViboplrBehaviourEvent::Transfer(
                                 request_response::Event::OutboundFailure { request_id, error, .. }
                             ) => {
+                                log::error!("P2P transfer outbound failure: {}", error);
                                 if let Some(pending) = pending_transfers.remove(&request_id) {
                                     match pending {
                                         PendingTransfer::Stream { tx, .. } => {
@@ -365,15 +364,17 @@ async fn run_event_loop(
                         }
                     }
                     Some(P2pCommand::StreamFromPeer { peer_id, multiaddr, track_id, response_tx }) => {
+                        log::info!("P2P StreamFromPeer: peer={}, track={}, connected={}", peer_id, track_id, swarm.is_connected(&peer_id));
                         if swarm.is_connected(&peer_id) {
                             let request_id = swarm.behaviour_mut().transfer.send_request(
                                 &peer_id,
-                                protocols::TransferRequest { track_id, mode: protocols::TransferMode::Stream },
+                                protocols::TransferRequest { track_id, mode: protocols::TransferMode::Stream, offset: None },
                             );
                             pending_transfers.insert(request_id, PendingTransfer::Stream {
-                                tx: response_tx, transcode_port, app_dir: app_dir.clone(),
+                                tx: response_tx, app_dir: app_dir.clone(),
                             });
                         } else {
+                            log::info!("P2P StreamFromPeer: dialing peer {}", peer_id);
                             let _ = swarm.dial(multiaddr);
                             pending_dials.entry(peer_id).or_default().push(
                                 PendingDial::Stream { track_id, response_tx }
@@ -384,7 +385,7 @@ async fn run_event_loop(
                         if swarm.is_connected(&peer_id) {
                             let request_id = swarm.behaviour_mut().transfer.send_request(
                                 &peer_id,
-                                protocols::TransferRequest { track_id, mode: protocols::TransferMode::Download },
+                                protocols::TransferRequest { track_id, mode: protocols::TransferMode::Download, offset: None },
                             );
                             pending_transfers.insert(request_id, PendingTransfer::Download {
                                 tx: response_tx, dest_collection_id, dest_collection_path, db: Arc::clone(&db),
@@ -423,9 +424,14 @@ async fn run_event_loop(
 
 async fn handle_transfer_response(
     pending: PendingTransfer,
-    response: protocols::TransferResponse,
+    response: swarm::binary_transfer_codec::TransferResponse,
+    app_handle: &tauri::AppHandle,
 ) {
-    if let Some(error) = &response.error {
+    use tauri::Emitter;
+    let (header, data) = response;
+
+    if let Some(error) = &header.error {
+        log::error!("P2P transfer error from peer: {}", error);
         match pending {
             PendingTransfer::Stream { tx, .. } => {
                 let _ = tx.send(Err(error.clone()));
@@ -437,50 +443,64 @@ async fn handle_transfer_response(
         return;
     }
 
-    match pending {
-        PendingTransfer::Stream { tx, transcode_port, app_dir } => {
-            let header = match response.header {
-                Some(h) => h,
-                None => {
-                    let _ = tx.send(Err("No transfer header".to_string()));
-                    return;
-                }
-            };
+    let title = header.title.clone().unwrap_or_default();
+    let total = header.file_size.unwrap_or(data.len() as u64);
+    log::info!("P2P transfer response received: data_len={}", data.len());
 
-            // Write data to temp file
-            let ext = &header.format;
+    // Emit progress: transfer complete, verifying
+    let _ = app_handle.emit("p2p-transfer-progress", serde_json::json!({
+        "title": title,
+        "bytes_received": data.len(),
+        "total_bytes": total,
+        "stage": "received"
+    }));
+
+    // Verify checksum
+    if let Some(expected) = &header.checksum {
+        use sha2::{Sha256, Digest};
+        let mut hasher = Sha256::new();
+        hasher.update(&data);
+        let actual = format!("{:x}", hasher.finalize());
+        if &actual != expected {
+            let err = format!("Checksum mismatch: expected {}, got {}", expected, actual);
+            log::error!("P2P: {}", err);
+            match pending {
+                PendingTransfer::Stream { tx, .. } => { let _ = tx.send(Err(err)); }
+                PendingTransfer::Download { tx, .. } => { let _ = tx.send(Err(err)); }
+            }
+            return;
+        }
+    }
+
+    match pending {
+        PendingTransfer::Stream { tx, app_dir, .. } => {
+            let ext = header.format.as_deref().unwrap_or("bin");
             let session_id = format!("p2p-{}", std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis());
-            let temp_path = app_dir.join(format!(".p2p-stream-{}.{}", session_id, ext));
+            let cache_dir = app_dir.join("plugin-cache").join("p2p-sharing").join("stream");
+            let _ = std::fs::create_dir_all(&cache_dir);
+            let temp_path = cache_dir.join(format!("{}.{}", session_id, ext));
 
-            if let Err(e) = std::fs::write(&temp_path, &response.data) {
+            if let Err(e) = std::fs::write(&temp_path, &data) {
                 let _ = tx.send(Err(format!("Failed to write temp file: {}", e)));
                 return;
             }
 
-            // Return a URL that the frontend can use to play the file directly
-            let url = format!(
-                "http://127.0.0.1:{}/stream/{}",
-                transcode_port, session_id
-            );
-
+            let url = format!("file://{}", temp_path.to_string_lossy());
+            let _ = app_handle.emit("p2p-transfer-progress", serde_json::json!({
+                "title": title,
+                "bytes_received": data.len(),
+                "total_bytes": total,
+                "stage": "complete"
+            }));
             let _ = tx.send(Ok(StreamSession { url, session_id }));
         }
         PendingTransfer::Download { tx, dest_collection_id, dest_collection_path, db } => {
-            let header = match response.header {
-                Some(h) => h,
-                None => {
-                    let _ = tx.send(Err("No transfer header".to_string()));
-                    return;
-                }
-            };
-
-            // Build destination path
-            let ext = &header.format;
+            let ext = header.format.as_deref().unwrap_or("bin");
             let artist = header.artist_name.as_deref().unwrap_or("Unknown Artist");
-            let title = &header.title;
+            let title = header.title.as_deref().unwrap_or("Unknown");
             let filename = format!("{} - {}.{}", artist, title, ext);
             let dest_path = std::path::Path::new(&dest_collection_path).join(&filename);
 
@@ -493,7 +513,7 @@ async fn handle_transfer_response(
             }
 
             // Write file
-            if let Err(e) = std::fs::write(&dest_path, &response.data) {
+            if let Err(e) = std::fs::write(&dest_path, &data) {
                 let _ = tx.send(Err(format!("Failed to write file: {}", e)));
                 return;
             }
@@ -506,6 +526,12 @@ async fn handle_transfer_response(
                 Some(&dest_collection_path),
             );
 
+            let _ = app_handle.emit("p2p-transfer-progress", serde_json::json!({
+                "title": title,
+                "bytes_received": data.len(),
+                "total_bytes": total,
+                "stage": "complete"
+            }));
             let _ = tx.send(Ok(()));
         }
     }

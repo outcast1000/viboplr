@@ -4588,6 +4588,7 @@ pub async fn stop_transcode(
 
 #[tauri::command]
 pub async fn p2p_start(
+    app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
     relay_multiaddr: Option<String>,
 ) -> Result<crate::p2p::P2pStatus, String> {
@@ -4607,7 +4608,7 @@ pub async fn p2p_start(
         app_dir: state.app_dir.clone(),
         db: Arc::clone(&state.db),
         relay_multiaddr: relay,
-        transcode_port: state.transcode_port,
+        app_handle,
     };
 
     let node = p2p::start_node(config).await?;

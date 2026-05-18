@@ -518,52 +518,155 @@ function activate(api) {
   });
 
 
-  // --- Stream resolver ---
+  // --- P2P URI parsing ---
 
-  api.playback.onResolveStreamByUri("p2p", function (id) {
-    var parts = id.split("/");
-    var peerId, trackId, multiaddr;
+  function parseP2pUri(uri) {
+    var parts = uri.split("/");
+    var peerId, multiaddr, trackId;
     if (parts.length >= 3) {
       peerId = decodeURIComponent(parts[0]);
       multiaddr = decodeURIComponent(parts[1]);
       trackId = parts.slice(2).join("/");
     } else {
       peerId = decodeURIComponent(parts[0]);
-      trackId = parts[1] || "";
       multiaddr = "";
+      trackId = parts[1] || "";
     }
+    return { peerId: peerId, multiaddr: multiaddr, trackId: trackId };
+  }
 
+  // --- Stream resolver ---
+
+  api.playback.onResolveStreamByUri("p2p", function (id) {
+    var parsed = parseP2pUri(id);
+    api.log("info", "P2P stream resolve: peer=" + parsed.peerId.substring(0, 12) + "... track=" + parsed.trackId);
     return api.p2p
-      .streamFromPeer(peerId, multiaddr, trackId)
-      .then(function (url) {
-        return { url: url, label: "P2P" };
+      .streamFromPeer(parsed.peerId, parsed.multiaddr, parsed.trackId)
+      .then(function (filePath) {
+        api.log("info", "P2P stream resolved: " + filePath);
+        return filePath;
+      })
+      .catch(function (e) {
+        api.log("error", "P2P stream resolve failed: " + e);
+        throw e;
+      });
+  });
+
+  // --- Download provider ---
+
+  api.downloads.onResolveByUri("p2p-download", function (uri, format) {
+    if (!uri.startsWith("p2p://")) return null;
+    if (!state.online) return null;
+
+    var parsed = parseP2pUri(uri.replace("p2p://", ""));
+    api.log("info", "P2P download resolveByUri: peer=" + parsed.peerId.substring(0, 12) + "... track=" + parsed.trackId);
+    return api.p2p
+      .streamFromPeer(parsed.peerId, parsed.multiaddr, parsed.trackId)
+      .then(function (filePath) {
+        api.log("info", "P2P download resolved: " + filePath);
+        return { url: filePath, headers: null, metadata: null };
+      })
+      .catch(function (e) {
+        api.log("error", "P2P download resolve failed: " + e);
+        return null;
+      });
+  });
+
+  api.downloads.onResolveByMetadata("p2p-download", function (title, artistName, albumName, durationSecs, format) {
+    if (!state.online) return null;
+
+    var query = title + (artistName ? " " + artistName : "");
+    return queryPeers(state.config.maxPeers)
+      .then(function (peers) {
+        if (!peers || peers.length === 0) return null;
+
+        var promises = peers.map(function (peer) {
+          var addr = peer.multiaddrs && peer.multiaddrs[0] ? peer.multiaddrs[0] : "";
+          if (!addr) return Promise.resolve(null);
+          return withTimeout(
+            api.p2p.searchPeer(peer.peer_id, addr, query, 5).catch(function () { return null; }),
+            5000
+          );
+        });
+
+        return Promise.all(promises);
+      })
+      .then(function (responses) {
+        if (!responses) return null;
+
+        var titleLower = (title || "").toLowerCase();
+        var artistLower = (artistName || "").toLowerCase();
+
+        for (var i = 0; i < responses.length; i++) {
+          var resp = responses[i];
+          if (!resp || !resp.matches) continue;
+          for (var j = 0; j < resp.matches.length; j++) {
+            var m = resp.matches[j];
+            var mTitle = (m.title || "").toLowerCase();
+            var mArtist = (m.artist_name || "").toLowerCase();
+            if (mTitle === titleLower && (!artistLower || mArtist === artistLower)) {
+              var peerId = resp.peer_id;
+              var multiaddr = "";
+              return queryPeers(state.config.maxPeers).then(function (allPeers) {
+                for (var k = 0; k < allPeers.length; k++) {
+                  if (allPeers[k].peer_id === peerId) {
+                    multiaddr = allPeers[k].multiaddrs && allPeers[k].multiaddrs[0] || "";
+                    break;
+                  }
+                }
+                api.log("info", "P2P download metadata resolved: peer=" + peerId.substring(0, 12) + "... track=" + m.track_id);
+                return api.p2p.streamFromPeer(peerId, multiaddr, m.track_id);
+              }).then(function (filePath) {
+                return {
+                  url: filePath,
+                  headers: null,
+                  metadata: { title: title, artist: artistName || undefined, album: albumName || undefined }
+                };
+              });
+            }
+          }
+        }
+        return null;
+      })
+      .catch(function (e) {
+        api.log("error", "P2P download metadata resolve failed: " + e);
+        return null;
       });
   });
 
   // --- Context menu: download from peer ---
 
   api.contextMenu.onAction("p2p-download", function (target) {
-    if (!target || !target.path || !target.path.startsWith("p2p://")) return;
-    var uri = target.path.replace("p2p://", "");
-    var parts = uri.split("/");
-    var peerId = decodeURIComponent(parts[0]);
-    var multiaddr = parts.length >= 3 ? decodeURIComponent(parts[1]) : "";
-    var trackId = parts.length >= 3 ? parts.slice(2).join("/") : (parts[1] || "");
+    if (!target || !target.title) return;
 
-    // Use the first shared collection as destination, or first local collection
-    var destId = state.config.sharedCollections[0];
-    if (!destId && state.collections.length > 0) {
-      destId = state.collections[0].id;
+    // Find the track in search results by title+artist to get the p2p path
+    var match = null;
+    for (var i = 0; i < state.searchResults.length; i++) {
+      var m = state.searchResults[i];
+      if (m.title === target.title && (m.artist_name || "") === (target.artistName || "")) {
+        match = m;
+        break;
+      }
     }
+    if (!match) {
+      api.log("warn", "P2P: Track not found in search results: " + target.title);
+      return;
+    }
+
+    var peerId = match._peerId || "";
+    var multiaddr = match._multiaddr || "";
+    var trackId = match.track_id;
+
+    var destId = state.collections.length > 0 ? state.collections[0].id : null;
     if (!destId) {
       api.log("warn", "P2P: No local collection to download into");
       return;
     }
 
-    api.log("info", "P2P: Downloading track from peer " + peerId.substring(0, 12) + "...");
+    api.log("info", "P2P: Downloading " + target.title + " from peer " + peerId.substring(0, 12) + "...");
     api.p2p.downloadFromPeer(peerId, multiaddr, trackId, destId)
       .then(function () {
-        api.log("info", "P2P: Download complete");
+        api.log("info", "P2P: Download complete — " + target.title);
       })
       .catch(function (e) {
         api.log("error", "P2P: Download failed: " + e);
