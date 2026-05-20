@@ -614,7 +614,7 @@ export function usePlayback(
   function onLoadedMetadata(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
     const el = e.target as HTMLMediaElement;
     if (!isActiveElement(el)) return;
-    setDurationSecs(el.duration);
+    if (isFinite(el.duration)) setDurationSecs(el.duration);
 
     if (el instanceof HTMLVideoElement && el.videoWidth === 0) {
       el.pause();
