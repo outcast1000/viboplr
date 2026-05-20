@@ -2,7 +2,7 @@
 
 ## Core Files
 
-- **App.tsx** — Single-file React app. All state, views, playback controls, context menu, sidebar. Views toggled via `View` union type: `"all" | "artists" | "albums" | "tags" | "liked" | "history" | "collections"`.
+- **App.tsx** — Single-file React app. All state, views, playback controls, context menu, sidebar. Views toggled via `View` union type: `"search" | "artists" | "albums" | "tags" | "history" | "collections" | "playlists" | "settings" | "extensions" | plugin:${string}`. The unified Library is `"search"` (rendered by `SearchView`); `"artists"`, `"albums"`, `"tags"` are detail-page views reached by selecting an entity from the Library.
 - **App.css** — All styles. CSS Grid layout, CSS custom properties for skinning, 7-level type scale (`--fs-2xs` through `--fs-2xl`). Shared keyframe animations: `fade-in`, `scale-in`, `glow-pulse`, `slide-text-in`, `equalizer-bar-{1,2,3}`, `waveform-grow-in`.
 - **skinUtils.ts** — Skin validation, CSS generation, customCSS sanitization.
 - **types.ts** — Core TypeScript types (Track, QueueTrack, Artist, Album, Tag, etc.). `Track` is the full library type with DB IDs; `QueueTrack` is the ID-less metadata type used by queue/playback/playlists.
@@ -14,7 +14,7 @@
 ## Components (src/components/)
 
 - **CaptionBar.tsx** — Custom caption bar: window controls, brand logo, back/forward nav, `CentralSearchDropdown`, mini player button. Full-width drag region (`data-tauri-drag-region`).
-- **Sidebar.tsx** — Navigation sidebar with animated active indicator. Items: Tracks (Cmd+1), Artists (Cmd+2), Albums (Cmd+3), Tags (Cmd+4), Liked (Cmd+5), History (Cmd+6), Playlists, plugin sidebar items. Bottom: Collections, Settings (with update badge). Collapsible via Cmd+B.
+- **Sidebar.tsx** — Navigation sidebar with animated active indicator. Items: Library (Cmd+1), History (Cmd+2), Playlists, plugin sidebar items. Bottom: Collections, Extensions (with update count badge), Settings (with update badge). Collapsible via Cmd+B.
 - **TrackList.tsx** — Table/list/tile view for tracks with column sorting, multi-selection (Click, Cmd+Click, Shift+Click), and drag-to-queue.
 - **NowPlayingBar.tsx** — Footer playback controls. Full mode: seek bar (waveform or segmented), track info with like/dislike, transport controls, queue mode, auto-continue, volume. Mini mode: compact draggable bar with art, title/artist, play controls. Rank badges for top-100 tracks. Scrobble indicator checkmark. Album art resolved async via `currentTrack` effect in `App.tsx` — same priority chain as queue (see `queue.md` "Image Resolution" section).
 - **QueuePanel.tsx** — Right sidebar playlist panel. Drag-and-drop reorder, multi-select, duplicate detection banner (add all / add new / cancel with auto-approve countdown). Resizable width. Collapsed mode (40px strip).
@@ -66,7 +66,7 @@
 ## Keyboard Shortcuts
 
 No modifier (when not in text input): Space (play/pause), arrows (seek/volume).
-Cmd/Ctrl: 1-6 (views), K (search), F (fullscreen), L (like), P (playlist panel), M (mute), Shift+M (mini), B (sidebar), Left/Right (prev/next track).
+Cmd/Ctrl: 1 (Library), 2 (History), K (search), F (fullscreen), L (like), P (playlist panel), M (mute), Shift+M (mini), B (sidebar), Left/Right (prev/next track).
 Alt: Left/Right (nav history back/forward).
 Track list: arrows (navigate), Enter (play), Shift+Enter (enqueue).
 

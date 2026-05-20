@@ -8,17 +8,17 @@ The app has 5 core entity types that appear across many surfaces. Every entity t
 
 | Entity | Key Fields | Where it appears |
 |--------|-----------|-----------------|
-| **Track** | id, path, title, artist_name, album_title, duration_secs, liked (-1/0/1), format, collection_id | All Tracks, Album detail, Tag detail, Artist detail, Liked, Queue, plugin views, similar tracks, search results |
-| **Artist** | id, name, track_count, liked | Artists view, search results, similar artists, plugin views |
-| **Album** | id, title, artist_name, year, track_count, liked | Albums view, artist detail, search results, plugin views |
+| **Track** | id, path, title, artist_name, album_title, duration_secs, liked (-1/0/1), format, collection_id | Library (tracks tab), Album detail, Tag detail, Artist detail, Queue, plugin views, similar tracks, central search results |
+| **Artist** | id, name, track_count, liked | Library (artists tab), central search results, similar artists, plugin views |
+| **Album** | id, title, artist_name, year, track_count, liked | Library (albums tab), artist detail, central search results, plugin views |
 | **Playlist** | id, name, track_count | Playlists view, plugin views |
-| **Tag** | id, name, track_count, liked | Tags view |
+| **Tag** | id, name, track_count, liked | Library (tags tab) |
 
 Track paths use URL schemes: `file://` (local), `subsonic://`, and plugin-registered schemes.
 
 ### Three Rendering Modes
 
-Every entity list supports three view modes using shared CSS classes. The styling must be consistent across all surfaces — a track in "All Tracks" must look identical to a track in a playlist or a plugin view.
+Every entity list supports three view modes using shared CSS classes. The styling must be consistent across all surfaces — a track in the Library must look identical to a track in a playlist or a plugin view.
 
 | Mode | CSS Class | Layout | Context Menu |
 |------|-----------|--------|--------------|
@@ -108,10 +108,12 @@ Contents left-to-right:
 
 **Component:** `Sidebar.tsx` (column 1, all rows)
 
-Navigation items with keyboard shortcuts:
-- Tracks (Cmd+1), Artists (Cmd+2), Albums (Cmd+3), Tags (Cmd+4), Liked (Cmd+5), History (Cmd+6), Playlists
+Navigation items:
+- Library (Cmd+1) — unified search/browse view rendered by `SearchView` with tabs for Tracks, Artists, Albums, Tags
+- History (Cmd+2)
+- Playlists
 - Plugin sidebar items (below separator)
-- Bottom: Collections button, Settings button (with update badge)
+- Bottom: Collections, Extensions (with update count badge), Settings (with update badge)
 
 Active state: animated `.sidebar-indicator` follows active nav button via JS-computed transform.
 
@@ -123,15 +125,17 @@ Views are toggled via `library.view` (`View` union type). When an entity is sele
 
 | View | List Component | Detail Component |
 |------|---------------|-----------------|
-| Tracks | `TrackList` | `TrackDetailView` |
-| Artists | `ArtistListView` | `ArtistDetailContent` |
-| Albums | `AlbumListView` | `AlbumDetailHeader` + `TrackList` |
-| Tags | `TagListView` | Tag header + `TrackList` |
-| Liked | `LikedTracksView` | — |
-| History | `HistoryView` | — |
-| Playlists | `PlaylistsView` | Playlist detail |
-| Collections | `CollectionsView` | — |
-| Plugin views | `PluginViewRenderer` | — |
+| `search` (Library) | `SearchView` (always mounted; tabs for Tracks/Artists/Albums/Tags, with empty query showing the full library) | — |
+| `artists` | — (entered only via entity selection from Library) | `ArtistDetailContent` |
+| `albums` | — (entered only via entity selection from Library) | `AlbumDetailHeader` + `TrackList` |
+| `tags` | — (entered only via entity selection from Library) | Tag header + `TrackList` |
+| Track detail | — (entered only via track selection) | `TrackDetailView` |
+| `history` | `HistoryView` | — |
+| `playlists` | `PlaylistsView` | Playlist detail |
+| `collections` | `CollectionsView` | — |
+| `extensions` | extensions panel | — |
+| `settings` | settings panel | — |
+| `plugin:*` | `PluginViewRenderer` | — |
 
 ### View Modes
 

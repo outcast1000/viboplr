@@ -524,6 +524,21 @@ export function SearchView({
     onToggleDislike(track);
   }, [onToggleDislike]);
 
+  const handleArtistLike = useCallback((id: number) => {
+    setResults(prev => ({ ...prev, artists: prev.artists.map(a => a.id === id ? { ...a, liked: a.liked === 1 ? 0 : 1 } : a) }));
+    onToggleArtistLike(id);
+  }, [onToggleArtistLike]);
+
+  const handleAlbumLike = useCallback((id: number) => {
+    setResults(prev => ({ ...prev, albums: prev.albums.map(a => a.id === id ? { ...a, liked: a.liked === 1 ? 0 : 1 } : a) }));
+    onToggleAlbumLike(id);
+  }, [onToggleAlbumLike]);
+
+  const handleTagLike = useCallback((id: number) => {
+    setResults(prev => ({ ...prev, tags: prev.tags.map(t => t.id === id ? { ...t, liked: t.liked === 1 ? 0 : 1 } : t) }));
+    onToggleTagLike(id);
+  }, [onToggleTagLike]);
+
   useEffect(() => {
     setSelectedTrackIds(new Set());
     lastClickedTrackRef.current = null;
@@ -986,7 +1001,7 @@ export function SearchView({
             viewMode={viewModes.albums}
             getAlbumImage={getAlbumImage}
             onAlbumClick={onAlbumClick}
-            onToggleLike={onToggleAlbumLike}
+            onToggleLike={handleAlbumLike}
             onContextMenu={onAlbumContextMenu}
             onMultiContextMenu={onMultiAlbumContextMenu}
             onPlayAlbum={onPlayAlbum}
@@ -1009,7 +1024,7 @@ export function SearchView({
             viewMode={viewModes.artists}
             getArtistImage={getArtistImage}
             onArtistClick={onArtistClick}
-            onToggleLike={onToggleArtistLike}
+            onToggleLike={handleArtistLike}
             onContextMenu={onArtistContextMenu}
             onMultiContextMenu={onMultiArtistContextMenu}
             onPlayArtist={onPlayArtist}
@@ -1032,7 +1047,7 @@ export function SearchView({
             viewMode={viewModes.tags}
             getTagImage={getTagImage}
             onTagClick={onTagClick}
-            onToggleLike={onToggleTagLike}
+            onToggleLike={handleTagLike}
             onContextMenu={onTagContextMenu}
             onMultiContextMenu={onMultiTagContextMenu}
             onPlayTag={onPlayTag}
