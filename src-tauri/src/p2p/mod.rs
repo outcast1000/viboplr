@@ -391,6 +391,11 @@ async fn run_event_loop(
                             ViboplrBehaviourEvent::Identify(identify::Event::Received { peer_id, info, .. }) => {
                                 log::debug!("Identified peer {}: {:?}", peer_id, info.protocols);
                             }
+                            ViboplrBehaviourEvent::RelayClient(
+                                libp2p::relay::client::Event::ReservationReqAccepted { relay_peer_id, .. }
+                            ) => {
+                                log::info!("P2P: reservation accepted by relay {}", relay_peer_id);
+                            }
                             _ => {}
                         }
                     }
