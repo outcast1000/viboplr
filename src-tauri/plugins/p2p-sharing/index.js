@@ -144,11 +144,13 @@ function activate(api) {
     // Manual override always wins.
     if (state.config.relayMultiaddr) {
       state.activeRelay = { peerId: null, multiaddr: state.config.relayMultiaddr };
+      renderSettings();
       return Promise.resolve(state.config.relayMultiaddr);
     }
     return fetchRegisteredRelays().then(function (rows) {
       var picked = pickRelayFromList(rows || []);
       state.activeRelay = picked;
+      renderSettings();
       if (picked) {
         api.log(
           "info",
@@ -546,6 +548,15 @@ function activate(api) {
           label: "Relay Address",
           description: "Public relay for NAT traversal (leave empty for volunteer relays)",
           child: { type: "text-input", value: state.config.relayMultiaddr, placeholder: "/ip4/.../udp/.../quic-v1/p2p/...", action: "p2p-set-relay" },
+        },
+        {
+          type: "settings-row",
+          label: "Active Relay",
+          description: state.activeRelay
+            ? (state.activeRelay.peerId
+                ? state.activeRelay.peerId.substring(0, 12) + "… (" + state.activeRelay.multiaddr + ")"
+                : "manual: " + state.activeRelay.multiaddr)
+            : "No relays available",
         },
         {
           type: "settings-row",
