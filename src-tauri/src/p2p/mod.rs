@@ -158,6 +158,22 @@ pub async fn start_node(config: P2pConfig) -> Result<P2pNode, String> {
         .map_err(|e| format!("Failed to listen: {}", e))?;
     log::info!("P2P: Listening started");
 
+    // If a relay was configured, dial it and listen on its /p2p-circuit address
+    // so other peers can reach us when our public IP is unreachable.
+    if let Some(relay_addr) = config.relay_multiaddr.clone() {
+        log::info!("P2P: Dialing relay {}", relay_addr);
+        if let Err(e) = swarm.dial(relay_addr.clone()) {
+            log::warn!("P2P: Failed to dial relay: {}", e);
+        }
+        let circuit_addr = relay_addr.with(libp2p::multiaddr::Protocol::P2pCircuit);
+        log::info!("P2P: Listening on circuit {}", circuit_addr);
+        if let Err(e) = swarm.listen_on(circuit_addr) {
+            log::warn!("P2P: Failed to listen on circuit: {}", e);
+        }
+    } else {
+        log::info!("P2P: No relay configured; running without circuit listener");
+    }
+
     let event_loop_status = Arc::clone(&status);
     let event_loop_db = Arc::clone(&config.db);
     let event_loop_shared_ids = Arc::clone(&shared_collection_ids);
