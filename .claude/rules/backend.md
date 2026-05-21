@@ -69,3 +69,9 @@ Key constraints: albums UNIQUE on `(title, artist_id)`, tracks UNIQUE on `path` 
 ## Profiles
 
 Chrome-like profile isolation: `{app_data_dir}/profiles/{name}/`. Default profile is `default`. Set via `VIBOPLR_PROFILE` env var or `--profile` CLI arg. Non-default profiles show name in window title.
+
+## Relay version coupling
+
+The standalone `viboplr-relay` repository must use the exact same `libp2p` version (and feature flags overlapping with the relay/identify/autonat protocols) as `src-tauri/Cargo.toml`. Mismatched versions can silently break hole-punching for end users.
+
+When bumping `libp2p` here, open a coordinated PR in `viboplr-relay` to bump it to the same version. Do not merge one without the other.
