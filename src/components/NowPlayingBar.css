@@ -814,36 +814,16 @@
   color: var(--accent);
 }
 
-.mini-ultra-indicator .eq-bar {
-  animation-timing-function: ease-in-out;
-  animation-iteration-count: infinite;
-  animation-direction: alternate;
-  transform-origin: bottom;
+.mini-ultra-disc {
+  transform-origin: 50% 50%;
+  transition: color 0.2s ease;
 }
 
-.mini-ultra-indicator .eq-bar-1 {
-  animation: mini-eq-1 0.45s infinite alternate;
+.mini-ultra-indicator.playing .mini-ultra-disc {
+  animation: mini-disc-spin 2.5s linear infinite;
 }
 
-.mini-ultra-indicator .eq-bar-2 {
-  animation: mini-eq-2 0.55s infinite alternate;
-}
-
-.mini-ultra-indicator .eq-bar-3 {
-  animation: mini-eq-3 0.4s infinite alternate;
-}
-
-@keyframes mini-eq-1 {
-  from { transform: scaleY(0.3); }
-  to { transform: scaleY(1); }
-}
-
-@keyframes mini-eq-2 {
-  from { transform: scaleY(0.5); }
-  to { transform: scaleY(0.3); }
-}
-
-@keyframes mini-eq-3 {
-  from { transform: scaleY(0.4); }
-  to { transform: scaleY(1); }
+@keyframes mini-disc-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

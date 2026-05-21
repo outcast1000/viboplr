@@ -306,18 +306,13 @@ export function NowPlayingBar({
           <div className="mini-ultra-row">
             {currentTrack && (
               <span className={`mini-ultra-indicator${playing ? " playing" : ""}`}>
-                {playing ? (
-                  <svg width="8" height="8" viewBox="0 0 12 12" fill="currentColor">
-                    <rect x="0" y="2" width="2.5" height="8" rx="0.5" className="eq-bar eq-bar-1" />
-                    <rect x="4" y="0" width="2.5" height="12" rx="0.5" className="eq-bar eq-bar-2" />
-                    <rect x="8" y="3" width="2.5" height="7" rx="0.5" className="eq-bar eq-bar-3" />
-                  </svg>
-                ) : (
-                  <svg width="8" height="8" viewBox="0 0 12 12" fill="currentColor">
-                    <rect x="2" y="3" width="3" height="6" rx="0.75" />
-                    <rect x="7" y="3" width="3" height="6" rx="0.75" />
-                  </svg>
-                )}
+                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" className="mini-ultra-disc">
+                  <circle cx="6" cy="6" r="5.5" fill="currentColor" />
+                  <circle cx="6" cy="6" r="4" fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="0.4" />
+                  <circle cx="6" cy="6" r="2.6" fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="0.4" />
+                  <circle cx="6" cy="6" r="1.2" fill="var(--bg-primary)" />
+                  <circle cx="6" cy="6" r="0.4" fill="currentColor" />
+                </svg>
               </span>
             )}
             <span className="mini-ultra-title">

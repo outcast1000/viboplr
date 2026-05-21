@@ -1895,6 +1895,32 @@ function App() {
     return () => { cancelled = true; };
   }, [playback.currentTrack, albumImageCache.getImage, artistImageCache.getImage]);
 
+  // When a backend image fetch completes, update currentTrack if it's still missing artwork
+  useEffect(() => {
+    const norm = (s: string | null | undefined) => (s ?? "").toLowerCase();
+    const unlistenAlbum = listen<{ title: string; artist_name?: string | null; path: string }>("album-image-ready", (event) => {
+      const { title, artist_name, path } = event.payload;
+      playback.setCurrentTrack(prev => {
+        if (!prev || prev.image_url) return prev;
+        if (norm(prev.album_title) !== norm(title)) return prev;
+        if (artist_name && norm(prev.artist_name) !== norm(artist_name)) return prev;
+        return { ...prev, image_url: path };
+      });
+    });
+    const unlistenArtist = listen<{ name: string; path: string }>("artist-image-ready", (event) => {
+      const { name, path } = event.payload;
+      playback.setCurrentTrack(prev => {
+        if (!prev || prev.image_url) return prev;
+        if (norm(prev.artist_name) !== norm(name)) return prev;
+        return { ...prev, image_url: path };
+      });
+    });
+    return () => {
+      unlistenAlbum.then(f => f());
+      unlistenArtist.then(f => f());
+    };
+  }, [playback.setCurrentTrack]);
+
   // Ref for keyboard shortcut handler to avoid stale closures
   const shortcutStateRef = useRef({
     volume: playback.volume,
