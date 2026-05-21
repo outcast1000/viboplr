@@ -37,6 +37,61 @@ function activate(api) {
 
   // ---- Helpers ----
 
+  // Liked Songs is /collection/tracks — a fixed-URL collection rather than a
+  // section of playlists. Treat it as a synthetic single-playlist "section" so
+  // it slots into the existing section/playlist/tracks pipeline.
+  var LIKED_SECTION = "Liked Songs";
+  var LIKED_PLAYLIST_ID = "__liked_songs__";
+
+  function isLikedSection(name) {
+    return String(name || "").toLowerCase() === LIKED_SECTION.toLowerCase();
+  }
+
+  function makeLikedPlaylist() {
+    return {
+      id: LIKED_PLAYLIST_ID,
+      name: LIKED_SECTION,
+      section: LIKED_SECTION,
+      description: "Your saved tracks on Spotify.",
+      imageUrl: null,
+      uri: "spotify://collection/tracks",
+    };
+  }
+
+  // The Liked Songs page has no real cover — Spotify renders a purple gradient
+  // with a heart icon. og:image points at a generic Spotify image. Generate a
+  // matching SVG locally and write it to the playlist's directory so the card
+  // gets the familiar look without round-tripping to the network.
+  var LIKED_COVER_SVG =
+    '<?xml version="1.0" encoding="UTF-8"?>' +
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300">' +
+    '<defs>' +
+    '<linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">' +
+    '<stop offset="0%" stop-color="#4A0080"/>' +
+    '<stop offset="100%" stop-color="#A0C0FF"/>' +
+    '</linearGradient>' +
+    '</defs>' +
+    '<rect width="300" height="300" fill="url(#g)"/>' +
+    '<path d="M150 230 C150 230, 80 185, 80 130 C80 105, 100 85, 125 85 C140 85, 150 95, 150 95 C150 95, 160 85, 175 85 C200 85, 220 105, 220 130 C220 185, 150 230, 150 230 Z" fill="#FFFFFF"/>' +
+    '</svg>';
+
+  // Write Liked Songs cover SVG to disk if missing. Returns the resolved file path.
+  function ensureLikedCover(pl) {
+    var dir = playlistDir(pl);
+    var svgPath = dir.concat(["cover.svg"]);
+    return api.storage.files.exists(svgPath).then(function (has) {
+      if (has) return api.storage.files.getPath(svgPath);
+      return api.storage.files.writeText(svgPath, LIKED_COVER_SVG)
+        .then(function () { return api.storage.files.getPath(svgPath); });
+    }).then(function (p) {
+      if (p) pl.imageUrl = p;
+      return p;
+    }).catch(function (e) {
+      console.error("Failed to write Liked Songs cover:", e);
+      return null;
+    });
+  }
+
   function escapeHtml(s) {
     if (!s) return "";
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -324,12 +379,13 @@ function activate(api) {
     var dir = playlistDir(pl);
     var tracks = state.playlistTracks[pl.id] || [];
 
+    var coverFile = pl.id === LIKED_PLAYLIST_ID ? "cover.svg" : "cover.jpg";
     var metaP = api.storage.files.writeJson(dir.concat(["meta.json"]), {
       id: pl.id,
       name: pl.name,
       section: pl.section || null,
       description: pl.description || "",
-      coverFile: "cover.jpg",
+      coverFile: coverFile,
       lastCheckedAt: pl.lastCheckedAt || null,
       updatedAt: pl.updatedAt || null,
     }).catch(function (e) { console.error("Failed to write meta:", pl.id, e); });
@@ -357,7 +413,11 @@ function activate(api) {
     for (var pi = 0; pi < state.playlists.length; pi++) {
       (function (pl) {
         var dir = playlistDir(pl);
-        if (pl.imageUrl && pl.imageUrl.indexOf("http") === 0) {
+        if (pl.id === LIKED_PLAYLIST_ID) {
+          promises.push(ensureLikedCover(pl));
+          // Liked Songs has no remote cover to fetch; track images are still
+          // handled via the standard path below.
+        } else if (pl.imageUrl && pl.imageUrl.indexOf("http") === 0) {
           stats.covers++;
           var coverUrl = pl.imageUrl;
           promises.push(
@@ -1463,6 +1523,13 @@ function activate(api) {
     '}catch(e){window.__viboplr.send("error",{message:""+e})}})()';
 
   function scriptNavigatePlaylist(id) {
+    if (id === LIKED_PLAYLIST_ID) {
+      return '(function(){' +
+        DBG_HELPER +
+        '_dbg("tracks","navigating to /collection/tracks");' +
+        'window.location.href="/collection/tracks"' +
+      '})()';
+    }
     return '(function(){' +
       DBG_HELPER +
       '_dbg("tracks","navigating to /playlist/' + id + '");' +
@@ -1470,7 +1537,8 @@ function activate(api) {
     '})()';
   }
 
-  function scriptScrollThenScrape(playlistId, gen) {
+  function scriptScrollThenScrape(playlistId, gen, opts) {
+    var maxSteps = (opts && opts.maxSteps) || 60;
     return '(function(){try{' +
       DBG_HELPER +
       IMG_HELPER +
@@ -1520,7 +1588,7 @@ function activate(api) {
       // the tracklist, so bestImg() returns the first track row's album art.
       'if(!_coverUrl){var headerEl=document.querySelector("[data-testid=\\"playlist-page\\"] header")||document.querySelector("main header");if(headerEl){_coverUrl=bestImg(headerEl)}}' +
       // Incremental scroll: move one viewport at a time, scrape visible rows at each stop
-      'var allOut=[];var seenKeys={};var n=0;var maxSteps=60;' +
+      'var allOut=[];var seenKeys={};var n=0;var maxSteps=' + maxSteps + ';' +
       'var step=Math.max(sc.clientHeight-50,200);' +
       'sc.scrollTop=0;' +
       'function parseVisibleRows(){' +
@@ -1707,6 +1775,24 @@ function activate(api) {
               render();
             }
 
+            // Liked Songs is a fixed URL, not a discoverable section. Synthesize
+            // a single-playlist result and skip the home/section-finder dance.
+            if (isLikedSection(sectionName)) {
+              var likedPl = makeLikedPlaylist();
+              if (!seenIds[likedPl.id]) {
+                seenIds[likedPl.id] = true;
+                allPlaylists.push(likedPl);
+              }
+              var likedReport = getReportSection(sectionName);
+              if (likedReport) {
+                likedReport.status = "ok";
+                likedReport.playlistCount = 1;
+              }
+              dbg("flow", "section '" + sectionName + "' synthesized as /collection/tracks");
+              nextSection();
+              return;
+            }
+
             // Navigate to home first (except for the first section where we're already there)
             if (sectionIdx > 1) {
               h.eval('window.location.href="https://open.spotify.com"');
@@ -1888,7 +1974,9 @@ function activate(api) {
                 var tracks = msg.data.tracks || [];
                 allTracks[pl.id] = tracks;
                 if (msg.data.description) pl.description = msg.data.description;
-                if (msg.data.coverUrl) pl.imageUrl = msg.data.coverUrl;
+                // Liked Songs uses a locally-generated SVG cover; ignore any
+                // og:image / page image (it's a generic Spotify graphic).
+                if (msg.data.coverUrl && pl.id !== LIKED_PLAYLIST_ID) pl.imageUrl = msg.data.coverUrl;
                 plReport.trackCount = tracks.length;
                 plReport.durationMs = Date.now() - plStart;
                 if (msg.data.error) {
@@ -1917,11 +2005,18 @@ function activate(api) {
               }
             });
 
+            // Liked Songs can be very large, so allow far more scroll steps
+            // and a correspondingly longer timeout. The scroll cadence is ~600ms
+            // per step inside the page, so 600 steps caps at ~6 minutes.
+            var isLiked = pl.id === LIKED_PLAYLIST_ID;
+            var scrapeOpts = isLiked ? { maxSteps: 600 } : null;
+            var scrapeTimeoutMs = isLiked ? 6 * 60 * 1000 : 45000;
+
             setTimeout(function() {
               if (gen !== scrapeGeneration) return;
-              h.eval(scriptScrollThenScrape(pl.id, gen));
+              h.eval(scriptScrollThenScrape(pl.id, gen, scrapeOpts));
               trackTimeout = setTimeout(function() {
-                plog("warn", "tracks", "Timeout scraping \"" + pl.name + "\" (" + pl.id + ") after 45s", { elapsed: Date.now() - plStart });
+                plog("warn", "tracks", "Timeout scraping \"" + pl.name + "\" (" + pl.id + ") after " + Math.round(scrapeTimeoutMs / 1000) + "s", { elapsed: Date.now() - plStart });
                 allTracks[pl.id] = allTracks[pl.id] || [];
                 plReport.status = "timeout";
                 plReport.durationMs = Date.now() - plStart;
@@ -1930,7 +2025,7 @@ function activate(api) {
                   if (snap && snap.counts) plog("warn", "tracks", "Timeout snapshot for \"" + pl.name + "\"", { url: snap.url, counts: snap.counts });
                   scrapeNext();
                 });
-              }, 45000);
+              }, scrapeTimeoutMs);
             }, 4000);
           }
 
