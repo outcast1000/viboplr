@@ -1,7 +1,54 @@
 var SEARCH_TIMEOUT = 15000;
+var CAPTCHA_TIMEOUT = 180000; // 3 minutes once user is solving
 var SETTLE_DELAY = 3000;
 var POLL_INTERVAL = 500;
 var suffixes = { artist: "musician", album: "album cover", tag: "music genre" };
+
+// Probes the page for either a captcha or a usable image result.
+// Sends one message per poll: "captcha", "image-result", or "none".
+var PROBE_SCRIPT =
+  '(function() {' +
+  '  try {' +
+  '    var url = location.href || "";' +
+  '    var isCaptcha = url.indexOf("/sorry/") !== -1' +
+  '      || url.indexOf("consent.google.com") !== -1' +
+  '      || !!document.querySelector("form#captcha-form, iframe[src*=\\"recaptcha\\"], iframe[src*=\\"/sorry/\\"], #recaptcha")' +
+  '      || /unusual traffic|before you continue|automated queries/i.test(document.body && document.body.innerText || "");' +
+  '    if (isCaptcha) { window.__viboplr.send("captcha", { url: url }); return; }' +
+  '    var imgs = document.querySelectorAll("img");' +
+  '    for (var i = 0; i < imgs.length; i++) {' +
+  '      var src = imgs[i].src || "";' +
+  '      if (src.indexOf("data:image") !== 0) continue;' +
+  '      var w = imgs[i].naturalWidth || imgs[i].width || 0;' +
+  '      var h = imgs[i].naturalHeight || imgs[i].height || 0;' +
+  '      if (w < 150 || h < 150) continue;' +
+  '      window.__viboplr.send("image-result", { src: src, w: w, h: h });' +
+  '      return;' +
+  '    }' +
+  '    window.__viboplr.send("none", null);' +
+  '  } catch (e) {' +
+  '    window.__viboplr.send("none", null);' +
+  '  }' +
+  '})();';
+
+// Injects a top banner explaining why the window appeared and what to do.
+// Idempotent: re-running it just updates the existing banner.
+var BANNER_SCRIPT =
+  '(function() {' +
+  '  var ID = "__viboplr_captcha_banner";' +
+  '  var existing = document.getElementById(ID);' +
+  '  if (existing) return;' +
+  '  var bar = document.createElement("div");' +
+  '  bar.id = ID;' +
+  '  bar.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:2147483647;' +
+  '    background:#1a73e8;color:#fff;font-family:-apple-system,system-ui,sans-serif;' +
+  '    padding:12px 16px;font-size:14px;line-height:1.4;box-shadow:0 2px 6px rgba(0,0,0,.25);";' +
+  '  bar.innerHTML = "<b>Viboplr — Google asked us to verify you\'re human.</b>' +
+  '    <br/>Please complete the check below. This window will close automatically' +
+  '    once Google lets the search through. You usually only need to do this once.";' +
+  '  document.documentElement.appendChild(bar);' +
+  '  document.body && (document.body.style.paddingTop = (bar.offsetHeight + 8) + "px");' +
+  '})();';
 
 // Finds the first <img> with a data:image src that meets minimum size
 var EXTRACT_SCRIPT =
@@ -47,12 +94,20 @@ function stripDataUriPrefix(dataUri) {
   return dataUri.substring(idx + 1);
 }
 
+// While one search is showing a captcha to the user, others wait — otherwise
+// every concurrent image fetch would pop its own window.
+var captchaGate = Promise.resolve();
+
 function searchGoogleImages(api, name, entity) {
   var searchUrl = buildSearchUrl(name, entity);
+  // Wait for any in-progress captcha to clear before starting.
+  var waitForGate = captchaGate;
 
-  return api.network
+  return waitForGate.then(function () {
+    return api.network
     .openBrowseWindow(searchUrl, {
       visible: false,
+      title: "Viboplr — Google verification",
       width: 1024,
       height: 768,
     })
@@ -61,26 +116,44 @@ function searchGoogleImages(api, name, entity) {
         var settled = false;
         var pollTimer = null;
         var deadline = null;
+        var captchaShown = false;
+        var gateRelease = null;
 
         function finish(result) {
           if (settled) return;
           settled = true;
           if (pollTimer) clearInterval(pollTimer);
           if (deadline) clearTimeout(deadline);
+          if (gateRelease) { gateRelease(); gateRelease = null; }
           handle.close().catch(console.error);
           resolve(result);
+        }
+
+        function extendDeadlineForCaptcha() {
+          if (deadline) clearTimeout(deadline);
+          deadline = setTimeout(function () { finish(null); }, CAPTCHA_TIMEOUT);
         }
 
         handle.onMessage(function (msg) {
           if (msg.type === "image-result") {
             finish(msg.data);
+          } else if (msg.type === "captcha" && !captchaShown) {
+            captchaShown = true;
+            api.log("info", "Google asked for captcha verification; surfacing browse window");
+            handle.eval(BANNER_SCRIPT).catch(console.error);
+            handle.show().catch(console.error);
+            extendDeadlineForCaptcha();
+            // Block other concurrent searches until this one finishes.
+            captchaGate = new Promise(function (release) {
+              gateRelease = release;
+            });
           }
         });
 
-        // Wait for page to settle before polling for images
+        // Wait for page to settle before polling
         setTimeout(function () {
           pollTimer = setInterval(function () {
-            handle.eval(EXTRACT_SCRIPT).catch(function () {
+            handle.eval(PROBE_SCRIPT).catch(function () {
               finish(null);
             });
           }, POLL_INTERVAL);
@@ -91,6 +164,7 @@ function searchGoogleImages(api, name, entity) {
         }, SEARCH_TIMEOUT);
       });
     });
+  });
 }
 
 function handleImageFetch(api, entity) {
