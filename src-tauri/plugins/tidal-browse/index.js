@@ -1,7 +1,7 @@
 // TIDAL Browse Plugin for Viboplr
 // Provides TIDAL search, streaming, and download via plugin system
 
-var __healthCheckInterval = null;
+var _healthCheckInterval = null;
 var REMASTER_SUFFIX = /\s*-\s*.*remaster.*$/i;
 function stripRemasterSuffix(s) {
   if (!s) return s;
@@ -78,65 +78,132 @@ function activate(api) {
     "https://tidal-uptime.props-76styles.workers.dev/",
   ];
   var CACHE_TTL_MS = 900000; // 15 minutes
+  var API_PROBE_PATH = "/search/?s=test&limit=1";
+  var STREAM_PROBE_TRACK_ID = "35132878";
 
   var FALLBACK_INSTANCES = {
     api: [
       { url: "https://hifi.geeked.wtf", version: "2.7" },
       { url: "https://eu-central.monochrome.tf", version: "2.7" },
       { url: "https://us-west.monochrome.tf", version: "2.7" },
+      { url: "https://arran.monochrome.tf", version: "2.7" },
       { url: "https://api.monochrome.tf", version: "2.5" },
       { url: "https://monochrome-api.samidy.com", version: "2.3" },
       { url: "https://maus.qqdl.site", version: "2.6" },
       { url: "https://vogel.qqdl.site", version: "2.6" },
       { url: "https://katze.qqdl.site", version: "2.6" },
       { url: "https://hund.qqdl.site", version: "2.6" },
+      { url: "https://tidal.kinoplus.online", version: "2.2" },
       { url: "https://wolf.qqdl.site", version: "2.2" },
     ],
     streaming: [
       { url: "https://hifi.geeked.wtf", version: "2.7" },
+      { url: "https://eu-central.monochrome.tf", version: "2.7" },
+      { url: "https://us-west.monochrome.tf", version: "2.7" },
+      { url: "https://arran.monochrome.tf", version: "2.7" },
       { url: "https://maus.qqdl.site", version: "2.6" },
       { url: "https://vogel.qqdl.site", version: "2.6" },
       { url: "https://katze.qqdl.site", version: "2.6" },
       { url: "https://hund.qqdl.site", version: "2.6" },
+      { url: "https://tidal.kinoplus.online", version: "2.2" },
       { url: "https://wolf.qqdl.site", version: "2.6" },
     ],
   };
 
   var instanceCache = null; // { apiInstances: [], streamingInstances: [], fetchedAt: number }
 
-  async function fetchInstances() {
-    if (state.mockMode) {
-      updateHealthState(true, true);
-      return;
+  function normalizeInstance(item) {
+    if (!item) return null;
+    var url = typeof item === "string" ? item : item.url;
+    if (!url || typeof url !== "string") return null;
+    return { url: url.replace(/\/+$/, ""), version: item.version || null };
+  }
+
+  function uniqueInstances(items) {
+    var seen = {};
+    var out = [];
+    for (var i = 0; i < items.length; i++) {
+      var inst = normalizeInstance(items[i]);
+      if (!inst || seen[inst.url]) continue;
+      seen[inst.url] = true;
+      out.push(inst);
     }
+    return out;
+  }
+
+  async function fetchJsonFromInstance(inst, path) {
+    var resp = await api.network.fetch(inst.url + path, { insecure: true });
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error("HTTP " + resp.status);
+    }
+    return resp.json();
+  }
+
+  function hasStreamPayload(json) {
+    var data = json && (json.data || json);
+    if (!data) return false;
+    return !!(data.manifest || data.url || data.streamUrl || data.originalTrackUrl || data.OriginalTrackUrl);
+  }
+
+  async function probeInstances(instances, kind) {
+    var path = kind === "streaming"
+      ? "/track/?id=" + STREAM_PROBE_TRACK_ID + "&quality=LOW"
+      : API_PROBE_PATH;
+    var usable = [];
+    for (var i = 0; i < instances.length; i++) {
+      var inst = instances[i];
+      try {
+        var json = await fetchJsonFromInstance(inst, path);
+        if (kind === "streaming" && !hasStreamPayload(json)) continue;
+        usable.push(inst);
+      } catch (e) {
+        console.error("TIDAL instance probe failed for " + kind + " endpoint " + inst.url + ":", e);
+      }
+    }
+    return usable;
+  }
+
+  async function fetchInstanceCandidates() {
     for (var i = 0; i < UPTIME_URLS.length; i++) {
       try {
         var resp = await api.network.fetch(UPTIME_URLS[i], { insecure: true });
         if (resp.status !== 200) continue;
         var json = await resp.json();
-        var apiInstances = (json.api || []).map(function (item) {
-          return { url: item.url.replace(/\/+$/, ""), version: item.version || null };
-        });
-        var streamingInstances = (json.streaming || []).map(function (item) {
-          return { url: item.url.replace(/\/+$/, ""), version: item.version || null };
-        });
-        instanceCache = { apiInstances: apiInstances, streamingInstances: streamingInstances, fetchedAt: Date.now() };
-        state.lastHealthCheck = Date.now();
-        updateHealthState(apiInstances.length > 0, streamingInstances.length > 0);
-        return;
+        return {
+          apiInstances: uniqueInstances((json.api || []).concat(FALLBACK_INSTANCES.api)),
+          streamingInstances: uniqueInstances((json.streaming || []).concat(FALLBACK_INSTANCES.streaming)),
+        };
       } catch (e) {
-        // try next uptime URL
+        console.error("TIDAL uptime API failed:", UPTIME_URLS[i], e);
       }
     }
-    // all uptime URLs failed — use hardcoded fallback list
-    state.lastHealthCheck = Date.now();
-    instanceCache = {
-      apiInstances: FALLBACK_INSTANCES.api.slice(),
-      streamingInstances: FALLBACK_INSTANCES.streaming.slice(),
-      fetchedAt: Date.now(),
+    // All uptime URLs failed; use the hardcoded Monochrome instance list as candidates.
+    rustLog("warn", "TIDAL uptime APIs unreachable — probing fallback instance list");
+    return {
+      apiInstances: uniqueInstances(FALLBACK_INSTANCES.api),
+      streamingInstances: uniqueInstances(FALLBACK_INSTANCES.streaming),
     };
-    rustLog("warn", "TIDAL uptime APIs unreachable — using fallback instance list (" + instanceCache.apiInstances.length + " API, " + instanceCache.streamingInstances.length + " streaming)");
-    updateHealthState(true, true);
+  }
+
+  async function fetchInstances() {
+    if (state.mockMode) {
+      state.lastHealthCheck = Date.now();
+      instanceCache = {
+        apiInstances: [{ url: "mock://tidal", version: "mock" }],
+        streamingInstances: [{ url: "mock://tidal", version: "mock" }],
+        fetchedAt: Date.now(),
+      };
+      updateHealthState(true, true);
+      return;
+    }
+    var candidates = await fetchInstanceCandidates();
+    var apiInstances = await probeInstances(candidates.apiInstances, "api");
+    var streamingCandidates = candidates.streamingInstances.length > 0 ? candidates.streamingInstances : candidates.apiInstances;
+    var streamingInstances = await probeInstances(streamingCandidates, "streaming");
+    state.lastHealthCheck = Date.now();
+    instanceCache = { apiInstances: apiInstances, streamingInstances: streamingInstances, fetchedAt: Date.now() };
+    rustLog(apiInstances.length > 0 ? "info" : "warn", "TIDAL probe found " + apiInstances.length + " API instance" + (apiInstances.length !== 1 ? "s" : "") + " and " + streamingInstances.length + " streaming instance" + (streamingInstances.length !== 1 ? "s" : ""));
+    updateHealthState(apiInstances.length > 0, streamingInstances.length > 0);
   }
 
   function updateHealthState(apiUp, streamingUp) {
@@ -204,7 +271,7 @@ function activate(api) {
         lastError = new Error("TIDAL request failed with status " + resp.status);
       } catch (e) {
         lastError = e;
-        // Network error — try next instance
+        console.error("TIDAL request failed for instance " + inst.url + path + ":", e);
       }
     }
     instanceCache = null;
@@ -225,6 +292,7 @@ function activate(api) {
       var urls = parsed.urls || [];
       return urls[0] || null;
     } catch (e) {
+      console.error("Failed to decode TIDAL stream manifest:", e);
       return null;
     }
   }
@@ -281,9 +349,9 @@ function activate(api) {
     var albumPath = "/search/?al=" + encoded + "&limit=" + limit + "&offset=" + (offset || 0);
 
     var results = await Promise.all([
-      tidalFetch(trackPath).catch(function () { return null; }),
-      tidalFetch(artistPath).catch(function () { return null; }),
-      tidalFetch(albumPath).catch(function () { return null; }),
+      tidalFetch(trackPath).catch(function (e) { console.error("TIDAL track search failed:", e); return null; }),
+      tidalFetch(artistPath).catch(function (e) { console.error("TIDAL artist search failed:", e); return null; }),
+      tidalFetch(albumPath).catch(function (e) { console.error("TIDAL album search failed:", e); return null; }),
     ]);
 
     var tracks = [];
@@ -333,7 +401,7 @@ function activate(api) {
     var json = await tidalFetch("/artist/?id=" + id);
     var artistData = (json.artist && typeof json.artist === "object") ? json.artist : (json.data || {});
     var albums = [];
-    try { albums = await tidalGetArtistAlbums(id); } catch (e) { /* ignore */ }
+    try { albums = await tidalGetArtistAlbums(id); } catch (e) { console.error("Failed to load TIDAL artist albums:", e); }
 
     return {
       tidal_id: artistData.id ? String(artistData.id) : "",
@@ -349,6 +417,7 @@ function activate(api) {
       var instances = await getApiInstances();
       return { available: instances.length > 0, instance_count: instances.length };
     } catch (e) {
+      console.error("TIDAL status check failed:", e);
       return { available: false, instance_count: 0 };
     }
   }
@@ -1158,7 +1227,7 @@ function activate(api) {
         return { url: streamUrl, headers: null, metadata: null };
       }
     } catch (e) {
-      // Fall through
+      console.error("TIDAL download URI resolve failed:", e);
     }
     return null;
   });
@@ -1189,6 +1258,7 @@ function activate(api) {
         }
       };
     } catch (e) {
+      console.error("TIDAL download metadata resolve failed:", e);
       return null;
     }
   });
@@ -1213,7 +1283,7 @@ function activate(api) {
     var streamUrl = await tidalGetStreamUrl(matchId, quality);
     if (!streamUrl) throw new Error("Failed to resolve TIDAL stream URL");
     var info = null;
-    try { info = await tidalGetTrackInfo(matchId); } catch(e) { /* optional metadata enrichment */ }
+    try { info = await tidalGetTrackInfo(matchId); } catch(e) { console.error("Failed to enrich TIDAL interactive resolve metadata:", e); }
     var trackCoverUrl = null;
     if (info) {
       trackCoverUrl = coverUrl(info.cover_id, 1280);
@@ -1252,7 +1322,7 @@ function activate(api) {
         return { url: "tidal://" + tracks[0].tidal_id, label: "TIDAL", sourceUrl: "https://tidal.com/track/" + tracks[0].tidal_id };
       }
     } catch (e) {
-      // TIDAL unavailable — skip
+      console.error("TIDAL fallback stream resolve failed:", e);
     }
     return null;
   });
