@@ -170,7 +170,7 @@ function App() {
   const [resolvingStatus, setResolvingStatus] = useState<{ error: string | null; trying: string | null } | null>(null);
   const [resolvedSource, setResolvedSource] = useState<{ name: string; url: string; sourceUrl: string | null; id: string | null } | null>(null);
   const resolveGenerationRef = useRef(0);
-  const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string } | null>(null);
+  const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>(null);
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef);
   const waveformPeaks = useWaveform(
     playback.currentTrack?.path ?? null,
@@ -1278,8 +1278,13 @@ function App() {
                   invoke("stop_transcode", { sessionId: transcodeSessionRef.current.sessionId }).catch(console.error);
                 }
                 try {
-                  const result = await invoke<{ url: string; sessionId: string }>("start_transcode", { path: parsed.path });
-                  transcodeSessionRef.current = { sessionId: result.sessionId, baseUrl: result.url.replace(/\?seek=.*$/, "") };
+                  const result = await invoke<{ url: string; sessionId: string; durationSecs: number | null }>("start_transcode", { path: parsed.path });
+                  transcodeSessionRef.current = {
+                    sessionId: result.sessionId,
+                    baseUrl: result.url.replace(/\?seek=.*$/, ""),
+                    durationSecs: result.durationSecs ?? null,
+                    seekOffset: 0,
+                  };
                   return result.url;
                 } catch (e) {
                   const msg = e instanceof Error ? e.message : String(e);

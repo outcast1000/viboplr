@@ -17,7 +17,7 @@ export function usePlayback(
   trackVideoHistoryRef: React.RefObject<boolean>,
   resolveTrackSrcRef: React.RefObject<(track: QueueTrack) => Promise<string>>,
   prefetchNextRef: React.RefObject<() => void>,
-  transcodeSessionRef: React.RefObject<{ sessionId: string; baseUrl: string } | null>,
+  transcodeSessionRef: React.RefObject<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>,
 ) {
   const [currentTrack, setCurrentTrack] = useState<QueueTrack | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -395,8 +395,16 @@ export function usePlayback(
     const parsed = parseUrlScheme(path);
     if (parsed.scheme !== "file") return false;
 
-    const result = await invoke<{ url: string; sessionId: string }>("start_transcode", { path: parsed.path });
-    transcodeSessionRef.current = { sessionId: result.sessionId, baseUrl: result.url.replace(/\?seek=.*$/, "") };
+    const result = await invoke<{ url: string; sessionId: string; durationSecs: number | null }>("start_transcode", { path: parsed.path });
+    transcodeSessionRef.current = {
+      sessionId: result.sessionId,
+      baseUrl: result.url.replace(/\?seek=.*$/, ""),
+      durationSecs: result.durationSecs ?? null,
+      seekOffset: 0,
+    };
+    if (result.durationSecs && result.durationSecs > 0) {
+      setDurationSecs(result.durationSecs);
+    }
     if (videoRef.current) {
       videoRef.current.src = result.url;
       videoRef.current.volume = volumeRef.current;
@@ -540,6 +548,7 @@ export function usePlayback(
     if (!el) return;
 
     if (transcodeSessionRef.current && currentTrack && isVideoTrack(currentTrack)) {
+      transcodeSessionRef.current.seekOffset = secs;
       const url = `${transcodeSessionRef.current.baseUrl}?seek=${secs}`;
       (el as HTMLVideoElement).src = url;
       (el as HTMLVideoElement).play().catch(console.error);
@@ -562,19 +571,27 @@ export function usePlayback(
     const el = e.target as HTMLMediaElement;
     if (!isActiveElement(el)) return;
 
-    setPositionSecs(el.currentTime);
+    const transcodeSession = (transcodeSessionRef.current && currentTrack && isVideoTrack(currentTrack))
+      ? transcodeSessionRef.current
+      : null;
+    const transcodeOffset = transcodeSession ? transcodeSession.seekOffset : 0;
+    const absolutePosition = el.currentTime + transcodeOffset;
+    setPositionSecs(absolutePosition);
 
     // Scrobble threshold check (Last.FM rules) — optionally skip video tracks
     if (!scrobbledRef.current && currentTrack && (trackVideoHistoryRef.current || !isVideoTrack(currentTrack))) {
-      if (shouldScrobble(el.currentTime, currentTrack.duration_secs)) {
+      if (shouldScrobble(absolutePosition, currentTrack.duration_secs)) {
         scrobbledRef.current = true;
         setScrobbled(true);
         invoke("record_play", { title: currentTrack.title, artistName: currentTrack.artist_name }).catch(console.error);
       }
     }
 
-    if (el.duration > 0 && el.duration - el.currentTime > 0) {
-      const remaining = el.duration - el.currentTime;
+    const transcodeDuration = transcodeSession?.durationSecs ?? null;
+    const effectiveDuration = transcodeDuration ?? (isFinite(el.duration) ? el.duration : 0);
+    const effectivePosition = transcodeSession ? absolutePosition : el.currentTime;
+    if (effectiveDuration > 0 && effectiveDuration - effectivePosition > 0) {
+      const remaining = effectiveDuration - effectivePosition;
       const cfSecs = crossfadeSecsRef.current;
       const nextPeek = peekNextRef.current();
       const needsStreamResolve = nextPeek && (!nextPeek.path || (!nextPeek.path.startsWith("file://") && !nextPeek.path.startsWith("http")));
@@ -614,7 +631,14 @@ export function usePlayback(
   function onLoadedMetadata(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
     const el = e.target as HTMLMediaElement;
     if (!isActiveElement(el)) return;
-    if (isFinite(el.duration)) setDurationSecs(el.duration);
+    const transcodeDuration = (transcodeSessionRef.current && currentTrack && isVideoTrack(currentTrack))
+      ? transcodeSessionRef.current.durationSecs
+      : null;
+    if (transcodeDuration && transcodeDuration > 0) {
+      setDurationSecs(transcodeDuration);
+    } else if (isFinite(el.duration)) {
+      setDurationSecs(el.duration);
+    }
 
     if (el instanceof HTMLVideoElement && el.videoWidth === 0) {
       el.pause();

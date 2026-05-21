@@ -4554,6 +4554,7 @@ pub fn is_collection_due_for_auto_update(collection: &Collection, now_secs: i64)
 pub struct TranscodeInfo {
     pub url: String,
     pub session_id: String,
+    pub duration_secs: Option<f64>,
 }
 
 #[tauri::command]
@@ -4569,10 +4570,15 @@ pub async fn start_transcode(
         return Err("ffmpeg is not installed. Install ffmpeg to play MKV/AVI/WMV files.".to_string());
     }
 
+    let probe_path = std::path::PathBuf::from(&path);
+    let duration_secs = tauri::async_runtime::spawn_blocking(move || {
+        crate::video_frames::get_video_duration(&probe_path).ok()
+    }).await.unwrap_or(None);
+
     let session_id = transcode_server::create_session(&state.transcode_sessions, path).await;
     let url = format!("http://127.0.0.1:{}/stream/{}?seek=0", state.transcode_port, session_id);
 
-    Ok(TranscodeInfo { url, session_id })
+    Ok(TranscodeInfo { url, session_id, duration_secs })
 }
 
 #[tauri::command]
