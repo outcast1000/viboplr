@@ -37,6 +37,19 @@ function generateDeviceName() {
   return adj + " " + noun;
 }
 
+function pickRelayFromList(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  var candidates = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (r && Array.isArray(r.multiaddrs) && r.multiaddrs.length > 0) candidates.push(r);
+  }
+  if (candidates.length === 0) return null;
+  var row = candidates[Math.floor(Math.random() * candidates.length)];
+  var addr = row.multiaddrs[Math.floor(Math.random() * row.multiaddrs.length)];
+  return { peerId: row.peer_id, multiaddr: addr };
+}
+
 function activate(api) {
   var state = {
     enabled: false,
@@ -60,6 +73,7 @@ function activate(api) {
     collections: [],
     diagnostics: null,
     lastHeartbeatTs: null,
+    activeRelay: null, // { peerId, multiaddr } chosen on activate
   };
 
   // --- Config management ---
@@ -109,6 +123,42 @@ function activate(api) {
     var opts = { method: method, headers: headers };
     if (body) opts.body = JSON.stringify(body);
     return api.network.fetch(url, opts);
+  }
+
+  function fetchRegisteredRelays() {
+    if (!state.config.supabaseUrl) return Promise.resolve([]);
+    var twoMinAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    return supabaseFetch(
+      "GET",
+      "/relays?select=peer_id,multiaddrs&healthy=eq.true&last_seen=gte." +
+        encodeURIComponent(twoMinAgo)
+    )
+      .then(function (resp) { return resp.json(); })
+      .catch(function (e) {
+        api.log("warn", "P2P: failed to fetch relays: " + e);
+        return [];
+      });
+  }
+
+  function chooseRelay() {
+    // Manual override always wins.
+    if (state.config.relayMultiaddr) {
+      state.activeRelay = { peerId: null, multiaddr: state.config.relayMultiaddr };
+      return Promise.resolve(state.config.relayMultiaddr);
+    }
+    return fetchRegisteredRelays().then(function (rows) {
+      var picked = pickRelayFromList(rows || []);
+      state.activeRelay = picked;
+      if (picked) {
+        api.log(
+          "info",
+          "P2P: chose relay " + (picked.peerId || "").substring(0, 12) + "... via " + picked.multiaddr
+        );
+        return picked.multiaddr;
+      }
+      api.log("warn", "P2P: no registered relays available; starting without relay");
+      return null;
+    });
   }
 
   function getSharedTrackCount() {
@@ -786,79 +836,80 @@ function activate(api) {
     state.error = null;
     renderView(); // show "connecting" state
 
-    var relay = state.config.relayMultiaddr || null;
-    api.p2p
-      .start(relay)
-      .then(function (status) {
-        api.log("info", "P2P: start() returned: " + JSON.stringify(status));
-        // Treat any non-error response as success — the node is running
-        state.online = true;
-        if (status) {
-          state.peerId = status.peer_id || "";
-          state.multiaddrs = status.multiaddrs || [];
-          state.canRelay = status.can_relay || false;
-        }
-        renderView();
-        renderSettings();
+    chooseRelay().then(function (relay) {
+      api.p2p
+        .start(relay)
+        .then(function (status) {
+          api.log("info", "P2P: start() returned: " + JSON.stringify(status));
+          // Treat any non-error response as success — the node is running
+          state.online = true;
+          if (status) {
+            state.peerId = status.peer_id || "";
+            state.multiaddrs = status.multiaddrs || [];
+            state.canRelay = status.can_relay || false;
+          }
+          renderView();
+          renderSettings();
 
-        // Start heartbeat
-        heartbeat();
-        heartbeatInterval = setInterval(heartbeat, 60000);
+          // Start heartbeat
+          heartbeat();
+          heartbeatInterval = setInterval(heartbeat, 60000);
 
-        // Start peer count polling
-        countPeers();
-        peerCountInterval = setInterval(countPeers, 30000);
+          // Start peer count polling
+          countPeers();
+          peerCountInterval = setInterval(countPeers, 30000);
 
-        // Start diagnostics polling
-        fetchDiagnostics();
-        diagnosticsInterval = setInterval(fetchDiagnostics, 5000);
+          // Start diagnostics polling
+          fetchDiagnostics();
+          diagnosticsInterval = setInterval(fetchDiagnostics, 5000);
 
-        // Set shared collections
-        if (state.config.sharedCollections.length > 0) {
-          api.p2p.setSharedCollections(state.config.sharedCollections).catch(function () {});
-        }
+          // Set shared collections
+          if (state.config.sharedCollections.length > 0) {
+            api.p2p.setSharedCollections(state.config.sharedCollections).catch(function () {});
+          }
 
-        // Poll for status update (multiaddrs may come in slightly later)
-        setTimeout(function () {
-          api.p2p.getStatus().then(function (s) {
-            if (s && s.status === "online") {
-              state.peerId = s.peer_id;
-              state.multiaddrs = s.multiaddrs || [];
-              state.canRelay = s.can_relay || false;
+          // Poll for status update (multiaddrs may come in slightly later)
+          setTimeout(function () {
+            api.p2p.getStatus().then(function (s) {
+              if (s && s.status === "online") {
+                state.peerId = s.peer_id;
+                state.multiaddrs = s.multiaddrs || [];
+                state.canRelay = s.can_relay || false;
+                renderView();
+                renderSettings();
+                heartbeat(); // re-heartbeat with updated addrs
+              }
+            }).catch(function () {});
+          }, 2000);
+        })
+        .catch(function (e) {
+          var msg = String(e);
+          // If already running, just get the current status
+          if (msg.indexOf("already running") >= 0) {
+            api.log("info", "P2P: Node already running, fetching status");
+            return api.p2p.getStatus().then(function (s) {
+              state.online = true;
+              if (s) {
+                state.peerId = s.peer_id || "";
+                state.multiaddrs = s.multiaddrs || [];
+                state.canRelay = s.can_relay || false;
+              }
               renderView();
               renderSettings();
-              heartbeat(); // re-heartbeat with updated addrs
-            }
-          }).catch(function () {});
-        }, 2000);
-      })
-      .catch(function (e) {
-        var msg = String(e);
-        // If already running, just get the current status
-        if (msg.indexOf("already running") >= 0) {
-          api.log("info", "P2P: Node already running, fetching status");
-          return api.p2p.getStatus().then(function (s) {
-            state.online = true;
-            if (s) {
-              state.peerId = s.peer_id || "";
-              state.multiaddrs = s.multiaddrs || [];
-              state.canRelay = s.can_relay || false;
-            }
-            renderView();
-            renderSettings();
-            heartbeat();
-            heartbeatInterval = setInterval(heartbeat, 60000);
-            countPeers();
-            peerCountInterval = setInterval(countPeers, 30000);
-            fetchDiagnostics();
-            diagnosticsInterval = setInterval(fetchDiagnostics, 5000);
-          });
-        }
-        state.error = "Failed to start: " + msg;
-        api.log("error", "P2P: " + state.error);
-        state.online = false;
-        renderView();
-      });
+              heartbeat();
+              heartbeatInterval = setInterval(heartbeat, 60000);
+              countPeers();
+              peerCountInterval = setInterval(countPeers, 30000);
+              fetchDiagnostics();
+              diagnosticsInterval = setInterval(fetchDiagnostics, 5000);
+            });
+          }
+          state.error = "Failed to start: " + msg;
+          api.log("error", "P2P: " + state.error);
+          state.online = false;
+          renderView();
+        });
+    });
   }
 
   function shutdown() {
