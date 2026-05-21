@@ -719,14 +719,22 @@ function activate(api) {
               type: "settings-row",
               label: "Server Status",
               description: serverStatus,
+            },
+          ].concat(UPTIME_URLS.map(function (url, i) {
+            var host = url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+            return {
+              type: "settings-row",
+              label: "Status Page " + (i + 1),
+              description: host,
               control: {
                 type: "button",
-                label: "Open Status Page",
+                label: "Open",
                 action: "open-status-page",
+                data: { url: url },
                 className: "ds-btn ds-btn--sm ds-btn--secondary",
               },
-            },
-          ],
+            };
+          })),
         },
         {
           type: "section",
@@ -1277,8 +1285,9 @@ function activate(api) {
     }
   });
 
-  api.ui.onAction("open-status-page", function () {
-    api.network.openUrl(UPTIME_URLS[0]);
+  api.ui.onAction("open-status-page", function (data) {
+    var url = (data && data.url) || UPTIME_URLS[0];
+    api.network.openUrl(url);
   });
 
   api.ui.onAction("toggle-mock-mode", function (data) {
