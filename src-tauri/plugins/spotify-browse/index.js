@@ -1506,10 +1506,19 @@ function activate(api) {
         'beginScrape();' +
       '}' +
       'function beginScrape(){' +
-      // Extract playlist cover from header before scrolling begins
-      'var coverEl=document.querySelector("[data-testid=\\"playlist-image\\"]")||document.querySelector("main img[alt][src*=\\"mosaic\\"]")||document.querySelector("main img[alt][src*=\\"playlist\\"]")||document.querySelector("main [data-testid=\\"entity-image\\"] img")||document.querySelector("main picture img");' +
-      'var _coverUrl=null;if(coverEl){_coverUrl=coverEl.currentSrc||coverEl.src||null;if(_coverUrl&&_coverUrl.indexOf("data:")===0)_coverUrl=null}' +
-      'if(!_coverUrl){var headerEl=document.querySelector("[data-testid=\\"playlist-page\\"]")||document.querySelector("main header")||document.querySelector("main section");if(headerEl){_coverUrl=bestImg(headerEl)}}' +
+      // Extract playlist cover. Prefer og:image (server-rendered, canonical for the URL)
+      // because in-page <img> selectors can drift to track-row art for algorithmic
+      // playlists like Discover Weekly / Release Radar.
+      'var _coverUrl=null;' +
+      'var ogEl=document.querySelector("meta[property=\\"og:image\\"]");' +
+      'if(ogEl){var ogVal=ogEl.getAttribute("content")||"";if(isValidImgUrl(ogVal))_coverUrl=ogVal}' +
+      'if(!_coverUrl){' +
+        'var coverEl=document.querySelector("[data-testid=\\"playlist-image\\"]")||document.querySelector("[data-testid=\\"entity-image\\"] img")||document.querySelector("main header img[draggable=\\"false\\"]")||document.querySelector("main picture img");' +
+        'if(coverEl){_coverUrl=coverEl.currentSrc||coverEl.src||null;if(_coverUrl&&_coverUrl.indexOf("data:")===0)_coverUrl=null}' +
+      '}' +
+      // Last-resort scope: header only. Never `main section` — that wrapper contains
+      // the tracklist, so bestImg() returns the first track row's album art.
+      'if(!_coverUrl){var headerEl=document.querySelector("[data-testid=\\"playlist-page\\"] header")||document.querySelector("main header");if(headerEl){_coverUrl=bestImg(headerEl)}}' +
       // Incremental scroll: move one viewport at a time, scrape visible rows at each stop
       'var allOut=[];var seenKeys={};var n=0;var maxSteps=60;' +
       'var step=Math.max(sc.clientHeight-50,200);' +
