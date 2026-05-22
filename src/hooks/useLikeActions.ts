@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Track, Artist, Album, Tag, QueueTrack } from "../types";
 import type { PluginEventName } from "../types/plugin";
 import { parseLibraryId } from "../queueEntry";
+import { emitTrackPatch } from "../trackEvents";
 
 interface LibraryDeps {
   tracks: Track[];
@@ -62,6 +63,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
         playback.setCurrentTrack(prev => prev ? { ...prev, liked: newLiked } : prev);
       }
       queueHook.setQueue(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
+      emitTrackPatch(trackId, { liked: newLiked });
       plugins.dispatchEvent("track:liked", track, newLiked === 1);
     } catch (e) {
       console.error("Failed to toggle like:", e);
@@ -93,6 +95,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
         playback.setCurrentTrack(prev => prev ? { ...prev, liked: newLiked } : prev);
       }
       queueHook.setQueue(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
+      emitTrackPatch(trackId, { liked: newLiked });
     } catch (e) {
       console.error("Failed to toggle dislike:", e);
     }

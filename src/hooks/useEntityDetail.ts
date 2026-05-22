@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Artist, Album, Tag, Track, SortField, SortDir } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { stripAccents } from "../utils";
+import { subscribeTrackEvents } from "../trackEvents";
 
 const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().replace(/\([^)]*\)/g, "").trim()).replace(/[^\p{L}\p{N}]/gu, "");
 
@@ -96,6 +97,17 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
 
     return () => { cancelled = true; };
   }, [kind, name, artistName, loadKey]);
+
+  useEffect(() => {
+    return subscribeTrackEvents(event => {
+      if (event.kind === "patch") {
+        setTracks(prev => prev.map(t => t.id === event.trackId ? { ...t, ...event.patch } : t));
+      } else {
+        const removed = new Set(event.trackIds);
+        setTracks(prev => prev.filter(t => t.id == null || !removed.has(t.id)));
+      }
+    });
+  }, []);
 
   // Fetch track popularity from ranked_list info types (artist and album only)
   useEffect(() => {

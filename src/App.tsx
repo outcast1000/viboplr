@@ -20,6 +20,7 @@ function needsTranscode(track: { format: string | null }): boolean {
 }
 
 import { store } from "./store";
+import { emitTrackPatch } from "./trackEvents";
 import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, isLocalTrack, type QueueEntry } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import type { SearchProviderConfig } from "./searchProviders";
@@ -2743,7 +2744,11 @@ function App() {
                 onToggleLike={() => likeActions.handleToggleLike(track)}
                 onToggleDislike={() => likeActions.handleToggleDislike(track)}
                 onShowInFolder={async () => { const libId = parseLibraryId(library.selectedTrack!); if (libId == null) return; try { await invoke("show_in_folder", { trackId: libId }); } catch (e) { console.error("Failed to open containing folder:", e); contextMenuActions.setFolderError(String(e)); } }}
-                onUpdateTrack={(update) => library.setTracks(prev => prev.map(t => t.id === library.selectedTrack ? { ...t, ...update } : t))}
+                onUpdateTrack={(update) => {
+                  const libId = parseLibraryId(library.selectedTrack!);
+                  library.setTracks(prev => prev.map(t => t.key === library.selectedTrack ? { ...t, ...update } : t));
+                  if (libId != null) emitTrackPatch(libId, update);
+                }}
                 onTagsChanged={() => invoke<Tag[]>("get_tags").then(library.setTags).catch(console.error)}
               />
             );

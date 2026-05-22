@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Track } from "../types";
+import { emitTrackPatch } from "../trackEvents";
 
 interface BulkEditModalProps {
   tracks: Track[];
@@ -115,6 +116,15 @@ export default function BulkEditModal({ tracks, onClose, onSave }: BulkEditModal
       if (result.length > 0) {
         setErrors(result);
       } else {
+        const patch: Partial<Track> = {};
+        if (dirtyArtist) patch.artist_name = artist || null;
+        if (dirtyAlbum) patch.album_title = album || null;
+        if (dirtyYear) patch.year = year ? parseInt(year, 10) : null;
+        if (Object.keys(patch).length > 0) {
+          for (const t of tracks) {
+            if (t.id != null) emitTrackPatch(t.id, patch);
+          }
+        }
         onSave();
       }
     } catch (e) {

@@ -7,6 +7,7 @@ import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
 import { store } from "../store";
 import { trashLabel } from "../utils";
+import { emitTrackPatch, emitTracksDeleted } from "../trackEvents";
 
 interface UseContextMenuActionsDeps {
   library: {
@@ -370,6 +371,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       const deletedPaths = new Set(result.deletedPaths as string[]);
       if (result.deletedIds.length > 0) {
         library.setTracks(prev => prev.filter(t => t.id == null || !new Set(result.deletedIds).has(t.id)));
+        emitTracksDeleted(result.deletedIds);
         if (playback.currentTrack?.path && deletedPaths.has(playback.currentTrack.path)) {
           playback.handleStop();
         }
@@ -428,6 +430,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         url: youtubeFeedback.url,
       });
       library.setTracks(prev => prev.map(t => t.id === youtubeFeedback.trackId ? { ...t, youtube_url: youtubeFeedback.url } : t));
+      emitTrackPatch(youtubeFeedback.trackId, { youtube_url: youtubeFeedback.url });
     }
     setYoutubeFeedback(null);
   }
