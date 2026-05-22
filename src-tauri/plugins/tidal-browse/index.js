@@ -81,12 +81,14 @@ function activate(api) {
   var API_PROBE_PATH = "/search/?s=test&limit=1";
   var STREAM_PROBE_TRACK_ID = "35132878";
 
+  // Mirrors Monochrome's published default list (https://monochrome.tf assets/index-*.js).
+  // Streaming is intentionally a subset of api — eu-central/us-west/api.monochrome.tf/
+  // tidal.kinoplus.online aren't reliable for streaming and Monochrome excludes them.
   var FALLBACK_INSTANCES = {
     api: [
       { url: "https://hifi.geeked.wtf", version: "2.7" },
       { url: "https://eu-central.monochrome.tf", version: "2.7" },
       { url: "https://us-west.monochrome.tf", version: "2.7" },
-      { url: "https://arran.monochrome.tf", version: "2.7" },
       { url: "https://api.monochrome.tf", version: "2.5" },
       { url: "https://monochrome-api.samidy.com", version: "2.3" },
       { url: "https://maus.qqdl.site", version: "2.6" },
@@ -98,14 +100,10 @@ function activate(api) {
     ],
     streaming: [
       { url: "https://hifi.geeked.wtf", version: "2.7" },
-      { url: "https://eu-central.monochrome.tf", version: "2.7" },
-      { url: "https://us-west.monochrome.tf", version: "2.7" },
-      { url: "https://arran.monochrome.tf", version: "2.7" },
       { url: "https://maus.qqdl.site", version: "2.6" },
       { url: "https://vogel.qqdl.site", version: "2.6" },
       { url: "https://katze.qqdl.site", version: "2.6" },
       { url: "https://hund.qqdl.site", version: "2.6" },
-      { url: "https://tidal.kinoplus.online", version: "2.2" },
       { url: "https://wolf.qqdl.site", version: "2.6" },
     ],
   };
@@ -129,6 +127,31 @@ function activate(api) {
       out.push(inst);
     }
     return out;
+  }
+
+  function shuffleInPlace(arr) {
+    for (var i = arr.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = arr[i];
+      arr[i] = arr[j];
+      arr[j] = tmp;
+    }
+    return arr;
+  }
+
+  // Match Monochrome's priority: hifi.geeked.wtf first, then other instances
+  // shuffled, then *.qqdl.site shuffled last (qqdl is rate-limited / less reliable).
+  function prioritizeInstances(items) {
+    var preferred = [];
+    var middle = [];
+    var qqdl = [];
+    for (var i = 0; i < items.length; i++) {
+      var url = items[i].url || "";
+      if (url.indexOf("hifi.geeked.wtf") !== -1) preferred.push(items[i]);
+      else if (url.indexOf(".qqdl.site") !== -1) qqdl.push(items[i]);
+      else middle.push(items[i]);
+    }
+    return preferred.concat(shuffleInPlace(middle)).concat(shuffleInPlace(qqdl));
   }
 
   async function fetchJsonFromInstance(inst, path) {
@@ -170,8 +193,8 @@ function activate(api) {
         if (resp.status !== 200) continue;
         var json = await resp.json();
         return {
-          apiInstances: uniqueInstances((json.api || []).concat(FALLBACK_INSTANCES.api)),
-          streamingInstances: uniqueInstances((json.streaming || []).concat(FALLBACK_INSTANCES.streaming)),
+          apiInstances: prioritizeInstances(uniqueInstances((json.api || []).concat(FALLBACK_INSTANCES.api))),
+          streamingInstances: prioritizeInstances(uniqueInstances((json.streaming || []).concat(FALLBACK_INSTANCES.streaming))),
         };
       } catch (e) {
         console.error("TIDAL uptime API failed:", UPTIME_URLS[i], e);
@@ -180,8 +203,8 @@ function activate(api) {
     // All uptime URLs failed; use the hardcoded Monochrome instance list as candidates.
     rustLog("warn", "TIDAL uptime APIs unreachable — probing fallback instance list");
     return {
-      apiInstances: uniqueInstances(FALLBACK_INSTANCES.api),
-      streamingInstances: uniqueInstances(FALLBACK_INSTANCES.streaming),
+      apiInstances: prioritizeInstances(uniqueInstances(FALLBACK_INSTANCES.api)),
+      streamingInstances: prioritizeInstances(uniqueInstances(FALLBACK_INSTANCES.streaming)),
     };
   }
 
