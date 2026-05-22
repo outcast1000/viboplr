@@ -820,7 +820,7 @@
 }
 
 .mini-ultra-indicator.playing .mini-ultra-disc {
-  animation: mini-disc-spin 2.5s linear infinite;
+  animation: mini-disc-spin 1.8s linear infinite;
 }
 
 @keyframes mini-disc-spin {

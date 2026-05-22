@@ -306,12 +306,13 @@ export function NowPlayingBar({
           <div className="mini-ultra-row">
             {currentTrack && (
               <span className={`mini-ultra-indicator${playing ? " playing" : ""}`}>
-                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" className="mini-ultra-disc">
+                <svg width="14" height="14" viewBox="0 0 12 12" fill="none" className="mini-ultra-disc">
                   <circle cx="6" cy="6" r="5.5" fill="currentColor" />
-                  <circle cx="6" cy="6" r="4" fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="0.4" />
-                  <circle cx="6" cy="6" r="2.6" fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="0.4" />
-                  <circle cx="6" cy="6" r="1.2" fill="var(--bg-primary)" />
-                  <circle cx="6" cy="6" r="0.4" fill="currentColor" />
+                  <path d="M6 0.8 A5.2 5.2 0 0 1 11.2 6 L9 6 A3 3 0 0 0 6 3 Z" fill="rgba(255,255,255,0.55)" />
+                  <circle cx="6" cy="6" r="4" fill="none" stroke="rgba(0,0,0,0.25)" strokeWidth="0.4" />
+                  <circle cx="6" cy="6" r="2.6" fill="none" stroke="rgba(0,0,0,0.25)" strokeWidth="0.4" />
+                  <circle cx="6" cy="6" r="1.4" fill="var(--bg-primary)" />
+                  <circle cx="6" cy="6" r="0.5" fill="currentColor" />
                 </svg>
               </span>
             )}
