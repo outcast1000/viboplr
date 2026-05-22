@@ -116,7 +116,26 @@ function activate(api) {
       if (activeReport.log.length > MAX_REPORT_LOG_ENTRIES) {
         activeReport.log.splice(0, activeReport.log.length - MAX_REPORT_LOG_ENTRIES);
       }
+      appendSyncLine(level, tag, msg, data);
     }
+  }
+
+  // Human-readable "last_sync.log" accumulator. Lines are appended in order as
+  // the sync progresses and persisted to plugin storage on finishReport().
+  function appendSyncLine(level, tag, msg, data) {
+    if (!activeReport) return;
+    if (!activeReport.formattedLog) activeReport.formattedLog = [];
+    var ts = new Date().toISOString();
+    var lvl = (level || "info").toUpperCase();
+    var line = ts + " [" + lvl + "] [" + tag + "] " + msg;
+    if (data !== undefined) line += " " + safeStringify(data);
+    activeReport.formattedLog.push(line);
+  }
+
+  // Convenience: append a free-form info line without going through plog (used
+  // for high-level sync summaries we want in the log but not in the live UI).
+  function syncNote(tag, msg, data) {
+    appendSyncLine("info", tag, msg, data);
   }
 
   function dbg(tag, msg, data) { plog("info", tag, msg, data); }
@@ -139,7 +158,156 @@ function activate(api) {
       }),
       playlists: [],
       log: [],
+      // Detailed sync trace (persisted as last_sync.log)
+      formattedLog: [],
+      pageVisits: [],   // [{url, phase, ts}]
+      imageHits: [],    // [{kind, playlistId, playlistName, url, rule, element}]
+      ruleStats: {},    // ruleKey -> { ok, fail }
     };
+    syncNote("sync", "=== Spotify sync started ===", {
+      trigger: trigger,
+      sections: sectionsToScrape,
+    });
+  }
+
+  function recordPageVisit(url, phase) {
+    if (!activeReport || !url) return;
+    activeReport.pageVisits.push({ url: url, phase: phase || "", ts: Date.now() });
+  }
+
+  function recordImageHit(entry) {
+    if (!activeReport) return;
+    activeReport.imageHits.push(entry);
+  }
+
+  function recordRuleOutcome(ruleKey, ok) {
+    if (!activeReport || !ruleKey) return;
+    if (!activeReport.ruleStats[ruleKey]) activeReport.ruleStats[ruleKey] = { ok: 0, fail: 0 };
+    if (ok) activeReport.ruleStats[ruleKey].ok++;
+    else activeReport.ruleStats[ruleKey].fail++;
+  }
+
+  function buildLastSyncLog(report) {
+    var lines = [];
+    lines.push("=== Spotify Sync Log ===");
+    lines.push("Trigger: " + (report.trigger || "?"));
+    lines.push("Started: " + report.startedAt);
+    lines.push("Ended: " + (report.endedAt || "?"));
+    lines.push("Duration: " + Math.round((report.durationMs || 0) / 1000) + "s (" + report.durationMs + "ms)");
+    lines.push("Outcome: " + report.outcome + (report.errorMessage ? " — " + report.errorMessage : ""));
+    lines.push("");
+
+    // Sections summary
+    lines.push("--- Sections ---");
+    for (var i = 0; i < (report.sections || []).length; i++) {
+      var s = report.sections[i];
+      lines.push("  " + s.name + ": " + s.status +
+        " (attempts=" + (s.attempts || 0) + ", playlists=" + (s.playlistCount || 0) + ")");
+    }
+    lines.push("");
+
+    // Playlists summary
+    var totalTracks = 0;
+    var okPl = 0, emptyPl = 0, errPl = 0, timeoutPl = 0;
+    lines.push("--- Playlists (" + (report.playlists || []).length + ") ---");
+    for (var p = 0; p < (report.playlists || []).length; p++) {
+      var pl = report.playlists[p];
+      totalTracks += (pl.trackCount || 0);
+      if (pl.status === "ok") okPl++;
+      else if (pl.status === "empty") emptyPl++;
+      else if (pl.status === "error") errPl++;
+      else if (pl.status === "timeout") timeoutPl++;
+      lines.push("  [" + pl.status + "] " + (pl.name || "?") +
+        " (id=" + pl.id + ", section=" + (pl.section || "?") + ")" +
+        " — " + (pl.trackCount || 0) + " tracks in " + Math.round((pl.durationMs || 0) / 1000) + "s" +
+        (pl.error ? " — error: " + pl.error : ""));
+    }
+    lines.push("");
+    lines.push("  Totals: " + totalTracks + " tracks across " + (report.playlists || []).length +
+      " playlists (ok=" + okPl + ", empty=" + emptyPl + ", error=" + errPl + ", timeout=" + timeoutPl + ")");
+    lines.push("");
+
+    // Pages visited
+    lines.push("--- Pages visited (" + (report.pageVisits || []).length + ") ---");
+    for (var v = 0; v < (report.pageVisits || []).length; v++) {
+      var pv = report.pageVisits[v];
+      lines.push("  [" + (pv.phase || "?") + "] " + pv.url);
+    }
+    lines.push("");
+
+    // Images discovered
+    lines.push("--- Images retrieved (" + (report.imageHits || []).length + ") ---");
+    for (var im = 0; im < (report.imageHits || []).length; im++) {
+      var h = report.imageHits[im];
+      var label = "  [" + (h.kind || "?") + "]";
+      if (h.playlistName) label += " " + h.playlistName + " (" + (h.playlistId || "?") + ")";
+      label += " rule=" + (h.rule || "?");
+      if (h.element) label += " element=" + h.element;
+      label += " url=" + (h.url ? String(h.url).substring(0, 200) : "(none)");
+      lines.push(label);
+    }
+    lines.push("");
+
+    // Rule stats
+    lines.push("--- Rule outcomes ---");
+    var ruleKeys = Object.keys(report.ruleStats || {});
+    if (ruleKeys.length === 0) {
+      lines.push("  (no rule outcomes recorded)");
+    } else {
+      ruleKeys.sort();
+      for (var rk = 0; rk < ruleKeys.length; rk++) {
+        var key = ruleKeys[rk];
+        var st = report.ruleStats[key];
+        lines.push("  " + key + ": ok=" + (st.ok || 0) + " fail=" + (st.fail || 0));
+      }
+    }
+    lines.push("");
+
+    // Per-section snapshots (if any captured for failures)
+    var hasSnap = false;
+    for (var ss = 0; ss < (report.sections || []).length; ss++) {
+      if (report.sections[ss].snapshot) { hasSnap = true; break; }
+    }
+    if (!hasSnap) {
+      for (var ps = 0; ps < (report.playlists || []).length; ps++) {
+        if (report.playlists[ps].snapshot) { hasSnap = true; break; }
+      }
+    }
+    if (hasSnap) {
+      lines.push("--- Failure snapshots ---");
+      for (var sx = 0; sx < (report.sections || []).length; sx++) {
+        var sec = report.sections[sx];
+        if (sec.snapshot) {
+          lines.push("  section '" + sec.name + "' snapshot:");
+          lines.push("    url: " + (sec.snapshot.url || "?"));
+          lines.push("    title: " + (sec.snapshot.title || "?"));
+          lines.push("    counts: " + safeStringify(sec.snapshot.counts || {}));
+          if (sec.snapshot.testids) {
+            lines.push("    testids (top 20): " + sec.snapshot.testids.slice(0, 20).join(", "));
+          }
+        }
+      }
+      for (var px = 0; px < (report.playlists || []).length; px++) {
+        var pp = report.playlists[px];
+        if (pp.snapshot) {
+          lines.push("  playlist '" + (pp.name || "?") + "' (" + pp.id + ") snapshot:");
+          lines.push("    url: " + (pp.snapshot.url || "?"));
+          lines.push("    counts: " + safeStringify(pp.snapshot.counts || {}));
+          if (pp.snapshot.testids) {
+            lines.push("    testids (top 20): " + pp.snapshot.testids.slice(0, 20).join(", "));
+          }
+        }
+      }
+      lines.push("");
+    }
+
+    // Full ordered trace
+    lines.push("--- Trace (" + (report.formattedLog || []).length + " lines) ---");
+    for (var fl = 0; fl < (report.formattedLog || []).length; fl++) {
+      lines.push(report.formattedLog[fl]);
+    }
+
+    return lines.join("\n");
   }
 
   function getReportSection(name) {
@@ -156,9 +324,26 @@ function activate(api) {
     activeReport.durationMs = new Date(activeReport.endedAt).getTime() - new Date(activeReport.startedAt).getTime();
     activeReport.outcome = outcome;
     if (errorMessage) activeReport.errorMessage = errorMessage;
+    syncNote("sync", "=== Spotify sync finished ===", {
+      outcome: outcome,
+      errorMessage: errorMessage || null,
+      durationMs: activeReport.durationMs,
+    });
     var snapshot = activeReport;
     activeReport = null;
     persistReport(snapshot);
+    persistLastSyncLog(snapshot);
+  }
+
+  function persistLastSyncLog(report) {
+    try {
+      var text = buildLastSyncLog(report);
+      api.storage.set("last_sync.log", text).catch(function (e) {
+        console.error("Failed to write last_sync.log:", e);
+      });
+    } catch (e) {
+      console.error("Failed to build last_sync.log:", e);
+    }
   }
 
   function persistReport(report) {
@@ -289,6 +474,7 @@ function activate(api) {
       section: pl.section || null,
       description: pl.description || "",
       coverFile: coverFile,
+      coverVersion: pl.coverVersion || null,
       lastCheckedAt: pl.lastCheckedAt || null,
       updatedAt: pl.updatedAt || null,
     }).catch(function (e) { console.error("Failed to write meta:", pl.id, e); });
@@ -325,7 +511,11 @@ function activate(api) {
           var coverUrl = pl.imageUrl;
           promises.push(
             api.storage.files.download(dir.concat(["cover.jpg"]), coverUrl).then(function (path) {
-              pl.imageUrl = path;
+              // Bump coverVersion so the WebView refetches the file even though
+              // the on-disk path is unchanged. Without this, weekly-rotating
+              // covers (Discover Weekly) keep showing last week's image.
+              pl.coverVersion = Date.now();
+              pl.imageUrl = path + "#v=" + pl.coverVersion;
             }).catch(function (e) {
               stats.coverFails++;
               api.log("warn", "Failed to cache playlist cover for " + pl.name + ": " + e + " | url: " + coverUrl.substring(0, 120));
@@ -450,12 +640,16 @@ function activate(api) {
 
       return coverP.then(function (coverPath) {
         return Promise.all(trackPathPromises).then(function () {
+          var versionedCover = coverPath
+            ? (meta.coverVersion ? coverPath + "#v=" + meta.coverVersion : coverPath)
+            : null;
           var playlist = {
             id: meta.id,
             name: meta.name,
             section: meta.section || sectionName,
             description: meta.description || "",
-            imageUrl: coverPath || null,
+            imageUrl: versionedCover,
+            coverVersion: meta.coverVersion || null,
             uri: "spotify://playlists/" + meta.id,
             lastCheckedAt: meta.lastCheckedAt || null,
             updatedAt: meta.updatedAt || null,
@@ -896,7 +1090,7 @@ function activate(api) {
       }
     }
 
-    children.push({ type: "text", content: "<p><i>Detailed logs are written to the app log file (filter by spotify-browse).</i></p>" });
+    children.push({ type: "text", content: "<p><i>Detailed logs are written to the app log file (filter by spotify-browse). The full last-sync trace is stored in plugin storage as <code>last_sync.log</code>.</i></p>" });
 
     return { type: "section", title: "Diagnostics", children: children };
   }
@@ -1482,16 +1676,24 @@ function activate(api) {
       // Extract playlist cover. Prefer og:image (server-rendered, canonical for the URL)
       // because in-page <img> selectors can drift to track-row art for algorithmic
       // playlists like Discover Weekly / Release Radar.
-      'var _coverUrl=null;' +
+      'var _coverUrl=null;var _coverRule=null;var _coverElement=null;' +
+      'var _coverRuleAttempts=[];' +
+      'function _markRule(rule,ok,detail){_coverRuleAttempts.push({rule:rule,ok:!!ok,detail:detail||null})}' +
       'var ogEl=document.querySelector("meta[property=\\"og:image\\"]");' +
-      'if(ogEl){var ogVal=ogEl.getAttribute("content")||"";if(isValidImgUrl(ogVal))_coverUrl=ogVal}' +
+      'if(ogEl){var ogVal=ogEl.getAttribute("content")||"";if(isValidImgUrl(ogVal)){_coverUrl=ogVal;_coverRule="og:image";_coverElement="meta[property=og:image]";_markRule("og:image",true,ogVal.substring(0,120))}else{_markRule("og:image",false,"invalid url: "+ogVal.substring(0,80))}}else{_markRule("og:image",false,"meta tag missing")}' +
       'if(!_coverUrl){' +
-        'var coverEl=document.querySelector("[data-testid=\\"playlist-image\\"]")||document.querySelector("[data-testid=\\"entity-image\\"] img")||document.querySelector("main header img[draggable=\\"false\\"]")||document.querySelector("main picture img");' +
-        'if(coverEl){_coverUrl=coverEl.currentSrc||coverEl.src||null;if(_coverUrl&&_coverUrl.indexOf("data:")===0)_coverUrl=null}' +
+        'var coverElSel=null;var coverEl=null;' +
+        'var sels=["[data-testid=\\"playlist-image\\"]","[data-testid=\\"entity-image\\"] img","main header img[draggable=\\"false\\"]","main picture img"];' +
+        'for(var ci=0;ci<sels.length;ci++){var ce=document.querySelector(sels[ci]);if(ce){coverEl=ce;coverElSel=sels[ci];break}}' +
+        'if(coverEl){var cu=coverEl.currentSrc||coverEl.src||null;if(cu&&cu.indexOf("data:")===0)cu=null;if(cu){_coverUrl=cu;_coverRule="dom-selector";_coverElement=coverElSel;_markRule("dom-selector",true,coverElSel)}else{_markRule("dom-selector",false,"matched "+coverElSel+" but no usable src")}}else{_markRule("dom-selector",false,"no selector matched")}' +
       '}' +
       // Last-resort scope: header only. Never `main section` — that wrapper contains
       // the tracklist, so bestImg() returns the first track row's album art.
-      'if(!_coverUrl){var headerEl=document.querySelector("[data-testid=\\"playlist-page\\"] header")||document.querySelector("main header");if(headerEl){_coverUrl=bestImg(headerEl)}}' +
+      'if(!_coverUrl){' +
+        'var headerEl=document.querySelector("[data-testid=\\"playlist-page\\"] header")||document.querySelector("main header");' +
+        'if(headerEl){var hu=bestImg(headerEl);if(hu){_coverUrl=hu;_coverRule="header-bestImg";_coverElement="header";_markRule("header-bestImg",true,"header found")}else{_markRule("header-bestImg",false,"header had no usable img")}}else{_markRule("header-bestImg",false,"no header element")}' +
+      '}' +
+      'if(!_coverUrl){_dbg("tracks","cover NOT FOUND",_coverRuleAttempts)}' +
       // Incremental scroll: move one viewport at a time, scrape visible rows at each stop
       'var allOut=[];var seenKeys={};var n=0;var maxSteps=' + maxSteps + ';' +
       'var step=Math.max(sc.clientHeight-50,200);' +
@@ -1549,8 +1751,8 @@ function activate(api) {
               'mainText:(document.querySelector("main")?document.querySelector("main").textContent:"").substring(0,200)};' +
             '_dbg("tracks","=== EMPTY ' + playlistId + ' - page diagnostics",diag);' +
           '}' +
-          '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:allOut.length,steps:n,gen:_gen,desc:desc.substring(0,80),coverUrl:_coverUrl});' +
-          'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:allOut,description:desc,coverUrl:_coverUrl,gen:_gen});' +
+          '_dbg("tracks","=== DONE ' + playlistId + '",{parsed:allOut.length,steps:n,gen:_gen,desc:desc.substring(0,80),coverUrl:_coverUrl,coverRule:_coverRule,coverElement:_coverElement});' +
+          'window.__viboplr.send("tracks",{playlistId:"' + playlistId + '",tracks:allOut,description:desc,coverUrl:_coverUrl,coverRule:_coverRule,coverElement:_coverElement,coverRuleAttempts:_coverRuleAttempts,gen:_gen});' +
         '}else{sc.scrollTop+=step;setTimeout(tick,600)}' +
       '}catch(e){' +
         '_dbg("tracks","=== ERROR in tick ' + playlistId + '",{error:""+e,step:n});' +
@@ -1622,6 +1824,13 @@ function activate(api) {
       }).then(function(h) {
         handle = h;
         activeScrapeHandle = h;
+        recordPageVisit("https://open.spotify.com", "open");
+        if (h.onNavigation) {
+          h.onNavigation(function (url) {
+            recordPageVisit(url, "navigate");
+            syncNote("nav", "Page navigated", { url: url });
+          });
+        }
         var loginRetries = 0;
         var loginTimer = null;
 
@@ -1750,6 +1959,7 @@ function activate(api) {
 
               setHandler(function(msg) {
                 if (msg.type === "section-found") {
+                  recordRuleOutcome("section-find:" + sectionName, true);
                   if (showProgress) { state.status = "scraping-playlists"; render(); }
                   // Wait for section page to render, then scrape playlists
                   setTimeout(function() {
@@ -1757,6 +1967,7 @@ function activate(api) {
                   }, 4000);
                 }
                 if (msg.type === "section-not-found") {
+                  recordRuleOutcome("section-find:" + sectionName, false);
                   setTimeout(tryFindSection, 2000);
                 }
                 if (msg.type === "playlists" && Array.isArray(msg.data)) {
@@ -1768,7 +1979,17 @@ function activate(api) {
                       pl.section = sectionName;
                       allPlaylists.push(pl);
                     }
+                    if (pl.imageUrl) {
+                      recordImageHit({
+                        kind: "playlist-card-cover",
+                        playlistId: pl.id, playlistName: pl.name,
+                        rule: "section-card-bestImg",
+                        element: "a[href*=/playlist/]",
+                        url: pl.imageUrl,
+                      });
+                    }
                   }
+                  recordRuleOutcome("section-scrape:" + sectionName, sectionPlaylists.length > 0);
                   if (reportSection) {
                     reportSection.status = "ok";
                     reportSection.playlistCount = sectionPlaylists.length;
@@ -1899,6 +2120,47 @@ function activate(api) {
                 // Liked Songs uses a locally-generated SVG cover; ignore any
                 // og:image / page image (it's a generic Spotify graphic).
                 if (msg.data.coverUrl && pl.id !== LIKED_PLAYLIST_ID) pl.imageUrl = msg.data.coverUrl;
+                // Record cover-rule outcomes and the image we ended up with.
+                var attempts = msg.data.coverRuleAttempts || [];
+                for (var ra = 0; ra < attempts.length; ra++) {
+                  recordRuleOutcome("cover:" + attempts[ra].rule, !!attempts[ra].ok);
+                }
+                if (pl.id === LIKED_PLAYLIST_ID) {
+                  recordImageHit({
+                    kind: "playlist-cover",
+                    playlistId: pl.id, playlistName: pl.name,
+                    rule: "liked-songs-svg", element: "local svg", url: "(local)",
+                  });
+                } else if (msg.data.coverUrl) {
+                  recordImageHit({
+                    kind: "playlist-cover",
+                    playlistId: pl.id, playlistName: pl.name,
+                    rule: msg.data.coverRule || "?",
+                    element: msg.data.coverElement || null,
+                    url: msg.data.coverUrl,
+                  });
+                  syncNote("cover", "Cover for \"" + pl.name + "\" via " + (msg.data.coverRule || "?"), {
+                    element: msg.data.coverElement, url: String(msg.data.coverUrl).substring(0, 200),
+                  });
+                } else {
+                  syncNote("cover", "No cover found for \"" + pl.name + "\"", { attempts: attempts });
+                }
+                // Track images
+                var trackImgCount = 0;
+                for (var tt = 0; tt < tracks.length; tt++) {
+                  if (tracks[tt].imageUrl) {
+                    trackImgCount++;
+                    recordImageHit({
+                      kind: "track-image",
+                      playlistId: pl.id, playlistName: pl.name,
+                      rule: "row-bestImg", element: "tr[role=row]",
+                      url: tracks[tt].imageUrl,
+                    });
+                  }
+                }
+                if (trackImgCount > 0) {
+                  syncNote("tracks", "\"" + pl.name + "\" — " + trackImgCount + "/" + tracks.length + " track images discovered");
+                }
                 plReport.trackCount = tracks.length;
                 plReport.durationMs = Date.now() - plStart;
                 if (msg.data.error) {
