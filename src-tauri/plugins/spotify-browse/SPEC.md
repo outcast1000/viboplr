@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Scrapes playlists and tracks from the Spotify web app (`open.spotify.com`) via an embedded browser window. Spotify does not provide a public API for personalized sections like "Made for You", so the plugin navigates the DOM directly. Users can monitor multiple Spotify browse sections, archive playlist snapshots, and play/enqueue scraped tracks through Viboplr's fallback resolution.
+Scrapes playlists and tracks from the Spotify web app (`open.spotify.com`) via an embedded browser window. Spotify does not provide a public API for personalized sections like "Made for You", so the plugin navigates the DOM directly. Users can monitor multiple Spotify browse sections, save playlists to the app's saved-playlists store, and play/enqueue scraped tracks through Viboplr's fallback resolution.
 
 ## Architecture
 
@@ -21,8 +21,7 @@ Scrapes playlists and tracks from the Spotify web app (`open.spotify.com`) via a
 │    │          │          │     │  visible)    │  │
 │    ▼          │          ▼     └──────────────┘  │
 │  plugin_storage     api.playlists                │
-│  (archives,         (Save to Playlists)          │
-│   preferences,                                   │
+│  (preferences,      (Save to Playlists)          │
 │   sections)                                      │
 └─────────────────────────────────────────────────┘
 ```
@@ -32,7 +31,6 @@ Scrapes playlists and tracks from the Spotify web app (`open.spotify.com`) via a
 - **State** — single `state` object holding all UI and data state; persisted across sessions via `api.storage`
 - **Scraper** — opens `open.spotify.com` in a browse window, injects JS scripts to check login, navigate sections, find playlists, scroll and scrape tracks
 - **Renderer** — builds plugin view data (toolbar, tabs, card grids, track row lists) and calls `api.ui.setViewData`
-- **Archives** — full playlist snapshots stored in plugin storage (`spotify_browse_archives`)
 
 ## UI Structure
 
@@ -44,22 +42,16 @@ Scrapes playlists and tracks from the Spotify web app (`open.spotify.com`) via a
 ### Tabs
 - One tab per configured section (e.g. "Made for You", "Your Top Mixes") with playlist count badges
 - **"+" tab** — shows inline text input to add a new section
-- **"Archived Playlists" tab** (always last) — shows saved snapshots
 
 ### Section Tab Content
 - **Per-section toolbar:** "Refresh [section]" + "Remove Section" buttons
-- **Playlist card grid** with context menus: Play, Enqueue, View/Edit, Archive, Save to Playlists
+- **Playlist card grid** with context menus: Play, Enqueue, View/Edit, Save to Playlists
 - Empty state message when no playlists found
 
 ### Playlist Detail View
-- Back button, Archive button, Save to Playlists button
+- Back button, Save to Playlists button
 - Playlist name, track count, cover image
 - Track row list with change indicators (green border = added, strikethrough = removed)
-
-### Archived Playlists Tab
-- Card grid of archived snapshots with date and track count
-- Context menus: Play, Enqueue, Delete
-- View shows full track list (read-only, no Archive/Save buttons)
 
 ### Settings Panel (`spotify-settings`)
 - Auto-refresh interval select (Off / 6h / 12h / 24h / 2 days / weekly)
@@ -108,7 +100,6 @@ For each discovered playlist:
 | Key | Shape | Purpose |
 |-----|-------|---------|
 | `spotify_browse_state` | `{ playlists, playlistTracks, previousTracks, savedAt }` | Current scrape results |
-| `spotify_browse_archives` | `ArchiveEntry[]` | Archived playlist snapshots |
 | `spotify_browse_sections` | `string[]` | Configured section names |
 | `spotify_browse_preferences` | `{ showBrowserOnRefresh, autoRefreshHours, lastCheckAt, lastCheckResult }` | User preferences + last check info |
 
@@ -120,17 +111,6 @@ For each discovered playlist:
 ### Track Object (scraped)
 ```
 { name, artist, album, duration, imageUrl }
-```
-
-### Archive Entry
-```
-{
-  id: "{spotifyId}:{timestamp}",
-  spotifyId, name, section, imageUrl,
-  archivedAt: ISO string,
-  trackCount: number,
-  tracks: [{ name, artist, album, duration, imageUrl }]
-}
 ```
 
 ## Change Detection
@@ -177,18 +157,8 @@ On refresh, the plugin compares new tracks against previous tracks for each play
 | `play-playlist` | Card context menu | Play via `requestAction("play-tracks")` |
 | `enqueue-playlist` | Card context menu | Enqueue via `requestAction("enqueue-tracks")` |
 | `view-playlist` | Card click/menu | Show playlist detail view |
-| `archive-playlist` | Card context menu | Snapshot to plugin storage |
-| `archive-current` | Detail view button | Archive currently viewed playlist |
 | `save-playlist` | Detail view button | Save to app playlists via `api.playlists.save` |
 | `save-playlist-ctx` | Card context menu | Save to app playlists |
-
-### Archive Actions
-| Action | Data | Behavior |
-|--------|------|----------|
-| `view-archived` | `{ itemId: "archived:{index}" }` | Show archived playlist detail |
-| `play-archived` | `{ itemId }` | Play from embedded tracks |
-| `enqueue-archived` | `{ itemId }` | Enqueue from embedded tracks |
-| `delete-archived` | `{ itemId }` | Remove from archives array |
 
 ## Injected Scripts
 

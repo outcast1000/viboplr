@@ -16,11 +16,9 @@ function activate(api) {
     playlistTracks: {},   // playlistId -> [{ name, artist, album, duration, imageUrl, spotifyId }]
     previousTracks: {},   // playlistId -> tracks from before last refresh
     currentPlaylist: null,
-    scrapeProgress: { current: 0, total: 0, name: "" },
+    scrapeProgress: { current: 0, total: 0, name: "", found: 0 },
     errorMessage: "",
     activeTab: "section:Made for You",
-    archivedPlaylists: [],
-    viewingArchived: false,
     lastLoginCheck: null,
     updatedPlaylistIds: {},
     refreshing: false,
@@ -33,6 +31,9 @@ function activate(api) {
     addingSectionViaTab: false,
     lastReport: null,
     showDiagnostics: false,
+    // Per-playlist search query (only used in the detail view). Keyed by
+    // playlist id so navigating away and back keeps the query.
+    playlistSearch: {},
   };
 
   // ---- Helpers ----
@@ -231,7 +232,6 @@ function activate(api) {
 
   // ---- Filesystem persistence ----
   // Layout: playlists/{section}/{playlist_id}/{meta.json,tracks.json,previous.json,cover.jpg,track-*.jpg}
-  //         archives/{archive_id}/{meta.json,tracks.json,cover.jpg,track-*.jpg}
 
   function djb2Hash(str) {
     var hash = 5381;
@@ -256,103 +256,6 @@ function activate(api) {
 
   function playlistDir(pl) {
     return ["playlists", sanitizeSegment(pl.section || "Playlists"), sanitizeSegment(pl.id)];
-  }
-
-  function loadArchives() {
-    state.archivedPlaylists = [];
-    api.storage.files.list(["archives"]).then(function (entries) {
-      var loads = [];
-      for (var i = 0; i < entries.length; i++) {
-        if (!entries[i].isDir) continue;
-        (function (archiveId) {
-          loads.push(
-            api.storage.files.readJson(["archives", archiveId, "meta.json"]).then(function (meta) {
-              if (!meta) return null;
-              // Resolve cover file to absolute path for rendering
-              if (meta.coverFile) {
-                return api.storage.files.getPath(["archives", archiveId, meta.coverFile]).then(function (p) {
-                  meta.imageUrl = p || meta.imageUrl || null;
-                  meta._archiveId = archiveId;
-                  return meta;
-                });
-              }
-              meta._archiveId = archiveId;
-              return meta;
-            }).catch(function (e) { console.error("Failed to load archive meta:", archiveId, e); return null; })
-          );
-        })(entries[i].name);
-      }
-      return Promise.all(loads);
-    }).then(function (metas) {
-      var list = [];
-      for (var i = 0; i < metas.length; i++) {
-        if (metas[i]) list.push(metas[i]);
-      }
-      list.sort(function (a, b) {
-        return (b.archivedAt || "").localeCompare(a.archivedAt || "");
-      });
-      state.archivedPlaylists = list;
-      if (state.activeTab === "saved") render();
-    }).catch(function (err) {
-      console.error("Failed to load archives:", err);
-      state.archivedPlaylists = [];
-    });
-  }
-
-  function archivePlaylist(pl) {
-    var archiveId = sanitizeSegment(pl.id);
-    // If an archive already exists for this playlist, ask the user what to do.
-    api.storage.files.exists(["archives", archiveId]).then(function (exists) {
-      if (exists) {
-        state.pendingArchive = { playlistId: pl.id, archiveId: archiveId };
-        render();
-        return;
-      }
-      doArchive(pl, archiveId);
-    }).catch(function (e) {
-      console.error("Failed to check archive existence:", e);
-      doArchive(pl, archiveId);
-    });
-  }
-
-  function doArchive(pl, archiveId) {
-    var tracks = state.playlistTracks[pl.id] || [];
-    var now = new Date();
-    var srcDir = playlistDir(pl);
-    var dstDir = ["archives", archiveId];
-
-    // Clear any previous archive dir first so overwrite is clean.
-    api.storage.files.remove(dstDir).catch(function () { /* no-op if missing */ })
-    .then(function () {
-      return api.storage.files.exists(srcDir);
-    }).then(function (exists) {
-      return exists ? api.storage.files.copy(srcDir, dstDir) : Promise.resolve();
-    }).then(function () {
-      var meta = {
-        id: pl.id,
-        spotifyId: pl.id,
-        name: pl.name,
-        section: pl.section || null,
-        description: pl.description || "",
-        coverFile: "cover.jpg",
-        archivedAt: now.toISOString(),
-        lastCheckedAt: pl.lastCheckedAt || null,
-        updatedAt: pl.updatedAt || null,
-        trackCount: tracks.length,
-      };
-      return api.storage.files.writeJson(dstDir.concat(["meta.json"]), meta);
-    }).then(function () {
-      return api.storage.files.exists(dstDir.concat(["tracks.json"])).then(function (hasTracks) {
-        if (hasTracks) return null;
-        return api.storage.files.writeJson(dstDir.concat(["tracks.json"]), serializeTracks(tracks));
-      });
-    }).then(function () {
-      api.ui.showNotification("Archived: " + pl.name);
-      loadArchives();
-    }).catch(function (e) {
-      console.error("Failed to archive playlist:", e);
-      api.ui.showNotification("Failed to archive: " + pl.name);
-    });
   }
 
   function serializeTracks(tracks) {
@@ -605,6 +508,7 @@ function activate(api) {
       var lbl = "Grabbing tracks";
       if (state.scrapeProgress.name) lbl += ": " + state.scrapeProgress.name;
       if (state.scrapeProgress.total > 0) lbl += " (" + state.scrapeProgress.current + "/" + state.scrapeProgress.total + ")";
+      if (state.scrapeProgress.found) lbl += " — " + state.scrapeProgress.found + " tracks";
       return lbl + "…";
     }
     if (state.status === "error") return state.errorMessage;
@@ -641,15 +545,14 @@ function activate(api) {
       statusText = state.lastCheckResult;
     }
 
-    var title = "Spotify";
-    if (!isActive && state.lastCheckAt) {
+    // Append the last-check timestamp to the status text rather than the title.
+    if (!isActive && state.lastCheckAt && statusText) {
       var d = new Date(state.lastCheckAt);
-      title += " — " + d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+      statusText += " — " + d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
     }
 
     return {
       type: "toolbar",
-      title: title,
       buttons: buttons,
       status: statusText || undefined,
       statusVariant: statusVariant,
@@ -664,8 +567,15 @@ function activate(api) {
       tabs.push({ id: "section:" + sec, label: sec, count: secPlaylists.length || undefined });
     }
     tabs.push({ id: "__add__", label: "+" });
-    tabs.push({ id: "saved", label: "Archived Playlists", count: state.archivedPlaylists.length || undefined });
     return tabs;
+  }
+
+  // Returns the synthetic Liked Songs playlist if it's in state.playlists.
+  function getLikedPlaylist() {
+    for (var i = 0; i < state.playlists.length; i++) {
+      if (state.playlists[i].id === LIKED_PLAYLIST_ID) return state.playlists[i];
+    }
+    return null;
   }
 
   function buildPlaylistCards(playlists) {
@@ -692,6 +602,20 @@ function activate(api) {
           });
         }
       }
+      var menu = [
+        { id: "play-playlist", label: "Play" },
+        { id: "enqueue-playlist", label: "Enqueue" },
+        { id: "view-playlist", label: "View / Edit" },
+      ];
+      // Liked Songs has no section toolbar (it's a pinned card), so expose
+      // its refresh action on the card menu.
+      if (sp.id === LIKED_PLAYLIST_ID) {
+        menu.push({ id: "sep-refresh", label: "", separator: true });
+        menu.push({ id: "refresh-liked", label: "Refresh" });
+      }
+      menu.push({ id: "sep", label: "", separator: true });
+      menu.push({ id: "save-playlist-ctx", label: "Save to Playlists" });
+
       cards.push({
         id: "playlist:" + sp.id,
         title: sp.name,
@@ -700,14 +624,7 @@ function activate(api) {
         action: "view-playlist",
         targetKind: "playlist",
         tracks: cardTracks,
-        contextMenuActions: [
-          { id: "play-playlist", label: "Play" },
-          { id: "enqueue-playlist", label: "Enqueue" },
-          { id: "view-playlist", label: "View / Edit" },
-          { id: "sep", label: "", separator: true },
-          { id: "archive-playlist", label: "Archive" },
-          { id: "save-playlist-ctx", label: "Save to Playlists" },
-        ],
+        contextMenuActions: menu,
       });
     }
     return cards;
@@ -718,50 +635,26 @@ function activate(api) {
     var ch = [];
     var isActive = isActiveStatus();
 
-    if (state.activeTab === "saved") {
-      if (state.archivedPlaylists.length === 0) {
-        ch.push({ type: "text", content: "<p style='opacity:0.5'>No archived playlists yet. Use the Archive option on a playlist to snapshot it here.</p>" });
-      } else {
-        var archivedCards = [];
-        for (var ai = 0; ai < state.archivedPlaylists.length; ai++) {
-          var ap = state.archivedPlaylists[ai];
-          var archDate = ap.archivedAt ? new Date(ap.archivedAt) : null;
-          var dateSub = archDate ? archDate.toLocaleDateString() : "";
-          var sub = ap.trackCount + " tracks";
-          if (dateSub) sub += " — " + dateSub;
-          archivedCards.push({
-            id: "archived:" + ai,
-            title: ap.name,
-            subtitle: sub,
-            imageUrl: ap.imageUrl || undefined,
-            action: "view-archived",
-            targetKind: "playlist",
-            contextMenuActions: [
-              { id: "play-archived", label: "Play" },
-              { id: "enqueue-archived", label: "Enqueue" },
-              { id: "sep", label: "", separator: true },
-              { id: "delete-archived", label: "Delete" },
-            ],
-          });
-        }
-        ch.push({ type: "card-grid", items: archivedCards });
-      }
-    } else if (state.activeTab.indexOf("section:") === 0) {
+    if (state.activeTab.indexOf("section:") === 0) {
       var sectionName = state.activeTab.substring(8);
       var secPlaylists = getPlaylistsForSection(sectionName);
       if (!isActive) {
-        var sectionActions = [
-          { type: "button", label: "Remove Section", action: "remove-section-tab", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" }, data: { section: sectionName } },
-        ];
+        var sectionActions = [];
+        // Liked Songs is a built-in collection — don't allow removal.
+        if (!isLikedSection(sectionName)) {
+          sectionActions.push({ type: "button", label: "Remove Section", action: "remove-section-tab", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" }, data: { section: sectionName } });
+        }
         if (state.status !== "idle") {
           sectionActions.unshift(
             { type: "button", label: "Refresh " + sectionName, action: "refresh-section", variant: "secondary", disabled: state.refreshing, style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" }, data: { section: sectionName } }
           );
         }
-        ch.push({
-          type: "layout", direction: "horizontal", style: { "margin-bottom": "8px", "gap": "8px" },
-          children: sectionActions,
-        });
+        if (sectionActions.length > 0) {
+          ch.push({
+            type: "layout", direction: "horizontal", style: { "margin-bottom": "8px", "gap": "8px" },
+            children: sectionActions,
+          });
+        }
       }
       if (secPlaylists.length === 0 && state.status === "idle") {
         ch.push({ type: "text", content: "<p style='opacity:0.5'>No playlists found for this section. Click <b>Sync</b> to scrape.</p>" });
@@ -772,10 +665,18 @@ function activate(api) {
 
     var toolbar = buildToolbar();
     toolbar.buttons.push({ label: state.showBrowserOnRefresh ? "Browser: ON" : "Browser: OFF", action: "toggle-show-browser-pref", variant: state.showBrowserOnRefresh ? "accent" : "secondary" });
-    var view = [
-      toolbar,
-      { type: "tabs", activeTab: state.activeTab, action: "switch-tab", tabs: buildTabs() },
-    ];
+    var view = [toolbar];
+
+    // Pinned Liked Songs card (rendered above the section tabs once it exists).
+    var likedPl = getLikedPlaylist();
+    if (likedPl) {
+      view.push({
+        type: "layout", direction: "vertical", style: { "padding": "12px 16px 0" },
+        children: [{ type: "card-grid", items: buildPlaylistCards([likedPl]) }],
+      });
+    }
+
+    view.push({ type: "tabs", activeTab: state.activeTab, action: "switch-tab", tabs: buildTabs() });
 
     if (state.addingSectionViaTab) {
       ch.unshift({
@@ -785,25 +686,6 @@ function activate(api) {
           { type: "button", label: "Add", action: "add-section-tab", variant: "accent", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
           { type: "button", label: "Cancel", action: "cancel-add-section", variant: "secondary", style: { "font-size": "var(--fs-xs)", "padding": "3px 10px" } },
         ],
-      });
-    }
-
-    if (state.pendingArchive) {
-      var pendingName = (function () {
-        for (var pi = 0; pi < state.playlists.length; pi++) {
-          if (state.playlists[pi].id === state.pendingArchive.playlistId) return state.playlists[pi].name;
-        }
-        return state.pendingArchive.playlistId;
-      })();
-      view.push({
-        type: "confirm",
-        title: "Overwrite existing archive?",
-        message: "\"" + pendingName + "\" is already archived. Replacing it will discard the previous snapshot.",
-        confirmLabel: "Overwrite",
-        cancelLabel: "Cancel",
-        confirmVariant: "danger",
-        confirmAction: "confirm-archive-overwrite",
-        cancelAction: "cancel-archive",
       });
     }
 
@@ -818,26 +700,37 @@ function activate(api) {
     var pl = state.currentPlaylist;
     if (!pl) return;
     var tracks = state.playlistTracks[pl.id] || [];
+    var query = (state.playlistSearch[pl.id] || "").trim().toLowerCase();
     var contextActions = [
       { id: "play-current", label: "Play" },
       { id: "enqueue-current", label: "Enqueue" },
+      { id: "sep1", label: "", separator: true },
+      { id: "save-playlist", label: "Save to Playlists" },
     ];
-    if (!state.viewingArchived) {
-      contextActions.push({ id: "sep1", label: "", separator: true });
-      contextActions.push({ id: "archive-current", label: "Archive" });
-      contextActions.push({ id: "save-playlist", label: "Save to Playlists" });
-    }
+    var headerMeta = tracks.length + " tracks";
     var ch = [
       {
         type: "detail-header",
         title: pl.name,
-        meta: tracks.length + " tracks",
+        meta: headerMeta,
         imageUrl: pl.imageUrl || undefined,
         backAction: "go-home",
         playAction: tracks.length > 0 ? "play-current" : undefined,
         contextMenuActions: contextActions,
       },
     ];
+
+    // Show a search box for any playlist with enough tracks to make scanning
+    // them painful. The threshold is conservative — the box is cheap.
+    if (tracks.length > 50) {
+      ch.push({
+        type: "search-input",
+        placeholder: "Filter " + tracks.length + " tracks…",
+        action: "playlist-search",
+        value: state.playlistSearch[pl.id] || "",
+      });
+    }
+
     if (tracks.length > 0) {
       var diff = getDiff(pl.id);
       var addedSet = {};
@@ -848,6 +741,11 @@ function activate(api) {
       var items = [];
       for (var i = 0; i < tracks.length; i++) {
         var t = tracks[i];
+        if (query) {
+          // Match against title, artist, album. Case-insensitive substring.
+          var hay = ((t.name || "") + " " + (t.artist || "") + " " + (t.album || "")).toLowerCase();
+          if (hay.indexOf(query) === -1) continue;
+        }
         var isAdded = addedSet[t.name + "\0" + t.artist];
         var item = {
           id: "track:" + i,
@@ -862,7 +760,14 @@ function activate(api) {
         }
         items.push(item);
       }
-      ch.push({ type: "track-row-list", items: items });
+      if (query && items.length === 0) {
+        ch.push({ type: "text", content: "<p style='opacity:0.5;padding:12px 0'>No tracks match \"" + escapeHtml(query) + "\"</p>" });
+      } else if (query) {
+        ch.push({ type: "text", content: "<p style='font-size:var(--fs-xs);color:var(--text-secondary);margin:6px 0 0'>" + items.length + " of " + tracks.length + " tracks</p>" });
+      }
+      if (items.length > 0) {
+        ch.push({ type: "track-row-list", items: items });
+      }
 
       // Show removed tracks at bottom
       if (diff.removed.length > 0) {
@@ -1629,6 +1534,9 @@ function activate(api) {
         'parseVisibleRows();n++;' +
         'var atBottom=sc.scrollTop+sc.clientHeight>=sc.scrollHeight-10;' +
         'if(n%5===0)_dbg("tracks","scrolling",{tick:n,found:allOut.length,scrollTop:sc.scrollTop,scrollH:sc.scrollHeight,atBottom:atBottom});' +
+        // Emit a running track count so the UI can show progress without waiting
+        // for the full scrape (large playlists like Liked Songs can take minutes).
+        'try{window.__viboplr.send("tracks-progress",{playlistId:"' + playlistId + '",found:allOut.length,gen:_gen})}catch(e){}' +
         'if(atBottom||n>=maxSteps){' +
           'parseVisibleRows();' +
           'var descEl=document.querySelector("[data-testid=\\"playlist-description\\"]")||document.querySelector("main [data-testid=\\"entityTitle\\"] ~ span");' +
@@ -1659,7 +1567,14 @@ function activate(api) {
   // ---- Consolidated scrape function ----
 
   function performScrape(showProgress, visible, sectionsOverride, trigger) {
-    var sectionsToScrape = sectionsOverride || state.sections;
+    // Full syncs always include Liked Songs alongside whatever sections the
+    // user has configured. Section-specific refreshes only do the named one.
+    var sectionsToScrape;
+    if (sectionsOverride) {
+      sectionsToScrape = sectionsOverride;
+    } else {
+      sectionsToScrape = [LIKED_SECTION].concat(state.sections);
+    }
     var triggerLabel = trigger || (sectionsOverride ? "refresh-section" : "refresh-all");
     beginReport(triggerLabel, sectionsToScrape);
 
@@ -1935,7 +1850,7 @@ function activate(api) {
 
           if (showProgress) {
             state.status = "scraping-tracks";
-            state.scrapeProgress = { current: 0, total: allPlaylists.length, name: "" };
+            state.scrapeProgress = { current: 0, total: allPlaylists.length, name: "", found: 0 };
             render();
           }
 
@@ -1953,7 +1868,7 @@ function activate(api) {
             var pl = allPlaylists[trackIdx];
             trackIdx++;
             if (showProgress) {
-              state.scrapeProgress = { current: trackIdx, total: allPlaylists.length, name: pl.name };
+              state.scrapeProgress = { current: trackIdx, total: allPlaylists.length, name: pl.name, found: 0 };
               render();
             }
 
@@ -1969,6 +1884,13 @@ function activate(api) {
 
             var trackTimeout = null;
             setHandler(function(msg) {
+              if (msg.type === "tracks-progress" && msg.data && msg.data.playlistId === pl.id) {
+                if (showProgress) {
+                  state.scrapeProgress = { current: trackIdx, total: allPlaylists.length, name: pl.name, found: msg.data.found || 0 };
+                  render();
+                }
+                return;
+              }
               if (msg.type === "tracks" && msg.data && msg.data.playlistId === pl.id) {
                 if (trackTimeout) { clearTimeout(trackTimeout); trackTimeout = null; }
                 var tracks = msg.data.tracks || [];
@@ -2199,10 +2121,20 @@ function activate(api) {
     render();
   });
 
+  // Refresh just the Liked Songs synthetic playlist. Same code path as
+  // refresh-section, but the trigger comes from the card's context menu.
+  api.ui.onAction("refresh-liked", function() {
+    if (state.refreshing) return;
+    refreshSectionByName(LIKED_SECTION);
+  });
+
   api.ui.onAction("refresh-section", function(data) {
     if (!data || !data.section) return;
     if (state.refreshing) return;
-    var sectionName = data.section;
+    refreshSectionByName(data.section);
+  });
+
+  function refreshSectionByName(sectionName) {
     state.refreshing = true;
     state.refreshSummary = "";
     state.status = "waiting-login";
@@ -2260,11 +2192,12 @@ function activate(api) {
       recordCheckResult(0, 1);
       render();
     });
-  });
+  }
 
   api.ui.onAction("remove-section-tab", function(data) {
     if (!data || !data.section) return;
     var name = data.section;
+    if (isLikedSection(name)) return;
     var idx = -1;
     for (var i = 0; i < state.sections.length; i++) {
       if (sectionsEqual(state.sections[i], name)) { idx = i; break; }
@@ -2283,7 +2216,7 @@ function activate(api) {
       }
     }
     state.playlists = keptPls;
-    state.activeTab = "saved";
+    state.activeTab = state.sections.length > 0 ? "section:" + state.sections[0] : "__add__";
     renderSettings();
     render();
   });
@@ -2297,7 +2230,6 @@ function activate(api) {
     }
     state.addingSectionViaTab = false;
     state.activeTab = data.tabId;
-    if (data.tabId === "saved") loadArchives();
     render();
   });
 
@@ -2338,10 +2270,6 @@ function activate(api) {
   });
 
   api.ui.onAction("go-home", function() {
-    if (state.viewingArchived) {
-      state.activeTab = "saved";
-      state.viewingArchived = false;
-    }
     state.currentPlaylist = null;
     state.currentView = "home";
     render();
@@ -2355,7 +2283,6 @@ function activate(api) {
     for (var i = 0; i < state.playlists.length; i++) {
       if (state.playlists[i].id === pid) {
         state.currentPlaylist = state.playlists[i];
-        state.viewingArchived = false;
         delete state.updatedPlaylistIds[pid];
         state.currentView = "playlist";
         renderPlaylist();
@@ -2373,8 +2300,22 @@ function activate(api) {
     if (!pl) return;
     var tracks = state.playlistTracks[pl.id] || [];
     if (index < 0 || index >= tracks.length) return;
-    var ctx = playlistContextPayload(pl);
-    api.playback.playTracks(toPluginTracks(tracks), index, ctx);
+    // Single-track click: load only that track into the queue rather than the
+    // whole playlist. Use the "Play All" / header play button to load everything.
+    api.playback.playTracks(toPluginTracks([tracks[index]]), 0);
+  });
+
+  api.ui.onAction("playlist-search", function(data) {
+    var pl = state.currentPlaylist;
+    if (!pl) return;
+    // search-input sends { query }, text-input sends { value } — accept both.
+    var value = "";
+    if (data) {
+      if (typeof data.query === "string") value = data.query;
+      else if (typeof data.value === "string") value = data.value;
+    }
+    state.playlistSearch[pl.id] = value;
+    renderPlaylist();
   });
 
   api.ui.onAction("play-current", function() {
@@ -2392,12 +2333,6 @@ function activate(api) {
     var tracks = state.playlistTracks[pl.id] || [];
     if (tracks.length === 0) return;
     api.playback.insertTracks(toPluginTracks(tracks), -1);
-  });
-
-  api.ui.onAction("archive-current", function() {
-    var pl = state.currentPlaylist;
-    if (!pl) return;
-    archivePlaylist(pl);
   });
 
   // ---- Context menu actions for playlist cards ----
@@ -2476,30 +2411,6 @@ function activate(api) {
     api.playback.insertTracks(toPluginTracks(tracks), -1);
   });
 
-  api.ui.onAction("archive-playlist", function(data) {
-    var pl = findPlaylistFromData(data);
-    if (!pl) return;
-    archivePlaylist(pl);
-  });
-
-  api.ui.onAction("confirm-archive-overwrite", function() {
-    if (!state.pendingArchive) return;
-    var pending = state.pendingArchive;
-    state.pendingArchive = null;
-    var pl = null;
-    for (var i = 0; i < state.playlists.length; i++) {
-      if (state.playlists[i].id === pending.playlistId) { pl = state.playlists[i]; break; }
-    }
-    if (!pl) { render(); return; }
-    doArchive(pl, pending.archiveId);
-    render();
-  });
-
-  api.ui.onAction("cancel-archive", function() {
-    state.pendingArchive = null;
-    render();
-  });
-
   function savePlaylistToApp(pl) {
     var tracks = state.playlistTracks[pl.id] || [];
     var now = new Date();
@@ -2552,96 +2463,6 @@ function activate(api) {
     savePlaylistToApp(pl);
   });
 
-  function getArchivedByIndex(data) {
-    if (!data || !data.itemId) return null;
-    var parts = data.itemId.split(":");
-    if (parts[0] !== "archived") return null;
-    var idx = parseInt(parts[1], 10);
-    return (idx >= 0 && idx < state.archivedPlaylists.length) ? { index: idx, entry: state.archivedPlaylists[idx] } : null;
-  }
-
-  function loadArchiveTracks(entry) {
-    if (!entry || !entry._archiveId) return Promise.resolve([]);
-    var dir = ["archives", entry._archiveId];
-    return api.storage.files.readJson(dir.concat(["tracks.json"])).then(function (tracks) {
-      tracks = tracks || [];
-      // Resolve coverFile for each track, matching loadPlaylistFromDisk
-      var promises = [];
-      for (var i = 0; i < tracks.length; i++) {
-        (function (t) {
-          if (t.coverFile) {
-            promises.push(
-              api.storage.files.getPath(dir.concat([t.coverFile])).then(function (p) {
-                if (p) t.imageUrl = p;
-              })
-            );
-          }
-        })(tracks[i]);
-      }
-      return Promise.all(promises).then(function () { return tracks; });
-    });
-  }
-
-  api.ui.onAction("view-archived", function(data) {
-    var found = getArchivedByIndex(data);
-    if (!found) return;
-    var entry = found.entry;
-    loadArchiveTracks(entry).then(function (tracks) {
-      state.viewingArchived = true;
-      var viewId = "archived:" + found.index;
-      state.currentPlaylist = { id: viewId, name: entry.name, imageUrl: entry.imageUrl };
-      state.playlistTracks[viewId] = tracks;
-      state.currentView = "playlist";
-      renderPlaylist();
-    }).catch(function (e) { console.error("Failed to load archive tracks:", e); });
-  });
-
-  api.ui.onAction("play-archived", function(data) {
-    var found = getArchivedByIndex(data);
-    if (!found) return;
-    var entry = found.entry;
-    loadArchiveTracks(entry).then(function (tracks) {
-      if (!tracks.length) return;
-      var meta = {};
-      if (entry.section) meta.Section = entry.section;
-      if (entry.description) meta.Description = entry.description;
-      if (entry.archivedAt) meta["Archived"] = new Date(entry.archivedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-      if (entry.updatedAt) meta["Updated"] = new Date(entry.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-      if (entry.lastCheckedAt) meta["Retrieved"] = new Date(entry.lastCheckedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-      api.playback.playTracks(toPluginTracks(tracks), 0, {
-        name: entry.name,
-        coverUrl: entry.imageUrl || null,
-        source: entry.spotifyId ? "spotify://playlists/" + entry.spotifyId : null,
-        metadata: meta,
-      });
-    }).catch(function (e) { console.error("Failed to play archive:", e); });
-  });
-
-  api.ui.onAction("enqueue-archived", function(data) {
-    var found = getArchivedByIndex(data);
-    if (!found) return;
-    loadArchiveTracks(found.entry).then(function (tracks) {
-      if (!tracks.length) return;
-      api.playback.insertTracks(toPluginTracks(tracks), -1);
-    }).catch(function (e) { console.error("Failed to enqueue archive:", e); });
-  });
-
-  api.ui.onAction("delete-archived", function(data) {
-    var found = getArchivedByIndex(data);
-    if (!found) return;
-    var entry = found.entry;
-    var p = entry._archiveId
-      ? api.storage.files.remove(["archives", entry._archiveId])
-      : Promise.resolve();
-    p.then(function () {
-      api.ui.showNotification("Archive deleted");
-      loadArchives();
-    }).catch(function (e) {
-      console.error("Failed to delete archive:", e);
-      api.ui.showNotification("Failed to delete archive");
-    });
-  });
-
   // ---- Settings actions ----
 
   api.ui.onAction("section-input", function(data) {
@@ -2682,10 +2503,11 @@ function activate(api) {
     var idx = data.index;
     if (idx >= 0 && idx < state.sections.length) {
       var removed = state.sections[idx];
+      if (isLikedSection(removed)) return;
       state.sections.splice(idx, 1);
       api.storage.set("spotify_browse_sections", state.sections).catch(console.error);
       if (state.activeTab === "section:" + removed) {
-        state.activeTab = "saved";
+        state.activeTab = state.sections.length > 0 ? "section:" + state.sections[0] : "__add__";
       }
       renderSettings();
       render();
@@ -2695,6 +2517,13 @@ function activate(api) {
   api.ui.onAction("toggle-show-browser-pref", function() {
     state.showBrowserOnRefresh = !state.showBrowserOnRefresh;
     savePreferences();
+    // If a scrape is in flight, apply the new visibility immediately to the
+    // already-open browse window. Otherwise the change only takes effect on
+    // the next sync, which surprises users.
+    if (activeScrapeHandle) {
+      var p = state.showBrowserOnRefresh ? activeScrapeHandle.show() : activeScrapeHandle.hide();
+      p.catch(function (e) { console.error("Failed to toggle browse window visibility:", e); });
+    }
     renderSettings();
     render();
   });
@@ -2784,114 +2613,27 @@ function activate(api) {
   }
   loadInitialState();
 
-  // One-time migration: legacy archives key → archives/{playlist_id}/. When the
-  // KV held multiple snapshots of the same playlist, keep the most recent.
-  api.storage.get("spotify_browse_archives").then(function (legacy) {
-    if (!legacy || !legacy.length) {
-      // Still run the dedup pass over on-disk archives with old timestamp suffixes.
-      collapseTimestampedArchives().then(loadArchives).catch(function (e) {
-        console.error("Failed to collapse old archives:", e); loadArchives();
-      });
-      return;
-    }
-    // Pick the newest entry per playlist id.
-    var byId = {};
-    for (var i = 0; i < legacy.length; i++) {
-      var e = legacy[i];
-      var pid = e.spotifyId || e.id;
-      if (!pid) continue;
-      var existing = byId[pid];
-      if (!existing || (e.archivedAt || "") > (existing.archivedAt || "")) {
-        byId[pid] = e;
-      }
-    }
-    var promises = [];
-    var ids = Object.keys(byId);
-    for (var j = 0; j < ids.length; j++) {
-      (function (entry) {
-        var archiveId = sanitizeSegment(entry.spotifyId || entry.id);
-        var meta = {
-          id: entry.spotifyId || entry.id,
-          spotifyId: entry.spotifyId || entry.id,
-          name: entry.name,
-          section: entry.section || null,
-          description: entry.description || "",
-          coverFile: entry.imageUrl ? "cover.jpg" : null,
-          archivedAt: entry.archivedAt || new Date().toISOString(),
-          trackCount: entry.trackCount || (entry.tracks ? entry.tracks.length : 0),
-        };
-        var p = api.storage.files.remove(["archives", archiveId])
-          .catch(function () { /* no-op if missing */ })
-          .then(function () { return api.storage.files.writeJson(["archives", archiveId, "meta.json"], meta); })
-          .then(function () { return api.storage.files.writeJson(["archives", archiveId, "tracks.json"], entry.tracks || []); });
-        if (entry.imageUrl && entry.imageUrl.indexOf("http") === 0) {
-          p = p.then(function () {
-            return api.storage.files.download(["archives", archiveId, "cover.jpg"], entry.imageUrl)
-              .catch(function (e) { api.log("warn", "Failed to cache archive cover for " + entry.name + ": " + e); });
-          });
-        }
-        promises.push(p);
-      })(byId[ids[j]]);
-    }
-    Promise.all(promises).then(function () {
-      api.storage.delete("spotify_browse_archives").catch(console.error);
-      return collapseTimestampedArchives();
-    }).then(loadArchives).catch(function (e) {
-      console.error("Failed to migrate archives:", e); loadArchives();
-    });
-  }).catch(function () { loadArchives(); });
+  // The Archive feature has been removed. Clean up any leftover state from
+  // older versions: the on-disk archives/ directory and the legacy KV key.
+  api.storage.files.remove(["archives"]).catch(function () { /* no-op if missing */ });
+  api.storage.delete("spotify_browse_archives").catch(console.error);
 
-  // Legacy on-disk archive dirs looked like "{playlist_id}-{timestamp}". For each
-  // playlist id, keep the newest directory's contents, rename it to just the id,
-  // and drop the rest.
-  function collapseTimestampedArchives() {
-    return api.storage.files.list(["archives"]).then(function (entries) {
-      // Group by the playlist id prefix.
-      var groups = {};
-      for (var i = 0; i < entries.length; i++) {
-        if (!entries[i].isDir) continue;
-        var name = entries[i].name;
-        // Only treat names matching {id}-{digits} as timestamped snapshots.
-        var m = name.match(/^(.+?)-(\d{10,})$/);
-        if (!m) continue;
-        var pid = m[1];
-        var ts = parseInt(m[2], 10);
-        if (!groups[pid]) groups[pid] = [];
-        groups[pid].push({ name: name, ts: ts });
-      }
-      var tasks = [];
-      var pids = Object.keys(groups);
-      for (var p = 0; p < pids.length; p++) {
-        (function (pid) {
-          var list = groups[pid];
-          list.sort(function (a, b) { return b.ts - a.ts; });
-          var keeper = list[0];
-          var canonical = sanitizeSegment(pid);
-          // If an archive at the canonical id already exists, just delete the extras.
-          tasks.push(
-            api.storage.files.exists(["archives", canonical]).then(function (exists) {
-              if (exists) {
-                var dels = [];
-                for (var k = 0; k < list.length; k++) dels.push(api.storage.files.remove(["archives", list[k].name]));
-                return Promise.all(dels);
-              }
-              return api.storage.files.move(["archives", keeper.name], ["archives", canonical]).then(function () {
-                var dels = [];
-                for (var k = 1; k < list.length; k++) dels.push(api.storage.files.remove(["archives", list[k].name]));
-                return Promise.all(dels);
-              });
-            })
-          );
-        })(pids[p]);
-      }
-      return Promise.all(tasks);
-    });
-  }
-
-  // Load sections
+  // Load sections. Liked Songs is no longer a section — it's a pinned playlist
+  // rendered above the section tabs. Strip it from any persisted list left
+  // behind by a previous version.
   api.storage.get("spotify_browse_sections").then(function(sections) {
     if (sections && Array.isArray(sections)) {
       state.sections = sections;
+    }
+    var filtered = [];
+    var changed = false;
+    for (var i = 0; i < state.sections.length; i++) {
+      if (isLikedSection(state.sections[i])) { changed = true; continue; }
+      filtered.push(state.sections[i]);
+    }
+    if (changed) {
+      state.sections = filtered;
+      api.storage.set("spotify_browse_sections", state.sections).catch(console.error);
     }
   }).catch(console.error);
 
@@ -2922,11 +2664,11 @@ function activate(api) {
   // One-time cleanup: the old layout was plugin-cache/{plugin}/{playlistId}/...
   // (flat, one dir per playlist id at the root). The new layout nests under
   // "playlists/{section}/{id}/", so any top-level dir that isn't "playlists"
-  // or "archives" is orphaned flat-layout junk.
+  // is orphaned flat-layout junk.
   api.storage.listCacheDirs().then(function (dirs) {
     if (!dirs || !dirs.length) return;
     for (var d = 0; d < dirs.length; d++) {
-      if (dirs[d] !== "playlists" && dirs[d] !== "archives") {
+      if (dirs[d] !== "playlists") {
         api.storage.deleteCacheDir(dirs[d]).catch(console.error);
       }
     }
@@ -2944,9 +2686,6 @@ function activate(api) {
     silentRefresh();
   });
   registerAutoRefresh();
-
-  // Load archived playlists
-  loadArchives();
 
   // Load last diagnostics report
   api.storage.get("spotify_browse_reports").then(function (reports) {

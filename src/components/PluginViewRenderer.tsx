@@ -906,50 +906,90 @@ function PluginTrackRowList({
           <span className="ptr-category-spacer" />
         </div>
       )}
-      <div className="ptr-rows">
-        {items.map(item => (
-          <div
-            key={item.id}
-            className={`ptr-row${selected.has(item.id) ? " ptr-row-selected" : ""}`}
-            onClick={() => item.action && onAction?.(item.action, { itemId: item.id })}
-            onContextMenu={onContextMenu ? (e) => { e.preventDefault(); onContextMenu(e, item); } : undefined}
-          >
-            {categories && (
-              <div className="ptr-categories">
-                {categories.map(cat => (
-                  <input
-                    key={cat}
-                    type="checkbox"
-                    className="ptr-cat-checkbox"
-                    checked={(itemCategories[item.id] || []).includes(cat)}
-                    onChange={(e) => { e.stopPropagation(); toggleCategory(item.id, cat); }}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                ))}
-              </div>
-            )}
-            {selectable && (
-              <input
-                type="checkbox"
-                className="ptr-checkbox"
-                checked={selected.has(item.id)}
-                onChange={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
-                onClick={(e) => e.stopPropagation()}
-              />
-            )}
-            {item.imageUrl && (
-              <div className="ptr-art">
-                <img src={resolveImageUrl(item.imageUrl)} alt="" />
-              </div>
-            )}
-            <div className="ptr-info">
-              <span className="ptr-title">{item.title}</span>
-              {item.subtitle && <span className="ptr-subtitle">{item.subtitle}</span>}
+      <PluginTrackRowsBody
+        items={items}
+        selected={selected}
+        toggleSelect={toggleSelect}
+        selectable={selectable}
+        categories={categories}
+        itemCategories={itemCategories}
+        toggleCategory={toggleCategory}
+        onAction={onAction}
+        onContextMenu={onContextMenu}
+      />
+    </div>
+  );
+}
+
+function PluginTrackRowsBody({
+  items,
+  selected,
+  toggleSelect,
+  selectable,
+  categories,
+  itemCategories,
+  toggleCategory,
+  onAction,
+  onContextMenu,
+}: {
+  items: TrackRowItem[];
+  selected: Set<string>;
+  toggleSelect: (id: string) => void;
+  selectable?: boolean;
+  categories?: string[];
+  itemCategories: Record<string, string[]>;
+  toggleCategory: (itemId: string, cat: string) => void;
+  onAction?: (actionId: string, data?: unknown) => void;
+  onContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
+}) {
+  // For long lists we apply `content-visibility: auto` per row via a CSS class.
+  // The browser skips layout/paint for off-screen rows — same end result as
+  // hand-rolled virtualization, no nested scroll containers, no flicker.
+  const useCv = items.length > 100;
+  return (
+    <div className={`ptr-rows${useCv ? " ptr-rows-cv" : ""}`}>
+      {items.map(item => (
+        <div
+          key={item.id}
+          className={`ptr-row${selected.has(item.id) ? " ptr-row-selected" : ""}`}
+          onClick={() => item.action && onAction?.(item.action, { itemId: item.id })}
+          onContextMenu={onContextMenu ? (e) => { e.preventDefault(); onContextMenu(e, item); } : undefined}
+        >
+          {categories && (
+            <div className="ptr-categories">
+              {categories.map(cat => (
+                <input
+                  key={cat}
+                  type="checkbox"
+                  className="ptr-cat-checkbox"
+                  checked={(itemCategories[item.id] || []).includes(cat)}
+                  onChange={(e) => { e.stopPropagation(); toggleCategory(item.id, cat); }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ))}
             </div>
-            {item.duration && <span className="ptr-duration">{item.duration}</span>}
+          )}
+          {selectable && (
+            <input
+              type="checkbox"
+              className="ptr-checkbox"
+              checked={selected.has(item.id)}
+              onChange={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+          {item.imageUrl && (
+            <div className="ptr-art">
+              <img src={resolveImageUrl(item.imageUrl)} alt="" loading="lazy" decoding="async" />
+            </div>
+          )}
+          <div className="ptr-info">
+            <span className="ptr-title">{item.title}</span>
+            {item.subtitle && <span className="ptr-subtitle">{item.subtitle}</span>}
           </div>
-        ))}
-      </div>
+          {item.duration && <span className="ptr-duration">{item.duration}</span>}
+        </div>
+      ))}
     </div>
   );
 }

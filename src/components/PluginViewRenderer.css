@@ -291,7 +291,7 @@
 .plugin-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 12px;
   padding: 6px 16px;
   border-bottom: 1px solid var(--border);
@@ -528,6 +528,23 @@
 
 .ptr-toolbar-icon {
   font-size: var(--fs-xs);
+}
+
+/* For long lists, scroll inside the list itself rather than the whole panel —
+   keeps the detail header, search box, and any other hoisted controls fixed.
+   The vh-based calc accounts for caption bar + plugin toolbar + tabs + detail
+   header + search box; tweak if the surrounding chrome changes. */
+.ptr-rows-cv {
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+}
+
+/* Let the browser skip layout/paint for off-screen rows. `contain-intrinsic-size`
+   reserves the right amount of space so the scrollbar stays accurate without
+   forcing layout of every row up-front. */
+.ptr-rows-cv > .ptr-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 60px;
 }
 
 .ptr-row {
