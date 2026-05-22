@@ -11,6 +11,7 @@ import { AutoContinuePopover } from "./AutoContinuePopover";
 import { WaveformSeekBar } from "./WaveformSeekBar";
 import { SegmentedSeekBar } from "./SegmentedSeekBar";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
+import { IconHeartFilled } from "./Icons";
 import "./NowPlayingBar.css";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
@@ -242,6 +243,7 @@ export function NowPlayingBar({
                 ) : currentTrack ? (
                   <>
                     <span className="now-title">
+                      {currentTrack.liked === 1 && <IconHeartFilled size={11} className="mini-ultra-heart" />}
                       {currentTrack.title}
                       {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                     </span>
@@ -315,6 +317,9 @@ export function NowPlayingBar({
                   <circle cx="6" cy="6" r="0.5" fill="currentColor" />
                 </svg>
               </span>
+            )}
+            {currentTrack && currentTrack.liked === 1 && (
+              <IconHeartFilled size={11} className="mini-ultra-heart" />
             )}
             <span className="mini-ultra-title">
               {playbackError

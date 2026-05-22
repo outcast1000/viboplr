@@ -819,6 +819,14 @@
   transition: color 0.2s ease;
 }
 
+.mini-ultra-heart {
+  flex-shrink: 0;
+  color: var(--error);
+  pointer-events: none;
+  vertical-align: -1px;
+  margin-right: 4px;
+}
+
 .mini-ultra-indicator.playing .mini-ultra-disc {
   animation: mini-disc-spin 1.8s linear infinite;
 }
