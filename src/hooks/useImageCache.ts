@@ -14,6 +14,7 @@ export interface UseImageCacheReturn {
   invalidate: (name: string, artistName?: string | null) => void;
   requestFetch: (name: string, artistName?: string | null) => void;
   clearAllFailures: () => void;
+  cache: Record<string, string | null>;
 }
 
 export function useImageCache(
@@ -138,5 +139,5 @@ export function useImageCache(
     };
   }, [kind]);
 
-  return { getImage, invalidate, requestFetch, clearAllFailures };
+  return { getImage, invalidate, requestFetch, clearAllFailures, cache };
 }

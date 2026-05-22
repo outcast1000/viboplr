@@ -1898,7 +1898,7 @@ function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [playback.currentTrack, albumImageCache.getImage, artistImageCache.getImage]);
+  }, [playback.currentTrack, albumImageCache.getImage, artistImageCache.getImage, albumImageCache.cache, artistImageCache.cache]);
 
   // When a backend image fetch completes, update currentTrack if it's still missing artwork
   useEffect(() => {
