@@ -151,28 +151,44 @@ pub async fn start_node(config: P2pConfig) -> Result<P2pNode, String> {
     log::info!("P2P: Swarm built successfully");
 
     // Listen on a random QUIC port
-    let listen_addr: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
+    let quic_listen: Multiaddr = "/ip4/0.0.0.0/udp/0/quic-v1"
         .parse()
-        .map_err(|e| format!("Failed to parse listen addr: {}", e))?;
-    swarm.listen_on(listen_addr)
-        .map_err(|e| format!("Failed to listen: {}", e))?;
+        .map_err(|e| format!("Failed to parse QUIC listen addr: {}", e))?;
+    swarm.listen_on(quic_listen)
+        .map_err(|e| format!("Failed to listen on QUIC: {}", e))?;
+    // Also listen on a random TCP port so we can dial TCP relays and accept
+    // direct TCP connections from peers on UDP-blocked networks.
+    let tcp_listen: Multiaddr = "/ip4/0.0.0.0/tcp/0"
+        .parse()
+        .map_err(|e| format!("Failed to parse TCP listen addr: {}", e))?;
+    if let Err(e) = swarm.listen_on(tcp_listen) {
+        log::warn!("P2P: Failed to listen on TCP: {}", e);
+    }
     log::info!("P2P: Listening started");
 
-    // If a relay was configured, dial it and listen on its /p2p-circuit address
-    // so other peers can reach us when our public IP is unreachable.
-    if let Some(relay_addr) = config.relay_multiaddr.clone() {
-        log::info!("P2P: Dialing relay {}", relay_addr);
-        if let Err(e) = swarm.dial(relay_addr.clone()) {
-            log::warn!("P2P: Failed to dial relay: {}", e);
-        }
-        let circuit_addr = relay_addr.with(libp2p::multiaddr::Protocol::P2pCircuit);
-        log::info!("P2P: Listening on circuit {}", circuit_addr);
-        if let Err(e) = swarm.listen_on(circuit_addr) {
-            log::warn!("P2P: Failed to listen on circuit: {}", e);
+    // If a relay was configured, dial it. We register the /p2p-circuit listener
+    // *after* the connection is established and identify confirms the relay
+    // supports /libp2p/circuit/relay/0.2.0/hop — registering it before the
+    // connection is up means libp2p never issues a RESERVE.
+    let pending_relay_circuit: Option<(PeerId, Multiaddr)> = if let Some(relay_addr) = config.relay_multiaddr.clone() {
+        match relay_peer_id_from_multiaddr(&relay_addr) {
+            Some(rpid) => {
+                log::info!("P2P: Dialing relay {}", relay_addr);
+                if let Err(e) = swarm.dial(relay_addr.clone()) {
+                    log::warn!("P2P: Failed to dial relay: {}", e);
+                }
+                let circuit_addr = relay_addr.with(libp2p::multiaddr::Protocol::P2pCircuit);
+                Some((rpid, circuit_addr))
+            }
+            None => {
+                log::warn!("P2P: relay multiaddr missing /p2p/<peer-id>; skipping circuit listener");
+                None
+            }
         }
     } else {
         log::info!("P2P: No relay configured; running without circuit listener");
-    }
+        None
+    };
 
     let event_loop_status = Arc::clone(&status);
     let event_loop_db = Arc::clone(&config.db);
@@ -191,6 +207,7 @@ pub async fn start_node(config: P2pConfig) -> Result<P2pNode, String> {
             event_loop_peer_id,
             event_loop_app_dir,
             event_loop_app_handle,
+            pending_relay_circuit,
         ).await;
     });
 
@@ -203,6 +220,13 @@ pub async fn start_node(config: P2pConfig) -> Result<P2pNode, String> {
     })
 }
 
+fn relay_peer_id_from_multiaddr(addr: &Multiaddr) -> Option<PeerId> {
+    addr.iter().find_map(|p| match p {
+        libp2p::multiaddr::Protocol::P2p(pid) => Some(pid),
+        _ => None,
+    })
+}
+
 async fn run_event_loop(
     mut swarm: libp2p::Swarm<swarm::ViboplrBehaviour>,
     mut cmd_rx: mpsc::Receiver<P2pCommand>,
@@ -212,6 +236,7 @@ async fn run_event_loop(
     local_peer_id: PeerId,
     app_dir: PathBuf,
     app_handle: tauri::AppHandle,
+    mut pending_relay_circuit: Option<(PeerId, Multiaddr)>,
 ) {
     use libp2p::swarm::SwarmEvent;
     use libp2p::request_response;
@@ -274,6 +299,18 @@ async fn run_event_loop(
                     SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                         log::info!("P2P connected to: {}", peer_id);
                         connected_peers.insert(peer_id);
+                        // If this is the relay we configured, register the
+                        // /p2p-circuit listener now so libp2p issues a RESERVE
+                        // over the just-established connection.
+                        if let Some((relay_peer, _)) = pending_relay_circuit.as_ref() {
+                            if relay_peer == &peer_id {
+                                let (_, circuit_addr) = pending_relay_circuit.take().unwrap();
+                                log::info!("P2P: Listening on circuit {}", circuit_addr);
+                                if let Err(e) = swarm.listen_on(circuit_addr) {
+                                    log::warn!("P2P: Failed to listen on circuit: {}", e);
+                                }
+                            }
+                        }
                         // Flush any pending requests for this peer
                         if let Some(pending) = pending_dials.remove(&peer_id) {
                             for dial in pending {

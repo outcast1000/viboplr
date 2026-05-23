@@ -37,16 +37,31 @@ function generateDeviceName() {
   return adj + " " + noun;
 }
 
+function isSupportedMultiaddr(addr) {
+  if (typeof addr !== "string") return false;
+  return addr.indexOf("/quic-v1") !== -1 || addr.indexOf("/tcp/") !== -1;
+}
+
 function pickRelayFromList(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return null;
   var candidates = [];
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
-    if (r && Array.isArray(r.multiaddrs) && r.multiaddrs.length > 0) candidates.push(r);
+    if (!r || !Array.isArray(r.multiaddrs) || r.multiaddrs.length === 0) continue;
+    var supported = [];
+    for (var j = 0; j < r.multiaddrs.length; j++) {
+      if (isSupportedMultiaddr(r.multiaddrs[j])) supported.push(r.multiaddrs[j]);
+    }
+    if (supported.length > 0) candidates.push({ peer_id: r.peer_id, multiaddrs: supported });
   }
   if (candidates.length === 0) return null;
   var row = candidates[Math.floor(Math.random() * candidates.length)];
-  var addr = row.multiaddrs[Math.floor(Math.random() * row.multiaddrs.length)];
+  var quic = [];
+  for (var k = 0; k < row.multiaddrs.length; k++) {
+    if (row.multiaddrs[k].indexOf("/quic-v1") !== -1) quic.push(row.multiaddrs[k]);
+  }
+  var pool = quic.length > 0 ? quic : row.multiaddrs;
+  var addr = pool[Math.floor(Math.random() * pool.length)];
   return { peerId: row.peer_id, multiaddr: addr };
 }
 

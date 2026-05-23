@@ -1,8 +1,8 @@
 use libp2p::{
-    autonat, dcutr, identify, noise,
+    autonat, dcutr, identify, noise, ping,
     request_response::{self, json, ProtocolSupport},
     swarm::NetworkBehaviour,
-    yamux, PeerId, StreamProtocol, Swarm, SwarmBuilder,
+    tcp, yamux, PeerId, StreamProtocol, Swarm, SwarmBuilder,
 };
 use std::time::Duration;
 
@@ -113,6 +113,7 @@ pub const TRANSFER_PROTOCOL: &str = "/viboplr/transfer/2.0.0";
 #[derive(NetworkBehaviour)]
 pub struct ViboplrBehaviour {
     pub identify: identify::Behaviour,
+    pub ping: ping::Behaviour,
     pub autonat: autonat::Behaviour,
     pub relay_client: libp2p::relay::client::Behaviour,
     pub dcutr: dcutr::Behaviour,
@@ -127,7 +128,13 @@ pub fn build_swarm(
 
     let swarm = SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
+        .with_tcp(
+            tcp::Config::default().nodelay(true),
+            noise::Config::new,
+            yamux::Config::default,
+        )?
         .with_quic()
+        .with_dns()?
         .with_relay_client(noise::Config::new, yamux::Config::default)?
         .with_behaviour(|key, relay_client| {
             let local_peer_id = PeerId::from(key.public());
@@ -148,6 +155,10 @@ pub fn build_swarm(
 
             let dcutr = dcutr::Behaviour::new(local_peer_id);
 
+            let ping = ping::Behaviour::new(
+                ping::Config::new().with_interval(Duration::from_secs(15)),
+            );
+
             let search = json::Behaviour::<SearchRequest, SearchResponse>::new(
                 [(StreamProtocol::new(SEARCH_PROTOCOL), ProtocolSupport::Full)],
                 request_response::Config::default()
@@ -162,6 +173,7 @@ pub fn build_swarm(
 
             ViboplrBehaviour {
                 identify,
+                ping,
                 autonat,
                 relay_client,
                 dcutr,
