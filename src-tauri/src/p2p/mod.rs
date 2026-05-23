@@ -5,6 +5,7 @@ pub mod discovery;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use libp2p::{Multiaddr, PeerId};
 use futures::StreamExt;
@@ -279,6 +280,16 @@ async fn run_event_loop(
     let mut bytes_received: u64 = 0;
     let mut nat_status = "unknown".to_string();
 
+    // Relay reservation watchdog: if we connect to the configured relay but
+    // never receive ReservationReqAccepted within RELAY_RESERVATION_TIMEOUT,
+    // surface a warning so the user knows their network is interfering.
+    const RELAY_RESERVATION_TIMEOUT: Duration = Duration::from_secs(12);
+    let mut relay_connected_at: Option<std::time::Instant> = None;
+    let mut relay_reservation_ok = false;
+    let mut relay_warning_emitted = false;
+    let relay_watchdog = tokio::time::sleep(Duration::from_secs(3600));
+    tokio::pin!(relay_watchdog);
+
     loop {
         tokio::select! {
             event = swarm.select_next_some() => {
@@ -309,6 +320,11 @@ async fn run_event_loop(
                                 if let Err(e) = swarm.listen_on(circuit_addr) {
                                     log::warn!("P2P: Failed to listen on circuit: {}", e);
                                 }
+                                relay_connected_at = Some(std::time::Instant::now());
+                                relay_warning_emitted = false;
+                                relay_watchdog
+                                    .as_mut()
+                                    .reset(tokio::time::Instant::now() + RELAY_RESERVATION_TIMEOUT);
                             }
                         }
                         // Flush any pending requests for this peer
@@ -448,12 +464,28 @@ async fn run_event_loop(
                                 libp2p::relay::client::Event::ReservationReqAccepted { relay_peer_id, .. }
                             ) => {
                                 log::info!("P2P: reservation accepted by relay {}", relay_peer_id);
+                                relay_reservation_ok = true;
                             }
                             _ => {}
                         }
                     }
                     _ => {}
                 }
+            }
+            _ = &mut relay_watchdog => {
+                if !relay_reservation_ok && !relay_warning_emitted && relay_connected_at.is_some() {
+                    log::warn!(
+                        "P2P: connected to relay but no reservation after {}s — \
+                         a VPN, corporate firewall, or restrictive NAT may be blocking \
+                         post-handshake QUIC packets. P2P discovery via relay will not work \
+                         until the connection clears.",
+                        RELAY_RESERVATION_TIMEOUT.as_secs()
+                    );
+                    relay_warning_emitted = true;
+                }
+                relay_watchdog
+                    .as_mut()
+                    .reset(tokio::time::Instant::now() + Duration::from_secs(3600));
             }
             cmd = cmd_rx.recv() => {
                 match cmd {
