@@ -5,6 +5,7 @@ import type { QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 import { formatDuration, isVideoTrack } from "../utils";
 import { thumbFilenameForUri, isContextRemote } from "../mainPlaylist";
+import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
 import "./QueuePanel.css";
 
 export interface PendingEnqueue {
@@ -19,6 +20,19 @@ function formatTotalDuration(tracks: QueueTrack[]): string {
   const mins = Math.floor((totalSecs % 3600) / 60);
   if (hours > 0) return `${hours}h ${mins}m`;
   return `${mins}m`;
+}
+
+export function formatPlaylistSource(source: string | null | undefined): string | null {
+  if (!source) return null;
+  const s = source.toLowerCase().trim();
+  if (!s) return null;
+  const known: Record<string, string> = {
+    album: "Playing from album",
+    artist: "Playing from artist",
+    tag: "Playing from tag",
+    playlist: "Playing from playlist",
+  };
+  return known[s] ?? `Playing from ${s}`;
 }
 
 function computeIndexSelection(
@@ -129,6 +143,7 @@ export function QueuePanel({
   const [contextInfoAnchor, setContextInfoAnchor] = useState<{ x: number; y: number } | null>(null);
   const [contextInfoPos, setContextInfoPos] = useState<{ left: number; top: number } | null>(null);
   const contextInfoRef = useRef<HTMLDivElement>(null);
+  const [coverColor, setCoverColor] = useState<RGB | null>(null);
   const lastClickedIndexRef = useRef<number | null>(null);
   const dragIndicesRef = useRef<number[] | null>(null);
   const dropTargetRef = useRef<number | null>(null);
@@ -190,6 +205,20 @@ export function QueuePanel({
 
   // Clear selection when queue changes (add/remove/reorder)
   useEffect(() => { setSelectedIndices(new Set()); }, [queue]);
+
+  // Extract dominant color from cover image
+  useEffect(() => {
+    const imagePath = playlistContext?.imagePath;
+    if (!imagePath) {
+      setCoverColor(null);
+      return;
+    }
+    let canceled = false;
+    extractDominantColor(convertFileSrc(imagePath)).then(result => {
+      if (!canceled) setCoverColor(result);
+    });
+    return () => { canceled = true; };
+  }, [playlistContext?.imagePath]);
 
   // Fallback image resolution for tracks missing image_url
   const [resolvedImages, setResolvedImages] = useState<Record<string, string | null>>({});
@@ -422,6 +451,20 @@ export function QueuePanel({
     window.addEventListener("mouseup", onMouseUp);
   }
 
+  // Derived values for banner rendering
+  const eyebrow = formatPlaylistSource(playlistContext?.source);
+  const gradientStop = coverColor
+    ? `${coverColor.r}, ${coverColor.g}, ${coverColor.b}`
+    : "var(--accent-rgb)";
+  const bannerStyle: { background: string } = {
+    background: `linear-gradient(90deg, rgba(${gradientStop}, 0.45) 0%, rgba(${gradientStop}, 0.08) 60%, transparent 100%)`,
+  };
+  const hasInfoContent = !!(
+    playlistContext?.source ||
+    playlistContext?.description ||
+    (playlistContext?.metadata && Object.keys(playlistContext.metadata).length > 0)
+  );
+
   return (
     <aside className={`queue-panel${collapsed ? " collapsed" : ""}`} ref={queuePanelRef} tabIndex={-1} onKeyDown={handleKeyDown}>
       {!collapsed && <div className={`queue-resize-handle${resizing ? " active" : ""}`} onMouseDown={handleResizeMouseDown} />}
@@ -472,47 +515,47 @@ export function QueuePanel({
           </div>
         </div>
       )}
-      <div className="queue-list">
-        {playlistContext && queue.length > 0 && (
-          <div className="queue-context-banner">
-            <div className="queue-context-cover">
-              {playlistContext.imagePath ? (
-                <img
-                  src={convertFileSrc(playlistContext.imagePath)}
-                  alt=""
-                  onError={e => { e.currentTarget.style.display = "none"; }}
-                />
-              ) : (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 18V5l12-2v13"/>
-                  <circle cx="6" cy="18" r="3"/>
-                  <circle cx="18" cy="16" r="3"/>
-                </svg>
-              )}
-            </div>
-            <div className="queue-context-info">
-              <div className="queue-context-name-row">
-                <span className="queue-context-name">{playlistContext.name}</span>
-                <span className="queue-context-meta">
-                  {queue.length} track{queue.length !== 1 ? "s" : ""} &middot; {formatTotalDuration(queue)}
-                </span>
-                {(playlistContext.source || playlistContext.description || (playlistContext.metadata && Object.keys(playlistContext.metadata).length > 0)) && (
-                  <button
-                    className="queue-context-info-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                      setContextInfoAnchor(prev => prev ? null : { x: rect.left, y: rect.bottom });
-                    }}
-                    title="Playlist info"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                  </button>
-                )}
-              </div>
+      {playlistContext && queue.length > 0 && (
+        <div className="queue-context-banner" style={bannerStyle}>
+          <div className="queue-context-cover">
+            {playlistContext.imagePath ? (
+              <img
+                src={convertFileSrc(playlistContext.imagePath)}
+                alt=""
+                onError={e => { e.currentTarget.style.display = "none"; }}
+              />
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 18V5l12-2v13"/>
+                <circle cx="6" cy="18" r="3"/>
+                <circle cx="18" cy="16" r="3"/>
+              </svg>
+            )}
+          </div>
+          {eyebrow && <div className="queue-context-eyebrow">{eyebrow}</div>}
+          <div className="queue-context-text">
+            <div className="queue-context-name">{playlistContext.name}</div>
+            <div className="queue-context-meta">
+              {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTotalDuration(queue)}
             </div>
           </div>
-        )}
+          {hasInfoContent && (
+            <button
+              className="queue-context-info-btn"
+              aria-expanded={contextInfoAnchor !== null}
+              onClick={(e) => {
+                e.stopPropagation();
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setContextInfoAnchor(prev => prev ? null : { x: rect.left, y: rect.bottom });
+              }}
+              title="Playlist info"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            </button>
+          )}
+        </div>
+      )}
+      <div className="queue-list">
         {queue.map((t, i) => (
           <div
             key={t.key}
