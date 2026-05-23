@@ -110,6 +110,8 @@ interface NowPlayingBarProps {
   onToggleAutoContinueSameFormat: () => void;
   onToggleAutoContinuePopover: () => void;
   onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
+  onResetAutoContinueWeights: () => void;
+  onCloseAutoContinuePopover: () => void;
   onToggleLike: () => void;
   onToggleDislike?: () => void;
   onTrackClick: (trackKey: string) => void;
@@ -141,7 +143,7 @@ export function NowPlayingBar({
   eqEnabled, eqPreset, eqGains, eqCustomPresets,
   onEqEnabledChange, onEqPresetChange, onEqGainChange, onEqResetAll, onEqSaveAs,
   onToggleQueueMode,
-  onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
+  onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onTrackClick,
   onNavigateToArtistByName, onNavigateToAlbumByName,
   syncState, onToggleSync,
@@ -161,6 +163,7 @@ export function NowPlayingBar({
   const [followPulse, setFollowPulse] = useState(false);
   const [eqOpen, setEqOpen] = useState(false);
   const eqAnchorRef = useRef<HTMLButtonElement>(null);
+  const acAnchorRef = useRef<HTMLButtonElement>(null);
   const isVideo = currentTrack ? isVideoTrack(currentTrack) : false;
 
   // Pulse the Follow button when sync navigates to a new track
@@ -572,6 +575,7 @@ export function NowPlayingBar({
         </button>
         <div className="auto-continue-wrapper">
           <button
+            ref={acAnchorRef}
             className={`g-btn g-btn-sm${autoContinueEnabled ? " active" : ""}`}
             onClick={onToggleAutoContinuePopover}
             title="Auto Continue"
@@ -586,6 +590,9 @@ export function NowPlayingBar({
               onToggle={onToggleAutoContinue}
               onToggleSameFormat={onToggleAutoContinueSameFormat}
               onAdjust={onAdjustAutoContinueWeight}
+              onResetAll={onResetAutoContinueWeights}
+              onClose={onCloseAutoContinuePopover}
+              anchorRef={acAnchorRef}
             />
           )}
         </div>

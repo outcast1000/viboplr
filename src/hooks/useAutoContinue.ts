@@ -24,14 +24,14 @@ const STRATEGY_MAP: Record<keyof AutoContinueWeights, string> = {
   liked: "liked",
 };
 
-const DEFAULT_WEIGHTS: AutoContinueWeights = {
+export const DEFAULT_AUTO_CONTINUE_WEIGHTS: AutoContinueWeights = {
   random: 40, sameArtist: 20, sameTag: 20, mostPlayed: 10, liked: 10,
 };
 
 export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
   const [enabled, setEnabled] = useState(false);
   const [sameFormat, setSameFormat] = useState(false);
-  const [weights, setWeights] = useState<AutoContinueWeights>(DEFAULT_WEIGHTS);
+  const [weights, setWeights] = useState<AutoContinueWeights>(DEFAULT_AUTO_CONTINUE_WEIGHTS);
   const [showPopover, setShowPopover] = useState(false);
 
   // Restore from store
@@ -135,10 +135,14 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
     });
   }
 
+  function resetWeights() {
+    setWeights({ ...DEFAULT_AUTO_CONTINUE_WEIGHTS });
+  }
+
   return {
     enabled, setEnabled,
     sameFormat, setSameFormat,
-    weights, adjustWeight,
+    weights, adjustWeight, resetWeights,
     showPopover, setShowPopover,
     fetchTrack,
   };

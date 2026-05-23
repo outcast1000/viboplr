@@ -33,6 +33,8 @@ interface FullscreenControlsProps {
   onToggleAutoContinueSameFormat: () => void;
   onToggleAutoContinuePopover: () => void;
   onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
+  onResetAutoContinueWeights: () => void;
+  onCloseAutoContinuePopover: () => void;
   onToggleLike: () => void;
   onToggleDislike?: () => void;
   onToggleFullscreen: () => void;
@@ -53,7 +55,7 @@ export function FullscreenControls({
   imagePath,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode,
-  onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
+  onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, onNavigateToArtistByName, onNavigateToAlbumByName,
 }: FullscreenControlsProps) {
   const [visible, setVisible] = useState(true);
@@ -61,6 +63,7 @@ export function FullscreenControls({
   const timerRef = useRef<number>(0);
   const draggingRef = useRef(false);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const fsAcAnchorRef = useRef<HTMLButtonElement>(null);
 
   // Track fullscreen state
   useEffect(() => {
@@ -219,6 +222,7 @@ export function FullscreenControls({
           </button>
           <div className="auto-continue-wrapper">
             <button
+              ref={fsAcAnchorRef}
               className={`g-btn g-btn-sm${autoContinueEnabled ? " active" : ""}`}
               onClick={onToggleAutoContinuePopover}
               title="Auto Continue"
@@ -233,6 +237,9 @@ export function FullscreenControls({
                 onToggle={onToggleAutoContinue}
                 onToggleSameFormat={onToggleAutoContinueSameFormat}
                 onAdjust={onAdjustAutoContinueWeight}
+                onResetAll={onResetAutoContinueWeights}
+                onClose={onCloseAutoContinuePopover}
+                anchorRef={fsAcAnchorRef}
               />
             )}
           </div>

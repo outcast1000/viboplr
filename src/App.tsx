@@ -3181,6 +3181,8 @@ function App() {
             onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
             onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
             onAdjustAutoContinueWeight={autoContinue.adjustWeight}
+            onResetAutoContinueWeights={autoContinue.resetWeights}
+            onCloseAutoContinuePopover={() => autoContinue.setShowPopover(false)}
             onToggleLike={() => playback.currentTrack && likeActions.handleToggleLike(playback.currentTrack)}
             onToggleDislike={() => { if (playback.currentTrack) { likeActions.handleToggleDislike(playback.currentTrack); handleNext(); } }}
             onToggleFullscreen={playback.toggleFullscreen}
@@ -3626,6 +3628,8 @@ function App() {
         onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
         onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
+        onResetAutoContinueWeights={autoContinue.resetWeights}
+        onCloseAutoContinuePopover={() => autoContinue.setShowPopover(false)}
         onToggleLike={() => playback.currentTrack && likeActions.handleToggleLike(playback.currentTrack)}
         onToggleDislike={() => { if (playback.currentTrack) { likeActions.handleToggleDislike(playback.currentTrack); handleNext(); } }}
         onTrackClick={(trackId) => { library.handleTrackClick(trackId); }}
