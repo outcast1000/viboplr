@@ -368,10 +368,12 @@ export interface PluginContextMenuAPI {
   ): void;
 }
 
+export type PluginBadgeVariant = "accent" | "error" | "success" | "warning" | "muted";
+
 export type PluginBadge =
   | null
-  | { type: "dot"; variant: "accent" | "error" }
-  | { type: "count"; value: number; variant: "accent" | "error" };
+  | { type: "dot"; variant: PluginBadgeVariant; tooltip?: string }
+  | { type: "count"; value: number; variant: PluginBadgeVariant };
 
 export interface PluginUIAPI {
   setViewData(viewId: string, data: PluginViewData): void;

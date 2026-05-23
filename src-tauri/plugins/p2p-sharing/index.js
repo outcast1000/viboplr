@@ -263,10 +263,45 @@ function activate(api) {
     if (!state.online) return;
     api.p2p.getDiagnostics().then(function (diag) {
       state.diagnostics = diag;
+      updateConnectionBadge();
       renderSettings();
     }).catch(function (e) {
       api.log("warn", "P2P diagnostics fetch failed: " + e);
     });
+  }
+
+  function updateConnectionBadge() {
+    if (!state.enabled) {
+      api.ui.setBadge("p2p", null);
+      return;
+    }
+    if (!state.online) {
+      api.ui.setBadge("p2p", { type: "dot", variant: "muted", tooltip: "P2P offline" });
+      return;
+    }
+    var d = state.diagnostics;
+    // Direct reachability — public NAT, no relay needed.
+    if (d && d.nat_status === "public") {
+      api.ui.setBadge("p2p", { type: "dot", variant: "success", tooltip: "Direct connection (publicly reachable)" });
+      return;
+    }
+    // Relay reservation accepted — peers can reach us via the circuit.
+    if (d && d.relay_reservation_ok) {
+      api.ui.setBadge("p2p", { type: "dot", variant: "warning", tooltip: "Reachable via relay (behind NAT)" });
+      return;
+    }
+    // Relay connected but reservation stalled — VPN/firewall likely blocking.
+    if (d && d.relay_reservation_stalled) {
+      api.ui.setBadge("p2p", { type: "dot", variant: "error", tooltip: "Relay blocked (VPN/firewall may be interfering)" });
+      return;
+    }
+    // Relay configured but not yet connected, or reservation in flight.
+    if (d && d.relay_configured) {
+      api.ui.setBadge("p2p", { type: "dot", variant: "muted", tooltip: "Connecting to relay…" });
+      return;
+    }
+    // No relay configured and not publicly reachable — can only reach public peers.
+    api.ui.setBadge("p2p", { type: "dot", variant: "muted", tooltip: "No relay; outbound only" });
   }
 
   function formatBytes(bytes) {
@@ -662,6 +697,7 @@ function activate(api) {
     } else {
       shutdown();
     }
+    updateConnectionBadge();
     renderSettings();
     renderView();
   });
@@ -961,6 +997,7 @@ function activate(api) {
     state.error = null;
     state.diagnostics = null;
     state.lastHeartbeatTs = null;
+    updateConnectionBadge();
   }
 
   // --- Startup ---
@@ -989,6 +1026,7 @@ function activate(api) {
 
     renderSettings();
     renderView();
+    updateConnectionBadge();
 
     // Auto-connect on plugin activation
     initialize();

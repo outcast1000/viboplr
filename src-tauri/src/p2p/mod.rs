@@ -57,6 +57,10 @@ pub struct P2pDiagnostics {
     pub pending_dials: usize,
     pub pending_searches: usize,
     pub pending_transfers: usize,
+    pub relay_configured: bool,
+    pub relay_connected: bool,
+    pub relay_reservation_ok: bool,
+    pub relay_reservation_stalled: bool,
 }
 
 pub enum P2pCommand {
@@ -284,6 +288,7 @@ async fn run_event_loop(
     // never receive ReservationReqAccepted within RELAY_RESERVATION_TIMEOUT,
     // surface a warning so the user knows their network is interfering.
     const RELAY_RESERVATION_TIMEOUT: Duration = Duration::from_secs(12);
+    let configured_relay_peer: Option<PeerId> = pending_relay_circuit.as_ref().map(|(p, _)| *p);
     let mut relay_connected_at: Option<std::time::Instant> = None;
     let mut relay_reservation_ok = false;
     let mut relay_warning_emitted = false;
@@ -578,6 +583,12 @@ async fn run_event_loop(
                             pending_dials: pending_dials.len(),
                             pending_searches: pending_searches.len(),
                             pending_transfers: pending_transfers.len(),
+                            relay_configured: configured_relay_peer.is_some(),
+                            relay_connected: configured_relay_peer
+                                .map(|p| connected_peers.contains(&p))
+                                .unwrap_or(false),
+                            relay_reservation_ok,
+                            relay_reservation_stalled: relay_warning_emitted && !relay_reservation_ok,
                         };
                         let _ = response_tx.send(diag);
                     }

@@ -159,3 +159,15 @@
   background: var(--error);
 }
 
+.plugin-badge--success {
+  background: var(--success);
+}
+
+.plugin-badge--warning {
+  background: var(--warning);
+}
+
+.plugin-badge--muted {
+  background: var(--text-tertiary);
+}
+

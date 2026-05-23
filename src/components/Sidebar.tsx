@@ -128,7 +128,7 @@ export function Sidebar({
                     const badge = badgeMap?.get(`${item.pluginId}:${item.id}`);
                     if (!badge) return null;
                     if (badge.type === "dot") {
-                      return <span className={`plugin-badge-dot plugin-badge--${badge.variant}`} />;
+                      return <span className={`plugin-badge-dot plugin-badge--${badge.variant}`} title={badge.tooltip} />;
                     }
                     if (badge.type === "count") {
                       return (
