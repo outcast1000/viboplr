@@ -46,7 +46,7 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "process", "io-util"] }
 tokio-util = { version = "0.7", features = ["io"] }
-libp2p = { version = "0.54", features = [
+libp2p = { version = "=0.56", features = [
     "tokio", "tcp", "quic", "request-response", "relay",
     "dcutr", "autonat", "identify", "ping", "dns", "noise",
     "yamux", "json", "macros"

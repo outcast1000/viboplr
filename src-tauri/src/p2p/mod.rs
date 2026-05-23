@@ -400,7 +400,7 @@ async fn run_event_loop(
                     SwarmEvent::Behaviour(event) => {
                         match event {
                             ViboplrBehaviourEvent::Search(
-                                request_response::Event::Message { peer, message }
+                                request_response::Event::Message { peer, message, .. }
                             ) => {
                                 match message {
                                     request_response::Message::Request { request, channel, .. } => {
