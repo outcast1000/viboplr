@@ -5,9 +5,10 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { QueueTrack } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import type { MiniRestingSize, MiniWidthSize } from "../hooks/useMiniMode";
-import { formatDuration } from "../utils";
+import { formatDuration, isVideoTrack } from "../utils";
 import { isRemoteScheme } from "../queueEntry";
 import { AutoContinuePopover } from "./AutoContinuePopover";
+import { EqPopover } from "./EqPopover";
 import { WaveformSeekBar } from "./WaveformSeekBar";
 import { SegmentedSeekBar } from "./SegmentedSeekBar";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
@@ -95,6 +96,15 @@ interface NowPlayingBarProps {
   onSeek: (secs: number) => void;
   onVolume: (level: number) => void;
   onMute: () => void;
+  eqEnabled: boolean;
+  eqPreset: string;
+  eqGains: number[];
+  eqCustomPresets: { id: string; name: string; gains: number[] }[];
+  onEqEnabledChange: (v: boolean) => void;
+  onEqPresetChange: (id: string) => void;
+  onEqGainChange: (bandIndex: number, gainDb: number) => void;
+  onEqResetAll: () => void;
+  onEqSaveAs: () => void;
   onToggleQueueMode: () => void;
   onToggleAutoContinue: () => void;
   onToggleAutoContinueSameFormat: () => void;
@@ -127,7 +137,10 @@ export function NowPlayingBar({
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
   imagePath, miniMode, miniExpanded, miniRestingSize, miniWidthSize, onCancelCollapseTimer, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
-  onSeek, onVolume, onMute, onToggleQueueMode,
+  onSeek, onVolume, onMute,
+  eqEnabled, eqPreset, eqGains, eqCustomPresets,
+  onEqEnabledChange, onEqPresetChange, onEqGainChange, onEqResetAll, onEqSaveAs,
+  onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight,
   onToggleLike, onToggleDislike, onTrackClick,
   onNavigateToArtistByName, onNavigateToAlbumByName,
@@ -146,6 +159,9 @@ export function NowPlayingBar({
   const sourceTooltipRef = useRef<HTMLDivElement | null>(null);
   const [showMiniVolume, setShowMiniVolume] = useState(false);
   const [followPulse, setFollowPulse] = useState(false);
+  const [eqOpen, setEqOpen] = useState(false);
+  const eqAnchorRef = useRef<HTMLButtonElement>(null);
+  const isVideo = currentTrack ? isVideoTrack(currentTrack) : false;
 
   // Pulse the Follow button when sync navigates to a new track
   useEffect(() => {
@@ -587,6 +603,37 @@ export function NowPlayingBar({
           </svg>
           <span className="now-follow-label">{syncState ? "Following" : "Follow"}</span>
         </button>
+        <div className="now-eq-wrapper" style={{ position: "relative" }}>
+          <button
+            ref={eqAnchorRef}
+            className={`g-btn g-btn-sm now-playing-eq-btn ${eqEnabled && eqPreset !== "flat" ? "active" : ""}`}
+            onClick={() => !isVideo && setEqOpen(o => !o)}
+            disabled={isVideo}
+            title={isVideo ? "EQ unavailable on video tracks" : "Equalizer"}
+            aria-label="Equalizer"
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <rect x="2" y="6" width="2" height="8" />
+              <rect x="7" y="2" width="2" height="12" />
+              <rect x="12" y="9" width="2" height="5" />
+            </svg>
+          </button>
+          {eqOpen && !isVideo && (
+            <EqPopover
+              enabled={eqEnabled}
+              preset={eqPreset}
+              gains={eqGains}
+              customPresets={eqCustomPresets}
+              onEnabledChange={onEqEnabledChange}
+              onPresetChange={onEqPresetChange}
+              onGainChange={onEqGainChange}
+              onResetAll={onEqResetAll}
+              onSaveAs={onEqSaveAs}
+              onClose={() => setEqOpen(false)}
+              anchorRef={eqAnchorRef}
+            />
+          )}
+        </div>
         <div className="now-volume">
           <button className="g-btn g-btn-sm" onClick={onMute} title={`Mute (${mod}M)`}>
             {volume === 0

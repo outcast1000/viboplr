@@ -26,6 +26,7 @@ import { tracksFromManifest, contextFromManifest, contextToExportMetadata, conte
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext, buildSearchUrl } from "./searchProviders";
 import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
+import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
@@ -85,6 +86,7 @@ import { DownloadModal } from "./components/DownloadModal";
 import type { DownloadTrack } from "./components/DownloadModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
+import { PromptModal } from "./components/PromptModal";
 import { MixtapePreviewModal } from "./components/MixtapePreviewModal";
 import { MixtapeExportModal } from "./components/MixtapeExportModal";
 import type { ExportTrack } from "./components/MixtapeExportModal";
@@ -138,6 +140,8 @@ function App() {
   const [trackVideoHistory, setTrackVideoHistory] = useState(false);
   const [loggingEnabled, setLoggingEnabled] = useState(false);
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = useState(false);
+  const [eqCustomPresets, setEqCustomPresets] = useState<{ id: string; name: string; gains: number[] }[]>([]);
+  const [eqSaveAsOpen, setEqSaveAsOpen] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [lastDownloadDest, setLastDownloadDest] = useState<string | null>(null);
@@ -1609,6 +1613,19 @@ function App() {
         if (savedDownloadsCollectionId != null) setDownloadsCollectionId(savedDownloadsCollectionId);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
 
+        const [savedEqEnabled, savedEqPreset, savedEqGains, savedEqCustomPresets] = await Promise.all([
+          store.get<boolean>("eqEnabled"),
+          store.get<string>("eqPreset"),
+          store.get<number[]>("eqGains"),
+          store.get<{ id: string; name: string; gains: number[] }[]>("eqCustomPresets"),
+        ]);
+        if (typeof savedEqEnabled === "boolean") playback.setEqEnabled(savedEqEnabled);
+        if (typeof savedEqPreset === "string") playback.setEqPreset(savedEqPreset);
+        if (Array.isArray(savedEqGains) && savedEqGains.length === 10 && savedEqGains.every(n => typeof n === "number")) {
+          playback.setEqGains(savedEqGains);
+        }
+        if (Array.isArray(savedEqCustomPresets)) setEqCustomPresets(savedEqCustomPresets);
+
         // One-time migration: move Last.fm session from app store to plugin storage
         const [migrateSessionKey, migrateUsername, migrateAutoEnabled, migrateAutoInterval, migrateLastImportAt] = await Promise.all([
           store.get<string | null>("lastfmSessionKey"),
@@ -1766,6 +1783,26 @@ function App() {
       store.set("currentTrackEntry", null);
     }
   }, [playback.currentTrack]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("eqEnabled", playback.eqEnabled);
+  }, [playback.eqEnabled]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("eqPreset", playback.eqPreset);
+  }, [playback.eqPreset]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("eqGains", playback.eqGains);
+  }, [playback.eqGains]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("eqCustomPresets", eqCustomPresets);
+  }, [eqCustomPresets]);
 
   // Forward frontend errors to backend log file
   useEffect(() => {
@@ -3000,6 +3037,40 @@ function App() {
               onSaveProviders={handleSaveProviders}
               crossfadeSecs={crossfadeSecs}
               onCrossfadeChange={handleCrossfadeChange}
+              eqEnabled={playback.eqEnabled}
+              eqPreset={playback.eqPreset}
+              eqGains={playback.eqGains}
+              eqCustomPresets={eqCustomPresets}
+              onEqEnabledChange={playback.setEqEnabled}
+              onEqPresetChange={(id) => {
+                if (id === "custom") {
+                  playback.setEqPreset("custom");
+                  return;
+                }
+                const builtIn = BUILTIN_PRESETS.find(p => p.id === id);
+                const cust = eqCustomPresets.find(p => p.id === id);
+                const target = builtIn ?? cust;
+                if (target) {
+                  playback.setEqGains([...target.gains]);
+                  playback.setEqPreset(id);
+                }
+              }}
+              onEqGainChange={(i, db) => {
+                const next = [...playback.eqGains];
+                next[i] = db;
+                playback.setEqGains(next);
+                playback.setEqPreset(presetForGains(next, eqCustomPresets));
+              }}
+              onEqRenameCustomPreset={(id, name) => {
+                setEqCustomPresets(prev => prev.map(p => p.id === id ? { ...p, name } : p));
+              }}
+              onEqDeleteCustomPreset={(id) => {
+                setEqCustomPresets(prev => prev.filter(p => p.id !== id));
+                if (playback.eqPreset === id) playback.setEqPreset("custom");
+              }}
+              onEqImportPresets={(presets) => {
+                setEqCustomPresets(prev => [...prev, ...presets]);
+              }}
               trackVideoHistory={trackVideoHistory}
               onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
               minimizeToMiniPlayer={minimizeToMiniPlayer}
@@ -3394,6 +3465,21 @@ function App() {
         />
       )}
 
+      {eqSaveAsOpen && (
+        <PromptModal
+          title="Save preset"
+          placeholder="My preset"
+          okLabel="Save"
+          onCancel={() => setEqSaveAsOpen(false)}
+          onSubmit={name => {
+            const id = `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            setEqCustomPresets(prev => [...prev, { id, name, gains: [...playback.eqGains] }]);
+            playback.setEqPreset(id);
+            setEqSaveAsOpen(false);
+          }}
+        />
+      )}
+
       {dependencies.modalState && (
         <DependencyModal
           dep={dependencies.modalState.dep}
@@ -3506,6 +3592,35 @@ function App() {
             playback.handleVolume(previousVolumeRef.current || 1.0);
           }
         }}
+        eqEnabled={playback.eqEnabled}
+        eqPreset={playback.eqPreset}
+        eqGains={playback.eqGains}
+        eqCustomPresets={eqCustomPresets}
+        onEqEnabledChange={playback.setEqEnabled}
+        onEqPresetChange={(id) => {
+          if (id === "custom") {
+            playback.setEqPreset("custom");
+            return;
+          }
+          const builtIn = BUILTIN_PRESETS.find(p => p.id === id);
+          const cust = eqCustomPresets.find(p => p.id === id);
+          const target = builtIn ?? cust;
+          if (target) {
+            playback.setEqGains([...target.gains]);
+            playback.setEqPreset(id);
+          }
+        }}
+        onEqGainChange={(i, db) => {
+          const next = [...playback.eqGains];
+          next[i] = db;
+          playback.setEqGains(next);
+          playback.setEqPreset(presetForGains(next, eqCustomPresets));
+        }}
+        onEqResetAll={() => {
+          playback.setEqGains([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+          playback.setEqPreset("flat");
+        }}
+        onEqSaveAs={() => setEqSaveAsOpen(true)}
         onToggleQueueMode={queueHook.toggleQueueMode}
         onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
         onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}

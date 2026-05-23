@@ -4,6 +4,12 @@ import type { QueueTrack } from "../types";
 import { isVideoTrack, shouldScrobble } from "../utils";
 import { parseUrlScheme } from "../queueEntry";
 import { store } from "../store";
+import {
+  BANDS,
+  BAND_Q,
+  NUM_BANDS,
+  applyGainsToFilters,
+} from "../eqPresets";
 
 function logPlayback(message: string) {
   invoke("write_frontend_log", { level: "info", message, section: "playback" }).catch(() => {});
@@ -25,6 +31,9 @@ export function usePlayback(
   const [durationSecs, setDurationSecs] = useState(0);
   const [volume, setVolume] = useState(1.0);
   const [activeSlot, setActiveSlot] = useState<"A" | "B">("A");
+  const [eqEnabled, setEqEnabled] = useState(false);
+  const [eqPreset, setEqPreset] = useState<string>("flat");
+  const [eqGains, setEqGains] = useState<number[]>(() => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   const trackChangeSourceRef = useRef<"user" | "auto">("user");
 
   const audioRefA = useRef<HTMLAudioElement>(null);
@@ -58,6 +67,86 @@ export function usePlayback(
   const volumeRef = useRef(volume);
   const wasPlayingBeforeHideRef = useRef(false);
 
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const sourceARef = useRef<MediaElementAudioSourceNode | null>(null);
+  const sourceBRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const filtersARef = useRef<BiquadFilterNode[]>([]);
+  const filtersBRef = useRef<BiquadFilterNode[]>([]);
+  const xfadeGainARef = useRef<GainNode | null>(null);
+  const xfadeGainBRef = useRef<GainNode | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
+  const eqEnabledRef = useRef(eqEnabled);
+  const eqGainsRef = useRef<number[]>(eqGains);
+  eqEnabledRef.current = eqEnabled;
+  eqGainsRef.current = eqGains;
+
+  function applyEqToFilters(): void {
+    const gains = eqEnabledRef.current ? eqGainsRef.current : new Array(NUM_BANDS).fill(0);
+    if (filtersARef.current.length) applyGainsToFilters(filtersARef.current, gains);
+    if (filtersBRef.current.length) applyGainsToFilters(filtersBRef.current, gains);
+  }
+
+  function ensureAudioGraph(): AudioContext | null {
+    if (audioCtxRef.current) {
+      if (audioCtxRef.current.state === "suspended") {
+        audioCtxRef.current.resume().catch(console.error);
+      }
+      return audioCtxRef.current;
+    }
+    const elA = audioRefA.current;
+    const elB = audioRefB.current;
+    if (!elA || !elB) return null;
+    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) {
+      console.error("AudioContext not supported");
+      return null;
+    }
+    const ctx = new Ctor();
+    audioCtxRef.current = ctx;
+
+    const masterGain = ctx.createGain();
+    masterGain.gain.value = volumeRef.current;
+    masterGain.connect(ctx.destination);
+    masterGainRef.current = masterGain;
+
+    function buildChain(el: HTMLAudioElement): {
+      source: MediaElementAudioSourceNode;
+      filters: BiquadFilterNode[];
+      xfadeGain: GainNode;
+    } {
+      const source = ctx.createMediaElementSource(el);
+      const filters: BiquadFilterNode[] = [];
+      for (let i = 0; i < NUM_BANDS; i++) {
+        const f = ctx.createBiquadFilter();
+        f.type = "peaking";
+        f.frequency.value = BANDS[i];
+        f.Q.value = BAND_Q;
+        f.gain.value = 0;
+        filters.push(f);
+      }
+      const xfadeGain = ctx.createGain();
+      xfadeGain.gain.value = 1;
+
+      source.connect(filters[0]);
+      for (let i = 0; i < filters.length - 1; i++) filters[i].connect(filters[i + 1]);
+      filters[filters.length - 1].connect(xfadeGain);
+      xfadeGain.connect(masterGain);
+      return { source, filters, xfadeGain };
+    }
+
+    const a = buildChain(elA);
+    const b = buildChain(elB);
+    sourceARef.current = a.source;
+    sourceBRef.current = b.source;
+    filtersARef.current = a.filters;
+    filtersBRef.current = b.filters;
+    xfadeGainARef.current = a.xfadeGain;
+    xfadeGainBRef.current = b.xfadeGain;
+
+    applyEqToFilters();
+    return ctx;
+  }
+
   function getActiveAudioElement(): HTMLAudioElement | null {
     return activeSlotRef.current === "A" ? audioRefA.current : audioRefB.current;
   }
@@ -76,12 +165,23 @@ export function usePlayback(
   // Sync volume ref and media elements when volume changes
   useEffect(() => {
     volumeRef.current = volume;
-    // During crossfade, rAF handles volume — skip direct sets
-    if (isCrossfadingRef.current) return;
+    // Video bypasses Web Audio, so its volume is set directly.
+    if (videoRef.current) videoRef.current.volume = volume;
+    if (masterGainRef.current) {
+      masterGainRef.current.gain.value = volume;
+      return;
+    }
+    // Pre-graph fallback: until ensureAudioGraph runs, the audio elements
+    // play through their native path so el.volume still works.
     if (audioRefA.current) audioRefA.current.volume = volume;
     if (audioRefB.current) audioRefB.current.volume = volume;
-    if (videoRef.current) videoRef.current.volume = volume;
   }, [volume]);
+
+  useEffect(() => {
+    eqEnabledRef.current = eqEnabled;
+    eqGainsRef.current = eqGains;
+    applyEqToFilters();
+  }, [eqEnabled, eqGains]);
 
   // Load video source once the element is available after render
   useEffect(() => {
@@ -199,6 +299,8 @@ export function usePlayback(
     // Set incoming element to full volume
     const activeEl = getActiveAudioElement();
     if (activeEl) activeEl.volume = volumeRef.current;
+    if (xfadeGainARef.current) xfadeGainARef.current.gain.value = 1;
+    if (xfadeGainBRef.current) xfadeGainBRef.current.gain.value = 1;
 
     if (crossfadeTimerRef.current !== null) {
       clearInterval(crossfadeTimerRef.current);
@@ -226,6 +328,8 @@ export function usePlayback(
     // Snap incoming to full volume
     const activeEl = getActiveAudioElement();
     if (activeEl) activeEl.volume = volumeRef.current;
+    if (xfadeGainARef.current) xfadeGainARef.current.gain.value = 1;
+    if (xfadeGainBRef.current) xfadeGainBRef.current.gain.value = 1;
 
     isCrossfadingRef.current = false;
     crossfadeOutgoingRef.current = null;
@@ -265,7 +369,11 @@ export function usePlayback(
     playStartedAtRef.current = Math.floor(Date.now() / 1000);
 
     // Start incoming element
-    incoming.volume = 0;
+    incoming.volume = volumeRef.current;
+    const incomingGain = activeSlotRef.current === "A" ? xfadeGainARef.current : xfadeGainBRef.current;
+    const outgoingGain = activeSlotRef.current === "A" ? xfadeGainBRef.current : xfadeGainARef.current;
+    if (incomingGain) incomingGain.gain.value = 0;
+    if (outgoingGain) outgoingGain.gain.value = 1;
     incoming.play().catch(console.error);
 
     advanceIndexRef.current();
@@ -282,11 +390,16 @@ export function usePlayback(
       const elapsed = performance.now() - startTime;
       const progress = Math.min(elapsed / fadeDuration, 1);
 
-      const vol = volumeRef.current;
-      if (crossfadeOutgoingRef.current) {
-        crossfadeOutgoingRef.current.volume = vol * (1 - progress);
+      if (audioCtxRef.current) {
+        const inGain = activeSlotRef.current === "A" ? xfadeGainARef.current : xfadeGainBRef.current;
+        const outGain = activeSlotRef.current === "A" ? xfadeGainBRef.current : xfadeGainARef.current;
+        if (inGain) inGain.gain.value = progress;
+        if (outGain) outGain.gain.value = 1 - progress;
+      } else {
+        const vol = volumeRef.current;
+        if (crossfadeOutgoingRef.current) crossfadeOutgoingRef.current.volume = vol * (1 - progress);
+        incoming.volume = vol * progress;
       }
-      incoming.volume = vol * progress;
 
       if (progress >= 1) {
         finishCrossfade();
@@ -340,6 +453,7 @@ export function usePlayback(
   }
 
   async function handlePlay(track: QueueTrack, source: "user" | "auto" = "user") {
+    ensureAudioGraph();
     cancelCrossfade();
     // Reuse in-flight preload resolution for the same track instead of starting over
     const inflight = preloadPromiseRef.current;
@@ -370,6 +484,7 @@ export function usePlayback(
   }
 
   async function handlePlayUrl(track: QueueTrack, url: string) {
+    ensureAudioGraph();
     cancelCrossfade();
     invalidatePreload();
     setPlaybackError(null);
@@ -707,5 +822,8 @@ export function usePlayback(
     toggleFullscreen,
     playbackError, failedTrack, clearPlaybackError,
     loadingTrack,
+    eqEnabled, setEqEnabled,
+    eqPreset, setEqPreset,
+    eqGains, setEqGains,
   };
 }

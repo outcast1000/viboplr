@@ -10,6 +10,9 @@ import type { PluginState } from "../types/plugin";
 import type { Collection } from "../types";
 import { store } from "../store";
 import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY, DEFAULT_IMAGE_PROVIDER_PRIORITY, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY } from "../hooks/usePlugins";
+import { BANDS, BUILTIN_PRESETS, validateImportedPreset, type EqPreset } from "../eqPresets";
+import { PromptModal } from "./PromptModal";
+import { ConfirmModal } from "./ConfirmModal";
 import "./SettingsPanel.css";
 
 // Provider config data shapes from backend
@@ -829,6 +832,16 @@ interface SettingsPanelProps {
   onClearImageFailures: () => void;
   crossfadeSecs: number;
   onCrossfadeChange: (secs: number) => void;
+  eqEnabled: boolean;
+  eqPreset: string;
+  eqGains: number[];
+  eqCustomPresets: { id: string; name: string; gains: number[] }[];
+  onEqEnabledChange: (v: boolean) => void;
+  onEqPresetChange: (id: string) => void;
+  onEqGainChange: (bandIndex: number, gainDb: number) => void;
+  onEqRenameCustomPreset: (id: string, name: string) => void;
+  onEqDeleteCustomPreset: (id: string) => void;
+  onEqImportPresets: (presets: { id: string; name: string; gains: number[] }[]) => void;
   trackVideoHistory: boolean;
   onTrackVideoHistoryChange: (enabled: boolean) => void;
   minimizeToMiniPlayer: boolean;
@@ -890,6 +903,16 @@ export function SettingsPanel({
   onClearImageFailures, onSaveProviders,
   crossfadeSecs,
   onCrossfadeChange,
+  eqEnabled,
+  eqPreset,
+  eqGains,
+  eqCustomPresets,
+  onEqEnabledChange,
+  onEqPresetChange,
+  onEqGainChange,
+  onEqRenameCustomPreset,
+  onEqDeleteCustomPreset,
+  onEqImportPresets,
   trackVideoHistory,
   onTrackVideoHistoryChange,
   minimizeToMiniPlayer,
@@ -920,6 +943,10 @@ export function SettingsPanel({
   dependencies,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  const [eqImportJson, setEqImportJson] = useState("");
+  const [eqRenameTarget, setEqRenameTarget] = useState<{ id: string; name: string } | null>(null);
+  const [eqDeleteTarget, setEqDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [eqImportError, setEqImportError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<ProviderFormData>({ name: "", artistUrl: "", albumUrl: "", trackUrl: "" });
@@ -1116,6 +1143,159 @@ export function SettingsPanel({
                         />
                         <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="settings-group">
+                  <div className="settings-group-title">Equalizer</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Enable EQ</span>
+                        <span className="settings-description">Apply a 10-band equalizer to audio playback</span>
+                      </div>
+                      <ToggleSwitch checked={eqEnabled} onChange={onEqEnabledChange} />
+                    </div>
+
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Preset</span>
+                      </div>
+                      <select
+                        className="ds-select"
+                        value={eqPreset === "custom" ? "custom" : eqPreset}
+                        onChange={e => onEqPresetChange(e.target.value)}
+                      >
+                        <optgroup label="Built-in">
+                          {BUILTIN_PRESETS.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </optgroup>
+                        {eqCustomPresets.length > 0 && (
+                          <optgroup label="Custom">
+                            {eqCustomPresets.map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {eqPreset === "custom" && <option value="custom">Custom (unsaved)</option>}
+                      </select>
+                    </div>
+
+                    <div className="settings-row">
+                      <div className="eq-bands" style={{ width: "100%" }}>
+                        {BANDS.map((hz, i) => (
+                          <div className="eq-band" key={hz}>
+                            <div className="eq-band-readout">{eqGains[i].toFixed(1)}</div>
+                            <input
+                              className="eq-band-slider"
+                              type="range"
+                              min={-15}
+                              max={15}
+                              step={0.5}
+                              value={eqGains[i]}
+                              onChange={e => onEqGainChange(i, parseFloat(e.target.value))}
+                              onDoubleClick={() => onEqGainChange(i, 0)}
+                              aria-label={`${hz} Hz`}
+                            />
+                            <div className="eq-band-label">{hz >= 1000 ? `${hz / 1000}k` : `${hz}`}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Custom presets</span>
+                        <span className="settings-description">Save the current curve from the EQ popover in the now playing bar</span>
+                      </div>
+                    </div>
+                    {eqCustomPresets.length === 0 && (
+                      <div className="settings-row">
+                        <span className="settings-description">No custom presets yet.</span>
+                      </div>
+                    )}
+                    {eqCustomPresets.map(p => (
+                      <div className="settings-row settings-row--nested" key={p.id}>
+                        <div className="settings-row-info">
+                          <span className="settings-label">{p.name}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button
+                            className="ds-btn ds-btn--ghost ds-btn--sm"
+                            onClick={() => {
+                              const json = JSON.stringify({ name: p.name, gains: p.gains }, null, 2);
+                              navigator.clipboard.writeText(json).catch(console.error);
+                            }}
+                          >
+                            Copy JSON
+                          </button>
+                          <button
+                            className="ds-btn ds-btn--ghost ds-btn--sm"
+                            onClick={() => setEqRenameTarget({ id: p.id, name: p.name })}
+                          >
+                            Rename
+                          </button>
+                          <button
+                            className="ds-btn ds-btn--danger ds-btn--sm"
+                            onClick={() => setEqDeleteTarget({ id: p.id, name: p.name })}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Import preset</span>
+                        <span className="settings-description">Paste a preset JSON object or an array of objects</span>
+                      </div>
+                    </div>
+                    <div className="settings-row">
+                      <textarea
+                        value={eqImportJson}
+                        onChange={e => { setEqImportJson(e.target.value); setEqImportError(null); }}
+                        placeholder='{"name": "My Preset", "gains": [0,0,0,0,0,0,0,0,0,0]}'
+                        rows={4}
+                        style={{ width: "100%", fontFamily: "monospace", fontSize: "var(--fs-xs)" }}
+                        className="ds-input"
+                      />
+                    </div>
+                    {eqImportError && (
+                      <div className="settings-row">
+                        <span style={{ color: "var(--error)", fontSize: "var(--fs-xs)" }}>{eqImportError}</span>
+                      </div>
+                    )}
+                    <div className="settings-row">
+                      <button
+                        className="ds-btn ds-btn--primary ds-btn--sm"
+                        onClick={() => {
+                          setEqImportError(null);
+                          try {
+                            const parsed = JSON.parse(eqImportJson);
+                            const items = Array.isArray(parsed) ? parsed : [parsed];
+                            const validated: EqPreset[] = [];
+                            for (const item of items) {
+                              const v = validateImportedPreset(item);
+                              if (v) validated.push(v);
+                            }
+                            if (validated.length === 0) {
+                              setEqImportError("No valid presets in the input.");
+                              return;
+                            }
+                            onEqImportPresets(validated);
+                            setEqImportJson("");
+                          } catch {
+                            setEqImportError("Invalid JSON.");
+                          }
+                        }}
+                      >
+                        Import
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1431,6 +1611,31 @@ export function SettingsPanel({
             )}
 
       </div>
+      {eqRenameTarget && (
+        <PromptModal
+          title="Rename preset"
+          defaultValue={eqRenameTarget.name}
+          okLabel="Rename"
+          onCancel={() => setEqRenameTarget(null)}
+          onSubmit={name => {
+            onEqRenameCustomPreset(eqRenameTarget.id, name);
+            setEqRenameTarget(null);
+          }}
+        />
+      )}
+      {eqDeleteTarget && (
+        <ConfirmModal
+          title="Delete preset"
+          message={`Delete preset "${eqDeleteTarget.name}"?`}
+          confirmLabel="Delete"
+          destructive
+          onCancel={() => setEqDeleteTarget(null)}
+          onConfirm={() => {
+            onEqDeleteCustomPreset(eqDeleteTarget.id);
+            setEqDeleteTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 }
