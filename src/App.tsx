@@ -141,8 +141,8 @@ function App() {
   const crossfadeSecsRef = useRef(3);
   const [crossfadeSecs, setCrossfadeSecs] = useState(3);
   crossfadeSecsRef.current = crossfadeSecs;
-  const trackVideoHistoryRef = useRef(false);
-  const [trackVideoHistory, setTrackVideoHistory] = useState(false);
+  const trackVideoHistoryRef = useRef(true);
+  const [trackVideoHistory, setTrackVideoHistory] = useState(true);
   const [loggingEnabled, setLoggingEnabled] = useState(false);
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = useState(false);
   const [eqCustomPresets, setEqCustomPresets] = useState<{ id: string; name: string; gains: number[] }[]>([]);
@@ -1647,7 +1647,7 @@ function App() {
         void sa; void sal; void st;
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
-        if (savedTrackVideoHistory) setTrackVideoHistory(true);
+        if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
         if (savedAutoSaveStreams && typeof savedAutoSaveStreams === "object") {
           setAutoSaveStreams(savedAutoSaveStreams);
         }
