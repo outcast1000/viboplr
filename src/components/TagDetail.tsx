@@ -11,6 +11,8 @@ import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
+import { DetailHeroBackground } from "./DetailHeroBackground";
+import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 
 interface TagDetailProps {
   name: string;
@@ -49,6 +51,16 @@ export function TagDetail({ name }: TagDetailProps) {
 
   const tagImagePath = actions.getTagImage(name);
 
+  const requestArtistImage = useCallback(
+    (n: string) => actions.requestFetchImage("artist", n),
+    [actions.requestFetchImage],
+  );
+  const heroImages = useDetailHeroImages.tagTopArtists(
+    tag?.id ?? null,
+    actions.getArtistImage,
+    requestArtistImage,
+  );
+
   const infoEntity: InfoEntity = tag
     ? { kind: "tag", name: tag.name, id: tag.id }
     : { kind: "tag", name, id: 0 };
@@ -62,10 +74,8 @@ export function TagDetail({ name }: TagDetailProps) {
 
   return (
     <div className="album-detail">
-      <div
-        className="album-detail-top"
-        style={tagImagePath ? { '--artist-bg': `url(${convertFileSrc(tagImagePath)})` } as React.CSSProperties : undefined}
-      >
+      <div className="album-detail-top">
+        <DetailHeroBackground images={heroImages} className="album-detail-bg" />
         <div className="album-detail-header">
           <div className="album-detail-art">
             {tagImagePath ? (
@@ -91,6 +101,8 @@ export function TagDetail({ name }: TagDetailProps) {
                   liked={tag?.liked ?? 0}
                   onToggleLike={handleToggleTagLike}
                   onToggleDislike={handleToggleTagDislike}
+                  size={16}
+                  variant="glass"
                   entityLabel="tag"
                 />
               )}

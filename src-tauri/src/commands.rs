@@ -761,6 +761,18 @@ pub fn get_tracks_by_tag(
 }
 
 #[tauri::command]
+pub fn get_top_artists_for_tag(
+    state: State<'_, AppState>,
+    tag_id: i64,
+    limit: i64,
+) -> Result<Vec<(String, i64)>, String> {
+    state
+        .db
+        .get_top_artists_for_tag(tag_id, limit)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn toggle_liked(
     state: State<'_, AppState>,
     kind: String,

@@ -18,6 +18,8 @@ import { useVideoFrames } from "../hooks/useVideoFrames";
 import { isVideoTrack } from "../utils";
 import { VideoFilmstrip } from "./VideoFilmstrip";
 import { VideoFrameCard } from "./VideoFrameCard";
+import { DetailHeroBackground } from "./DetailHeroBackground";
+import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import "./TrackDetailView.css";
 
 const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "details", "play-history"];
@@ -103,6 +105,19 @@ export function TrackDetailView({
   const [tabOrder, setTabOrder] = useState<string[]>(DEFAULT_TAB_ORDER);
   const trackIdRef = useRef(trackId);
   const videoFrames = useVideoFrames(isVideoTrack(track) ? track : null);
+
+  const requestArtistImage = useCallback(
+    (n: string) => actions.requestFetchImage("artist", n),
+    [actions.requestFetchImage],
+  );
+  const artistHeroImages = useDetailHeroImages.singleArtist(
+    track.artist_name,
+    actions.getArtistImage,
+    requestArtistImage,
+  );
+  const heroImages: string[] = videoFrames.frames && videoFrames.frames.length > 0
+    ? videoFrames.frames.slice(0, 4)
+    : artistHeroImages;
 
   useEffect(() => { trackIdRef.current = trackId; }, [trackId]);
 
@@ -236,10 +251,8 @@ export function TrackDetailView({
   return (
     <div className="track-detail">
       {/* Header — art + info + play button + options menu */}
-      <div
-        className="track-detail-top"
-        style={(albumImagePath || artistImagePath) ? { '--artist-bg': `url(${convertFileSrc((albumImagePath ?? artistImagePath)!)})` } as React.CSSProperties : undefined}
-      >
+      <div className="track-detail-top">
+        <DetailHeroBackground images={heroImages} className="track-detail-bg" />
         <div className="track-detail-header">
           <div className="track-detail-art">
             {videoFrames.frames ? (
@@ -290,7 +303,8 @@ export function TrackDetailView({
                 liked={track.liked}
                 onToggleLike={onToggleLike}
                 onToggleDislike={onToggleDislike}
-                size={20}
+                size={16}
+                variant="glass"
                 disabled={!isLibrary}
               />
             </h2>

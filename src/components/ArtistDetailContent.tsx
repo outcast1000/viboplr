@@ -12,8 +12,10 @@ import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
+import { DetailHeroBackground } from "./DetailHeroBackground";
 import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
+import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 
 interface ArtistDetailContentProps {
   name: string;
@@ -98,6 +100,17 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
 
   const artistImagePath = actions.getArtistImage(name);
 
+  const requestAlbumImage = useCallback(
+    (title: string, artistName: string) => actions.requestFetchImage("album", title, artistName),
+    [actions.requestFetchImage],
+  );
+  const heroImages = useDetailHeroImages.artistAlbums(
+    artist,
+    albums,
+    actions.getAlbumImage,
+    requestAlbumImage,
+  );
+
   const handlePlayAll = useCallback(() => {
     actions.playEntityAll("artist", name, undefined, {
       tracks: sortedTracks.filter(t => t.liked !== -1),
@@ -107,10 +120,8 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
 
   return (
     <div className="artist-detail">
-      <div
-        className="artist-detail-top"
-        style={artistImagePath ? { '--artist-bg': `url(${convertFileSrc(artistImagePath)})` } as React.CSSProperties : undefined}
-      >
+      <div className="artist-detail-top">
+        <DetailHeroBackground images={heroImages} className="artist-detail-bg" />
         <div className="artist-header">
           <div className="artist-avatar">
             {artistImagePath ? (
@@ -144,7 +155,8 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
                   liked={artist?.liked ?? 0}
                   onToggleLike={handleToggleArtistLike}
                   onToggleDislike={handleToggleArtistDislike}
-                  size={20}
+                  size={16}
+                  variant="glass"
                   entityLabel="artist"
                 />
               )}

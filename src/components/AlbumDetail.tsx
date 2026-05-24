@@ -11,8 +11,10 @@ import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
+import { DetailHeroBackground } from "./DetailHeroBackground";
 import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
+import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 
 interface AlbumDetailProps {
   name: string;
@@ -55,6 +57,17 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
   const displayArtist = album?.artist_name ?? artistName;
   const albumImagePath = actions.getAlbumImage(name, artistName ?? null);
 
+  const heroArtistName = album?.artist_name ?? artistName ?? null;
+  const requestArtistImage = useCallback(
+    (n: string) => actions.requestFetchImage("artist", n),
+    [actions.requestFetchImage],
+  );
+  const heroImages = useDetailHeroImages.singleArtist(
+    heroArtistName,
+    actions.getArtistImage,
+    requestArtistImage,
+  );
+
   const infoEntity: InfoEntity = album
     ? { kind: "album", name: album.title, id: album.id, artistName: album.artist_name ?? undefined }
     : { kind: "album", name, id: 0, artistName };
@@ -96,10 +109,8 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
 
   return (
     <div className="album-detail">
-      <div
-        className="album-detail-top"
-        style={albumImagePath ? { '--artist-bg': `url(${convertFileSrc(albumImagePath)})` } as React.CSSProperties : undefined}
-      >
+      <div className="album-detail-top">
+        <DetailHeroBackground images={heroImages} className="album-detail-bg" />
         <div className="album-detail-header">
           <div className="album-detail-art">
             {albumImagePath ? (
@@ -137,7 +148,8 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
                   liked={album?.liked ?? 0}
                   onToggleLike={handleToggleAlbumLike}
                   onToggleDislike={handleToggleAlbumDislike}
-                  size={20}
+                  size={16}
+                  variant="glass"
                   entityLabel="album"
                 />
               )}

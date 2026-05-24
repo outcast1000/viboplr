@@ -902,6 +902,27 @@ impl Database {
         rows.collect()
     }
 
+    pub fn get_top_artists_for_tag(&self, tag_id: i64, limit: i64) -> SqlResult<Vec<(String, i64)>> {
+        let conn = self.conn.lock().unwrap();
+        let sql = format!(
+            "SELECT ar.name, COUNT(*) AS cnt \
+             FROM tracks t \
+             JOIN artists ar ON ar.id = t.artist_id \
+             JOIN track_tags tt ON tt.track_id = t.id \
+             LEFT JOIN collections co ON co.id = t.collection_id \
+             WHERE tt.tag_id = ?1 {} \
+             GROUP BY ar.id \
+             ORDER BY cnt DESC, ar.name ASC \
+             LIMIT ?2",
+            ENABLED_COLLECTION_FILTER
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params![tag_id, limit], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        rows.collect()
+    }
+
     // --- Tracks ---
 
     pub fn get_track_count(&self) -> SqlResult<i64> {
@@ -5663,6 +5684,82 @@ mod tests {
         let after = db.get_collection_by_id(col.id).unwrap();
         assert!(after.last_synced_at.is_some());
         assert_eq!(after.last_sync_error.as_deref(), Some("connection refused"));
+    }
+
+    #[test]
+    fn test_get_top_artists_for_tag_orders_by_count() {
+        let db = test_db();
+        let cid = test_collection(&db);
+
+        let alpha = db.get_or_create_artist("Alpha").unwrap();
+        let beta = db.get_or_create_artist("Beta").unwrap();
+        let gamma = db.get_or_create_artist("Gamma").unwrap();
+        let alpha_album = db.get_or_create_album("A1", Some(alpha), None).unwrap();
+        let beta_album = db.get_or_create_album("B1", Some(beta), None).unwrap();
+        let gamma_album = db.get_or_create_album("G1", Some(gamma), None).unwrap();
+
+        let tag_id = {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("INSERT INTO tags(name) VALUES(?1)", rusqlite::params!["rock"]).unwrap();
+            conn.last_insert_rowid()
+        };
+
+        let tag_track = |path: &str, artist_id: i64, album_id: i64| {
+            let track_id = db.upsert_track(
+                path, path, Some(artist_id), Some(album_id),
+                None, Some(180.0), Some("mp3"), None, None, Some(cid), None,
+            ).unwrap();
+            db.add_track_tag(track_id, tag_id).unwrap();
+        };
+        // Alpha=1, Beta=3, Gamma=2
+        tag_track("/a1.mp3", alpha, alpha_album);
+        tag_track("/b1.mp3", beta, beta_album);
+        tag_track("/b2.mp3", beta, beta_album);
+        tag_track("/b3.mp3", beta, beta_album);
+        tag_track("/g1.mp3", gamma, gamma_album);
+        tag_track("/g2.mp3", gamma, gamma_album);
+
+        let top = db.get_top_artists_for_tag(tag_id, 4).unwrap();
+        assert_eq!(top.len(), 3);
+        assert_eq!(top[0], ("Beta".to_string(), 3));
+        assert_eq!(top[1], ("Gamma".to_string(), 2));
+        assert_eq!(top[2], ("Alpha".to_string(), 1));
+    }
+
+    #[test]
+    fn test_get_top_artists_for_tag_respects_limit() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let tag_id = {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("INSERT INTO tags(name) VALUES(?1)", rusqlite::params!["rock"]).unwrap();
+            conn.last_insert_rowid()
+        };
+        for i in 0..5 {
+            let name = format!("Artist {i}");
+            let aid = db.get_or_create_artist(&name).unwrap();
+            let alid = db.get_or_create_album("Album", Some(aid), None).unwrap();
+            let path = format!("/t{i}.mp3");
+            let track_id = db.upsert_track(
+                &path, &path, Some(aid), Some(alid),
+                None, Some(180.0), Some("mp3"), None, None, Some(cid), None,
+            ).unwrap();
+            db.add_track_tag(track_id, tag_id).unwrap();
+        }
+        let top = db.get_top_artists_for_tag(tag_id, 3).unwrap();
+        assert_eq!(top.len(), 3);
+    }
+
+    #[test]
+    fn test_get_top_artists_for_tag_empty_when_no_tracks() {
+        let db = test_db();
+        let tag_id = {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("INSERT INTO tags(name) VALUES(?1)", rusqlite::params!["rock"]).unwrap();
+            conn.last_insert_rowid()
+        };
+        let top = db.get_top_artists_for_tag(tag_id, 4).unwrap();
+        assert!(top.is_empty());
     }
 
     #[test]

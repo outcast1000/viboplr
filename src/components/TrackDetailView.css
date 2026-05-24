@@ -334,25 +334,19 @@
   position: relative;
 }
 
-.track-detail-top::before {
-  content: '';
-  position: absolute;
-  inset: -20px;
-  background-image: var(--artist-bg);
-  background-size: cover;
-  background-position: center 20%;
-  filter: blur(20px);
-  opacity: 0.5;
-  clip-path: inset(20px);
-}
-
 .track-detail-top::after {
   content: '';
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse at 30% 50%, rgba(var(--bg-primary-rgb), 0.1) 0%, rgba(var(--bg-primary-rgb), 0.85) 70%),
-    linear-gradient(to bottom, transparent 0%, rgba(var(--bg-primary-rgb), 0.3) 70%, rgba(var(--bg-primary-rgb), 0.95) 100%);
+    linear-gradient(to right, rgba(var(--hero-scrim-rgb), var(--hero-scrim-strength)) 0%, rgba(var(--hero-scrim-rgb), calc(var(--hero-scrim-strength) * 0.45)) 60%, rgba(var(--hero-scrim-rgb), calc(var(--hero-scrim-strength) * 0.27)) 100%),
+    linear-gradient(to bottom, transparent 0%, rgba(var(--bg-primary-rgb), 0.2) 70%, rgba(var(--bg-primary-rgb), 0.85) 100%);
+}
+
+.track-detail-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
 }
 
 .track-detail-header {
@@ -451,27 +445,28 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+  color: var(--hero-text-primary);
+  text-shadow: var(--hero-text-shadow);
 }
 
 .track-detail-meta {
   font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  color: var(--hero-text-secondary);
+  text-shadow: var(--hero-text-shadow-sm);
 }
 
 .track-detail-link {
   cursor: pointer;
-  color: var(--text-secondary);
+  color: var(--hero-text-secondary);
 }
 
 .track-detail-link:hover {
-  color: var(--accent);
+  color: var(--hero-text-primary);
   text-decoration: underline;
 }
 
 .track-detail-sep {
-  color: var(--text-tertiary);
+  color: var(--hero-text-tertiary);
 }
 
 .track-detail-stats {

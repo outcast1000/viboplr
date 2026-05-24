@@ -30,6 +30,17 @@
   --overlay-base: 255, 255, 255;
   --overlay-inverse: 0, 0, 0;
 
+  /* Detail-page hero scrim & on-image text. Skinnable via customCSS — defaults
+     use the skin's now-playing-bg (a dark accent that matches the chrome) for
+     the scrim and pure white for text since the scrim guarantees a dark base. */
+  --hero-scrim-rgb: var(--now-playing-bg-rgb);
+  --hero-scrim-strength: 0.55;
+  --hero-text-primary: #fff;
+  --hero-text-secondary: rgba(255, 255, 255, 0.85);
+  --hero-text-tertiary: rgba(255, 255, 255, 0.55);
+  --hero-text-shadow: 0 2px 4px rgba(0, 0, 0, 0.85), 0 4px 16px rgba(0, 0, 0, 0.7);
+  --hero-text-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0, 0, 0, 0.55);
+
   /* Design tokens (skinnable) */
   --ds-radius: 6px;
   --ds-radius-pill: 20px;
