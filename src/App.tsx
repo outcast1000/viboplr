@@ -2589,6 +2589,7 @@ function App() {
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
+        crossOrigin="anonymous"
         onTimeUpdate={playback.onTimeUpdate}
         onLoadedMetadata={playback.onLoadedMetadata}
         onPlay={playback.onPlaySlotA}
@@ -2598,6 +2599,7 @@ function App() {
       />
       <audio
         ref={playback.audioRefB}
+        crossOrigin="anonymous"
         onTimeUpdate={playback.onTimeUpdate}
         onLoadedMetadata={playback.onLoadedMetadata}
         onPlay={playback.onPlaySlotB}
