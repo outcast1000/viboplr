@@ -6,6 +6,7 @@ import type { PlaylistContext } from "../hooks/useQueue";
 import { formatDuration, isVideoTrack } from "../utils";
 import { thumbFilenameForUri, isContextRemote } from "../mainPlaylist";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 import "./QueuePanel.css";
 
 export interface PendingEnqueue {
@@ -213,8 +214,13 @@ export function QueuePanel({
       setCoverColor(null);
       return;
     }
+    const src = resolveImageUrl(imagePath);
+    if (!src) {
+      setCoverColor(null);
+      return;
+    }
     let canceled = false;
-    extractDominantColor(convertFileSrc(imagePath)).then(result => {
+    extractDominantColor(src).then(result => {
       if (!canceled) setCoverColor(result);
     });
     return () => { canceled = true; };
@@ -520,7 +526,7 @@ export function QueuePanel({
           <div className="queue-context-cover">
             {playlistContext.imagePath ? (
               <img
-                src={convertFileSrc(playlistContext.imagePath)}
+                src={resolveImageUrl(playlistContext.imagePath)}
                 alt=""
                 onError={e => { e.currentTarget.style.display = "none"; }}
               />
