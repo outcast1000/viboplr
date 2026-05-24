@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track } from "../types";
+import { isVideoTrack } from "../utils";
+import { useVideoFrameQueue } from "../hooks/useVideoFrameQueueContext";
 
 export interface HomeHeroProps {
   tracks: Track[];
@@ -15,8 +17,33 @@ const ROTATE_MS = 8_000;
 export function HomeHero({ tracks, albumImageFor, onPlay, onEnqueue, onContextMenu }: HomeHeroProps) {
   const [idx, setIdx] = useState(0);
   const hoverRef = useRef(false);
+  const frameQueue = useVideoFrameQueue();
+
+  // Subscribe to the queue once and rebuild a {trackId -> first frame URL} map on each tick.
+  const frameMap = useSyncExternalStore(
+    (cb) => frameQueue.subscribe(cb),
+    () => {
+      const out: Record<number, string> = {};
+      for (const t of tracks) {
+        if (t.id == null) continue;
+        const entry = frameQueue.getEntry(t.id);
+        if (entry.status === "ready" && entry.frames[0]) out[t.id] = entry.frames[0];
+      }
+      return out;
+    },
+    () => ({} as Record<number, string>),
+  );
 
   useEffect(() => { setIdx(0); }, [tracks.length]);
+
+  // Enqueue every video track for extraction. The shared queue handles cache hits
+  // synchronously and serializes ffmpeg extractions at concurrency 1.
+  useEffect(() => {
+    for (const t of tracks) {
+      if (t.id == null || !isVideoTrack(t)) continue;
+      frameQueue.enqueue(t.id);
+    }
+  }, [tracks, frameQueue]);
 
   useEffect(() => {
     if (tracks.length < 2) return;
@@ -32,8 +59,12 @@ export function HomeHero({ tracks, albumImageFor, onPlay, onEnqueue, onContextMe
   }
 
   const current = tracks[idx];
-  const imgPath = albumImageFor(current.album_title ?? "", current.artist_name ?? undefined);
-  const imgSrc = imgPath ? convertFileSrc(imgPath) : null;
+  // Frame URLs from the queue are already convertFileSrc'd. Album paths are raw.
+  const videoFrame = current.id != null ? frameMap[current.id] ?? null : null;
+  const albumPath = !videoFrame && current.album_title
+    ? albumImageFor(current.album_title, current.artist_name ?? undefined)
+    : null;
+  const imgSrc = videoFrame ?? (albumPath ? convertFileSrc(albumPath) : null);
 
   const advance = (delta: number) => setIdx((i) => (i + delta + tracks.length) % tracks.length);
 

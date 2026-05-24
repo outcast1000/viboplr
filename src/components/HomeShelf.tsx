@@ -1,7 +1,10 @@
-import { useRef } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { ResolvedShelf } from "../hooks/useHome";
 import type { HomeShelfItem } from "../types/plugin";
+import type { Track } from "../types";
+import { isVideoTrack } from "../utils";
+import { useVideoFrameQueue } from "../hooks/useVideoFrameQueueContext";
 import "./HomeView.css";
 
 // Resolve any image path (http URL, data URI, or local filesystem path with
@@ -30,6 +33,53 @@ export interface HomeShelfProps {
 
 export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, onItemContextMenu }: HomeShelfProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const frameQueue = useVideoFrameQueue();
+  // metadata key (artist::title) -> resolved library track id
+  const [trackIds, setTrackIds] = useState<Record<string, number>>({});
+  const resolvingRef = useRef<Set<string>>(new Set());
+
+  // Resolve metadata -> library track id, then enqueue extraction for video tracks.
+  useEffect(() => {
+    if (shelf.displayKind !== "track-rows") return;
+    for (const item of shelf.items) {
+      const track = (item as { track: { title: string; artist_name?: string; album_title?: string; image_url?: string } }).track;
+      if (track.image_url) continue;
+      const key = `${track.artist_name ?? ""}::${track.title}`;
+      if (key in trackIds || resolvingRef.current.has(key)) continue;
+      resolvingRef.current.add(key);
+      (async () => {
+        try {
+          const lib = await invoke<Track | null>("find_track_by_metadata", {
+            title: track.title,
+            artistName: track.artist_name ?? null,
+            albumName: track.album_title ?? null,
+          });
+          if (!lib || lib.id == null || !isVideoTrack(lib)) return;
+          const id = lib.id;
+          setTrackIds(prev => ({ ...prev, [key]: id }));
+          frameQueue.enqueue(id);
+        } catch (e) {
+          console.error("Failed to resolve home shelf track id:", e);
+        } finally {
+          resolvingRef.current.delete(key);
+        }
+      })();
+    }
+  }, [shelf, trackIds, frameQueue]);
+
+  // Subscribe to the queue and project to {key -> first frame URL} for the items we know about.
+  const videoFrames = useSyncExternalStore(
+    (cb) => frameQueue.subscribe(cb),
+    () => {
+      const out: Record<string, string> = {};
+      for (const [key, id] of Object.entries(trackIds)) {
+        const entry = frameQueue.getEntry(id);
+        if (entry.status === "ready" && entry.frames[0]) out[key] = entry.frames[0];
+      }
+      return out;
+    },
+    () => ({} as Record<string, string>),
+  );
 
   const scroll = (dir: 1 | -1) => {
     const el = scrollerRef.current;
@@ -47,7 +97,7 @@ export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, o
         </div>
       </div>
       <div className="home-shelf-scroller" ref={scrollerRef}>
-        {shelf.items.map((item, i) => renderCard(shelf, item, i, { albumImageFor, artistImageFor, onItemClick, onItemContextMenu }))}
+        {shelf.items.map((item, i) => renderCard(shelf, item, i, { albumImageFor, artistImageFor, onItemClick, onItemContextMenu, videoFrames }))}
       </div>
     </section>
   );
@@ -58,6 +108,8 @@ interface RenderCtx {
   artistImageFor: (name: string) => string | null;
   onItemClick: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   onItemContextMenu: (shelf: ResolvedShelf, item: HomeShelfItem, e: React.MouseEvent) => void;
+  // key (artist::title) -> already-converted file URL (from VideoFrameQueue)
+  videoFrames: Record<string, string>;
 }
 
 function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx: RenderCtx) {
@@ -111,13 +163,16 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
   // track-rows
   const it = item as { track: { title: string; artist_name?: string; album_title?: string; image_url?: string } };
   const explicit = it.track.image_url ?? null;
-  const albumPath = !explicit && it.track.album_title
+  const videoKey = `${it.track.artist_name ?? ""}::${it.track.title}`;
+  // videoFrame is already a converted file URL from VideoFrameQueue — do NOT pass through resolveImagePath.
+  const videoFrame = !explicit ? ctx.videoFrames[videoKey] ?? null : null;
+  const albumPath = !explicit && !videoFrame && it.track.album_title
     ? ctx.albumImageFor(it.track.album_title, it.track.artist_name)
     : null;
-  const artistPath = !explicit && !albumPath && it.track.artist_name
+  const artistPath = !explicit && !videoFrame && !albumPath && it.track.artist_name
     ? ctx.artistImageFor(it.track.artist_name)
     : null;
-  const src = resolveImagePath(explicit ?? albumPath ?? artistPath);
+  const src = videoFrame ?? resolveImagePath(explicit ?? albumPath ?? artistPath);
   return (
     <div key={`${idx}-${it.track.title}`} className="ds-card home-shelf-card home-shelf-card--track" onClick={onClick} onContextMenu={onCtx}>
       <div className="ds-card-art">
