@@ -53,23 +53,28 @@ export function AutoContinuePopover({
 
   return (
     <div className="auto-continue-popover" ref={popoverRef} role="dialog" aria-label="Auto Continue">
-      <div className="ac-popover-header">
-        <label className="ac-toggle-label">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={onToggle}
-          />
-          <span>Auto Continue {enabled ? "On" : "Off"}</span>
+      <div className="ac-titlebar">
+        <span className="ac-title">Auto Continue</span>
+        <button className="ac-close" onClick={onClose} aria-label="Close" title="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div className="ac-toolbar">
+        <label className="ac-pill-toggle">
+          <input type="checkbox" checked={enabled} onChange={onToggle} />
+          <span className="ac-toggle-track" aria-hidden="true"><span className="ac-toggle-thumb" /></span>
+          <span className="ac-toggle-text">Enable Auto Continue</span>
         </label>
-        <label className="ac-toggle-label">
-          <input
-            type="checkbox"
-            checked={sameFormat}
-            onChange={onToggleSameFormat}
-          />
-          <span>Same format</span>
+        <div className="ac-toolbar-spacer" />
+        <label className="ac-pill-toggle">
+          <input type="checkbox" checked={sameFormat} onChange={onToggleSameFormat} />
+          <span className="ac-toggle-track" aria-hidden="true"><span className="ac-toggle-thumb" /></span>
+          <span className="ac-toggle-text">Same format</span>
         </label>
+        <button className="ac-icon-btn" onClick={onResetAll} title="Reset all weights" aria-label="Reset all weights">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 10 9 10"/></svg>
+        </button>
       </div>
 
       <div className="ac-sliders">
@@ -88,12 +93,6 @@ export function AutoContinuePopover({
             <span className="ac-slider-value">{weights[key]}%</span>
           </div>
         ))}
-      </div>
-
-      <div className="ac-popover-footer">
-        <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={onResetAll}>
-          Reset all
-        </button>
       </div>
     </div>
   );
