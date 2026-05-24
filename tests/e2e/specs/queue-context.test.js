@@ -9,6 +9,9 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript({ path: tauriMockPath });
   await page.goto('/');
   await page.waitForSelector('.sidebar');
+  // Default landing view is now "home"; navigate to Library so existing
+  // tests that rely on .search-view-input continue to work.
+  await page.locator('.nav .nav-btn').filter({ hasText: 'Library' }).click();
   await page.waitForTimeout(500);
 });
 

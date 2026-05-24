@@ -24,6 +24,8 @@ Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript front
 
 **Two track types:** `Track` (full library type with DB IDs) is used by library list views. `QueueTrack` (metadata-only, no `id`/`album_id`/`artist_id`) is used by queue, now-playing, and playlists. Queue/playback surfaces never rely on DB IDs — they use name-based image lookups and on-demand metadata resolution for library operations.
 
+**Home view:** the default landing surface. A featured-track carousel plus a stack of horizontal shelves (built-in: Recently played, Most played · 30 days, Most played artists · 30 days, Recently added, Liked albums, Liked artists, Jump back in). Plugins contribute additional shelves via static `contributes.homeShelves` or the runtime `api.home.registerShelf` API. See `ui.md` for layout / shelf rendering and `plugins.md` for the plugin contribution surface.
+
 Detailed rules are in `.claude/rules/`:
 - `backend.md` — backend files, collections, background tasks, playback resolution, database, profiles
 - `frontend.md` — frontend files, components, hooks, keyboard shortcuts, state persistence

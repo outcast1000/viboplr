@@ -6,6 +6,7 @@ import "./Sidebar.css";
 const iconProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
 const icons = {
+  home: <svg {...iconProps}><path d="M3 12l9-9 9 9M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>,
   library: <svg {...iconProps}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>,
   history: <svg {...iconProps}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
   playlists: <svg {...iconProps}><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>,
@@ -49,6 +50,7 @@ interface SidebarProps {
   view: View | `plugin:${string}`;
   selectedTrack: string | null;
   collapsed: boolean;
+  onShowHome: () => void;
   onShowSearch: () => void;
   onShowHistory: () => void;
   onShowPlaylists: () => void;
@@ -66,7 +68,7 @@ export function Sidebar({
   view,
   selectedTrack,
   collapsed,
-  onShowSearch, onShowHistory, onShowPlaylists, onShowCollections, onShowSettings, onShowExtensions,
+  onShowHome, onShowSearch, onShowHistory, onShowPlaylists, onShowCollections, onShowSettings, onShowExtensions,
   extensionUpdateCount,
   updateAvailable,
   pluginNavItems,
@@ -90,6 +92,7 @@ export function Sidebar({
 
   const noDetail = selectedTrack === null;
   const navItems: { key: string; label: string; icon: ReactNode; active: boolean; onClick: () => void; hint: string }[] = [
+    { key: "home", label: "Home", icon: icons.home, active: noDetail && view === "home", onClick: onShowHome, hint: `Home \u2014 ${mod}0` },
     { key: "search", label: "Library", icon: icons.library, active: noDetail && view === "search", onClick: onShowSearch, hint: `Library \u2014 ${mod}1` },
     { key: "history", label: "History", icon: icons.history, active: noDetail && view === "history", onClick: onShowHistory, hint: `Play History \u2014 ${mod}2` },
     { key: "playlists", label: "Playlists", icon: icons.playlists, active: noDetail && view === "playlists", onClick: onShowPlaylists, hint: "Playlists" },

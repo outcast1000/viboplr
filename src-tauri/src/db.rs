@@ -725,6 +725,14 @@ impl Database {
     }
 
     pub fn get_albums(&self, artist_id: Option<i64>) -> SqlResult<Vec<Album>> {
+        self.get_albums_sorted(artist_id, None)
+    }
+
+    pub fn get_albums_sorted(
+        &self,
+        artist_id: Option<i64>,
+        sort: Option<&str>,
+    ) -> SqlResult<Vec<Album>> {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = artist_id {
             let mut stmt = conn.prepare(
@@ -735,17 +743,24 @@ impl Database {
                  ORDER BY a.year, a.title"
             )?;
             let rows = stmt.query_map(params![aid], |row| album_from_row(row))?;
-            rows.collect()
-        } else {
-            let mut stmt = conn.prepare(
-                "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked
-                 FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id
-                 WHERE a.track_count > 0
-                 ORDER BY a.title"
-            )?;
-            let rows = stmt.query_map([], |row| album_from_row(row))?;
-            rows.collect()
+            return rows.collect();
         }
+
+        let order_clause = match sort {
+            Some("added_desc") =>
+                "ORDER BY (SELECT MAX(t.added_at) FROM tracks t WHERE t.album_id = a.id) DESC, a.title",
+            _ => "ORDER BY a.title",
+        };
+        let sql = format!(
+            "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked
+             FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id
+             WHERE a.track_count > 0
+             {}",
+            order_clause,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| album_from_row(row))?;
+        rows.collect()
     }
 
     // --- Tags ---
@@ -2904,6 +2919,33 @@ impl Database {
         rows.collect()
     }
 
+    pub fn get_history_most_played_artists_since(&self, since_ts: i64, limit: i64) -> SqlResult<Vec<HistoryArtistStats>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, cnt, track_count, display_name, rank FROM ( \
+               SELECT ha.id, COUNT(*) as cnt, \
+                      COUNT(DISTINCT ht.id) as track_count, \
+                      ha.display_name, \
+                      RANK() OVER (ORDER BY COUNT(*) DESC) as rank \
+               FROM history_plays hp \
+               JOIN history_tracks ht ON ht.id = hp.history_track_id \
+               JOIN history_artists ha ON ha.id = ht.history_artist_id \
+               WHERE hp.played_at >= ?1 AND ha.canonical_name != '' \
+               GROUP BY ha.id \
+             ) ORDER BY cnt DESC LIMIT ?2"
+        )?;
+        let rows = stmt.query_map(params![since_ts, limit], |row| {
+            Ok(HistoryArtistStats {
+                history_artist_id: row.get(0)?,
+                play_count: row.get(1)?,
+                track_count: row.get(2)?,
+                display_name: row.get(3)?,
+                rank: row.get(4)?,
+            })
+        })?;
+        rows.collect()
+    }
+
     pub fn get_history_most_played_artists(&self, limit: i64) -> SqlResult<Vec<HistoryArtistStats>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -3760,6 +3802,37 @@ mod tests {
 
         let missing = db.get_album_by_id(99999).unwrap();
         assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_get_albums_sort_added_desc() {
+        let db = test_db();
+        let collection_id = test_collection(&db);
+
+        let a1 = db.get_or_create_artist("Artist A").unwrap();
+        let a2 = db.get_or_create_artist("Artist B").unwrap();
+        let alb1 = db.get_or_create_album("Old Album", Some(a1), None).unwrap();
+        let alb2 = db.get_or_create_album("New Album", Some(a2), None).unwrap();
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO tracks (path, title, artist_id, album_id, collection_id, added_at)
+                 VALUES ('/old.mp3', 'Old', ?1, ?2, ?3, 1000)",
+                params![a1, alb1, collection_id],
+            ).unwrap();
+            conn.execute(
+                "INSERT INTO tracks (path, title, artist_id, album_id, collection_id, added_at)
+                 VALUES ('/new.mp3', 'New', ?1, ?2, ?3, 2000)",
+                params![a2, alb2, collection_id],
+            ).unwrap();
+        }
+        db.recompute_counts().unwrap();
+
+        let albums = db.get_albums_sorted(None, Some("added_desc")).unwrap();
+        assert_eq!(albums.len(), 2);
+        assert_eq!(albums[0].title, "New Album");
+        assert_eq!(albums[1].title, "Old Album");
     }
 
     #[test]

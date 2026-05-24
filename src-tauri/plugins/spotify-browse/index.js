@@ -690,6 +690,9 @@ function activate(api) {
   // ---- Render ----
 
   function render() {
+    if (typeof syncHomeShelves === "function") {
+      try { syncHomeShelves(); } catch (e) { console.error("syncHomeShelves failed:", e); }
+    }
     if (state.currentView === "playlist") { renderPlaylist(); return; }
     renderHome();
   }
@@ -2838,6 +2841,92 @@ function activate(api) {
     renderSettings();
   });
 
+  // ---- Home Shelves (one per section) ----
+
+  function shelfIdForSection(sectionName) {
+    var safe = String(sectionName || "Playlists")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return "spotify-section-" + (safe || "playlists");
+  }
+
+  function buildShelfFetcher(sectionName) {
+    return function (limit) {
+      try {
+        var pls = isLikedSection(sectionName)
+          ? (function () {
+              var liked = getLikedPlaylist();
+              return liked ? [liked] : [];
+            })()
+          : getPlaylistsForSection(sectionName);
+        if (pls.length === 0) {
+          return Promise.resolve({ status: "empty" });
+        }
+        var sorted = pls.slice().sort(function (a, b) {
+          return (b.updatedAt || 0) - (a.updatedAt || 0);
+        });
+        var picked = sorted.slice(0, limit);
+        var items = picked.map(function (pl) {
+          var rawTracks = state.playlistTracks[pl.id] || [];
+          return {
+            id: String(pl.id),
+            name: pl.name || "Unknown",
+            coverUrl: pl.imageUrl || null,
+            trackCount: rawTracks.length,
+            tracks: toPluginTracks(rawTracks),
+          };
+        });
+        return Promise.resolve({ status: "ok", items: items });
+      } catch (e) {
+        return Promise.resolve({ status: "error", message: String(e) });
+      }
+    };
+  }
+
+  // Track currently registered shelves so we can diff on each sync.
+  var registeredShelves = {};
+
+  function syncHomeShelves() {
+    var desired = {};
+    // Liked Songs first if present.
+    if (getLikedPlaylist()) {
+      desired[shelfIdForSection(LIKED_SECTION)] = LIKED_SECTION;
+    }
+    for (var i = 0; i < state.sections.length; i++) {
+      var name = state.sections[i];
+      if (isLikedSection(name)) continue;
+      desired[shelfIdForSection(name)] = name;
+    }
+
+    // Unregister shelves that should no longer be present.
+    var prevIds = Object.keys(registeredShelves);
+    for (var j = 0; j < prevIds.length; j++) {
+      var prevId = prevIds[j];
+      if (!desired.hasOwnProperty(prevId)) {
+        api.home.unregisterShelf(prevId);
+        delete registeredShelves[prevId];
+      }
+    }
+
+    // Register new shelves.
+    var desiredIds = Object.keys(desired);
+    for (var k = 0; k < desiredIds.length; k++) {
+      var id = desiredIds[k];
+      var sectionName = desired[id];
+      if (registeredShelves[id]) continue;
+      api.home.registerShelf({
+        id: id,
+        title: "Spotify · " + sectionName,
+        displayKind: "playlist-cards",
+        limit: 20,
+        icon: "spotify",
+      });
+      api.home.onFetchShelf(id, buildShelfFetcher(sectionName));
+      registeredShelves[id] = sectionName;
+    }
+  }
+
   // ---- Init: restore previous data ----
 
   // Load playlists from the filesystem layout (playlists/{section}/{id}/...).
@@ -2874,6 +2963,9 @@ function activate(api) {
     });
   }
   loadInitialState();
+  // Make sure shelves register immediately if state.sections has any defaults,
+  // even before loadInitialState resolves.
+  syncHomeShelves();
 
   // The Archive feature has been removed. Clean up any leftover state from
   // older versions: the on-disk archives/ directory and the legacy KV key.

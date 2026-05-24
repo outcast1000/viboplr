@@ -10,7 +10,7 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, QueueTrack, Tag, View, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
+import type { Track, QueueTrack, Tag, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 
 const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
@@ -23,6 +23,7 @@ import { store } from "./store";
 import { emitTrackPatch } from "./trackEvents";
 import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, isLocalTrack, type QueueEntry } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
+import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext, buildSearchUrl } from "./searchProviders";
 import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
@@ -92,6 +93,10 @@ import { MixtapeExportModal } from "./components/MixtapeExportModal";
 import type { ExportTrack } from "./components/MixtapeExportModal";
 
 import { SearchView } from "./components/SearchView";
+import { HomeView } from "./components/HomeView";
+import type { ResolvedShelf } from "./hooks/useHome";
+import type { HomeShelfItem } from "./types/plugin";
+import { trackToQueueTrack } from "./queueEntry";
 import { IconYoutube } from "./components/Icons";
 import { useDependencies } from "./hooks/useDependencies";
 import { DependencyModal } from "./components/DependencyModal";
@@ -1435,6 +1440,46 @@ function App() {
   const pushStateRef = useRef(pushAndScroll);
   pushStateRef.current = pushAndScroll;
 
+  // Home shelf item click handler
+  const handleHomeShelfItemClick = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
+    if (shelf.displayKind === "album-cards") {
+      const it = item as { libraryId?: number; name: string; artistName?: string; tracks?: PluginTrack[] };
+      if (it.libraryId) {
+        pushAndScroll();
+        library.setSelectedAlbum(it.libraryId);
+        return;
+      }
+      if (it.tracks?.length) {
+        const queueTracks = it.tracks.map(pluginTrackToQueueTrack);
+        queueHook.playTracks(queueTracks, 0, { name: it.name });
+      }
+      return;
+    }
+    if (shelf.displayKind === "artist-cards") {
+      const it = item as { libraryId?: number; name: string };
+      if (it.libraryId) {
+        pushAndScroll();
+        library.setSelectedArtist(it.libraryId);
+      }
+      return;
+    }
+    if (shelf.displayKind === "playlist-cards") {
+      const it = item as { name: string; coverUrl?: string; tracks: PluginTrack[] };
+      const queueTracks = it.tracks.map(pluginTrackToQueueTrack);
+      queueHook.playTracks(queueTracks, 0, { name: it.name, imagePath: it.coverUrl ?? null, source: "playlist" });
+      return;
+    }
+    // track-rows
+    const it = item as { track: PluginTrack };
+    queueHook.playTracks([pluginTrackToQueueTrack(it.track)], 0);
+  }, [pushAndScroll, library, pluginTrackToQueueTrack, queueHook]);
+
+  const handleHomeShelfItemContextMenu = useCallback((_shelf: ResolvedShelf, _item: HomeShelfItem, e: React.MouseEvent) => {
+    e.preventDefault();
+    // TODO(home): wire into existing context menu builder once metadata-only target adapter is added.
+    // For now, right-click on Home shelf items is a no-op; play / queue actions still work via left click.
+  }, []);
+
   // Disable default browser context menu globally
   useEffect(() => {
     const handler = (e: MouseEvent) => { e.preventDefault(); };
@@ -1546,7 +1591,8 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [v, sa, sal, st, , vol, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastDownloadDest, savedSearchViewModes, savedAutoSaveStreams, savedDownloadsCollectionId, savedMinimizeToMiniPlayer] = await timeAsync("store.restore", () => Promise.all([
+        const [, sa, sal, st, , vol, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastDownloadDest, savedSearchViewModes, savedAutoSaveStreams, savedDownloadsCollectionId, savedMinimizeToMiniPlayer] = await timeAsync("store.restore", () => Promise.all([
+          // [0] reserved (was: persisted view — no longer used; always start at Home)
           store.get<string>("view"),
           store.get<number | null>("selectedArtist"),
           store.get<number | null>("selectedAlbum"),
@@ -1594,16 +1640,11 @@ function App() {
           store.get<number | null>("downloadsCollectionId"),
           store.get<boolean>("minimizeToMiniPlayer"),
         ]));
-        if (v && ["search", "artists", "albums", "tags", "history"].includes(v)) {
-          // Entity views without a matching selection have no standalone list — redirect to search
-          const entityViewNeedsSelection = (v === "artists" && !sa) || (v === "albums" && !sal) || (v === "tags" && !st);
-          library.setView(entityViewNeedsSelection ? "search" : v as View);
-        }
-        if (sa !== undefined && sa !== null) {
-          library.setSelectedArtist(sa);
-        }
-        if (sal !== undefined && sal !== null) library.setSelectedAlbum(sal);
-        if (st !== undefined && st !== null) library.setSelectedTag(st);
+        // Startup always lands on Home; we don't restore `view` or any
+        // selected-entity state (sa/sal/st are intentionally read but unused
+        // so the existing positional tuple keeps the same shape for the rest
+        // of the values).
+        void sa; void sal; void st;
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory) setTrackVideoHistory(true);
@@ -1812,6 +1853,36 @@ function App() {
     if (!restoredRef.current) return;
     store.set("eqPreGainDb", playback.eqPreGainDb);
   }, [playback.eqPreGainDb]);
+
+  // Persist recently visited entities (album/artist detail views)
+  const recentlyVisitedRef = useRef<RecentlyVisitedEntry[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const stored = (await store.get<RecentlyVisitedEntry[]>("recentlyVisitedEntities")) ?? [];
+      recentlyVisitedRef.current = stored;
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    if (library.selectedAlbum == null) return;
+    const next = recordVisit(recentlyVisitedRef.current, {
+      kind: "album", id: library.selectedAlbum, ts: Date.now(),
+    });
+    recentlyVisitedRef.current = next;
+    store.set("recentlyVisitedEntities", next).catch((e) => console.error("Failed to persist recentlyVisitedEntities:", e));
+  }, [library.selectedAlbum]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    if (library.selectedArtist == null) return;
+    const next = recordVisit(recentlyVisitedRef.current, {
+      kind: "artist", id: library.selectedArtist, ts: Date.now(),
+    });
+    recentlyVisitedRef.current = next;
+    store.set("recentlyVisitedEntities", next).catch((e) => console.error("Failed to persist recentlyVisitedEntities:", e));
+  }, [library.selectedArtist]);
 
   // Forward frontend errors to backend log file
   useEffect(() => {
@@ -2621,6 +2692,14 @@ function App() {
         view={view}
         selectedTrack={library.selectedTrack}
         collapsed={sidebarCollapsed}
+        onShowHome={() => {
+          pushAndScroll();
+          library.setView("home");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSelectedTrack(null);
+        }}
         onShowSearch={() => {
           pushAndScroll();
           library.setView("search");
@@ -2878,6 +2957,22 @@ function App() {
             }
             return <AlbumDetail name={detailAlbumName} artistName={detailAlbumArtistName} />;
           })()}
+
+          {/* Home view */}
+          {view === "home" && (
+            <HomeView
+              isVisible={view === "home"}
+              currentTrack={playback.currentTrack}
+              pluginShelves={plugins.homeShelves}
+              invokePluginShelf={plugins.invokeHomeShelf}
+              restoredRef={restoredRef}
+              onPlayTrack={(t) => queueHook.playTracks([trackToQueueTrack(t)], 0)}
+              onEnqueueTrack={(t) => queueHook.enqueueTracks([trackToQueueTrack(t)])}
+              onTrackContextMenu={(t, e) => contextMenuActions.handleTrackContextMenu(e, t, new Set())}
+              onShelfItemClick={handleHomeShelfItemClick}
+              onShelfItemContextMenu={handleHomeShelfItemContextMenu}
+            />
+          )}
 
           {/* Search view — always mounted to preserve state and scroll position */}
           <SearchView

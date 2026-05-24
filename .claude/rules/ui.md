@@ -108,12 +108,15 @@ Contents left-to-right:
 
 **Component:** `Sidebar.tsx` (column 1, all rows)
 
-Navigation items:
+Navigation items (top to bottom):
+- **Home** (Cmd+0) — curated landing surface (`HomeView`), default startup view
 - Library (Cmd+1) — unified search/browse view rendered by `SearchView` with tabs for Tracks, Artists, Albums, Tags
 - History (Cmd+2)
 - Playlists
 - Plugin sidebar items (below separator)
 - Bottom: Collections, Extensions (with update count badge), Settings (with update badge)
+
+App startup always lands on Home. The previously-selected view is **not** persisted — `view` is neither read nor written from the app store, and selected entities (artist/album/tag) are not restored on startup either. Within a session, opening an entity navigates to its detail page as usual.
 
 Active state: animated `.sidebar-indicator` follows active nav button via JS-computed transform.
 
@@ -125,6 +128,7 @@ Views are toggled via `library.view` (`View` union type). When an entity is sele
 
 | View | List Component | Detail Component |
 |------|---------------|-----------------|
+| `home` | `HomeView` (default startup view; renders only when `view === "home"`) | — |
 | `search` (Library) | `SearchView` (always mounted; tabs for Tracks/Artists/Albums/Tags, with empty query showing the full library) | — |
 | `artists` | — (entered only via entity selection from Library) | `ArtistDetailContent` |
 | `albums` | — (entered only via entity selection from Library) | `AlbumDetailHeader` + `TrackList` |
@@ -140,6 +144,47 @@ Views are toggled via `library.view` (`View` union type). When an entity is sele
 ### View Modes
 
 See "Entity System > Three Rendering Modes" above. Toggled via `ViewModeToggle` in `Breadcrumb`. View mode persisted per entity type (`artistViewMode`, `albumViewMode`, etc.).
+
+## Home View
+
+**Components:** `HomeView.tsx` + `HomeHero.tsx` + `HomeShelf.tsx` + `HomeShelvesPopover.tsx`. State owned by `useHome.ts`.
+
+**Purpose:** the default landing surface — a curated overview of the user's library and external sources.
+
+**Layout:** featured-track hero carousel at the top, followed by a vertical stack of horizontal-scrolling shelves. Top-right page header has `[⟳ Refresh]` and `[⚙ Shelves]` ghost buttons.
+
+**Featured hero:** auto-rotating carousel of 7 tracks picked via the same weighted strategy as `useAutoContinue.ts` (Random / Same Artist / Same Tag / Most Played / Liked). Auto-advances every 8s, pauses on hover, manual nav via arrows + dots. `Play` plays just the featured track; `Enqueue` enqueues just the featured track.
+
+**Built-in shelves** (in this order):
+
+| Shelf id | Title | Item type | Source |
+|---|---|---|---|
+| `builtin:recently-played` | Recently played | track | `get_history_recent` |
+| `builtin:most-played-30d` | Most played · 30 days | track | `get_history_most_played_since` (now − 30 days) |
+| `builtin:most-played-artists-30d` | Most played artists · 30 days | artist | `get_history_most_played_artists_since`, resolved against library by name |
+| `builtin:recently-added` | Recently added | album | `get_albums` with `sort: "added_desc"` |
+| `builtin:liked-albums` | Liked albums | album | `get_albums` filtered by `liked === 1` |
+| `builtin:liked-artists` | Liked artists | artist | `get_artists` filtered by `liked === 1` |
+| `builtin:jump-back-in` | Jump back in | mixed (album/artist) | reads `recentlyVisitedEntities` ring buffer (recorded by `recordVisit` from `src/utils/recentlyVisited.ts`) |
+
+Plugin-contributed shelves are merged in alongside the built-ins. See `plugins.md` "Home Shelves" for the contribution surface.
+
+**Refresh model:** `useHome` re-fetches everything on view-mount and on a 5-minute interval **only while Home is visible**. Resolvers run in parallel via `Promise.all`. Plugin handlers have a 5-second timeout. Shelves that return `empty` / `error` / time out are filtered out for that cycle (so absence is not a hard error).
+
+**Visibility popover:** `[⚙ Shelves]` opens a checklist of every registered shelf (built-in + plugin). Toggling persists to `homeShelfVisibility: Record<string, boolean>` in the app store. Default is "all visible" (missing keys count as visible).
+
+**Card kinds:** four `displayKind` values, all rendered by `HomeShelf.tsx`. The renderer uses a single `resolveImagePath` helper that handles http/data URIs directly and runs local paths through `convertFileSrc` (preserving any `#v=...` cache-busting fragment so plugin-cached covers refresh when content changes):
+
+| displayKind | Click action |
+|---|---|
+| `album-cards` | with `libraryId` → navigate to album detail; without → `playTracks(items.tracks, 0, { name })` |
+| `artist-cards` | with `libraryId` → navigate to artist detail; without → no-op |
+| `playlist-cards` | `playTracks(items.tracks, 0, { name, coverUrl, source: "playlist" })` |
+| `track-rows` | `playTracks([track], 0)` (no playlist context) |
+
+Track-row cards have an additional async image fallback: `track.image_url` → album image (by name) → artist image (by name) → first-letter placeholder, all via the same `useImageCache` chain used elsewhere.
+
+**Track row vs. featured rendering:** the featured carousel renders full library `Track` objects (with DB IDs). Featured `Play` / `Enqueue` route through `trackToQueueTrack` (preserving `format`, `liked`, etc.), not `pluginTrackToQueueTrack`. Don't confuse these — using the wrong converter strips library-only fields.
 
 ## Queue Panel
 

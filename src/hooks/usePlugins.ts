@@ -29,6 +29,8 @@ import type {
   InteractiveSearchResult,
   GetQualitiesHandler,
   DownloadQualityOption,
+  HomeShelfDisplayKind,
+  HomeShelfResult,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 
@@ -156,6 +158,14 @@ export function usePlugins(
     new Map(),
   );
   const [settingsPanels, setSettingsPanels] = useState<PluginSettingsPanel[]>([]);
+  const [homeShelves, setHomeShelves] = useState<Array<{
+    pluginId: string;
+    shelfId: string;
+    title: string;
+    displayKind: HomeShelfDisplayKind;
+    limit: number;
+    icon?: string;
+  }>>([]);
   const [galleryPlugins, setGalleryPlugins] = useState<GalleryPluginEntry[]>(
     [],
   );
@@ -183,6 +193,16 @@ export function usePlugins(
   const viewDataRef = useRef<Map<string, PluginViewData>>(new Map());
   const badgeMapRef = useRef<Map<string, PluginBadge>>(new Map());
   const [badgeMap, setBadgeMap] = useState<Map<string, PluginBadge>>(new Map());
+  const homeShelfHandlersRef = useRef(new Map<string, (limit: number) => Promise<HomeShelfResult>>());
+  const dynamicHomeShelvesRef = useRef(new Map<string, {
+    pluginId: string;
+    shelfId: string;
+    title: string;
+    displayKind: HomeShelfDisplayKind;
+    limit: number;
+    icon?: string;
+  }>());
+  const [dynamicShelvesVersion, setDynamicShelvesVersion] = useState(0);
 
   // Build the curated API for a specific plugin
   const buildAPI = useCallback(
@@ -742,6 +762,51 @@ export function usePlugins(
           },
         },
 
+        home: {
+          onFetchShelf(shelfId: string, handler: (limit: number) => Promise<HomeShelfResult>): () => void {
+            const key = `${pluginId}:${shelfId}`;
+            homeShelfHandlersRef.current.set(key, handler);
+            const unsub = () => {
+              if (homeShelfHandlersRef.current.get(key) === handler) {
+                homeShelfHandlersRef.current.delete(key);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          registerShelf(descriptor: {
+            id: string;
+            title: string;
+            displayKind: HomeShelfDisplayKind;
+            limit?: number;
+            icon?: string;
+          }): () => void {
+            const key = `${pluginId}:${descriptor.id}`;
+            dynamicHomeShelvesRef.current.set(key, {
+              pluginId,
+              shelfId: descriptor.id,
+              title: descriptor.title,
+              displayKind: descriptor.displayKind,
+              limit: descriptor.limit ?? 20,
+              icon: descriptor.icon,
+            });
+            setDynamicShelvesVersion((v) => v + 1);
+            const unsub = () => {
+              if (dynamicHomeShelvesRef.current.delete(key)) {
+                setDynamicShelvesVersion((v) => v + 1);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          unregisterShelf(shelfId: string): void {
+            const key = `${pluginId}:${shelfId}`;
+            if (dynamicHomeShelvesRef.current.delete(key)) {
+              setDynamicShelvesVersion((v) => v + 1);
+            }
+          },
+        },
+
         imageProviders: {
           onFetch(
             entity: "artist" | "album",
@@ -943,6 +1008,24 @@ export function usePlugins(
     }
     setBadgeMap(new Map(badgeMapRef.current));
 
+    // Clear home shelf handlers for this plugin
+    for (const key of Array.from(homeShelfHandlersRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        homeShelfHandlersRef.current.delete(key);
+      }
+    }
+    // Clear dynamically registered home shelves for this plugin
+    let dynamicShelvesChanged = false;
+    for (const key of Array.from(dynamicHomeShelvesRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        dynamicHomeShelvesRef.current.delete(key);
+        dynamicShelvesChanged = true;
+      }
+    }
+    if (dynamicShelvesChanged) {
+      setDynamicShelvesVersion((v) => v + 1);
+    }
+
     loadedPluginsRef.current.delete(pluginId);
   }, []);
 
@@ -1061,6 +1144,14 @@ export function usePlugins(
       const sidebar: PluginSidebarItem[] = [];
       const menus: PluginMenuItem[] = [];
       const settings: PluginSettingsPanel[] = [];
+      const shelves: Array<{
+        pluginId: string;
+        shelfId: string;
+        title: string;
+        displayKind: HomeShelfDisplayKind;
+        limit: number;
+        icon?: string;
+      }> = [];
       const allInfoTypes: Array<[string, string, string, string, string, number, number, number, string]> = [];
       const allImageProviders: [string, string, number][] = []; // [plugin_id, entity, priority]
 
@@ -1156,6 +1247,18 @@ export function usePlugins(
               order: sp.order ?? 100,
             });
           }
+          if (contrib.homeShelves) {
+            for (const hs of contrib.homeShelves) {
+              shelves.push({
+                pluginId: plugin.id,
+                shelfId: hs.id,
+                title: hs.title,
+                displayKind: hs.displayKind,
+                limit: hs.limit ?? 20,
+                icon: hs.icon,
+              });
+            }
+          }
         }
       }
 
@@ -1193,6 +1296,7 @@ export function usePlugins(
       setSidebarItems(sidebar);
       setMenuItems(menus);
       setSettingsPanels(settings);
+      setHomeShelves(shelves);
     } catch (e) {
       console.error("Failed to load plugins:", e);
     }
@@ -1536,10 +1640,32 @@ export function usePlugins(
     [],
   );
 
+  const invokeHomeShelf = useCallback(
+    async (pluginId: string, shelfId: string, limit: number): Promise<HomeShelfResult> => {
+      const handler = homeShelfHandlersRef.current.get(`${pluginId}:${shelfId}`);
+      if (!handler) return { status: "error", message: "handler not registered" };
+      return handler(limit);
+    },
+    [],
+  );
+
   const pluginNames = useMemo(
     () => new Map(pluginStates.map((s) => [s.id, s.manifest.name])),
     [pluginStates],
   );
+
+  const allHomeShelves = useMemo(() => {
+    const seen = new Set(homeShelves.map((s) => `${s.pluginId}:${s.shelfId}`));
+    const merged = [...homeShelves];
+    for (const entry of dynamicHomeShelvesRef.current.values()) {
+      const key = `${entry.pluginId}:${entry.shelfId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(entry);
+    }
+    return merged;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [homeShelves, dynamicShelvesVersion]);
 
   return {
     pluginStates,
@@ -1547,6 +1673,7 @@ export function usePlugins(
     sidebarItems,
     menuItems,
     settingsPanels,
+    homeShelves: allHomeShelves,
     viewData,
     getViewData,
     badgeMap,
@@ -1573,5 +1700,6 @@ export function usePlugins(
     hasInteractiveDownload,
     invokeGetQualities,
     resolveStreamByUri,
+    invokeHomeShelf,
   };
 }

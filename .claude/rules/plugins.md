@@ -68,7 +68,14 @@ User-installed plugins (in app data directory) override built-in plugins with th
       "id": "settings-id",
       "label": "Settings Tab Label",
       "order": 40
-    }
+    },
+    "homeShelves": [{
+      "id": "shelf-id",
+      "title": "Shelf Title",
+      "displayKind": "album-cards|artist-cards|playlist-cards|track-rows",
+      "limit": 20,
+      "icon": "icon-name"
+    }]
   }
 }
 ```
@@ -115,6 +122,26 @@ Top-level logger. Writes to the app's frontend log stream. Prefer this over `con
 
 ### api.contextMenu
 - `onAction(actionId, handler)` — handle clicks on registered context menu items. Handler receives a `PluginContextMenuTarget`.
+
+### api.home
+- `onFetchShelf(shelfId, handler)` — register a fetch handler for a shelf the plugin contributes (either via `contributes.homeShelves` in the manifest, or via `registerShelf` at runtime). Handler receives `(limit: number)` and returns `Promise<HomeShelfResult>`. Each handler call has a 5-second timeout — slow handlers are treated as `{ status: "error" }` for that cycle. Returns an unsubscriber.
+- `registerShelf(descriptor)` — register a shelf at runtime. `descriptor` is `{ id, title, displayKind, limit?, icon? }`. Use this when the set of shelves depends on user-specific state (e.g., one shelf per Spotify section). Returns an unsubscriber. The static manifest path is for shelves whose set is known at build time; runtime registration is for everything else.
+- `unregisterShelf(shelfId)` — drop a runtime-registered shelf.
+
+`HomeShelfResult`: `{ status: "ok", items: HomeShelfItem[] } | { status: "empty" } | { status: "error", message? }`. Empty/error/timeout shelves are filtered out for that refresh cycle (so they're not visual errors — they just don't render).
+
+`HomeShelfItem` is a discriminated union by the parent shelf's `displayKind`:
+
+| displayKind | Item shape |
+|---|---|
+| `album-cards` | `{ libraryId?, name, artistName?, coverUrl?, tracks? }` — `libraryId` makes the card navigate to the album detail page; otherwise `tracks` (PluginTrack[]) plays on click |
+| `artist-cards` | `{ libraryId?, name, imageUrl? }` — `libraryId` navigates to artist detail; without it the card is a no-op on click |
+| `playlist-cards` | `{ id, name, coverUrl?, trackCount?, tracks: PluginTrack[] }` — clicking plays the tracks with `{ name, coverUrl, source: "playlist" }` context |
+| `track-rows` | `{ track: PluginTrack }` — clicking plays just that track |
+
+`coverUrl` / `imageUrl` may be either a remote URL (http/https/data) or a local filesystem path — the renderer detects the difference. Local paths can carry a `#v=N` cache-busting suffix that the renderer preserves.
+
+When a plugin is deactivated or reloaded, `usePlugins` automatically drops all of its registered home-shelf handlers and runtime descriptors.
 
 ### api.ui
 - `setViewData(viewId, data)` — render plugin views (see `PluginViewData` types)
@@ -289,6 +316,23 @@ Download providers implement URL resolution for the unified `DownloadModal`.
 - **Interactive:** a plugin contributes `onInteractiveSearch` + `onInteractiveResolve`, surfaced as manual search inside `DownloadModal` with per-track picking.
 
 Providers are prioritized by internal hardcoded defaults (in `usePlugins.ts`); unknown plugins are added last. The built-in Subsonic provider handles `subsonic://` URIs natively.
+
+## Home Shelves
+
+Plugins contribute horizontal shelves to the Home page via `api.home`. Two paths:
+
+- **Static (manifest):** `contributes.homeShelves[]` declares a fixed set known at build time. Each entry must still register a fetch handler via `api.home.onFetchShelf(shelfId, handler)`.
+- **Runtime:** `api.home.registerShelf(descriptor)` adds a shelf programmatically. Use this when the set depends on user-specific state — e.g., the Spotify plugin contributes one shelf per active section, and re-syncs them whenever the user adds or removes a section.
+
+The merged manifest + runtime list is exposed by `usePlugins` as `homeShelves` and consumed by `useHome` (see `ui.md` "Home View"). Built-in shelves are listed first; plugin shelves follow.
+
+**Refresh contract:** Home calls every shelf's handler on view-mount and again every 5 minutes while visible. Each handler has a 5-second timeout — keep them fast or kick off background work elsewhere and serve from cached state. Returning `{ status: "empty" }` hides the shelf for that cycle (no error indicator). Returning `{ status: "error", message }` logs to `console.error` and hides the shelf.
+
+**Image rules:** local paths (e.g. plugin-cached covers under `api.storage.files`) are run through `convertFileSrc` automatically. Append `#v=<timestamp>` to bust the WebView cache when content changes. Remote URLs (http/https/data) are passed through unchanged.
+
+**Click semantics:** for `playlist-cards`, `playTracks` is invoked with `{ name, coverUrl, source: "playlist" }` context, which gives the queue panel a banner. Don't replicate that wiring inside the plugin — Home does it for you.
+
+**Live example:** `src-tauri/plugins/spotify-browse/index.js` — the `syncHomeShelves` function diffs desired vs. registered shelves on every `render()`, registering one playlist-card shelf per Spotify section and serving items from in-memory `state.playlists` / `state.playlistTracks`.
 
 ## Plugin View Rendering
 

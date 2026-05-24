@@ -488,8 +488,9 @@ pub fn get_artist_by_id(state: State<'_, AppState>, artist_id: i64) -> Result<Op
 pub fn get_albums(
     state: State<'_, AppState>,
     artist_id: Option<i64>,
+    sort: Option<String>,
 ) -> Result<Vec<Album>, String> {
-    state.db.get_albums(artist_id).map_err(|e| e.to_string())
+    state.db.get_albums_sorted(artist_id, sort.as_deref()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1100,6 +1101,11 @@ pub fn get_history_most_played_since(state: State<'_, AppState>, since_ts: i64, 
 #[tauri::command]
 pub fn get_history_most_played_artists(state: State<'_, AppState>, limit: i64) -> Result<Vec<HistoryArtistStats>, String> {
     state.db.get_history_most_played_artists(limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_history_most_played_artists_since(state: State<'_, AppState>, since_ts: i64, limit: i64) -> Result<Vec<HistoryArtistStats>, String> {
+    state.db.get_history_most_played_artists_since(since_ts, limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

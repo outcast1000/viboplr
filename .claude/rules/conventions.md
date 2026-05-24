@@ -80,6 +80,15 @@ Each entry documents the gold standard implementation for a repeated user action
 - **Move to Top/Bottom:** Calls `queue.moveToTop(indices)` / `queue.moveToBottom(indices)` — reorders without changing what's playing
 - **Rule:** All mutations must preserve `queueIndex` integrity per the index recalculation rules in `queue.md`
 
+### Home Shelves (built-in or plugin)
+
+- **Canonical:** `useHome.ts` -> `buildBuiltInResolvers()` and the merged plugin shelves; rendered by `HomeShelf.tsx`
+- **Built-in shelf flow:** declare a `ShelfResolver` with `{ id: "builtin:<slug>", title, displayKind, limit, fetch }`. The `fetch` function returns `Promise<HomeShelfResult>` (`{ status: "ok", items } | { status: "empty" } | { status: "error", message? }`). Add a matching descriptor to `allShelfDescriptors` in `HomeView.tsx` so the visibility popover knows about it.
+- **Plugin shelf flow:** see `plugins.md` "Home Shelves" — declare in `contributes.homeShelves` (static) or call `api.home.registerShelf(...)` (runtime), then register a fetch handler with `api.home.onFetchShelf(id, handler)`.
+- **Click handling:** Home shelves never reimplement play/enqueue. `playTracks` / detail navigation flows through the existing canonical actions (see entries above). `playlist-cards` clicks always include `{ name, coverUrl, source: "playlist" }` context so the queue banner shows up — this is wired in `App.tsx` `handleHomeShelfItemClick`, not in the shelf renderer or the plugin.
+- **Image resolution:** never pass raw filesystem paths to `<img src>`. Use the `resolveImagePath` helper inside `HomeShelf.tsx` (handles http/data URIs and local paths with optional `#v=` cache-bust suffix). For album/artist fallbacks, route through `useImageCache("album"|"artist")` — same chain the queue and now-playing bar use.
+- **Refresh fairness:** keep fetch handlers fast (5s budget). Slow handlers freeze the shelf in `error` state for that cycle. If a handler needs network I/O or expensive computation, populate a cached snapshot in plugin storage and serve from that.
+
 ## Behavioral Rules
 
 Cross-cutting rules that apply to all code everywhere.
@@ -151,6 +160,12 @@ Cross-cutting rules that apply to all code everywhere.
 - Never do JS-side title/artist string comparison for library lookups — the backend uses `strip_diacritics(unicode_lower())` in SQL which correctly handles accented characters (Björk↔Bjork, Jóga↔Joga), Greek, Cyrillic, and other Unicode
 - The backend searches across all collection types (local, subsonic, and plugin-registered kinds) and prefers local copies
 - Use this for: duplicate detection before downloads, library existence checks, track matching in modals
+
+### Default Startup View
+
+- App startup always lands on the Home view. The previously-selected view is **not** persisted — `view` is neither read nor written from the app store. Selected entities (artist/album/tag) are also not restored at startup.
+- New code that adds startup-time persistence must not write to `"view"` or any of `"selectedArtist"` / `"selectedAlbum"` / `"selectedTag"` for the purpose of restoring last position. If a feature needs "remember where I was" semantics, add it as opt-in (a setting), not a default.
+- During a session, opening an entity from anywhere navigates to its detail page as before — only startup is forced to Home.
 
 ### Fix As You Go
 

@@ -59,6 +59,20 @@ export interface PluginManifestSettingsPanel {
   order?: number;
 }
 
+export type HomeShelfDisplayKind =
+  | "album-cards"
+  | "artist-cards"
+  | "playlist-cards"
+  | "track-rows";
+
+export interface PluginManifestHomeShelf {
+  id: string;
+  title: string;
+  displayKind: HomeShelfDisplayKind;
+  limit?: number;
+  icon?: string;
+}
+
 export interface PluginManifestContributes {
   sidebarItems?: PluginManifestSidebarItem[];
   contextMenuItems?: PluginManifestContextMenuItem[];
@@ -68,6 +82,7 @@ export interface PluginManifestContributes {
   streamResolvers?: PluginManifestStreamResolver[];
   downloadProviders?: PluginManifestDownloadProvider[];
   settingsPanel?: PluginManifestSettingsPanel;
+  homeShelves?: PluginManifestHomeShelf[];
 }
 
 export interface PluginApiUsage {
@@ -447,6 +462,55 @@ export interface PluginInformationTypesAPI {
   ): () => void;
 }
 
+export type HomeShelfItem =
+  | {
+      // playlist-cards
+      id: string;
+      name: string;
+      coverUrl?: string;
+      trackCount?: number;
+      tracks: PluginTrack[];
+      sourcePluginId?: string;
+    }
+  | {
+      // album-cards
+      libraryId?: number;
+      name: string;
+      artistName?: string;
+      coverUrl?: string;
+      tracks?: PluginTrack[];
+    }
+  | {
+      // artist-cards
+      libraryId?: number;
+      name: string;
+      imageUrl?: string;
+    }
+  | {
+      // track-rows
+      track: PluginTrack;
+    };
+
+export type HomeShelfResult =
+  | { status: "ok"; items: HomeShelfItem[] }
+  | { status: "empty" }
+  | { status: "error"; message?: string };
+
+export interface PluginHomeAPI {
+  onFetchShelf(
+    shelfId: string,
+    handler: (limit: number) => Promise<HomeShelfResult>,
+  ): () => void;
+  registerShelf(descriptor: {
+    id: string;
+    title: string;
+    displayKind: HomeShelfDisplayKind;
+    limit?: number;
+    icon?: string;
+  }): () => void;
+  unregisterShelf(shelfId: string): void;
+}
+
 export type ImageFetchResult =
   | { status: "ok"; url: string; headers?: Record<string, string> }
   | { status: "ok"; data: string }
@@ -671,6 +735,7 @@ export interface ViboplrPluginAPI {
   system: PluginSystemAPI;
   env: PluginEnvAPI;
   p2p: PluginP2pAPI;
+  home: PluginHomeAPI;
 }
 
 // -- Gallery types --

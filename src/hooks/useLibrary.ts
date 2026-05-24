@@ -32,7 +32,7 @@ export const TAG_DETAIL_COLUMNS: ColumnConfig[] = ALL_COLUMN_IDS.map(id => ({
 }));
 
 export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNavigate?: () => void, getDebouncedTrackQuery?: (view: View) => string, trackPopularity?: Record<number, number>, _onNavigationError?: (message: string) => void) {
-  const [view, setView] = useState<View>("search");
+  const [view, setView] = useState<View>("home");
   const debouncedTrackQuery = getDebouncedTrackQuery?.(view) ?? "";
   const [artists, setArtists] = useState<Artist[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -75,7 +75,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
 
   // Persist state
-  useEffect(() => { if (restoredRef.current) store.set("view", view); }, [view]);
+  // Note: `view` is intentionally not persisted — startup always lands on Home.
   useEffect(() => { if (restoredRef.current) store.set("selectedArtist", selectedArtist); }, [selectedArtist]);
   useEffect(() => { if (restoredRef.current) store.set("selectedAlbum", selectedAlbum); }, [selectedAlbum]);
   useEffect(() => { if (restoredRef.current) store.set("selectedTag", selectedTag); }, [selectedTag]);

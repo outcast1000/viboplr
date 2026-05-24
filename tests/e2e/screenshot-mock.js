@@ -298,6 +298,7 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     if (cmd === 'plugin:store|get') {
       const key = args && args.key;
       if (key === 'sidebarCollapsed' || key === 'queueCollapsed') return [true, true];
+      if (key === 'view') return ['search', true];
       return [null, false];
     }
     if (cmd === 'plugin:store|get_store') return 1;
