@@ -99,10 +99,12 @@ interface NowPlayingBarProps {
   eqEnabled: boolean;
   eqPreset: string;
   eqGains: number[];
+  eqPreGainDb: number;
   eqCustomPresets: { id: string; name: string; gains: number[] }[];
   onEqEnabledChange: (v: boolean) => void;
   onEqPresetChange: (id: string) => void;
   onEqGainChange: (bandIndex: number, gainDb: number) => void;
+  onEqPreGainChange: (db: number) => void;
   onEqResetAll: () => void;
   onEqSaveAs: () => void;
   onToggleQueueMode: () => void;
@@ -140,8 +142,8 @@ export function NowPlayingBar({
   imagePath, miniMode, miniExpanded, miniRestingSize, miniWidthSize, onCancelCollapseTimer, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute,
-  eqEnabled, eqPreset, eqGains, eqCustomPresets,
-  onEqEnabledChange, onEqPresetChange, onEqGainChange, onEqResetAll, onEqSaveAs,
+  eqEnabled, eqPreset, eqGains, eqPreGainDb, eqCustomPresets,
+  onEqEnabledChange, onEqPresetChange, onEqGainChange, onEqPreGainChange, onEqResetAll, onEqSaveAs,
   onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onTrackClick,
@@ -630,10 +632,12 @@ export function NowPlayingBar({
               enabled={eqEnabled}
               preset={eqPreset}
               gains={eqGains}
+              preGainDb={eqPreGainDb}
               customPresets={eqCustomPresets}
               onEnabledChange={onEqEnabledChange}
               onPresetChange={onEqPresetChange}
               onGainChange={onEqGainChange}
+              onPreGainChange={onEqPreGainChange}
               onResetAll={onEqResetAll}
               onSaveAs={onEqSaveAs}
               onClose={() => setEqOpen(false)}

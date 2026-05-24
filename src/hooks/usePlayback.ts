@@ -34,6 +34,7 @@ export function usePlayback(
   const [eqEnabled, setEqEnabled] = useState(false);
   const [eqPreset, setEqPreset] = useState<string>("flat");
   const [eqGains, setEqGains] = useState<number[]>(() => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  const [eqPreGainDb, setEqPreGainDb] = useState<number>(0);
   const trackChangeSourceRef = useRef<"user" | "auto">("user");
 
   const audioRefA = useRef<HTMLAudioElement>(null);
@@ -77,8 +78,15 @@ export function usePlayback(
   const masterGainRef = useRef<GainNode | null>(null);
   const eqEnabledRef = useRef(eqEnabled);
   const eqGainsRef = useRef<number[]>(eqGains);
+  const eqPreGainDbRef = useRef<number>(eqPreGainDb);
   eqEnabledRef.current = eqEnabled;
   eqGainsRef.current = eqGains;
+  eqPreGainDbRef.current = eqPreGainDb;
+
+  function masterGainValue(): number {
+    const linear = Math.pow(10, (eqEnabledRef.current ? eqPreGainDbRef.current : 0) / 20);
+    return volumeRef.current * linear;
+  }
 
   function applyEqToFilters(): void {
     const gains = eqEnabledRef.current ? eqGainsRef.current : new Array(NUM_BANDS).fill(0);
@@ -108,7 +116,7 @@ export function usePlayback(
     }
 
     const masterGain = ctx.createGain();
-    masterGain.gain.value = volumeRef.current;
+    masterGain.gain.value = masterGainValue();
     masterGain.connect(ctx.destination);
     masterGainRef.current = masterGain;
 
@@ -171,7 +179,7 @@ export function usePlayback(
     // Video bypasses Web Audio, so its volume is set directly.
     if (videoRef.current) videoRef.current.volume = volume;
     if (masterGainRef.current) {
-      masterGainRef.current.gain.value = volume;
+      masterGainRef.current.gain.value = masterGainValue();
       return;
     }
     // Pre-graph fallback: until ensureAudioGraph runs, the audio elements
@@ -183,8 +191,10 @@ export function usePlayback(
   useEffect(() => {
     eqEnabledRef.current = eqEnabled;
     eqGainsRef.current = eqGains;
+    eqPreGainDbRef.current = eqPreGainDb;
     applyEqToFilters();
-  }, [eqEnabled, eqGains]);
+    if (masterGainRef.current) masterGainRef.current.gain.value = masterGainValue();
+  }, [eqEnabled, eqGains, eqPreGainDb]);
 
   // Load video source once the element is available after render
   useEffect(() => {
@@ -828,5 +838,6 @@ export function usePlayback(
     eqEnabled, setEqEnabled,
     eqPreset, setEqPreset,
     eqGains, setEqGains,
+    eqPreGainDb, setEqPreGainDb,
   };
 }
