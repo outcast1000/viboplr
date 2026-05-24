@@ -103,6 +103,9 @@ export function usePlayback(
     }
     const ctx = new Ctor();
     audioCtxRef.current = ctx;
+    if (ctx.state === "suspended") {
+      ctx.resume().catch(console.error);
+    }
 
     const masterGain = ctx.createGain();
     masterGain.gain.value = volumeRef.current;
