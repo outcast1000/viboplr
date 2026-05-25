@@ -54,7 +54,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     if (artistImages[name] !== undefined) return;
     if (artistImageFetched.current.has(name)) return;
     artistImageFetched.current = new Set(artistImageFetched.current).add(name);
-    invoke<string | null>("get_entity_image_by_name", { kind: "artist", name }).then((path) => {
+    invoke<string | null>("get_entity_image", { kind: "artist", name }).then((path) => {
       if (path) {
         setArtistImages((prev) => ({ ...prev, [name]: path }));
       }
