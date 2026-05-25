@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { QueueTrack } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
@@ -245,7 +246,7 @@ export function NowPlayingBar({
             <div className="now-info">
               <div className="now-mini-art-wrapper">
                 {imagePath ? (
-                  <img className="now-mini-art" src={imagePath.startsWith("http") ? imagePath : convertFileSrc(imagePath)} alt="" />
+                  <img className="now-mini-art" src={resolveImageUrl(imagePath)} alt="" />
                 ) : (
                   <div className="now-mini-art now-mini-art-placeholder">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
@@ -450,7 +451,7 @@ export function NowPlayingBar({
         <div className="now-info">
           <div className={`now-art-wrapper${playing ? " playing" : ""}`}>
             {imagePath ? (
-              <img className="now-art" src={imagePath.startsWith("http") ? imagePath : convertFileSrc(imagePath)} alt="" />
+              <img className="now-art" src={resolveImageUrl(imagePath)} alt="" />
             ) : (
               <div className="now-art now-art-placeholder">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="24" height="24">

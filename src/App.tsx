@@ -24,6 +24,7 @@ import { emitTrackPatch } from "./trackEvents";
 import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, isLocalTrack, type QueueEntry } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
+import { resolveImageUrl } from "./utils/resolveImageUrl";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext, buildSearchUrl } from "./searchProviders";
 import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
@@ -722,10 +723,8 @@ function App() {
       navigator.mediaSession.metadata = null;
       return;
     }
-    const artSrc = track.image_url || null;
-    const artwork: MediaImage[] = artSrc
-      ? [{ src: artSrc.startsWith("http") ? artSrc : convertFileSrc(artSrc) }]
-      : [];
+    const artSrc = resolveImageUrl(track.image_url ?? null);
+    const artwork: MediaImage[] = artSrc ? [{ src: artSrc }] : [];
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
       artist: track.artist_name ?? undefined,

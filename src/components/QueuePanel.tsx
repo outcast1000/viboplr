@@ -233,7 +233,7 @@ export function QueuePanel({
   const getTrackImageKey = useCallback((t: QueueTrack) => `${t.artist_name ?? ""}::${t.title}`, []);
 
   const getTrackImage = useCallback((t: QueueTrack): string | null => {
-    if (t.image_url) return t.image_url.startsWith("http") ? t.image_url : convertFileSrc(t.image_url);
+    if (t.image_url) return resolveImageUrl(t.image_url) ?? null;
     const resolved = resolvedImages[getTrackImageKey(t)];
     if (resolved) return convertFileSrc(resolved);
     return null;

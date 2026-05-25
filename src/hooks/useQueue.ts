@@ -5,6 +5,7 @@ import { save, open } from "@tauri-apps/plugin-dialog";
 import type { QueueTrack, PlaylistLoadResult, PlaylistEntry } from "../types";
 import { trackToQueueEntry, queueEntryToQueueTrack } from "../queueEntry";
 import { buildManifest, buildState, diffThumbs, isContextRemote } from "../mainPlaylist";
+import { stripImageVersion } from "../utils/resolveImageUrl";
 
 export interface PlaylistContext {
   name: string;
@@ -69,12 +70,18 @@ export function useQueue(
     if (img === lastCoverRef.current) return;
     lastCoverRef.current = img;
     if (!img) {
-      invoke("main_playlist_set_cover", { source: null }).catch(console.error);
+      invoke("main_playlist_set_cover", { source: null })
+        .catch(e => console.error("main_playlist_set_cover (clear) failed:", e));
       return;
     }
     const isUrl = img.startsWith("http://") || img.startsWith("https://");
-    const source = isUrl ? { url: img, path: null } : { path: img, url: null };
-    invoke("main_playlist_set_cover", { source }).catch(console.error);
+    // Plugins may append `#v=N` to local paths (cache-busting); the backend
+    // treats the whole string as a filesystem path so we must strip it before
+    // sending. http(s) URLs pass through unchanged.
+    const cleanPath = isUrl ? null : stripImageVersion(img);
+    const source = isUrl ? { url: img, path: null } : { path: cleanPath, url: null };
+    invoke("main_playlist_set_cover", { source })
+      .catch(e => console.error(`main_playlist_set_cover failed for ${img}:`, e));
   }, [playlistContext]);
 
   // Thumb diff: write/remove thumbs when queue changes (remote-only)
@@ -88,7 +95,8 @@ export function useQueue(
     // Always remove stale thumbs even when switching off remote.
     // Backend slugifies the `key` param via canonical_slug → same filename as thumbFilenameForUri.
     for (const uri of removed) {
-      invoke("main_playlist_remove_thumb", { key: uri }).catch(console.error);
+      invoke("main_playlist_remove_thumb", { key: uri })
+        .catch(e => console.error(`main_playlist_remove_thumb failed for ${uri}:`, e));
     }
     if (removed.length > 0) {
       setThumbVersions(prev => {
@@ -100,13 +108,17 @@ export function useQueue(
     if (!remote) return;
     for (const t of added) {
       if (!t.path) continue;
+      // Strip plugin-appended `#v=N` cache-buster from local paths before
+      // sending to the backend (it treats the string as a filesystem path).
+      const raw = t.image_url;
       const source =
-        t.image_url?.startsWith("http") ? { url: t.image_url, path: null } :
-        t.image_url?.startsWith("file://") ? { path: t.image_url.slice(7), url: null } :
-        t.image_url ? { path: t.image_url, url: null } :
+        raw?.startsWith("http") ? { url: raw, path: null } :
+        raw?.startsWith("file://") ? { path: stripImageVersion(raw.slice(7)), url: null } :
+        raw ? { path: stripImageVersion(raw), url: null } :
         null;
       if (!source) continue;
-      invoke("main_playlist_set_thumb", { key: t.path, source }).catch(console.error);
+      invoke("main_playlist_set_thumb", { key: t.path, source })
+        .catch(e => console.error(`main_playlist_set_thumb failed for "${t.title}" (${t.path}, image_url=${raw}):`, e));
     }
   }, [queue, playlistContext]);
 
