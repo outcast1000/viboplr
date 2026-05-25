@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { ResolvedShelf } from "../hooks/useHome";
 import type { HomeShelfItem } from "../types/plugin";
@@ -67,19 +67,22 @@ export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, o
     }
   }, [shelf, trackIds, frameQueue]);
 
-  // Subscribe to the queue and project to {key -> first frame URL} for the items we know about.
-  const videoFrames = useSyncExternalStore(
+  // Read the queue's stable ready-frame snapshot, then project it to our
+  // metadata keys. Both layers must be referentially stable: useSyncExternalStore
+  // gets the queue's cached snapshot (stable per-change), and useMemo recomputes
+  // the projection only when the snapshot or trackIds change.
+  const readyFrames = useSyncExternalStore(
     (cb) => frameQueue.subscribe(cb),
-    () => {
-      const out: Record<string, string> = {};
-      for (const [key, id] of Object.entries(trackIds)) {
-        const entry = frameQueue.getEntry(id);
-        if (entry.status === "ready" && entry.frames[0]) out[key] = entry.frames[0];
-      }
-      return out;
-    },
-    () => ({} as Record<string, string>),
+    () => frameQueue.getReadyFrameSnapshot(),
   );
+  const videoFrames = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const [key, id] of Object.entries(trackIds)) {
+      const url = readyFrames[id];
+      if (url) out[key] = url;
+    }
+    return out;
+  }, [readyFrames, trackIds]);
 
   const scroll = (dir: 1 | -1) => {
     const el = scrollerRef.current;

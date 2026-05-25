@@ -19,19 +19,12 @@ export function HomeHero({ tracks, albumImageFor, onPlay, onEnqueue, onContextMe
   const hoverRef = useRef(false);
   const frameQueue = useVideoFrameQueue();
 
-  // Subscribe to the queue once and rebuild a {trackId -> first frame URL} map on each tick.
+  // Subscribe to the queue's ready-frames snapshot. The queue maintains
+  // referential stability across calls when nothing has changed, which
+  // useSyncExternalStore requires to avoid infinite render loops.
   const frameMap = useSyncExternalStore(
     (cb) => frameQueue.subscribe(cb),
-    () => {
-      const out: Record<number, string> = {};
-      for (const t of tracks) {
-        if (t.id == null) continue;
-        const entry = frameQueue.getEntry(t.id);
-        if (entry.status === "ready" && entry.frames[0]) out[t.id] = entry.frames[0];
-      }
-      return out;
-    },
-    () => ({} as Record<number, string>),
+    () => frameQueue.getReadyFrameSnapshot(),
   );
 
   useEffect(() => { setIdx(0); }, [tracks.length]);

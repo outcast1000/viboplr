@@ -30,11 +30,32 @@ export class VideoFrameQueue {
   private processing = false;
   private listeners = new Set<Listener>();
   private inflightPromise: Promise<void> = Promise.resolve();
+  // Stable snapshot of ready first-frames keyed by trackId. Rebuilt only when
+  // the underlying entries change — `useSyncExternalStore` requires the same
+  // reference across calls when nothing changed, otherwise React loops.
+  private readyFrameSnapshot: Readonly<Record<number, string>> = Object.freeze({});
 
   constructor(private invoke: InvokeFn, private convertFileSrc: ConvertFn) {}
 
   getEntry(trackId: number): FrameEntry {
     return this.entries.get(trackId) ?? IDLE;
+  }
+
+  /**
+   * Returns a referentially stable map of `trackId -> first ready frame URL`.
+   * Same reference is returned across calls until an entry changes. Safe to
+   * use as a `useSyncExternalStore` snapshot.
+   */
+  getReadyFrameSnapshot(): Readonly<Record<number, string>> {
+    return this.readyFrameSnapshot;
+  }
+
+  private rebuildReadyFrameSnapshot() {
+    const next: Record<number, string> = {};
+    for (const [id, entry] of this.entries) {
+      if (entry.status === "ready" && entry.frames[0]) next[id] = entry.frames[0];
+    }
+    this.readyFrameSnapshot = Object.freeze(next);
   }
 
   subscribe(listener: Listener): Unsubscribe {
@@ -70,14 +91,16 @@ export class VideoFrameQueue {
   }
 
   evict(trackId: number): void {
-    this.entries.delete(trackId);
+    const had = this.entries.delete(trackId);
     this.pending = this.pending.filter((id) => id !== trackId);
     this.cancelled.delete(trackId);
+    if (had) this.rebuildReadyFrameSnapshot();
     this.notify();
   }
 
   private setEntry(trackId: number, entry: FrameEntry) {
     this.entries.set(trackId, entry);
+    this.rebuildReadyFrameSnapshot();
     this.notify();
   }
 
