@@ -200,6 +200,10 @@ export function usePlayback(
     eqEnabledRef.current = eqEnabled;
     eqGainsRef.current = eqGains;
     eqPreGainDbRef.current = eqPreGainDb;
+    // Lazily build the Web Audio graph the first time EQ is actually engaged.
+    // Until then, audio plays through the native HTMLMediaElement path for
+    // snappier play/pause/mute response.
+    if (eqEnabled && !audioCtxRef.current) ensureAudioGraph();
     applyEqToFilters();
     if (masterGainRef.current) masterGainRef.current.gain.value = masterGainValue();
   }, [eqEnabled, eqGains, eqPreGainDb]);
@@ -474,7 +478,7 @@ export function usePlayback(
   }
 
   async function handlePlay(track: QueueTrack, source: "user" | "auto" = "user") {
-    ensureAudioGraph();
+    if (eqEnabledRef.current) ensureAudioGraph();
     cancelCrossfade();
     // Reuse in-flight preload resolution for the same track instead of starting over
     const inflight = preloadPromiseRef.current;
@@ -505,7 +509,7 @@ export function usePlayback(
   }
 
   async function handlePlayUrl(track: QueueTrack, url: string) {
-    ensureAudioGraph();
+    if (eqEnabledRef.current) ensureAudioGraph();
     cancelCrossfade();
     invalidatePreload();
     setPlaybackError(null);
