@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, Album, Artist, HistoryEntry, HistoryMostPlayed, HistoryArtistStats, QueueTrack } from "../types";
 import type {
@@ -11,6 +11,12 @@ import { store } from "../store";
 
 const REFRESH_MS = 5 * 60 * 1000;
 const PLUGIN_TIMEOUT_MS = 5_000;
+const SNAPSHOT_KEY = "homeSnapshot";
+
+interface HomeSnapshot {
+  featured: Track[];
+  shelves: ResolvedShelf[];
+}
 
 export interface ResolvedShelf {
   id: string;
@@ -92,6 +98,10 @@ export function useHome(opts: UseHomeOptions) {
   const [featured, setFeatured] = useState<Track[]>([]);
   const [shelves, setShelves] = useState<ResolvedShelf[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  const refreshGenRef = useRef(0);
+  const featuredRef = useRef<Track[]>([]);
+  featuredRef.current = featured;
 
   const fetchFeatured = useCallback(async (): Promise<Track[]> => {
     let anchorTitle: string | null = currentTrack?.title ?? null;
@@ -252,10 +262,10 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const albums = await invoke<Album[]>("get_albums", { artistId: null });
+              const albums = await invoke<Album[]>("get_albums", { artistId: null, likedOnly: true });
               return {
                 status: "ok",
-                items: albums.filter(a => a.liked === 1).slice(0, limit).map(a => ({
+                items: albums.slice(0, limit).map(a => ({
                   libraryId: a.id,
                   name: a.title,
                   artistName: a.artist_name ?? undefined,
@@ -273,10 +283,10 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const artists = await invoke<Artist[]>("get_artists");
+              const artists = await invoke<Artist[]>("get_artists", { likedOnly: true });
               return {
                 status: "ok",
-                items: artists.filter(a => a.liked === 1).slice(0, limit).map(a => ({
+                items: artists.slice(0, limit).map(a => ({
                   libraryId: a.id,
                   name: a.name,
                 })),
@@ -316,6 +326,7 @@ export function useHome(opts: UseHomeOptions) {
   );
 
   const refresh = useCallback(async () => {
+    const gen = ++refreshGenRef.current;
     setIsLoading(true);
     try {
       const recentlyVisited = (await store.get<RecentlyVisitedEntry[]>("recentlyVisitedEntities")) ?? [];
@@ -334,24 +345,93 @@ export function useHome(opts: UseHomeOptions) {
         visibility[r.id] !== false,
       );
 
-      const [feat, resolved] = await Promise.all([
-        fetchFeatured(),
-        resolveShelves(all),
-      ]);
-      setFeatured(feat);
-      setShelves(resolved);
+      // Featured tracks resolve independently — render them as soon as they arrive.
+      const featuredPromise = fetchFeatured().then((feat) => {
+        if (gen === refreshGenRef.current) setFeatured(feat);
+      });
+
+      // Stream each shelf into the UI as it resolves, preserving the resolver order.
+      const order = new Map(all.map((r, i) => [r.id, i]));
+      const partial = new Map<string, ResolvedShelf>();
+      const shelfPromises = all.map(async (r) => {
+        try {
+          const result = await Promise.race<HomeShelfResult>([
+            r.fetch(r.limit),
+            new Promise<HomeShelfResult>((resolve) =>
+              setTimeout(() => resolve({ status: "error", message: "timeout" }), PLUGIN_TIMEOUT_MS),
+            ),
+          ]);
+          if (gen !== refreshGenRef.current) return;
+          if (result.status !== "ok" || result.items.length === 0) {
+            if (result.status === "error") {
+              console.error(`Home shelf "${r.id}" failed:`, result.message ?? "");
+            }
+            return;
+          }
+          partial.set(r.id, {
+            id: r.id,
+            pluginId: r.pluginId,
+            title: r.title,
+            displayKind: r.displayKind,
+            items: result.items,
+          });
+          const next = Array.from(partial.values()).sort(
+            (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
+          );
+          setShelves(next);
+        } catch (e) {
+          console.error(`Home shelf "${r.id}" threw:`, e);
+        }
+      });
+
+      await Promise.all([featuredPromise, ...shelfPromises]);
+      if (gen === refreshGenRef.current) {
+        // Final pass: drop any shelves left over from a previous run that no longer
+        // resolved this cycle (e.g., went from ok -> empty/error or were toggled off).
+        const finalIds = new Set(partial.keys());
+        const finalShelves = Array.from(partial.values()).sort(
+          (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
+        );
+        setShelves((prev) => prev.filter((s) => finalIds.has(s.id)));
+        // Persist the snapshot so the next mount can hydrate instantly.
+        store.set(SNAPSHOT_KEY, {
+          featured: featuredRef.current,
+          shelves: finalShelves,
+        }).catch((e) => console.error("Failed to persist home snapshot:", e));
+      }
     } finally {
-      setIsLoading(false);
+      if (gen === refreshGenRef.current) setIsLoading(false);
     }
   }, [buildBuiltInResolvers, fetchFeatured, invokePluginShelf, pluginShelves, visibility]);
 
-  // Run on mount when visible, and on a 5-minute interval while visible.
+  // Hydrate from the persisted snapshot once, before the first refresh paints anything.
+  // This makes a cold launch of Home land on real content instead of an empty state.
   useEffect(() => {
-    if (!isVisible || !restoredRef.current) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await store.get<HomeSnapshot>(SNAPSHOT_KEY);
+        if (cancelled) return;
+        if (snap?.featured?.length) setFeatured(snap.featured);
+        if (snap?.shelves?.length) setShelves(snap.shelves);
+      } catch (e) {
+        console.error("Failed to hydrate home snapshot:", e);
+      } finally {
+        if (!cancelled) setHydrated(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Run on mount when visible, and on a 5-minute interval while visible.
+  // Waits until hydration completes so the cached snapshot isn't overwritten by an
+  // in-flight refresh that started before the snapshot landed.
+  useEffect(() => {
+    if (!isVisible || !restoredRef.current || !hydrated) return;
     refresh();
     const id = setInterval(refresh, REFRESH_MS);
     return () => clearInterval(id);
-  }, [isVisible, refresh, restoredRef]);
+  }, [isVisible, refresh, restoredRef, hydrated]);
 
   return { featured, shelves, refresh, isLoading };
 }

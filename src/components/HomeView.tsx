@@ -11,6 +11,7 @@ import { store } from "../store";
 import "./HomeView.css";
 
 export interface HomeViewProps {
+  style?: React.CSSProperties;
   isVisible: boolean;
   currentTrack: QueueTrack | null;
   pluginShelves: Array<{
@@ -71,7 +72,7 @@ export function HomeView(props: HomeViewProps) {
   ];
 
   return (
-    <div className="home-view">
+    <div className="home-view" style={props.style}>
       <div className="home-view-header">
         <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={refresh} title="Refresh">⟳ Refresh</button>
         <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={() => setPopoverOpen(true)} title="Shelves">⚙ Shelves</button>

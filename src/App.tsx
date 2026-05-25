@@ -2951,21 +2951,20 @@ function App() {
             return <AlbumDetail name={detailAlbumName} artistName={detailAlbumArtistName} />;
           })()}
 
-          {/* Home view */}
-          {view === "home" && (
-            <HomeView
-              isVisible={view === "home"}
-              currentTrack={playback.currentTrack}
-              pluginShelves={plugins.homeShelves}
-              invokePluginShelf={plugins.invokeHomeShelf}
-              restoredRef={restoredRef}
-              onPlayTrack={(t) => queueHook.playTracks([trackToQueueTrack(t)], 0)}
-              onEnqueueTrack={(t) => queueHook.enqueueTracks([trackToQueueTrack(t)])}
-              onTrackContextMenu={(t, e) => contextMenuActions.handleTrackContextMenu(e, t, new Set())}
-              onShelfItemClick={handleHomeShelfItemClick}
-              onShelfItemContextMenu={handleHomeShelfItemContextMenu}
-            />
-          )}
+          {/* Home view — always mounted to preserve state and avoid re-fetching on revisit */}
+          <HomeView
+            style={{ display: view === "home" ? undefined : "none" }}
+            isVisible={view === "home"}
+            currentTrack={playback.currentTrack}
+            pluginShelves={plugins.homeShelves}
+            invokePluginShelf={plugins.invokeHomeShelf}
+            restoredRef={restoredRef}
+            onPlayTrack={(t) => queueHook.playTracks([trackToQueueTrack(t)], 0)}
+            onEnqueueTrack={(t) => queueHook.enqueueTracks([trackToQueueTrack(t)])}
+            onTrackContextMenu={(t, e) => contextMenuActions.handleTrackContextMenu(e, t, new Set())}
+            onShelfItemClick={handleHomeShelfItemClick}
+            onShelfItemContextMenu={handleHomeShelfItemContextMenu}
+          />
 
           {/* Search view — always mounted to preserve state and scroll position */}
           <SearchView

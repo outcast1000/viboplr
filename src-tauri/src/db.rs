@@ -629,10 +629,19 @@ impl Database {
     }
 
     pub fn get_artists(&self) -> SqlResult<Vec<Artist>> {
+        self.get_artists_filtered(false)
+    }
+
+    pub fn get_artists_filtered(&self, liked_only: bool) -> SqlResult<Vec<Artist>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, name, track_count, liked FROM artists WHERE track_count > 0 ORDER BY name"
-        )?;
+        let sql = if liked_only {
+            "SELECT id, name, track_count, liked FROM artists \
+             WHERE track_count > 0 AND liked = 1 ORDER BY name"
+        } else {
+            "SELECT id, name, track_count, liked FROM artists \
+             WHERE track_count > 0 ORDER BY name"
+        };
+        let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map([], |row| {
             Ok(Artist {
                 id: row.get(0)?,
@@ -725,23 +734,27 @@ impl Database {
     }
 
     pub fn get_albums(&self, artist_id: Option<i64>) -> SqlResult<Vec<Album>> {
-        self.get_albums_sorted(artist_id, None)
+        self.get_albums_sorted(artist_id, None, false)
     }
 
     pub fn get_albums_sorted(
         &self,
         artist_id: Option<i64>,
         sort: Option<&str>,
+        liked_only: bool,
     ) -> SqlResult<Vec<Album>> {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = artist_id {
-            let mut stmt = conn.prepare(
-                "SELECT DISTINCT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked
-                 FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id
-                 WHERE a.track_count > 0
-                   AND (a.artist_id = ?1 OR a.id IN (SELECT album_id FROM tracks WHERE artist_id = ?1))
-                 ORDER BY a.year, a.title"
-            )?;
+            let liked_clause = if liked_only { " AND a.liked = 1" } else { "" };
+            let sql = format!(
+                "SELECT DISTINCT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked \
+                 FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
+                 WHERE a.track_count > 0{} \
+                   AND (a.artist_id = ?1 OR a.id IN (SELECT album_id FROM tracks WHERE artist_id = ?1)) \
+                 ORDER BY a.year, a.title",
+                liked_clause,
+            );
+            let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![aid], |row| album_from_row(row))?;
             return rows.collect();
         }
@@ -751,12 +764,13 @@ impl Database {
                 "ORDER BY (SELECT MAX(t.added_at) FROM tracks t WHERE t.album_id = a.id) DESC, a.title",
             _ => "ORDER BY a.title",
         };
+        let liked_clause = if liked_only { " AND a.liked = 1" } else { "" };
         let sql = format!(
             "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked
              FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id
-             WHERE a.track_count > 0
+             WHERE a.track_count > 0{}
              {}",
-            order_clause,
+            liked_clause, order_clause,
         );
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| album_from_row(row))?;
@@ -3850,7 +3864,7 @@ mod tests {
         }
         db.recompute_counts().unwrap();
 
-        let albums = db.get_albums_sorted(None, Some("added_desc")).unwrap();
+        let albums = db.get_albums_sorted(None, Some("added_desc"), false).unwrap();
         assert_eq!(albums.len(), 2);
         assert_eq!(albums[0].title, "New Album");
         assert_eq!(albums[1].title, "Old Album");

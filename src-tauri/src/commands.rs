@@ -475,8 +475,11 @@ pub fn resync_collection(
 // --- Library commands ---
 
 #[tauri::command]
-pub fn get_artists(state: State<'_, AppState>) -> Result<Vec<Artist>, String> {
-    state.db.get_artists().map_err(|e| e.to_string())
+pub fn get_artists(
+    state: State<'_, AppState>,
+    liked_only: Option<bool>,
+) -> Result<Vec<Artist>, String> {
+    state.db.get_artists_filtered(liked_only.unwrap_or(false)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -489,8 +492,10 @@ pub fn get_albums(
     state: State<'_, AppState>,
     artist_id: Option<i64>,
     sort: Option<String>,
+    liked_only: Option<bool>,
 ) -> Result<Vec<Album>, String> {
-    state.db.get_albums_sorted(artist_id, sort.as_deref()).map_err(|e| e.to_string())
+    state.db.get_albums_sorted(artist_id, sort.as_deref(), liked_only.unwrap_or(false))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
