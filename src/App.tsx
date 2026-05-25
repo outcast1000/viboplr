@@ -134,7 +134,6 @@ function App() {
   }, []);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HistoryViewHandle>(null);
-  const previousVolumeRef = useRef(1.0);
 
   // Core hooks
   const peekNextRef = useRef<() => QueueTrack | null>(() => null);
@@ -2165,12 +2164,7 @@ function App() {
           break;
         case "m":
           e.preventDefault();
-          if (s.volume > 0) {
-            previousVolumeRef.current = s.volume;
-            playback.handleVolume(0);
-          } else {
-            playback.handleVolume(previousVolumeRef.current || 1.0);
-          }
+          playback.toggleMute();
           break;
         case "M":
           e.preventDefault();
@@ -3227,6 +3221,7 @@ function App() {
             durationSecs={playback.durationSecs}
             scrobbled={playback.scrobbled}
             volume={playback.volume}
+            muted={playback.muted}
             queueMode={queueHook.queueMode}
             autoContinueEnabled={autoContinue.enabled}
             autoContinueSameFormat={autoContinue.sameFormat}
@@ -3239,14 +3234,7 @@ function App() {
             onPrevious={queueHook.playPrevious}
             onSeek={playback.handleSeek}
             onVolume={playback.handleVolume}
-            onMute={() => {
-              if (playback.volume > 0) {
-                previousVolumeRef.current = playback.volume;
-                playback.handleVolume(0);
-              } else {
-                playback.handleVolume(previousVolumeRef.current || 1.0);
-              }
-            }}
+            onMute={playback.toggleMute}
             onToggleQueueMode={queueHook.toggleQueueMode}
             onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
             onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
@@ -3636,6 +3624,7 @@ function App() {
         trackRank={trackRank}
         artistRank={artistRank}
         volume={playback.volume}
+        muted={playback.muted}
         queueMode={queueHook.queueMode}
         autoContinueEnabled={autoContinue.enabled}
         autoContinueSameFormat={autoContinue.sameFormat}
@@ -3657,14 +3646,7 @@ function App() {
         onPrevious={queueHook.playPrevious}
         onSeek={playback.handleSeek}
         onVolume={playback.handleVolume}
-        onMute={() => {
-          if (playback.volume > 0) {
-            previousVolumeRef.current = playback.volume;
-            playback.handleVolume(0);
-          } else {
-            playback.handleVolume(previousVolumeRef.current || 1.0);
-          }
-        }}
+        onMute={playback.toggleMute}
         eqEnabled={playback.eqEnabled}
         eqPreset={playback.eqPreset}
         eqGains={playback.eqGains}

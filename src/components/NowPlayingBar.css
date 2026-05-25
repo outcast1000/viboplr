@@ -386,6 +386,22 @@
   border: none;
 }
 
+.volume-slider.is-muted::-webkit-slider-thumb {
+  background: var(--text-tertiary);
+}
+
+.g-btn.is-muted {
+  color: var(--text-tertiary);
+}
+
+.mini-volume-row.is-muted .mini-volume-fill {
+  background: var(--text-tertiary);
+}
+
+.mini-volume-row.is-muted {
+  color: var(--text-tertiary);
+}
+
 /* Help / Shortcuts */
 .help-btn {
   font-size: var(--fs-base);

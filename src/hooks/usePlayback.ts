@@ -30,6 +30,7 @@ export function usePlayback(
   const [positionSecs, setPositionSecs] = useState(0);
   const [durationSecs, setDurationSecs] = useState(0);
   const [volume, setVolume] = useState(1.0);
+  const [muted, setMuted] = useState(false);
   const [activeSlot, setActiveSlot] = useState<"A" | "B">("A");
   const [eqEnabled, setEqEnabled] = useState(false);
   const [eqPreset, setEqPreset] = useState<string>("flat");
@@ -66,7 +67,12 @@ export function usePlayback(
   const crossfadeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const crossfadeOutgoingRef = useRef<HTMLAudioElement | null>(null);
   const volumeRef = useRef(volume);
+  const mutedRef = useRef(muted);
   const wasPlayingBeforeHideRef = useRef(false);
+
+  function effectiveVolume(): number {
+    return mutedRef.current ? 0 : volumeRef.current;
+  }
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceARef = useRef<MediaElementAudioSourceNode | null>(null);
@@ -85,7 +91,7 @@ export function usePlayback(
 
   function masterGainValue(): number {
     const linear = Math.pow(10, (eqEnabledRef.current ? eqPreGainDbRef.current : 0) / 20);
-    return volumeRef.current * linear;
+    return effectiveVolume() * linear;
   }
 
   function applyEqToFilters(): void {
@@ -173,20 +179,22 @@ export function usePlayback(
     return getActiveAudioElement();
   }
 
-  // Sync volume ref and media elements when volume changes
+  // Sync volume/mute refs and media elements when either changes
   useEffect(() => {
     volumeRef.current = volume;
+    mutedRef.current = muted;
+    const out = effectiveVolume();
     // Video bypasses Web Audio, so its volume is set directly.
-    if (videoRef.current) videoRef.current.volume = volume;
+    if (videoRef.current) videoRef.current.volume = out;
     if (masterGainRef.current) {
       masterGainRef.current.gain.value = masterGainValue();
       return;
     }
     // Pre-graph fallback: until ensureAudioGraph runs, the audio elements
     // play through their native path so el.volume still works.
-    if (audioRefA.current) audioRefA.current.volume = volume;
-    if (audioRefB.current) audioRefB.current.volume = volume;
-  }, [volume]);
+    if (audioRefA.current) audioRefA.current.volume = out;
+    if (audioRefB.current) audioRefB.current.volume = out;
+  }, [volume, muted]);
 
   useEffect(() => {
     eqEnabledRef.current = eqEnabled;
@@ -206,7 +214,7 @@ export function usePlayback(
       const seekTo = pendingSeekRef.current;
       pendingSeekRef.current = 0;
       videoRef.current.src = src;
-      videoRef.current.volume = volumeRef.current;
+      videoRef.current.volume = effectiveVolume();
       if (seekTo > 0) videoRef.current.currentTime = seekTo;
       if (autoPlay) {
         videoRef.current.play().catch(e => console.error("Video play error:", e));
@@ -279,7 +287,7 @@ export function usePlayback(
       if (!inactiveEl) return;
 
       inactiveEl.src = src;
-      inactiveEl.volume = volumeRef.current;
+      inactiveEl.volume = effectiveVolume();
       inactiveEl.preload = "auto";
 
       preloadedTrackRef.current = nextTrack;
@@ -311,7 +319,7 @@ export function usePlayback(
 
     // Set incoming element to full volume
     const activeEl = getActiveAudioElement();
-    if (activeEl) activeEl.volume = volumeRef.current;
+    if (activeEl) activeEl.volume = effectiveVolume();
     if (xfadeGainARef.current) xfadeGainARef.current.gain.value = 1;
     if (xfadeGainBRef.current) xfadeGainBRef.current.gain.value = 1;
 
@@ -340,7 +348,7 @@ export function usePlayback(
 
     // Snap incoming to full volume
     const activeEl = getActiveAudioElement();
-    if (activeEl) activeEl.volume = volumeRef.current;
+    if (activeEl) activeEl.volume = effectiveVolume();
     if (xfadeGainARef.current) xfadeGainARef.current.gain.value = 1;
     if (xfadeGainBRef.current) xfadeGainBRef.current.gain.value = 1;
 
@@ -382,7 +390,7 @@ export function usePlayback(
     playStartedAtRef.current = Math.floor(Date.now() / 1000);
 
     // Start incoming element
-    incoming.volume = volumeRef.current;
+    incoming.volume = effectiveVolume();
     const incomingGain = activeSlotRef.current === "A" ? xfadeGainARef.current : xfadeGainBRef.current;
     const outgoingGain = activeSlotRef.current === "A" ? xfadeGainBRef.current : xfadeGainARef.current;
     if (incomingGain) incomingGain.gain.value = 0;
@@ -409,7 +417,7 @@ export function usePlayback(
         if (inGain) inGain.gain.value = progress;
         if (outGain) outGain.gain.value = 1 - progress;
       } else {
-        const vol = volumeRef.current;
+        const vol = effectiveVolume();
         if (crossfadeOutgoingRef.current) crossfadeOutgoingRef.current.volume = vol * (1 - progress);
         incoming.volume = vol * progress;
       }
@@ -440,7 +448,7 @@ export function usePlayback(
     }
 
     // Play the preloaded element immediately
-    inactiveEl.volume = volumeRef.current;
+    inactiveEl.volume = effectiveVolume();
     inactiveEl.play().catch(console.error);
 
     // Swap active slot
@@ -535,7 +543,7 @@ export function usePlayback(
     }
     if (videoRef.current) {
       videoRef.current.src = result.url;
-      videoRef.current.volume = volumeRef.current;
+      videoRef.current.volume = effectiveVolume();
       videoRef.current.play().catch(console.error);
       setPlaying(true);
     }
@@ -574,7 +582,7 @@ export function usePlayback(
     if (isVideoTrack(track)) {
       if (videoRef.current) {
         videoRef.current.src = src;
-        videoRef.current.volume = volumeRef.current;
+        videoRef.current.volume = effectiveVolume();
         if (seekTo > 0) videoRef.current.currentTime = seekTo;
         try {
           await videoRef.current.play();
@@ -589,7 +597,7 @@ export function usePlayback(
     } else {
       if (audioRefA.current) {
         audioRefA.current.src = src;
-        audioRefA.current.volume = volumeRef.current;
+        audioRefA.current.volume = effectiveVolume();
         if (seekTo > 0) audioRefA.current.currentTime = seekTo;
         await audioRefA.current.play();
       }
@@ -669,6 +677,10 @@ export function usePlayback(
 
   function handleVolume(level: number) {
     setVolume(level);
+  }
+
+  function toggleMute() {
+    setMuted(m => !m);
   }
 
   function handleSeek(secs: number) {
@@ -821,6 +833,7 @@ export function usePlayback(
     positionSecs, setPositionSecs,
     durationSecs, setDurationSecs,
     volume, setVolume,
+    muted, toggleMute,
     activeSlot,
     audioRefA, audioRefB, videoRef,
     getMediaElement,

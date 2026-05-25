@@ -75,6 +75,7 @@ interface NowPlayingBarProps {
   trackRank: number | null;
   artistRank: number | null;
   volume: number;
+  muted: boolean;
   queueMode: "normal" | "loop" | "shuffle";
   autoContinueEnabled: boolean;
   autoContinueSameFormat: boolean;
@@ -138,7 +139,7 @@ export function NowPlayingBar({
   currentTrack, playing,
   positionSecs, durationSecs, scrobbled,
   trackRank, artistRank,
-  volume, queueMode,
+  volume, muted, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
   imagePath, miniMode, miniExpanded, miniRestingSize, miniWidthSize, onCancelCollapseTimer, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
@@ -270,12 +271,12 @@ export function NowPlayingBar({
                       {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                     </span>
                     {showMiniVolume ? (
-                      <div className="mini-volume-row">
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/>{volume > 0 && <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>}{volume > 0.5 && <path d="M19 12c0 3.53-2.04 6.58-5 8.05v2.08c4.12-1.57 7-5.47 7-10.13s-2.88-8.56-7-10.13V3.95c2.96 1.47 5 4.52 5 8.05z"/>}</svg>
+                      <div className={`mini-volume-row${muted ? " is-muted" : ""}`}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/>{!muted && volume > 0 && <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>}{!muted && volume > 0.5 && <path d="M19 12c0 3.53-2.04 6.58-5 8.05v2.08c4.12-1.57 7-5.47 7-10.13s-2.88-8.56-7-10.13V3.95c2.96 1.47 5 4.52 5 8.05z"/>}</svg>
                         <div className="mini-volume-track">
                           <div className="mini-volume-fill" style={{ width: `${Math.round(volume * 100)}%` }} />
                         </div>
-                        <span className="mini-volume-pct">{Math.round(volume * 100)}%</span>
+                        <span className="mini-volume-pct">{muted ? "muted" : `${Math.round(volume * 100)}%`}</span>
                       </div>
                     ) : (
                       <span className="now-artist">
@@ -647,8 +648,8 @@ export function NowPlayingBar({
           )}
         </div>
         <div className="now-volume">
-          <button className="g-btn g-btn-sm" onClick={onMute} title={`Mute (${mod}M)`}>
-            {volume === 0
+          <button className={`g-btn g-btn-sm${muted ? " is-muted" : ""}`} onClick={onMute} title={`Mute (${mod}M)`}>
+            {muted || volume === 0
               ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
               : volume < 0.5
               ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
@@ -656,12 +657,12 @@ export function NowPlayingBar({
           </button>
           <input
             type="range"
-            className="volume-slider"
+            className={`volume-slider${muted ? " is-muted" : ""}`}
             min="0"
             max="1"
             step="0.01"
             value={volume}
-            style={{ background: `linear-gradient(to right, var(--accent) ${volume * 100}%, rgba(255,255,255,0.12) ${volume * 100}%)` }}
+            style={{ background: `linear-gradient(to right, ${muted ? "var(--text-tertiary)" : "var(--accent)"} ${volume * 100}%, rgba(255,255,255,0.12) ${volume * 100}%)` }}
             onChange={(e) => onVolume(parseFloat(e.target.value))}
           />
         </div>

@@ -15,6 +15,7 @@ interface FullscreenControlsProps {
   durationSecs: number;
   scrobbled: boolean;
   volume: number;
+  muted: boolean;
   queueMode: "normal" | "loop" | "shuffle";
   autoContinueEnabled: boolean;
   autoContinueSameFormat: boolean;
@@ -50,7 +51,7 @@ export function FullscreenControls({
   waveformPeaks,
   currentTrack, playing,
   positionSecs, durationSecs, scrobbled,
-  volume, queueMode,
+  volume, muted, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
   imagePath,
   onPause, onStop, onNext, onPrevious,
@@ -244,8 +245,8 @@ export function FullscreenControls({
             )}
           </div>
           <div className="fs-volume">
-            <button className="g-btn g-btn-sm" onClick={onMute} title="Mute">
-              {volume === 0
+            <button className={`g-btn g-btn-sm${muted ? " is-muted" : ""}`} onClick={onMute} title="Mute">
+              {muted || volume === 0
                 ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
                 : volume < 0.5
                 ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
@@ -253,12 +254,12 @@ export function FullscreenControls({
             </button>
             <input
               type="range"
-              className="volume-slider"
+              className={`volume-slider${muted ? " is-muted" : ""}`}
               min="0"
               max="1"
               step="0.01"
               value={volume}
-              style={{ background: `linear-gradient(to right, var(--accent) ${volume * 100}%, rgba(255,255,255,0.12) ${volume * 100}%)` }}
+              style={{ background: `linear-gradient(to right, ${muted ? "var(--text-tertiary)" : "var(--accent)"} ${volume * 100}%, rgba(255,255,255,0.12) ${volume * 100}%)` }}
               onChange={(e) => onVolume(parseFloat(e.target.value))}
               onMouseDown={handleDragStart}
               onMouseUp={handleDragEnd}
