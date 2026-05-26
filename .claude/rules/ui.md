@@ -169,7 +169,7 @@ See "Entity System > Three Rendering Modes" above. Toggled via `ViewModeToggle` 
 
 Plugin-contributed shelves are merged in alongside the built-ins. See `plugins.md` "Home Shelves" for the contribution surface.
 
-**Refresh model:** `useHome` re-fetches everything on view-mount and on a 5-minute interval **only while Home is visible**. Resolvers run in parallel via `Promise.all`. Plugin handlers have a 5-second timeout. Shelves that return `empty` / `error` / time out are filtered out for that cycle (so absence is not a hard error).
+**Refresh model:** `useHome` hydrates from a persisted snapshot on mount and only re-fetches automatically when that snapshot is older than 24 hours (or missing). The toolbar `[⟳ Refresh]` button forces an on-demand refresh regardless of age. Resolvers run in parallel via `Promise.all`. Plugin handlers have a 5-second timeout. Shelves that return `empty` / `error` / time out are filtered out for that cycle (so absence is not a hard error).
 
 **Visibility popover:** `[⚙ Shelves]` opens a checklist of every registered shelf (built-in + plugin). Toggling persists to `homeShelfVisibility: Record<string, boolean>` in the app store. Default is "all visible" (missing keys count as visible).
 

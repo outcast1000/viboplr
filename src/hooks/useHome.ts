@@ -9,13 +9,14 @@ import type {
 import type { RecentlyVisitedEntry } from "../utils/recentlyVisited";
 import { store } from "../store";
 
-const REFRESH_MS = 5 * 60 * 1000;
+const STALE_MS = 24 * 60 * 60 * 1000;
 const PLUGIN_TIMEOUT_MS = 5_000;
 const SNAPSHOT_KEY = "homeSnapshot";
 
 interface HomeSnapshot {
   featured: Track[];
   shelves: ResolvedShelf[];
+  savedAt?: number;
 }
 
 export interface ResolvedShelf {
@@ -102,6 +103,7 @@ export function useHome(opts: UseHomeOptions) {
   const refreshGenRef = useRef(0);
   const featuredRef = useRef<Track[]>([]);
   featuredRef.current = featured;
+  const savedAtRef = useRef<number>(0);
 
   const fetchFeatured = useCallback(async (): Promise<Track[]> => {
     let anchorTitle: string | null = currentTrack?.title ?? null;
@@ -394,9 +396,12 @@ export function useHome(opts: UseHomeOptions) {
         );
         setShelves((prev) => prev.filter((s) => finalIds.has(s.id)));
         // Persist the snapshot so the next mount can hydrate instantly.
+        const savedAt = Date.now();
+        savedAtRef.current = savedAt;
         store.set(SNAPSHOT_KEY, {
           featured: featuredRef.current,
           shelves: finalShelves,
+          savedAt,
         }).catch((e) => console.error("Failed to persist home snapshot:", e));
       }
     } finally {
@@ -414,6 +419,7 @@ export function useHome(opts: UseHomeOptions) {
         if (cancelled) return;
         if (snap?.featured?.length) setFeatured(snap.featured);
         if (snap?.shelves?.length) setShelves(snap.shelves);
+        if (snap?.savedAt) savedAtRef.current = snap.savedAt;
       } catch (e) {
         console.error("Failed to hydrate home snapshot:", e);
       } finally {
@@ -423,14 +429,12 @@ export function useHome(opts: UseHomeOptions) {
     return () => { cancelled = true; };
   }, []);
 
-  // Run on mount when visible, and on a 5-minute interval while visible.
-  // Waits until hydration completes so the cached snapshot isn't overwritten by an
-  // in-flight refresh that started before the snapshot landed.
+  // Refresh on mount only when the cached snapshot is older than 24h (or absent).
+  // Manual refresh via the toolbar button is always available regardless of age.
   useEffect(() => {
     if (!isVisible || !restoredRef.current || !hydrated) return;
-    refresh();
-    const id = setInterval(refresh, REFRESH_MS);
-    return () => clearInterval(id);
+    const age = Date.now() - savedAtRef.current;
+    if (savedAtRef.current === 0 || age >= STALE_MS) refresh();
   }, [isVisible, refresh, restoredRef, hydrated]);
 
   return { featured, shelves, refresh, isLoading };

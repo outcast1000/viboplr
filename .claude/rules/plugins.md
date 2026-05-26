@@ -326,7 +326,7 @@ Plugins contribute horizontal shelves to the Home page via `api.home`. Two paths
 
 The merged manifest + runtime list is exposed by `usePlugins` as `homeShelves` and consumed by `useHome` (see `ui.md` "Home View"). Built-in shelves are listed first; plugin shelves follow.
 
-**Refresh contract:** Home calls every shelf's handler on view-mount and again every 5 minutes while visible. Each handler has a 5-second timeout — keep them fast or kick off background work elsewhere and serve from cached state. Returning `{ status: "empty" }` hides the shelf for that cycle (no error indicator). Returning `{ status: "error", message }` logs to `console.error` and hides the shelf.
+**Refresh contract:** Home calls every shelf's handler on view-mount only when the persisted snapshot is older than 24 hours (or absent). The user can also trigger a refresh manually via the toolbar button at any time. Each handler has a 5-second timeout — keep them fast or kick off background work elsewhere and serve from cached state. Returning `{ status: "empty" }` hides the shelf for that cycle (no error indicator). Returning `{ status: "error", message }` logs to `console.error` and hides the shelf.
 
 **Image rules:** local paths (e.g. plugin-cached covers under `api.storage.files`) are run through `convertFileSrc` automatically. Append `#v=<timestamp>` to bust the WebView cache when content changes. Remote URLs (http/https/data) are passed through unchanged.
 
