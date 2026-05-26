@@ -139,8 +139,18 @@ This is the only logic worth unit-testing on this change.
 
 ### Overflow (`⋯`)
 
-- Renders the existing `<ContextMenu>` component anchored at the button.
+- The hero owns a small `HeroOverflowMenu` dropdown (anchored to the `⋯` button, dismiss on outside click + Escape) — patterned after the existing `ImageActions` dropdown but generic. There is no shared in-app `<ContextMenu>` component to reuse; the app's right-click menu is wired in `App.tsx` via `useContextMenuActions` and is not addressable from a child component.
 - Items provided by `buildHeroOverflowItems`. The art element gets `cursor: pointer` and an `onClick` that opens the same menu — replacing today's hover-only image action menu on the art image.
+
+### Context additions
+
+`DetailViewActions` (in `src/contexts/DetailViewContext.tsx`) gains:
+
+```ts
+enqueueTracks: (tracks: Track[]) => void;   // wraps findDuplicates + enqueue + duplicate banner, same flow as useContextMenuActions.handleEnqueue
+```
+
+The provider in `App.tsx` populates it by delegating to the existing `handleEnqueue` helper that already lives in `useContextMenuActions`. No new logic — a thin wrapper.
 
 ### Like / Dislike
 
@@ -152,9 +162,11 @@ This is the only logic worth unit-testing on this change.
 
 ## Files affected
 
-- **New**: `src/components/DetailHero.tsx`, `src/components/DetailHero.css`, `src/utils/heroOverflow.ts`
+- **New**: `src/components/DetailHero.tsx`, `src/components/DetailHero.css`, `src/components/HeroOverflowMenu.tsx`, `src/utils/heroOverflow.ts`
 - **New test**: `src/__tests__/heroOverflow.test.ts`
 - **Modified**:
+  - `src/contexts/DetailViewContext.tsx` — add `enqueueTracks` to `DetailViewActions`
+  - `src/App.tsx` — wire `enqueueTracks` into the `DetailViewActions` payload (delegates to the existing `handleEnqueue` already present)
   - `src/components/AlbumDetail.tsx` — replace hero JSX with `<DetailHero>`
   - `src/components/ArtistDetailContent.tsx` — same
   - `src/components/TagDetail.tsx` — same
