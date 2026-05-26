@@ -1179,6 +1179,27 @@ pub fn get_auto_continue_track(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn build_radio_for_track(
+    state: State<'_, AppState>,
+    seed_title: String,
+    seed_artist: Option<String>,
+    target_count: u32,
+) -> Result<Vec<Track>, String> {
+    state
+        .db
+        .build_radio_for_track(&seed_title, seed_artist.as_deref(), target_count)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn pick_radio_seeds(
+    state: State<'_, AppState>,
+    count: u32,
+) -> Result<Vec<Track>, String> {
+    state.db.pick_radio_seeds(count).map_err(|e| e.to_string())
+}
+
 // --- Playlist commands ---
 
 #[derive(Debug, Deserialize)]

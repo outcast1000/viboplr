@@ -67,6 +67,7 @@ export function HomeView(props: HomeViewProps) {
     { id: "builtin:recently-added", title: "Recently added" },
     { id: "builtin:liked-albums", title: "Liked albums" },
     { id: "builtin:liked-artists", title: "Liked artists" },
+    { id: "builtin:radio-stations", title: "Radio stations" },
     { id: "builtin:jump-back-in", title: "Jump back in" },
     ...props.pluginShelves.map(p => ({ id: shelfKey(p.pluginId, p.shelfId), title: p.title })),
   ];

@@ -937,6 +937,18 @@ function App() {
           }
         }});
 
+        // Start radio from this track (single track only)
+        specs.push({ kind: "item", text: "Start radio from this track", action: () => {
+          const track = queueHook.queue[target.indices[0]];
+          if (track) {
+            contextMenuActions.startRadio({
+              title: track.title,
+              artistName: track.artist_name,
+              coverPath: track.image_url ?? null,
+            });
+          }
+        }});
+
         // View Details — needs library ID
         if (target.trackIds[0] != null) {
           specs.push({ kind: "item", text: "View Details", action: () => library.handleTrackClick(`lib:${target.trackIds[0]}`) });
@@ -1045,6 +1057,16 @@ function App() {
       }
       if (target.kind === "track" && target.trackId && contextMenuActions.handleWatchOnYoutube) {
         specs.push({ kind: "item", text: "Find in YouTube", action: contextMenuActions.handleWatchOnYoutube });
+      }
+      if (target.kind === "track" && target.title) {
+        specs.push({ kind: "item", text: "Start radio from this track", action: () => {
+          if (target.kind !== "track") return;
+          contextMenuActions.startRadio({
+            title: target.title,
+            artistName: target.artistName,
+            coverPath: null,
+          });
+        }});
       }
       if (target.kind === "track" && target.trackId) {
         specs.push({ kind: "item", text: "View Details", action: () => library.handleTrackClick(`lib:${target.trackId}`) });
@@ -1463,6 +1485,17 @@ function App() {
     }
     if (shelf.displayKind === "playlist-cards") {
       const it = item as { name: string; coverUrl?: string; tracks: PluginTrack[] };
+      // Radio sentinel — click triggers backend generation rather than playing the placeholder list
+      const first = it.tracks[0] as unknown as { __radioSeed?: Track };
+      if (first && first.__radioSeed) {
+        const seed = first.__radioSeed;
+        contextMenuActions.startRadio({
+          title: seed.title,
+          artistName: seed.artist_name,
+          coverPath: seed.image_url ?? it.coverUrl ?? null,
+        });
+        return;
+      }
       const queueTracks = it.tracks.map(pluginTrackToQueueTrack);
       queueHook.playTracks(queueTracks, 0, { name: it.name, imagePath: it.coverUrl ?? null, source: "playlist" });
       return;

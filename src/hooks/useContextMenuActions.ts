@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Artist, Album, QueueTrack } from "../types";
-import { parseLibraryId, isLocalTrack } from "../queueEntry";
+import { parseLibraryId, isLocalTrack, trackToQueueTrack } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
 import { store } from "../store";
@@ -523,6 +523,31 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     showMenu({ x: e.clientX, y: e.clientY, target });
   }
 
+  const startRadio = useCallback(async (seed: { title: string; artistName: string | null; coverPath: string | null }) => {
+    if (!seed.title) return;
+    console.log(`Building radio from "${seed.title}"...`);
+    try {
+      const tracks = await invoke<Track[]>("build_radio_for_track", {
+        seedTitle: seed.title,
+        seedArtist: seed.artistName,
+        targetCount: 30,
+      });
+      if (tracks.length < 2) {
+        console.log("Radio: not enough tracks to generate a station");
+        return;
+      }
+      const queueTracks = tracks.map(trackToQueueTrack);
+      queueHook.playTracks(queueTracks, 0, {
+        name: `Radio: ${seed.title}`,
+        imagePath: seed.coverPath ?? null,
+        source: "radio",
+      });
+      console.log(`Radio started · ${tracks.length} tracks`);
+    } catch (e) {
+      console.error("Failed to start radio:", e);
+    }
+  }, [queueHook]);
+
   return {
     contextMenu,
     setContextMenu,
@@ -547,6 +572,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleMultiTagContextMenu,
     fetchMultiEntityTracks,
     handleContextPlay,
+    startRadio,
     handleContextEnqueue,
     handleEnqueue,
     handleShowInFolder,

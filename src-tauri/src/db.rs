@@ -2639,6 +2639,193 @@ impl Database {
         }
     }
 
+    pub fn build_radio_for_track(
+        &self,
+        seed_title: &str,
+        seed_artist: Option<&str>,
+        target_count: u32,
+    ) -> SqlResult<Vec<Track>> {
+        if target_count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let canonical_title = strip_diacritics(&seed_title.to_lowercase());
+        let canonical_artist = strip_diacritics(&seed_artist.unwrap_or("").to_lowercase());
+
+        // Resolve seed and the artist's full tag set in one connection scope.
+        let (seed, tag_pool): (Track, Vec<i64>) = {
+            let conn = self.conn.lock().unwrap();
+            let sql = format!(
+                "{} WHERE strip_diacritics(unicode_lower(t.title)) = ?1 \
+                 AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ?2 \
+                 {} LIMIT 1",
+                TRACK_SELECT, ENABLED_COLLECTION_FILTER
+            );
+            let seed: Option<Track> = conn.query_row(&sql, params![canonical_title, canonical_artist], |row| track_from_row(row)).optional()?;
+            let seed = match seed {
+                Some(t) => t,
+                None => return Ok(Vec::new()),
+            };
+            // Aggregate all tags ever applied to any track by this artist (not just the seed track).
+            // Falls through to artist-only picks if the artist has no tags.
+            let pool: Vec<i64> = if let Some(aid) = seed.artist_id {
+                let mut stmt = conn.prepare(
+                    "SELECT DISTINCT tt.tag_id FROM track_tags tt \
+                     JOIN tracks t2 ON tt.track_id = t2.id \
+                     WHERE t2.artist_id = ?1"
+                )?;
+                let rows = stmt.query_map(params![aid], |row| row.get::<_, i64>(0))?;
+                rows.collect::<SqlResult<Vec<_>>>()?
+            } else {
+                Vec::new()
+            };
+            (seed, pool)
+        };
+
+        let mut result: Vec<Track> = vec![seed.clone()];
+        let mut excluded: Vec<i64> = vec![seed.id];
+        let mut stalls = 0u32;
+
+        while (result.len() as u32) < target_count {
+            let coin: i64 = {
+                let conn = self.conn.lock().unwrap();
+                conn.query_row("SELECT ABS(RANDOM()) % 2", [], |row| row.get(0))?
+            };
+            let prefer_tag_first = coin == 1;
+
+            let try_artist = || self.pick_same_artist_radio(&seed, &excluded);
+            let try_tag = || self.pick_same_tag_pool_radio(&seed, &tag_pool, &excluded);
+
+            let pick = if prefer_tag_first {
+                match try_tag()? {
+                    Some(t) => Some(t),
+                    None => try_artist()?,
+                }
+            } else {
+                match try_artist()? {
+                    Some(t) => Some(t),
+                    None => try_tag()?,
+                }
+            };
+
+            match pick {
+                Some(t) => {
+                    excluded.push(t.id);
+                    result.push(t);
+                    stalls = 0;
+                }
+                None => {
+                    stalls += 1;
+                    if stalls >= 4 { break; }
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn pick_same_artist_radio(&self, seed: &Track, excluded: &[i64]) -> SqlResult<Option<Track>> {
+        let aid = match seed.artist_id {
+            Some(id) => id,
+            None => return Ok(None),
+        };
+        let conn = self.conn.lock().unwrap();
+        let exclude_clause = if excluded.is_empty() {
+            String::new()
+        } else {
+            let ids: Vec<String> = excluded.iter().map(|id| id.to_string()).collect();
+            format!(" AND t.id NOT IN ({})", ids.join(","))
+        };
+        let sql = format!(
+            "{} WHERE t.artist_id = ?1 AND t.liked != -1 {}{} ORDER BY RANDOM() LIMIT 1",
+            TRACK_SELECT, ENABLED_COLLECTION_FILTER, exclude_clause
+        );
+        conn.query_row(&sql, params![aid], |row| track_from_row(row)).optional()
+    }
+
+    fn pick_same_tag_pool_radio(&self, _seed: &Track, tag_pool: &[i64], excluded: &[i64]) -> SqlResult<Option<Track>> {
+        if tag_pool.is_empty() {
+            return Ok(None);
+        }
+        let conn = self.conn.lock().unwrap();
+        let tag_list: Vec<String> = tag_pool.iter().map(|id| id.to_string()).collect();
+        let exclude_clause = if excluded.is_empty() {
+            String::new()
+        } else {
+            let ids: Vec<String> = excluded.iter().map(|id| id.to_string()).collect();
+            format!(" AND t.id NOT IN ({})", ids.join(","))
+        };
+        let sql = format!(
+            "{} WHERE t.liked != -1 {}{} AND t.id IN (\
+                SELECT DISTINCT track_id FROM track_tags WHERE tag_id IN ({})\
+            ) ORDER BY RANDOM() LIMIT 1",
+            TRACK_SELECT, ENABLED_COLLECTION_FILTER, exclude_clause, tag_list.join(",")
+        );
+        conn.query_row(&sql, [], |row| track_from_row(row)).optional()
+    }
+
+    pub fn pick_radio_seeds(&self, count: u32) -> SqlResult<Vec<Track>> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let conn = self.conn.lock().unwrap();
+        let now_ts: i64 = conn.query_row("SELECT strftime('%s', 'now')", [], |row| {
+            let s: String = row.get(0)?;
+            Ok(s.parse::<i64>().unwrap_or(0))
+        })?;
+        let cutoff = now_ts - 30 * 24 * 60 * 60;
+        let overfetch = (count as i64) * 4;
+
+        let sql = format!(
+            "{} \
+             LEFT JOIN history_artists ha ON ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) \
+             LEFT JOIN history_tracks ht ON ht.history_artist_id = ha.id \
+                  AND ht.canonical_title = strip_diacritics(unicode_lower(t.title)) \
+             LEFT JOIN history_plays hp ON hp.history_track_id = ht.id AND hp.played_at >= ?1 \
+             WHERE t.liked != -1 {} \
+             GROUP BY t.id \
+             ORDER BY (\
+                 CASE WHEN t.liked = 1 THEN 2 ELSE 0 END + \
+                 CASE WHEN COUNT(hp.id) > 0 THEN 3 ELSE 0 END + \
+                 (RANDOM() % 1000) * 0.0001 \
+             ) DESC \
+             LIMIT ?2",
+            TRACK_SELECT, ENABLED_COLLECTION_FILTER
+        );
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![cutoff, overfetch], |row| track_from_row(row))?;
+
+        let candidates: Vec<Track> = rows.collect::<SqlResult<Vec<_>>>()?;
+
+        // Artist-distinct pass.
+        let mut chosen: Vec<Track> = Vec::with_capacity(count as usize);
+        let mut seen_artists: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        for t in &candidates {
+            if (chosen.len() as u32) >= count { break; }
+            if let Some(aid) = t.artist_id {
+                if seen_artists.insert(aid) {
+                    chosen.push(t.clone());
+                }
+            } else {
+                chosen.push(t.clone());
+            }
+        }
+        // Fill remainder ignoring distinct rule if needed.
+        if (chosen.len() as u32) < count {
+            let chosen_ids: std::collections::HashSet<i64> = chosen.iter().map(|t| t.id).collect();
+            for t in candidates {
+                if (chosen.len() as u32) >= count { break; }
+                if !chosen_ids.contains(&t.id) {
+                    chosen.push(t);
+                }
+            }
+        }
+
+        Ok(chosen)
+    }
+
     // --- Decoupled history ---
 
     #[cfg(test)]
@@ -5904,5 +6091,131 @@ mod tests {
         for r in &results {
             println!("{:<50} {:>5} {:>4} {:>10.3} {:>10.3} {:>10.3}", r.name, r.iterations, r.rounds, r.avg_ms, r.min_ms, r.max_ms);
         }
+    }
+
+    #[test]
+    fn test_build_radio_returns_seed_first() {
+        let db = test_db();
+        let cid = test_collection(&db);
+
+        let aid = db.get_or_create_artist("Seed Artist").unwrap();
+        let alb = db.get_or_create_album("Seed Album", Some(aid), None).unwrap();
+        db.upsert_track("file://seed.mp3", "Seed Title", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+
+        for i in 0..3 {
+            db.upsert_track(&format!("file://artist-{}.mp3", i), &format!("Artist Track {}", i), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        }
+
+        let result = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 30).unwrap();
+        assert!(!result.is_empty(), "expected at least the seed track");
+        assert_eq!(result[0].title, "Seed Title", "seed must be at index 0");
+    }
+
+    #[test]
+    fn test_build_radio_excludes_already_picked() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let aid = db.get_or_create_artist("Solo Artist").unwrap();
+        let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+        db.upsert_track("file://a.mp3", "Seed", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        db.upsert_track("file://b.mp3", "B", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        db.upsert_track("file://c.mp3", "C", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        db.upsert_track("file://d.mp3", "D", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+
+        let result = db.build_radio_for_track("Seed", Some("Solo Artist"), 30).unwrap();
+        let mut ids: Vec<i64> = result.iter().map(|t| t.id).collect();
+        ids.sort();
+        let mut deduped = ids.clone();
+        deduped.dedup();
+        assert_eq!(ids.len(), deduped.len(), "result contains duplicate track ids");
+    }
+
+    #[test]
+    fn test_build_radio_returns_partial_when_pool_small() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let aid = db.get_or_create_artist("Only").unwrap();
+        let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+        db.upsert_track("file://seed.mp3", "Only Track", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+
+        let result = db.build_radio_for_track("Only Track", Some("Only"), 30).unwrap();
+        assert!(result.len() <= 30, "must terminate, returned {}", result.len());
+        assert_eq!(result[0].title, "Only Track");
+    }
+
+    #[test]
+    fn test_build_radio_uses_artist_aggregated_tag_pool() {
+        // Seed track has NO tags of its own. A different track by the same artist has tag "Jazz".
+        // A third artist has a track also tagged "Jazz". Radio should reach that third track via
+        // the artist-aggregated tag pool, even though the seed track itself isn't tagged Jazz.
+        let db = test_db();
+        let cid = test_collection(&db);
+
+        let seed_artist = db.get_or_create_artist("Seed Artist").unwrap();
+        let seed_album = db.get_or_create_album("Seed Album", Some(seed_artist), None).unwrap();
+        let seed_id = db.upsert_track("file://seed.mp3", "Seed Title", Some(seed_artist), Some(seed_album), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+
+        // Same-artist track tagged "Jazz".
+        let jazz_tag = db.get_or_create_tag("Jazz").unwrap();
+        let same_artist_other = db.upsert_track("file://other.mp3", "Other Track", Some(seed_artist), Some(seed_album), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        db.add_track_tag(same_artist_other, jazz_tag).unwrap();
+
+        // Different artist track tagged "Jazz".
+        let other_artist = db.get_or_create_artist("Other Artist").unwrap();
+        let other_album = db.get_or_create_album("Other Album", Some(other_artist), None).unwrap();
+        let cross_artist_jazz = db.upsert_track("file://cross.mp3", "Cross Track", Some(other_artist), Some(other_album), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        db.add_track_tag(cross_artist_jazz, jazz_tag).unwrap();
+
+        // Sanity: seed itself has no tags.
+        let _ = seed_id;
+
+        let result = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 30).unwrap();
+        let ids: Vec<i64> = result.iter().map(|t| t.id).collect();
+        assert!(ids.contains(&cross_artist_jazz),
+            "expected radio to include the cross-artist Jazz track via artist-aggregated tag pool, got ids: {:?}", ids);
+    }
+
+    #[test]
+    fn test_pick_radio_seeds_empty_library() {
+        let db = test_db();
+        let result = db.pick_radio_seeds(5).unwrap();
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_pick_radio_seeds_excludes_disliked() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let aid = db.get_or_create_artist("A").unwrap();
+        let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+        let id1 = db.upsert_track("file://ok.mp3", "OK", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        let id2 = db.upsert_track("file://hated.mp3", "Hated", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        db.toggle_liked("tracks", id2, -1).unwrap();
+
+        let result = db.pick_radio_seeds(10).unwrap();
+        let ids: Vec<i64> = result.iter().map(|t| t.id).collect();
+        assert!(ids.contains(&id1), "expected the OK track");
+        assert!(!ids.contains(&id2), "disliked track must not appear");
+    }
+
+    #[test]
+    fn test_pick_radio_seeds_distinct_artists() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        for name in ["A1", "A2", "A3", "A4", "A5"].iter() {
+            let aid = db.get_or_create_artist(name).unwrap();
+            let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+            for i in 0..3 {
+                db.upsert_track(&format!("file://{}-{}.mp3", name, i), &format!("{} Track {}", name, i), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+            }
+        }
+
+        let result = db.pick_radio_seeds(5).unwrap();
+        assert_eq!(result.len(), 5);
+        let mut returned_artists: Vec<i64> = result.iter().filter_map(|t| t.artist_id).collect();
+        returned_artists.sort();
+        let mut deduped = returned_artists.clone();
+        deduped.dedup();
+        assert_eq!(returned_artists.len(), deduped.len(), "expected distinct artists across 5 seeds");
     }
 }

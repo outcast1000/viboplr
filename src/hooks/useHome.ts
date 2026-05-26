@@ -5,6 +5,7 @@ import type {
   HomeShelfDisplayKind,
   HomeShelfResult,
   HomeShelfItem,
+  PluginTrack,
 } from "../types/plugin";
 import type { RecentlyVisitedEntry } from "../utils/recentlyVisited";
 import { store } from "../store";
@@ -291,6 +292,41 @@ export function useHome(opts: UseHomeOptions) {
                 items: artists.slice(0, limit).map(a => ({
                   libraryId: a.id,
                   name: a.name,
+                })),
+              };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
+          id: "builtin:radio-stations",
+          title: "Radio stations",
+          displayKind: "playlist-cards",
+          limit: 5,
+          fetch: async (limit) => {
+            try {
+              const seeds = await invoke<Track[]>("pick_radio_seeds", { count: limit });
+              if (seeds.length === 0) return { status: "empty" };
+              const covers = await Promise.all(seeds.map(async (seed) => {
+                if (seed.album_title) {
+                  const a = await invoke<string | null>("get_entity_image", { kind: "album", name: seed.album_title, artistName: seed.artist_name ?? null }).catch(() => null);
+                  if (a) return a;
+                }
+                if (seed.artist_name) {
+                  const ar = await invoke<string | null>("get_entity_image", { kind: "artist", name: seed.artist_name, artistName: null }).catch(() => null);
+                  if (ar) return ar;
+                }
+                return undefined;
+              }));
+              return {
+                status: "ok",
+                items: seeds.map((seed, i) => ({
+                  id: `radio:${seed.id}`,
+                  name: `Radio: ${seed.title}`,
+                  coverUrl: covers[i] ?? undefined,
+                  // Sentinel — generation deferred until click; do NOT materialize 30 tracks here.
+                  tracks: [{ __radioSeed: { ...seed, image_url: covers[i] ?? seed.image_url } } as unknown as PluginTrack],
                 })),
               };
             } catch (e) {
