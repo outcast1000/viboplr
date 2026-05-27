@@ -11,7 +11,8 @@ export interface HistoryViewHandle {
   reload(): void;
 }
 
-type HistoryTab = "all-time" | "30-days" | "recent" | "artists";
+type HistoryTab = "recent" | "tracks" | "artists";
+type Timespan = "30-days" | "year" | "all-time";
 
 interface HistoryViewProps {
   searchQuery: string;
@@ -38,13 +39,28 @@ function HistoryArt({ imagePath }: { imagePath: string | null | undefined }) {
   return <div className="history-art history-art-placeholder" />;
 }
 
+const TIMESPAN_OPTIONS: { key: Timespan; label: string }[] = [
+  { key: "30-days", label: "30 days" },
+  { key: "year", label: "Year" },
+  { key: "all-time", label: "All time" },
+];
+
+function timespanSinceTs(ts: Timespan): number | null {
+  if (ts === "all-time") return null;
+  const days = ts === "30-days" ? 30 : 365;
+  return Math.floor(Date.now() / 1000) - days * 86400;
+}
+
 export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
   function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, onArtistClick }, ref) {
-  const [activeTab, setActiveTab] = useState<HistoryTab>("all-time");
-  const [mostPlayedAllTime, setMostPlayedAllTime] = useState<HistoryMostPlayed[]>([]);
-  const [mostPlayedRecent, setMostPlayedRecent] = useState<HistoryMostPlayed[]>([]);
+  const [activeTab, setActiveTab] = useState<HistoryTab>("recent");
+  const [tracksTimespan, setTracksTimespan] = useState<Timespan>("30-days");
+  const [artistsTimespan, setArtistsTimespan] = useState<Timespan>("30-days");
+
   const [recentPlays, setRecentPlays] = useState<HistoryEntry[]>([]);
-  const [topArtists, setTopArtists] = useState<HistoryArtistStats[]>([]);
+  // Cached datasets keyed by timespan so toggling is instant after the first fetch.
+  const [tracksByTimespan, setTracksByTimespan] = useState<Partial<Record<Timespan, HistoryMostPlayed[]>>>({});
+  const [artistsByTimespan, setArtistsByTimespan] = useState<Partial<Record<Timespan, HistoryArtistStats[]>>>({});
 
   // Local artist image cache keyed by display name
   const [artistImages, setArtistImages] = useState<Record<string, string | null>>({});
@@ -61,22 +77,53 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     });
   }, [artistImages]);
 
-  const loadData = useCallback(() => {
-    const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 86400;
-    Promise.all([
-      invoke<HistoryMostPlayed[]>("get_history_most_played", { limit: 20 }),
-      invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs: thirtyDaysAgo, limit: 20 }),
-      invoke<HistoryEntry[]>("get_history_recent", { limit: 50 }),
-      invoke<HistoryArtistStats[]>("get_history_most_played_artists", { limit: 20 }),
-    ]).then(([allTime, recent, history, artists]) => {
-      setMostPlayedAllTime(allTime);
-      setMostPlayedRecent(recent);
-      setRecentPlays(history);
-      setTopArtists(artists);
-    }).catch(console.error);
+  const fetchTracks = useCallback((ts: Timespan) => {
+    const sinceTs = timespanSinceTs(ts);
+    const promise = sinceTs == null
+      ? invoke<HistoryMostPlayed[]>("get_history_most_played", { limit: 100 })
+      : invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs, limit: 100 });
+    promise
+      .then((tracks) => setTracksByTimespan((prev) => ({ ...prev, [ts]: tracks })))
+      .catch((e) => console.error("Failed to load tracks history:", e));
   }, []);
 
-  useEffect(() => { loadData(); }, []);
+  const fetchArtists = useCallback((ts: Timespan) => {
+    const sinceTs = timespanSinceTs(ts);
+    const promise = sinceTs == null
+      ? invoke<HistoryArtistStats[]>("get_history_most_played_artists", { limit: 100 })
+      : invoke<HistoryArtistStats[]>("get_history_most_played_artists_since", { sinceTs, limit: 100 });
+    promise
+      .then((artists) => setArtistsByTimespan((prev) => ({ ...prev, [ts]: artists })))
+      .catch((e) => console.error("Failed to load artists history:", e));
+  }, []);
+
+  const fetchRecent = useCallback(() => {
+    invoke<HistoryEntry[]>("get_history_recent", { limit: 100 })
+      .then(setRecentPlays)
+      .catch((e) => console.error("Failed to load recent history:", e));
+  }, []);
+
+  const reloadAll = useCallback(() => {
+    fetchRecent();
+    fetchTracks(tracksTimespan);
+    fetchArtists(artistsTimespan);
+  }, [fetchRecent, fetchTracks, fetchArtists, tracksTimespan, artistsTimespan]);
+
+  // Initial load: only the active tab's data; other tabs lazy-load on switch.
+  useEffect(() => { fetchRecent(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lazy-fetch when the user switches tabs or changes timespan.
+  useEffect(() => {
+    if (activeTab === "tracks" && !tracksByTimespan[tracksTimespan]) {
+      fetchTracks(tracksTimespan);
+    }
+  }, [activeTab, tracksTimespan, tracksByTimespan, fetchTracks]);
+
+  useEffect(() => {
+    if (activeTab === "artists" && !artistsByTimespan[artistsTimespan]) {
+      fetchArtists(artistsTimespan);
+    }
+  }, [activeTab, artistsTimespan, artistsByTimespan, fetchArtists]);
 
   // Server-side search when query is active
   const [searchedArtists, setSearchedArtists] = useState<HistoryArtistStats[] | null>(null);
@@ -101,38 +148,39 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch artist images for all unique artist names
-  const allArtists = searchedArtists ?? topArtists;
-  const allTracks = searchedTracks ?? [...mostPlayedAllTime, ...mostPlayedRecent];
+  const q = searchQuery.trim();
+
+  const currentTracks = tracksByTimespan[tracksTimespan];
+  const currentArtists = artistsByTimespan[artistsTimespan];
+
+  // Fetch artist images for all unique artist names visible
   useEffect(() => {
     const names = new Set<string>();
-    for (const a of allArtists) names.add(a.display_name);
-    for (const t of allTracks) if (t.display_artist) names.add(t.display_artist);
+    if (searchedArtists) for (const a of searchedArtists) names.add(a.display_name);
+    if (searchedTracks) for (const t of searchedTracks) if (t.display_artist) names.add(t.display_artist);
+    if (currentArtists) for (const a of currentArtists) names.add(a.display_name);
+    if (currentTracks) for (const t of currentTracks) if (t.display_artist) names.add(t.display_artist);
     for (const t of recentPlays) if (t.display_artist) names.add(t.display_artist);
     for (const name of names) fetchArtistImage(name);
-  }, [allArtists, allTracks, recentPlays]);
+  }, [searchedArtists, searchedTracks, currentArtists, currentTracks, recentPlays, fetchArtistImage]);
 
-  const q = searchQuery.trim();
-  const filteredArtists = q ? (searchedArtists ?? []) : topArtists;
-  const filteredTracks = q ? (searchedTracks ?? []) : null;
-
-  // Determine which tracks to show based on active tab
+  // Determine what is visible
   const visibleTracks: HistoryMostPlayed[] | null = (() => {
-    if (filteredTracks) return filteredTracks; // search overrides tab
-    if (activeTab === "all-time") return mostPlayedAllTime;
-    if (activeTab === "30-days") return mostPlayedRecent;
-    return null; // "recent" and "artists" tabs don't use this
-  })();
-
-  const visibleRecent: HistoryEntry[] | null = (() => {
-    if (q) return null; // search mode doesn't show recent
-    if (activeTab === "recent") return recentPlays;
+    if (q) return searchedTracks; // search overrides tabs
+    if (activeTab === "tracks") return currentTracks ?? [];
     return null;
   })();
 
-  const visibleArtists: HistoryArtistStats[] = (() => {
-    if (activeTab === "artists" || q) return filteredArtists;
-    return [];
+  const visibleArtists: HistoryArtistStats[] | null = (() => {
+    if (q) return searchedArtists;
+    if (activeTab === "artists") return currentArtists ?? [];
+    return null;
+  })();
+
+  const visibleRecent: HistoryEntry[] | null = (() => {
+    if (q) return null;
+    if (activeTab === "recent") return recentPlays;
+    return null;
   })();
 
   const flatItems = useMemo(() => {
@@ -180,9 +228,8 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
   }
 
   const tabs: { key: HistoryTab; label: string }[] = [
-    { key: "all-time", label: "All Time" },
-    { key: "30-days", label: "Last 30 Days" },
     { key: "recent", label: "Recent" },
+    { key: "tracks", label: "Tracks" },
     { key: "artists", label: "Artists" },
   ];
 
@@ -200,34 +247,53 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
         enqueueTrackById(item.historyTrackId);
       }
     },
-    reload: loadData,
-  }), [flatItems, loadData]);
+    reload: reloadAll,
+  }), [flatItems, reloadAll]);
 
   let flatIndex = 0;
+  function nextFlatIndex() { return flatIndex++; }
 
-  function nextFlatIndex() {
-    return flatIndex++;
-  }
+  const showTimespan = !q && (activeTab === "tracks" || activeTab === "artists");
+  const currentTimespan = activeTab === "tracks" ? tracksTimespan : artistsTimespan;
+  const setCurrentTimespan = (ts: Timespan) => {
+    if (activeTab === "tracks") setTracksTimespan(ts);
+    else if (activeTab === "artists") setArtistsTimespan(ts);
+  };
 
   return (
     <div className="history-view">
       {!q && (
-        <div className="ds-tabs">
-          {tabs.map(tab => (
-            <button
-              key={tab.key}
-              className={`ds-tab${activeTab === tab.key ? " active" : ""}`}
-              onClick={() => setActiveTab(tab.key)}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="history-toolbar">
+          <div className="ds-tabs">
+            {tabs.map(tab => (
+              <button
+                key={tab.key}
+                className={`ds-tab${activeTab === tab.key ? " active" : ""}`}
+                onClick={() => setActiveTab(tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {showTimespan && (
+            <div className="history-timespan">
+              {TIMESPAN_OPTIONS.map(opt => (
+                <button
+                  key={opt.key}
+                  className={`ds-btn ds-btn--ghost ds-btn--sm${currentTimespan === opt.key ? " active" : ""}`}
+                  onClick={() => setCurrentTimespan(opt.key)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       <div className="history-content">
         {/* Search results: artists */}
-        {q && visibleArtists.length > 0 && (
+        {q && visibleArtists && visibleArtists.length > 0 && (
           <div className="history-section">
             <div className="section-title">Artists</div>
             <div className="history-list">
@@ -250,11 +316,11 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
         )}
 
         {/* Search results: tracks */}
-        {q && filteredTracks && filteredTracks.length > 0 && (
+        {q && visibleTracks && visibleTracks.length > 0 && (
           <div className="history-section">
             <div className="section-title">Tracks</div>
             <div className="history-list">
-              {filteredTracks.map((t) => {
+              {visibleTracks.map((t) => {
                 const idx = nextFlatIndex();
                 return (
                   <div
@@ -272,89 +338,6 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   </div>
                 );
               })}
-            </div>
-          </div>
-        )}
-
-        {/* Tab: Artists */}
-        {!q && activeTab === "artists" && (
-          <div className="history-section">
-            <div className="history-list">
-              {topArtists.map((a) => (
-                <div
-                  key={`artist-${a.history_artist_id}`}
-                  className="history-row"
-                  onDoubleClick={() => handleArtistDoubleClick(a.history_artist_id)}
-                >
-                  <span className="history-rank">{a.rank}</span>
-                  <HistoryArt imagePath={artistImages[a.display_name]} />
-                  <div className="history-info">
-                    <span className="history-title">{a.display_name}</span>
-                    <span className="history-artist">{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
-                  </div>
-                </div>
-              ))}
-              {topArtists.length === 0 && (
-                <div className="empty">No artist history yet.</div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Tab: All Time */}
-        {!q && activeTab === "all-time" && (
-          <div className="history-section">
-            <div className="history-list">
-              {mostPlayedAllTime.map((t) => {
-                const idx = nextFlatIndex();
-                return (
-                  <div
-                    key={`alltime-${t.history_track_id}`}
-                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
-                    data-history-index={idx}
-                    onDoubleClick={() => playTrackById(t.history_track_id)}
-                  >
-                    <span className="history-rank">{t.rank}</span>
-                    <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
-                    <div className="history-info">
-                      <span className="history-title">{t.display_title}</span>
-                      <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
-                    </div>
-                  </div>
-                );
-              })}
-              {mostPlayedAllTime.length === 0 && (
-                <div className="empty">No play history yet. Start listening to build your history.</div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Tab: Last 30 Days */}
-        {!q && activeTab === "30-days" && (
-          <div className="history-section">
-            <div className="history-list">
-              {mostPlayedRecent.map((t) => {
-                const idx = nextFlatIndex();
-                return (
-                  <div
-                    key={`recent30-${t.history_track_id}`}
-                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
-                    data-history-index={idx}
-                    onDoubleClick={() => playTrackById(t.history_track_id)}
-                  >
-                    <span className="history-rank">{t.rank}</span>
-                    <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
-                    <div className="history-info">
-                      <span className="history-title">{t.display_title}</span>
-                      <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
-                    </div>
-                  </div>
-                );
-              })}
-              {mostPlayedRecent.length === 0 && (
-                <div className="empty">No plays in the last 30 days.</div>
-              )}
             </div>
           </div>
         )}
@@ -387,8 +370,62 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
           </div>
         )}
 
+        {/* Tab: Tracks */}
+        {!q && activeTab === "tracks" && (
+          <div className="history-section">
+            <div className="history-list">
+              {(currentTracks ?? []).map((t) => {
+                const idx = nextFlatIndex();
+                return (
+                  <div
+                    key={`tracks-${tracksTimespan}-${t.history_track_id}`}
+                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
+                    data-history-index={idx}
+                    onDoubleClick={() => playTrackById(t.history_track_id)}
+                  >
+                    <span className="history-rank">{t.rank}</span>
+                    <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
+                    <div className="history-info">
+                      <span className="history-title">{t.display_title}</span>
+                      <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
+                    </div>
+                  </div>
+                );
+              })}
+              {currentTracks && currentTracks.length === 0 && (
+                <div className="empty">No tracks in this timespan.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tab: Artists */}
+        {!q && activeTab === "artists" && (
+          <div className="history-section">
+            <div className="history-list">
+              {(currentArtists ?? []).map((a) => (
+                <div
+                  key={`artists-${artistsTimespan}-${a.history_artist_id}`}
+                  className="history-row"
+                  onDoubleClick={() => handleArtistDoubleClick(a.history_artist_id)}
+                >
+                  <span className="history-rank">{a.rank}</span>
+                  <HistoryArt imagePath={artistImages[a.display_name]} />
+                  <div className="history-info">
+                    <span className="history-title">{a.display_name}</span>
+                    <span className="history-artist">{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
+                  </div>
+                </div>
+              ))}
+              {currentArtists && currentArtists.length === 0 && (
+                <div className="empty">No artists in this timespan.</div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Search: no results */}
-        {q && (!filteredTracks || filteredTracks.length === 0) && visibleArtists.length === 0 && (
+        {q && (!visibleTracks || visibleTracks.length === 0) && (!visibleArtists || visibleArtists.length === 0) && (
           <div className="empty">No history matching "{searchQuery}"</div>
         )}
       </div>
