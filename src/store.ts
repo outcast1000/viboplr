@@ -95,9 +95,7 @@ class ProfileStore implements AppStore {
   }
 
   async init(): Promise<void> {
-    const inner = await this.getInner();
-    // Access a key to force LazyStore to connect and load defaults
-    await inner.get("view");
+    await this.getInner();
   }
 
   async get<T>(key: string): Promise<T | undefined> {

@@ -1054,10 +1054,13 @@ export function usePlugins(
       };
 
       try {
-        const code = await invoke<string>("plugin_read_file", {
-          pluginId: id,
-          path: "index.js",
-        });
+        // Prefer code bundled with the manifest listing (saves an IPC round-trip).
+        const code =
+          installed.code ??
+          (await invoke<string>("plugin_read_file", {
+            pluginId: id,
+            path: "index.js",
+          }));
 
         const api = buildAPI(id, loaded);
         const pluginSandbox = Object.create(null);
@@ -1155,10 +1158,13 @@ export function usePlugins(
       const allInfoTypes: Array<[string, string, string, string, string, number, number, number, string]> = [];
       const allImageProviders: [string, string, number][] = []; // [plugin_id, entity, priority]
 
+      // First pass: classify plugins synchronously and collect the ones that
+      // need to actually activate. Plugins whose status is decided by manifest
+      // alone (error/disabled/incompatible) get their state pushed eagerly.
+      const toActivate: InstalledPlugin[] = [];
       for (const plugin of installed) {
         const m = plugin.manifest;
 
-        // Validate required manifest fields
         if (!m.name || !m.version) {
           states.push({
             id: plugin.id,
@@ -1182,7 +1188,6 @@ export function usePlugins(
           continue;
         }
 
-        // Check minAppVersion compatibility
         if (m.minAppVersion && !semverSatisfies(appVersion, m.minAppVersion)) {
           states.push({
             id: plugin.id,
@@ -1199,6 +1204,18 @@ export function usePlugins(
           continue;
         }
 
+        toActivate.push(plugin);
+      }
+
+      // Activate sequentially. Parallel activation was tried but caused IPC
+      // saturation: every plugin's activate() typically issues its own invokes
+      // (plugin_storage_get, plugin_fetch, info_get_value, etc.), and Tauri's
+      // single IPC channel serializes them anyway. Running concurrently just
+      // queued them all behind the rest of the startup path's invokes, slowing
+      // store.restore / main_playlist.read by ~1s in measured runs.
+      // The win from F4 here is the bundled `code` field in plugin_list_installed,
+      // which removes one IPC per plugin even on the sequential path.
+      for (const plugin of toActivate) {
         const state = await activatePlugin(plugin);
         states.push(state);
 

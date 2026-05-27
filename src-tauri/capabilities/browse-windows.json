@@ -3,9 +3,6 @@
   "identifier": "browse-windows",
   "description": "Capability for browse windows opened by plugins",
   "windows": ["browse-*"],
-  "remote": {
-    "urls": ["https://*", "http://*"]
-  },
   "permissions": [
     "core:default",
     "core:event:allow-emit"

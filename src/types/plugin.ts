@@ -119,6 +119,9 @@ export interface InstalledPlugin {
   id: string;
   manifest: PluginManifest;
   builtin?: boolean;
+  // Bundled by `plugin_list_installed` so activation skips a second IPC.
+  // May be null if the file couldn't be read.
+  code?: string | null;
 }
 
 // -- Plugin status --

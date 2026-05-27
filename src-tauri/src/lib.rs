@@ -666,31 +666,37 @@ pub fn run() {
                 dir
             });
 
-            // Migrate legacy data from root app_data_dir to profiles/default/
+            // Migrate legacy data from root app_data_dir to profiles/default/.
+            // Gated by a sentinel file so this is a true one-shot — once the
+            // marker exists we skip every probe entirely on subsequent launches.
             if profile_name == "default" {
-                timer.time("migrate_legacy_data", || {
-                    let legacy_db = app_data_dir.join("viboplr.db");
-                    let profile_db = app_dir.join("viboplr.db");
-                    if legacy_db.exists() && !profile_db.exists() {
-                        log::info!("Migrating legacy data to profiles/default/");
-                        let items = [
-                            "viboplr.db", "viboplr.db-shm", "viboplr.db-wal",
-                            "app-state.json",
-                            "artist_images", "album_images", "tag_images", "waveforms",
-                        ];
-                        for item in &items {
-                            let src = app_data_dir.join(item);
-                            let dst = app_dir.join(item);
-                            if src.exists() {
-                                if let Err(e) = std::fs::rename(&src, &dst) {
-                                    log::warn!("Failed to migrate {}: {}", item, e);
-                                } else {
-                                    log::info!("Migrated {} to profiles/default/", item);
+                let migrated_marker = app_dir.join(".legacy_migration_done");
+                if !migrated_marker.exists() {
+                    timer.time("migrate_legacy_data", || {
+                        let legacy_db = app_data_dir.join("viboplr.db");
+                        let profile_db = app_dir.join("viboplr.db");
+                        if legacy_db.exists() && !profile_db.exists() {
+                            log::info!("Migrating legacy data to profiles/default/");
+                            let items = [
+                                "viboplr.db", "viboplr.db-shm", "viboplr.db-wal",
+                                "app-state.json",
+                                "artist_images", "album_images", "tag_images", "waveforms",
+                            ];
+                            for item in &items {
+                                let src = app_data_dir.join(item);
+                                let dst = app_dir.join(item);
+                                if src.exists() {
+                                    if let Err(e) = std::fs::rename(&src, &dst) {
+                                        log::warn!("Failed to migrate {}: {}", item, e);
+                                    } else {
+                                        log::info!("Migrated {} to profiles/default/", item);
+                                    }
                                 }
                             }
                         }
-                    }
-                });
+                        let _ = std::fs::write(&migrated_marker, b"");
+                    });
+                }
             }
 
             let db = Arc::new(timer.time("Database::new", || Database::new(&app_dir).expect("Failed to init database")));
@@ -703,6 +709,10 @@ pub fn run() {
 
             timer.time("clean_legacy_waveforms", || {
                 let waveforms_dir = app_dir.join("waveforms");
+                let marker = waveforms_dir.join(".legacy_cleaned");
+                if marker.exists() {
+                    return;
+                }
                 // Remove legacy versioned subdirectories (v2, v3, v4)
                 for sub in &["v2", "v3", "v4"] {
                     let dir = waveforms_dir.join(sub);
@@ -711,18 +721,24 @@ pub fn run() {
                     }
                 }
                 let _ = std::fs::create_dir_all(&waveforms_dir);
+                let _ = std::fs::write(&marker, b"");
             });
 
-            timer.time("clean_yt_cache", || {
+            // Defer yt_cache cleanup to a background thread so it never blocks
+            // the setup path — directory walks and unlinks add up quickly when
+            // the cache has accumulated stale entries.
+            {
                 let yt_cache = app_dir.join("yt_cache");
-                if yt_cache.is_dir() {
-                    if let Ok(entries) = std::fs::read_dir(&yt_cache) {
-                        for entry in entries.flatten() {
-                            let _ = std::fs::remove_file(entry.path());
+                std::thread::spawn(move || {
+                    if yt_cache.is_dir() {
+                        if let Ok(entries) = std::fs::read_dir(&yt_cache) {
+                            for entry in entries.flatten() {
+                                let _ = std::fs::remove_file(entry.path());
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
 
             let download_queue = timer.time("setup_download_queue", || Arc::new(DownloadQueue {
                 queue: Mutex::new(Vec::new()),
@@ -1457,7 +1473,7 @@ pub fn run() {
             let transcode_sessions: transcode_server::Sessions =
                 Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
             let transcode_port = timer.time("start_transcode_server", || {
-                tauri::async_runtime::block_on(transcode_server::start(transcode_sessions.clone()))
+                transcode_server::start_sync(transcode_sessions.clone())
             });
 
             // Clone values before moving into AppState, for use in update checker

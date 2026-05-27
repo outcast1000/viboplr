@@ -1612,9 +1612,13 @@ function App() {
     };
   }, []);
 
-  // Clean up temporary mixtape files on app startup
+  // Clean up temporary mixtape files on app startup (deferred so it doesn't
+  // contend with the initial paint or other startup IPCs).
   useEffect(() => {
-    invoke("cleanup_temp_mixtapes").catch(() => {});
+    const t = setTimeout(() => {
+      invoke("cleanup_temp_mixtapes").catch(() => {});
+    }, 3000);
+    return () => clearTimeout(t);
   }, []);
 
   // Restore persisted state on mount
@@ -1795,15 +1799,17 @@ function App() {
             setSearchViewModes({ tracks: s.tracks, albums: s.albums, artists: s.artists, tags: s.tags && validModes.includes(s.tags) ? s.tags : "tiles" });
           }
         }
-        const savedLoggingEnabled = await store.get<boolean>("loggingEnabled");
+        const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedSyncWithPlaying, savedFallbackTrack] = await Promise.all([
+          store.get<boolean>("loggingEnabled"),
+          store.get<boolean>("debugLogging"),
+          store.get<boolean>("debugMode"),
+          store.get<boolean | string>("syncWithPlaying"),
+          store.get<{ name: string; artistName?: string; albumTitle?: string } | null>("fallbackTrackName"),
+        ]);
         if (savedLoggingEnabled) setLoggingEnabled(true);
-        const savedDebugLogging = await store.get<boolean>("debugLogging");
         if (savedDebugLogging) { setDebugLogging(true); setDebugLoggingRef(true); }
-        const savedDebugMode = await store.get<boolean>("debugMode");
         if (savedDebugMode) setDebugMode(true);
-        const savedSyncWithPlaying = await store.get<boolean | string>("syncWithPlaying");
         if (savedSyncWithPlaying === true || savedSyncWithPlaying === "enabled" || savedSyncWithPlaying === "active") setSyncWithPlaying(true);
-        const savedFallbackTrack = await store.get<{ name: string; artistName?: string; albumTitle?: string } | null>("fallbackTrackName");
         if (savedFallbackTrack) {
           library.setFallbackTrackName(savedFallbackTrack);
         }
@@ -1821,10 +1827,12 @@ function App() {
         console.error("Failed to restore state:", e);
         await getCurrentWindow().show();
       }
-      await timeAsync("loadProviders", () => loadProviders(store).then(setSearchProviders)).catch(e => console.error("Failed to load providers:", e));
       restoredRef.current = true;
       setAppRestoring(false);
-      await timeAsync("loadLibrary", () => library.loadLibrary());
+      await Promise.all([
+        timeAsync("loadProviders", () => loadProviders(store).then(setSearchProviders)).catch(e => console.error("Failed to load providers:", e)),
+        timeAsync("loadLibrary", () => library.loadLibrary()),
+      ]);
     })();
   }, []);
 

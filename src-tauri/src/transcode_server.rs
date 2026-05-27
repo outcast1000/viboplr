@@ -117,21 +117,24 @@ async fn handle_stream(
 }
 
 /// Start the transcode HTTP server. Returns the port it's listening on.
-pub async fn start(sessions: Sessions) -> u16 {
-    let state = ServerState { sessions };
+/// Synchronous, non-blocking startup. Binds a port via std and hands the
+/// listener over to a spawned tokio task — avoids `block_on` in the Tauri
+/// setup path so window paint isn't gated on TCP bind latency.
+pub fn start_sync(sessions: Sessions) -> u16 {
+    let std_listener = std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("Failed to bind transcode server");
+    std_listener.set_nonblocking(true).ok();
+    let port = std_listener.local_addr().unwrap().port();
+    log::info!("Transcode server listening on 127.0.0.1:{}", port);
 
+    let state = ServerState { sessions };
     let app = Router::new()
         .route("/stream/{session_id}", get(handle_stream))
         .with_state(state);
 
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("Failed to bind transcode server");
-
-    let port = listener.local_addr().unwrap().port();
-    log::info!("Transcode server listening on 127.0.0.1:{}", port);
-
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
+        let listener = TcpListener::from_std(std_listener)
+            .expect("Failed to convert std listener to tokio");
         axum::serve(listener, app).await.ok();
     });
 

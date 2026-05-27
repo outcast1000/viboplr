@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "browse-windows-remote",
+  "description": "Allow IPC calls from external pages in browse windows. Required only on Windows (WebView2 enforces origin isolation on IPC); macOS/Linux WebViews allow IPC from remote pages without this. Each URL pattern adds ~210ms to startup via tauri::generate_context!() so we only enable it on the platform that needs it.",
+  "windows": ["browse-*"],
+  "platforms": ["windows"],
+  "remote": {
+    "urls": ["https://*", "http://*"]
+  },
+  "permissions": [
+    "core:default",
+    "core:event:allow-emit"
+  ]
+}

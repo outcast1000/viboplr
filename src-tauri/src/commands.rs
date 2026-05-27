@@ -2847,10 +2847,15 @@ fn scan_plugins_dir(dir: &std::path::Path, builtin: bool) -> Vec<serde_json::Val
                             .and_then(|n| n.to_str())
                             .unwrap_or("")
                             .to_string();
+                        // Bundle index.js content alongside the manifest so the
+                        // frontend can activate plugins without a second IPC
+                        // round-trip per plugin.
+                        let code = std::fs::read_to_string(path.join("index.js")).ok();
                         plugins.push(serde_json::json!({
                             "id": dir_name,
                             "manifest": manifest,
                             "builtin": builtin,
+                            "code": code,
                         }));
                     }
                     Err(e) => {
