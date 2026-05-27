@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { getInitials } from "../utils";
 import type { Track, Artist, ColumnConfig } from "../types";
 
+import { buildSearchUrl } from "../searchProviders";
 import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
 import { useDetailActions, useDetailState } from "../contexts/DetailViewContext";
 import { AlbumCardArt } from "./AlbumCardArt";
-import { ImageActions } from "./ImageActions";
-import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
-import { DetailHeroBackground } from "./DetailHeroBackground";
+import { DetailHero } from "./DetailHero";
+import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
@@ -118,56 +120,94 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
     });
   }, [actions.playEntityAll, name, sortedTracks, artist]);
 
+  const handleRefreshImage = useCallback(() => {
+    actions.requestFetchImage("artist", name);
+  }, [actions.requestFetchImage, name]);
+
+  const handleSetImageFromFile = useCallback(async () => {
+    const selected = await openFileDialog({
+      multiple: false,
+      filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
+    });
+    if (!selected || typeof selected !== "string") return;
+    try {
+      await invoke("set_entity_image", { kind: "artist", name, artistName: null, sourcePath: selected });
+      actions.invalidateImage("artist", name);
+    } catch (e) { console.error("Failed to set artist image:", e); }
+  }, [actions.invalidateImage, name]);
+
+  const handlePasteImage = useCallback(async () => {
+    try {
+      await invoke("paste_entity_image_from_clipboard", { kind: "artist", name, artistName: null });
+      actions.invalidateImage("artist", name);
+    } catch (e) { console.error("Failed to paste artist image:", e); }
+  }, [actions.invalidateImage, name]);
+
+  const handleRemoveImage = useCallback(async () => {
+    try {
+      await invoke("remove_entity_image", { kind: "artist", name, artistName: null });
+      actions.invalidateImage("artist", name);
+    } catch (e) { console.error("Failed to remove artist image:", e); }
+  }, [actions.invalidateImage, name]);
+
+  const handleSearchImageGoogle = useCallback(() => {
+    openUrl(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(name)}`)
+      .catch(e => console.error("Failed to open image search:", e));
+  }, [name]);
+
+  const overflowItems: HeroOverflowItem[] = buildHeroOverflowItems({
+    entityKind: "artist",
+    imageActions: {
+      onRefresh: handleRefreshImage,
+      onSetFromFile: handleSetImageFromFile,
+      onPasteFromClipboard: handlePasteImage,
+      onRemove: artistImagePath ? handleRemoveImage : undefined,
+      onSearchImage: handleSearchImageGoogle,
+      webSearches: actions.searchProviders
+        .filter(p => p.artistUrl)
+        .map(p => ({
+          id: p.id,
+          label: p.name,
+          onClick: () => {
+            const url = buildSearchUrl(p.artistUrl!, { artist: name });
+            if (url) openUrl(url).catch(e => console.error("Failed to open search URL:", e));
+          },
+        })),
+    },
+    pluginItems: [],
+  });
+
+  const handleEnqueueAll = useCallback(() => {
+    actions.enqueueTracks(sortedTracks.filter(t => t.liked !== -1));
+  }, [actions.enqueueTracks, sortedTracks]);
+
+  const meta: Array<string | { label: string; onClick: () => void }> = [];
+  if (isLibrary && artist?.track_count) meta.push(`${artist.track_count} tracks`);
+  if (albums.length > 0) meta.push(`${albums.length} albums`);
+
   return (
     <div className="artist-detail">
-      <div className="artist-detail-top">
-        <DetailHeroBackground images={heroImages} className="artist-detail-bg" />
-        <div className="artist-header">
-          <div className="artist-avatar">
-            {artistImagePath ? (
-              <img className="artist-avatar-img" src={convertFileSrc(artistImagePath)} alt={name} />
-            ) : (
-              getInitials(name)
-            )}
-            {sortedTracks.length > 0 && (
-              <button
-                className="detail-art-play"
-                title="Play All"
-                onClick={handlePlayAll}
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-              </button>
-            )}
-            <ImageActions
-              entityType="artist"
-              entityName={name}
-              imagePath={artistImagePath}
-              providers={actions.searchProviders}
-              onImageChanged={() => actions.invalidateImage("artist", name)}
-              onRefresh={() => actions.requestFetchImage("artist", name)}
-            />
-          </div>
-          <div className="artist-header-info">
-            <h2>
-              {name}
-              {isLibrary && (
-                <LikeDislikeButtons
-                  liked={artist?.liked ?? 0}
-                  onToggleLike={handleToggleArtistLike}
-                  onToggleDislike={handleToggleArtistDislike}
-                  size={16}
-                  variant="glass"
-                  entityLabel="artist"
-                />
-              )}
-            </h2>
-            {isLibrary && <span className="artist-meta">{artist?.track_count ?? 0} tracks</span>}
-            <span className="artist-bio-stats">
-              <TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />
-            </span>
-          </div>
-        </div>
-      </div>
+      <DetailHero
+        bgImages={heroImages}
+        bgClassName="detail-hero-bg"
+        art={
+          artistImagePath
+            ? <img src={convertFileSrc(artistImagePath)} alt={name} />
+            : <span style={{ fontSize: "var(--fs-xl)", fontWeight: 700, color: "var(--accent)" }}>{getInitials(name)}</span>
+        }
+        artShape="circle"
+        eyebrow="Artist"
+        title={name}
+        liked={isLibrary ? artist?.liked ?? 0 : undefined}
+        onToggleLike={isLibrary ? handleToggleArtistLike : undefined}
+        onToggleDislike={isLibrary ? handleToggleArtistDislike : undefined}
+        entityLabel="artist"
+        meta={meta}
+        onPlay={sortedTracks.length > 0 ? handlePlayAll : undefined}
+        onEnqueue={sortedTracks.length > 0 ? handleEnqueueAll : undefined}
+        overflowItems={overflowItems}
+        titleLine={<TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />}
+      />
       <div className="section-wide">
         <InformationSections
           entity={infoEntity}

@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Album, ColumnConfig } from "../types";
 
-import { getProvidersForContext } from "../searchProviders";
+import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
 import { ALBUM_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
 import { useDetailActions, useDetailState } from "../contexts/DetailViewContext";
-import { ImageActions } from "./ImageActions";
-import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
-import { DetailHeroBackground } from "./DetailHeroBackground";
+import { DetailHero } from "./DetailHero";
+import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
@@ -107,71 +108,100 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     });
   }, [actions.playEntityAll, name, artistName, sortedTracks, album]);
 
+  const handleRefreshImage = useCallback(() => {
+    actions.requestFetchImage("album", name, artistName);
+  }, [actions.requestFetchImage, name, artistName]);
+
+  const handleSetImageFromFile = useCallback(async () => {
+    const selected = await openFileDialog({
+      multiple: false,
+      filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
+    });
+    if (!selected || typeof selected !== "string") return;
+    try {
+      await invoke("set_entity_image", { kind: "album", name, artistName: artistName ?? null, sourcePath: selected });
+      actions.invalidateImage("album", name, artistName);
+    } catch (e) { console.error("Failed to set album image:", e); }
+  }, [actions.invalidateImage, name, artistName]);
+
+  const handlePasteImage = useCallback(async () => {
+    try {
+      await invoke("paste_entity_image_from_clipboard", { kind: "album", name, artistName: artistName ?? null });
+      actions.invalidateImage("album", name, artistName);
+    } catch (e) { console.error("Failed to paste album image:", e); }
+  }, [actions.invalidateImage, name, artistName]);
+
+  const handleRemoveImage = useCallback(async () => {
+    try {
+      await invoke("remove_entity_image", { kind: "album", name, artistName: artistName ?? null });
+      actions.invalidateImage("album", name, artistName);
+    } catch (e) { console.error("Failed to remove album image:", e); }
+  }, [actions.invalidateImage, name, artistName]);
+
+  const handleSearchImageGoogle = useCallback(() => {
+    const q = encodeURIComponent(displayArtist ? `${displayArtist} ${name}` : name);
+    openUrl(`https://www.google.com/search?tbm=isch&q=${q}`).catch(e => console.error("Failed to open image search:", e));
+  }, [displayArtist, name]);
+
+  const overflowItems: HeroOverflowItem[] = buildHeroOverflowItems({
+    entityKind: "album",
+    imageActions: {
+      onRefresh: handleRefreshImage,
+      onSetFromFile: handleSetImageFromFile,
+      onPasteFromClipboard: handlePasteImage,
+      onRemove: albumImagePath ? handleRemoveImage : undefined,
+      onSearchImage: handleSearchImageGoogle,
+      webSearches: albumProviders
+        .filter(p => p.albumUrl)
+        .map(p => ({
+          id: p.id,
+          label: p.name,
+          onClick: () => {
+            const url = buildSearchUrl(p.albumUrl!, { artist: displayArtist ?? "", title: name });
+            if (url) openUrl(url).catch(e => console.error("Failed to open search URL:", e));
+          },
+        })),
+    },
+    pluginItems: [],
+  });
+
+  const handleEnqueueAll = useCallback(() => {
+    actions.enqueueTracks(sortedTracks.filter(t => t.liked !== -1));
+  }, [actions.enqueueTracks, sortedTracks]);
+
+  const eyebrow = album?.year ? `Album · ${album.year}` : "Album";
+  const meta: Array<string | { label: string; onClick: () => void }> = [];
+  if (displayArtist) meta.push({ label: displayArtist, onClick: () => actions.navigateToArtist(album?.artist_id ?? 0, displayArtist ?? undefined) });
+  if (isLibrary && album?.track_count) meta.push(`${album.track_count} tracks`);
+
   return (
     <div className="album-detail">
-      <div className="album-detail-top">
-        <DetailHeroBackground images={heroImages} className="album-detail-bg" />
-        <div className="album-detail-header">
-          <div className="album-detail-art">
-            {albumImagePath ? (
-              <img className="album-detail-art-img" src={convertFileSrc(albumImagePath)} alt={name} />
-            ) : (
-              <svg className="album-detail-art-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-            )}
-            {sortedTracks.length > 0 && (
-              <button
-                className="detail-art-play"
-                title="Play All"
-                onClick={handlePlayAll}
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-              </button>
-            )}
-            <ImageActions
-              entityType="album"
-              entityName={name}
-              artistName={displayArtist ?? undefined}
-              imagePath={albumImagePath}
-              providers={albumProviders}
-              onImageChanged={() => actions.invalidateImage("album", name, artistName)}
-              onRefresh={() => actions.requestFetchImage("album", name, artistName)}
-            />
-          </div>
-          <div className="album-detail-info">
-            <h2>
-              {name}
-              {isLibrary && (
-                <LikeDislikeButtons
-                  liked={album?.liked ?? 0}
-                  onToggleLike={handleToggleAlbumLike}
-                  onToggleDislike={handleToggleAlbumDislike}
-                  size={16}
-                  variant="glass"
-                  entityLabel="album"
-                />
-              )}
-            </h2>
-            {displayArtist && (
-              <span
-                className="album-detail-artist-name"
-                onClick={() => actions.navigateToArtist(album?.artist_id ?? 0, displayArtist ?? undefined)}
-              >{displayArtist}</span>
-            )}
-            {isLibrary && (
-              <span className="artist-meta">
-                {album?.year && <>{album.year} {"·"} </>}
-                {album?.track_count ?? 0} tracks
-              </span>
-            )}
-            <span className="artist-bio-stats">
-              <TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />
-            </span>
-          </div>
-        </div>
-      </div>
+      <DetailHero
+        bgImages={heroImages}
+        bgClassName="detail-hero-bg"
+        art={
+          albumImagePath ? (
+            <img src={convertFileSrc(albumImagePath)} alt={name} />
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 48, height: 48, opacity: 0.5 }}>
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          )
+        }
+        artShape="square"
+        eyebrow={eyebrow}
+        title={name}
+        liked={isLibrary ? album?.liked ?? 0 : undefined}
+        onToggleLike={isLibrary ? handleToggleAlbumLike : undefined}
+        onToggleDislike={isLibrary ? handleToggleAlbumDislike : undefined}
+        entityLabel="album"
+        meta={meta}
+        onPlay={sortedTracks.length > 0 ? handlePlayAll : undefined}
+        onEnqueue={sortedTracks.length > 0 ? handleEnqueueAll : undefined}
+        overflowItems={overflowItems}
+        titleLine={<TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />}
+      />
 
       {isLibrary && sortedTracks.length > 0 && (
         <TrackList

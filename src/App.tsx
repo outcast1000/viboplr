@@ -2480,6 +2480,7 @@ function App() {
     playTracks: queueHook.playTracks,
     playEntityAll: handlePlayEntityAll,
     playAlbum: playActions.playAlbum,
+    enqueueTracks: contextMenuActions.handleEnqueue,
     toggleLike: likeActions.handleToggleLike,
     toggleDislike: likeActions.handleToggleDislike,
     toggleEntityLike: (kind: "artist" | "album" | "tag", id: number) => {
@@ -2516,7 +2517,7 @@ function App() {
     searchProviders,
   }), [
     library.handleArtistClick, library.handleAlbumClick, library.handleTagClick,
-    queueHook.playTracks, handlePlayEntityAll, playActions.playAlbum,
+    queueHook.playTracks, handlePlayEntityAll, playActions.playAlbum, contextMenuActions.handleEnqueue,
     likeActions.handleToggleLike, likeActions.handleToggleDislike,
     likeActions.handleToggleArtistLike, likeActions.handleToggleArtistDislike,
     likeActions.handleToggleAlbumLike, likeActions.handleToggleAlbumDislike,

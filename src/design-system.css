@@ -210,48 +210,6 @@
   margin: 12px;
 }
 
-/* Play button for detail page header images */
-.detail-art-play {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
-  color: #fff;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
-  box-shadow: 0 4px 16px rgba(238, 90, 36, 0.5);
-  z-index: 1;
-}
-
-.album-detail-art:hover .detail-art-play,
-.artist-avatar:hover .detail-art-play,
-.track-detail-art:hover .detail-art-play {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.detail-art-play:hover {
-  background: linear-gradient(135deg, #ff8787, #f0731a);
-  box-shadow: 0 6px 24px rgba(238, 90, 36, 0.7);
-  transform: scale(1.08);
-}
-
-.detail-art-play svg {
-  width: 25px;
-  height: 25px;
-  fill: white;
-  margin-left: 2px;
-}
-
 .ds-card-play {
   position: absolute;
   bottom: 8px;

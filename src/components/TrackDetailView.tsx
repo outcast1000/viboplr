@@ -1,16 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track } from "../types";
 import type { InfoEntity } from "../types/informationTypes";
-import { getProvidersForContext } from "../searchProviders";
+import { buildSearchUrl, getProvidersForContext } from "../searchProviders";
 import { formatDuration } from "../utils";
 import { isLocalTrack } from "../queueEntry";
 import { useDetailActions } from "../contexts/DetailViewContext";
 import { IconFolder, IconLastfm, IconYoutube } from "./Icons";
-import { LikeDislikeButtons } from "./LikeDislikeButtons";
-import { ImageActions } from "./ImageActions";
 import { store } from "../store";
 
 import { InformationSections } from "./InformationSections";
@@ -18,8 +16,9 @@ import { useVideoFrames } from "../hooks/useVideoFrames";
 import { isVideoTrack } from "../utils";
 import { VideoFilmstrip } from "./VideoFilmstrip";
 import { VideoFrameCard } from "./VideoFrameCard";
-import { DetailHeroBackground } from "./DetailHeroBackground";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
+import { DetailHero } from "./DetailHero";
+import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import "./TrackDetailView.css";
 
 const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "details", "play-history"];
@@ -248,119 +247,175 @@ export function TrackDetailView({
     return merged;
   })();
 
+  const heroImageKind: "album" | "artist" | null =
+    isLibrary && albumImagePath && track.album_title ? "album"
+    : isLibrary && track.artist_name ? "artist"
+    : null;
+
+  const heroImageEntityName =
+    heroImageKind === "album" ? track.album_title!
+    : heroImageKind === "artist" ? track.artist_name!
+    : null;
+
+  const heroImageArtistArg =
+    heroImageKind === "album" ? (track.artist_name ?? undefined) : undefined;
+
+  const handleRefreshImage = useCallback(() => {
+    if (!heroImageKind || !heroImageEntityName) return;
+    actions.requestFetchImage(heroImageKind, heroImageEntityName, heroImageArtistArg);
+  }, [actions.requestFetchImage, heroImageKind, heroImageEntityName, heroImageArtistArg]);
+
+  const handleSetImageFromFile = useCallback(async () => {
+    if (!heroImageKind || !heroImageEntityName) return;
+    const selected = await openFileDialog({
+      multiple: false,
+      filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
+    });
+    if (!selected || typeof selected !== "string") return;
+    try {
+      await invoke("set_entity_image", {
+        kind: heroImageKind,
+        name: heroImageEntityName,
+        artistName: heroImageKind === "album" ? (track.artist_name ?? null) : null,
+        sourcePath: selected,
+      });
+      actions.invalidateImage(heroImageKind, heroImageEntityName, heroImageArtistArg);
+    } catch (e) { console.error("Failed to set track-related image:", e); }
+  }, [actions.invalidateImage, heroImageKind, heroImageEntityName, heroImageArtistArg, track.artist_name]);
+
+  const handlePasteImage = useCallback(async () => {
+    if (!heroImageKind || !heroImageEntityName) return;
+    try {
+      await invoke("paste_entity_image_from_clipboard", {
+        kind: heroImageKind,
+        name: heroImageEntityName,
+        artistName: heroImageKind === "album" ? (track.artist_name ?? null) : null,
+      });
+      actions.invalidateImage(heroImageKind, heroImageEntityName, heroImageArtistArg);
+    } catch (e) { console.error("Failed to paste track-related image:", e); }
+  }, [actions.invalidateImage, heroImageKind, heroImageEntityName, heroImageArtistArg, track.artist_name]);
+
+  const handleRemoveImage = useCallback(async () => {
+    if (!heroImageKind || !heroImageEntityName) return;
+    try {
+      await invoke("remove_entity_image", {
+        kind: heroImageKind,
+        name: heroImageEntityName,
+        artistName: heroImageKind === "album" ? (track.artist_name ?? null) : null,
+      });
+      actions.invalidateImage(heroImageKind, heroImageEntityName, heroImageArtistArg);
+    } catch (e) { console.error("Failed to remove track-related image:", e); }
+  }, [actions.invalidateImage, heroImageKind, heroImageEntityName, heroImageArtistArg, track.artist_name]);
+
+  const handleSearchImageGoogle = useCallback(() => {
+    if (!heroImageKind || !heroImageEntityName) return;
+    const q = heroImageKind === "album" && track.artist_name
+      ? `${track.artist_name} ${heroImageEntityName}`
+      : heroImageEntityName;
+    openUrl(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(q)}`)
+      .catch(e => console.error("Failed to open image search:", e));
+  }, [heroImageKind, heroImageEntityName, track.artist_name]);
+
+  const trackProviders = getProvidersForContext(actions.searchProviders, "track");
+
+  const overflowItems: HeroOverflowItem[] = buildHeroOverflowItems({
+    entityKind: "track",
+    imageActions: heroImageKind ? {
+      onRefresh: handleRefreshImage,
+      onSetFromFile: handleSetImageFromFile,
+      onPasteFromClipboard: handlePasteImage,
+      onRemove: (heroImageKind === "album" ? !!albumImagePath : !!artistImagePath) ? handleRemoveImage : undefined,
+      onSearchImage: handleSearchImageGoogle,
+      webSearches: trackProviders
+        .filter(p => p.trackUrl)
+        .map(p => ({
+          id: p.id,
+          label: p.name,
+          onClick: () => {
+            const url = buildSearchUrl(p.trackUrl!, { artist: track.artist_name ?? "", title: track.title });
+            if (url) openUrl(url).catch(e => console.error("Failed to open search URL:", e));
+          },
+        })),
+    } : {},
+    youtube: {
+      url: track.youtube_url,
+      onFind: () => onWatchOnYoutube?.(),
+      onSetUrl: () => setYoutubeUrlEdit(track.youtube_url ?? ""),
+      onClear: track.youtube_url && isLibrary ? async () => {
+        try {
+          await invoke("clear_track_youtube_url", { trackId });
+          onUpdateTrack({ youtube_url: null });
+        } catch (e) { console.error("Failed to clear YouTube URL:", e); }
+      } : undefined,
+    },
+    pluginItems: [],
+  });
+
+  const eyebrow = track.album_title ? `Track · ${track.album_title}` : "Track";
+
+  const heroMeta: Array<string | { label: string; onClick: () => void }> = [];
+  if (track.artist_name) {
+    heroMeta.push({ label: track.artist_name, onClick: () => actions.navigateToArtist(track.artist_id ?? 0, track.artist_name!) });
+  }
+  if (track.album_title) {
+    heroMeta.push({ label: track.album_title, onClick: () => actions.navigateToAlbum(track.album_id ?? 0, track.artist_id, track.album_title!, track.artist_name ?? undefined) });
+  }
+  if (track.year) heroMeta.push(String(track.year));
+  if (track.format) heroMeta.push(`${track.format.toUpperCase()}${audioProps?.bitrate ? ` · ${audioProps.bitrate} kbps` : ""}`);
+
+  const titleLine = trackInfo && (trackInfo.listeners || trackInfo.playcount) ? (
+    <span>
+      {trackInfo.listeners && <>{parseInt(trackInfo.listeners).toLocaleString()} listeners</>}
+      {trackInfo.playcount && (
+        <>{trackInfo.listeners ? <> &middot; </> : null}{parseInt(trackInfo.playcount).toLocaleString()} scrobbles</>
+      )}
+      {trackInfo.url && (
+        <> &middot; <a className="track-detail-lastfm-link" onClick={() => openUrl(trackInfo.url!)} title="View on Last.fm"><IconLastfm size={12} /></a></>
+      )}
+    </span>
+  ) : undefined;
+
+  const handleEnqueueTrack = useCallback(() => {
+    actions.enqueueTracks([track]);
+  }, [actions.enqueueTracks, track]);
+
   return (
     <div className="track-detail">
-      {/* Header — art + info + play button + options menu */}
-      <div className="track-detail-top">
-        <DetailHeroBackground images={heroImages} className="track-detail-bg" />
-        <div className="track-detail-header">
-          <div className="track-detail-art">
-            {videoFrames.frames ? (
-              <VideoFrameCard frames={videoFrames.frames} alt={track.title} className="track-detail-art-frames" timestamps={videoFrames.timestamps} onFrameClick={onPlayAt} />
-            ) : (albumImagePath || artistImagePath) ? (
-              <>
-                <img className="track-detail-art-img" src={convertFileSrc((albumImagePath ?? artistImagePath)!)} alt={track.album_title ?? track.artist_name ?? ""} />
-                <span className="track-detail-art-label">{albumImagePath ? "Album" : "Artist"}</span>
-              </>
-            ) : (
-              <svg className="track-detail-art-placeholder" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-            )}
-            <button
-              className="detail-art-play"
-              title="Play"
-              onClick={onPlay}
-            >
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-            </button>
-            {isLibrary && albumImagePath && track.album_title ? (
-              <ImageActions
-                entityType="album"
-                entityName={track.album_title}
-                artistName={track.artist_name ?? undefined}
-                imagePath={albumImagePath}
-                providers={getProvidersForContext(actions.searchProviders, "album")}
-                onImageChanged={() => actions.invalidateImage("album", track.album_title!, track.artist_name ?? undefined)}
-                onRefresh={() => actions.requestFetchImage("album", track.album_title!, track.artist_name ?? undefined)}
-              />
-            ) : isLibrary && track.artist_name ? (
-              <ImageActions
-                entityType="artist"
-                entityName={track.artist_name}
-                imagePath={artistImagePath}
-                providers={getProvidersForContext(actions.searchProviders, "artist")}
-                onImageChanged={() => actions.invalidateImage("artist", track.artist_name!)}
-                onRefresh={() => actions.requestFetchImage("artist", track.artist_name!)}
-              />
-            ) : null}
-          </div>
-          <div className="track-detail-info">
-            <h2>
-              {track.title}
-              <LikeDislikeButtons
-                liked={track.liked}
-                onToggleLike={onToggleLike}
-                onToggleDislike={onToggleDislike}
-                size={16}
-                variant="glass"
-                disabled={!isLibrary}
-              />
-            </h2>
-            <div className="track-detail-meta">
-              {track.artist_name && (
-                <span className="track-detail-link" onClick={() => actions.navigateToArtist(track.artist_id ?? 0, track.artist_name!)}>
-                  {track.artist_name}
-                </span>
-              )}
-              {track.album_title && (
-                <>
-                  <span className="track-detail-sep"> — </span>
-                  <span className="track-detail-link" onClick={() => actions.navigateToAlbum(track.album_id ?? 0, track.artist_id, track.album_title!, track.artist_name ?? undefined)}>
-                    {track.album_title}
-                  </span>
-                </>
-              )}
-              {track.year && <span className="track-detail-sep"> ({track.year})</span>}
-            </div>
-            {trackInfo && (trackInfo.listeners || trackInfo.playcount) && (
-              <div className="track-detail-stats">
-                {trackInfo.listeners && <>{parseInt(trackInfo.listeners).toLocaleString()} listeners</>}
-                {trackInfo.playcount && <>{trackInfo.listeners ? <> &middot; </> : null}{parseInt(trackInfo.playcount).toLocaleString()} scrobbles</>}
-                {trackInfo.url && (
-                  <> &middot; <a className="track-detail-lastfm-link" onClick={() => openUrl(trackInfo.url!)} title="View on Last.fm"><IconLastfm size={12} /></a></>
-                )}
-              </div>
-            )}
-            <div className="track-detail-youtube-row">
-              {track.youtube_url ? (
-                <>
-                  <button className="track-detail-youtube-btn" onClick={onWatchOnYoutube} title="Find in YouTube">
-                    <IconYoutube size={32} />
-                  </button>
-                  {isLibrary && (
-                    <>
-                      <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit(track.youtube_url ?? "")}>Edit</button>
-                      <button className="track-detail-youtube-action" onClick={async () => {
-                        await invoke("clear_track_youtube_url", { trackId });
-                        onUpdateTrack({ youtube_url: null });
-                      }}>Remove</button>
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  <button className="track-detail-youtube-action" onClick={onWatchOnYoutube}>Find in YouTube</button>
-                  {isLibrary && (
-                    <button className="track-detail-youtube-action" onClick={() => setYoutubeUrlEdit("")}>Set YouTube URL</button>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      <DetailHero
+        bgImages={heroImages}
+        bgClassName="detail-hero-bg"
+        art={
+          videoFrames.frames ? (
+            <VideoFrameCard
+              frames={videoFrames.frames}
+              alt={track.title}
+              className="track-detail-art-frames"
+              timestamps={videoFrames.timestamps}
+              onFrameClick={onPlayAt}
+            />
+          ) : (albumImagePath || artistImagePath) ? (
+            <img src={convertFileSrc((albumImagePath ?? artistImagePath)!)} alt={track.album_title ?? track.artist_name ?? ""} />
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 48, height: 48, opacity: 0.5 }}>
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          )
+        }
+        artShape="square"
+        eyebrow={eyebrow}
+        title={track.title}
+        liked={track.liked}
+        onToggleLike={onToggleLike}
+        onToggleDislike={onToggleDislike}
+        likeDisabled={!isLibrary}
+        entityLabel="track"
+        meta={heroMeta}
+        onPlay={onPlay}
+        onEnqueue={handleEnqueueTrack}
+        overflowItems={overflowItems}
+        titleLine={titleLine}
+      />
       {isVideoTrack(track) && (
         <div className="section-wide">
           <VideoFilmstrip framesState={videoFrames} onFrameClick={onPlayAt} />

@@ -12,6 +12,7 @@ export interface DetailViewActions {
   playTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
   playEntityAll: (kind: "artist" | "album" | "tag", name: string, artistName?: string, opts?: { tracks?: Track[]; entityId?: number }) => void;
   playAlbum: (albumId: number, opts?: { tracks?: Track[]; startIndex?: number }) => void;
+  enqueueTracks: (tracks: Track[]) => void;
 
   toggleLike: (track: Track | QueueTrack) => void;
   toggleDislike: (track: Track | QueueTrack) => void;
@@ -64,7 +65,7 @@ interface DetailViewProviderProps {
 export function DetailViewProvider({ actions, state, children }: DetailViewProviderProps) {
   const stableActions = useMemo(() => actions, [
     actions.navigateToArtist, actions.navigateToAlbum, actions.navigateToTag,
-    actions.playTracks, actions.playEntityAll, actions.playAlbum,
+    actions.playTracks, actions.playEntityAll, actions.playAlbum, actions.enqueueTracks,
     actions.toggleLike, actions.toggleDislike, actions.toggleEntityLike, actions.toggleEntityDislike, actions.deleteTracks,
     actions.handleTrackContextMenu, actions.handleAlbumContextMenu,
     actions.handleInfoTrackContextMenu, actions.handleEntityContextMenu,
