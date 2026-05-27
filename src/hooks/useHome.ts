@@ -221,17 +221,20 @@ export function useHome(opts: UseHomeOptions) {
               const sinceTs = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
               const stats = await invoke<HistoryArtistStats[]>("get_history_most_played_artists_since", { sinceTs, limit });
               if (stats.length === 0) return { status: "empty" };
-              // Resolve to library artists where possible so cards navigate to detail pages.
-              const libraryArtists = await invoke<Artist[]>("get_artists");
-              const norm = (s: string) => s.toLowerCase().trim();
-              const byName = new Map(libraryArtists.map(a => [norm(a.name), a.id]));
-              return {
-                status: "ok",
-                items: stats.map(s => ({
-                  libraryId: byName.get(norm(s.display_name)),
-                  name: s.display_name,
-                })),
-              };
+              // Resolve to library artists via the backend (which normalizes diacritics)
+              // so cards navigate to detail pages even when accent forms differ.
+              const resolved = await Promise.all(
+                stats.map(async (s) => {
+                  try {
+                    const a = await invoke<Artist | null>("find_artist_by_name", { name: s.display_name });
+                    return { libraryId: a?.id, name: s.display_name };
+                  } catch (e) {
+                    console.error("Failed to resolve home shelf artist:", e);
+                    return { name: s.display_name };
+                  }
+                }),
+              );
+              return { status: "ok", items: resolved };
             } catch (e) {
               return { status: "error", message: String(e) };
             }
