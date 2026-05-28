@@ -69,9 +69,18 @@ function parseProviderConfig(
     return pluginNameMap.get(pluginId) ?? pluginId;
   }
 
+  // Filter out providers whose plugin is no longer installed. The backend
+  // keeps `active = 0` rows around for plugins that are temporarily disabled
+  // (so user settings persist across uninstall/reinstall), but rows for
+  // plugins that no longer exist on disk would otherwise show up as dim
+  // pills the user can't act on.
+  const isInstalled = (pluginId: string) =>
+    pluginStates ? pluginNameMap.has(pluginId) : true;
+
   // Group image providers by entity
   const imagesByEntity = new Map<string, ImageProviderRow[]>();
   for (const [pluginId, entity, priority, active, id] of imageProviders) {
+    if (!isInstalled(pluginId)) continue;
     if (!imagesByEntity.has(entity)) imagesByEntity.set(entity, []);
     imagesByEntity.get(entity)!.push({ pluginId, entity, priority, active, id });
   }
@@ -79,6 +88,7 @@ function parseProviderConfig(
   // Group info types by entity and typeId
   const infoByEntity = new Map<string, Map<string, { name: string; sortOrder: number; providers: InfoTypeRow[] }>>();
   for (const [typeId, name, entity, displayKind, sortOrder, pluginId, priority, active] of infoTypes) {
+    if (!isInstalled(pluginId)) continue;
     if (!infoByEntity.has(entity)) infoByEntity.set(entity, new Map());
     const entityTypes = infoByEntity.get(entity)!;
     if (!entityTypes.has(typeId)) entityTypes.set(typeId, { name, sortOrder, providers: [] });
@@ -144,8 +154,9 @@ function parseProviderConfig(
   }
 
   // Download providers as a separate "download" entity group
-  if (downloadProviders.length > 0) {
-    const sorted = [...downloadProviders].sort((a, b) => a[3] - b[3]);
+  const installedDownloads = downloadProviders.filter(([pluginId]) => isInstalled(pluginId));
+  if (installedDownloads.length > 0) {
+    const sorted = [...installedDownloads].sort((a, b) => a[3] - b[3]);
     const dlRow: ProviderRow = {
       kind: "download",
       typeId: "download",
