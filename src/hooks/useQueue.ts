@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import type { QueueTrack, PlaylistLoadResult, PlaylistEntry } from "../types";
-import { trackToQueueEntry, queueEntryToQueueTrack } from "../queueEntry";
+import { trackToQueueEntry, queueEntryToQueueTrack, nextExternalKey } from "../queueEntry";
 import { buildManifest, buildState, diffThumbs, isContextRemote } from "../mainPlaylist";
 import { stripImageVersion } from "../utils/resolveImageUrl";
 
@@ -143,11 +143,22 @@ export function useQueue(
   }
 
   function playTracks(tracks: QueueTrack[], startIndex: number, context?: PlaylistContext | null) {
-    setQueue(tracks);
+    // Dedupe keys *within* the incoming batch so two copies of the same library
+    // track don't collide as React keys (e.g. a playlist that contains a track
+    // twice, or a plugin that re-emits the same item). Without this, React's
+    // reconciliation produces stale DOM that looks like a "stuck" first item.
+    const seen = new Set<string>();
+    const dedupedTracks = tracks.map(t => {
+      if (!seen.has(t.key)) { seen.add(t.key); return t; }
+      const fresh = nextExternalKey();
+      seen.add(fresh);
+      return { ...t, key: fresh };
+    });
+    setQueue(dedupedTracks);
     setQueueIndex(startIndex);
-    handlePlay(tracks[startIndex]);
+    handlePlay(dedupedTracks[startIndex]);
     if (queueModeRef.current === "shuffle") {
-      const order = generateShuffleOrder(tracks.length, startIndex);
+      const order = generateShuffleOrder(dedupedTracks.length, startIndex);
       setShuffleOrder(order);
       setShufflePosition(0);
     }
@@ -161,8 +172,29 @@ export function useQueue(
     return { duplicates, unique };
   }
 
+  // Ensure every incoming track has a key not already used by the existing
+  // queue or by an earlier sibling in the same batch. Adding a library track
+  // that's already enqueued (or two copies of the same track in one batch)
+  // would otherwise produce React key collisions, which break reconciliation
+  // and leave stale DOM nodes — visible as "phantom" first items that can't
+  // be dragged. Reuse the original key when free; mint a fresh `ext:N` when
+  // it collides.
+  function withUniqueKeys(newTracks: QueueTrack[]): QueueTrack[] {
+    const used = new Set(queueRef.current.map(t => t.key));
+    return newTracks.map(t => {
+      if (!used.has(t.key)) {
+        used.add(t.key);
+        return t;
+      }
+      const fresh = nextExternalKey();
+      used.add(fresh);
+      return { ...t, key: fresh };
+    });
+  }
+
   function enqueueTracks(newTracks: QueueTrack[]) {
-    setQueue(prev => [...prev, ...newTracks]);
+    const tracks = withUniqueKeys(newTracks);
+    setQueue(prev => [...prev, ...tracks]);
   }
 
   function playNext(source: "user" | "auto" = "user"): boolean {
@@ -435,32 +467,36 @@ export function useQueue(
   }
 
   function insertAtPosition(newTracks: QueueTrack[], position: number) {
+    const tracks = withUniqueKeys(newTracks);
     setQueue(prev => {
       const next = [...prev];
-      next.splice(position, 0, ...newTracks);
+      next.splice(position, 0, ...tracks);
       return next;
     });
-    setQueueIndex(prev => position <= prev ? prev + newTracks.length : prev);
+    setQueueIndex(prev => position <= prev ? prev + tracks.length : prev);
   }
 
   function playNextInQueue(track: QueueTrack) {
+    const [unique] = withUniqueKeys([track]);
     const idx = queueIndexRef.current;
     setQueue(prev => {
       const next = [...prev];
-      next.splice(idx + 1, 0, track);
+      next.splice(idx + 1, 0, unique);
       return next;
     });
   }
 
   function addToQueue(track: QueueTrack) {
-    setQueue(prev => [...prev, track]);
+    const [unique] = withUniqueKeys([track]);
+    setQueue(prev => [...prev, unique]);
   }
 
   function addToQueueAndPlay(track: QueueTrack, source: "user" | "auto" = "user") {
+    const [unique] = withUniqueKeys([track]);
     const newIndex = queueRef.current.length;
-    setQueue(prev => [...prev, track]);
+    setQueue(prev => [...prev, unique]);
     setQueueIndex(newIndex);
-    handlePlay(track, source);
+    handlePlay(unique, source);
   }
 
   async function savePlaylist() {

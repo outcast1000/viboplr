@@ -480,6 +480,15 @@ export function usePlayback(
   async function handlePlay(track: QueueTrack, source: "user" | "auto" = "user") {
     if (eqEnabledRef.current) ensureAudioGraph();
     cancelCrossfade();
+    // Pause the outgoing audio synchronously so its `ended` event can't fire
+    // during the async resolveTrackSrc / playWithSrc await window. Without this
+    // pause, the previously-playing track can finish naturally between the user
+    // initiating a new play and `playWithSrc` actually swapping the source —
+    // that fires onEnded → handleNext("auto") → addToQueueAndPlay against the
+    // already-replaced queue, leaking the old track or a stray auto-continue
+    // pick into the new queue.
+    [audioRefA.current, audioRefB.current].forEach(el => { if (el) el.pause(); });
+    if (videoRef.current) videoRef.current.pause();
     // Reuse in-flight preload resolution for the same track instead of starting over
     const inflight = preloadPromiseRef.current;
     const reusePreload = inflight && inflight.key === track.key;
