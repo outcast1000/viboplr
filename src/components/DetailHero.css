@@ -21,14 +21,96 @@
       rgba(var(--bg-primary-rgb), 0.2) 70%,
       rgba(var(--bg-primary-rgb), 0.85) 100%);
   pointer-events: none;
-  z-index: 0;
+  z-index: 2;
 }
 
+/* Base background is static (the original pre-effect look = "Disabled"). */
 .detail-hero-bg { position: absolute; inset: 0; z-index: 0; }
+
+/* Any motion look oversizes the background so pan/zoom never reveals edges.
+   The substring match is safe: the only `hero-motion-*` classes are the six
+   below, generated from the fixed HeroMotion enum in DetailHero.tsx. */
+.detail-hero[class*="hero-motion-"] .detail-hero-bg {
+  inset: -8%;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.detail-hero.hero-motion-current .detail-hero-bg {
+  animation: hero-motion-current 28s ease-in-out infinite alternate;
+}
+.detail-hero.hero-motion-focal .detail-hero-bg {
+  animation: hero-motion-focal 32s ease-in-out infinite;
+}
+.detail-hero.hero-motion-breathe .detail-hero-bg {
+  animation: hero-motion-breathe 12s ease-in-out infinite;
+}
+.detail-hero.hero-motion-push .detail-hero-bg {
+  animation: hero-motion-push 24s ease-in-out infinite;
+}
+.detail-hero.hero-motion-sway .detail-hero-bg {
+  animation: hero-motion-sway 20s ease-in-out infinite alternate;
+}
+.detail-hero.hero-motion-wander .detail-hero-bg {
+  animation: hero-motion-wander 40s ease-in-out infinite;
+}
+
+@keyframes hero-motion-current {
+  0%   { transform: scale(1.08) translate(0, 0); }
+  25%  { transform: scale(1.14) translate(-2.5%, -1.5%); }
+  50%  { transform: scale(1.12) translate(2%, 1.5%); }
+  75%  { transform: scale(1.16) translate(1.5%, -2%); }
+  100% { transform: scale(1.10) translate(-2%, 2%); }
+}
+@keyframes hero-motion-focal {
+  0%   { transform: scale(1.10); transform-origin: 30% 28%; }
+  24%  { transform: scale(1.22); transform-origin: 30% 28%; }
+  26%  { transform: scale(1.10); transform-origin: 72% 35%; }
+  50%  { transform: scale(1.24); transform-origin: 72% 35%; }
+  52%  { transform: scale(1.10); transform-origin: 50% 70%; }
+  76%  { transform: scale(1.22); transform-origin: 50% 70%; }
+  78%  { transform: scale(1.10); transform-origin: 40% 20%; }
+  100% { transform: scale(1.18); transform-origin: 40% 20%; }
+}
+@keyframes hero-motion-breathe {
+  0%   { transform: scale(1.06); }
+  50%  { transform: scale(1.20); }
+  100% { transform: scale(1.06); }
+}
+@keyframes hero-motion-push {
+  0%   { transform: scale(1.05) translate(2%, 2%); }
+  92%  { transform: scale(1.24) translate(-2%, -3%); }
+  100% { transform: scale(1.24) translate(-2%, -3%); }
+}
+@keyframes hero-motion-sway {
+  0%   { transform: scale(1.16) translateX(-5%); }
+  100% { transform: scale(1.16) translateX(5%); }
+}
+@keyframes hero-motion-wander {
+  0%   { transform: scale(1.12); transform-origin: 35% 30%; }
+  17%  { transform: scale(1.20); transform-origin: 65% 45%; }
+  33%  { transform: scale(1.10); transform-origin: 50% 65%; }
+  50%  { transform: scale(1.22); transform-origin: 25% 50%; }
+  67%  { transform: scale(1.14); transform-origin: 70% 25%; }
+  83%  { transform: scale(1.20); transform-origin: 45% 55%; }
+  100% { transform: scale(1.12); transform-origin: 35% 30%; }
+}
+
+/* B&W look modifier (applied on the hero root by DetailHero). */
+.detail-hero.hero-bw .detail-hero-bg {
+  filter: grayscale(1) contrast(1.25) brightness(0.92);
+}
+.detail-hero.hero-bw .detail-hero-art img {
+  filter: grayscale(1) contrast(1.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-hero-bg { animation: none !important; inset: 0 !important; }
+}
 
 .detail-hero-row {
   position: relative;
-  z-index: 1;
+  z-index: 3;
   display: flex;
   align-items: flex-end;
   gap: 24px;
@@ -189,4 +271,40 @@
 
 .detail-hero + .section-wide .info-section-content {
   background: transparent;
+}
+
+/* --- Hero effect picker (top-right, hover-revealed) --- */
+.detail-hero-fx-select {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  z-index: 4;
+  max-width: 160px;
+  padding: 5px 9px;
+  border-radius: var(--ds-radius);
+  background: rgba(var(--bg-primary-rgb), 0.55);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+/* Hover-reveal: show while pointer is over the hero, or when focused for a11y. */
+.detail-hero:hover .detail-hero-fx-select,
+.detail-hero-fx-select:focus {
+  opacity: 1;
+}
+
+.detail-hero-fx-select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Note: option color/background is only partially honored by native selects
+   on macOS WebKit — harmless fallback to the system menu styling there. */
+.detail-hero-fx-select option {
+  color: var(--text-primary);
+  background: var(--bg-surface);
 }

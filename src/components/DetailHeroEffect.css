@@ -1,0 +1,187 @@
+/* Old-TV / VHS hero effect — "max snow" dial. GPU-only; sits at z-index 1
+   inside .detail-hero (below the scrim). All layers are pointer-events:none. */
+.detail-hero-effect {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.detail-hero-effect > * {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* --- chroma bleed (VHS color fringing) --- */
+.tv-bleed {
+  mix-blend-mode: screen;
+  background: linear-gradient(90deg, rgba(255, 0, 80, 0), rgba(255, 0, 80, 0.34));
+  animation: tv-bleed-shift 3s ease-in-out infinite alternate;
+}
+.tv-bleed-2 {
+  mix-blend-mode: screen;
+  background: linear-gradient(270deg, rgba(0, 180, 255, 0), rgba(0, 180, 255, 0.34));
+  animation: tv-bleed-shift-2 3s ease-in-out infinite alternate;
+}
+@keyframes tv-bleed-shift {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(8px); }
+}
+@keyframes tv-bleed-shift-2 {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-8px); }
+}
+
+/* --- scanlines --- */
+.tv-scan {
+  mix-blend-mode: multiply;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.16) 0px,
+    rgba(0, 0, 0, 0.16) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+/* --- rolling tracking band --- */
+.tv-track {
+  height: 16px;
+  inset: auto 0 auto 0;
+  background: linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, 0.22),
+    rgba(255, 255, 255, 0)
+  );
+  filter: blur(1px);
+  animation: tv-track-roll 6s linear infinite;
+}
+@keyframes tv-track-roll {
+  0% { top: -10%; }
+  100% { top: 110%; }
+}
+
+/* --- TV snow / static (two tiled layers at different scale + speed) --- */
+.tv-noise,
+.tv-noise-2 {
+  background-image: var(--tv-noise);
+  background-repeat: repeat;
+  image-rendering: pixelated;
+}
+.tv-noise {
+  background-size: 128px 128px;
+  opacity: 0.85;
+  animation: tv-noise-a 0.35s steps(6) infinite;
+}
+.tv-noise-2 {
+  background-size: 90px 90px;
+  opacity: 0.6;
+  animation: tv-noise-b 0.28s steps(5) infinite;
+}
+@keyframes tv-noise-a {
+  0%   { background-position: 0 0; }
+  16%  { background-position: -37px 21px; }
+  33%  { background-position: 29px -33px; }
+  50%  { background-position: -21px -15px; }
+  66%  { background-position: 47px 35px; }
+  83%  { background-position: -51px 27px; }
+  100% { background-position: 13px -41px; }
+}
+@keyframes tv-noise-b {
+  0%   { background-position: 0 0; }
+  20%  { background-position: 23px -19px; }
+  40%  { background-position: -31px 27px; }
+  60%  { background-position: 17px 33px; }
+  80%  { background-position: -25px -13px; }
+  100% { background-position: 9px 7px; }
+}
+
+/* --- vignette (phosphor edges) --- */
+.tv-vignette {
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+}
+
+/* --- flicker (CRT brightness wobble) --- */
+.tv-flicker {
+  background: rgba(255, 255, 255, 0.03);
+  animation: tv-flicker 4s steps(30) infinite;
+}
+@keyframes tv-flicker {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+  93% { opacity: 0.2; }
+  97% { opacity: 0.9; }
+}
+
+/* --- glitch slice (bright band that jumps vertically + offsets) --- */
+.tv-slice {
+  height: 22px;
+  inset: auto 0 auto 0;
+  background: linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, 0.5),
+    rgba(255, 255, 255, 0)
+  );
+  mix-blend-mode: screen;
+  animation: tv-slice 2.6s steps(1) infinite;
+}
+@keyframes tv-slice {
+  0%   { top: 18%; transform: translateX(0); }
+  10%  { top: 18%; transform: translateX(12px); }
+  11%  { transform: translateX(0); }
+  40%  { top: 62%; transform: translateX(0); }
+  48%  { top: 62%; transform: translateX(-14px); }
+  49%  { transform: translateX(0); }
+  100% { top: 62%; }
+}
+
+/* --- per-look intensity / colour overrides --- */
+/* silent-film: lighter screen-blended grain */
+.look-silent-film .tv-noise { opacity: 0.5; mix-blend-mode: screen; }
+/* signal-lost: stronger, cyan/magenta bleed + lighter grain */
+.look-signal-lost .tv-noise { opacity: 0.4; }
+.look-signal-lost .tv-bleed {
+  background: linear-gradient(90deg, rgba(255, 0, 80, 0), rgba(255, 0, 80, 0.5));
+}
+.look-signal-lost .tv-bleed-2 {
+  background: linear-gradient(270deg, rgba(0, 255, 200, 0), rgba(0, 255, 200, 0.5));
+}
+/* daydream: barely-there grain + soft vignette */
+.look-daydream .tv-noise { opacity: 0.14; mix-blend-mode: screen; }
+.look-daydream .tv-vignette {
+  background: radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.4) 100%);
+}
+/* broadcast: lighter VHS dial */
+.look-broadcast .tv-noise { opacity: 0.45; }
+.look-broadcast .tv-bleed {
+  background: linear-gradient(90deg, rgba(255, 0, 80, 0), rgba(255, 0, 80, 0.2));
+}
+.look-broadcast .tv-bleed-2 {
+  background: linear-gradient(270deg, rgba(0, 180, 255, 0), rgba(0, 180, 255, 0.2));
+}
+
+/* --- paused: hero off-screen or window hidden --- */
+.detail-hero-effect.tv-paused * {
+  animation-play-state: paused !important;
+}
+
+/* --- reduced motion: static fallback (faint scanlines + vignette only) --- */
+@media (prefers-reduced-motion: reduce) {
+  .tv-noise,
+  .tv-noise-2,
+  .tv-bleed,
+  .tv-bleed-2,
+  .tv-track,
+  .tv-slice,
+  .tv-flicker {
+    display: none;
+  }
+  .tv-scan,
+  .tv-vignette {
+    animation: none;
+  }
+}
