@@ -28,6 +28,7 @@ export interface HomeViewProps {
   onTrackContextMenu: (track: Track, e: React.MouseEvent) => void;
   onShelfItemClick: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   onShelfItemContextMenu: (shelf: ResolvedShelf, item: HomeShelfItem, e: React.MouseEvent) => void;
+  onShelfItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
 }
 
 export function HomeView(props: HomeViewProps) {
@@ -95,6 +96,7 @@ export function HomeView(props: HomeViewProps) {
           artistImageFor={(name) => artistImages.getImage(name)}
           onItemClick={props.onShelfItemClick}
           onItemContextMenu={props.onShelfItemContextMenu}
+          onItemPlay={props.onShelfItemPlay}
         />
       ))}
 

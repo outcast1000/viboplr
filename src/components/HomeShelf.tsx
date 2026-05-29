@@ -5,6 +5,7 @@ import type { HomeShelfItem } from "../types/plugin";
 import type { Track } from "../types";
 import { isVideoTrack } from "../utils";
 import { useVideoFrameQueue } from "../hooks/useVideoFrameQueueContext";
+import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
 import "./HomeView.css";
 
 // Resolve any image path (http URL, data URI, or local filesystem path with
@@ -29,9 +30,10 @@ export interface HomeShelfProps {
     item: HomeShelfItem,
     e: React.MouseEvent,
   ) => void;
+  onItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
 }
 
-export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, onItemContextMenu }: HomeShelfProps) {
+export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay }: HomeShelfProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const frameQueue = useVideoFrameQueue();
   // metadata key (artist::title) -> resolved library track id
@@ -100,7 +102,7 @@ export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, o
         </div>
       </div>
       <div className="home-shelf-scroller" ref={scrollerRef}>
-        {shelf.items.map((item, i) => renderCard(shelf, item, i, { albumImageFor, artistImageFor, onItemClick, onItemContextMenu, videoFrames }))}
+        {shelf.items.map((item, i) => renderCard(shelf, item, i, { albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay, videoFrames }))}
       </div>
     </section>
   );
@@ -111,8 +113,22 @@ interface RenderCtx {
   artistImageFor: (name: string) => string | null;
   onItemClick: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   onItemContextMenu: (shelf: ResolvedShelf, item: HomeShelfItem, e: React.MouseEvent) => void;
+  onItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   // key (artist::title) -> already-converted file URL (from VideoFrameQueue)
   videoFrames: Record<string, string>;
+}
+
+function playButton(shelf: ResolvedShelf, item: HomeShelfItem, ctx: RenderCtx) {
+  if (resolveShelfPlayAction(shelf.displayKind, item).kind === "none") return null;
+  return (
+    <button
+      className="ds-card-play"
+      title="Play"
+      onClick={(e) => { e.stopPropagation(); ctx.onItemPlay(shelf, item); }}
+    >
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+    </button>
+  );
 }
 
 function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx: RenderCtx) {
@@ -126,6 +142,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
       <div key={`${idx}-${it.name}`} className="ds-card home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
           {src ? <img src={src} alt={it.name} /> : <div className="home-shelf-card-fallback">{it.name[0]?.toUpperCase() ?? "?"}</div>}
+          {playButton(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
           <div className="ds-card-title">{it.name}</div>
@@ -141,6 +158,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
       <div key={`${idx}-${it.name}`} className="ds-card ds-card--circular home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
           {src ? <img src={src} alt={it.name} /> : <div className="home-shelf-card-fallback">{it.name[0]?.toUpperCase() ?? "?"}</div>}
+          {playButton(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
           <div className="ds-card-title">{it.name}</div>
@@ -155,6 +173,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
       <div key={`${idx}-${it.id}`} className="ds-card home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
           {src ? <img src={src} alt={it.name} /> : <div className="home-shelf-card-fallback">{it.name[0]?.toUpperCase() ?? "?"}</div>}
+          {playButton(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
           <div className="ds-card-title">{it.name}</div>
@@ -180,6 +199,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     <div key={`${idx}-${it.track.title}`} className="ds-card home-shelf-card home-shelf-card--track" onClick={onClick} onContextMenu={onCtx}>
       <div className="ds-card-art">
         {src ? <img src={src} alt={it.track.title} /> : <div className="home-shelf-card-fallback">{it.track.title[0]?.toUpperCase() ?? "?"}</div>}
+        {playButton(shelf, item, ctx)}
       </div>
       <div className="ds-card-body">
         <div className="ds-card-title">{it.track.title}</div>

@@ -25,6 +25,7 @@ import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, next
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { resolveImageUrl } from "./utils/resolveImageUrl";
+import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext, buildSearchUrl } from "./searchProviders";
 import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
@@ -1460,18 +1461,34 @@ function App() {
   const pushStateRef = useRef(pushAndScroll);
   pushStateRef.current = pushAndScroll;
 
+  // Helper for playing playlist items (with optional radio seed sentinel)
+  const playShelfPlaylistItem = useCallback((it: { name: string; coverUrl?: string | null; tracks: PluginTrack[] }) => {
+    const first = it.tracks[0] as unknown as { __radioSeed?: Track } | undefined;
+    if (first?.__radioSeed) {
+      const seed = first.__radioSeed;
+      contextMenuActions.startRadio({
+        title: seed.title,
+        artistName: seed.artist_name,
+        coverPath: seed.image_url ?? it.coverUrl ?? null,
+      });
+      return;
+    }
+    const queueTracks = it.tracks.map(pluginTrackToQueueTrack);
+    queueHook.playTracks(queueTracks, 0, { name: it.name, imagePath: it.coverUrl ?? null, source: "playlist" });
+  }, [contextMenuActions, pluginTrackToQueueTrack, queueHook]);
+
   // Home shelf item click handler
   const handleHomeShelfItemClick = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
+    // Clicking a card body navigates to the entity's detail page (the play
+    // button on the card handles playing). Name-based navigation falls back to
+    // a synthetic detail page when the entity isn't in the library.
     if (shelf.displayKind === "album-cards") {
-      const it = item as { libraryId?: number; name: string; artistName?: string; tracks?: PluginTrack[] };
+      const it = item as { libraryId?: number; name: string; artistName?: string };
       if (it.libraryId) {
         pushAndScroll();
         library.setSelectedAlbum(it.libraryId);
-        return;
-      }
-      if (it.tracks?.length) {
-        const queueTracks = it.tracks.map(pluginTrackToQueueTrack);
-        queueHook.playTracks(queueTracks, 0, { name: it.name });
+      } else {
+        library.navigateToAlbumByName(it.name, it.artistName).catch(console.error);
       }
       return;
     }
@@ -1480,30 +1497,46 @@ function App() {
       if (it.libraryId) {
         pushAndScroll();
         library.setSelectedArtist(it.libraryId);
+      } else {
+        library.navigateToArtistByName(it.name).catch(console.error);
       }
       return;
     }
     if (shelf.displayKind === "playlist-cards") {
-      const it = item as { name: string; coverUrl?: string; tracks: PluginTrack[] };
-      // Radio sentinel — click triggers backend generation rather than playing the placeholder list
-      const first = it.tracks[0] as unknown as { __radioSeed?: Track };
-      if (first && first.__radioSeed) {
-        const seed = first.__radioSeed;
-        contextMenuActions.startRadio({
-          title: seed.title,
-          artistName: seed.artist_name,
-          coverPath: seed.image_url ?? it.coverUrl ?? null,
-        });
-        return;
-      }
-      const queueTracks = it.tracks.map(pluginTrackToQueueTrack);
-      queueHook.playTracks(queueTracks, 0, { name: it.name, imagePath: it.coverUrl ?? null, source: "playlist" });
+      // Plugin playlist shelves have no detail page — clicking plays them.
+      playShelfPlaylistItem(item as { name: string; coverUrl?: string; tracks: PluginTrack[] });
       return;
     }
-    // track-rows
+    // track-rows — open the track detail page (synthetic if not in library)
     const it = item as { track: PluginTrack };
-    queueHook.playTracks([pluginTrackToQueueTrack(it.track)], 0);
-  }, [pushAndScroll, library, pluginTrackToQueueTrack, queueHook]);
+    library.navigateToTrackByName(it.track.title, it.track.artist_name ?? undefined, it.track.album_title ?? undefined).catch(console.error);
+  }, [pushAndScroll, library, playShelfPlaylistItem]);
+
+  const handleHomeShelfItemPlay = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
+    const action = resolveShelfPlayAction(shelf.displayKind, item);
+    switch (action.kind) {
+      case "album-id":
+        playActions.playAlbum(action.id);
+        return;
+      case "artist-id":
+        playActions.playArtist(action.id);
+        return;
+      case "radio":
+        contextMenuActions.startRadio({
+          title: action.seed.title,
+          artistName: action.seed.artist_name,
+          coverPath: action.seed.image_url ?? action.coverUrl ?? null,
+        });
+        return;
+      case "tracks": {
+        const queueTracks = action.tracks.map(pluginTrackToQueueTrack);
+        queueHook.playTracks(queueTracks, 0, action.context ? { name: action.context.name, imagePath: action.context.imagePath ?? null, source: action.context.source ?? null } : undefined);
+        return;
+      }
+      case "none":
+        return;
+    }
+  }, [playActions, contextMenuActions, pluginTrackToQueueTrack, queueHook]);
 
   const handleHomeShelfItemContextMenu = useCallback((_shelf: ResolvedShelf, _item: HomeShelfItem, e: React.MouseEvent) => {
     e.preventDefault();
@@ -3005,6 +3038,7 @@ function App() {
             onEnqueueTrack={(t) => queueHook.enqueueTracks([trackToQueueTrack(t)])}
             onTrackContextMenu={(t, e) => contextMenuActions.handleTrackContextMenu(e, t, new Set())}
             onShelfItemClick={handleHomeShelfItemClick}
+            onShelfItemPlay={handleHomeShelfItemPlay}
             onShelfItemContextMenu={handleHomeShelfItemContextMenu}
           />
 
