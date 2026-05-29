@@ -33,7 +33,7 @@ async function doLoad(): Promise<void> {
     if (isValidMode(stored)) {
       resolved = stored;
     } else {
-      // Migrate the legacy boolean (true -> worn-tape, false -> disabled).
+      // Migrate the legacy boolean (true -> by-artist, false -> disabled).
       const legacy = await store.get<unknown>(LEGACY_KEY);
       resolved = coerceEffectMode(stored, legacy);
       // Only persist when we actually migrated a legacy value, so a fresh

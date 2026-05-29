@@ -58,7 +58,7 @@ const STORE_DEFAULTS = {
   trackDetailTabOrder: null,
   streamResolverOrder: null,
   minimizeToMiniPlayer: false,
-  heroEffectMode: "worn-tape",
+  heroEffectMode: "by-artist",
 };
 
 export interface AppStore {

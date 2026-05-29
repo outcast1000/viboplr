@@ -30,20 +30,6 @@ describe("DetailHeroEffect", () => {
     expect(container.querySelector(".detail-hero-effect")).toBeNull();
   });
 
-  it("renders the full VHS layer set for worn-tape", () => {
-    const { container } = render(<DetailHeroEffect look={getLook("worn-tape")} />);
-    const root = container.querySelector(".detail-hero-effect");
-    expect(root).not.toBeNull();
-    expect(root?.classList.contains("look-worn-tape")).toBe(true);
-    expect(container.querySelector(".tv-bleed")).not.toBeNull();
-    expect(container.querySelector(".tv-bleed-2")).not.toBeNull();
-    expect(container.querySelector(".tv-scan")).not.toBeNull();
-    expect(container.querySelector(".tv-track")).not.toBeNull();
-    expect(container.querySelector(".tv-noise")).not.toBeNull();
-    expect(container.querySelector(".tv-noise-2")).not.toBeNull();
-    expect(container.querySelector(".tv-vignette")).not.toBeNull();
-  });
-
   it("renders only the layers a look declares (late-night: scan+flicker+vignette)", () => {
     const { container } = render(<DetailHeroEffect look={getLook("late-night")} />);
     expect(container.querySelector(".tv-scan")).not.toBeNull();
@@ -54,14 +40,35 @@ describe("DetailHeroEffect", () => {
     expect(container.querySelector(".tv-track")).toBeNull();
   });
 
-  it("renders the glitch slice for signal-lost", () => {
-    const { container } = render(<DetailHeroEffect look={getLook("signal-lost")} />);
-    expect(container.querySelector(".tv-slice")).not.toBeNull();
-    expect(container.querySelector(".tv-bleed")).not.toBeNull();
+  it("renders the aurora layers for aurora-drift", () => {
+    const { container } = render(<DetailHeroEffect look={getLook("aurora-drift")} />);
+    const root = container.querySelector(".detail-hero-effect");
+    expect(root?.classList.contains("look-aurora-drift")).toBe(true);
+    expect(container.querySelector(".tv-auroraA")).not.toBeNull();
+    expect(container.querySelector(".tv-auroraB")).not.toBeNull();
+    expect(container.querySelector(".tv-vignette")).not.toBeNull();
+  });
+
+  it("renders the leak layers for light-leak", () => {
+    const { container } = render(<DetailHeroEffect look={getLook("light-leak")} />);
+    expect(container.querySelector(".tv-leakWarm")).not.toBeNull();
+    expect(container.querySelector(".tv-leakCorner")).not.toBeNull();
+  });
+
+  it("renders the bloom + fringe layers for prism-bloom", () => {
+    const { container } = render(<DetailHeroEffect look={getLook("prism-bloom")} />);
+    expect(container.querySelector(".tv-bloom")).not.toBeNull();
+    expect(container.querySelector(".tv-fringe")).not.toBeNull();
+  });
+
+  it("renders the grid layers for neon-grid", () => {
+    const { container } = render(<DetailHeroEffect look={getLook("neon-grid")} />);
+    expect(container.querySelector(".tv-grid")).not.toBeNull();
+    expect(container.querySelector(".tv-gridGlow")).not.toBeNull();
   });
 
   it("sets the noise texture as a CSS custom property", () => {
-    const { container } = render(<DetailHeroEffect look={getLook("worn-tape")} />);
+    const { container } = render(<DetailHeroEffect look={getLook("silent-film")} />);
     const root = container.querySelector(".detail-hero-effect") as HTMLElement;
     expect(root.style.getPropertyValue("--tv-noise")).toContain("url(");
   });

@@ -80,9 +80,15 @@ export function DetailHeroEffect({ look }: Props) {
       {l.scan && <div className="tv-scan" />}
       {l.flicker && <div className="tv-flicker" />}
       {l.track && <div className="tv-track" />}
-      {l.slice && <div className="tv-slice" />}
       {l.noise && <div className="tv-noise" />}
-      {l.noise2 && <div className="tv-noise-2" />}
+      {l.auroraA && <div className="tv-auroraA" />}
+      {l.auroraB && <div className="tv-auroraB" />}
+      {l.leakWarm && <div className="tv-leakWarm" />}
+      {l.leakCorner && <div className="tv-leakCorner" />}
+      {l.bloom && <div className="tv-bloom" />}
+      {l.fringe && <div className="tv-fringe" />}
+      {l.grid && <div className="tv-grid" />}
+      {l.gridGlow && <div className="tv-gridGlow" />}
       {l.vignette && <div className="tv-vignette" />}
     </div>
   );

@@ -9,38 +9,68 @@ import {
   resolveHeroLook,
   coerceEffectMode,
   isValidMode,
+  HERO_EFFECT_DEFAULT_MODE,
 } from "../heroLooks";
 
+const REMOVED = ["worn-tape", "signal-lost", "channel-surf"];
+const ADDED = ["aurora-drift", "light-leak", "prism-bloom", "neon-grid"];
+
 describe("heroLooks data", () => {
-  it("defines exactly 8 looks", () => {
-    expect(LOOKS).toHaveLength(8);
-    expect(LOOK_IDS).toHaveLength(8);
+  it("defines exactly 9 looks", () => {
+    expect(LOOKS).toHaveLength(9);
+    expect(LOOK_IDS).toHaveLength(9);
+  });
+
+  it("no longer contains the removed looks", () => {
+    for (const id of REMOVED) expect(LOOK_IDS).not.toContain(id);
+  });
+
+  it("contains the four new looks", () => {
+    for (const id of ADDED) expect(LOOK_IDS).toContain(id);
+  });
+
+  it("the new looks have the expected motion and layers", () => {
+    expect(getLook("aurora-drift").motion).toBe("sway");
+    expect(getLook("aurora-drift").layers.auroraA).toBe(true);
+    expect(getLook("aurora-drift").layers.auroraB).toBe(true);
+    expect(getLook("aurora-drift").layers.vignette).toBe(true);
+
+    expect(getLook("light-leak").motion).toBe("breathe");
+    expect(getLook("light-leak").layers.leakWarm).toBe(true);
+    expect(getLook("light-leak").layers.leakCorner).toBe(true);
+
+    expect(getLook("prism-bloom").motion).toBe("focal");
+    expect(getLook("prism-bloom").layers.bloom).toBe(true);
+    expect(getLook("prism-bloom").layers.fringe).toBe(true);
+
+    expect(getLook("neon-grid").motion).toBe("wander");
+    expect(getLook("neon-grid").layers.grid).toBe(true);
+    expect(getLook("neon-grid").layers.gridGlow).toBe(true);
   });
 
   it("LOOK_IDS mirrors LOOKS order", () => {
     expect(LOOK_IDS).toEqual(LOOKS.map((l) => l.id));
   });
 
-  it("exposes 11 dropdown options in order (disabled, 8 looks, random, by-artist)", () => {
+  it("exposes 12 dropdown options in order (disabled, 9 looks, random, by-artist)", () => {
     const values = EFFECT_MODE_OPTIONS.map((o) => o.value);
-    expect(values).toEqual([
-      "disabled",
-      ...LOOK_IDS,
-      "random",
-      "by-artist",
-    ]);
+    expect(values).toEqual(["disabled", ...LOOK_IDS, "random", "by-artist"]);
     expect(EFFECT_MODE_OPTIONS.every((o) => o.label.length > 0)).toBe(true);
   });
 
   it("getLook returns the matching look", () => {
-    expect(getLook("worn-tape").id).toBe("worn-tape");
+    expect(getLook("late-night").id).toBe("late-night");
     expect(getLook("minimal").motion).toBe("current");
   });
 
   it("hasOverlayLayers is false only for minimal", () => {
     expect(hasOverlayLayers(getLook("minimal"))).toBe(false);
-    expect(hasOverlayLayers(getLook("worn-tape"))).toBe(true);
+    expect(hasOverlayLayers(getLook("aurora-drift"))).toBe(true);
     expect(hasOverlayLayers(getLook("daydream"))).toBe(true);
+  });
+
+  it("minimal stays last in the registry", () => {
+    expect(LOOK_IDS[LOOK_IDS.length - 1]).toBe("minimal");
   });
 });
 
@@ -67,13 +97,14 @@ describe("resolveHeroLook", () => {
   it("returns the named look for a look id", () => {
     expect(resolveHeroLook("late-night", "X", 0.5)).toBe("late-night");
     expect(resolveHeroLook("minimal", "X", 0.5)).toBe("minimal");
+    expect(resolveHeroLook("aurora-drift", "X", 0.5)).toBe("aurora-drift");
   });
 
   it("random maps the roll across the looks and never returns disabled", () => {
     expect(resolveHeroLook("random", "X", 0)).toBe(LOOK_IDS[0]);
     expect(resolveHeroLook("random", "X", 0.999999)).toBe(LOOK_IDS[LOOK_IDS.length - 1]);
-    for (let i = 0; i < 50; i++) {
-      const id = resolveHeroLook("random", "X", i / 50);
+    for (const roll of [0, 0.5, 0.999, 1, -1]) {
+      const id = resolveHeroLook("random", "X", roll);
       expect(LOOK_IDS).toContain(id);
     }
   });
@@ -102,18 +133,27 @@ describe("coerceEffectMode (migration + validation)", () => {
     expect(coerceEffectMode("silent-film", undefined)).toBe("silent-film");
     expect(coerceEffectMode("disabled", undefined)).toBe("disabled");
     expect(coerceEffectMode("random", undefined)).toBe("random");
+    expect(coerceEffectMode("aurora-drift", undefined)).toBe("aurora-drift");
   });
-  it("migrates legacy boolean true -> worn-tape, false -> disabled", () => {
-    expect(coerceEffectMode(undefined, true)).toBe("worn-tape");
+  it("migrates legacy boolean true -> by-artist, false -> disabled", () => {
+    expect(coerceEffectMode(undefined, true)).toBe("by-artist");
     expect(coerceEffectMode(undefined, false)).toBe("disabled");
   });
   it("prefers a valid stored mode over the legacy boolean", () => {
     expect(coerceEffectMode("daydream", false)).toBe("daydream");
   });
-  it("falls back to default worn-tape when nothing valid is present", () => {
-    expect(coerceEffectMode(undefined, undefined)).toBe("worn-tape");
-    expect(coerceEffectMode("nonsense", undefined)).toBe("worn-tape");
-    expect(coerceEffectMode(42, undefined)).toBe("worn-tape");
+  it("treats a removed look id as invalid and falls back to default", () => {
+    expect(coerceEffectMode("worn-tape", undefined)).toBe("by-artist");
+    expect(coerceEffectMode("signal-lost", undefined)).toBe("by-artist");
+    expect(coerceEffectMode("channel-surf", undefined)).toBe("by-artist");
+  });
+  it("falls back to default by-artist when nothing valid is present", () => {
+    expect(coerceEffectMode(undefined, undefined)).toBe("by-artist");
+    expect(coerceEffectMode("nonsense", undefined)).toBe("by-artist");
+    expect(coerceEffectMode(42, undefined)).toBe("by-artist");
+  });
+  it("HERO_EFFECT_DEFAULT_MODE is by-artist", () => {
+    expect(HERO_EFFECT_DEFAULT_MODE).toBe("by-artist");
   });
 });
 
@@ -122,6 +162,11 @@ describe("isValidMode", () => {
     for (const o of EFFECT_MODE_OPTIONS) {
       expect(isValidMode(o.value)).toBe(true);
     }
+  });
+  it("rejects removed look ids", () => {
+    expect(isValidMode("worn-tape")).toBe(false);
+    expect(isValidMode("signal-lost")).toBe(false);
+    expect(isValidMode("channel-surf")).toBe(false);
   });
   it("rejects unknown strings and non-strings", () => {
     expect(isValidMode("nonsense")).toBe(false);

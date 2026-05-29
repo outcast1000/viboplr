@@ -26,8 +26,8 @@ beforeEach(() => {
 });
 
 describe("heroEffectMode store", () => {
-  it("defaults to worn-tape before any load", () => {
-    expect(getHeroEffectModeSnapshot()).toBe("worn-tape");
+  it("defaults to by-artist before any load", () => {
+    expect(getHeroEffectModeSnapshot()).toBe("by-artist");
   });
 
   it("setHeroEffectMode updates the snapshot and persists the string", () => {
@@ -40,7 +40,7 @@ describe("heroEffectMode store", () => {
     const cb = vi.fn();
     const unsub = subscribeHeroEffectMode(cb);
     cb.mockClear();
-    setHeroEffectMode("signal-lost");
+    setHeroEffectMode("daydream");
     expect(cb).toHaveBeenCalledTimes(1);
     unsub();
   });
@@ -49,7 +49,7 @@ describe("heroEffectMode store", () => {
     const cb = vi.fn();
     const unsub = subscribeHeroEffectMode(cb);
     cb.mockClear();
-    setHeroEffectMode("worn-tape"); // already default
+    setHeroEffectMode("by-artist"); // already default
     expect(cb).not.toHaveBeenCalled();
     expect(setMock).not.toHaveBeenCalled();
     unsub();
@@ -64,11 +64,19 @@ describe("heroEffectMode store", () => {
     expect(cb).toHaveBeenCalled();
   });
 
-  it("migrates a legacy boolean true to worn-tape and persists it", async () => {
+  it("falls back to default when a removed look id is stored", async () => {
+    // A user who had `worn-tape` saved before it was removed. The stored value
+    // fails isValidMode, no legacy boolean is present -> default by-artist.
+    getMock.mockResolvedValueOnce("worn-tape").mockResolvedValueOnce(undefined);
+    await loadHeroEffectModeForTest();
+    expect(getHeroEffectModeSnapshot()).toBe("by-artist");
+  });
+
+  it("migrates a legacy boolean true to by-artist and persists it", async () => {
     getMock.mockResolvedValueOnce(undefined).mockResolvedValueOnce(true);
     await loadHeroEffectModeForTest();
-    expect(getHeroEffectModeSnapshot()).toBe("worn-tape");
-    expect(setMock).toHaveBeenCalledWith("heroEffectMode", "worn-tape");
+    expect(getHeroEffectModeSnapshot()).toBe("by-artist");
+    expect(setMock).toHaveBeenCalledWith("heroEffectMode", "by-artist");
   });
 
   it("migrates a legacy boolean false to disabled and persists it", async () => {
@@ -78,10 +86,10 @@ describe("heroEffectMode store", () => {
     expect(setMock).toHaveBeenCalledWith("heroEffectMode", "disabled");
   });
 
-  it("keeps default when nothing is stored", async () => {
+  it("keeps default (by-artist) when nothing is stored", async () => {
     getMock.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
     await loadHeroEffectModeForTest();
-    expect(getHeroEffectModeSnapshot()).toBe("worn-tape");
+    expect(getHeroEffectModeSnapshot()).toBe("by-artist");
   });
 
   it("does not persist the default on a fresh install (no stored, no legacy)", async () => {

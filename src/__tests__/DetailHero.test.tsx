@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, cleanup, fireEvent } from "@testing-library/react";
 import { DetailHero } from "../components/DetailHero";
 import { __resetHeroEffectModeForTest } from "../heroEffectMode";
-import { EFFECT_MODE_OPTIONS } from "../heroLooks";
+import { EFFECT_MODE_OPTIONS, resolveHeroLook, getLook } from "../heroLooks";
 
 vi.mock("../store", () => ({
   store: {
@@ -48,19 +48,23 @@ function getSelect(container: HTMLElement): HTMLSelectElement {
 }
 
 describe("DetailHero effect picker", () => {
-  it("renders a select with all 11 mode options", () => {
+  it("renders a select with all 12 mode options", () => {
     const { container } = renderHero();
     const select = getSelect(container);
     expect(select).not.toBeNull();
     expect(select.querySelectorAll("option")).toHaveLength(EFFECT_MODE_OPTIONS.length);
-    expect(EFFECT_MODE_OPTIONS).toHaveLength(11);
+    expect(EFFECT_MODE_OPTIONS).toHaveLength(12);
   });
 
-  it("defaults to worn-tape and renders the effect overlay", () => {
+  it("defaults to by-artist and renders the resolved look's overlay + motion", () => {
     const { container } = renderHero();
-    expect(getSelect(container).value).toBe("worn-tape");
+    expect(getSelect(container).value).toBe("by-artist");
+    // by-artist resolves deterministically from the hero title ("Test Title").
+    const lookId = resolveHeroLook("by-artist", "Test Title", 0);
+    expect(lookId).not.toBeNull(); // by-artist never resolves to null
+    const motion = getLook(lookId!).motion;
     expect(container.querySelector(".detail-hero-effect")).not.toBeNull();
-    expect(container.querySelector(".detail-hero.hero-motion-wander")).not.toBeNull();
+    expect(container.querySelector(`.detail-hero.hero-motion-${motion}`)).not.toBeNull();
   });
 
   it("Disabled removes the overlay and the motion class (static hero)", () => {

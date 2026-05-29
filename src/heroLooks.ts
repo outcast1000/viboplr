@@ -7,13 +7,14 @@ export type HeroMotion =
   | "wander";
 
 export type HeroLookId =
-  | "worn-tape"
   | "late-night"
   | "silent-film"
-  | "signal-lost"
   | "daydream"
   | "broadcast"
-  | "channel-surf"
+  | "aurora-drift"
+  | "light-leak"
+  | "prism-bloom"
+  | "neon-grid"
   | "minimal";
 
 export type HeroEffectMode = "disabled" | HeroLookId | "random" | "by-artist";
@@ -24,12 +25,19 @@ export interface HeroLayers {
   scan: boolean;
   flicker: boolean;
   track: boolean;
-  slice: boolean;
   noise: boolean;
-  noise2: boolean;
   vignette: boolean;
   /** B&W background modifier; applied on the hero root, not the overlay. */
   bw: boolean;
+  // --- new aesthetic-family layers ---
+  auroraA: boolean;
+  auroraB: boolean;
+  leakWarm: boolean;
+  leakCorner: boolean;
+  bloom: boolean;
+  fringe: boolean;
+  grid: boolean;
+  gridGlow: boolean;
 }
 
 export interface HeroLook {
@@ -39,7 +47,7 @@ export interface HeroLook {
   layers: HeroLayers;
 }
 
-const DEFAULT_MODE: HeroEffectMode = "worn-tape";
+const DEFAULT_MODE: HeroEffectMode = "by-artist";
 
 function layers(partial: Partial<HeroLayers>): HeroLayers {
   return {
@@ -48,22 +56,22 @@ function layers(partial: Partial<HeroLayers>): HeroLayers {
     scan: false,
     flicker: false,
     track: false,
-    slice: false,
     noise: false,
-    noise2: false,
     vignette: false,
     bw: false,
+    auroraA: false,
+    auroraB: false,
+    leakWarm: false,
+    leakCorner: false,
+    bloom: false,
+    fringe: false,
+    grid: false,
+    gridGlow: false,
     ...partial,
   };
 }
 
 export const LOOKS: HeroLook[] = [
-  {
-    id: "worn-tape",
-    label: "Worn Tape",
-    motion: "wander",
-    layers: layers({ bleed: true, bleed2: true, scan: true, track: true, noise: true, noise2: true, vignette: true }),
-  },
   {
     id: "late-night",
     label: "Late Night TV",
@@ -75,12 +83,6 @@ export const LOOKS: HeroLook[] = [
     label: "Silent Film",
     motion: "push",
     layers: layers({ scan: true, flicker: true, noise: true, vignette: true, bw: true }),
-  },
-  {
-    id: "signal-lost",
-    label: "Signal Lost",
-    motion: "focal",
-    layers: layers({ bleed: true, bleed2: true, slice: true, noise: true, vignette: true }),
   },
   {
     id: "daydream",
@@ -95,10 +97,28 @@ export const LOOKS: HeroLook[] = [
     layers: layers({ bleed: true, bleed2: true, scan: true, track: true, noise: true, vignette: true }),
   },
   {
-    id: "channel-surf",
-    label: "Channel Surf",
+    id: "aurora-drift",
+    label: "Aurora Drift",
+    motion: "sway",
+    layers: layers({ auroraA: true, auroraB: true, vignette: true }),
+  },
+  {
+    id: "light-leak",
+    label: "Light Leak",
+    motion: "breathe",
+    layers: layers({ leakWarm: true, leakCorner: true, vignette: true }),
+  },
+  {
+    id: "prism-bloom",
+    label: "Prism Bloom",
+    motion: "focal",
+    layers: layers({ bloom: true, fringe: true, vignette: true }),
+  },
+  {
+    id: "neon-grid",
+    label: "Neon Grid",
     motion: "wander",
-    layers: layers({ scan: true, flicker: true, vignette: true }),
+    layers: layers({ grid: true, gridGlow: true, vignette: true }),
   },
   {
     id: "minimal",
@@ -174,7 +194,8 @@ export function resolveHeroLook(
  */
 export function coerceEffectMode(stored: unknown, legacy: unknown): HeroEffectMode {
   if (isValidMode(stored)) return stored;
-  if (legacy === true) return "worn-tape";
+  // Migrate the legacy boolean (true -> by-artist [the new default], false -> disabled).
+  if (legacy === true) return "by-artist";
   if (legacy === false) return "disabled";
   return DEFAULT_MODE;
 }
