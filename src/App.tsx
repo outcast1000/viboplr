@@ -1222,14 +1222,20 @@ function App() {
 
   // Home shelf item click handler
   const handleHomeShelfItemClick = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
+    // A plugin shelf can take over its own card-clicks (e.g. Spotify navigates
+    // into its playlist view). If a handler is registered, let it win.
+    if (shelf.pluginId && plugins.invokeHomeShelfItemClick(shelf.pluginId, shelf.id.slice(shelf.pluginId.length + 1), item)) {
+      return;
+    }
     // Clicking a card body navigates to the entity's detail page (the play
     // button on the card handles playing). Name-based navigation falls back to
     // a synthetic detail page when the entity isn't in the library.
     if (shelf.displayKind === "album-cards") {
       const it = item as { libraryId?: number; name: string; artistName?: string };
       if (it.libraryId) {
-        pushAndScroll();
-        library.setSelectedAlbum(it.libraryId);
+        // Route through the canonical handler so the view switches to the
+        // detail page (it also pushes nav history + clears other selections).
+        library.handleAlbumClick(it.libraryId, undefined, it.name, it.artistName);
       } else {
         library.navigateToAlbumByName(it.name, it.artistName).catch(console.error);
       }
@@ -1238,8 +1244,9 @@ function App() {
     if (shelf.displayKind === "artist-cards") {
       const it = item as { libraryId?: number; name: string };
       if (it.libraryId) {
-        pushAndScroll();
-        library.setSelectedArtist(it.libraryId);
+        // Canonical handler switches view + pushes nav history; setting the
+        // selected id alone leaves the view on Home (the detail render is gated on view).
+        library.handleArtistClick(it.libraryId, it.name);
       } else {
         library.navigateToArtistByName(it.name).catch(console.error);
       }
@@ -1253,7 +1260,7 @@ function App() {
     // track-rows — open the track detail page (synthetic if not in library)
     const it = item as { track: PluginTrack };
     library.navigateToTrackByName(it.track.title, it.track.artist_name ?? undefined, it.track.album_title ?? undefined).catch(console.error);
-  }, [pushAndScroll, library, playShelfPlaylistItem]);
+  }, [library, playShelfPlaylistItem, plugins]);
 
   const handleHomeShelfItemPlay = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
     const action = resolveShelfPlayAction(shelf.displayKind, item);

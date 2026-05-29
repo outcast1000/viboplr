@@ -512,6 +512,13 @@ export interface PluginHomeAPI {
     icon?: string;
   }): () => void;
   unregisterShelf(shelfId: string): void;
+  // Take over body-clicks on this shelf's cards. When a handler is registered,
+  // the host calls it instead of its default action (e.g. play). Use it to
+  // navigate into the plugin's own view for the clicked item. Returns an unsubscriber.
+  onItemClick(
+    shelfId: string,
+    handler: (item: HomeShelfItem) => void | Promise<void>,
+  ): () => void;
 }
 
 export type ImageFetchResult =

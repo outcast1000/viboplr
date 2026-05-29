@@ -127,6 +127,7 @@ Top-level logger. Writes to the app's frontend log stream. Prefer this over `con
 - `onFetchShelf(shelfId, handler)` — register a fetch handler for a shelf the plugin contributes (either via `contributes.homeShelves` in the manifest, or via `registerShelf` at runtime). Handler receives `(limit: number)` and returns `Promise<HomeShelfResult>`. Each handler call has a 5-second timeout — slow handlers are treated as `{ status: "error" }` for that cycle. Returns an unsubscriber.
 - `registerShelf(descriptor)` — register a shelf at runtime. `descriptor` is `{ id, title, displayKind, limit?, icon? }`. Use this when the set of shelves depends on user-specific state (e.g., one shelf per Spotify section). Returns an unsubscriber. The static manifest path is for shelves whose set is known at build time; runtime registration is for everything else.
 - `unregisterShelf(shelfId)` — drop a runtime-registered shelf.
+- `onItemClick(shelfId, handler)` — take over body-clicks on this shelf's cards. Handler receives the clicked `HomeShelfItem`. When registered, the host calls it **instead of** the default click action (navigate-to-detail for `album-cards`/`artist-cards`, play for `playlist-cards`/`track-rows`) — use it to navigate into the plugin's own view (e.g. Spotify opens its playlist detail). Returns an unsubscriber. The play button on the card is unaffected; it always plays.
 
 `HomeShelfResult`: `{ status: "ok", items: HomeShelfItem[] } | { status: "empty" } | { status: "error", message? }`. Empty/error/timeout shelves are filtered out for that refresh cycle (so they're not visual errors — they just don't render).
 
@@ -330,9 +331,9 @@ The merged manifest + runtime list is exposed by `usePlugins` as `homeShelves` a
 
 **Image rules:** local paths (e.g. plugin-cached covers under `api.storage.files`) are run through `convertFileSrc` automatically. Append `#v=<timestamp>` to bust the WebView cache when content changes. Remote URLs (http/https/data) are passed through unchanged.
 
-**Click semantics:** for `playlist-cards`, `playTracks` is invoked with `{ name, coverUrl, source: "playlist" }` context, which gives the queue panel a banner. Don't replicate that wiring inside the plugin — Home does it for you.
+**Click semantics:** by default, for `playlist-cards`, `playTracks` is invoked with `{ name, coverUrl, source: "playlist" }` context, which gives the queue panel a banner — don't replicate that wiring inside the plugin, Home does it for you. To override the default (e.g. navigate into the plugin's own view instead of playing), register `api.home.onItemClick(shelfId, handler)`; when present it wins over the default body-click action. The play button on the card still plays regardless.
 
-**Live example:** `src-tauri/plugins/spotify-browse/index.js` — the `syncHomeShelves` function diffs desired vs. registered shelves on every `render()`, registering one playlist-card shelf per Spotify section and serving items from in-memory `state.playlists` / `state.playlistTracks`.
+**Live example:** `src-tauri/plugins/spotify-browse/index.js` — the `syncHomeShelves` function diffs desired vs. registered shelves on every `render()`, registering one playlist-card shelf per Spotify section and serving items from in-memory `state.playlists` / `state.playlistTracks`. It also registers `onItemClick` per shelf so clicking a card navigates into the Spotify view and opens that playlist's detail page.
 
 ## Plugin View Rendering
 

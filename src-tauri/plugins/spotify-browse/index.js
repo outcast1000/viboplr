@@ -2642,19 +2642,24 @@ function activate(api) {
     render();
   });
 
-  api.ui.onAction("view-playlist", function(data) {
-    if (!data || !data.itemId) return;
-    var parts = data.itemId.split(":");
-    if (parts[0] !== "playlist") return;
-    var pid = parts.slice(1).join(":");
+  // Open a playlist's detail view by id. Returns true if found.
+  function openPlaylistById(pid) {
     for (var i = 0; i < state.playlists.length; i++) {
       if (state.playlists[i].id === pid) {
         state.currentPlaylist = state.playlists[i];
         state.currentView = "playlist";
         renderPlaylist();
-        return;
+        return true;
       }
     }
+    return false;
+  }
+
+  api.ui.onAction("view-playlist", function(data) {
+    if (!data || !data.itemId) return;
+    var parts = data.itemId.split(":");
+    if (parts[0] !== "playlist") return;
+    openPlaylistById(parts.slice(1).join(":"));
   });
 
   api.ui.onAction("play-track", function(data) {
@@ -3027,6 +3032,16 @@ function activate(api) {
         icon: "spotify",
       });
       api.home.onFetchShelf(id, buildShelfFetcher(sectionName));
+      // Clicking a card navigates into this plugin's view and opens the
+      // playlist (instead of the host's default play-on-click). Guarded for
+      // older hosts that don't expose onItemClick.
+      if (typeof api.home.onItemClick === "function") {
+        api.home.onItemClick(id, function (item) {
+          if (!item || !item.id) return;
+          api.ui.navigateToView("spotify");
+          openPlaylistById(String(item.id));
+        });
+      }
       registeredShelves[id] = sectionName;
     }
   }

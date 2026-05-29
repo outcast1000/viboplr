@@ -30,6 +30,7 @@ import type {
   GetQualitiesHandler,
   DownloadQualityOption,
   HomeShelfDisplayKind,
+  HomeShelfItem,
   HomeShelfResult,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
@@ -194,6 +195,8 @@ export function usePlugins(
   const badgeMapRef = useRef<Map<string, PluginBadge>>(new Map());
   const [badgeMap, setBadgeMap] = useState<Map<string, PluginBadge>>(new Map());
   const homeShelfHandlersRef = useRef(new Map<string, (limit: number) => Promise<HomeShelfResult>>());
+  // shelf key -> plugin-provided click handler that takes over card body-clicks
+  const homeShelfClickHandlersRef = useRef(new Map<string, (item: HomeShelfItem) => void | Promise<void>>());
   const dynamicHomeShelvesRef = useRef(new Map<string, {
     pluginId: string;
     shelfId: string;
@@ -805,6 +808,17 @@ export function usePlugins(
               setDynamicShelvesVersion((v) => v + 1);
             }
           },
+          onItemClick(shelfId: string, handler: (item: HomeShelfItem) => void | Promise<void>): () => void {
+            const key = `${pluginId}:${shelfId}`;
+            homeShelfClickHandlersRef.current.set(key, handler);
+            const unsub = () => {
+              if (homeShelfClickHandlersRef.current.get(key) === handler) {
+                homeShelfClickHandlersRef.current.delete(key);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
         },
 
         imageProviders: {
@@ -1012,6 +1026,12 @@ export function usePlugins(
     for (const key of Array.from(homeShelfHandlersRef.current.keys())) {
       if (key.startsWith(`${pluginId}:`)) {
         homeShelfHandlersRef.current.delete(key);
+      }
+    }
+    // Clear home shelf item-click handlers for this plugin
+    for (const key of Array.from(homeShelfClickHandlersRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        homeShelfClickHandlersRef.current.delete(key);
       }
     }
     // Clear dynamically registered home shelves for this plugin
@@ -1666,6 +1686,26 @@ export function usePlugins(
     [],
   );
 
+  // Invoke a plugin's registered card-click handler for a shelf, if any.
+  // Returns true if a handler took over the click, false otherwise (so the
+  // host can fall back to its default action).
+  const invokeHomeShelfItemClick = useCallback(
+    (pluginId: string, shelfId: string, item: HomeShelfItem): boolean => {
+      const handler = homeShelfClickHandlersRef.current.get(`${pluginId}:${shelfId}`);
+      if (!handler) return false;
+      try {
+        const r = handler(item);
+        if (r && typeof (r as Promise<void>).catch === "function") {
+          (r as Promise<void>).catch((e) => console.error(`[plugin:${pluginId}] home item click error:`, e));
+        }
+      } catch (e) {
+        console.error(`[plugin:${pluginId}] home item click error:`, e);
+      }
+      return true;
+    },
+    [],
+  );
+
   const pluginNames = useMemo(
     () => new Map(pluginStates.map((s) => [s.id, s.manifest.name])),
     [pluginStates],
@@ -1697,6 +1737,7 @@ export function usePlugins(
     dispatchEvent,
     dispatchContextMenuAction,
     dispatchUIAction,
+    invokeHomeShelfItemClick,
     togglePlugin,
     reloadPlugin,
     reloadAllPlugins,
