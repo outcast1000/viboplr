@@ -7,6 +7,13 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* Optional submit button (e.g. plugin search) sits to the right of the input. */
+.view-search-submit-btn {
+  order: 2;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .view-search-input-wrap {
   position: relative;
   display: flex;

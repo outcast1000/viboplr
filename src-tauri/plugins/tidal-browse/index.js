@@ -12,6 +12,7 @@ function activate(api) {
   var state = {
     currentView: "search",
     searchResults: null,
+    searching: false,
     activeTab: "tracks",
     viewStack: [],
     lastQuery: "",
@@ -545,6 +546,7 @@ function activate(api) {
       placeholder: "Search TIDAL...",
       action: "search",
       value: state.lastQuery,
+      buttonLabel: "Search",
     });
 
     var trackCount = state.searchResults ? (state.searchResults.tracks || []).length : 0;
@@ -562,7 +564,9 @@ function activate(api) {
       action: "switch-tab",
     });
 
-    if (!state.searchResults) {
+    if (state.searching) {
+      children.push({ type: "loading", message: "Searching TIDAL..." });
+    } else if (!state.searchResults) {
       children.push({
         type: "text",
         content: "Search TIDAL for tracks, albums, and artists.",
@@ -880,16 +884,20 @@ function activate(api) {
   // -- Actions --
 
   api.ui.onAction("search", function (data) {
-    var query = data && data.query;
+    var query = data && data.query && data.query.trim();
     if (!query) return;
     state.lastQuery = query;
     state.activeTab = "tracks";
-    renderLoading("Searching TIDAL...");
+    state.currentView = "search";
+    state.searching = true;
+    render();
     tidalSearch(query, 30).then(function (results) {
       state.searchResults = results;
+      state.searching = false;
       state.currentView = "search";
       render();
     }).catch(function (err) {
+      state.searching = false;
       renderError("Search failed: " + (err.message || err));
     });
   });
@@ -938,14 +946,23 @@ function activate(api) {
 
   api.ui.onAction("download-selected", function (data) {
     var tracks = getSelectedTracks(data);
-    for (var i = 0; i < tracks.length; i++) {
-      downloadTidalTrack(tracks[i].tidal_id).catch(function (err) {
-        api.ui.showNotification("Download failed: " + (err.message || err));
-      });
-    }
-    if (tracks.length > 0) {
-      api.ui.showNotification("Downloading " + tracks.length + " track" + (tracks.length > 1 ? "s" : ""));
-    }
+    if (tracks.length === 0) return;
+    // Route through the standard download modal — single track shows the
+    // single-track flow, multiple tracks show the batch flow. The modal owns
+    // destination/quality selection and per-track progress + error reporting.
+    api.ui.requestAction("download-tracks", {
+      providerId: "tidal-browse:tidal-download",
+      providerName: "TIDAL",
+      tracks: tracks.map(function (t) {
+        return {
+          title: t.title,
+          artist_name: t.artist_name || null,
+          album_title: t.album_title || null,
+          uri: "tidal://" + t.tidal_id,
+          durationSecs: t.duration_secs || null,
+        };
+      }),
+    });
   });
 
   api.ui.onAction("play-playlist", function (data) {
@@ -1087,10 +1104,18 @@ function activate(api) {
     if (!data || !data.itemId) return;
     var parts = data.itemId.split(":");
     if (parts[0] !== "track" || !parts[1]) return;
-    downloadTidalTrack(parts[1]).catch(function (err) {
-      api.ui.showNotification("Download failed: " + (err.message || err));
+    var track = findTrackById(parts[1]);
+    api.ui.requestAction("download-tracks", {
+      providerId: "tidal-browse:tidal-download",
+      providerName: "TIDAL",
+      tracks: [{
+        title: track ? track.title : "TIDAL track",
+        artist_name: track ? (track.artist_name || null) : null,
+        album_title: track ? (track.album_title || null) : null,
+        uri: "tidal://" + parts[1],
+        durationSecs: track ? (track.duration_secs || null) : null,
+      }],
     });
-    api.ui.showNotification("Download started");
   });
 
   api.ui.onAction("download-album", function () {
@@ -1139,14 +1164,17 @@ function activate(api) {
     state.activeTab = tab;
     state.viewStack = [];
     state.currentView = "search";
-    renderLoading("Searching TIDAL...");
+    state.searching = true;
+    render();
     api.ui.navigateToView("tidal");
 
     tidalSearch(query, 30).then(function (results) {
       state.searchResults = results;
+      state.searching = false;
       state.currentView = "search";
       render();
     }).catch(function (err) {
+      state.searching = false;
       renderError("Search failed: " + (err.message || err));
     });
   });
@@ -1303,10 +1331,13 @@ function activate(api) {
 
   api.downloads.onInteractiveResolve("tidal-download", async function(matchId, format) {
     var quality = format === "flac" ? "LOSSLESS" : "HIGH";
-    var streamUrl = await tidalGetStreamUrl(matchId, quality);
+    // matchId may be a bare TIDAL id (from interactive search) or a full
+    // tidal:// uri (from the batch/confirmed download flow). Normalize to the id.
+    var trackId = matchId.indexOf("tidal://") === 0 ? matchId.substring(8) : matchId;
+    var streamUrl = await tidalGetStreamUrl(trackId, quality);
     if (!streamUrl) throw new Error("Failed to resolve TIDAL stream URL");
     var info = null;
-    try { info = await tidalGetTrackInfo(matchId); } catch(e) { console.error("Failed to enrich TIDAL interactive resolve metadata:", e); }
+    try { info = await tidalGetTrackInfo(trackId); } catch(e) { console.error("Failed to enrich TIDAL interactive resolve metadata:", e); }
     var trackCoverUrl = null;
     if (info) {
       trackCoverUrl = coverUrl(info.cover_id, 1280);

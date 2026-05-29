@@ -950,6 +950,31 @@ function App() {
             providerName: p.providerName ?? p.providerId,
           });
         }
+      } else if (action === "download-tracks") {
+        // Generic track download: opens the standard modal. One track renders the
+        // single-track flow (direct-URI configure when a uri + provider resolver
+        // exist); multiple tracks render the multi-track batch flow. Either way the
+        // user gets a destination/quality step and per-track progress + errors.
+        const p = payload as { tracks: Array<{ title: string; artist_name: string | null; album_title?: string | null; uri?: string | null; durationSecs?: number | null }>; providerId: string; providerName: string };
+        if (p.providerId && p.tracks && p.tracks.length > 0) {
+          const provider = downloadProvidersRef.current.find(dp => dp.id === p.providerId);
+          const isSingle = p.tracks.length === 1;
+          setDownloadModal({
+            tracks: p.tracks.map(t => ({
+              title: t.title,
+              artistName: t.artist_name ?? null,
+              albumTitle: t.album_title ?? null,
+              uri: t.uri ?? null,
+              durationSecs: t.durationSecs ?? null,
+            })),
+            providerId: p.providerId,
+            providerName: p.providerName,
+            // Multi-track: skip the resolve/search step and resolve each uri directly.
+            confirmed: !isSingle,
+            // Single-track with a known uri: go straight to the configure step.
+            resolveByUri: isSingle && p.tracks[0].uri ? provider?.resolveByUri : undefined,
+          });
+        }
       } else if (action === "navigate-to-artist") {
         pushStateRef.current();
         library.navigateToArtistByName(payload.name as string);

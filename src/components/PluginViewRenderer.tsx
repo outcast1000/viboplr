@@ -196,6 +196,7 @@ function PluginViewNode({
           action={node.action}
           value={node.value}
           submitOnly={node.submitOnly}
+          buttonLabel={node.buttonLabel}
           onAction={onAction}
         />
       );

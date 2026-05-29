@@ -324,21 +324,26 @@ export function PluginSearchInput({
   action,
   value,
   submitOnly,
+  buttonLabel,
   onAction,
 }: {
   placeholder?: string;
   action: string;
   value?: string;
   submitOnly?: boolean;
+  buttonLabel?: string;
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
   const [query, setQuery] = useState(value ?? "");
+  // A search button makes the input submit-only: changes never fire the action,
+  // only Enter or an explicit button click do.
+  const submitOnlyEffective = submitOnly || !!buttonLabel;
   const handleChange = useCallback((q: string) => {
     setQuery(q);
-    if (!submitOnly) {
+    if (!submitOnlyEffective) {
       onAction?.(action, { query: q });
     }
-  }, [action, onAction, submitOnly]);
+  }, [action, onAction, submitOnlyEffective]);
   const handleSubmit = useCallback(() => {
     onAction?.(action, { query });
   }, [action, query, onAction]);
@@ -348,7 +353,17 @@ export function PluginSearchInput({
       onQueryChange={handleChange}
       onEnter={handleSubmit}
       placeholder={placeholder ?? "Search..."}
-    />
+    >
+      {buttonLabel && (
+        <button
+          className="ds-btn ds-btn--primary view-search-submit-btn"
+          onClick={handleSubmit}
+          disabled={!query.trim()}
+        >
+          {buttonLabel}
+        </button>
+      )}
+    </ViewSearchBar>
   );
 }
 

@@ -219,6 +219,7 @@ export type PluginViewData =
       action: string;
       value?: string;
       submitOnly?: boolean;
+      buttonLabel?: string;
     }
   | {
       type: "text-input";
