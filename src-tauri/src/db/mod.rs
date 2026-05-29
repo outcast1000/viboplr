@@ -236,6 +236,8 @@ impl Database {
         };
         timer.time("db: init_tables", || db.init_tables())?;
         timer.time("db: run_migrations", || db.run_migrations())?;
+        // Crash safety: keep denormalized counts consistent on every startup.
+        timer.time("db: recompute_counts", || db.recompute_counts())?;
         Ok(db)
     }
 
@@ -460,7 +462,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
-            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 34);
+            INSERT OR IGNORE INTO db_version (rowid, version) VALUES (1, 1);
 
             CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id);
             CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);
@@ -473,141 +475,17 @@ impl Database {
         Ok(())
     }
 
+    /// Schema migrations for upgrading existing databases.
+    ///
+    /// The PoC baseline was squashed into `init_tables` (db_version starts at 1),
+    /// so there are currently no migrations. Add `if version < N { ... }` blocks
+    /// here as the schema evolves post-PoC. `recompute_counts()` runs separately
+    /// at startup, so it does not need to be triggered from here.
     fn run_migrations(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
-        let version: i64 = conn.query_row(
+        let _version: i64 = conn.query_row(
             "SELECT version FROM db_version WHERE rowid = 1", [], |row| row.get(0),
-        ).unwrap_or(25);
-
-        if version < 26 {
-            // Drop path_normalized column if it exists (moved into FTS)
-            let has_col: bool = conn
-                .prepare("SELECT 1 FROM pragma_table_info('tracks') WHERE name = 'path_normalized'")?
-                .exists([])?;
-            if has_col {
-                conn.execute_batch("ALTER TABLE tracks DROP COLUMN path_normalized")?;
-            }
-            conn.execute("UPDATE db_version SET version = 26 WHERE rowid = 1", [])?;
-        }
-
-        if version < 27 {
-            conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS plugin_schedules (
-                    plugin_id  TEXT NOT NULL,
-                    task_id    TEXT NOT NULL,
-                    interval_ms INTEGER NOT NULL,
-                    last_run   INTEGER,
-                    PRIMARY KEY (plugin_id, task_id)
-                );
-                UPDATE db_version SET version = 27 WHERE rowid = 1;"
-            )?;
-        }
-
-        if version < 28 {
-            conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS download_providers (
-                    plugin_id   TEXT NOT NULL,
-                    provider_id TEXT NOT NULL,
-                    name        TEXT NOT NULL,
-                    priority    INTEGER NOT NULL DEFAULT 500,
-                    active      INTEGER NOT NULL DEFAULT 1,
-                    PRIMARY KEY (plugin_id, provider_id)
-                );
-                UPDATE db_version SET version = 28 WHERE rowid = 1;"
-            )?;
-        }
-
-        if version < 29 {
-            conn.execute_batch(
-                "UPDATE db_version SET version = 29 WHERE rowid = 1;"
-            )?;
-        }
-
-        if version < 30 {
-            conn.execute_batch(
-                "ALTER TABLE history_tracks DROP COLUMN library_track_id;
-                 ALTER TABLE history_artists DROP COLUMN library_artist_id;
-                 UPDATE db_version SET version = 30 WHERE rowid = 1;"
-            )?;
-        }
-
-        if version < 31 {
-            conn.execute_batch(
-                "UPDATE db_version SET version = 31 WHERE rowid = 1;"
-            )?;
-        }
-
-        if version < 32 {
-            conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS image_providers_new (
-                    id          INTEGER PRIMARY KEY,
-                    plugin_id   TEXT NOT NULL,
-                    entity      TEXT NOT NULL,
-                    priority    INTEGER NOT NULL DEFAULT 500,
-                    active      INTEGER NOT NULL DEFAULT 1,
-                    UNIQUE (plugin_id, entity)
-                );
-                INSERT OR IGNORE INTO image_providers_new (id, plugin_id, entity, priority, active)
-                    SELECT id, plugin_id, entity, priority, active FROM image_providers;
-                DROP TABLE image_providers;
-                ALTER TABLE image_providers_new RENAME TO image_providers;
-                UPDATE db_version SET version = 32 WHERE rowid = 1;"
-            )?;
-        }
-
-        if version < 33 {
-            let has_desc: bool = conn
-                .prepare("SELECT 1 FROM pragma_table_info('playlists') WHERE name = 'description'")?
-                .exists([])?;
-            if !has_desc {
-                conn.execute_batch(
-                    "ALTER TABLE playlists ADD COLUMN description TEXT;"
-                )?;
-            }
-            let has_meta: bool = conn
-                .prepare("SELECT 1 FROM pragma_table_info('playlists') WHERE name = 'metadata'")?
-                .exists([])?;
-            if !has_meta {
-                conn.execute_batch(
-                    "ALTER TABLE playlists ADD COLUMN metadata TEXT;"
-                )?;
-            }
-            conn.execute("UPDATE db_version SET version = 33 WHERE rowid = 1", [])?;
-        }
-
-        if version < 34 {
-            conn.execute_batch(
-                "DROP TABLE IF EXISTS image_fetch_failures;
-                 CREATE TABLE IF NOT EXISTS image_fetch_failures (
-                     kind       TEXT NOT NULL,
-                     slug       TEXT NOT NULL,
-                     failed_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-                     UNIQUE(kind, slug)
-                 );
-                 UPDATE db_version SET version = 34 WHERE rowid = 1;"
-            )?;
-        }
-
-        if version < 35 {
-            let has_meta: bool = conn
-                .prepare("SELECT 1 FROM pragma_table_info('playlists') WHERE name = 'metadata'")?
-                .exists([])?;
-            if !has_meta {
-                conn.execute_batch("ALTER TABLE playlists ADD COLUMN metadata TEXT;")?;
-            }
-            conn.execute("UPDATE db_version SET version = 35 WHERE rowid = 1", [])?;
-        }
-
-        // Rebuild FTS when schema predates current layout OR when bumping to v31
-        // (v31 adds contentless_delete=1 to tracks_fts, requires DROP+recreate).
-        let needs_fts_rebuild = version < 31;
-        drop(conn);
-
-        if needs_fts_rebuild {
-            self.rebuild_fts()?;
-            self.recompute_counts()?;
-        }
-
+        ).unwrap_or(1);
         Ok(())
     }
 }

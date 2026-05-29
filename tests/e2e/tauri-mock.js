@@ -81,7 +81,10 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     if (cmd === 'plugin:store|get_store') return 1;
     if (cmd === 'plugin:store|get') {
       const storeDefaults = { queueCollapsed: false, sidebarCollapsed: false, view: 'search' };
+      // Tests may seed persisted values via window.__E2E_STORE_SEED__ (opt-in).
+      const seed = (typeof window !== 'undefined' && window.__E2E_STORE_SEED__) || {};
       const key = args && args.key;
+      if (key && key in seed) return [seed[key], true];
       if (key && key in storeDefaults) return [storeDefaults[key], true];
       return [null, false];
     }

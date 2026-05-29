@@ -2,7 +2,7 @@
 
 ## Core Files
 
-- **App.tsx** — Root React component: owns app-wide state, hook composition, playback/stream-resolver wiring, context menu, sidebar, and the view render tree. Views toggled via `View` union type: `"search" | "artists" | "albums" | "tags" | "history" | "collections" | "playlists" | "settings" | "extensions" | plugin:${string}`. The unified Library is `"search"` (rendered by `SearchView`); `"artists"`, `"albums"`, `"tags"` are detail-page views reached by selecting an entity from the Library. Simple confirmation/error/loading modals are presentational leaf components in `components/modals/` (`ConfirmModals.tsx`, `YoutubeFeedbackModal.tsx`) — App.tsx owns their state and passes primitive props + callbacks; the components hold no app state.
+- **App.tsx** — Root React component: owns app-wide state, hook composition, playback/stream-resolver wiring, context menu, sidebar, and the view render tree. Views toggled via `View` union type: `"search" | "artists" | "albums" | "tags" | "history" | "collections" | "playlists" | "settings" | "extensions" | plugin:${string}`. The unified Library is `"search"` (rendered by `SearchView`); `"artists"`, `"albums"`, `"tags"` are detail-page views reached by selecting an entity from the Library. Simple confirmation/error/loading modals are presentational leaf components in `components/modals/` (`ConfirmModals.tsx`, `YoutubeFeedbackModal.tsx`) — App.tsx owns their state and passes primitive props + callbacks; the components hold no app state. The native context-menu spec building lives in `contextMenu/buildContextMenuSpecs.tsx` — a pure `buildContextMenuSpecs(target, deps)` that returns the `MenuItemSpec[]` (or `null`) per `ContextMenuTarget` kind; App.tsx keeps a thin `buildAndShowNativeMenu` wrapper that owns `setContextMenu` + `showNativeMenu`.
 - **App.css** — All styles. CSS Grid layout, CSS custom properties for skinning, 7-level type scale (`--fs-2xs` through `--fs-2xl`). Shared keyframe animations: `fade-in`, `scale-in`, `glow-pulse`, `slide-text-in`, `equalizer-bar-{1,2,3}`, `waveform-grow-in`.
 - **skinUtils.ts** — Skin validation, CSS generation, customCSS sanitization.
 - **types.ts** — Core TypeScript types (Track, QueueTrack, Artist, Album, Tag, etc.). `Track` is the full library type with DB IDs; `QueueTrack` is the ID-less metadata type used by queue/playback/playlists.
@@ -51,7 +51,8 @@
 - **useMiniMode.ts** — Mini player (40px height, 280-550px auto-width). Always-on-top, no decorations. macOS transparent background via Cocoa APIs.
 - **useVideoSplit.ts** — Resizable video splitter (default 300px, min 150px track list). Dock sides: top/bottom/left/right.
 - **useWaveform.ts** — Waveform data caching and computation.
-- **useGlobalShortcuts.ts** — Keyboard shortcuts (see below).
+- **useGlobalShortcuts.ts** — OS-level media keys (MediaPlayPause/Next/Previous/Stop) via Tauri's global-shortcut plugin.
+- **useInAppKeyboardShortcuts.ts** — In-window keyboard shortcuts (the `window` keydown handler; see "Keyboard Shortcuts" below). Takes a single `deps` object refreshed into a ref each render, so its one installed listener never reads stale closures. App.tsx owns the deps; the hook owns the dispatch.
 - **useViewSearchState.ts** — Per-view independent search state, persists across view switches.
 - **useCentralSearch.ts** — Global search with parallel artist/album/track queries.
 - **useNavigationHistory.ts** — Back/forward navigation with per-view search query persistence.
@@ -72,7 +73,7 @@ Track list: arrows (navigate), Enter (play), Shift+Enter (enqueue).
 
 ## State Persistence
 
-UI state persisted via `tauri-plugin-store` to `app-state.json` in profile directory. Key states: view, selected entities, current track + position, queue (track IDs + index + mode), volume, window geometry (full + mini separately), crossfade, auto-continue weights, view modes per entity, skin, sort/filter per entity, section toggles, Last.fm session, sync-with-playing. Saves debounced at 500ms. A `restoredRef` guard prevents overwriting persisted data with defaults on startup.
+UI state persisted via `tauri-plugin-store` to `app-state.json` in profile directory. Key states: current track + position, queue (track IDs + index + mode), volume, window geometry (full + mini separately), crossfade, auto-continue weights, view modes per entity, skin, sort/filter per entity, section toggles, sync-with-playing. (Last.fm session/auto-import state lives in plugin storage, owned by the lastfm plugin — not the app store.) Saves debounced at 500ms. A `restoredRef` guard prevents overwriting persisted data with defaults on startup. On mount, App.tsx's restore effect reads the primary settings via `startup/readPersistedSettings.ts` (`readPersistedSettings(store)` returns a named object — no positional tuple) and then applies them to its hooks/setters. `view` and selected-entity state are intentionally NOT read/restored — startup always lands on Home.
 
 ## Scrobble Threshold
 

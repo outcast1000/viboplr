@@ -20,14 +20,15 @@ function needsTranscode(track: { format: string | null }): boolean {
 }
 
 import { store } from "./store";
+import { readPersistedSettings } from "./startup/readPersistedSettings";
 import { emitTrackPatch } from "./trackEvents";
-import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, isLocalTrack, type QueueEntry } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, isLocalTrack } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { resolveImageUrl } from "./utils/resolveImageUrl";
 import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
 import type { SearchProviderConfig } from "./searchProviders";
-import { DEFAULT_PROVIDERS, loadProviders, saveProviders, getProvidersForContext, buildSearchUrl } from "./searchProviders";
+import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
 import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
 import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
@@ -44,9 +45,9 @@ import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistor
 import { useAppUpdater } from "./hooks/useAppUpdater";
 import { useMiniMode, cycleRestingSize, cycleMiniWidth } from "./hooks/useMiniMode";
 import { useVideoLayout } from "./hooks/useVideoLayout";
-import type { VideoLayoutState } from "./hooks/useVideoLayout";
 import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
+import { useInAppKeyboardShortcuts } from "./hooks/useInAppKeyboardShortcuts";
 import { useSkins } from "./hooks/useSkins";
 import { usePlugins, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY, type PluginHostCallbacks } from "./hooks/usePlugins";
 import { useImageResolver } from "./hooks/useImageResolver";
@@ -73,7 +74,7 @@ import ExtensionsView from "./components/ExtensionsView";
 import { FullscreenControls } from "./components/FullscreenControls";
 import { AddServerModal } from "./components/AddServerModal";
 import { showNativeMenu, type MenuItemSpec } from "./nativeMenu";
-import { toPluginTarget } from "./types/contextMenu";
+import { buildContextMenuSpecs } from "./contextMenu/buildContextMenuSpecs";
 import { ArtistDetailContent } from "./components/ArtistDetailContent";
 import { AlbumDetail } from "./components/AlbumDetail";
 import { TagDetail } from "./components/TagDetail";
@@ -891,287 +892,18 @@ function App() {
 
   const buildAndShowNativeMenu = useCallback((cm: { x: number; y: number; target: import("./types/contextMenu").ContextMenuTarget }) => {
     contextMenuActions.setContextMenu(cm);
-    const { target } = cm;
-    const specs: MenuItemSpec[] = [];
-
-    if (target.kind === "video") {
-      (["contain", "fit-width", "fit-height", "fill"] as const).forEach(mode => {
-        specs.push({ kind: "check", text: mode === "contain" ? "Contain" : mode === "fit-width" ? "Fit Width" : mode === "fit-height" ? "Fit Height" : "Fill", checked: target.fitMode === mode, action: () => videoLayout.setFitMode(mode) });
-      });
-      specs.push({ kind: "separator" });
-      (["top", "bottom", "left", "right"] as const).forEach(side => {
-        specs.push({ kind: "check", text: side[0].toUpperCase() + side.slice(1), checked: target.dockSide === side, action: () => videoLayout.setDockSide(side) });
-      });
-    } else if (target.kind === "queue-multi") {
-      const count = target.indices.length;
-      const selectedTracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
-
-      // Queue operations — always available
-      if (contextMenuActions.handleQueueRemove) {
-        specs.push({ kind: "item", text: count > 1 ? `Remove ${count} tracks` : "Remove", action: contextMenuActions.handleQueueRemove });
-      }
-      if (contextMenuActions.handleQueueKeepOnly) {
-        specs.push({ kind: "item", text: count > 1 ? `Keep only ${count} tracks` : "Keep only", action: contextMenuActions.handleQueueKeepOnly });
-      }
-      if (contextMenuActions.handleQueueMoveToTop) {
-        specs.push({ kind: "item", text: "Move to top", action: contextMenuActions.handleQueueMoveToTop });
-      }
-      if (contextMenuActions.handleQueueMoveToBottom) {
-        specs.push({ kind: "item", text: "Move to bottom", action: contextMenuActions.handleQueueMoveToBottom });
-      }
-
-      // Single-track actions
-      if (count === 1) {
-        if (target.firstTrack.isLocal) {
-          specs.push({ kind: "separator" });
-          specs.push({ kind: "item", text: "Open Containing Folder", action: contextMenuActions.handleShowInFolder });
-        }
-        const locateTrack = () => {
-          const track = queueHook.queue[target.indices[0]];
-          if (track) {
-            library.handleLocateTrack(track.title, track.artist_name, track.album_title, () => {
-              setSearchInitialQuery(track.title);
-              setSearchQueryKey(k => k + 1);
-              library.setView("search");
-              library.setSelectedArtist(null);
-              library.setSelectedAlbum(null);
-              library.setSelectedTag(null);
-            });
-          }
-        };
-        specs.push({ kind: "item", text: "Locate Track", action: locateTrack });
-
-        // Find in YouTube — works by metadata, any track type
-        specs.push({ kind: "item", text: "Find in YouTube", action: () => {
-          const track = queueHook.queue[target.indices[0]];
-          if (track) {
-            contextMenuActions.watchOnYoutube(parseLibraryId(track.key) ?? 0, track.title, track.artist_name, null, track.duration_secs ?? null);
-          }
-        }});
-
-        // Start radio from this track (single track only)
-        specs.push({ kind: "item", text: "Start radio from this track", action: () => {
-          const track = queueHook.queue[target.indices[0]];
-          if (track) {
-            contextMenuActions.startRadio({
-              title: track.title,
-              artistName: track.artist_name,
-              coverPath: track.image_url ?? null,
-            });
-          }
-        }});
-
-        // View Details — needs library ID
-        if (target.trackIds[0] != null) {
-          specs.push({ kind: "item", text: "View Details", action: () => library.handleTrackClick(`lib:${target.trackIds[0]}`) });
-        }
-      }
-
-      // Move to Trash — local tracks only
-      if (contextMenuActions.handleDeleteRequest) {
-        const localDeletable = selectedTracks.filter(t => isLocalTrack(t) && parseLibraryId(t.key) != null);
-        if (localDeletable.length > 0) {
-          specs.push({ kind: "separator" });
-          const deleteLabel = localDeletable.length === 1 ? `Move to ${trashLabel}` : `Move ${localDeletable.length} local tracks to ${trashLabel}`;
-          specs.push({ kind: "item", text: deleteLabel, action: contextMenuActions.handleDeleteRequest });
-        }
-      }
-
-      // Download — non-local tracks only
-      if (downloadProviderEntries.length > 0) {
-        const downloadable = selectedTracks.filter(t => !isLocalTrack(t));
-        if (downloadable.length > 0) {
-          const dlItems: MenuItemSpec[] = [];
-          dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
-            if (downloadable.length === 1) contextMenuActions.handleDownloadTrack(downloadable[0]);
-            else contextMenuActions.handleDownloadMulti(downloadable);
-          }});
-          downloadProviderEntries.forEach(entry => {
-            dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "..." : ""}`, action: () => handleDownloadFromProvider(entry.id, entry.interactive) });
-          });
-          specs.push({ kind: "separator" });
-          const dlLabel = downloadable.length === 1 ? "Download" : `Download ${downloadable.length} tracks`;
-          specs.push({ kind: "submenu", text: dlLabel, items: dlItems });
-        }
-      }
-
-      // Search providers — single track only
-      if (count === 1) {
-        const contextProviders = getProvidersForContext(searchProviders, "track");
-        if (contextProviders.length > 0) {
-          const params = { title: target.firstTrack.title, artist: target.firstTrack.artistName ?? undefined };
-          const searchItems: MenuItemSpec[] = contextProviders.map(provider => ({
-            kind: "item" as const,
-            text: provider.name,
-            action: () => openUrl(buildSearchUrl(provider.trackUrl!, params)),
-          }));
-          specs.push({ kind: "separator" });
-          specs.push({ kind: "submenu", text: "Search", items: searchItems });
-        }
-      }
-
-      // Plugin actions
-      const pluginTargetKind = count === 1 ? "track" : "multi-track";
-      const matching = plugins.menuItems.filter(item => item.targets.includes(pluginTargetKind as "track" | "multi-track"));
-      if (matching.length > 0) {
-        specs.push({ kind: "separator" });
-        matching.forEach(item => {
-          specs.push({ kind: "item", text: item.label, action: () => plugins.dispatchContextMenuAction(item.pluginId, item.id, toPluginTarget(target)) });
-        });
-      }
-    } else if (target.kind === "multi-album" || target.kind === "multi-artist" || target.kind === "multi-tag") {
-      const count = target.kind === "multi-album" ? target.albumIds.length
-                  : target.kind === "multi-artist" ? target.artistIds.length
-                  : target.tagIds.length;
-      const label = target.kind === "multi-album" ? "albums" : target.kind === "multi-artist" ? "artists" : "tags";
-      specs.push({ kind: "item", text: `Play ${count} ${label}`, action: contextMenuActions.handleContextPlay });
-      specs.push({ kind: "item", text: `Enqueue ${count} ${label}`, action: contextMenuActions.handleContextEnqueue });
-      if (target.kind === "multi-tag") {
-        const tagsToDelete = target.tagIds.map(id => {
-          const tag = library.tags.find(t => t.id === id);
-          return { id, name: tag?.name ?? "Unknown" };
-        });
-        specs.push({ kind: "separator" });
-        specs.push({ kind: "item", text: `Delete ${count} tags`, action: () => {
-          setDeleteTagConfirm(tagsToDelete);
-        }});
-      }
-    } else {
-      const isMulti = target.kind === "multi-track";
-      const context = isMulti ? "track" : target.kind;
-      const hasId = target.kind === "artist" ? !!target.artistId
-                  : target.kind === "album" ? !!target.albumId
-                  : target.kind === "track" ? !!target.trackId
-                  : target.kind === "tag" ? !!target.tagId
-                  : true;
-
-      if (hasId) {
-        specs.push({ kind: "item", text: isMulti ? `Play ${target.trackIds.length} tracks` : "Play", action: contextMenuActions.handleContextPlay });
-        specs.push({ kind: "item", text: isMulti ? `Enqueue ${target.trackIds.length} tracks` : "Enqueue", action: contextMenuActions.handleContextEnqueue });
-      }
-      if (hasId && (target.kind === "artist" || target.kind === "album" || target.kind === "tag")) {
-        const refreshAction = target.kind === "artist"
-          ? () => artistImageCache.requestFetch(target.name)
-          : target.kind === "album"
-          ? () => albumImageCache.requestFetch(target.title, target.artistName)
-          : target.kind === "tag"
-          ? () => tagImageCache.requestFetch(target.name)
-          : null;
-        if (refreshAction) {
-          specs.push({ kind: "item", text: "Refresh Image", action: refreshAction });
-        }
-      }
-      if (isMulti && contextMenuActions.handleBulkEdit) {
-        specs.push({ kind: "item", text: "Edit Properties", action: contextMenuActions.handleBulkEdit });
-      }
-      if (target.kind === "track" && target.isLocal) {
-        specs.push({ kind: "item", text: "Open Containing Folder", action: contextMenuActions.handleShowInFolder });
-      }
-      if (target.kind === "track" && target.trackId && contextMenuActions.handleWatchOnYoutube) {
-        specs.push({ kind: "item", text: "Find in YouTube", action: contextMenuActions.handleWatchOnYoutube });
-      }
-      if (target.kind === "track" && target.title) {
-        specs.push({ kind: "item", text: "Start radio from this track", action: () => {
-          if (target.kind !== "track") return;
-          contextMenuActions.startRadio({
-            title: target.title,
-            artistName: target.artistName,
-            coverPath: null,
-          });
-        }});
-      }
-      if (target.kind === "track" && target.trackId) {
-        specs.push({ kind: "item", text: "View Details", action: () => library.handleTrackClick(`lib:${target.trackId}`) });
-      }
-      if (contextMenuActions.handleDeleteRequest && (target.kind === "track" && target.isLocal || target.kind === "multi-track")) {
-        if (target.kind === "track") {
-          specs.push({ kind: "separator" });
-          specs.push({ kind: "item", text: `Move to ${trashLabel}`, action: contextMenuActions.handleDeleteRequest });
-        } else {
-          const localCount = library.tracks.filter(t => target.trackIds.includes(t.id!) && isLocalTrack(t)).length;
-          if (localCount > 0) {
-            specs.push({ kind: "separator" });
-            specs.push({ kind: "item", text: `Move ${localCount} local track${localCount > 1 ? "s" : ""} to ${trashLabel}`, action: contextMenuActions.handleDeleteRequest });
-          }
-        }
-      }
-      if (target.kind === "track" && !target.isLocal && downloadProviderEntries.length > 0) {
-        const dlItems: MenuItemSpec[] = [];
-        dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
-          if (target.trackId) {
-            const track = library.tracks.find(tr => tr.id === target.trackId);
-            if (track) contextMenuActions.handleDownloadTrack(track);
-          }
-        }});
-        downloadProviderEntries.forEach(entry => {
-          dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "..." : ""}`, action: () => handleDownloadFromProvider(entry.id, entry.interactive) });
-        });
-        specs.push({ kind: "separator" });
-        specs.push({ kind: "submenu", text: "Download", items: dlItems });
-      }
-      if (target.kind === "album" && target.albumId && downloadProviderEntries.length > 0) {
-        specs.push({ kind: "separator" });
-        specs.push({ kind: "item", text: "Download Album", action: () => {
-          const albumTracks = library.tracks.filter(tr => tr.album_id === target.albumId);
-          if (albumTracks.length) contextMenuActions.handleDownloadMulti(albumTracks);
-        }});
-      }
-      if (isMulti && downloadProviderEntries.length > 0) {
-        const dlItems: MenuItemSpec[] = [];
-        dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
-          const idSet = new Set(target.trackIds);
-          const selected = library.tracks.filter(tr => tr.id != null && idSet.has(tr.id));
-          contextMenuActions.handleDownloadMulti(selected);
-        }});
-        downloadProviderEntries.forEach(entry => {
-          dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "..." : ""}`, action: () => handleDownloadFromProvider(entry.id, entry.interactive) });
-        });
-        specs.push({ kind: "separator" });
-        specs.push({ kind: "submenu", text: `Download ${target.trackIds.length} tracks`, items: dlItems });
-      }
-      if (!isMulti && target.kind !== "tag") {
-        const contextProviders = getProvidersForContext(searchProviders, context as "artist" | "album" | "track");
-        if (contextProviders.length > 0) {
-          const urlKey = context === "artist" ? "artistUrl" : context === "album" ? "albumUrl" : "trackUrl";
-          const params = target.kind === "artist"
-            ? { artist: target.name }
-            : { title: target.title, artist: target.artistName ?? undefined };
-          const searchItems: MenuItemSpec[] = contextProviders.map(provider => ({
-            kind: "item" as const,
-            text: provider.name,
-            action: () => openUrl(buildSearchUrl(provider[urlKey]!, params)),
-          }));
-          specs.push({ kind: "separator" });
-          specs.push({ kind: "submenu", text: "Search", items: searchItems });
-        }
-      }
-      const targetKind = target.kind as string;
-      const matching = plugins.menuItems.filter(item => item.targets.includes(targetKind as "track" | "album" | "artist" | "multi-track"));
-      if (matching.length > 0) {
-        specs.push({ kind: "separator" });
-        matching.forEach(item => {
-          specs.push({ kind: "item", text: item.label, action: () => plugins.dispatchContextMenuAction(item.pluginId, item.id, toPluginTarget(target)) });
-        });
-      }
-      if (isMulti && handleExportAsMixtapeRef.current) {
-        specs.push({ kind: "separator" });
-        specs.push({ kind: "item", text: "Export as Mixtape", action: () => handleExportAsMixtapeRef.current?.(target.trackIds) });
-      }
-      if (target.kind === "tag" && target.tagId) {
-        specs.push({ kind: "separator" });
-        specs.push({ kind: "item", text: "Delete Tag", action: () => {
-          setDeleteTagConfirm([{ id: target.tagId, name: target.name }]);
-        }});
-      }
-    }
-
-    if (specs.length === 0) {
+    const specs = buildContextMenuSpecs(cm.target, {
+      contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries,
+      plugins, searchProviders, handleDownloadFromProvider, artistImageCache,
+      albumImageCache, tagImageCache, setSearchInitialQuery, setSearchQueryKey,
+      setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef,
+    });
+    if (!specs) {
       contextMenuActions.setContextMenu(null);
       return;
     }
-
     showNativeMenu(cm.x, cm.y, specs);
-  }, [contextMenuActions, videoLayout, queueHook.queue, library, downloadProviderEntries, plugins.menuItems, plugins.dispatchContextMenuAction, searchProviders, handleDownloadFromProvider, artistImageCache, albumImageCache]);
+  }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, searchProviders, handleDownloadFromProvider, artistImageCache, albumImageCache, tagImageCache, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef]);
   showNativeMenuRef.current = buildAndShowNativeMenu;
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
@@ -1670,60 +1402,20 @@ function App() {
     (async () => {
       try {
         await timeAsync("store.init", () => store.init());
-        const [, sa, sal, st, , vol, _pos, cf, savedTrackVideoHistory, wasMini, fww, fwh, fwx, fwy, tSortField, tSortDir, tCols, , , , savedTrackViewMode, , savedVideoLayout, savedVideoSplitHeight, savedSidebarCollapsed, savedQueueCollapsed, savedQueueWidth, savedDownloadFormat, , , , , , , , , , , savedFilterYoutubeOnly, savedMediaTypeFilter, savedTrackLikedFirst, savedLastDownloadDest, savedSearchViewModes, savedAutoSaveStreams, savedDownloadsCollectionId, savedMinimizeToMiniPlayer] = await timeAsync("store.restore", () => Promise.all([
-          // [0] reserved (was: persisted view — no longer used; always start at Home)
-          store.get<string>("view"),
-          store.get<number | null>("selectedArtist"),
-          store.get<number | null>("selectedAlbum"),
-          store.get<number | null>("selectedTag"),
-          store.get<QueueEntry | null>("currentTrackEntry"),
-          store.get<number>("volume"),
-          store.get<number>("positionSecs"),
-          store.get<number>("crossfadeSecs"),
-          store.get<boolean>("trackVideoHistory"),
-          store.get<boolean>("miniMode"),
-          store.get<number | null>("fullWindowWidth"),
-          store.get<number | null>("fullWindowHeight"),
-          store.get<number | null>("fullWindowX"),
-          store.get<number | null>("fullWindowY"),
-          store.get<string | null>("trackSortField"),
-          store.get<string>("trackSortDir"),
-          store.get<ColumnConfig[] | null>("trackColumns"),
-          store.get<string | null>("artistViewMode"),
-          store.get<string | null>("albumViewMode"),
-          store.get<string | null>("tagViewMode"),
-          store.get<string | null>("trackViewMode"),
-          store.get<string | null>("likedViewMode"),
-          store.get<VideoLayoutState | null>("videoLayout"),
-          store.get<number | null>("videoSplitHeight"),
-          store.get<boolean>("sidebarCollapsed"),
-          store.get<boolean>("queueCollapsed"),
-          store.get<number | null>("queueWidth"),
-          store.get<string | null>("downloadFormat"),
-          store.get<boolean>("sortBarCollapsed"),
-          store.get<string | null>("artistSortField"),
-          store.get<string>("artistSortDir"),
-          store.get<boolean>("artistLikedFirst"),
-          store.get<string | null>("albumSortField"),
-          store.get<string>("albumSortDir"),
-          store.get<boolean>("albumLikedFirst"),
-          store.get<string | null>("tagSortField"),
-          store.get<string>("tagSortDir"),
-          store.get<boolean>("tagLikedFirst"),
-          store.get<boolean>("filterYoutubeOnly"),
-          store.get<string>("mediaTypeFilter"),
-          store.get<boolean>("trackLikedFirst"),
-          store.get<string | null>("lastDownloadDest"),
-          store.get<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
-          store.get<Record<string, boolean> | boolean>("autoSaveStreams"),
-          store.get<number | null>("downloadsCollectionId"),
-          store.get<boolean>("minimizeToMiniPlayer"),
-        ]));
-        // Startup always lands on Home; we don't restore `view` or any
-        // selected-entity state (sa/sal/st are intentionally read but unused
-        // so the existing positional tuple keeps the same shape for the rest
-        // of the values).
-        void sa; void sal; void st;
+        // Startup always lands on Home; `view` and selected-entity state are
+        // intentionally not restored (see readPersistedSettings).
+        const {
+          vol, crossfadeSecs: cf, trackVideoHistory: savedTrackVideoHistory, miniMode: wasMini,
+          fullWindowWidth: fww, fullWindowHeight: fwh, fullWindowX: fwx, fullWindowY: fwy,
+          trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
+          videoLayout: savedVideoLayout,
+          sidebarCollapsed: savedSidebarCollapsed, queueCollapsed: savedQueueCollapsed, queueWidth: savedQueueWidth,
+          downloadFormat: savedDownloadFormat, filterYoutubeOnly: savedFilterYoutubeOnly,
+          mediaTypeFilter: savedMediaTypeFilter, trackLikedFirst: savedTrackLikedFirst,
+          lastDownloadDest: savedLastDownloadDest, searchViewModes: savedSearchViewModes,
+          autoSaveStreams: savedAutoSaveStreams, downloadsCollectionId: savedDownloadsCollectionId,
+          minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
+        } = await timeAsync("store.restore", () => readPersistedSettings(store));
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
@@ -1748,38 +1440,6 @@ function App() {
         if (Array.isArray(savedEqCustomPresets)) setEqCustomPresets(savedEqCustomPresets);
         if (typeof savedEqPreGainDb === "number" && Number.isFinite(savedEqPreGainDb)) {
           playback.setEqPreGainDb(savedEqPreGainDb);
-        }
-
-        // One-time migration: move Last.fm session from app store to plugin storage
-        const [migrateSessionKey, migrateUsername, migrateAutoEnabled, migrateAutoInterval, migrateLastImportAt] = await Promise.all([
-          store.get<string | null>("lastfmSessionKey"),
-          store.get<string | null>("lastfmUsername"),
-          store.get<boolean>("lastfmAutoImportEnabled"),
-          store.get<number>("lastfmAutoImportIntervalMins"),
-          store.get<number | null>("lastfmLastImportAt"),
-        ]);
-        if (migrateSessionKey && migrateUsername) {
-          invoke("plugin_storage_set", {
-            pluginId: "lastfm",
-            key: "lastfm_session",
-            value: JSON.stringify({ sessionKey: migrateSessionKey, username: migrateUsername }),
-          }).catch(console.error);
-          if (migrateAutoEnabled || migrateAutoInterval || migrateLastImportAt) {
-            invoke("plugin_storage_set", {
-              pluginId: "lastfm",
-              key: "lastfm_auto_import",
-              value: JSON.stringify({
-                enabled: !!migrateAutoEnabled,
-                intervalMins: migrateAutoInterval || 60,
-                lastImportAt: migrateLastImportAt ?? null,
-              }),
-            }).catch(console.error);
-          }
-          store.set("lastfmSessionKey", null);
-          store.set("lastfmUsername", null);
-          store.set("lastfmAutoImportEnabled", null);
-          store.set("lastfmAutoImportIntervalMins", null);
-          store.set("lastfmLastImportAt", null);
         }
 
         if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "added", "modified", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
@@ -1827,9 +1487,6 @@ function App() {
         if (savedTrackLikedFirst) library.setTrackLikedFirst(true);
         if (savedVideoLayout) {
           videoLayout.restoreLayout(savedVideoLayout);
-        } else if (savedVideoSplitHeight && savedVideoSplitHeight > 0) {
-          videoLayout.migrateFromSplitHeight(savedVideoSplitHeight);
-          store.set("videoSplitHeight", null);
         }
         if (savedSidebarCollapsed) setSidebarCollapsed(true);
         if (savedQueueCollapsed) setQueueCollapsed(true);
@@ -2127,160 +1784,27 @@ function App() {
     };
   }, [playback.setCurrentTrack]);
 
-  // Ref for keyboard shortcut handler to avoid stale closures
-  const shortcutStateRef = useRef({
-    volume: playback.volume,
-    getMediaElement: playback.getMediaElement,
-    handleSeek: playback.handleSeek,
-    handlePause: playback.handlePause,
-    currentTrack: playback.currentTrack,
-  });
-  shortcutStateRef.current = {
-    volume: playback.volume,
-    getMediaElement: playback.getMediaElement,
-    handleSeek: playback.handleSeek,
-    handlePause: playback.handlePause,
-    currentTrack: playback.currentTrack,
-  };
+
   const handleToggleLikeRef = useRef((_track: QueueTrack) => {});
 
-  // Global keyboard shortcuts
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      const s = shortcutStateRef.current;
-      const isInput = (e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA";
-
-      if (e.key === "Escape" && library.selectedTrack !== null) {
-        library.setSelectedTrack(null);
-        return;
-      }
-      if (e.key === "Escape" && (library.fallbackArtistName || library.fallbackAlbumName || library.fallbackTrackName)) {
-        goBackRef.current();
-        return;
-      }
-
-      // F12 or Ctrl+Shift+I: open devtools
-      if (e.key === "F12" || (e.ctrlKey && e.shiftKey && e.key === "I")) {
-        e.preventDefault();
-        invoke("open_devtools");
-        return;
-      }
-
-      // Alt+Arrow: navigation history
-      if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        if (e.key === "ArrowLeft") { e.preventDefault(); goBackRef.current(); return; }
-        if (e.key === "ArrowRight") { e.preventDefault(); goForwardRef.current(); return; }
-      }
-
-      // Non-modifier shortcuts (only when not typing in an input)
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && !isInput) {
-        switch (e.key) {
-          case " ":
-            e.preventDefault();
-            s.handlePause();
-            return;
-          case "ArrowLeft": {
-            e.preventDefault();
-            const el = s.getMediaElement();
-            if (el) s.handleSeek(Math.max(0, el.currentTime - 15));
-            return;
-          }
-          case "ArrowRight": {
-            e.preventDefault();
-            const el = s.getMediaElement();
-            if (el) s.handleSeek(Math.min(el.duration || 0, el.currentTime + 15));
-            return;
-          }
-          case "ArrowUp":
-            e.preventDefault();
-            playback.handleVolume(Math.min(1, s.volume + 0.05));
-            return;
-          case "ArrowDown":
-            e.preventDefault();
-            playback.handleVolume(Math.max(0, s.volume - 0.05));
-            return;
-          case "/":
-            e.preventDefault();
-            searchInputRef.current?.focus();
-            return;
-        }
-      }
-
-      if (!(e.ctrlKey || e.metaKey)) return;
-
-      // Cmd/Ctrl+K: focus central search
-      if (e.key === "k") {
-        e.preventDefault();
-        searchInputRef.current?.focus();
-        return;
-      }
-
-      switch (e.key) {
-        case "1":
-          e.preventDefault();
-          pushStateRef.current();
-          library.setView("search");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
-          break;
-        case "2":
-          e.preventDefault();
-          pushStateRef.current();
-          library.setView("history");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          break;
-        case "f":
-          if (s.currentTrack && isVideoTrack(s.currentTrack)) {
-            e.preventDefault();
-            playback.toggleFullscreen();
-          }
-          break;
-        case "l":
-          e.preventDefault();
-          if (s.currentTrack) handleToggleLikeRef.current(s.currentTrack);
-          break;
-        case "p":
-          e.preventDefault();
-          handleToggleQueueCollapsed();
-          break;
-        case "m":
-          e.preventDefault();
-          playback.toggleMute();
-          break;
-        case "M":
-          e.preventDefault();
-          mini.toggleMiniMode();
-          break;
-        case "ArrowLeft":
-          e.preventDefault();
-          queueHook.playPrevious();
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          handleNext();
-          break;
-        case "b":
-          e.preventDefault();
-          handleToggleSidebar();
-          break;
-        case "[":
-          e.preventDefault();
-          goBackRef.current();
-          break;
-        case "]":
-          e.preventDefault();
-          goForwardRef.current();
-          break;
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  // In-app keyboard shortcuts (window keydown). OS-level media keys are handled
+  // separately by useGlobalShortcuts above.
+  useInAppKeyboardShortcuts({
+    library, playback, queueHook, mini,
+    volume: playback.volume,
+    getMediaElement: playback.getMediaElement,
+    handleSeek: playback.handleSeek,
+    handlePause: playback.handlePause,
+    currentTrack: playback.currentTrack,
+    goBack: () => goBackRef.current(),
+    goForward: () => goForwardRef.current(),
+    pushState: () => pushStateRef.current(),
+    toggleLike: (t) => handleToggleLikeRef.current(t),
+    focusSearch: () => searchInputRef.current?.focus(),
+    handleNext: () => handleNext(),
+    handleToggleQueueCollapsed,
+    handleToggleSidebar,
+  });
 
   // Mouse side buttons for navigation history
   useEffect(() => {

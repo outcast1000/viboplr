@@ -9,7 +9,7 @@
 
 - **lib.rs** — Tauri app setup, plugin registration, command handler registration. Debug-only commands via `#[cfg(debug_assertions)]` using separate `get_invoke_handler()` functions. Initializes `AppState` with all shared resources. Constructs image provider fallback chains at startup.
 - **commands.rs** — All `#[tauri::command]` functions (~107 commands). Each takes `State<'_, AppState>` and delegates to `db.rs` or other modules. Commands return `Result<T, String>`. `AppState` holds: `Arc<Database>`, `app_dir`, `download_queue`, `track_download_manager`, `LastfmClient`, `lastfm_session`, `lastfm_importing`.
-- **db.rs** — SQLite wrapper behind `Mutex<Connection>` (~67 public functions). Owns schema creation, CRUD, FTS5 search index, history recording, Last.fm cache. Registers custom SQL functions: `filename_from_path()`, `strip_diacritics()`, `unicode_lower()`. Schema versioning via `db_version` table with `run_migrations()` on startup. `recompute_counts()` runs every startup.
+- **db.rs** — SQLite wrapper behind `Mutex<Connection>` (~67 public functions). Owns schema creation, CRUD, FTS5 search index, history recording, Last.fm cache. Registers custom SQL functions: `filename_from_path()`, `strip_diacritics()`, `unicode_lower()`. Schema versioning via `db_version` table with `run_migrations()` on startup (PoC baseline squashed into `init_tables`; `db_version` starts at 1 and there are currently no migrations). `recompute_counts()` runs every startup.
 - **scanner.rs** — Walks folder trees with `walkdir`, reads tags with `lofty`. Video files skip tag reading (filename = title). Falls back to regex-based filename parsing (4 patterns tried in order). Genres stored as tags.
 - **watcher.rs** — Uses `notify` crate for real-time filesystem events on dedicated background thread.
 - **models.rs** — Serde-serializable structs shared between commands and DB layer.
@@ -60,7 +60,7 @@ Long-running operations use `thread::spawn` with `AtomicBool` guards for cancell
 
 ## Database
 
-Schema versioned via `db_version` table (currently version 12). `run_migrations()` applies ALTER TABLE statements on startup. `recompute_counts()` runs every startup for crash safety.
+Schema versioned via `db_version` table. The full PoC migration history was squashed into the `init_tables` baseline, so `db_version` starts at 1 and `run_migrations()` is currently a no-op kept as the extension point for future schema changes (add `if version < N { ... }` blocks). `recompute_counts()` runs every startup for crash safety (called from `Database::new`).
 
 Full schema: `artists`, `albums`, `tags`, `track_tags`, `tracks`, `collections`, `history_artists`, `history_tracks`, `history_plays`, `image_fetch_failures`, `plugin_storage`, `lastfm_cache`, `lyrics`, `tracks_fts` (FTS5).
 

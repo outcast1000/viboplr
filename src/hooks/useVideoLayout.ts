@@ -106,11 +106,6 @@ export function useVideoLayout(restoredRef: React.RefObject<boolean>) {
     if (saved.isCollapsed !== undefined) setIsCollapsed(saved.isCollapsed);
   }
 
-  // Migration: accept old videoSplitHeight value
-  function migrateFromSplitHeight(height: number) {
-    setSizes(prev => ({ ...prev, bottom: height }));
-  }
-
   return {
     dockSide,
     setDockSide,
@@ -124,6 +119,5 @@ export function useVideoLayout(restoredRef: React.RefObject<boolean>) {
     isHorizontal,
     onSplitterMouseDown,
     restoreLayout,
-    migrateFromSplitHeight,
   };
 }
