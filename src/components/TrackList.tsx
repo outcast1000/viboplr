@@ -4,6 +4,7 @@ import { isVideoTrack, formatDuration, formatFileSize } from "../utils";
 import { parseLibraryId } from "../queueEntry";
 import { IconYoutube } from "./Icons";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
+import { SpinningDisc } from "./SpinningDisc";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "./TrackList.css";
 
@@ -394,11 +395,7 @@ export function TrackList({
         if (isCurrentTrack && playing != null) {
           return (
             <span key="num" className="col-num">
-              <span className={`eq-bars${playing ? "" : " paused"}`}>
-                <span className="eq-bar" />
-                <span className="eq-bar" />
-                <span className="eq-bar" />
-              </span>
+              <SpinningDisc size={14} playing={playing} />
             </span>
           );
         }

@@ -1,0 +1,24 @@
+.spinning-disc {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-tertiary);
+}
+
+.spinning-disc.playing {
+  color: var(--accent);
+}
+
+.spinning-disc-svg {
+  transform-origin: 50% 50%;
+  transition: color 0.2s ease;
+}
+
+.spinning-disc.playing .spinning-disc-svg {
+  animation: spinning-disc-spin 1.8s linear infinite;
+}
+
+@keyframes spinning-disc-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
