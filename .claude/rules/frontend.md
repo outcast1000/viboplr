@@ -2,7 +2,7 @@
 
 ## Core Files
 
-- **App.tsx** — Single-file React app. All state, views, playback controls, context menu, sidebar. Views toggled via `View` union type: `"search" | "artists" | "albums" | "tags" | "history" | "collections" | "playlists" | "settings" | "extensions" | plugin:${string}`. The unified Library is `"search"` (rendered by `SearchView`); `"artists"`, `"albums"`, `"tags"` are detail-page views reached by selecting an entity from the Library.
+- **App.tsx** — Root React component: owns app-wide state, hook composition, playback/stream-resolver wiring, context menu, sidebar, and the view render tree. Views toggled via `View` union type: `"search" | "artists" | "albums" | "tags" | "history" | "collections" | "playlists" | "settings" | "extensions" | plugin:${string}`. The unified Library is `"search"` (rendered by `SearchView`); `"artists"`, `"albums"`, `"tags"` are detail-page views reached by selecting an entity from the Library. Simple confirmation/error/loading modals are presentational leaf components in `components/modals/` (`ConfirmModals.tsx`, `YoutubeFeedbackModal.tsx`) — App.tsx owns their state and passes primitive props + callbacks; the components hold no app state.
 - **App.css** — All styles. CSS Grid layout, CSS custom properties for skinning, 7-level type scale (`--fs-2xs` through `--fs-2xl`). Shared keyframe animations: `fade-in`, `scale-in`, `glow-pulse`, `slide-text-in`, `equalizer-bar-{1,2,3}`, `waveform-grow-in`.
 - **skinUtils.ts** — Skin validation, CSS generation, customCSS sanitization.
 - **types.ts** — Core TypeScript types (Track, QueueTrack, Artist, Album, Tag, etc.). `Track` is the full library type with DB IDs; `QueueTrack` is the ID-less metadata type used by queue/playback/playlists.

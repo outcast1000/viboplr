@@ -83,6 +83,18 @@ import { PlaylistsView } from "./components/PlaylistsView";
 import { SavePlaylistModal } from "./components/SavePlaylistModal";
 import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
+import {
+  DeleteTracksModal,
+  DeleteTagsModal,
+  DeleteErrorModal,
+  FolderErrorModal,
+  DownloadAgainModal,
+  RemoveCollectionModal,
+  NavErrorModal,
+  PluginLoadingModal,
+  DeepLinkInstallModal,
+} from "./components/modals/ConfirmModals";
+import { YoutubeFeedbackModal } from "./components/modals/YoutubeFeedbackModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
@@ -99,7 +111,6 @@ import { HomeView } from "./components/HomeView";
 import type { ResolvedShelf } from "./hooks/useHome";
 import type { HomeShelfItem } from "./types/plugin";
 import { trackToQueueTrack } from "./queueEntry";
-import { IconYoutube } from "./components/Icons";
 import { useDependencies } from "./hooks/useDependencies";
 import { DependencyModal } from "./components/DependencyModal";
 
@@ -2857,30 +2868,24 @@ function App() {
 
 
       {deepLinkInstall && (
-        <div className="ds-modal-overlay">
-          <div className="ds-modal ds-modal--sm" onClick={(e) => e.stopPropagation()}>
-            <div className="ds-modal-title">Install {deepLinkInstall.kind === "plugin" ? "Plugin" : "Skin"}</div>
-            <p style={{ fontSize: "var(--fs-sm)", color: "var(--text-secondary)", margin: "12px 0" }}>
-              Install from <strong style={{ color: "var(--text-primary)", wordBreak: "break-all" }}>{deepLinkInstall.url}</strong>?
-            </p>
-            <div className="ds-modal-actions">
-              <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => setDeepLinkInstall(null)}>Cancel</button>
-              <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={async () => {
-                const { kind, url } = deepLinkInstall;
-                setDeepLinkInstall(null);
-                if (kind === "plugin") {
-                  await extensionsHook.installFromUrl(url);
-                } else {
-                  try {
-                    await invoke<string>("install_gallery_skin", { url });
-                  } catch (e) {
-                    console.error("Failed to install skin from URL:", e);
-                  }
-                }
-              }}>Install</button>
-            </div>
-          </div>
-        </div>
+        <DeepLinkInstallModal
+          kind={deepLinkInstall.kind}
+          url={deepLinkInstall.url}
+          onCancel={() => setDeepLinkInstall(null)}
+          onInstall={async () => {
+            const { kind, url } = deepLinkInstall;
+            setDeepLinkInstall(null);
+            if (kind === "plugin") {
+              await extensionsHook.installFromUrl(url);
+            } else {
+              try {
+                await invoke<string>("install_gallery_skin", { url });
+              } catch (e) {
+                console.error("Failed to install skin from URL:", e);
+              }
+            }
+          }}
+        />
       )}
 
       {/* Caption bar - full width */}
@@ -3468,107 +3473,68 @@ function App() {
       )}
 
       {contextMenuActions.deleteConfirm && (
-        <div className="ds-modal-overlay">
-          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">Move {contextMenuActions.deleteConfirm.title} to {trashLabel}?</h2>
-            <p className="delete-confirm-warning">This will move the file{contextMenuActions.deleteConfirm.trackIds.length > 1 ? "s" : ""} to {trashLabel} and remove from library.</p>
-            <div className="ds-modal-actions">
-              <button className="ds-btn ds-btn--ghost" onClick={() => contextMenuActions.setDeleteConfirm(null)}>Cancel</button>
-              <button className="ds-btn ds-btn--danger" onClick={contextMenuActions.handleDeleteConfirm} autoFocus>Move to {trashLabel}</button>
-            </div>
-          </div>
-        </div>
+        <DeleteTracksModal
+          title={contextMenuActions.deleteConfirm.title}
+          trackCount={contextMenuActions.deleteConfirm.trackIds.length}
+          trashLabel={trashLabel}
+          onCancel={() => contextMenuActions.setDeleteConfirm(null)}
+          onConfirm={contextMenuActions.handleDeleteConfirm}
+        />
       )}
 
       {deleteTagConfirm && (
-        <div className="ds-modal-overlay">
-          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">
-              {deleteTagConfirm.length === 1
-                ? `Delete tag "${deleteTagConfirm[0].name}"?`
-                : `Delete ${deleteTagConfirm.length} tags?`}
-            </h2>
-            <p className="delete-confirm-warning">
-              {deleteTagConfirm.length === 1
-                ? "This will remove the tag from all tracks. The tracks themselves will not be deleted."
-                : "This will remove these tags from all tracks. The tracks themselves will not be deleted."}
-            </p>
-            <div className="ds-modal-actions">
-              <button className="ds-btn ds-btn--ghost" onClick={() => setDeleteTagConfirm(null)}>Cancel</button>
-              <button className="ds-btn ds-btn--danger" onClick={async () => {
-                const tags = deleteTagConfirm;
-                setDeleteTagConfirm(null);
-                const deletedIds: number[] = [];
-                for (const { id } of tags) {
-                  try {
-                    await invoke("delete_tag", { tagId: id });
-                    deletedIds.push(id);
-                  } catch (e) {
-                    console.error("Failed to delete tag:", e);
-                  }
-                }
-                if (deletedIds.length > 0) {
-                  library.setTags(prev => prev.filter(t => !deletedIds.includes(t.id)));
-                  setSearchDeletedTagBatch(prev => ({ ids: deletedIds, key: prev.key + 1 }));
-                  if (library.selectedTag !== null && deletedIds.includes(library.selectedTag)) {
-                    library.setSelectedTag(null);
-                  }
-                }
-              }} autoFocus>Delete</button>
-            </div>
-          </div>
-        </div>
+        <DeleteTagsModal
+          tagCount={deleteTagConfirm.length}
+          firstTagName={deleteTagConfirm[0].name}
+          onCancel={() => setDeleteTagConfirm(null)}
+          onConfirm={async () => {
+            const tags = deleteTagConfirm;
+            setDeleteTagConfirm(null);
+            const deletedIds: number[] = [];
+            for (const { id } of tags) {
+              try {
+                await invoke("delete_tag", { tagId: id });
+                deletedIds.push(id);
+              } catch (e) {
+                console.error("Failed to delete tag:", e);
+              }
+            }
+            if (deletedIds.length > 0) {
+              library.setTags(prev => prev.filter(t => !deletedIds.includes(t.id)));
+              setSearchDeletedTagBatch(prev => ({ ids: deletedIds, key: prev.key + 1 }));
+              if (library.selectedTag !== null && deletedIds.includes(library.selectedTag)) {
+                library.setSelectedTag(null);
+              }
+            }
+          }}
+        />
       )}
 
       {contextMenuActions.deleteError && (
-        <div className="ds-modal-overlay">
-          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">Delete Failed</h2>
-            <p className="delete-confirm-warning">{contextMenuActions.deleteError.message}</p>
-            <ul className="delete-failure-list">
-              {contextMenuActions.deleteError.failures.map((f, i) => (
-                <li key={i}>
-                  <span className="delete-failure-title">{f.title}</span>
-                  <span className="delete-failure-reason">{f.reason}</span>
-                </li>
-              ))}
-            </ul>
-            <div className="ds-modal-actions">
-              <button className="ds-btn ds-btn--ghost" onClick={() => contextMenuActions.setDeleteError(null)}>OK</button>
-            </div>
-          </div>
-        </div>
+        <DeleteErrorModal
+          message={contextMenuActions.deleteError.message}
+          failures={contextMenuActions.deleteError.failures}
+          onDismiss={() => contextMenuActions.setDeleteError(null)}
+        />
       )}
 
       {contextMenuActions.folderError && (
-        <div className="ds-modal-overlay">
-          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">Open Containing Folder</h2>
-            <p className="delete-confirm-warning">{contextMenuActions.folderError}</p>
-            <div className="ds-modal-actions">
-              <button className="ds-btn ds-btn--ghost" onClick={() => contextMenuActions.setFolderError(null)}>OK</button>
-            </div>
-          </div>
-        </div>
+        <FolderErrorModal
+          message={contextMenuActions.folderError}
+          onDismiss={() => contextMenuActions.setFolderError(null)}
+        />
       )}
 
       {contextMenuActions.downloadConfirm && (
-        <div className="ds-modal-overlay">
-          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">Already Downloaded</h2>
-            <p className="delete-confirm-warning">
-              "{contextMenuActions.downloadConfirm.localTitle}" already exists in your local library. Download again?
-            </p>
-            <div className="ds-modal-actions">
-              <button className="ds-btn ds-btn--ghost" onClick={contextMenuActions.handleDownloadConfirmDismiss}>Cancel</button>
-              <button className="ds-btn ds-btn--secondary" onClick={() => {
-                invoke("show_in_folder", { trackId: contextMenuActions.downloadConfirm!.localTrackId }).catch(console.error);
-                contextMenuActions.handleDownloadConfirmDismiss();
-              }}>Show in Folder</button>
-              <button className="ds-btn ds-btn--primary" onClick={contextMenuActions.handleDownloadConfirm} autoFocus>Download</button>
-            </div>
-          </div>
-        </div>
+        <DownloadAgainModal
+          localTitle={contextMenuActions.downloadConfirm.localTitle}
+          onCancel={contextMenuActions.handleDownloadConfirmDismiss}
+          onShowInFolder={() => {
+            invoke("show_in_folder", { trackId: contextMenuActions.downloadConfirm!.localTrackId }).catch(console.error);
+            contextMenuActions.handleDownloadConfirmDismiss();
+          }}
+          onDownload={contextMenuActions.handleDownloadConfirm}
+        />
       )}
 
       {collectionActions.editingCollection && (
@@ -3580,16 +3546,11 @@ function App() {
       )}
 
       {collectionActions.removeCollectionConfirm && (
-        <div className="ds-modal-overlay">
-          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">Remove &ldquo;{collectionActions.removeCollectionConfirm.name}&rdquo;?</h2>
-            <p className="delete-confirm-warning">This will permanently remove this collection and all its tracks from the library.</p>
-            <div className="ds-modal-actions">
-              <button className="ds-btn ds-btn--ghost" onClick={() => collectionActions.setRemoveCollectionConfirm(null)}>Cancel</button>
-              <button className="ds-btn ds-btn--danger" onClick={collectionActions.handleRemoveCollectionConfirm}>Remove</button>
-            </div>
-          </div>
-        </div>
+        <RemoveCollectionModal
+          name={collectionActions.removeCollectionConfirm.name}
+          onCancel={() => collectionActions.setRemoveCollectionConfirm(null)}
+          onConfirm={collectionActions.handleRemoveCollectionConfirm}
+        />
       )}
 
       {playback.playbackError && !mini.miniMode && (
@@ -3645,29 +3606,11 @@ function App() {
       )}
 
       {navError && (
-        <div className="ds-modal-overlay">
-          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">Navigation Error</h2>
-            <p>{navError}</p>
-            <div className="ds-modal-actions">
-              <button className="ds-btn ds-btn--primary" onClick={() => setNavError(null)}>OK</button>
-            </div>
-          </div>
-        </div>
+        <NavErrorModal message={navError} onDismiss={() => setNavError(null)} />
       )}
 
       {pluginLoadingMessage && (
-        <div className="ds-modal-overlay">
-          <div className="loading-card">
-            <div className="loading-card-icon">
-              <div className="loading-card-spinner" />
-            </div>
-            <div className="loading-card-text">
-              <div className="loading-card-title">Loading...</div>
-              <div className="loading-card-sub">{pluginLoadingMessage}</div>
-            </div>
-          </div>
-        </div>
+        <PluginLoadingModal message={pluginLoadingMessage} />
       )}
 
       {showSavePlaylistModal && (
@@ -3895,20 +3838,11 @@ function App() {
       />
 
       {contextMenuActions.youtubeFeedback && (
-        <div className="youtube-modal-overlay" onClick={() => contextMenuActions.handleYoutubeFeedback(false)}>
-          <div className="youtube-modal" onClick={e => e.stopPropagation()}>
-            <div className="youtube-modal-icon"><IconYoutube size={24} /></div>
-            <div className="youtube-modal-text">
-              Is this the right video for "<strong>{contextMenuActions.youtubeFeedback.videoTitle}</strong>"?<br />
-              Save this link for future use?
-            </div>
-            <a className="youtube-modal-link" onClick={() => openUrl(contextMenuActions.youtubeFeedback!.url)}>{contextMenuActions.youtubeFeedback.url}</a>
-            <div className="youtube-modal-actions">
-              <button className="youtube-modal-btn" onClick={() => contextMenuActions.handleYoutubeFeedback(false)}>No</button>
-              <button className="youtube-modal-btn yes" onClick={() => contextMenuActions.handleYoutubeFeedback(true)}>Yes</button>
-            </div>
-          </div>
-        </div>
+        <YoutubeFeedbackModal
+          url={contextMenuActions.youtubeFeedback.url}
+          videoTitle={contextMenuActions.youtubeFeedback.videoTitle}
+          onRespond={contextMenuActions.handleYoutubeFeedback}
+        />
       )}
 
 
