@@ -14,16 +14,15 @@ function activate(api) {
     status: "idle",
     playlists: [],
     playlistTracks: {},   // playlistId -> [{ name, artist, album, duration, imageUrl, spotifyId }]
-    previousTracks: {},   // playlistId -> tracks from before last refresh
     currentPlaylist: null,
     scrapeProgress: { current: 0, total: 0, name: "", found: 0 },
     errorMessage: "",
     activeTab: "section:Made for You",
     lastLoginCheck: null,
-    updatedPlaylistIds: {},
     refreshing: false,
     showBrowserOnRefresh: false,
     autoRefreshHours: 24,
+    debugLogging: false,
     lastCheckAt: null,
     lastCheckResult: null,
     refreshSummary: "",
@@ -333,6 +332,7 @@ function activate(api) {
     activeReport = null;
     persistReport(snapshot);
     persistLastSyncLog(snapshot);
+    appendSyncRunFile(snapshot);
   }
 
   function persistLastSyncLog(report) {
@@ -359,46 +359,59 @@ function activate(api) {
     }).catch(function (e) { console.error("Failed to read reports:", e); });
   }
 
-  // ---- Change detection helpers ----
+  // ---- Debug file logs (only written when state.debugLogging) ----
 
-  function tracksChanged(oldTracks, newTracks) {
-    if (!oldTracks || oldTracks.length !== newTracks.length) return true;
-    var oldSet = {};
-    for (var i = 0; i < oldTracks.length; i++) {
-      oldSet[oldTracks[i].name + "\0" + oldTracks[i].artist] = true;
-    }
-    for (var j = 0; j < newTracks.length; j++) {
-      if (!oldSet[newTracks[j].name + "\0" + newTracks[j].artist]) return true;
-    }
-    return false;
+  var MAX_SYNC_RUN_FILES = 20;
+
+  // Append a finished report to logs/sync-runs.json (rolling, last N runs).
+  function appendSyncRunFile(report) {
+    if (!state.debugLogging) return;
+    api.storage.files.readJson(["logs", "sync-runs.json"]).then(function (existing) {
+      var list = Array.isArray(existing) ? existing.slice() : [];
+      list.unshift(report);
+      if (list.length > MAX_SYNC_RUN_FILES) list.length = MAX_SYNC_RUN_FILES;
+      return api.storage.files.writeJson(["logs", "sync-runs.json"], list);
+    }).catch(function (e) {
+      console.error("Failed to write sync-runs.json:", e);
+    });
   }
 
-  function getDiff(playlistId) {
-    var prev = state.previousTracks[playlistId];
-    var curr = state.playlistTracks[playlistId];
-    if (!prev || !curr) return { added: [], removed: [] };
+  var MAX_PAGE_DEBUG_BYTES = 2 * 1024 * 1024; // ~2 MB
+  var PAGE_DEBUG_DELIM = "===== BEGIN DUMP ";
 
-    var prevSet = {};
-    for (var i = 0; i < prev.length; i++) {
-      prevSet[prev[i].name + "\0" + prev[i].artist] = prev[i];
-    }
-    var currSet = {};
-    for (var j = 0; j < curr.length; j++) {
-      currSet[curr[j].name + "\0" + curr[j].artist] = curr[j];
-    }
-
-    var added = [];
-    for (var k = 0; k < curr.length; k++) {
-      var key = curr[k].name + "\0" + curr[k].artist;
-      if (!prevSet[key]) added.push(curr[k]);
-    }
-    var removed = [];
-    for (var m = 0; m < prev.length; m++) {
-      var rkey = prev[m].name + "\0" + prev[m].artist;
-      if (!currSet[rkey]) removed.push(prev[m]);
-    }
-
-    return { added: added, removed: removed };
+  // Append one failure dump to logs/page-debug.log (rolling, ~2 MB cap).
+  // `info` = { playlistId, playlistName, outcome }, `dump` = fulldump message data.
+  function appendPageDebugFile(info, dump) {
+    if (!state.debugLogging) return;
+    var ts = new Date().toISOString();
+    var block = PAGE_DEBUG_DELIM + ts + " =====\n" +
+      "playlist: " + (info.playlistName || "?") + " (" + (info.playlistId || "?") + ")\n" +
+      "outcome: " + (info.outcome || "?") + "\n" +
+      "url: " + (dump && dump.url ? dump.url : "?") + "\n" +
+      "counts: " + safeStringify(dump && dump.counts ? dump.counts : {}) + "\n" +
+      "testids: " + ((dump && dump.testids ? dump.testids : []).slice(0, 30).join(", ")) + "\n" +
+      "===== HTML =====\n" +
+      (dump && dump.html ? dump.html : (dump && dump.error ? "(dump error: " + dump.error + ")" : "(no html)")) + "\n" +
+      "===== END DUMP =====\n\n";
+    api.storage.files.readText(["logs", "page-debug.log"]).then(function (existing) {
+      var text = (typeof existing === "string" ? existing : "") + block;
+      if (text.length > MAX_PAGE_DEBUG_BYTES) {
+        // Drop oldest whole dumps until under budget.
+        var parts = text.split(PAGE_DEBUG_DELIM);
+        // parts[0] is anything before the first delimiter (usually ""); rebuild
+        // from the tail, re-adding the delimiter we split on.
+        var rebuilt = "";
+        for (var i = parts.length - 1; i >= 1; i--) {
+          var candidate = PAGE_DEBUG_DELIM + parts[i] + rebuilt;
+          if (candidate.length > MAX_PAGE_DEBUG_BYTES) break;
+          rebuilt = candidate;
+        }
+        text = rebuilt || block; // never drop the just-added block entirely
+      }
+      return api.storage.files.writeText(["logs", "page-debug.log"], text);
+    }).catch(function (e) {
+      console.error("Failed to write page-debug.log:", e);
+    });
   }
 
   function sectionsEqual(a, b) {
@@ -416,7 +429,7 @@ function activate(api) {
   }
 
   // ---- Filesystem persistence ----
-  // Layout: playlists/{section}/{playlist_id}/{meta.json,tracks.json,previous.json,cover.jpg,track-*.jpg}
+  // Layout: playlists/{section}/{playlist_id}/{meta.json,tracks.json,cover.jpg,track-*.jpg}
 
   function djb2Hash(str) {
     var hash = 5381;
@@ -475,8 +488,7 @@ function activate(api) {
       description: pl.description || "",
       coverFile: coverFile,
       coverVersion: pl.coverVersion || null,
-      lastCheckedAt: pl.lastCheckedAt || null,
-      updatedAt: pl.updatedAt || null,
+      lastSyncedAt: pl.lastSyncedAt || null,
     }).catch(function (e) { console.error("Failed to write meta:", pl.id, e); });
 
     var tracksP = api.storage.files.writeJson(dir.concat(["tracks.json"]), serializeTracks(tracks))
@@ -651,8 +663,7 @@ function activate(api) {
             imageUrl: versionedCover,
             coverVersion: meta.coverVersion || null,
             uri: "spotify://playlists/" + meta.id,
-            lastCheckedAt: meta.lastCheckedAt || null,
-            updatedAt: meta.updatedAt || null,
+            lastSyncedAt: meta.lastSyncedAt || null,
           };
           return { playlist: playlist, tracks: tracks };
         });
@@ -675,6 +686,7 @@ function activate(api) {
     api.storage.set("spotify_browse_preferences", {
       showBrowserOnRefresh: state.showBrowserOnRefresh,
       autoRefreshHours: state.autoRefreshHours,
+      debugLogging: state.debugLogging,
       lastCheckAt: state.lastCheckAt,
       lastCheckResult: state.lastCheckResult,
     }).catch(console.error);
@@ -744,8 +756,7 @@ function activate(api) {
 
     // Append the last-check timestamp to the status text rather than the title.
     if (!isActive && state.lastCheckAt && statusText) {
-      var d = new Date(state.lastCheckAt);
-      statusText += " — " + d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+      statusText += " — " + formatSyncTime(state.lastCheckAt);
     }
 
     return {
@@ -775,20 +786,22 @@ function activate(api) {
     return null;
   }
 
+  // Short "May 29, 14:32" style stamp for last-synced display.
+  function formatSyncTime(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) +
+      ", " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+
   function buildPlaylistCards(playlists) {
     var cards = [];
     for (var pi = 0; pi < playlists.length; pi++) {
       var sp = playlists[pi];
       var ts = state.playlistTracks[sp.id];
       var sub = ts ? ts.length + " tracks" : (sp.description || "");
-      if (state.updatedPlaylistIds[sp.id]) {
-        var diff = getDiff(sp.id);
-        var diffParts = [];
-        if (diff.added.length > 0) diffParts.push("+" + diff.added.length);
-        if (diff.removed.length > 0) diffParts.push("-" + diff.removed.length);
-        var diffStr = diffParts.length > 0 ? " (" + diffParts.join(", ") + ")" : "";
-        sub = "• Updated" + diffStr + " — " + sub;
-      }
+      if (sp.lastSyncedAt) sub += " · synced " + formatSyncTime(sp.lastSyncedAt);
       var cardTracks = [];
       if (ts) {
         for (var ti = 0; ti < ts.length; ti++) {
@@ -905,6 +918,7 @@ function activate(api) {
       { id: "save-playlist", label: "Save to Playlists" },
     ];
     var headerMeta = tracks.length + " tracks";
+    if (pl.lastSyncedAt) headerMeta += " · synced " + formatSyncTime(pl.lastSyncedAt);
     var ch = [
       {
         type: "detail-header",
@@ -929,12 +943,6 @@ function activate(api) {
     }
 
     if (tracks.length > 0) {
-      var diff = getDiff(pl.id);
-      var addedSet = {};
-      for (var ai = 0; ai < diff.added.length; ai++) {
-        addedSet[diff.added[ai].name + "\0" + diff.added[ai].artist] = true;
-      }
-
       var items = [];
       for (var i = 0; i < tracks.length; i++) {
         var t = tracks[i];
@@ -943,19 +951,14 @@ function activate(api) {
           var hay = ((t.name || "") + " " + (t.artist || "") + " " + (t.album || "")).toLowerCase();
           if (hay.indexOf(query) === -1) continue;
         }
-        var isAdded = addedSet[t.name + "\0" + t.artist];
-        var item = {
+        items.push({
           id: "track:" + i,
           title: t.name || "Unknown",
           subtitle: (t.artist || "Unknown") + (t.album ? " — " + t.album : ""),
           imageUrl: t.imageUrl || undefined,
           duration: t.duration || "",
           action: "play-track",
-        };
-        if (isAdded) {
-          item.style = { "border-left": "3px solid var(--success)", "padding-left": "8px" };
-        }
-        items.push(item);
+        });
       }
       if (query && items.length === 0) {
         ch.push({ type: "text", content: "<p style='opacity:0.5;padding:12px 0'>No tracks match \"" + escapeHtml(query) + "\"</p>" });
@@ -964,25 +967,6 @@ function activate(api) {
       }
       if (items.length > 0) {
         ch.push({ type: "track-row-list", items: items });
-      }
-
-      // Show removed tracks at bottom
-      if (diff.removed.length > 0) {
-        ch.push({ type: "spacer" });
-        ch.push({ type: "text", content: "<p style='font-size:var(--fs-xs);color:var(--text-secondary);margin:0'>Removed tracks</p>" });
-        var removedItems = [];
-        for (var ri = 0; ri < diff.removed.length; ri++) {
-          var rt = diff.removed[ri];
-          removedItems.push({
-            id: "removed:" + ri,
-            title: rt.name || "Unknown",
-            subtitle: (rt.artist || "Unknown") + (rt.album ? " — " + rt.album : ""),
-            imageUrl: rt.imageUrl || undefined,
-            duration: rt.duration || "",
-            style: { "text-decoration": "line-through", "opacity": "0.5" },
-          });
-        }
-        ch.push({ type: "track-row-list", items: removedItems });
       }
     } else {
       ch.push({ type: "text", content: "<p style='opacity:0.5'>No tracks scraped</p>" });
@@ -1007,6 +991,7 @@ function activate(api) {
     });
 
     ch.push({ type: "toggle", label: "Show browser window during refresh", checked: state.showBrowserOnRefresh, action: "toggle-show-browser-pref" });
+    ch.push({ type: "toggle", label: "Debug logging", checked: state.debugLogging, action: "toggle-debug-logging" });
 
     ch.push(buildDebugTestSection());
     ch.push(buildDiagnosticsSection());
@@ -1093,7 +1078,7 @@ function activate(api) {
       }
     }
 
-    children.push({ type: "text", content: "<p><i>Detailed logs are written to the app log file (filter by spotify-browse). The full last-sync trace is stored in plugin storage as <code>last_sync.log</code>.</i></p>" });
+    children.push({ type: "text", content: "<p><i>Detailed logs are written to the app log file (filter by spotify-browse). The full last-sync trace is stored as <code>last_sync.log</code>. When Debug logging is on, each run is also written to <code>logs/sync-runs.json</code> and failed-page HTML dumps to <code>logs/page-debug.log</code> in the plugin's data folder.</i></p>" });
 
     return { type: "section", title: "Diagnostics", children: children };
   }
@@ -1458,6 +1443,55 @@ function activate(api) {
       '}catch(e){window.__viboplr.send("snapshot",{label:label,error:""+e})}' +
     '}';
 
+  // Full-page HTML dump for debugging parse failures. Unlike _snap (which caps
+  // the body at 8 KB), this captures the entire tracklist container's outerHTML,
+  // falling back to <main>, then <body>. Sent as a "fulldump" message.
+  var SCRIPT_FULL_DUMP =
+    '(function(){' +
+      'try{' +
+        'var el=document.querySelector("[data-testid=\\"playlist-tracklist\\"]")||document.querySelector("main")||document.body;' +
+        'var html=el?el.outerHTML:"";' +
+        'var testids=[];var tidNodes=document.querySelectorAll("[data-testid]");' +
+        'for(var t=0;t<Math.min(tidNodes.length,50);t++)testids.push(tidNodes[t].getAttribute("data-testid"));' +
+        'var counts={' +
+          'rows:document.querySelectorAll("[role=\\"row\\"]").length,' +
+          'trackLinks:document.querySelectorAll("a[href*=\\"/track/\\"]").length,' +
+          'artistLinks:document.querySelectorAll("a[href*=\\"/artist/\\"]").length,' +
+          'mainEl:!!document.querySelector("main"),' +
+          'trackList:!!document.querySelector("[data-testid=\\"playlist-tracklist\\"]")' +
+        '};' +
+        'window.__viboplr.send("fulldump",{url:location.href,title:document.title,counts:counts,testids:testids,html:html});' +
+      '}catch(e){window.__viboplr.send("fulldump",{error:""+e})}' +
+    '})()';
+
+  // Injected when we open the window because the user isn't logged in. Adds a
+  // fixed banner telling them what to do; the banner is removed automatically
+  // once login is detected and scraping proceeds. Mirrors the google-image-search
+  // captcha banner approach.
+  var LOGIN_BANNER_ID = "__viboplr_spotify_login_banner";
+  var SCRIPT_LOGIN_BANNER =
+    '(function(){' +
+      'var ID="' + LOGIN_BANNER_ID + '";' +
+      'if(document.getElementById(ID))return;' +
+      'var bar=document.createElement("div");' +
+      'bar.id=ID;' +
+      'bar.style.cssText="position:fixed;top:0;left:0;right:0;z-index:2147483647;' +
+        'background:#1DB954;color:#000;font-family:-apple-system,system-ui,sans-serif;' +
+        'padding:12px 16px;font-size:14px;line-height:1.4;box-shadow:0 2px 6px rgba(0,0,0,.3);";' +
+      'bar.innerHTML="<b>Viboplr needs you to log in to Spotify.</b>' +
+        '<br/>Please sign in to your Spotify account in this window. ' +
+        'Once you are logged in, syncing continues automatically. ' +
+        'You usually only need to do this once.";' +
+      'document.documentElement.appendChild(bar);' +
+      'document.body&&(document.body.style.paddingTop=(bar.offsetHeight+8)+"px");' +
+    '})();';
+  var SCRIPT_REMOVE_LOGIN_BANNER =
+    '(function(){' +
+      'var el=document.getElementById("' + LOGIN_BANNER_ID + '");' +
+      'if(el&&el.parentNode)el.parentNode.removeChild(el);' +
+      'if(document.body)document.body.style.paddingTop="";' +
+    '})();';
+
   // Click a filter pill / nav item labeled "Music". Spotify shows these above the
   // library when filtered to shows/podcasts — switching back to Music reveals playlists.
   var SCRIPT_CLICK_MUSIC = '(function(){try{' +
@@ -1791,6 +1825,7 @@ function activate(api) {
       var handle = null;
       var gen = ++scrapeGeneration;
       var pendingSnapshot = null;
+      var pendingFullDump = null;
 
       function done(val) {
         if (handle) { handle.close().catch(console.error); handle = null; }
@@ -1817,6 +1852,19 @@ function activate(api) {
             if (cb) cb(null);
           }
         }, 2000);
+      }
+
+      function captureFullDump(onDone) {
+        if (!handle || !state.debugLogging) { if (onDone) onDone(null); return; }
+        pendingFullDump = { cb: onDone };
+        handle.eval(SCRIPT_FULL_DUMP);
+        setTimeout(function () {
+          if (pendingFullDump) {
+            var cb = pendingFullDump.cb;
+            pendingFullDump = null;
+            if (cb) cb(null);
+          }
+        }, 3000);
       }
 
       api.network.openBrowseWindow("https://open.spotify.com", {
@@ -1857,25 +1905,61 @@ function activate(api) {
             }
             return;
           }
+          if (msg.type === "fulldump") {
+            if (pendingFullDump) {
+              var fdCb = pendingFullDump.cb;
+              pendingFullDump = null;
+              if (fdCb) fdCb(msg.data || null);
+            }
+            return;
+          }
           if (currentHandler) currentHandler(msg);
         });
 
         // Phase 1: Wait for login
         if (showProgress) { state.status = "waiting-login"; render(); }
 
+        // Once we've polled a few times without detecting a login, surface the
+        // (possibly hidden) browse window and inject a banner telling the user
+        // to sign in. After that we keep polling indefinitely — the user logs
+        // in and scraping resumes, or they close the window and we abort. This
+        // mirrors the google-image-search captcha flow.
+        var LOGIN_GRACE_POLLS = 2;
+        var loginPromptShown = false;
+
+        function promptForLogin() {
+          if (loginPromptShown) return;
+          loginPromptShown = true;
+          plog("warn", "login", "Not logged in to Spotify — surfacing window for sign-in");
+          h.eval(SCRIPT_LOGIN_BANNER);
+          h.show().catch(function (e) { console.error("Failed to show Spotify window:", e); });
+          api.ui.showNotification("Please log in to Spotify in the window that just opened, then syncing will continue.");
+        }
+
         function checkLogin() {
-          loginRetries++;
-          if (loginRetries > 20) {
+          // Stop polling if this scrape was cancelled or the window was closed
+          // (the window-closed message resolves via done(); a cancel bumps the
+          // generation). Without this the interval would eval on a dead handle.
+          if (gen !== scrapeGeneration || !handle) {
             if (loginTimer) { clearInterval(loginTimer); loginTimer = null; }
-            done(null);
             return;
           }
+          loginRetries++;
+          // Give an existing session a couple of polls to render before we
+          // assume the user needs to sign in.
+          if (loginRetries > LOGIN_GRACE_POLLS) promptForLogin();
           h.eval(SCRIPT_CHECK_LOGIN);
         }
 
         setHandler(function(msg) {
           if (msg.type === "login-check" && msg.data && msg.data.loggedIn) {
             if (loginTimer) { clearInterval(loginTimer); loginTimer = null; }
+            if (loginPromptShown) {
+              // Clean up the prompt: remove the banner and, for a headless
+              // refresh, hide the window again so scraping stays silent.
+              h.eval(SCRIPT_REMOVE_LOGIN_BANNER);
+              if (!visible) h.hide().catch(function (e) { console.error("Failed to re-hide Spotify window:", e); });
+            }
             scrapeSections();
           }
         });
@@ -2099,7 +2183,7 @@ function activate(api) {
             var plReport = {
               id: pl.id, name: pl.name, section: pl.section || null,
               status: "pending", trackCount: 0, durationMs: 0,
-              error: null, snapshot: null,
+              error: null, snapshot: null, attempts: 1,
             };
             if (activeReport) activeReport.playlists.push(plReport);
             var plStart = Date.now();
@@ -2107,6 +2191,53 @@ function activate(api) {
             h.eval(scriptNavigatePlaylist(pl.id));
 
             var trackTimeout = null;
+
+            // Liked Songs can be very large, so allow far more scroll steps
+            // and a correspondingly longer timeout. The scroll cadence is ~600ms
+            // per step inside the page, so 600 steps caps at ~6 minutes.
+            var isLiked = pl.id === LIKED_PLAYLIST_ID;
+            var scrapeOpts = isLiked ? { maxSteps: 600 } : null;
+            var scrapeTimeoutMs = isLiked ? 6 * 60 * 1000 : 45000;
+
+            function armTrackTimeout() {
+              trackTimeout = setTimeout(function() {
+                if (gen !== scrapeGeneration) return;
+                plog("warn", "tracks", "Timeout scraping \"" + pl.name + "\" (" + pl.id + ") after " + Math.round(scrapeTimeoutMs / 1000) + "s", { elapsed: Date.now() - plStart });
+                allTracks[pl.id] = allTracks[pl.id] || [];
+                retryOrFinish("timeout", null, "tracks-timeout:" + pl.id);
+              }, scrapeTimeoutMs);
+            }
+
+            // Either reload the page for one more attempt, or finalize the
+            // failure (capture full HTML dump when debug logging is on).
+            function retryOrFinish(finalStatus, errMsg, snapLabel) {
+              if (gen !== scrapeGeneration) { done(null); return; }
+              if (trackTimeout) { clearTimeout(trackTimeout); trackTimeout = null; }
+              if (plReport.attempts < 2) {
+                plReport.attempts++;
+                plog("warn", "tracks", "Reloading \"" + pl.name + "\" (" + pl.id + ") for retry " + plReport.attempts, { prevStatus: finalStatus });
+                h.eval(scriptNavigatePlaylist(pl.id));
+                setTimeout(function () {
+                  if (gen !== scrapeGeneration) return;
+                  plStart = Date.now();
+                  h.eval(scriptScrollThenScrape(pl.id, gen, scrapeOpts));
+                  armTrackTimeout();
+                }, 4000);
+                return;
+              }
+              plReport.status = finalStatus;
+              plReport.durationMs = Date.now() - plStart;
+              if (errMsg) plReport.error = String(errMsg);
+              captureSnapshot(snapLabel, function (snap) {
+                plReport.snapshot = snap;
+                if (snap && snap.counts) plog("warn", "tracks", finalStatus + " snapshot for \"" + pl.name + "\"", { url: snap.url, counts: snap.counts });
+                captureFullDump(function (dump) {
+                  if (dump) appendPageDebugFile({ playlistId: pl.id, playlistName: pl.name, outcome: finalStatus }, dump);
+                  setTimeout(scrapeNext, 1000);
+                });
+              });
+            }
+
             setHandler(function(msg) {
               if (msg.type === "tracks-progress" && msg.data && msg.data.playlistId === pl.id) {
                 if (showProgress) {
@@ -2118,7 +2249,11 @@ function activate(api) {
               if (msg.type === "tracks" && msg.data && msg.data.playlistId === pl.id) {
                 if (trackTimeout) { clearTimeout(trackTimeout); trackTimeout = null; }
                 var tracks = msg.data.tracks || [];
-                allTracks[pl.id] = tracks;
+                // Keep the better of multiple attempts: don't let an empty/errored
+                // retry clobber tracks a prior attempt captured for this playlist.
+                if (tracks.length > 0 || !allTracks[pl.id] || allTracks[pl.id].length === 0) {
+                  allTracks[pl.id] = tracks;
+                }
                 if (msg.data.description) pl.description = msg.data.description;
                 // Liked Songs uses a locally-generated SVG cover; ignore any
                 // og:image / page image (it's a generic Spotify graphic).
@@ -2167,52 +2302,26 @@ function activate(api) {
                 plReport.trackCount = tracks.length;
                 plReport.durationMs = Date.now() - plStart;
                 if (msg.data.error) {
-                  plReport.status = "error";
-                  plReport.error = String(msg.data.error);
-                  plog("warn", "tracks", "Scrape error for \"" + pl.name + "\" (" + pl.id + "): " + msg.data.error, { trackCount: tracks.length, durationMs: plReport.durationMs });
-                  captureSnapshot("tracks-error:" + pl.id, function (snap) {
-                    plReport.snapshot = snap;
-                    if (snap && snap.counts) plog("warn", "tracks", "Error snapshot for \"" + pl.name + "\"", { url: snap.url, counts: snap.counts });
-                    setTimeout(scrapeNext, 1000);
-                  });
+                  plog("warn", "tracks", "Scrape error for \"" + pl.name + "\" (" + pl.id + "): " + msg.data.error, { trackCount: tracks.length });
+                  retryOrFinish("error", msg.data.error, "tracks-error:" + pl.id);
                   return;
                 }
                 if (tracks.length === 0) {
-                  plReport.status = "empty";
-                  plog("warn", "tracks", "Got 0 tracks for \"" + pl.name + "\" (" + pl.id + ")", { durationMs: plReport.durationMs });
-                  captureSnapshot("tracks-empty:" + pl.id, function (snap) {
-                    plReport.snapshot = snap;
-                    if (snap && snap.counts) plog("warn", "tracks", "Empty snapshot for \"" + pl.name + "\"", { url: snap.url, counts: snap.counts, testids: (snap.testids || []).slice(0, 10) });
-                    setTimeout(scrapeNext, 1000);
-                  });
+                  plog("warn", "tracks", "Got 0 tracks for \"" + pl.name + "\" (" + pl.id + ")", {});
+                  retryOrFinish("empty", null, "tracks-empty:" + pl.id);
                   return;
                 }
                 plReport.status = "ok";
+                plReport.trackCount = tracks.length;
+                plReport.durationMs = Date.now() - plStart;
                 setTimeout(scrapeNext, 1000);
               }
             });
 
-            // Liked Songs can be very large, so allow far more scroll steps
-            // and a correspondingly longer timeout. The scroll cadence is ~600ms
-            // per step inside the page, so 600 steps caps at ~6 minutes.
-            var isLiked = pl.id === LIKED_PLAYLIST_ID;
-            var scrapeOpts = isLiked ? { maxSteps: 600 } : null;
-            var scrapeTimeoutMs = isLiked ? 6 * 60 * 1000 : 45000;
-
             setTimeout(function() {
               if (gen !== scrapeGeneration) return;
               h.eval(scriptScrollThenScrape(pl.id, gen, scrapeOpts));
-              trackTimeout = setTimeout(function() {
-                plog("warn", "tracks", "Timeout scraping \"" + pl.name + "\" (" + pl.id + ") after " + Math.round(scrapeTimeoutMs / 1000) + "s", { elapsed: Date.now() - plStart });
-                allTracks[pl.id] = allTracks[pl.id] || [];
-                plReport.status = "timeout";
-                plReport.durationMs = Date.now() - plStart;
-                captureSnapshot("tracks-timeout:" + pl.id, function (snap) {
-                  plReport.snapshot = snap;
-                  if (snap && snap.counts) plog("warn", "tracks", "Timeout snapshot for \"" + pl.name + "\"", { url: snap.url, counts: snap.counts });
-                  scrapeNext();
-                });
-              }, scrapeTimeoutMs);
+              armTrackTimeout();
             }, 4000);
           }
 
@@ -2223,60 +2332,57 @@ function activate(api) {
     });
   }
 
-  // ---- Change detection ----
+  // ---- Refresh results ----
+
+  // Build the next tracks map: take fresh tracks, but if a playlist's fresh
+  // scrape came back empty while we previously had tracks for it, keep the old
+  // ones (guards against transient parse failures wiping a playlist). Also
+  // preserves the old cover when the fresh playlist object lost its imageUrl.
+  // `newPlaylists` is mutated in place to restore kept covers / lastSyncedAt.
+  function applyKeepOld(newPlaylists, freshTracks, baseTracksMap, oldPlaylistMap) {
+    var out = {};
+    for (var i = 0; i < newPlaylists.length; i++) {
+      var pl = newPlaylists[i];
+      var fresh = freshTracks[pl.id] || [];
+      var oldTracks = baseTracksMap[pl.id];
+      var oldPl = oldPlaylistMap[pl.id];
+      if (fresh.length === 0 && oldTracks && oldTracks.length > 0) {
+        out[pl.id] = oldTracks;
+        if (!pl.imageUrl && oldPl && oldPl.imageUrl) pl.imageUrl = oldPl.imageUrl;
+        if (oldPl && oldPl.lastSyncedAt) pl.lastSyncedAt = oldPl.lastSyncedAt;
+        syncNote("keep-old", "Kept " + oldTracks.length + " old tracks for \"" + pl.name + "\" (fresh scrape was empty)", { id: pl.id });
+      } else {
+        out[pl.id] = fresh;
+        if (fresh.length > 0) pl.lastSyncedAt = new Date().toISOString();
+        else if (oldPl && oldPl.lastSyncedAt) pl.lastSyncedAt = oldPl.lastSyncedAt;
+      }
+    }
+    return out;
+  }
 
   function processRefreshResults(newPlaylists, newTracks) {
-    var hasChanges = false;
-    state.updatedPlaylistIds = {};
-
-    // Snapshot current tracks as previous before overwriting
-    var prevSnapshot = {};
-    var keys = Object.keys(state.playlistTracks);
-    for (var k = 0; k < keys.length; k++) {
-      prevSnapshot[keys[k]] = state.playlistTracks[keys[k]];
-    }
-    state.previousTracks = prevSnapshot;
-
     var oldPlaylistMap = {};
     for (var oi = 0; oi < state.playlists.length; oi++) {
       oldPlaylistMap[state.playlists[oi].id] = state.playlists[oi];
     }
 
-    var now = new Date().toISOString();
-    for (var i = 0; i < newPlaylists.length; i++) {
-      var pl = newPlaylists[i];
-      var oldTracks = prevSnapshot[pl.id];
-      var fresh = newTracks[pl.id] || [];
-      var oldPl = oldPlaylistMap[pl.id];
-
-      pl.lastCheckedAt = now;
-      if (tracksChanged(oldTracks, fresh)) {
-        hasChanges = true;
-        state.updatedPlaylistIds[pl.id] = true;
-        pl.updatedAt = now;
-      } else if (oldPl && oldPl.updatedAt) {
-        pl.updatedAt = oldPl.updatedAt;
-      }
-    }
+    var mergedTracks = applyKeepOld(newPlaylists, newTracks, state.playlistTracks, oldPlaylistMap);
 
     // Remove on-disk dirs for playlists that dropped out of the refresh.
     var newKeyed = {};
     for (var p = 0; p < newPlaylists.length; p++) {
-      var npl = newPlaylists[p];
-      newKeyed[playlistDir(npl).join("/")] = true;
+      newKeyed[playlistDir(newPlaylists[p]).join("/")] = true;
     }
     for (var op = 0; op < state.playlists.length; op++) {
-      var oldPl = state.playlists[op];
-      var oldKey = playlistDir(oldPl).join("/");
+      var oldKey = playlistDir(state.playlists[op]).join("/");
       if (!newKeyed[oldKey]) {
-        deletePlaylistFiles(oldPl);
+        deletePlaylistFiles(state.playlists[op]);
       }
     }
 
     state.playlists = newPlaylists;
-    state.playlistTracks = newTracks;
+    state.playlistTracks = mergedTracks;
     saveState();
-    return { hasChanges: hasChanges };
   }
 
   // ---- Refresh ----
@@ -2292,13 +2398,10 @@ function activate(api) {
         api.ui.setBadge("spotify", { type: "dot", variant: "error" });
         return;
       }
-      var outcome = processRefreshResults(result.playlists, result.tracks);
+      processRefreshResults(result.playlists, result.tracks);
       var errCount = result.failedSections ? result.failedSections.length : 0;
       recordCheckResult(result.playlists.length, errCount);
       cacheAllImages();
-      if (outcome.hasChanges) {
-        api.ui.setBadge("spotify", { type: "dot", variant: "accent" });
-      }
       if (errCount > 0) {
         dbg("flow", "Silent refresh: could not find sections: " + result.failedSections.join(", "));
       }
@@ -2320,7 +2423,6 @@ function activate(api) {
     if (isFirstRun) {
       state.playlists = [];
       state.playlistTracks = {};
-      state.updatedPlaylistIds = {};
     }
     state.status = "waiting-login";
     state.errorMessage = "";
@@ -2333,7 +2435,7 @@ function activate(api) {
       state.refreshing = false;
       if (!result) {
         state.status = "error";
-        state.errorMessage = "Not logged in to Spotify. Click 'Sync' to try again.";
+        state.errorMessage = "Spotify sign-in was not completed. Click 'Sync' to try again.";
         render();
         return;
       }
@@ -2350,13 +2452,7 @@ function activate(api) {
         saveState();
       } else {
         processRefreshResults(result.playlists, result.tracks);
-        var updatedCount = Object.keys(state.updatedPlaylistIds).length;
-        var summaryParts = [];
-        if (updatedCount > 0) {
-          summaryParts.push("Updated " + updatedCount + " playlist" + (updatedCount > 1 ? "s" : ""));
-        } else {
-          summaryParts.push("No changes detected");
-        }
+        var summaryParts = ["Synced " + result.playlists.length + " playlist" + (result.playlists.length === 1 ? "" : "s")];
         if (errCount > 0) {
           summaryParts.push("Could not find: " + result.failedSections.join(", "));
         }
@@ -2409,7 +2505,7 @@ function activate(api) {
       state.refreshing = false;
       if (!result) {
         state.status = "error";
-        state.errorMessage = "Not logged in to Spotify.";
+        state.errorMessage = "Spotify sign-in was not completed.";
         render();
         return;
       }
@@ -2430,15 +2526,21 @@ function activate(api) {
       for (var j = 0; j < result.playlists.length; j++) {
         kept.push(result.playlists[j]);
       }
-      // Merge tracks
+      // Merge tracks: start from existing, then layer in this section's fresh
+      // results (keeping old tracks where a fresh scrape came back empty).
+      var oldPlaylistMap = {};
+      for (var omi = 0; omi < state.playlists.length; omi++) {
+        oldPlaylistMap[state.playlists[omi].id] = state.playlists[omi];
+      }
+      var sectionTracks = applyKeepOld(result.playlists, result.tracks, state.playlistTracks, oldPlaylistMap);
       var newTracks = {};
       var oldKeys = Object.keys(state.playlistTracks);
       for (var k = 0; k < oldKeys.length; k++) {
         newTracks[oldKeys[k]] = state.playlistTracks[oldKeys[k]];
       }
-      var resKeys = Object.keys(result.tracks);
+      var resKeys = Object.keys(sectionTracks);
       for (var m = 0; m < resKeys.length; m++) {
-        newTracks[resKeys[m]] = result.tracks[resKeys[m]];
+        newTracks[resKeys[m]] = sectionTracks[resKeys[m]];
       }
       state.playlists = kept;
       state.playlistTracks = newTracks;
@@ -2548,7 +2650,6 @@ function activate(api) {
     for (var i = 0; i < state.playlists.length; i++) {
       if (state.playlists[i].id === pid) {
         state.currentPlaylist = state.playlists[i];
-        delete state.updatedPlaylistIds[pid];
         state.currentView = "playlist";
         renderPlaylist();
         return;
@@ -2617,13 +2718,11 @@ function activate(api) {
     var meta = {};
     if (pl.section) meta.Section = pl.section;
     if (pl.description) meta.Description = pl.description;
-    if (pl.updatedAt) meta["Updated"] = new Date(pl.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
     var title = pl.name;
-    var ts = pl.lastCheckedAt || pl.updatedAt;
-    if (ts) {
-      var d = new Date(ts);
+    if (pl.lastSyncedAt) {
+      var d = new Date(pl.lastSyncedAt);
       var dateStr = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-      meta["Retrieved"] = dateStr;
+      meta["Synced"] = dateStr;
       title = pl.name + " (" + dateStr + ")";
     }
     return {
@@ -2698,8 +2797,7 @@ function activate(api) {
 
     var plMeta = { spotifyId: pl.id };
     if (pl.section) plMeta.section = pl.section;
-    if (pl.updatedAt) plMeta.sourceDate = pl.updatedAt;
-    if (pl.lastCheckedAt) plMeta.lastCheckedAt = pl.lastCheckedAt;
+    if (pl.lastSyncedAt) plMeta.sourceDate = pl.lastSyncedAt;
 
     api.playlists.save({
       name: name,
@@ -2793,6 +2891,12 @@ function activate(api) {
     render();
   });
 
+  api.ui.onAction("toggle-debug-logging", function() {
+    state.debugLogging = !state.debugLogging;
+    savePreferences();
+    renderSettings();
+  });
+
   // Step-by-step debugger actions
   api.ui.onAction("dbg-section-name", function(data) {
     if (data && data.value !== undefined) dbgTest.sectionName = data.value;
@@ -2864,7 +2968,7 @@ function activate(api) {
           return Promise.resolve({ status: "empty" });
         }
         var sorted = pls.slice().sort(function (a, b) {
-          return (b.updatedAt || 0) - (a.updatedAt || 0);
+          return (b.lastSyncedAt ? Date.parse(b.lastSyncedAt) : 0) - (a.lastSyncedAt ? Date.parse(a.lastSyncedAt) : 0);
         });
         var picked = sorted.slice(0, limit);
         var items = picked.map(function (pl) {
@@ -2946,7 +3050,6 @@ function activate(api) {
         if (saved && saved.playlists && saved.playlists.length > 0) {
           state.playlists = saved.playlists;
           state.playlistTracks = saved.playlistTracks || {};
-          state.previousTracks = saved.previousTracks || {};
           state.status = "done";
           // Persist into the new filesystem layout, then drop the KV entry
           saveAllPlaylists().then(function () {
@@ -2996,6 +3099,7 @@ function activate(api) {
     if (prefs) {
       state.showBrowserOnRefresh = !!prefs.showBrowserOnRefresh;
       if (prefs.autoRefreshHours !== undefined) state.autoRefreshHours = prefs.autoRefreshHours;
+      if (prefs.debugLogging !== undefined) state.debugLogging = !!prefs.debugLogging;
       if (prefs.lastCheckAt) state.lastCheckAt = prefs.lastCheckAt;
       if (prefs.lastCheckResult) state.lastCheckResult = prefs.lastCheckResult;
       registerAutoRefresh();

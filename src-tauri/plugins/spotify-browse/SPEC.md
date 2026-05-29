@@ -56,14 +56,16 @@ Scrapes playlists and tracks from the Spotify web app (`open.spotify.com`) via a
 ### Settings Panel (`spotify-settings`)
 - Auto-refresh interval select (Off / 6h / 12h / 24h / 2 days / weekly)
 - Show browser window during refresh toggle
+- Debug logging toggle (writes `logs/sync-runs.json` + `logs/page-debug.log`)
 
 ## Scraping Flow
 
 ### Phase 1: Login Check
 1. Open `open.spotify.com` in browse window (visible or headless)
-2. Poll every 3s (up to 10 retries) by injecting `SCRIPT_CHECK_LOGIN`
+2. Poll every 3s by injecting `SCRIPT_CHECK_LOGIN`
 3. Script checks for positive signals (`user-widget-link`, library button, avatar) and negative signals (`login-button`, `signup-button`)
 4. If `positive && !negative` → logged in, proceed
+5. If still not logged in after a short grace period (~2 polls), the window is surfaced (`handle.show()`), a sign-in banner is injected (`SCRIPT_LOGIN_BANNER`), and a notification is shown. Polling then continues **indefinitely** — when the user logs in, the banner is removed (`SCRIPT_REMOVE_LOGIN_BANNER`), a headless window is re-hidden, and scraping proceeds; if the user closes the window first, the scrape aborts. This applies to both user-initiated Sync and silent auto-refresh.
 
 ### Phase 2: Section Discovery
 For each section in `sectionsToScrape`:
@@ -88,6 +90,7 @@ For each discovered playlist:
 5. Scope to `[data-testid="playlist-tracklist"]` or `<main>` to avoid sidebar
 6. Parse each `[role="row"]`: extract track name, artist(s), album, duration, image
 7. 45s timeout per playlist
+8. On empty/error/timeout, the playlist page is reloaded and re-scraped once before giving up.
 
 ### Generation Guard
 - `scrapeGeneration` counter increments on each new scrape and on cancel
@@ -99,9 +102,16 @@ For each discovered playlist:
 
 | Key | Shape | Purpose |
 |-----|-------|---------|
-| `spotify_browse_state` | `{ playlists, playlistTracks, previousTracks, savedAt }` | Current scrape results |
+| `spotify_browse_state` | `{ playlists, playlistTracks, savedAt }` | Current scrape results (legacy KV, migrated to on-disk layout) |
 | `spotify_browse_sections` | `string[]` | Configured section names |
-| `spotify_browse_preferences` | `{ showBrowserOnRefresh, autoRefreshHours, lastCheckAt, lastCheckResult }` | User preferences + last check info |
+| `spotify_browse_preferences` | `{ showBrowserOnRefresh, autoRefreshHours, debugLogging, lastCheckAt, lastCheckResult }` | User preferences + last check info |
+
+### Debug Log Files (written only when "Debug logging" is on)
+
+| File | Contents | Trim |
+|------|----------|------|
+| `logs/sync-runs.json` | Array of run reports (trigger, timing, per-section/playlist status) | last 20 runs |
+| `logs/page-debug.log` | Full HTML + snapshot of each playlist page that failed to parse (after retry) | ~2 MB |
 
 ### Playlist Object (scraped)
 ```
@@ -113,12 +123,16 @@ For each discovered playlist:
 { name, artist, album, duration, imageUrl }
 ```
 
-## Change Detection
+## Track Retention
 
-On refresh, the plugin compares new tracks against previous tracks for each playlist:
-- Tracks are keyed by `name + "\0" + artist`
-- Changed playlists get `updatedPlaylistIds[id] = true` and show "Updated (+N, -N)" badges
-- Previous tracks are preserved to show added/removed indicators in playlist detail view
+On refresh, if a playlist's fresh scrape returns zero tracks while the previous scrape had
+tracks, the old tracks (and cover) are kept. This guards against transient parse failures
+wiping a playlist; the tradeoff is that an intentionally-emptied Spotify playlist keeps
+showing old tracks until a non-empty scrape succeeds.
+
+Each playlist records `lastSyncedAt` (ISO timestamp) on a successful non-empty scrape,
+shown as "synced <date>, <time>" on cards and the playlist detail header. A failed scrape
+(empty/error/timeout) is retried once by reloading the page before giving up.
 
 ## Image Caching
 
@@ -169,6 +183,9 @@ On refresh, the plugin compares new tracks against previous tracks for each play
 | `SCRIPT_SCRAPE_PLAYLISTS` | Find playlists on section page | `a[class][draggable="false"][href*="/playlist/"]` |
 | `scriptNavigatePlaylist(id)` | Navigate to playlist page | Direct URL assignment |
 | `scriptScrollThenScrape(id, gen)` | Scroll + parse tracks | `[role="row"]` inside `[data-testid="playlist-tracklist"]` |
+| `SCRIPT_FULL_DUMP` | Full-HTML dump of a failed page | `[data-testid="playlist-tracklist"]` -> `main` -> `body` |
+| `SCRIPT_LOGIN_BANNER` | Inject "please sign in" banner when not logged in | fixed-position `<div>` prepended to `<html>` |
+| `SCRIPT_REMOVE_LOGIN_BANNER` | Remove the sign-in banner once logged in | by element id |
 
 ## Known Limitations
 

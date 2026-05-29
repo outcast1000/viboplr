@@ -1,11 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "browse-windows-remote",
-  "description": "Allow IPC calls from external pages in browse windows. Required only on Windows (WebView2 enforces origin isolation on IPC); macOS/Linux WebViews allow IPC from remote pages without this. Each URL pattern adds ~210ms to startup via tauri::generate_context!() so we only enable it on the platform that needs it.",
+  "description": "Allow IPC (event emit) from external pages loaded in browse windows. Required on ALL desktop platforms: the injected window.__viboplr.send() bridge emits a Tauri event from the remote page, and without a remote URL scope that emit is denied (macOS/Linux included — they do NOT implicitly allow it, contrary to an earlier assumption). Each URL pattern in remote.urls adds ~210ms to tauri::generate_context!() at runtime, so we scope to https:// only (every openBrowseWindow URL in the app is https).",
   "windows": ["browse-*"],
-  "platforms": ["windows"],
   "remote": {
-    "urls": ["https://*", "http://*"]
+    "urls": ["https://*"]
   },
   "permissions": [
     "core:default",
