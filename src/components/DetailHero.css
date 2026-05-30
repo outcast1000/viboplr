@@ -51,9 +51,6 @@
 .detail-hero.hero-motion-sway .detail-hero-bg {
   animation: hero-motion-sway 20s ease-in-out infinite alternate;
 }
-.detail-hero.hero-motion-wander .detail-hero-bg {
-  animation: hero-motion-wander 40s ease-in-out infinite;
-}
 
 @keyframes hero-motion-current {
   0%   { transform: scale(1.08) translate(0, 0); }
@@ -85,15 +82,6 @@
 @keyframes hero-motion-sway {
   0%   { transform: scale(1.16) translateX(-5%); }
   100% { transform: scale(1.16) translateX(5%); }
-}
-@keyframes hero-motion-wander {
-  0%   { transform: scale(1.12); transform-origin: 35% 30%; }
-  17%  { transform: scale(1.20); transform-origin: 65% 45%; }
-  33%  { transform: scale(1.10); transform-origin: 50% 65%; }
-  50%  { transform: scale(1.22); transform-origin: 25% 50%; }
-  67%  { transform: scale(1.14); transform-origin: 70% 25%; }
-  83%  { transform: scale(1.20); transform-origin: 45% 55%; }
-  100% { transform: scale(1.12); transform-origin: 35% 30%; }
 }
 
 /* B&W look modifier (applied on the hero root by DetailHero). */

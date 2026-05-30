@@ -185,31 +185,6 @@
   100% { box-shadow: inset -8px 0 60px rgba(255, 0, 120, 0.3), inset 8px 0 60px rgba(0, 200, 255, 0.25); }
 }
 
-/* ===== Neon Grid — synthwave scrolling horizon ===== */
-.tv-grid {
-  top: 55%;
-  background-image:
-    repeating-linear-gradient(0deg, rgba(255, 40, 200, 0.45) 0 1px, transparent 1px 28px),
-    repeating-linear-gradient(90deg, rgba(0, 220, 255, 0.4) 0 1px, transparent 1px 40px);
-  transform: perspective(220px) rotateX(64deg);
-  transform-origin: top center;
-  mix-blend-mode: screen;
-  animation: tv-grid-scroll 4s linear infinite;
-}
-.tv-gridGlow {
-  background: radial-gradient(80% 40% at 50% 58%, rgba(255, 40, 200, 0.35), transparent 60%);
-  mix-blend-mode: screen;
-  animation: tv-grid-glow 5s ease-in-out infinite alternate;
-}
-@keyframes tv-grid-scroll {
-  0%   { background-position: 0 0, 0 0; }
-  100% { background-position: 0 28px, 0 0; }
-}
-@keyframes tv-grid-glow {
-  0%   { opacity: 0.5; }
-  100% { opacity: 0.9; }
-}
-
 /* --- paused: hero off-screen or window hidden --- */
 .detail-hero-effect.tv-paused * {
   animation-play-state: paused !important;
@@ -227,9 +202,7 @@
   .tv-leakWarm,
   .tv-leakCorner,
   .tv-bloom,
-  .tv-fringe,
-  .tv-grid,
-  .tv-gridGlow {
+  .tv-fringe {
     display: none;
   }
   .tv-scan,

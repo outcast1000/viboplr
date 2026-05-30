@@ -48,12 +48,12 @@ function getSelect(container: HTMLElement): HTMLSelectElement {
 }
 
 describe("DetailHero effect picker", () => {
-  it("renders a select with all 12 mode options", () => {
+  it("renders a select with all 11 mode options", () => {
     const { container } = renderHero();
     const select = getSelect(container);
     expect(select).not.toBeNull();
     expect(select.querySelectorAll("option")).toHaveLength(EFFECT_MODE_OPTIONS.length);
-    expect(EFFECT_MODE_OPTIONS).toHaveLength(12);
+    expect(EFFECT_MODE_OPTIONS).toHaveLength(11);
   });
 
   it("defaults to by-artist and renders the resolved look's overlay + motion", () => {

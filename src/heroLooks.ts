@@ -3,8 +3,7 @@ export type HeroMotion =
   | "focal"
   | "breathe"
   | "push"
-  | "sway"
-  | "wander";
+  | "sway";
 
 export type HeroLookId =
   | "late-night"
@@ -14,7 +13,6 @@ export type HeroLookId =
   | "aurora-drift"
   | "light-leak"
   | "prism-bloom"
-  | "neon-grid"
   | "minimal";
 
 export type HeroEffectMode = "disabled" | HeroLookId | "random" | "by-artist";
@@ -36,8 +34,6 @@ export interface HeroLayers {
   leakCorner: boolean;
   bloom: boolean;
   fringe: boolean;
-  grid: boolean;
-  gridGlow: boolean;
 }
 
 export interface HeroLook {
@@ -65,8 +61,6 @@ function layers(partial: Partial<HeroLayers>): HeroLayers {
     leakCorner: false,
     bloom: false,
     fringe: false,
-    grid: false,
-    gridGlow: false,
     ...partial,
   };
 }
@@ -113,12 +107,6 @@ export const LOOKS: HeroLook[] = [
     label: "Prism Bloom",
     motion: "focal",
     layers: layers({ bloom: true, fringe: true, vignette: true }),
-  },
-  {
-    id: "neon-grid",
-    label: "Neon Grid",
-    motion: "wander",
-    layers: layers({ grid: true, gridGlow: true, vignette: true }),
   },
   {
     id: "minimal",

@@ -12,20 +12,20 @@ import {
   HERO_EFFECT_DEFAULT_MODE,
 } from "../heroLooks";
 
-const REMOVED = ["worn-tape", "signal-lost", "channel-surf"];
-const ADDED = ["aurora-drift", "light-leak", "prism-bloom", "neon-grid"];
+const REMOVED = ["worn-tape", "signal-lost", "channel-surf", "neon-grid"];
+const ADDED = ["aurora-drift", "light-leak", "prism-bloom"];
 
 describe("heroLooks data", () => {
-  it("defines exactly 9 looks", () => {
-    expect(LOOKS).toHaveLength(9);
-    expect(LOOK_IDS).toHaveLength(9);
+  it("defines exactly 8 looks", () => {
+    expect(LOOKS).toHaveLength(8);
+    expect(LOOK_IDS).toHaveLength(8);
   });
 
   it("no longer contains the removed looks", () => {
     for (const id of REMOVED) expect(LOOK_IDS).not.toContain(id);
   });
 
-  it("contains the four new looks", () => {
+  it("contains the new looks", () => {
     for (const id of ADDED) expect(LOOK_IDS).toContain(id);
   });
 
@@ -42,17 +42,13 @@ describe("heroLooks data", () => {
     expect(getLook("prism-bloom").motion).toBe("focal");
     expect(getLook("prism-bloom").layers.bloom).toBe(true);
     expect(getLook("prism-bloom").layers.fringe).toBe(true);
-
-    expect(getLook("neon-grid").motion).toBe("wander");
-    expect(getLook("neon-grid").layers.grid).toBe(true);
-    expect(getLook("neon-grid").layers.gridGlow).toBe(true);
   });
 
   it("LOOK_IDS mirrors LOOKS order", () => {
     expect(LOOK_IDS).toEqual(LOOKS.map((l) => l.id));
   });
 
-  it("exposes 12 dropdown options in order (disabled, 9 looks, random, by-artist)", () => {
+  it("exposes 11 dropdown options in order (disabled, 8 looks, random, by-artist)", () => {
     const values = EFFECT_MODE_OPTIONS.map((o) => o.value);
     expect(values).toEqual(["disabled", ...LOOK_IDS, "random", "by-artist"]);
     expect(EFFECT_MODE_OPTIONS.every((o) => o.label.length > 0)).toBe(true);
@@ -146,6 +142,7 @@ describe("coerceEffectMode (migration + validation)", () => {
     expect(coerceEffectMode("worn-tape", undefined)).toBe("by-artist");
     expect(coerceEffectMode("signal-lost", undefined)).toBe("by-artist");
     expect(coerceEffectMode("channel-surf", undefined)).toBe("by-artist");
+    expect(coerceEffectMode("neon-grid", undefined)).toBe("by-artist");
   });
   it("falls back to default by-artist when nothing valid is present", () => {
     expect(coerceEffectMode(undefined, undefined)).toBe("by-artist");
@@ -167,6 +164,7 @@ describe("isValidMode", () => {
     expect(isValidMode("worn-tape")).toBe(false);
     expect(isValidMode("signal-lost")).toBe(false);
     expect(isValidMode("channel-surf")).toBe(false);
+    expect(isValidMode("neon-grid")).toBe(false);
   });
   it("rejects unknown strings and non-strings", () => {
     expect(isValidMode("nonsense")).toBe(false);

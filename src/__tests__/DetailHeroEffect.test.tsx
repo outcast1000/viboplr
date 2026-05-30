@@ -61,12 +61,6 @@ describe("DetailHeroEffect", () => {
     expect(container.querySelector(".tv-fringe")).not.toBeNull();
   });
 
-  it("renders the grid layers for neon-grid", () => {
-    const { container } = render(<DetailHeroEffect look={getLook("neon-grid")} />);
-    expect(container.querySelector(".tv-grid")).not.toBeNull();
-    expect(container.querySelector(".tv-gridGlow")).not.toBeNull();
-  });
-
   it("sets the noise texture as a CSS custom property", () => {
     const { container } = render(<DetailHeroEffect look={getLook("silent-film")} />);
     const root = container.querySelector(".detail-hero-effect") as HTMLElement;

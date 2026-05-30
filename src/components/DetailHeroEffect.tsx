@@ -87,8 +87,6 @@ export function DetailHeroEffect({ look }: Props) {
       {l.leakCorner && <div className="tv-leakCorner" />}
       {l.bloom && <div className="tv-bloom" />}
       {l.fringe && <div className="tv-fringe" />}
-      {l.grid && <div className="tv-grid" />}
-      {l.gridGlow && <div className="tv-gridGlow" />}
       {l.vignette && <div className="tv-vignette" />}
     </div>
   );
