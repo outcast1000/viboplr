@@ -119,8 +119,8 @@ function activate(api) {
     }
   }
 
-  // Human-readable "last_sync.log" accumulator. Lines are appended in order as
-  // the sync progresses and persisted to plugin storage on finishReport().
+  // Human-readable per-run log accumulator. Lines are appended in order as the
+  // sync progresses and persisted as a logs/YYYYMMDD-HHMMSS.log file on finishReport().
   function appendSyncLine(level, tag, msg, data) {
     if (!activeReport) return;
     if (!activeReport.formattedLog) activeReport.formattedLog = [];
@@ -157,7 +157,7 @@ function activate(api) {
       }),
       playlists: [],
       log: [],
-      // Detailed sync trace (persisted as last_sync.log)
+      // Detailed sync trace (persisted as the per-run logs/YYYYMMDD-HHMMSS.log)
       formattedLog: [],
       pageVisits: [],   // [{url, phase, ts}]
       imageHits: [],    // [{kind, playlistId, playlistName, url, rule, element}]
@@ -331,19 +331,62 @@ function activate(api) {
     var snapshot = activeReport;
     activeReport = null;
     persistReport(snapshot);
-    persistLastSyncLog(snapshot);
-    appendSyncRunFile(snapshot);
+    writePerRunLog(snapshot);
   }
 
-  function persistLastSyncLog(report) {
+  var MAX_PER_RUN_LOGS = 20;
+
+  // "YYYYMMDD-HHMMSS" from an ISO timestamp, using LOCAL time components to match
+  // the formatSyncTime display. Falls back to "unknown" if the date is invalid so
+  // a log still gets written.
+  function logStampFromIso(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "unknown";
+    function p2(n) { return (n < 10 ? "0" : "") + n; }
+    return "" + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) +
+      "-" + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());
+  }
+
+  // Write one human-readable log file per finished run, named by local timestamp.
+  // Debug-gated; replaces the old last_sync.log KV value and logs/sync-runs.json.
+  function writePerRunLog(report) {
+    if (!state.debugLogging) return;
+    var text;
     try {
-      var text = buildLastSyncLog(report);
-      api.storage.set("last_sync.log", text).catch(function (e) {
-        console.error("Failed to write last_sync.log:", e);
-      });
+      text = buildLastSyncLog(report);
     } catch (e) {
-      console.error("Failed to build last_sync.log:", e);
+      console.error("Failed to build per-run log:", e);
+      return;
     }
+    var fname = logStampFromIso(report.startedAt) + ".log";
+    api.storage.files.writeText(["logs", fname], text).then(function () {
+      prunePerRunLogs();
+    }).catch(function (e) {
+      console.error("Failed to write per-run log:", e);
+    });
+  }
+
+  // Keep only the newest MAX_PER_RUN_LOGS timestamped logs. The regex matches ONLY
+  // our YYYYMMDD-HHMMSS.log files, so page-debug.log and anything else are never
+  // touched. Lexicographic sort == chronological for this fixed-width format.
+  function prunePerRunLogs() {
+    api.storage.files.list(["logs"]).then(function (entries) {
+      if (!entries || !entries.length) return;
+      var names = [];
+      for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        if (e.isDir) continue;
+        if (/^\d{8}-\d{6}\.log$/.test(e.name)) names.push(e.name);
+      }
+      names.sort();
+      var removals = [];
+      for (var j = 0; j < names.length - MAX_PER_RUN_LOGS; j++) {
+        (function (nm) {
+          removals.push(api.storage.files.remove(["logs", nm]).catch(console.error));
+        })(names[j]);
+      }
+      return Promise.all(removals);
+    }).catch(console.error);
   }
 
   function persistReport(report) {
@@ -360,21 +403,6 @@ function activate(api) {
   }
 
   // ---- Debug file logs (only written when state.debugLogging) ----
-
-  var MAX_SYNC_RUN_FILES = 20;
-
-  // Append a finished report to logs/sync-runs.json (rolling, last N runs).
-  function appendSyncRunFile(report) {
-    if (!state.debugLogging) return;
-    api.storage.files.readJson(["logs", "sync-runs.json"]).then(function (existing) {
-      var list = Array.isArray(existing) ? existing.slice() : [];
-      list.unshift(report);
-      if (list.length > MAX_SYNC_RUN_FILES) list.length = MAX_SYNC_RUN_FILES;
-      return api.storage.files.writeJson(["logs", "sync-runs.json"], list);
-    }).catch(function (e) {
-      console.error("Failed to write sync-runs.json:", e);
-    });
-  }
 
   var MAX_PAGE_DEBUG_BYTES = 2 * 1024 * 1024; // ~2 MB
   var PAGE_DEBUG_DELIM = "===== BEGIN DUMP ";
@@ -531,7 +559,18 @@ function activate(api) {
             }).catch(function (e) {
               stats.coverFails++;
               api.log("warn", "Failed to cache playlist cover for " + pl.name + ": " + e + " | url: " + coverUrl.substring(0, 120));
-              pl.imageUrl = null;
+              // Don't blank a cover we already have. If cover.jpg is on disk from
+              // a prior successful cache, fall back to it (matches loadPlaylistFromDisk).
+              return api.storage.files.exists(dir.concat(["cover.jpg"])).then(function (has) {
+                if (!has) { pl.imageUrl = null; return; }
+                return api.storage.files.getPath(dir.concat(["cover.jpg"])).then(function (p) {
+                  if (!p) { pl.imageUrl = null; return; }
+                  pl.imageUrl = pl.coverVersion ? p + "#v=" + pl.coverVersion : p;
+                });
+              // Silent catch: the primary download failure was already logged
+              // above (api.log warn); an exists/getPath error here just means no
+              // on-disk fallback is available, so we null the image and move on.
+              }).catch(function () { pl.imageUrl = null; });
             })
           );
         }
@@ -567,12 +606,65 @@ function activate(api) {
         } else {
           dbg("images", "All images cached successfully (" + stats.covers + " covers, " + stats.tracks + " tracks)");
         }
+        pruneAllOrphanTrackImages();
         saveAllPlaylists();
         render();
       }).catch(function () {
+        pruneAllOrphanTrackImages();
         saveAllPlaylists();
       });
+    } else {
+      pruneAllOrphanTrackImages();
     }
+  }
+
+  // Remove track-*.jpg files that no longer correspond to a track currently in
+  // the playlist. Expected filenames are recomputed from the live tracklist
+  // (same scheme as cacheAllImages), NOT read from track.coverFile — a track's
+  // coverFile is often null after a transient download failure while its image
+  // is validly on disk, so pruning by coverFile would delete still-valid files.
+  // Non-"track-*.jpg" files (meta.json, tracks.json, cover.jpg/svg) are never
+  // touched. Reconciling the whole directory each refresh also sweeps historical
+  // orphans accumulated before this fix shipped.
+  function pruneOrphanTrackImages(pl) {
+    var dir = playlistDir(pl);
+    var tracks = state.playlistTracks[pl.id] || [];
+    var expected = {};
+    for (var i = 0; i < tracks.length; i++) {
+      var t = tracks[i];
+      // Mirror the filename expression at cacheAllImages (index.js:544) EXACTLY
+      // (no || "" guards) — any divergence would hash differently and delete a
+      // valid file.
+      expected["track-" + djb2Hash(t.name + " - " + t.artist) + ".jpg"] = true;
+    }
+    return api.storage.files.list(dir).then(function (entries) {
+      if (!entries || !entries.length) return;
+      var removals = [];
+      for (var j = 0; j < entries.length; j++) {
+        var e = entries[j];
+        if (e.isDir) continue;
+        if (e.name.indexOf("track-") !== 0) continue;
+        if (e.name.lastIndexOf(".jpg") !== e.name.length - 4) continue;
+        if (expected[e.name]) continue;
+        (function (fname) {
+          removals.push(
+            api.storage.files.remove(dir.concat([fname])).catch(console.error)
+          );
+        })(e.name);
+      }
+      if (removals.length > 0) {
+        dbg("images", "pruned " + removals.length + " orphan track images for \"" + pl.name + "\"");
+      }
+      return Promise.all(removals);
+    }).catch(console.error);
+  }
+
+  function pruneAllOrphanTrackImages() {
+    var promises = [];
+    for (var i = 0; i < state.playlists.length; i++) {
+      promises.push(pruneOrphanTrackImages(state.playlists[i]));
+    }
+    return Promise.all(promises);
   }
 
   function saveState() {
@@ -1078,7 +1170,7 @@ function activate(api) {
       }
     }
 
-    children.push({ type: "text", content: "<p><i>Detailed logs are written to the app log file (filter by spotify-browse). The full last-sync trace is stored as <code>last_sync.log</code>. When Debug logging is on, each run is also written to <code>logs/sync-runs.json</code> and failed-page HTML dumps to <code>logs/page-debug.log</code> in the plugin's data folder.</i></p>" });
+    children.push({ type: "text", content: "<p><i>Detailed logs are written to the app log file (filter by spotify-browse). When Debug logging is on, each sync run is written as a timestamped <code>logs/YYYYMMDD-HHMMSS.log</code> file (newest 20 kept), and failed-page HTML dumps to <code>logs/page-debug.log</code>, in the plugin's data folder.</i></p>" });
 
     return { type: "section", title: "Diagnostics", children: children };
   }
@@ -2346,9 +2438,11 @@ function activate(api) {
       var fresh = freshTracks[pl.id] || [];
       var oldTracks = baseTracksMap[pl.id];
       var oldPl = oldPlaylistMap[pl.id];
+      // If this refresh produced no cover for a surviving playlist, keep the
+      // one we already had — applies in both the keep-old and fresh branches.
+      if (!pl.imageUrl && oldPl && oldPl.imageUrl) pl.imageUrl = oldPl.imageUrl;
       if (fresh.length === 0 && oldTracks && oldTracks.length > 0) {
         out[pl.id] = oldTracks;
-        if (!pl.imageUrl && oldPl && oldPl.imageUrl) pl.imageUrl = oldPl.imageUrl;
         if (oldPl && oldPl.lastSyncedAt) pl.lastSyncedAt = oldPl.lastSyncedAt;
         syncNote("keep-old", "Kept " + oldTracks.length + " old tracks for \"" + pl.name + "\" (fresh scrape was empty)", { id: pl.id });
       } else {
@@ -3146,6 +3240,12 @@ function activate(api) {
       }
     }
   }).catch(console.error);
+
+  // One-time cleanup: per-run .log files replaced the old last_sync.log KV value
+  // and logs/sync-runs.json. Remove both so they don't linger as stale junk.
+  // Safe no-ops if already absent.
+  api.storage.delete("last_sync.log").catch(function () { /* absent is fine */ });
+  api.storage.files.remove(["logs", "sync-runs.json"]).catch(function () { /* absent is fine */ });
 
   function registerAutoRefresh() {
     if (state.autoRefreshHours > 0) {
