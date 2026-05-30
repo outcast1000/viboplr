@@ -35,9 +35,6 @@ import type {
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 
-const PLUGIN_GALLERY_BASE_URL =
-  "https://raw.githubusercontent.com/outcast1000/viboplr-plugins/main/plugins/";
-
 // Hardcoded defaults for information type tab order and provider priority.
 // Plugins cannot override these — users customize via Settings > Providers.
 export const DEFAULT_INFO_TYPE_ORDER: Record<string, number> = {
@@ -1474,11 +1471,13 @@ export function usePlugins(
     async (
       entry: GalleryPluginEntry,
     ): Promise<{ ok: boolean; error?: string }> => {
+      if (!entry.updateUrl) {
+        return { ok: false, error: "Gallery entry has no updateUrl; cannot install." };
+      }
       try {
-        await invoke<string>("install_gallery_plugin", {
+        await invoke<void>("install_gallery_plugin_by_update_url", {
           pluginId: entry.id,
-          baseUrl: PLUGIN_GALLERY_BASE_URL,
-          files: entry.files,
+          updateUrl: entry.updateUrl,
         });
         await loadPlugins();
         return { ok: true };

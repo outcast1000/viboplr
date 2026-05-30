@@ -398,13 +398,24 @@ pub fn fetch_plugin_gallery() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn install_gallery_plugin(
+pub fn install_gallery_plugin_by_update_url(
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
     plugin_id: String,
-    base_url: String,
-    files: Vec<String>,
-) -> Result<String, String> {
-    crate::plugins::install_gallery_plugin(&state.app_dir, &base_url, &plugin_id, &files)
+    update_url: String,
+) -> Result<(), String> {
+    // Resolve the plugin's own-repo updateUrl to a zip URL (enforces minAppVersion).
+    let app_version = app.package_info().version.to_string();
+    let zip_url = crate::update_checker::resolve_install_zip_url(&update_url, &app_version)?;
+    // Download + install via the same path the auto-updater uses.
+    let resp = reqwest::blocking::get(&zip_url).map_err(|e| format!("Download failed: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let bytes = resp.bytes().map_err(|e| format!("Read error: {}", e))?;
+    crate::plugins::install_plugin_from_zip(&state.app_dir, &plugin_id, &bytes)?;
+    let _ = app.emit("extension-update-installed", &plugin_id);
+    Ok(())
 }
 
 #[tauri::command]

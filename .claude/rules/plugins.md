@@ -21,13 +21,13 @@ User-installed plugins (in app data directory) override built-in plugins with th
 
 ### Externally-maintained plugins
 
-Some plugins bundled here are only a **synced baseline** — their canonical source is a separate repo, and the app auto-updates them from that repo's GitHub releases (via the `updateUrl` in their manifest). When editing such a plugin, the change must also be made in its canonical repo and released there; editing only the bundled copy here will be overwritten on the next auto-update.
+These plugins are **not bundled** in `src-tauri/plugins/`. Their canonical source is a separate repo, and they are installed from the plugin gallery (`outcast1000/viboplr-plugins`, index-only) which resolves each entry's `updateUrl` to that repo's GitHub release zip. Once installed they live in the user plugin dir and auto-update via the same `updateUrl`. To change one, edit + release in its repo; there is no bundled copy here to sync.
 
 | Plugin id | Canonical repo | Notes |
 |---|---|---|
-| `spotify-browse` | `outcast1000/viboplr-spotify` | The bundled `src-tauri/plugins/spotify-browse/` is a baseline; release flow + `scripts/bump.sh` live in that repo. Sync `index.js` + `manifest.json` back here after each release. |
-| `tidal-browse` | `outcast1000/viboplr-tidal` | Same arrangement as spotify-browse: bundled `src-tauri/plugins/tidal-browse/` is a baseline; edit + release in the repo, then sync `index.js` + `manifest.json` back here. |
-| `p2p-sharing` | `outcast1000/viboplr-p2p` | **JS UI shell only.** The P2P engine lives in this host's Rust (`src-tauri/src/p2p/`, the `api.p2p.*` bridge) and is version-coupled to `outcast1000/viboplr-relay`. Releases in that repo change only the UI; protocol/networking changes are host+relay changes here. The plugin's `minAppVersion` gates its auto-updates — bump it when you change `api.p2p.*` so older apps don't pull an incompatible shell. |
+| `spotify-browse` | `outcast1000/viboplr-spotify` | Self-contained; release flow + `scripts/bump.sh` live in that repo. |
+| `tidal-browse` | `outcast1000/viboplr-tidal` | Self-contained (HTTP via `api.network.fetch`); same release flow. |
+| `p2p-sharing` | `outcast1000/viboplr-p2p` | **JS UI shell only.** The P2P engine lives in this host's Rust (`src-tauri/src/p2p/`, the `api.p2p.*` bridge) and is version-coupled to `outcast1000/viboplr-relay`. Releases in that repo change only the UI; protocol/networking changes are host+relay changes here. The plugin's `minAppVersion` gates its install/auto-update — bump it when you change `api.p2p.*` so older apps don't pull an incompatible shell. |
 
 ## Manifest Format
 

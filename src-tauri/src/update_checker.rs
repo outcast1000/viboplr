@@ -101,6 +101,22 @@ pub fn check_extension(
     })
 }
 
+/// Resolve a plugin's updateUrl to its downloadable zip URL, enforcing
+/// minAppVersion. Used by gallery install (install-from-own-repo). Returns the
+/// zip `file` URL on success, or a human-readable error (e.g. requires newer app).
+pub fn resolve_install_zip_url(update_url: &str, app_version: &str) -> Result<String, String> {
+    let info = fetch_update_info(update_url)?;
+    if let Some(ref min_ver) = info.min_app_version {
+        if !semver_satisfies(app_version, min_ver) {
+            return Err(format!(
+                "This plugin requires app version {} or newer (you have {}).",
+                min_ver, app_version
+            ));
+        }
+    }
+    Ok(info.file)
+}
+
 pub fn collect_installed_extensions(
     app_dir: &Path,
     native_plugins_dir: &Path,

@@ -28,61 +28,6 @@ pub fn delete_plugin(app_dir: &Path, plugin_id: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to delete plugin '{}': {}", plugin_id, e))
 }
 
-pub fn install_gallery_plugin(
-    app_dir: &Path,
-    base_url: &str,
-    plugin_id: &str,
-    files: &[String],
-) -> Result<String, String> {
-    sanitize_plugin_id(plugin_id)?;
-    if files.is_empty() {
-        return Err("No files to install".to_string());
-    }
-
-    let plugins = plugins_dir(app_dir);
-    let tmp_dir = plugins.join(format!(".tmp-{}", plugin_id));
-    let final_dir = plugins.join(plugin_id);
-
-    // Clean up any leftover temp dir
-    if tmp_dir.exists() {
-        std::fs::remove_dir_all(&tmp_dir).ok();
-    }
-    std::fs::create_dir_all(&tmp_dir)
-        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
-
-    // Download each file
-    for file in files {
-        if file.contains("..") || file.contains('/') || file.contains('\\') {
-            let _ = std::fs::remove_dir_all(&tmp_dir);
-            return Err(format!("Invalid file path: {}", file));
-        }
-        let url = format!("{}{}/{}", base_url, plugin_id, file);
-        match crate::skins::fetch_url(&url) {
-            Ok(content) => {
-                let dest = tmp_dir.join(file);
-                if let Err(e) = std::fs::write(&dest, &content) {
-                    let _ = std::fs::remove_dir_all(&tmp_dir);
-                    return Err(format!("Failed to write {}: {}", file, e));
-                }
-            }
-            Err(e) => {
-                let _ = std::fs::remove_dir_all(&tmp_dir);
-                return Err(format!("Failed to download {}: {}", file, e));
-            }
-        }
-    }
-
-    // Atomic swap: remove old, rename temp to final
-    if final_dir.exists() {
-        std::fs::remove_dir_all(&final_dir)
-            .map_err(|e| format!("Failed to remove old plugin: {}", e))?;
-    }
-    std::fs::rename(&tmp_dir, &final_dir)
-        .map_err(|e| format!("Failed to install plugin: {}", e))?;
-
-    Ok(plugin_id.to_string())
-}
-
 pub fn install_plugin_from_zip(
     app_dir: &Path,
     plugin_id: &str,

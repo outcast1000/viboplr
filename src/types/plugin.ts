@@ -759,7 +759,7 @@ export interface GalleryPluginEntry {
   version: string;
   minAppVersion?: string;
   updateUrl?: string;
-  files: string[];
+  files?: string[];
 }
 
 export interface PluginGalleryIndex {
