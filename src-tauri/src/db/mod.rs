@@ -173,6 +173,7 @@ mod artists;
 mod collections;
 mod history;
 mod image_failures;
+pub mod likes;
 mod playlists;
 mod plugin_storage;
 mod providers;
@@ -435,8 +436,14 @@ impl Database {
                 saved_at    INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
                 image_path  TEXT,
                 description TEXT,
-                metadata    TEXT
+                metadata    TEXT,
+                system_kind TEXT
             );
+            -- The partial unique index on system_kind is created in run_migrations,
+            -- NOT here: on an existing pre-feature DB the playlists table already
+            -- exists without system_kind, so CREATE TABLE IF NOT EXISTS is a no-op
+            -- and indexing system_kind here would fail before run_migrations adds
+            -- the column.
 
             CREATE TABLE IF NOT EXISTS playlist_tracks (
                 id            INTEGER PRIMARY KEY,
@@ -450,6 +457,17 @@ impl Database {
                 image_path    TEXT,
                 UNIQUE(playlist_id, position)
             );
+
+            CREATE TABLE IF NOT EXISTS entity_likes (
+                kind        TEXT NOT NULL,
+                entity_key  TEXT NOT NULL,
+                liked       INTEGER NOT NULL,
+                metadata    TEXT,
+                updated_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
+                PRIMARY KEY (kind, entity_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_entity_likes_kind_liked
+                ON entity_likes(kind, liked);
 
             CREATE TABLE IF NOT EXISTS plugin_schedules (
                 plugin_id  TEXT NOT NULL,
@@ -477,15 +495,69 @@ impl Database {
 
     /// Schema migrations for upgrading existing databases.
     ///
-    /// The PoC baseline was squashed into `init_tables` (db_version starts at 1),
-    /// so there are currently no migrations. Add `if version < N { ... }` blocks
-    /// here as the schema evolves post-PoC. `recompute_counts()` runs separately
-    /// at startup, so it does not need to be triggered from here.
+    /// The PoC migration history was squashed into `init_tables`, and real
+    /// pre-squash DBs carry inflated `db_version` values (e.g. 35) that no longer
+    /// map to a meaningful schema generation. New migrations therefore must NOT
+    /// gate on `db_version < N` — detect the needed change by schema presence
+    /// (idempotent) and guard one-time data operations with an explicit marker.
+    /// `recompute_counts()` runs separately at startup.
     fn run_migrations(&self) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        let _version: i64 = conn.query_row(
-            "SELECT version FROM db_version WHERE rowid = 1", [], |row| row.get(0),
-        ).unwrap_or(1);
+        // Universal Likes upgrade.
+        //
+        // This is intentionally NOT gated on a numeric `db_version < N` comparison.
+        // The PoC migration history was squashed, so fresh DBs start at db_version 1
+        // while real pre-squash DBs are stamped at high versions (e.g. 35). A numeric
+        // gate would skip the upgrade on those legacy DBs, leaving `playlists.system_kind`
+        // missing and `get_playlists` crashing. Instead we detect what's needed by
+        // schema presence (idempotent) and guard the one-time backfill with a marker.
+
+        // 1. Add playlists.system_kind if missing (fresh DBs already have it via init_tables;
+        //    pre-feature DBs whose playlists table predates the column need it added here).
+        let has_system_kind: bool = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('playlists') WHERE name = 'system_kind'",
+                [], |r| r.get::<_, i64>(0),
+            )? > 0
+        };
+        if !has_system_kind {
+            let conn = self.conn.lock().unwrap();
+            conn.execute("ALTER TABLE playlists ADD COLUMN system_kind TEXT", [])?;
+        }
+
+        // 2. Partial unique index + system playlists. Both idempotent; ensure_system_playlists
+        //    runs every startup so the system playlists self-heal if deleted.
+        {
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_playlists_system_kind
+                 ON playlists(system_kind) WHERE system_kind IS NOT NULL", [],
+            )?;
+        }
+        self.ensure_system_playlists()?;
+
+        // 3. One-time backfill of existing library likes into entity_likes, guarded by a
+        //    marker in plugin_storage so we don't resurrect likes the user later cleared.
+        let already_backfilled: bool = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM plugin_storage WHERE plugin_id = '__core__' AND key = 'entity_likes_backfilled'",
+                [], |r| r.get::<_, i64>(0),
+            ).unwrap_or(0) > 0
+        };
+        if !already_backfilled {
+            let now_ts: i64 = {
+                let conn = self.conn.lock().unwrap();
+                conn.query_row("SELECT strftime('%s','now')", [], |r| r.get(0)).unwrap_or(0)
+            };
+            self.backfill_entity_likes_from_library(now_ts)?;
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "INSERT OR REPLACE INTO plugin_storage (plugin_id, key, value)
+                 VALUES ('__core__', 'entity_likes_backfilled', '1')", [],
+            )?;
+        }
+
         Ok(())
     }
 }
@@ -496,6 +568,62 @@ mod tests {
 
     fn test_db() -> Database {
         Database::new_in_memory().expect("Failed to create in-memory database")
+    }
+
+    #[test]
+    fn test_existing_db_upgrades_to_system_playlists() {
+        // Simulate a pre-feature DB on disk: a `playlists` table WITHOUT system_kind,
+        // then open it via Database::new (init_tables → run_migrations). Regression
+        // guard: the partial unique index on system_kind must not be created in
+        // init_tables, or this open fails with "no such column: system_kind".
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("viboplr.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE playlists (
+                    id INTEGER PRIMARY KEY, name TEXT NOT NULL, source TEXT,
+                    saved_at INTEGER NOT NULL DEFAULT 0, image_path TEXT,
+                    description TEXT, metadata TEXT
+                 );
+                 CREATE TABLE db_version (version INTEGER NOT NULL);
+                 INSERT INTO db_version (rowid, version) VALUES (1, 1);",
+            ).unwrap();
+        }
+        // This is what crashes today.
+        let db = Database::new(dir.path()).expect("Database::new on existing DB should succeed");
+        let pls = db.get_playlists().unwrap();
+        assert!(pls.iter().any(|p| p.system_kind.as_deref() == Some("liked")));
+    }
+
+    #[test]
+    fn test_legacy_high_version_db_upgrades() {
+        // Real pre-squash DBs are stamped at high db_version (e.g. 35), which a
+        // `version < 2` migration gate would skip — leaving system_kind missing
+        // and get_playlists crashing. The upgrade must be version-independent.
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("viboplr.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE artists (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, liked INTEGER NOT NULL DEFAULT 0, track_count INTEGER NOT NULL DEFAULT 0);
+                 CREATE TABLE playlists (
+                    id INTEGER PRIMARY KEY, name TEXT NOT NULL, source TEXT,
+                    saved_at INTEGER NOT NULL DEFAULT 0, image_path TEXT,
+                    description TEXT, metadata TEXT
+                 );
+                 CREATE TABLE db_version (version INTEGER NOT NULL);
+                 INSERT INTO db_version (rowid, version) VALUES (1, 35);
+                 INSERT INTO artists (name, liked) VALUES ('Björk', 1);",
+            ).unwrap();
+        }
+        let db = Database::new(dir.path()).expect("legacy high-version DB should open");
+        // get_playlists must not crash and system playlists must exist.
+        let pls = db.get_playlists().unwrap();
+        assert!(pls.iter().any(|p| p.system_kind.as_deref() == Some("liked")));
+        assert!(pls.iter().any(|p| p.system_kind.as_deref() == Some("disliked")));
+        // The pre-existing library like must have been backfilled.
+        assert_eq!(db.get_entity_like_state("artist", "artist:bjork").unwrap(), 1);
     }
 
     /// Helper: create a test collection and return its id.
@@ -1422,10 +1550,11 @@ mod tests {
         assert!(id > 0);
 
         let playlists = db.get_playlists().unwrap();
-        assert_eq!(playlists.len(), 1);
-        assert_eq!(playlists[0].name, "Discover Weekly 15 Apr 2026");
-        assert_eq!(playlists[0].source.as_deref(), Some("spotify-playlist://abc123"));
-        assert_eq!(playlists[0].track_count, 0);
+        let user_playlists: Vec<_> = playlists.iter().filter(|p| p.system_kind.is_none()).collect();
+        assert_eq!(user_playlists.len(), 1);
+        assert_eq!(user_playlists[0].name, "Discover Weekly 15 Apr 2026");
+        assert_eq!(user_playlists[0].source.as_deref(), Some("spotify-playlist://abc123"));
+        assert_eq!(user_playlists[0].track_count, 0);
     }
 
     #[test]
@@ -1448,6 +1577,40 @@ mod tests {
     }
 
     #[test]
+    fn test_entity_likes_table_exists() {
+        let db = test_db();
+        let conn = db.conn.lock().unwrap();
+        // Insert a row directly — fails if table/columns are missing.
+        conn.execute(
+            "INSERT INTO entity_likes (kind, entity_key, liked, metadata, updated_at)
+             VALUES ('track', 'track:bjork:joga', 1, '{}', 100)",
+            [],
+        ).unwrap();
+        let liked: i32 = conn.query_row(
+            "SELECT liked FROM entity_likes WHERE kind='track' AND entity_key='track:bjork:joga'",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(liked, 1);
+    }
+
+    #[test]
+    fn test_playlists_system_kind_column_exists() {
+        let db = test_db();
+        let conn = db.conn.lock().unwrap();
+        // Use a distinct kind: the v2 migration already creates 'liked'/'disliked'
+        // system playlists, and system_kind is UNIQUE.
+        conn.execute(
+            "INSERT INTO playlists (name, system_kind) VALUES ('Test System', 'test-kind')",
+            [],
+        ).unwrap();
+        let kind: Option<String> = conn.query_row(
+            "SELECT system_kind FROM playlists WHERE name='Test System'",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(kind.as_deref(), Some("test-kind"));
+    }
+
+    #[test]
     fn test_delete_playlist_cascades() {
         let db = test_db();
         let playlist_id = db.save_playlist("To Delete", None, None, None, None).unwrap();
@@ -1457,7 +1620,8 @@ mod tests {
         assert_eq!(db.get_playlist_tracks(playlist_id).unwrap().len(), 1);
 
         db.delete_playlist(playlist_id).unwrap();
-        assert_eq!(db.get_playlists().unwrap().len(), 0);
+        let user_playlists: Vec<_> = db.get_playlists().unwrap().into_iter().filter(|p| p.system_kind.is_none()).collect();
+        assert_eq!(user_playlists.len(), 0);
         assert_eq!(db.get_playlist_tracks(playlist_id).unwrap().len(), 0);
     }
 
@@ -1474,8 +1638,9 @@ mod tests {
         ).unwrap();
 
         let playlists = db.get_playlists().unwrap();
-        assert_eq!(playlists.len(), 1);
-        let pl = &playlists[0];
+        let user_playlists: Vec<_> = playlists.iter().filter(|p| p.system_kind.is_none()).collect();
+        assert_eq!(user_playlists.len(), 1);
+        let pl = user_playlists[0];
         assert_eq!(pl.id, id);
         assert_eq!(pl.name, "Discover Weekly");
         assert_eq!(pl.source.as_deref(), Some("spotify://playlists/abc123"));

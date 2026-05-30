@@ -1488,113 +1488,32 @@
   font-size: var(--fs-sm);
 }
 
-.playlists-detail-header {
-  display: flex;
-  gap: 16px;
-  padding: 16px;
-  align-items: flex-start;
-}
-
-.playlists-detail-cover {
-  width: 160px;
-  height: 160px;
-  object-fit: cover;
-  border-radius: 8px;
-  flex-shrink: 0;
-}
-
-.playlists-detail-info {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.playlists-detail-info h2 {
-  margin: 0;
-  font-size: var(--fs-lg);
-}
-
-.playlists-detail-meta {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-}
-
-.playlists-detail-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.playlists-back-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  padding: 4px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: var(--fs-sm);
-  transition: all 0.15s;
-}
-
-.playlists-back-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--bg-hover);
-}
-
-.playlists-action-btn {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  padding: 6px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: var(--fs-sm);
-  transition: all 0.15s;
-}
-
-.playlists-action-btn:hover {
-  border-color: var(--accent);
-  background: var(--bg-hover);
-}
-
-.playlists-action-btn-play {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text, #fff);
-}
-
-.playlists-action-btn-play:hover {
-  background: var(--accent-dim);
-  border-color: var(--accent-dim);
-}
-
-.playlists-action-btn-danger {
-  color: var(--error);
-}
-
-.playlists-action-btn-danger:hover {
-  border-color: var(--error);
-}
-
 .playlists-tracks-table {
   padding: 0 16px 16px;
 }
 
 .playlists-tracks-header {
   display: grid;
-  grid-template-columns: 40px 1fr 200px 200px 80px;
-  padding: 8px 12px;
+  grid-template-columns: 40px 1fr 200px 80px;
+  align-items: center;
+  padding: 4px 16px;
+  margin-bottom: 8px;
   font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);
 }
 
 .playlists-track-row {
   display: grid;
-  grid-template-columns: 40px 1fr 200px 200px 80px;
-  padding: 8px 12px;
-  border-radius: 6px;
+  grid-template-columns: 40px 1fr 200px 80px;
+  align-items: center;
+  padding: 6px 16px;
+  border-radius: var(--ds-radius);
   transition: background 0.15s;
+  cursor: default;
+  user-select: none;
 }
 
 .playlists-track-row:hover {
@@ -1602,36 +1521,99 @@
 }
 
 .playlists-col-num {
+  position: relative;
   text-align: right;
-  padding-right: 12px;
+  padding-right: 16px;
   color: var(--text-secondary);
   font-size: var(--fs-sm);
+}
+
+.playlists-track-index {
+  display: inline-block;
+}
+
+.playlists-track-play {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.playlists-track-play svg {
+  width: 18px;
+  height: 18px;
+}
+
+.playlists-track-row:hover .playlists-track-index {
+  visibility: hidden;
+}
+
+.playlists-track-row:hover .playlists-track-play {
+  display: flex;
 }
 
 .playlists-col-title {
   display: flex;
   align-items: center;
+  gap: 12px;
+  min-width: 0;
   font-size: var(--fs-sm);
 }
 
-.playlists-col-artist,
+.playlists-track-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.playlists-track-name {
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playlists-track-artist {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .playlists-col-album {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 12px;
 }
 
 .playlists-col-duration {
   text-align: right;
   font-size: var(--fs-sm);
   color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .playlists-track-thumb {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   object-fit: cover;
-  border-radius: 2px;
-  margin-right: 8px;
+  border-radius: 4px;
   flex-shrink: 0;
 }
 

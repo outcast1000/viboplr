@@ -36,7 +36,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT p.id, p.name, p.source, p.saved_at, p.image_path,
                     (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = p.id) as track_count,
-                    p.description, p.metadata
+                    p.description, p.metadata, p.system_kind
              FROM playlists p ORDER BY p.saved_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -49,12 +49,48 @@ impl Database {
                 track_count: row.get(5)?,
                 description: row.get(6)?,
                 metadata: row.get(7)?,
+                system_kind: row.get(8)?,
             })
         })?;
         rows.collect()
     }
 
     pub fn get_playlist_tracks(&self, playlist_id: i64) -> SqlResult<Vec<PlaylistTrack>> {
+        // System playlists project their membership from entity_likes.
+        if let Some(kind) = self.system_playlist_kind(playlist_id)? {
+            let want: i32 = if kind == "disliked" { -1 } else { 1 };
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT entity_key, metadata FROM entity_likes
+                 WHERE kind = 'track' AND liked = ?1 ORDER BY updated_at DESC"
+            )?;
+            let rows = stmt.query_map(params![want], |row| {
+                let entity_key: String = row.get(0)?;
+                let metadata: Option<String> = row.get(1)?;
+                Ok((entity_key, metadata))
+            })?;
+            let mut out = Vec::new();
+            for (i, r) in rows.enumerate() {
+                let (entity_key, metadata) = r?;
+                let meta: serde_json::Value = metadata.as_deref()
+                    .and_then(|m| serde_json::from_str(m).ok())
+                    .unwrap_or(serde_json::Value::Null);
+                let get = |k: &str| meta.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
+                out.push(PlaylistTrack {
+                    id: i as i64,            // synthetic; system playlists have no real rows
+                    playlist_id,
+                    position: i as i64,
+                    title: get("title").unwrap_or_else(|| entity_key.clone()),
+                    artist_name: get("artist_name"),
+                    album_name: get("album_title"),
+                    duration_secs: meta.get("duration_secs").and_then(|v| v.as_f64()),
+                    source: get("source"),
+                    image_path: get("image_url"),
+                });
+            }
+            return Ok(out);
+        }
+
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, playlist_id, position, title, artist_name, album_name, duration_secs, source, image_path
@@ -77,6 +113,12 @@ impl Database {
     }
 
     pub fn delete_playlist(&self, playlist_id: i64) -> SqlResult<()> {
+        if self.system_playlist_kind(playlist_id)?.is_some() {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                Some("Cannot delete a system playlist".to_string()),
+            ));
+        }
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id])?;
         Ok(())

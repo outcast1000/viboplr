@@ -343,6 +343,17 @@ pub struct PlaylistTrackPayload {
     pub image_url: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntityLikePayload {
+    pub title: String,                  // for tracks: title; for artist/album/tag: the name
+    pub artist_name: Option<String>,
+    pub album_title: Option<String>,
+    pub duration_secs: Option<f64>,
+    pub source: Option<String>,
+    pub image_url: Option<String>,
+}
+
 
 
 

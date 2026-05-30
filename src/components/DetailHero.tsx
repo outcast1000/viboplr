@@ -23,6 +23,8 @@ interface DetailHeroProps {
   bgImages: string[];
   bgClassName?: string;
 
+  onBack?: () => void;
+
   art: ReactNode;
   artShape: "square" | "circle";
 
@@ -50,6 +52,7 @@ interface DetailHeroProps {
 
 export function DetailHero({
   bgImages, bgClassName,
+  onBack,
   art, artShape,
   eyebrow, title,
   liked, onToggleLike, onToggleDislike, likeDisabled, entityLabel,
@@ -77,6 +80,16 @@ export function DetailHero({
     <div className={heroClass}>
       <DetailHeroBackground images={bgImages} className={bgClassName ?? "detail-hero-bg"} />
       <DetailHeroEffect look={look} />
+      {onBack && (
+        <button
+          className="detail-hero-back"
+          onClick={onBack}
+          aria-label="Back"
+          title="Back"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+        </button>
+      )}
       <select
         className="detail-hero-fx-select"
         value={effectMode}

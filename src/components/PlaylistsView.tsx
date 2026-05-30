@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { formatDuration } from "../utils";
 import { save } from "@tauri-apps/plugin-dialog";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
@@ -7,6 +8,8 @@ import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import type { PlaylistContext } from "../hooks/useQueue";
 import type { ExportTrack } from "./MixtapeExportModal";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
+import { DetailHero } from "./DetailHero";
+import type { HeroOverflowItem } from "../utils/heroOverflow";
 import playlistDefault from "../assets/playlist-default.png";
 import "./PlaylistsView.css";
 
@@ -19,6 +22,7 @@ interface Playlist {
   track_count: number;
   description: string | null;
   metadata: string | null;
+  system_kind: string | null;
 }
 
 interface PlaylistTrack {
@@ -96,6 +100,21 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
     loadPlaylists();
   }, [loadPlaylists]);
 
+  useEffect(() => {
+    const un = listen("entity-likes-changed", () => {
+      loadPlaylists().catch(console.error);
+      setSelectedPlaylist(prev => {
+        if (prev && prev.system_kind) {
+          invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: prev.id })
+            .then(setTracks)
+            .catch(console.error);
+        }
+        return prev;
+      });
+    });
+    return () => { un.then(f => f()).catch(console.error); };
+  }, [loadPlaylists]);
+
   const openPlaylist = useCallback(async (pl: Playlist) => {
     setSelectedPlaylist(pl);
     const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
@@ -169,7 +188,9 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
       }});
     }
     specs.push({ kind: "separator" });
-    specs.push({ kind: "item", text: "Delete", action: () => setDeleteConfirm(pl) });
+    if (!pl.system_kind) {
+      specs.push({ kind: "item", text: "Delete", action: () => setDeleteConfirm(pl) });
+    }
     if (pluginMenuItems && pluginMenuItems.length > 0) {
       const matching = pluginMenuItems.filter(item => item.targets.includes("playlist"));
       if (matching.length > 0) {
@@ -202,10 +223,72 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
     [],
   );
 
+  // Resolve artwork for tracks lacking an explicit image_path, using the same
+  // name-based chain as the queue: album image by name → artist image by name.
+  const [resolvedImages, setResolvedImages] = useState<Record<string, string | null>>({});
+  const resolvingRef = useRef<Set<string>>(new Set());
+
+  const trackImageKey = useCallback((t: PlaylistTrack) => `${t.artist_name ?? ""}::${t.album_name ?? ""}::${t.title}`, []);
+
+  const trackImageSrc = useCallback((t: PlaylistTrack): string => {
+    if (t.image_path) return convertFileSrc(t.image_path);
+    const resolved = resolvedImages[trackImageKey(t)];
+    if (resolved) return convertFileSrc(resolved);
+    return playlistDefault;
+  }, [resolvedImages, trackImageKey]);
+
+  useEffect(() => {
+    for (const t of tracks) {
+      if (t.image_path) continue;
+      const key = trackImageKey(t);
+      if (key in resolvedImages || resolvingRef.current.has(key)) continue;
+      resolvingRef.current.add(key);
+      (async () => {
+        try {
+          if (t.album_name) {
+            const albumPath = await invoke<string | null>("get_entity_image", { kind: "album", name: t.album_name, artistName: t.artist_name ?? null });
+            if (albumPath) { setResolvedImages(prev => ({ ...prev, [key]: albumPath })); return; }
+          }
+          if (t.artist_name) {
+            const artistPath = await invoke<string | null>("get_entity_image", { kind: "artist", name: t.artist_name, artistName: null });
+            if (artistPath) { setResolvedImages(prev => ({ ...prev, [key]: artistPath })); return; }
+          }
+          setResolvedImages(prev => ({ ...prev, [key]: null }));
+        } catch (e) {
+          console.error("Failed to resolve playlist track image:", e);
+          setResolvedImages(prev => ({ ...prev, [key]: null }));
+        }
+      })();
+    }
+  }, [tracks, resolvedImages, trackImageKey]);
+
+  // Hero background: the playlist cover if set, else a collage of up to 4 distinct
+  // resolved track images (same idea as the artist hero's album collage).
+  const heroBgImages = useMemo(() => {
+    if (selectedPlaylist?.image_path) {
+      const u = imageUrl(selectedPlaylist.image_path);
+      return u ? [u] : [];
+    }
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const t of tracks) {
+      const path = t.image_path ?? resolvedImages[trackImageKey(t)];
+      if (!path || seen.has(path)) continue;
+      seen.add(path);
+      out.push(convertFileSrc(path));
+      if (out.length === 4) break;
+    }
+    return out;
+  }, [selectedPlaylist, tracks, resolvedImages, trackImageKey, imageUrl]);
+
   // Filter by search query
-  const filtered = searchQuery
+  const filtered = (searchQuery
     ? playlists.filter((p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    : playlists;
+    : playlists
+  ).slice().sort((a, b) => {
+    const rank = (p: Playlist) => p.system_kind === "liked" ? 0 : p.system_kind === "disliked" ? 1 : 2;
+    return rank(a) - rank(b);
+  });
 
   const deleteModal = deleteConfirm && (
     <DeletePlaylistModal
@@ -229,51 +312,69 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
 
   // Detail view
   if (selectedPlaylist) {
+    const detailMeta: string[] = [
+      `${tracks.length} ${tracks.length === 1 ? "track" : "tracks"}`,
+    ];
+    if (!selectedPlaylist.system_kind) detailMeta.push(`Saved ${formatDate(selectedPlaylist.saved_at)}`);
+
+    const detailOverflowItems: HeroOverflowItem[] = [
+      { kind: "action", id: "export-m3u", label: "Export as M3U", onClick: () => handleExport(selectedPlaylist) },
+    ];
+    if (onExportAsMixtape) {
+      detailOverflowItems.push({
+        kind: "action", id: "export-mixtape", label: "Export as Mixtape",
+        onClick: () => {
+          if (tracks.length === 0) return;
+          const meta = selectedPlaylist.metadata ? JSON.parse(selectedPlaylist.metadata) as Record<string, string> : null;
+          onExportAsMixtape(tracks.map(t => ({
+            title: t.title,
+            artistName: t.artist_name || undefined,
+            albumTitle: t.album_name || undefined,
+            durationSecs: t.duration_secs || undefined,
+            path: t.source || undefined,
+            imageUrl: t.image_path || undefined,
+          })), selectedPlaylist.name, selectedPlaylist.image_path, meta);
+        },
+      });
+    }
+    if (!selectedPlaylist.system_kind) {
+      detailOverflowItems.push({ kind: "divider" });
+      detailOverflowItems.push({ kind: "action", id: "delete", label: "Delete playlist", danger: true, onClick: () => setDeleteConfirm(selectedPlaylist) });
+    }
+
     return (
       <div className="playlists-view">
-        <div className="playlists-detail-header">
-          <img
-            className="playlists-detail-cover"
-            src={selectedPlaylist.image_path ? imageUrl(selectedPlaylist.image_path) : playlistDefault}
-            alt=""
-          />
-          <div className="playlists-detail-info">
-            <button className="playlists-back-btn" onClick={goBack}>&larr; Back</button>
-            <h2>{selectedPlaylist.name}</h2>
-            <div className="playlists-detail-meta">
-              {selectedPlaylist.track_count} tracks &middot; Saved {formatDate(selectedPlaylist.saved_at)}
-            </div>
-            <div className="playlists-detail-actions">
-              <button className="playlists-action-btn playlists-action-btn-play" onClick={() => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0, playlistContext(selectedPlaylist))} disabled={tracks.length === 0}>Play</button>
-              <button className="playlists-action-btn" onClick={() => handleExport(selectedPlaylist)}>Export as M3U</button>
-              {onExportAsMixtape && (
-                <button className="playlists-action-btn" onClick={() => {
-                  if (tracks.length === 0) return;
-                  const meta = selectedPlaylist.metadata ? JSON.parse(selectedPlaylist.metadata) as Record<string, string> : null;
-                  onExportAsMixtape(tracks.map(t => ({
-                    title: t.title,
-                    artistName: t.artist_name || undefined,
-                    albumTitle: t.album_name || undefined,
-                    durationSecs: t.duration_secs || undefined,
-                    path: t.source || undefined,
-                    imageUrl: t.image_path || undefined,
-                  })), selectedPlaylist.name, selectedPlaylist.image_path, meta);
-                }} disabled={tracks.length === 0}>Export as Mixtape</button>
-              )}
-              <button className="playlists-action-btn playlists-action-btn-danger" onClick={() => setDeleteConfirm(selectedPlaylist)}>Delete</button>
-            </div>
-          </div>
-        </div>
+        <DetailHero
+          bgImages={heroBgImages}
+          onBack={goBack}
+          art={
+            <img
+              src={selectedPlaylist.image_path ? imageUrl(selectedPlaylist.image_path) : playlistDefault}
+              alt={selectedPlaylist.name}
+            />
+          }
+          artShape="square"
+          eyebrow={selectedPlaylist.system_kind ? "System playlist" : "Playlist"}
+          title={selectedPlaylist.name}
+          entityLabel="album"
+          meta={detailMeta}
+          onPlay={tracks.length > 0 ? () => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0, playlistContext(selectedPlaylist)) : undefined}
+          onEnqueue={tracks.length > 0 ? () => onEnqueueTracks(tracks.map(playlistTrackToMinimalTrack)) : undefined}
+          overflowItems={detailOverflowItems}
+        />
         <div className="playlists-tracks-table">
           <div className="playlists-tracks-header">
             <div className="playlists-col-num">#</div>
             <div className="playlists-col-title">Title</div>
-            <div className="playlists-col-artist">Artist</div>
             <div className="playlists-col-album">Album</div>
             <div className="playlists-col-duration">Duration</div>
           </div>
           {tracks.map((t) => (
-            <div key={t.id} className="playlists-track-row" onContextMenu={(e) => {
+            <div
+              key={t.id}
+              className="playlists-track-row"
+              onDoubleClick={() => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null)}
+              onContextMenu={(e) => {
               e.preventDefault();
               const specs: MenuItemSpec[] = [
                 { kind: "item", text: "Play", action: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null) },
@@ -297,14 +398,27 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
               }
               showNativeMenu(e.clientX, e.clientY, specs);
             }}>
-              <div className="playlists-col-num">{t.position + 1}</div>
-              <div className="playlists-col-title">
-                {t.image_path && (
-                  <img className="playlists-track-thumb" src={imageUrl(t.image_path)} alt="" />
-                )}
-                {t.title}
+              <div className="playlists-col-num">
+                <span className="playlists-track-index">{t.position + 1}</span>
+                <button
+                  className="playlists-track-play"
+                  onClick={() => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null)}
+                  title="Play"
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                </button>
               </div>
-              <div className="playlists-col-artist">{t.artist_name ?? ""}</div>
+              <div className="playlists-col-title">
+                <img
+                  className="playlists-track-thumb"
+                  src={trackImageSrc(t)}
+                  alt=""
+                />
+                <div className="playlists-track-text">
+                  <span className="playlists-track-name">{t.title}</span>
+                  {t.artist_name && <span className="playlists-track-artist">{t.artist_name}</span>}
+                </div>
+              </div>
               <div className="playlists-col-album">{t.album_name ?? ""}</div>
               <div className="playlists-col-duration">{formatDuration(t.duration_secs)}</div>
             </div>
@@ -336,7 +450,9 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
                 <div className="playlist-card-name">{pl.name}</div>
               </div>
               <div className="playlist-card-meta">
-                {pl.track_count} tracks &middot; {formatDate(pl.saved_at)}
+                {pl.system_kind
+                  ? (pl.system_kind === "liked" ? "Liked songs" : "Disliked songs")
+                  : `${pl.track_count} tracks · ${formatDate(pl.saved_at)}`}
               </div>
             </div>
           ))}

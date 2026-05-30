@@ -324,6 +324,50 @@ pub fn toggle_liked(
 }
 
 #[tauri::command]
+pub fn set_entity_like_state(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    kind: String,
+    entity: EntityLikePayload,
+    like_state: i32,
+) -> Result<i32, String> {
+    if !matches!(kind.as_str(), "track" | "artist" | "album" | "tag") {
+        return Err(format!("Unknown kind: {}", kind));
+    }
+    let db = &state.db;
+
+    let entity_key = crate::db::likes::build_entity_key(
+        &kind, &entity.title, entity.artist_name.as_deref(),
+    );
+
+    let metadata = serde_json::json!({
+        "title": entity.title,
+        "name": entity.title,
+        "artist_name": entity.artist_name,
+        "album_title": entity.album_title,
+        "duration_secs": entity.duration_secs,
+        "source": entity.source,
+        "image_url": entity.image_url,
+    }).to_string();
+
+    let now_ts: i64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    db.set_entity_like(&kind, &entity_key, like_state, Some(&metadata), now_ts)
+        .map_err(|e| e.to_string())?;
+
+    db.mirror_entity_like_to_library(
+        &kind, &entity.title, entity.artist_name.as_deref(), entity.album_title.as_deref(), like_state,
+    ).map_err(|e| e.to_string())?;
+
+    let _ = app.emit("entity-likes-changed", serde_json::json!({ "kind": kind }));
+
+    Ok(like_state)
+}
+
+#[tauri::command]
 pub fn get_liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
     state.db.get_liked_tracks().map_err(|e| e.to_string())
 }

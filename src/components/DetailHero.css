@@ -274,6 +274,34 @@
 }
 
 /* --- Hero effect picker (top-right, hover-revealed) --- */
+.detail-hero-back {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(var(--bg-primary-rgb), 0.55);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.detail-hero-back svg {
+  width: 18px;
+  height: 18px;
+}
+
+.detail-hero-back:hover {
+  background: rgba(var(--bg-primary-rgb), 0.8);
+}
+
 .detail-hero-fx-select {
   position: absolute;
   top: 12px;

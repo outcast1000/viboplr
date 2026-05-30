@@ -223,29 +223,15 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
   }, [tracks, sortField, sortDir, shuffleKey, trackPopularity]);
 
   const handleToggleLike = useCallback(() => {
-    if (!entity) return;
-    if (onEntityLike) {
-      onEntityLike(kind, entity.id);
-      setEntity(prev => prev ? { ...prev, liked: prev.liked === 1 ? 0 : 1 } : null);
-    } else {
-      const newLiked = entity.liked === 1 ? 0 : 1;
-      invoke("toggle_liked", { kind, id: entity.id, liked: newLiked })
-        .then(() => setEntity(prev => prev ? { ...prev, liked: newLiked } : null))
-        .catch((e) => console.error(`Failed to toggle ${kind} like:`, e));
-    }
+    if (!entity || !onEntityLike) return;
+    onEntityLike(kind, entity.id);
+    setEntity(prev => prev ? { ...prev, liked: prev.liked === 1 ? 0 : 1 } : null);
   }, [entity, kind, onEntityLike]);
 
   const handleToggleDislike = useCallback(() => {
-    if (!entity) return;
-    if (onEntityDislike) {
-      onEntityDislike(kind, entity.id);
-      setEntity(prev => prev ? { ...prev, liked: prev.liked === -1 ? 0 : -1 } : null);
-    } else {
-      const newLiked = entity.liked === -1 ? 0 : -1;
-      invoke("toggle_liked", { kind, id: entity.id, liked: newLiked })
-        .then(() => setEntity(prev => prev ? { ...prev, liked: newLiked } : null))
-        .catch((e) => console.error(`Failed to toggle ${kind} dislike:`, e));
-    }
+    if (!entity || !onEntityDislike) return;
+    onEntityDislike(kind, entity.id);
+    setEntity(prev => prev ? { ...prev, liked: prev.liked === -1 ? 0 : -1 } : null);
   }, [entity, kind, onEntityDislike]);
 
   const reload = useCallback(() => {

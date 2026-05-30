@@ -3,6 +3,7 @@ import type { Track, Artist, Album, Tag, QueueTrack } from "../types";
 import type { PluginEventName } from "../types/plugin";
 import { parseLibraryId } from "../queueEntry";
 import { emitTrackPatch } from "../trackEvents";
+import { trackLikePayload, entityLikePayload, nextTriState } from "../likeKeys";
 
 interface LibraryDeps {
   tracks: Track[];
@@ -39,31 +40,28 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   const { library, playback, queueHook, plugins } = deps;
 
   async function handleToggleLike(track: QueueTrack) {
-    const newLiked = track.liked === 1 ? 0 : 1;
+    const newLiked = nextTriState(track.liked, "like");
     try {
+      await invoke("set_entity_like_state", {
+        kind: "track",
+        entity: trackLikePayload(track),
+        likeState: newLiked,
+      });
+      // Mirror state in any matching library track + currentTrack + queue (by key).
       const directId = parseLibraryId(track.key);
-      let trackId: number;
       if (directId != null) {
-        trackId = directId;
+        library.setTracks(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
+        emitTrackPatch(directId, { liked: newLiked });
       } else {
-        const libTrack = await invoke<Track | null>("find_track_by_metadata", {
-          title: track.title,
-          artistName: track.artist_name ?? null,
-          albumName: track.album_title ?? null,
-        });
-        if (!libTrack || libTrack.id == null) {
-          return;
-        }
-        trackId = libTrack.id;
+        // External track: still patch any library row that matches by metadata, best-effort.
+        library.setTracks(prev => prev.map(t =>
+          t.title === track.title && (t.artist_name ?? null) === (track.artist_name ?? null)
+            ? { ...t, liked: newLiked } : t));
       }
-      await invoke("toggle_liked", { kind: "track", id: trackId, liked: newLiked });
-      const targetKey = directId != null ? track.key : `lib:${trackId}`;
-      library.setTracks(prev => prev.map(t => t.key === targetKey ? { ...t, liked: newLiked } : t));
       if (playback.currentTrack?.key === track.key) {
         playback.setCurrentTrack(prev => prev ? { ...prev, liked: newLiked } : prev);
       }
       queueHook.setQueue(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
-      emitTrackPatch(trackId, { liked: newLiked });
       plugins.dispatchEvent("track:liked", track, newLiked === 1);
     } catch (e) {
       console.error("Failed to toggle like:", e);
@@ -71,31 +69,26 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   }
 
   async function handleToggleDislike(track: QueueTrack) {
-    const newLiked = track.liked === -1 ? 0 : -1;
+    const newLiked = nextTriState(track.liked, "dislike");
     try {
+      await invoke("set_entity_like_state", {
+        kind: "track",
+        entity: trackLikePayload(track),
+        likeState: newLiked,
+      });
       const directId = parseLibraryId(track.key);
-      let trackId: number;
       if (directId != null) {
-        trackId = directId;
+        library.setTracks(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
+        emitTrackPatch(directId, { liked: newLiked });
       } else {
-        const libTrack = await invoke<Track | null>("find_track_by_metadata", {
-          title: track.title,
-          artistName: track.artist_name ?? null,
-          albumName: track.album_title ?? null,
-        });
-        if (!libTrack || libTrack.id == null) {
-          return;
-        }
-        trackId = libTrack.id;
+        library.setTracks(prev => prev.map(t =>
+          t.title === track.title && (t.artist_name ?? null) === (track.artist_name ?? null)
+            ? { ...t, liked: newLiked } : t));
       }
-      await invoke("toggle_liked", { kind: "track", id: trackId, liked: newLiked });
-      const targetKey = directId != null ? track.key : `lib:${trackId}`;
-      library.setTracks(prev => prev.map(t => t.key === targetKey ? { ...t, liked: newLiked } : t));
       if (playback.currentTrack?.key === track.key) {
         playback.setCurrentTrack(prev => prev ? { ...prev, liked: newLiked } : prev);
       }
       queueHook.setQueue(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
-      emitTrackPatch(trackId, { liked: newLiked });
     } catch (e) {
       console.error("Failed to toggle dislike:", e);
     }
@@ -104,9 +97,9 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   async function handleToggleArtistLike(artistId: number) {
     const artist = library.artists.find(a => a.id === artistId);
     if (!artist) return;
-    const newLiked = artist.liked === 1 ? 0 : 1;
+    const newLiked = nextTriState(artist.liked, "like");
     try {
-      await invoke("toggle_liked", { kind: "artist", id: artistId, liked: newLiked });
+      await invoke("set_entity_like_state", { kind: "artist", entity: entityLikePayload(artist.name), likeState: newLiked });
       library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked: newLiked } : a));
     } catch (e) {
       console.error("Failed to toggle artist like:", e);
@@ -116,9 +109,9 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   async function handleToggleArtistDislike(artistId: number) {
     const artist = library.artists.find(a => a.id === artistId);
     if (!artist) return;
-    const newLiked = artist.liked === -1 ? 0 : -1;
+    const newLiked = nextTriState(artist.liked, "dislike");
     try {
-      await invoke("toggle_liked", { kind: "artist", id: artistId, liked: newLiked });
+      await invoke("set_entity_like_state", { kind: "artist", entity: entityLikePayload(artist.name), likeState: newLiked });
       library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked: newLiked } : a));
     } catch (e) {
       console.error("Failed to toggle artist dislike:", e);
@@ -128,9 +121,9 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   async function handleToggleAlbumLike(albumId: number) {
     const album = library.albums.find(a => a.id === albumId);
     if (!album) return;
-    const newLiked = album.liked === 1 ? 0 : 1;
+    const newLiked = nextTriState(album.liked, "like");
     try {
-      await invoke("toggle_liked", { kind: "album", id: albumId, liked: newLiked });
+      await invoke("set_entity_like_state", { kind: "album", entity: entityLikePayload(album.title, album.artist_name), likeState: newLiked });
       library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: newLiked } : a));
     } catch (e) {
       console.error("Failed to toggle album like:", e);
@@ -140,9 +133,9 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   async function handleToggleAlbumDislike(albumId: number) {
     const album = library.albums.find(a => a.id === albumId);
     if (!album) return;
-    const newLiked = album.liked === -1 ? 0 : -1;
+    const newLiked = nextTriState(album.liked, "dislike");
     try {
-      await invoke("toggle_liked", { kind: "album", id: albumId, liked: newLiked });
+      await invoke("set_entity_like_state", { kind: "album", entity: entityLikePayload(album.title, album.artist_name), likeState: newLiked });
       library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: newLiked } : a));
     } catch (e) {
       console.error("Failed to toggle album dislike:", e);
@@ -152,9 +145,9 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   async function handleToggleTagLike(tagId: number) {
     const tag = library.tags.find(t => t.id === tagId);
     if (!tag) return;
-    const newLiked = tag.liked === 1 ? 0 : 1;
+    const newLiked = nextTriState(tag.liked, "like");
     try {
-      await invoke("toggle_liked", { kind: "tag", id: tagId, liked: newLiked });
+      await invoke("set_entity_like_state", { kind: "tag", entity: entityLikePayload(tag.name), likeState: newLiked });
       library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked: newLiked } : t));
     } catch (e) {
       console.error("Failed to toggle tag like:", e);
@@ -164,9 +157,9 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   async function handleToggleTagDislike(tagId: number) {
     const tag = library.tags.find(t => t.id === tagId);
     if (!tag) return;
-    const newLiked = tag.liked === -1 ? 0 : -1;
+    const newLiked = nextTriState(tag.liked, "dislike");
     try {
-      await invoke("toggle_liked", { kind: "tag", id: tagId, liked: newLiked });
+      await invoke("set_entity_like_state", { kind: "tag", entity: entityLikePayload(tag.name), likeState: newLiked });
       library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked: newLiked } : t));
     } catch (e) {
       console.error("Failed to toggle tag dislike:", e);

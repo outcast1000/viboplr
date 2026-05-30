@@ -241,6 +241,7 @@ pub struct Playlist {
     pub track_count: i64,
     pub description: Option<String>,
     pub metadata: Option<String>,
+    pub system_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
