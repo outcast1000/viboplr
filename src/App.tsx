@@ -2601,6 +2601,7 @@ function App() {
             isVisible={view === "home"}
             currentTrack={playback.currentTrack}
             pluginShelves={plugins.homeShelves}
+            pluginsLoaded={plugins.pluginsLoaded}
             invokePluginShelf={plugins.invokeHomeShelf}
             restoredRef={restoredRef}
             onPlayTrack={(t) => queueHook.playTracks([trackToQueueTrack(t)], 0)}

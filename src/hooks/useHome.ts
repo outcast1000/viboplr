@@ -86,6 +86,7 @@ export interface UseHomeOptions {
     shelfId: string,
     limit: number,
   ) => Promise<HomeShelfResult>;
+  pluginsLoaded: boolean;
   visibility: Record<string, boolean>;
   restoredRef: React.RefObject<boolean>;
 }
@@ -95,7 +96,7 @@ export function shelfKey(pluginId: string | undefined, shelfId: string): string 
 }
 
 export function useHome(opts: UseHomeOptions) {
-  const { isVisible, currentTrack, pluginShelves, invokePluginShelf, visibility, restoredRef } = opts;
+  const { isVisible, currentTrack, pluginShelves, invokePluginShelf, pluginsLoaded, visibility, restoredRef } = opts;
 
   const [featured, setFeatured] = useState<Track[]>([]);
   const [shelves, setShelves] = useState<ResolvedShelf[]>([]);
@@ -467,6 +468,32 @@ export function useHome(opts: UseHomeOptions) {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Prune hydrated shelves whose plugin is no longer loaded (e.g. the plugin was
+  // uninstalled/removed since the snapshot was saved). Built-in shelves (no
+  // pluginId) are never pruned. Gated on pluginsLoaded so we don't drop valid
+  // plugin shelves during the async load window — an empty pluginShelves there
+  // means "not loaded yet", not "gone". This complements the 24h refresh gate:
+  // without it, a removed plugin's shelves would linger from cache until refresh.
+  useEffect(() => {
+    if (!pluginsLoaded) return;
+    const liveShelfIds = new Set(
+      pluginShelves.map((p) => shelfKey(p.pluginId, p.shelfId)),
+    );
+    setShelves((prev) => {
+      const next = prev.filter((s) => !s.pluginId || liveShelfIds.has(s.id));
+      if (next.length === prev.length) return prev;
+      // Re-persist the pruned snapshot (keeping the existing savedAt so the 24h
+      // refresh schedule is unaffected) so a removed plugin's shelves don't
+      // re-hydrate and flash on the next cold launch.
+      store.set(SNAPSHOT_KEY, {
+        featured: featuredRef.current,
+        shelves: next,
+        savedAt: savedAtRef.current,
+      }).catch((e) => console.error("Failed to persist pruned home snapshot:", e));
+      return next;
+    });
+  }, [pluginsLoaded, pluginShelves]);
 
   // Refresh on mount only when the cached snapshot is older than 24h (or absent).
   // Manual refresh via the toolbar button is always available regardless of age.

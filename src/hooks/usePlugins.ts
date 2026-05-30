@@ -170,6 +170,11 @@ export function usePlugins(
   );
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryError, setGalleryError] = useState<string | null>(null);
+  // True once the initial plugin load has completed at least once. Lets consumers
+  // (e.g. Home shelves) distinguish "no plugin shelves because none are loaded"
+  // from "plugins haven't finished loading yet" — avoids pruning valid shelves
+  // during the async load window.
+  const [pluginsLoaded, setPluginsLoaded] = useState(false);
 
   const playbackCallbacksRef = useRef(playbackCallbacks);
   playbackCallbacksRef.current = playbackCallbacks;
@@ -1335,6 +1340,8 @@ export function usePlugins(
       setHomeShelves(shelves);
     } catch (e) {
       console.error("Failed to load plugins:", e);
+    } finally {
+      setPluginsLoaded(true);
     }
   }, [activatePlugin, deactivatePlugin, debugMode, devPluginPath]);
 
@@ -1732,6 +1739,7 @@ export function usePlugins(
     menuItems,
     settingsPanels,
     homeShelves: allHomeShelves,
+    pluginsLoaded,
     viewData,
     getViewData,
     badgeMap,

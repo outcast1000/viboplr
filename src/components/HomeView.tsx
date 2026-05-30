@@ -22,6 +22,7 @@ export interface HomeViewProps {
     limit: number;
   }>;
   invokePluginShelf: (pluginId: string, shelfId: string, limit: number) => Promise<HomeShelfResult>;
+  pluginsLoaded: boolean;
   restoredRef: React.RefObject<boolean>;
   onPlayTrack: (track: Track) => void;
   onEnqueueTrack: (track: Track) => void;
@@ -57,6 +58,7 @@ export function HomeView(props: HomeViewProps) {
     currentTrack: props.currentTrack,
     pluginShelves: props.pluginShelves,
     invokePluginShelf: props.invokePluginShelf,
+    pluginsLoaded: props.pluginsLoaded,
     visibility,
     restoredRef: props.restoredRef,
   });
