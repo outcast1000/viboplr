@@ -1,9 +1,11 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, cleanup, waitFor } from "@testing-library/react";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { StrictMode } from "react";
+import { render, cleanup, waitFor, act } from "@testing-library/react";
 import { DetailHeroBackground } from "../components/DetailHeroBackground";
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
 });
 
 function layers(container: HTMLElement): HTMLElement[] {
@@ -16,70 +18,117 @@ describe("DetailHeroBackground", () => {
     expect(layers(container)).toHaveLength(0);
   });
 
-  it("renders 1 layer that fills the full width for a single image", () => {
+  it("renders one full-bleed layer for a single image", () => {
     const { container } = render(<DetailHeroBackground images={["/a.jpg"]} />);
     const ls = layers(container);
     expect(ls).toHaveLength(1);
-    expect(ls[0].className).toMatch(/detail-hero-bg-edge-full/);
     expect(ls[0].style.backgroundImage).toContain("/a.jpg");
-    expect(ls[0].style.left).toBe("0%");
-    expect(ls[0].style.width).toBe("100%");
+    // No inline slice geometry — the layer fills the hero via CSS `inset: 0`.
+    expect(ls[0].style.left).toBe("");
+    expect(ls[0].style.width).toBe("");
   });
 
-  it("renders 2 side-by-side slices with soft overlap and edge feathering", () => {
-    const { container } = render(<DetailHeroBackground images={["/a.jpg", "/b.jpg"]} />);
+  it("stacks one layer per image (capped at 4)", () => {
+    const images = Array.from({ length: 6 }, (_, i) => `/img-${i}.jpg`);
+    const { container } = render(<DetailHeroBackground images={images} />);
     const ls = layers(container);
-    expect(ls).toHaveLength(2);
-    // Left slice: feathered on the right edge only.
-    expect(ls[0].className).toMatch(/detail-hero-bg-edge-left/);
-    expect(ls[0].style.left).toBe("0%");
-    // 50% base + 10% overlap on the inner side = 60%.
-    expect(ls[0].style.width).toBe("60%");
-    // Right slice: feathered on the left edge only, anchored at 40%.
-    expect(ls[1].className).toMatch(/detail-hero-bg-edge-right/);
-    expect(ls[1].style.left).toBe("40%");
-    expect(ls[1].style.width).toBe("60%");
-  });
-
-  it("renders N>=3 layers with middle layers feathered on both sides", () => {
-    for (const n of [3, 4]) {
-      cleanup();
-      const images = Array.from({ length: n }, (_, i) => `/img-${i}.jpg`);
-      const { container } = render(<DetailHeroBackground images={images} />);
-      const ls = layers(container);
-      expect(ls).toHaveLength(n);
-      expect(ls[0].className).toMatch(/detail-hero-bg-edge-left/);
-      expect(ls[ls.length - 1].className).toMatch(/detail-hero-bg-edge-right/);
-      for (let i = 1; i < ls.length - 1; i++) {
-        expect(ls[i].className).toMatch(/detail-hero-bg-edge-middle/);
-      }
+    expect(ls).toHaveLength(4);
+    for (let i = 0; i < 4; i++) {
+      expect(ls[i].style.backgroundImage).toContain(`/img-${i}.jpg`);
     }
   });
 
-  it("uses imagePath as the React key so changing source remounts the layer", () => {
-    const { container, rerender } = render(<DetailHeroBackground images={["/a.jpg"]} />);
-    const before = layers(container)[0];
-    rerender(<DetailHeroBackground images={["/b.jpg"]} />);
-    const after = layers(container)[0];
-    // Different DOM node identity is the simplest evidence of a remount.
-    expect(after).not.toBe(before);
-    expect(after.style.backgroundImage).toContain("/b.jpg");
+  it("marks only the first layer active on mount", async () => {
+    const { container } = render(
+      <DetailHeroBackground images={["/a.jpg", "/b.jpg", "/c.jpg"]} />
+    );
+    await waitFor(() => {
+      expect(layers(container)[0].className).toMatch(/active/);
+    });
+    const ls = layers(container);
+    expect(ls[1].className).not.toMatch(/active/);
+    expect(ls[2].className).not.toMatch(/active/);
   });
 
-  it("layers gain the `loaded` class on the next animation frame", async () => {
-    const { container } = render(<DetailHeroBackground images={["/a.jpg", "/b.jpg"]} />);
-    // Before requestAnimationFrame fires, layers are not yet "loaded" (opacity 0).
-    expect(layers(container)[0].className).not.toMatch(/loaded/);
-    // Wait for rAF to fire and state to update.
-    await waitFor(() => {
-      for (const l of layers(container)) {
-        expect(l.className).toMatch(/loaded/);
-      }
+  it("advances the active layer on an interval and wraps around", async () => {
+    vi.useFakeTimers();
+    const { container } = render(
+      <DetailHeroBackground images={["/a.jpg", "/b.jpg"]} />
+    );
+    // Flush the mount rAF/effects so the first layer becomes active.
+    await act(async () => {
+      vi.advanceTimersByTime(20);
     });
+    expect(layers(container)[0].className).toMatch(/active/);
+
+    // After one hold, the second image is active.
+    await act(async () => {
+      vi.advanceTimersByTime(7000);
+    });
+    let ls = layers(container);
+    expect(ls[0].className).not.toMatch(/active/);
+    expect(ls[1].className).toMatch(/active/);
+
+    // After another hold, it wraps back to the first.
+    await act(async () => {
+      vi.advanceTimersByTime(7000);
+    });
+    ls = layers(container);
+    expect(ls[0].className).toMatch(/active/);
+    expect(ls[1].className).not.toMatch(/active/);
+  });
+
+  it("does not cycle when there is only a single image", async () => {
+    vi.useFakeTimers();
+    const { container } = render(<DetailHeroBackground images={["/a.jpg"]} />);
+    await act(async () => {
+      vi.advanceTimersByTime(20);
+    });
+    expect(layers(container)[0].className).toMatch(/active/);
+    // Advancing well past the hold must not change anything (no second layer).
+    await act(async () => {
+      vi.advanceTimersByTime(30000);
+    });
+    expect(layers(container)).toHaveLength(1);
+    expect(layers(container)[0].className).toMatch(/active/);
+  });
+
+  it("resets to the first image when the image set changes", async () => {
+    vi.useFakeTimers();
+    const { container, rerender } = render(
+      <DetailHeroBackground images={["/a.jpg", "/b.jpg"]} />
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(7000);
+    });
+    expect(layers(container)[1].className).toMatch(/active/);
+
+    rerender(<DetailHeroBackground images={["/c.jpg", "/d.jpg"]} />);
+    await act(async () => {
+      vi.advanceTimersByTime(20);
+    });
+    const ls = layers(container);
+    expect(ls[0].style.backgroundImage).toContain("/c.jpg");
+    expect(ls[0].className).toMatch(/active/);
+    expect(ls[1].className).not.toMatch(/active/);
   });
 
   it("applies the className prop to the wrapper", () => {
     const { container } = render(<DetailHeroBackground images={[]} className="my-bg" />);
     expect(container.querySelector(".my-bg")).toBeTruthy();
+  });
+
+  it("activates the first layer under React StrictMode", async () => {
+    // The app renders inside <StrictMode>, which mounts/unmounts/remounts each
+    // component once on mount. A one-shot reveal guard would leave the layer
+    // stuck at opacity 0 (regression: artist hero with images showed no bg).
+    const { container } = render(
+      <StrictMode>
+        <DetailHeroBackground images={["/a.jpg", "/b.jpg"]} />
+      </StrictMode>
+    );
+    await waitFor(() => {
+      expect(layers(container)[0].className).toMatch(/active/);
+    });
   });
 });

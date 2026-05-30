@@ -7,39 +7,20 @@
 
 .detail-hero-bg-layer {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  /* `left` and `width` are set inline per-layer for the side-by-side slice. */
+  inset: 0;
   background-size: cover;
   background-position: center 25%;
-  filter: none;
   opacity: 0;
-  transition: opacity 0.6s ease-out;
+  /* Cross-fade duration — see HOLD_MS note in DetailHeroBackground.tsx. */
+  transition: opacity 1s ease-in-out;
 }
 
-.detail-hero-bg-layer.loaded {
+.detail-hero-bg-layer.active {
   opacity: 1;
 }
 
-/* Soft-feather edges where adjacent slices meet, so the seam alpha-blends
-   instead of being a hard line. The full-width single-layer case has no
-   feather; the leftmost and rightmost slices feather only on their inner
-   edge; middle slices feather both sides. */
-.detail-hero-bg-edge-full {
-  /* Single layer: no feather, fills the whole hero. */
-}
-
-.detail-hero-bg-edge-left {
-  -webkit-mask-image: linear-gradient(to right, black 0%, black 80%, transparent 100%);
-          mask-image: linear-gradient(to right, black 0%, black 80%, transparent 100%);
-}
-
-.detail-hero-bg-edge-right {
-  -webkit-mask-image: linear-gradient(to left, black 0%, black 80%, transparent 100%);
-          mask-image: linear-gradient(to left, black 0%, black 80%, transparent 100%);
-}
-
-.detail-hero-bg-edge-middle {
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 20%, black 80%, transparent 100%);
-          mask-image: linear-gradient(to right, transparent 0%, black 20%, black 80%, transparent 100%);
+@media (prefers-reduced-motion: reduce) {
+  .detail-hero-bg-layer {
+    transition: none;
+  }
 }
