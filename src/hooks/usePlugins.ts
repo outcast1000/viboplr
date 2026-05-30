@@ -1496,9 +1496,12 @@ export function usePlugins(
   );
 
   const deletePlugin = useCallback(
-    async (pluginId: string) => {
+    async (pluginId: string): Promise<{ ok: boolean; error?: string }> => {
       try {
-        // Remove from enabled set if present
+        // Delete on disk FIRST — only mutate enabled-state/deactivate once the
+        // backend confirms removal, so a failed delete (e.g. it's a built-in, not
+        // a user plugin) leaves the plugin's enabled state and activation intact.
+        await invoke("delete_user_plugin", { pluginId });
         if (enabledPluginsRef.current.has(pluginId)) {
           enabledPluginsRef.current.delete(pluginId);
           deactivatePlugin(pluginId);
@@ -1507,10 +1510,11 @@ export function usePlugins(
             Array.from(enabledPluginsRef.current),
           );
         }
-        await invoke("delete_user_plugin", { pluginId });
         await loadPlugins();
+        return { ok: true };
       } catch (e) {
         console.error("Failed to delete plugin:", e);
+        return { ok: false, error: String(e) };
       }
     },
     [deactivatePlugin, loadPlugins],

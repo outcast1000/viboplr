@@ -18,7 +18,7 @@ interface UseExtensionsProps {
   galleryPlugins: GalleryPluginEntry[];
   onTogglePlugin: (id: string) => void;
   onReloadPlugin: (id: string) => void;
-  onDeletePlugin: (id: string) => Promise<void>;
+  onDeletePlugin: (id: string) => Promise<{ ok: boolean; error?: string }>;
   onInstallPluginFromGallery: (
     entry: GalleryPluginEntry,
   ) => Promise<{ ok: boolean; error?: string }>;
@@ -136,13 +136,16 @@ export function useExtensions(props: UseExtensionsProps) {
     async (entry: GalleryPluginEntry | GallerySkinEntry) => {
       setInstalling((prev) => new Set(prev).add(entry.id));
       try {
-        if ("files" in entry) {
-          await onInstallPluginFromGallery(
-            entry as GalleryPluginEntry,
-          );
-        } else {
+        // Discriminate by a skin-only field. Plugin gallery entries no longer
+        // carry `files` (index-only gallery), so "colors" (skins only) is the
+        // reliable discriminator.
+        if ("colors" in entry) {
           await onInstallSkinFromGallery(
             entry as GallerySkinEntry,
+          );
+        } else {
+          await onInstallPluginFromGallery(
+            entry as GalleryPluginEntry,
           );
         }
       } finally {
@@ -160,7 +163,10 @@ export function useExtensions(props: UseExtensionsProps) {
     async (id: string, kind: "plugin" | "skin") => {
       try {
         if (kind === "plugin") {
-          await onDeletePlugin(id);
+          const res = await onDeletePlugin(id);
+          if (!res.ok) {
+            console.error(`Failed to uninstall plugin "${id}":`, res.error);
+          }
         } else {
           onDeleteSkin(id);
         }
