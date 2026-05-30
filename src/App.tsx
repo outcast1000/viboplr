@@ -162,6 +162,7 @@ function App() {
   const [eqSaveAsOpen, setEqSaveAsOpen] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
+  const [devPluginPath, setDevPluginPath] = useState<string | null>(null);
   const [lastDownloadDest, setLastDownloadDest] = useState<string | null>(null);
   const [autoSaveStreams, setAutoSaveStreams] = useState<Record<string, boolean>>({});
   const [downloadsCollectionId, setDownloadsCollectionId] = useState<number | null>(null);
@@ -315,7 +316,7 @@ function App() {
     getDownloadFormat: () => downloadFormatRef.current,
   }), [queueHook, pluginTrackToQueueTrack]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
-  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode);
+  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode, devPluginPath);
   const dependencies = useDependencies(plugins.pluginStates);
   if (import.meta.env.DEV) (window as any).__dependencies = dependencies;
 
@@ -1532,16 +1533,18 @@ function App() {
             setSearchViewModes({ tracks: s.tracks, albums: s.albums, artists: s.artists, tags: s.tags && validModes.includes(s.tags) ? s.tags : "tiles" });
           }
         }
-        const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedSyncWithPlaying, savedFallbackTrack] = await Promise.all([
+        const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedSyncWithPlaying, savedFallbackTrack, savedDevPluginPath] = await Promise.all([
           store.get<boolean>("loggingEnabled"),
           store.get<boolean>("debugLogging"),
           store.get<boolean>("debugMode"),
           store.get<boolean | string>("syncWithPlaying"),
           store.get<{ name: string; artistName?: string; albumTitle?: string } | null>("fallbackTrackName"),
+          store.get<string | null>("devPluginPath"),
         ]);
         if (savedLoggingEnabled) setLoggingEnabled(true);
         if (savedDebugLogging) { setDebugLogging(true); setDebugLoggingRef(true); }
         if (savedDebugMode) setDebugMode(true);
+        if (savedDevPluginPath) setDevPluginPath(savedDevPluginPath);
         if (savedSyncWithPlaying === true || savedSyncWithPlaying === "enabled" || savedSyncWithPlaying === "active") setSyncWithPlaying(true);
         if (savedFallbackTrack) {
           library.setFallbackTrackName(savedFallbackTrack);
@@ -2000,6 +2003,11 @@ function App() {
   function handleDebugModeChange(enabled: boolean) {
     setDebugMode(enabled);
     store.set("debugMode", enabled);
+  }
+
+  function handleDevPluginPathChange(path: string | null) {
+    setDevPluginPath(path);
+    store.set("devPluginPath", path);
   }
 
   const handleSetDownloadsFolder = async () => {
@@ -2792,6 +2800,9 @@ function App() {
               onDebugLoggingChange={handleDebugLoggingChange}
               debugMode={debugMode}
               onDebugModeChange={handleDebugModeChange}
+              devPluginPath={devPluginPath}
+              onDevPluginPathChange={handleDevPluginPathChange}
+              onReloadPlugins={plugins.reloadAllPlugins}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
               downloadsCollection={downloadsCollection}
               streamResolvers={streamResolversMeta}

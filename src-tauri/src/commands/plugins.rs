@@ -10,8 +10,52 @@ pub fn plugin_get_dir(state: State<'_, AppState>) -> Result<String, String> {
     Ok(plugins_dir.to_string_lossy().to_string())
 }
 
+// Scan a single external "dev" plugin folder (one folder = one plugin). Unlike
+// scan_plugins_dir, the plugin id comes from the MANIFEST's "id" field (not the
+// directory name) so a dev folder named e.g. "viboplr-spotify" can correctly
+// shadow the installed/built-in "spotify-browse". Returns the plugin JSON
+// (with "dev": true) or None if the folder has no valid manifest.json.
+fn scan_dev_plugin(dir: &std::path::Path) -> Option<serde_json::Value> {
+    let manifest_path = dir.join("manifest.json");
+    if !manifest_path.exists() {
+        return None;
+    }
+    let content = match std::fs::read_to_string(&manifest_path) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("Dev plugin: failed to read manifest {}: {}", manifest_path.display(), e);
+            return None;
+        }
+    };
+    let manifest: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(m) => m,
+        Err(e) => {
+            log::warn!("Dev plugin: invalid manifest {}: {}", manifest_path.display(), e);
+            return None;
+        }
+    };
+    let id = match manifest.get("id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            log::warn!("Dev plugin: manifest {} missing 'id' field", manifest_path.display());
+            return None;
+        }
+    };
+    let code = std::fs::read_to_string(dir.join("index.js")).ok();
+    Some(serde_json::json!({
+        "id": id,
+        "manifest": manifest,
+        "builtin": false,
+        "dev": true,
+        "code": code,
+    }))
+}
+
 #[tauri::command]
-pub fn plugin_list_installed(state: State<'_, AppState>) -> Result<Vec<serde_json::Value>, String> {
+pub fn plugin_list_installed(
+    state: State<'_, AppState>,
+    dev_plugin_dir: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
     let user_plugins_dir = state.app_dir.join("plugins");
     if !user_plugins_dir.exists() {
         std::fs::create_dir_all(&user_plugins_dir).map_err(|e| e.to_string())?;
@@ -20,20 +64,33 @@ pub fn plugin_list_installed(state: State<'_, AppState>) -> Result<Vec<serde_jso
     let mut seen_ids = std::collections::HashSet::new();
     let mut plugins = Vec::new();
 
-    // User plugins take precedence (loaded first)
+    // Dev plugin (if set) takes highest precedence — overrides user AND native.
+    if let Some(path) = dev_plugin_dir.as_ref().filter(|p| !p.is_empty()) {
+        if let Some(p) = scan_dev_plugin(std::path::Path::new(path)) {
+            if let Some(id) = p.get("id").and_then(|v| v.as_str()) {
+                seen_ids.insert(id.to_string());
+            }
+            plugins.push(p);
+        }
+    }
+
+    // User plugins take precedence over native (loaded next).
     for p in scan_plugins_dir(&user_plugins_dir, false) {
         if let Some(id) = p.get("id").and_then(|v| v.as_str()) {
+            if seen_ids.contains(id) {
+                continue; // dev plugin overrides user
+            }
             seen_ids.insert(id.to_string());
         }
         plugins.push(p);
     }
 
-    // Native/builtin plugins (skipped if user has same id)
+    // Native/builtin plugins (skipped if dev or user has same id)
     if let Some(ref native_dir) = state.native_plugins_dir {
         for p in scan_plugins_dir(native_dir, true) {
             if let Some(id) = p.get("id").and_then(|v| v.as_str()) {
                 if seen_ids.contains(id) {
-                    continue; // user plugin overrides native
+                    continue;
                 }
             }
             plugins.push(p);

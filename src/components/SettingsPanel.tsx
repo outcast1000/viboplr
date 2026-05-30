@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { SearchProviderConfig } from "../searchProviders";
 import { DEFAULT_PROVIDERS, getDomainFromUrl } from "../searchProviders";
 import { IconGoogle, IconX, IconYoutube, IconGenius } from "./Icons";
@@ -863,6 +864,9 @@ interface SettingsPanelProps {
   onDebugLoggingChange: (enabled: boolean) => void;
   debugMode: boolean;
   onDebugModeChange: (enabled: boolean) => void;
+  devPluginPath: string | null;
+  onDevPluginPathChange: (path: string | null) => void;
+  onReloadPlugins: () => void;
   // Stream resolver ordering
   onStreamResolverOrderChanged?: () => void;
   // Downloads collection
@@ -921,6 +925,9 @@ export function SettingsPanel({
   onDebugLoggingChange,
   debugMode,
   onDebugModeChange,
+  devPluginPath,
+  onDevPluginPathChange,
+  onReloadPlugins,
   onStreamResolverOrderChanged,
   downloadsCollection,
   streamResolvers: streamResolversList,
@@ -1406,6 +1413,53 @@ export function SettingsPanel({
                     <ToggleSwitch checked={debugMode} onChange={onDebugModeChange} />
                   </div>
                 </div>
+                {debugMode && (
+                  <>
+                    <div className="settings-group-title" style={{ marginTop: 20 }}>Developer</div>
+                    <div className="settings-card">
+                      <div className="settings-row">
+                        <div className="settings-row-info">
+                          <span className="settings-label">Dev plugin folder</span>
+                          <span className="settings-description">
+                            Loads a plugin from this folder (overrides installed copies). After editing its files, click Reload to pick up the changes. Debug mode only.
+                          </span>
+                          <span className="settings-description" style={{ fontFamily: "monospace", wordBreak: "break-all" }}>
+                            {devPluginPath || "none"}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button
+                            className="ds-btn ds-btn--secondary"
+                            disabled={!devPluginPath}
+                            onClick={() => onReloadPlugins()}
+                          >
+                            Reload
+                          </button>
+                          <button
+                            className="ds-btn ds-btn--secondary"
+                            onClick={async () => {
+                              try {
+                                const picked = await open({ directory: true, multiple: false });
+                                if (typeof picked === "string") onDevPluginPathChange(picked);
+                              } catch (e) {
+                                console.error("Failed to pick dev plugin folder:", e);
+                              }
+                            }}
+                          >
+                            Choose…
+                          </button>
+                          <button
+                            className="ds-btn ds-btn--secondary"
+                            disabled={!devPluginPath}
+                            onClick={() => onDevPluginPathChange(null)}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
                 <div className="settings-group-title" style={{ marginTop: 20 }}>Maintenance</div>
                 <div className="settings-card">
                   <div className="settings-row">

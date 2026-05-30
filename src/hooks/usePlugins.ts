@@ -151,6 +151,7 @@ export function usePlugins(
   playbackCallbacks?: PluginPlaybackCallbacks,
   hostCallbacks?: PluginHostCallbacks,
   debugMode?: boolean,
+  devPluginPath?: string | null,
 ) {
   const [pluginStates, setPluginStates] = useState<PluginState[]>([]);
   const [sidebarItems, setSidebarItems] = useState<PluginSidebarItem[]>([]);
@@ -1137,8 +1138,9 @@ export function usePlugins(
         deactivatePlugin(id);
       }
 
-      const installed =
-        await invoke<InstalledPlugin[]>("plugin_list_installed");
+      const installed = await invoke<InstalledPlugin[]>("plugin_list_installed", {
+        devPluginDir: debugMode ? (devPluginPath || null) : null,
+      });
       const appVersion = await getVersion().catch(() => "0.0.0");
       appVersionRef.current = appVersion;
       const enabled =
@@ -1337,7 +1339,7 @@ export function usePlugins(
     } catch (e) {
       console.error("Failed to load plugins:", e);
     }
-  }, [activatePlugin, deactivatePlugin, debugMode]);
+  }, [activatePlugin, deactivatePlugin, debugMode, devPluginPath]);
 
   // Initialize on mount, and reload when debugMode changes
   const initialLoadDone = useRef(false);
@@ -1358,7 +1360,7 @@ export function usePlugins(
     if (initialLoadDone.current) {
       loadPlugins();
     }
-  }, [debugMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [debugMode, devPluginPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -- Public methods --
 
