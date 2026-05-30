@@ -23,7 +23,7 @@ interface ExtensionsViewProps {
   onCheckForUpdates: () => void;
   onUpdateExtension: (id: string) => void;
   onUpdateAll: () => void;
-  onInstallFromGallery: (entry: GalleryPluginEntry | GallerySkinEntry) => void;
+  onInstallFromGallery: (entry: GalleryPluginEntry | GallerySkinEntry) => Promise<{ ok: boolean; kind: "plugin" | "skin"; error?: string }>;
   onUninstall: (id: string, kind: "plugin" | "skin") => void;
   onToggleEnabled: (id: string, kind: "plugin" | "skin") => void;
   onFetchPluginGallery: () => void;
@@ -115,13 +115,28 @@ function ExtensionDetail({
   getPluginViewData, onPluginAction,
 }: {
   ext: ExtensionItem; installing: boolean; onUpdate: () => void; onUninstall: () => void;
-  onToggleEnabled: () => void; onInstallFromGallery: (entry: GalleryPluginEntry | GallerySkinEntry) => void;
+  onToggleEnabled: () => void;
+  onInstallFromGallery: (entry: GalleryPluginEntry | GallerySkinEntry) => Promise<{ ok: boolean; kind: "plugin" | "skin"; error?: string }>;
   galleryPlugins: GalleryPluginEntry[]; gallerySkins: GallerySkinEntry[];
   getPluginViewData?: (pluginId: string, viewId: string) => PluginViewData | undefined;
   onPluginAction?: (pluginId: string, actionId: string, data?: unknown) => void;
 }) {
   const isInstalled = ext.status !== "not_installed";
   const settingsPanelId = ext.kind === "plugin" && ext.status === "active" && ext.contributes?.settingsPanel?.id;
+  // After a successful plugin install (which lands disabled), prompt to enable.
+  const [showEnablePrompt, setShowEnablePrompt] = useState(false);
+
+  const handleInstall = async () => {
+    const entry =
+      ext.kind === "plugin"
+        ? galleryPlugins.find((p) => p.id === ext.id)
+        : gallerySkins.find((s) => s.id === ext.id);
+    if (!entry) return;
+    const res = await onInstallFromGallery(entry);
+    if (res.ok && res.kind === "plugin") {
+      setShowEnablePrompt(true);
+    }
+  };
 
   return (
     <div className="ext-detail">
@@ -166,17 +181,15 @@ function ExtensionDetail({
           </>
         )}
         {!isInstalled && (
-          <button className="ds-btn ds-btn--primary ds-btn--sm" disabled={installing} onClick={() => {
-            if (ext.kind === "plugin") {
-              const entry = galleryPlugins.find((p) => p.id === ext.id);
-              if (entry) onInstallFromGallery(entry);
-            } else {
-              const entry = gallerySkins.find((s) => s.id === ext.id);
-              if (entry) onInstallFromGallery(entry);
-            }
-          }}>
-            {installing ? "Installing..." : "Install"}
+          <button className="ds-btn ds-btn--primary ds-btn--sm" disabled={installing} onClick={handleInstall}>
+            {installing ? "Installing…" : "Install"}
           </button>
+        )}
+        {installing && (
+          <span className="ext-detail-installing">
+            <span className="ds-spinner ds-spinner--sm" />
+            Downloading and installing {ext.name}…
+          </span>
         )}
       </div>
 
@@ -285,6 +298,27 @@ function ExtensionDetail({
           </div>
         )}
       </div>
+
+      {showEnablePrompt && (
+        <div className="ds-modal-overlay">
+          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="ds-modal-title">{ext.name} installed</h2>
+            <p className="delete-confirm-warning">
+              {ext.name} was installed but is disabled. Enable it now?
+            </p>
+            <div className="ds-modal-actions">
+              <button className="ds-btn ds-btn--ghost" onClick={() => setShowEnablePrompt(false)}>Not now</button>
+              <button
+                className="ds-btn ds-btn--primary"
+                autoFocus
+                onClick={() => { setShowEnablePrompt(false); onToggleEnabled(); }}
+              >
+                Enable
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

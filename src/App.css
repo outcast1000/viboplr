@@ -2439,6 +2439,13 @@
   margin-top: 20px;
   flex-wrap: wrap;
 }
+.ext-detail-installing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
 .ext-detail-section {
   margin-top: 24px;
 }

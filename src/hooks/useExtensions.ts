@@ -133,21 +133,19 @@ export function useExtensions(props: UseExtensionsProps) {
   }, [updates, updateExtension]);
 
   const installFromGallery = useCallback(
-    async (entry: GalleryPluginEntry | GallerySkinEntry) => {
+    async (
+      entry: GalleryPluginEntry | GallerySkinEntry,
+    ): Promise<{ ok: boolean; kind: "plugin" | "skin"; error?: string }> => {
       setInstalling((prev) => new Set(prev).add(entry.id));
+      // Discriminate by a skin-only field. Plugin gallery entries no longer
+      // carry `files` (index-only gallery), so "colors" (skins only) is the
+      // reliable discriminator.
+      const isSkin = "colors" in entry;
       try {
-        // Discriminate by a skin-only field. Plugin gallery entries no longer
-        // carry `files` (index-only gallery), so "colors" (skins only) is the
-        // reliable discriminator.
-        if ("colors" in entry) {
-          await onInstallSkinFromGallery(
-            entry as GallerySkinEntry,
-          );
-        } else {
-          await onInstallPluginFromGallery(
-            entry as GalleryPluginEntry,
-          );
-        }
+        const res = isSkin
+          ? await onInstallSkinFromGallery(entry as GallerySkinEntry)
+          : await onInstallPluginFromGallery(entry as GalleryPluginEntry);
+        return { ok: res.ok, kind: isSkin ? "skin" : "plugin", error: res.error };
       } finally {
         setInstalling((prev) => {
           const next = new Set(prev);
