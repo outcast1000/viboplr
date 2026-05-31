@@ -1,7 +1,6 @@
 import type { Track, QueueTrack } from "../types";
 import type { PluginViewData, TrackRowItem, PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import {
-  PluginDetailHeader,
   PluginTrackList,
   PluginCardGrid,
   PluginText,
@@ -21,6 +20,9 @@ import {
 // (renderers/HtmlRenderer, AnnotatedTextRenderer, RichTextRenderer).
 export { sanitizeHTML } from "./pluginViews/htmlSanitize";
 import "./PluginViewRenderer.css";
+import { DetailHero } from "./DetailHero";
+import { mapDetailHeaderToHeroProps } from "./pluginViews/mapDetailHeader";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 
 interface PluginViewRendererProps {
   pluginName: string;
@@ -320,20 +322,38 @@ function PluginViewNode({
           onAction={onAction}
         />
       );
-    case "detail-header":
+    case "detail-header": {
+      const hero = mapDetailHeaderToHeroProps(node, onAction);
+      const artSrc = resolveImageUrl(node.imageUrl);
+      const art = artSrc ? (
+        <img
+          src={artSrc}
+          alt={node.title}
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = "none";
+          }}
+        />
+      ) : (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
       return (
-        <PluginDetailHeader
-          title={node.title}
-          subtitle={node.subtitle}
-          meta={node.meta}
-          imageUrl={node.imageUrl}
-          actions={node.actions}
-          backAction={node.backAction}
-          playAction={node.playAction}
-          contextMenuActions={node.contextMenuActions}
-          onAction={onAction}
+        <DetailHero
+          bgImages={hero.bgImages}
+          art={art}
+          artShape={hero.artShape}
+          title={hero.title}
+          entityLabel="album"
+          meta={hero.meta}
+          onPlay={hero.onPlay}
+          onEnqueue={hero.onEnqueue}
+          onBack={hero.onBack}
+          overflowItems={hero.overflowItems}
         />
       );
+    }
     default:
       return null;
   }

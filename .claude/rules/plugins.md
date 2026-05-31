@@ -369,7 +369,7 @@ Plugins with sidebar items render UI via `PluginViewData` (separate from info ty
 | `settings-row` | Label + description + right-side control or child view |
 | `section` | Titled grouping wrapper |
 | `confirm` | Modal-style confirm with `confirmAction` / `cancelAction` and optional `data` payload |
-| `detail-header` | Detail-page header (title, subtitle, meta, image, actions, back/play/context-menu actions) |
+| `detail-header` | Renders the **native** detail hero (`DetailHero`): multi-image crossfade background (`bgImages[]`, 0-4), effect looks + FX selector (inherits the global hero effect preference), square/`circle` art (`artShape`), `title`, `subtitle`+`meta` as chips, foreground art from `imageUrl`, Play (`playAction`) / Enqueue (`enqueueAction`) buttons, and an overflow (⋯) menu built from `actions[]` then `contextMenuActions[]`. Like/dislike, eyebrow, and titleLine are not exposed to plugins. |
 
 ### Toggle Control Note
 

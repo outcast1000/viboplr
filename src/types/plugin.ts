@@ -270,10 +270,13 @@ export type PluginViewData =
       title: string;
       subtitle?: string;
       meta?: string;
-      imageUrl?: string;
+      imageUrl?: string;              // foreground art only
+      bgImages?: string[];            // 0-4 crossfade background images
+      artShape?: "square" | "circle"; // defaults to "square"
       actions?: { id: string; label: string; icon?: string }[];
       backAction?: string;
       playAction?: string;
+      enqueueAction?: string;         // wires the native Enqueue button
       contextMenuActions?: { id: string; label: string; separator?: boolean }[];
     };
 

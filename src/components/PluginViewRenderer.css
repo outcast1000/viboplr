@@ -34,20 +34,6 @@
   min-width: 120px;
 }
 
-.plugin-detail-back {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: var(--fs-sm);
-  padding: 8px 16px 0;
-  transition: color 0.15s;
-}
-
-.plugin-detail-back:hover {
-  color: var(--text-primary);
-}
-
 .plugin-view-empty {
   color: var(--text-secondary);
   font-size: var(--fs-sm);
