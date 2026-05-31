@@ -481,7 +481,7 @@ export type HomeShelfItem =
       id: string;
       name: string;
       coverUrl?: string;
-      trackCount?: number;
+      subtitle?: string;
       tracks: PluginTrack[];
       sourcePluginId?: string;
     }

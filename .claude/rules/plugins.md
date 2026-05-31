@@ -147,7 +147,7 @@ Top-level logger. Writes to the app's frontend log stream. Prefer this over `con
 |---|---|
 | `album-cards` | `{ libraryId?, name, artistName?, coverUrl?, tracks? }` — `libraryId` makes the card navigate to the album detail page; otherwise `tracks` (PluginTrack[]) plays on click |
 | `artist-cards` | `{ libraryId?, name, imageUrl? }` — `libraryId` navigates to artist detail; without it the card is a no-op on click |
-| `playlist-cards` | `{ id, name, coverUrl?, trackCount?, tracks: PluginTrack[] }` — clicking plays the tracks with `{ name, coverUrl, source: "playlist" }` context |
+| `playlist-cards` | `{ id, name, coverUrl?, subtitle?, tracks: PluginTrack[] }` — `subtitle` shown under the title; clicking plays the tracks with `{ name, coverUrl, source: "playlist" }` context |
 | `track-rows` | `{ track: PluginTrack }` — clicking plays just that track |
 
 `coverUrl` / `imageUrl` may be either a remote URL (http/https/data) or a local filesystem path — the renderer detects the difference. Local paths can carry a `#v=N` cache-busting suffix that the renderer preserves.

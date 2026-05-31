@@ -167,7 +167,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     );
   }
   if (shelf.displayKind === "playlist-cards") {
-    const it = item as { id: string; name: string; coverUrl?: string; trackCount?: number };
+    const it = item as { id: string; name: string; coverUrl?: string; subtitle?: string };
     const src = resolveImagePath(it.coverUrl ?? null);
     return (
       <div key={`${idx}-${it.id}`} className="ds-card home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
@@ -177,7 +177,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
         </div>
         <div className="ds-card-body">
           <div className="ds-card-title">{it.name}</div>
-          {typeof it.trackCount === "number" && <div className="ds-card-subtitle">{it.trackCount} tracks</div>}
+          {it.subtitle && <div className="ds-card-subtitle">{it.subtitle}</div>}
         </div>
       </div>
     );
