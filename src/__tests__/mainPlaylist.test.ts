@@ -8,6 +8,7 @@ import {
   contextFromMixtapeMetadata,
   diffThumbs,
   thumbFilenameForUri,
+  queueItemLocalThumb,
   type Manifest,
 } from "../mainPlaylist";
 
@@ -560,5 +561,41 @@ describe("thumbFilenameForUri", () => {
   it("falls back to _unknown for empty strings", () => {
     expect(thumbFilenameForUri("")).toBe("_unknown.jpg");
     expect(thumbFilenameForUri(null as unknown as string)).toBe("_unknown.jpg");
+  });
+});
+
+describe("queueItemLocalThumb", () => {
+  const dir = "/app/main-playlist";
+
+  it("returns null until the thumb-ready signal has set a version (avoids requesting a not-yet-written file)", () => {
+    // No version recorded yet → the backend has not confirmed the write.
+    const r = queueItemLocalThumb({
+      mainPlaylistDir: dir,
+      uri: "spotify://abc",
+      remote: true,
+      versions: {},
+    });
+    expect(r).toBeNull();
+  });
+
+  it("returns the versioned thumb path once a version is recorded", () => {
+    const r = queueItemLocalThumb({
+      mainPlaylistDir: dir,
+      uri: "spotify://abc",
+      remote: true,
+      versions: { "spotify://abc": 1 },
+    });
+    expect(r).toBe("/app/main-playlist/thumbs/spotifyabc.jpg#v=1");
+  });
+
+  it("returns null when context is not remote", () => {
+    expect(
+      queueItemLocalThumb({ mainPlaylistDir: dir, uri: "file:///x.mp3", remote: false, versions: { "file:///x.mp3": 1 } }),
+    ).toBeNull();
+  });
+
+  it("returns null when dir or uri is missing", () => {
+    expect(queueItemLocalThumb({ mainPlaylistDir: null, uri: "spotify://abc", remote: true, versions: { "spotify://abc": 1 } })).toBeNull();
+    expect(queueItemLocalThumb({ mainPlaylistDir: dir, uri: null, remote: true, versions: {} })).toBeNull();
   });
 });

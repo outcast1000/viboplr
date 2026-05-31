@@ -59,6 +59,35 @@ export function thumbFilenameForUri(uri: string | null | undefined): string {
   return `${slug}.jpg`;
 }
 
+/**
+ * Resolve the on-disk local thumbnail path for a queue item, or null if it
+ * should not be requested yet.
+ *
+ * The thumb file is written asynchronously by `main_playlist_set_thumb`, which
+ * emits `main-playlist-thumb-ready` (bumping `versions[uri]`) only *after* the
+ * write completes. Until that signal arrives we have no proof the file exists,
+ * so requesting `thumbs/{slug}.jpg` would make the asset protocol log a
+ * spurious "File does not exist" error on first paint. Gating on a recorded
+ * version makes the request race-free: callers fall back to the track's own
+ * `image_url` until the thumb is confirmed on disk.
+ *
+ * Returns the raw local path with a `#v=N` cache-buster suffix (NOT run
+ * through convertFileSrc) so this stays pure/testable. The caller passes it
+ * through `resolveImageUrl`, which converts `#v=N` to a post-convert `?v=N`.
+ */
+export function queueItemLocalThumb(args: {
+  mainPlaylistDir: string | null | undefined;
+  uri: string | null | undefined;
+  remote: boolean;
+  versions: Record<string, number>;
+}): string | null {
+  const { mainPlaylistDir, uri, remote, versions } = args;
+  if (!mainPlaylistDir || !uri || !remote) return null;
+  const version = versions[uri];
+  if (!version) return null;
+  return `${mainPlaylistDir}/thumbs/${thumbFilenameForUri(uri)}#v=${version}`;
+}
+
 export function isContextRemote(ctx: PlaylistContext | null | undefined): boolean {
   if (!ctx) return false;
   if (typeof ctx.remote === "boolean") return ctx.remote;

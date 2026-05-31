@@ -4,7 +4,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 import { formatDuration, isVideoTrack } from "../utils";
-import { thumbFilenameForUri, isContextRemote } from "../mainPlaylist";
+import { queueItemLocalThumb, isContextRemote } from "../mainPlaylist";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { SpinningDisc } from "./SpinningDisc";
@@ -600,12 +600,12 @@ export function QueuePanel({
             </div>
             <div className="queue-item-art-wrapper">
               <QueueItemThumb
-                localThumb={(() => {
-                  if (!mainPlaylistDir || !t.path || !isContextRemote(playlistContext)) return null;
-                  const base = convertFileSrc(`${mainPlaylistDir}/thumbs/${thumbFilenameForUri(t.path)}`);
-                  const version = thumbVersions[t.path];
-                  return version ? `${base}?v=${version}` : base;
-                })()}
+                localThumb={resolveImageUrl(queueItemLocalThumb({
+                  mainPlaylistDir,
+                  uri: t.path,
+                  remote: isContextRemote(playlistContext),
+                  versions: thumbVersions,
+                })) ?? null}
                 fallback={getTrackImage(t)}
               />
             </div>
