@@ -30,6 +30,39 @@ These plugins are **not bundled** in `src-tauri/plugins/`. Their canonical sourc
 | `p2p-sharing` | `outcast1000/viboplr-p2p` | **JS UI shell only.** The P2P engine lives in this host's Rust (`src-tauri/src/p2p/`, the `api.p2p.*` bridge) and is version-coupled to `outcast1000/viboplr-relay`. Releases in that repo change only the UI; protocol/networking changes are host+relay changes here. The plugin's `minAppVersion` gates its install/auto-update — bump it when you change `api.p2p.*` so older apps don't pull an incompatible shell. |
 | `youtube` | `outcast1000/viboplr-youtube` | Self-contained; contributes the `youtube-fallback` stream resolver + `youtube-download` download provider. Shells out to `yt-dlp`/`ffmpeg` via `api.system.exec`. Same release flow (`scripts/bump.sh` + CI) as the others. **Not** in the gallery as a loose copy — un-bundling means fresh installs have no YouTube playback/download until it's installed from the gallery. |
 
+### Registering a plugin in the gallery
+
+The gallery (`outcast1000/viboplr-plugins`) is **index-only** — it hosts no plugin code, only an `index.json` that points at each plugin's own-repo release. "Registering" a plugin = adding an entry to that `index.json`. The chain is:
+
+```
+viboplr-plugins/index.json  →  entry.updateUrl  →  <repo>/releases/latest/download/update.json  →  the .zip
+```
+
+At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`, fetches that `update.json` (enforcing `minAppVersion`), downloads the `file` zip it names, and installs via `install_plugin_from_zip`. So the plugin's repo + a published release must exist **before** registering — the gallery entry is the last step, not the first.
+
+**Steps:**
+
+1. **Plugin repo with a release.** The repo has `manifest.json` + `index.js`; the release assets are `<name>.zip` (with `manifest.json` at the zip **root** — the installer does not strip a wrapper folder) and `update.json`. The `scripts/package.sh` + `.github/workflows/release.yml` pattern (see `viboplr-youtube`) produces both. The permanent endpoint is `https://github.com/<owner>/<repo>/releases/latest/download/update.json`.
+
+2. **Add an entry to `index.json`** (`version: 2`, under `plugins[]`):
+   ```json
+   {
+     "id": "youtube",
+     "name": "YouTube",
+     "author": "Viboplr",
+     "description": "Play and download tracks from YouTube via yt-dlp",
+     "version": "1.0.0",
+     "minAppVersion": "0.9.4",
+     "updateUrl": "https://github.com/outcast1000/viboplr-youtube/releases/latest/download/update.json"
+   }
+   ```
+   - `id` **must** match the plugin's `manifest.json` `id` exactly (it's the override/storage key).
+   - `updateUrl` is the only load-bearing field for install. `name`/`description`/`version`/`minAppVersion` are display metadata for the gallery list; the *real* version/min-app gate is enforced from the live `update.json` at install time. Keep them roughly in sync with the manifest.
+
+3. **Commit & push `index.json`.** Live for everyone on their next Extensions open — no host app release required.
+
+**After registration, updates are automatic** — the app re-checks each `updateUrl` ~every 24h and auto-updates installed copies. Touch `index.json` again only when display metadata changes materially (rename, description, or a `minAppVersion` bump you want shown pre-install).
+
 ## Manifest Format
 
 ```json
