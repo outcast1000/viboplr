@@ -37,6 +37,11 @@ export function usePlayback(
   const [eqGains, setEqGains] = useState<number[]>(() => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   const [eqPreGainDb, setEqPreGainDb] = useState<number>(0);
   const trackChangeSourceRef = useRef<"user" | "auto">("user");
+  // Synchronous guard against concurrent transcode starts. transcodeSessionRef
+  // is only set after `await start_transcode` resolves, so two callers firing
+  // in the same tick (play().catch + onLoadedMetadata/onMediaError) could both
+  // pass that guard. This ref is set synchronously before the await.
+  const transcodeStartingRef = useRef(false);
 
   const audioRefA = useRef<HTMLAudioElement>(null);
   const audioRefB = useRef<HTMLAudioElement>(null);
@@ -538,13 +543,26 @@ export function usePlayback(
   }
 
   async function attemptTranscodeFallback(track: QueueTrack): Promise<boolean> {
-    if (!isVideoTrack(track) || transcodeSessionRef.current) return false;
+    if (!isVideoTrack(track)) return false;
+    // A transcode is already starting in a racing caller (play().catch +
+    // onLoadedMetadata/onMediaError can fire together). That path owns the
+    // outcome — report "handled" so this caller doesn't show the error modal.
+    if (transcodeStartingRef.current) return true;
+    // We already established a transcode session and it's still erroring — the
+    // fallback genuinely didn't help, so let the caller surface the modal.
+    if (transcodeSessionRef.current) return false;
     const path = track.path;
     if (!path) return false;
     const parsed = parseUrlScheme(path);
     if (parsed.scheme !== "file") return false;
 
-    const result = await invoke<{ url: string; sessionId: string; durationSecs: number | null }>("start_transcode", { path: parsed.path });
+    transcodeStartingRef.current = true;
+    let result: { url: string; sessionId: string; durationSecs: number | null };
+    try {
+      result = await invoke<{ url: string; sessionId: string; durationSecs: number | null }>("start_transcode", { path: parsed.path });
+    } finally {
+      transcodeStartingRef.current = false;
+    }
     transcodeSessionRef.current = {
       sessionId: result.sessionId,
       baseUrl: result.url.replace(/\?seek=.*$/, ""),
@@ -559,6 +577,10 @@ export function usePlayback(
       videoRef.current.volume = effectiveVolume();
       videoRef.current.play().catch(console.error);
       setPlaying(true);
+      // Clear any "not supported" modal a racing detector may have shown —
+      // the transcoded H.264 stream is now playing successfully.
+      setPlaybackError(null);
+      setFailedTrack(null);
     }
     return true;
   }
@@ -793,13 +815,35 @@ export function usePlayback(
       setDurationSecs(el.duration);
     }
 
-    if (el instanceof HTMLVideoElement && el.videoWidth === 0) {
+    // A zero-width video means the container parsed but the video stream
+    // couldn't be decoded. If we're already playing a transcoded stream, the
+    // output is valid H.264 — ignore. Otherwise, try the ffmpeg fallback first
+    // and only surface the modal if that fails (mirrors onMediaError).
+    if (el instanceof HTMLVideoElement && el.videoWidth === 0 && !transcodeSessionRef.current) {
       el.pause();
       el.removeAttribute("src");
       el.load();
-      setPlaybackError("Video codec not supported");
-      setFailedTrack(currentTrack);
-      setPlaying(false);
+      if (currentTrack) {
+        const track = currentTrack;
+        attemptTranscodeFallback(track)
+          .then((handled) => {
+            if (!handled) {
+              setPlaybackError("Video codec not supported");
+              setFailedTrack(track);
+              setPlaying(false);
+            }
+          })
+          .catch((te) => {
+            console.error("Transcode fallback failed:", te);
+            setPlaybackError("Video codec not supported");
+            setFailedTrack(track);
+            setPlaying(false);
+          });
+      } else {
+        setPlaybackError("Video codec not supported");
+        setFailedTrack(currentTrack);
+        setPlaying(false);
+      }
     }
   }
 
