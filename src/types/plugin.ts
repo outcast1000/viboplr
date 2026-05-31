@@ -772,6 +772,10 @@ export interface GalleryPluginEntry {
   minAppVersion?: string;
   updateUrl?: string;
   files?: string[];
+  /** Marked as recommended in the gallery index. Optional; absent = false.
+   *  Source of truth is the separate outcast1000/viboplr-plugins index.json. */
+  recommended?: boolean;
+  icon?: string;
 }
 
 export interface PluginGalleryIndex {

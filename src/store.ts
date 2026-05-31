@@ -60,6 +60,7 @@ const STORE_DEFAULTS = {
   streamResolverOrder: null,
   minimizeToMiniPlayer: false,
   heroEffectMode: "by-artist",
+  pluginRecommendationsShown: false,
 };
 
 export interface AppStore {

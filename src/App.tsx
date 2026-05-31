@@ -100,6 +100,7 @@ import { YoutubeFeedbackModal } from "./components/modals/YoutubeFeedbackModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
+import { FirstRunPluginModal } from "./components/FirstRunPluginModal";
 import type { DownloadTrack } from "./components/DownloadModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
@@ -129,6 +130,7 @@ function App() {
   const [appRestoring, setAppRestoring] = useState(true);
   const [navError, setNavError] = useState<string | null>(null);
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
+  const [showFirstRunPluginModal, setShowFirstRunPluginModal] = useState(false);
   const [editPlaylistMode, setEditPlaylistMode] = useState(false);
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
   const [downloadModal, setDownloadModal] = useState<{
@@ -1598,6 +1600,35 @@ function App() {
     }
   }, [appRestoring]);
 
+  // First-run: offer recommended plugins once, after restore completes.
+  // Only marks itself "shown" after a successful gallery load, so an offline
+  // first launch retries on a later launch.
+  useEffect(() => {
+    if (appRestoring) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const shown = await store.get<boolean>("pluginRecommendationsShown");
+        if (shown || cancelled) return;
+        // fetchPluginGallery returns the fresh entries and also updates
+        // plugins.galleryPlugins for the render below.
+        const entries = await plugins.fetchPluginGallery();
+        if (cancelled) return;
+        if (entries.length > 0) {
+          setShowFirstRunPluginModal(true);
+        }
+        // gallery empty or fetch failed (returns []) => leave the flag unset,
+        // retry on a later launch.
+      } catch (e) {
+        console.error("Failed to evaluate first-run plugin recommendations:", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appRestoring]);
+
   // Persist current track as QueueEntry (location + metadata, no DB IDs)
   useEffect(() => {
     if (!restoredRef.current) return;
@@ -2972,6 +3003,21 @@ function App() {
 
 
 
+      {showFirstRunPluginModal && plugins.galleryPlugins.length > 0 && (
+        <FirstRunPluginModal
+          entries={plugins.galleryPlugins}
+          installedIds={new Set(plugins.pluginStates.map((p) => p.id))}
+          onInstallEntry={(entry) => plugins.installFromGallery(entry)}
+          onDone={async () => {
+            setShowFirstRunPluginModal(false);
+            try {
+              await store.set("pluginRecommendationsShown", true);
+            } catch (e) {
+              console.error("Failed to persist pluginRecommendationsShown:", e);
+            }
+          }}
+        />
+      )}
       {downloadModal && (() => {
         const parts = downloadModal.providerId.split(":");
         const qualityOptions = parts.length >= 2 ? plugins.invokeGetQualities(parts[0], parts.slice(1).join(":")) : null;

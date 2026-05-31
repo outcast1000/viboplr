@@ -2718,3 +2718,82 @@
 .now-playing-eq-btn.active {
   color: var(--accent);
 }
+
+/* First-run plugin recommendations modal */
+.first-run-intro {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  margin: 0 0 12px;
+}
+.first-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 50vh;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+.first-run-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--ds-radius);
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+.first-run-row:hover {
+  background: var(--bg-hover);
+}
+.first-run-row.is-installed {
+  opacity: 0.6;
+  cursor: default;
+}
+.first-run-icon {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+.first-run-icon--placeholder {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--ds-radius);
+  background: var(--bg-tertiary);
+}
+.first-run-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.first-run-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.first-run-badge {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--ds-radius);
+  padding: 1px 6px;
+}
+.first-run-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.first-run-status {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+.first-run-status.is-failed {
+  color: var(--error);
+}

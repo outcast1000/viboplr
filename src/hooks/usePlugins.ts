@@ -1480,15 +1480,18 @@ export function usePlugins(
     [],
   );
 
-  const fetchPluginGallery = useCallback(async () => {
+  const fetchPluginGallery = useCallback(async (): Promise<GalleryPluginEntry[]> => {
     setGalleryLoading(true);
     setGalleryError(null);
     try {
       const json = await invoke<string>("fetch_plugin_gallery");
       const index: PluginGalleryIndex = JSON.parse(json);
-      setGalleryPlugins(index.plugins || []);
+      const entries = index.plugins || [];
+      setGalleryPlugins(entries);
+      return entries;
     } catch (e) {
       setGalleryError(String(e));
+      return [];
     } finally {
       setGalleryLoading(false);
     }
