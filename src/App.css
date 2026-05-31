@@ -2446,6 +2446,25 @@
   color: var(--text-secondary);
   font-size: var(--fs-sm);
 }
+.ext-dev-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+}
+.ext-dev-notice {
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.ext-dev-notice code {
+  word-break: break-all;
+}
 .ext-detail-section {
   margin-top: 24px;
 }

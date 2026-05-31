@@ -47,6 +47,7 @@ fn scan_dev_plugin(dir: &std::path::Path) -> Option<serde_json::Value> {
         "manifest": manifest,
         "builtin": false,
         "dev": true,
+        "devPath": dir.to_string_lossy(),
         "code": code,
     }))
 }

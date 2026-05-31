@@ -85,6 +85,7 @@ function ExtensionListItem({ ext, selected, onClick }: { ext: ExtensionItem; sel
       <div className="ext-list-item-info">
         <div className="ext-list-item-header">
           <span className="ext-list-item-name">{ext.name}</span>
+          {ext.source === "dev" && <span className="ext-dev-badge">DEV</span>}
           <StatusBadge status={ext.status} update={ext.updateAvailable} />
         </div>
         <div className="ext-list-item-desc">{ext.description}</div>
@@ -155,7 +156,13 @@ function ExtensionDetail({
             {isInstalled && (
               <>{" \u00b7 "}{ext.status === "active" ? "Enabled" : "Disabled"}</>
             )}
+            {ext.source === "dev" && <span className="ext-dev-badge">DEV</span>}
           </div>
+          {ext.source === "dev" && (
+            <div className="ext-dev-notice">
+              Loaded from dev folder{ext.devPath ? <>: <code>{ext.devPath}</code></> : null} (overrides the installed copy)
+            </div>
+          )}
         </div>
       </div>
 

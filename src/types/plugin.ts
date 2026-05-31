@@ -119,6 +119,10 @@ export interface InstalledPlugin {
   id: string;
   manifest: PluginManifest;
   builtin?: boolean;
+  // True when loaded from the configured external "dev plugin folder" (overrides
+  // the installed/built-in copy of the same id). Set by `plugin_list_installed`.
+  dev?: boolean;
+  devPath?: string;
   // Bundled by `plugin_list_installed` so activation skips a second IPC.
   // May be null if the file couldn't be read.
   code?: string | null;
@@ -135,6 +139,8 @@ export interface PluginState {
   error?: string;
   enabled: boolean;
   builtin?: boolean;
+  dev?: boolean;
+  devPath?: string;
 }
 
 // -- Plugin-facing context menu target --
@@ -814,7 +820,9 @@ export interface ExtensionItem {
   description: string;
   status: "active" | "disabled" | "incompatible" | "error" | "not_installed";
   updateAvailable?: ExtensionUpdate;
-  source: "builtin" | "user" | "gallery";
+  source: "builtin" | "user" | "gallery" | "dev";
+  // Absolute path to the dev plugin folder when source === "dev".
+  devPath?: string;
   icon?: string;
   contributes?: PluginManifestContributes;
   apiUsage?: PluginApiUsage[];

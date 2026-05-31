@@ -1055,7 +1055,7 @@ export function usePlugins(
   // Load and activate a single plugin
   const activatePlugin = useCallback(
     async (installed: InstalledPlugin): Promise<PluginState> => {
-      const { id, manifest, builtin } = installed;
+      const { id, manifest, builtin, dev, devPath } = installed;
 
       const loaded: LoadedPlugin = {
         id,
@@ -1122,11 +1122,11 @@ export function usePlugins(
 
         loadedPluginsRef.current.set(id, loaded);
 
-        return { id, manifest, status: "active", enabled: true, builtin };
+        return { id, manifest, status: "active", enabled: true, builtin, dev, devPath };
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         console.error(`[plugin:${id}] activation error:`, error);
-        return { id, manifest, status: "error", error, enabled: true, builtin };
+        return { id, manifest, status: "error", error, enabled: true, builtin, dev, devPath };
       }
     },
     [buildAPI],
@@ -1197,6 +1197,8 @@ export function usePlugins(
             error: "Invalid manifest: missing name or version",
             enabled: false,
             builtin: plugin.builtin,
+            dev: plugin.dev,
+            devPath: plugin.devPath,
           });
           continue;
         }
@@ -1208,6 +1210,8 @@ export function usePlugins(
             status: "disabled",
             enabled: false,
             builtin: plugin.builtin,
+            dev: plugin.dev,
+            devPath: plugin.devPath,
           });
           continue;
         }
@@ -1220,6 +1224,8 @@ export function usePlugins(
             error: `Requires app version ${m.minAppVersion} (current: ${appVersion})`,
             enabled: true,
             builtin: plugin.builtin,
+            dev: plugin.dev,
+            devPath: plugin.devPath,
           });
           continue;
         }
