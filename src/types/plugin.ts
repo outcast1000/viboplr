@@ -193,6 +193,7 @@ export interface TrackRowItem {
   id: string;
   title: string;
   subtitle?: string;
+  album?: string;
   imageUrl?: string;
   duration?: string;
   action?: string;
@@ -208,6 +209,8 @@ export type PluginViewData =
       selectable?: boolean;
       actions?: { id: string; label: string; icon?: string }[];
       categories?: string[];
+      numbered?: boolean;
+      showHeader?: boolean;
     }
   | { type: "text"; content: string; className?: string }
   | { type: "stats-grid"; items: StatItem[] }

@@ -353,7 +353,7 @@ Plugins with sidebar items render UI via `PluginViewData` (separate from info ty
 |---|---|
 | `track-list` | Full track list with library-style rendering |
 | `card-grid` | Grid of image cards (playlists, albums, artists). Items can carry `contextMenuActions` + `tracks` for pass-through context menus. |
-| `track-row-list` | Compact row list (selectable, per-row actions) |
+| `track-row-list` | Compact row list (selectable, per-row actions). Items: `{ id, title, subtitle?, album?, imageUrl?, duration?, action? }`. Node flags: `numbered?` (leading `#` index), `showHeader?` (column-header row + Album column). |
 | `text` | Plain / class-styled text |
 | `stats-grid` | Label/value stat tiles |
 | `button` | Action button (`accent` / `secondary`, disabled, custom data payload) |

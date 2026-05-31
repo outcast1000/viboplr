@@ -605,6 +605,48 @@
   text-align: right;
 }
 
+.ptr-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+.ptr-num {
+  flex-shrink: 0;
+  width: 24px;
+  text-align: right;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+/* Empty art cells (header spacer + the no-image placeholder in table mode)
+   reserve the 48px art column for alignment but drop the gray fill. */
+.ptr-art:empty {
+  background: none;
+}
+/* In the header, the art cell is only a width spacer — don't let its 48px
+   height inflate the header row (which only holds small-caps labels). */
+.ptr-header .ptr-art {
+  height: auto;
+}
+.ptr-album {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ptr-header .ptr-info,
+.ptr-header-title {
+  font-size: var(--fs-xs);
+}
+
 .ptr-category-header {
   display: flex;
   align-items: center;

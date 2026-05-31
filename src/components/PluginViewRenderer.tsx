@@ -188,6 +188,8 @@ function PluginViewNode({
           selectable={node.selectable}
           actions={node.actions}
           categories={node.categories}
+          numbered={node.numbered}
+          showHeader={node.showHeader}
           onAction={onAction}
           onContextMenu={onTrackRowContextMenu}
         />

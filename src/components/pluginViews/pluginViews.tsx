@@ -354,6 +354,8 @@ export function PluginTrackRowList({
   selectable,
   actions,
   categories,
+  numbered,
+  showHeader,
   onAction,
   onContextMenu,
 }: {
@@ -361,6 +363,8 @@ export function PluginTrackRowList({
   selectable?: boolean;
   actions?: { id: string; label: string; icon?: string }[];
   categories?: string[];
+  numbered?: boolean;
+  showHeader?: boolean;
   onAction?: (actionId: string, data?: unknown) => void;
   onContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
 }) {
@@ -467,6 +471,15 @@ export function PluginTrackRowList({
           <span className="ptr-category-spacer" />
         </div>
       )}
+      {showHeader && (
+        <div className="ptr-header">
+          {numbered && <span className="ptr-num">#</span>}
+          <span className="ptr-art" />
+          <span className="ptr-info ptr-header-title">Title</span>
+          <span className="ptr-album">Album</span>
+          <span className="ptr-duration">Duration</span>
+        </div>
+      )}
       <PluginTrackRowsBody
         items={items}
         selected={selected}
@@ -475,6 +488,8 @@ export function PluginTrackRowList({
         categories={categories}
         itemCategories={itemCategories}
         toggleCategory={toggleCategory}
+        numbered={numbered}
+        showAlbum={showHeader}
         onAction={onAction}
         onContextMenu={onContextMenu}
       />
@@ -490,6 +505,8 @@ export function PluginTrackRowsBody({
   categories,
   itemCategories,
   toggleCategory,
+  numbered,
+  showAlbum,
   onAction,
   onContextMenu,
 }: {
@@ -500,6 +517,8 @@ export function PluginTrackRowsBody({
   categories?: string[];
   itemCategories: Record<string, string[]>;
   toggleCategory: (itemId: string, cat: string) => void;
+  numbered?: boolean;
+  showAlbum?: boolean;
   onAction?: (actionId: string, data?: unknown) => void;
   onContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
 }) {
@@ -509,13 +528,14 @@ export function PluginTrackRowsBody({
   const useCv = items.length > 100;
   return (
     <div className={`ptr-rows${useCv ? " ptr-rows-cv" : ""}`}>
-      {items.map(item => (
+      {items.map((item, i) => (
         <div
           key={item.id}
           className={`ptr-row${selected.has(item.id) ? " ptr-row-selected" : ""}`}
           onClick={() => item.action && onAction?.(item.action, { itemId: item.id })}
           onContextMenu={onContextMenu ? (e) => { e.preventDefault(); onContextMenu(e, item); } : undefined}
         >
+          {numbered && <span className="ptr-num">{i + 1}</span>}
           {categories && (
             <div className="ptr-categories">
               {categories.map(cat => (
@@ -539,15 +559,20 @@ export function PluginTrackRowsBody({
               onClick={(e) => e.stopPropagation()}
             />
           )}
-          {item.imageUrl && (
+          {item.imageUrl ? (
             <div className="ptr-art">
               <img src={resolveImageUrl(item.imageUrl)} alt="" loading="lazy" decoding="async" />
             </div>
-          )}
+          ) : showAlbum ? (
+            // Album/table mode reserves the art column even when an item has no
+            // image, so every row's columns line up (and align with the header).
+            <div className="ptr-art" />
+          ) : null}
           <div className="ptr-info">
             <span className="ptr-title">{item.title}</span>
             {item.subtitle && <span className="ptr-subtitle">{item.subtitle}</span>}
           </div>
+          {showAlbum && <span className="ptr-album">{item.album ?? ""}</span>}
           {item.duration && <span className="ptr-duration">{item.duration}</span>}
         </div>
       ))}
