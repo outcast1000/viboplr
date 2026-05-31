@@ -27,6 +27,7 @@ import { tracksFromManifest, contextFromManifest, contextToExportMetadata, conte
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { resolveImageUrl } from "./utils/resolveImageUrl";
 import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
+import { withResolverLog } from "./utils/resolverLog";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
 import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
@@ -421,25 +422,28 @@ function App() {
       id: "__builtin:subsonic",
       name: "Subsonic",
       source: "__builtin",
-      resolveByUri: async (uri, format) => {
-        if (!uri.startsWith("subsonic://")) return null;
-        const rest = uri.substring(11);
-        const lastSlash = rest.lastIndexOf("/");
-        if (lastSlash < 0) return null;
-        const collectionId = parseInt(rest.substring(0, lastSlash), 10);
-        const trackId = rest.substring(lastSlash + 1);
-        if (!trackId || isNaN(collectionId)) return null;
-        try {
-          const url = await invoke<string>("resolve_subsonic_download_url", {
-            collectionId, remoteTrackId: trackId, format,
-          });
-          return { url, headers: null, metadata: null };
-        } catch (e) {
-          console.error("Subsonic download resolve failed:", e);
-          return null;
-        }
-      },
-      resolveByMetadata: async () => null,
+      resolveByUri: (uri, format) =>
+        withResolverLog(
+          { kind: "download:uri", provider: "__builtin:subsonic", input: { uri, format } },
+          async () => {
+            if (!uri.startsWith("subsonic://")) return null;
+            const rest = uri.substring(11);
+            const lastSlash = rest.lastIndexOf("/");
+            if (lastSlash < 0) throw new Error(`malformed subsonic uri (no '/'): ${uri}`);
+            const collectionId = parseInt(rest.substring(0, lastSlash), 10);
+            const trackId = rest.substring(lastSlash + 1);
+            if (!trackId || isNaN(collectionId)) throw new Error(`malformed subsonic uri (bad id): ${uri}`);
+            const url = await invoke<string>("resolve_subsonic_download_url", {
+              collectionId, remoteTrackId: trackId, format,
+            });
+            return { url, headers: null, metadata: null };
+          },
+        ).catch(() => null),
+      resolveByMetadata: () =>
+        withResolverLog(
+          { kind: "download:metadata", provider: "__builtin:subsonic", input: {} },
+          async () => null,
+        ),
     });
 
     // Plugin providers

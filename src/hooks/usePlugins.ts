@@ -34,6 +34,7 @@ import type {
   HomeShelfResult,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
+import { withResolverLog } from "../utils/resolverLog";
 
 // Hardcoded defaults for information type tab order and provider priority.
 // Plugins cannot override these — users customize via Settings > Providers.
@@ -1602,14 +1603,20 @@ export function usePlugins(
       albumName: string | null,
       durationSecs: number | null,
     ): Promise<{ url: string; label: string; sourceUrl?: string } | null> => {
+      const provider = `${pluginId}:${providerId}`;
+      const input = { title, artistName, albumName, durationSecs };
       const loaded = loadedPluginsRef.current.get(pluginId);
-      if (!loaded) return null;
+      if (!loaded) {
+        return withResolverLog({ kind: "stream", provider, input }, async () => { throw new Error("plugin not loaded"); }).catch(() => null);
+      }
       const handler = loaded.streamResolveHandlers.get(providerId);
-      if (!handler) return null;
+      if (!handler) {
+        return withResolverLog({ kind: "stream", provider, input }, async () => { throw new Error("no stream resolve handler registered"); }).catch(() => null);
+      }
       try {
-        return await handler(title, artistName, albumName, durationSecs);
-      } catch (e) {
-        console.error(`[plugin:${pluginId}] stream resolve error for ${providerId}:`, e);
+        return await withResolverLog({ kind: "stream", provider, input },
+          () => handler(title, artistName, albumName, durationSecs));
+      } catch {
         return null;
       }
     },
@@ -1618,14 +1625,20 @@ export function usePlugins(
 
   const invokeDownloadResolveByUri = useCallback(
     async (pluginId: string, providerId: string, uri: string, format: string): Promise<DownloadResolveResult | null> => {
+      const provider = `${pluginId}:${providerId}`;
+      const input = { uri, format };
       const loaded = loadedPluginsRef.current.get(pluginId);
-      if (!loaded) return null;
+      if (!loaded) {
+        return withResolverLog({ kind: "download:uri", provider, input }, async () => { throw new Error("plugin not loaded"); }).catch(() => null);
+      }
       const handler = loaded.downloadResolveByUriHandlers.get(providerId);
-      if (!handler) return null;
+      if (!handler) {
+        return withResolverLog({ kind: "download:uri", provider, input }, async () => { throw new Error("no resolveByUri handler registered"); }).catch(() => null);
+      }
       try {
-        return await handler(uri, format);
-      } catch (e) {
-        console.error(`[plugin:${pluginId}] download resolveByUri error for ${providerId}:`, e);
+        return await withResolverLog({ kind: "download:uri", provider, input },
+          () => handler(uri, format));
+      } catch {
         return null;
       }
     },
@@ -1638,14 +1651,20 @@ export function usePlugins(
       title: string, artistName: string | null, albumName: string | null,
       durationSecs: number | null, format: string,
     ): Promise<DownloadResolveResult | null> => {
+      const provider = `${pluginId}:${providerId}`;
+      const input = { title, artistName, albumName, durationSecs, format };
       const loaded = loadedPluginsRef.current.get(pluginId);
-      if (!loaded) return null;
+      if (!loaded) {
+        return withResolverLog({ kind: "download:metadata", provider, input }, async () => { throw new Error("plugin not loaded"); }).catch(() => null);
+      }
       const handler = loaded.downloadResolveByMetadataHandlers.get(providerId);
-      if (!handler) return null;
+      if (!handler) {
+        return withResolverLog({ kind: "download:metadata", provider, input }, async () => { throw new Error("no resolveByMetadata handler registered"); }).catch(() => null);
+      }
       try {
-        return await handler(title, artistName, albumName, durationSecs, format);
-      } catch (e) {
-        console.error(`[plugin:${pluginId}] download resolveByMetadata error for ${providerId}:`, e);
+        return await withResolverLog({ kind: "download:metadata", provider, input },
+          () => handler(title, artistName, albumName, durationSecs, format));
+      } catch {
         return null;
       }
     },
@@ -1654,22 +1673,34 @@ export function usePlugins(
 
   const invokeInteractiveSearch = useCallback(
     async (pluginId: string, providerId: string, query: string, limit: number): Promise<InteractiveSearchResult[]> => {
+      const provider = `${pluginId}:${providerId}`;
+      const input = { query, limit };
       const loaded = loadedPluginsRef.current.get(pluginId);
-      if (!loaded) return [];
+      if (!loaded) {
+        return withResolverLog({ kind: "download:search", provider, input }, async () => { throw new Error("plugin not loaded"); }).catch(() => []);
+      }
       const handler = loaded.interactiveSearchHandlers.get(providerId);
-      if (!handler) return [];
-      return handler(query, limit);
+      if (!handler) {
+        return withResolverLog({ kind: "download:search", provider, input }, async () => { throw new Error("no interactive search handler registered"); }).catch(() => []);
+      }
+      return withResolverLog({ kind: "download:search", provider, input }, () => handler(query, limit));
     },
     [],
   );
 
   const invokeInteractiveResolve = useCallback(
     async (pluginId: string, providerId: string, matchId: string, format: string): Promise<DownloadResolveResult> => {
+      const provider = `${pluginId}:${providerId}`;
+      const input = { matchId, format };
       const loaded = loadedPluginsRef.current.get(pluginId);
-      if (!loaded) throw new Error(`Plugin ${pluginId} not loaded`);
+      if (!loaded) {
+        return withResolverLog({ kind: "download:resolve", provider, input }, async () => { throw new Error(`Plugin ${pluginId} not loaded`); });
+      }
       const handler = loaded.interactiveResolveHandlers.get(providerId);
-      if (!handler) throw new Error(`No interactive resolve handler for ${providerId}`);
-      return handler(matchId, format);
+      if (!handler) {
+        return withResolverLog({ kind: "download:resolve", provider, input }, async () => { throw new Error(`No interactive resolve handler for ${providerId}`); });
+      }
+      return withResolverLog({ kind: "download:resolve", provider, input }, () => handler(matchId, format));
     },
     [],
   );
