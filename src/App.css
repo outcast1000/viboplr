@@ -155,6 +155,14 @@
   position: relative;
 }
 
+/* Cap content width on wide screens (skip docked-video layouts, which
+   split horizontal space between the video panel and the content). */
+.main:not([data-dock]) > .content {
+  width: 100%;
+  max-width: var(--ds-content-max, 1600px);
+  margin-inline: auto;
+}
+
 .content > .track-list,
 .content > .entity-list,
 .content > .entity-table,

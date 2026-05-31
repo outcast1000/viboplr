@@ -48,6 +48,7 @@
   --ds-radius-modal: 10px;
   --ds-card-gap: 16px;
   --ds-card-min: 160px;
+  --ds-content-max: 1600px;
 
   /* Typography scale */
   --fs-2xs: 10px;
