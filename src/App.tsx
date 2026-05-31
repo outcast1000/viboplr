@@ -1311,8 +1311,30 @@ function App() {
         });
         return;
       case "tracks": {
-        const queueTracks = action.tracks.map(pluginTrackToQueueTrack);
-        queueHook.playTracks(queueTracks, 0, action.context ? { name: action.context.name, imagePath: action.context.imagePath ?? null, source: action.context.source ?? null } : undefined);
+        const ctx = action.context ? { name: action.context.name, imagePath: action.context.imagePath ?? null, source: action.context.source ?? null } : undefined;
+        if (action.tracks.length > 0) {
+          queueHook.playTracks(action.tracks.map(pluginTrackToQueueTrack), 0, ctx);
+          return;
+        }
+        // Empty tracks: a lazy plugin card. If the plugin registered a resolver,
+        // await it (behind a loading modal) and play the result.
+        if (shelf.pluginId) {
+          const shelfId = shelf.id.slice(shelf.pluginId.length + 1);
+          const resolved = plugins.invokeHomeShelfResolvePlay(shelf.pluginId, shelfId, item);
+          if (resolved) {
+            const label = (item as { name?: string }).name ?? "tracks";
+            setPluginLoadingMessage("Loading " + label + "…");
+            resolved.then((tracks) => {
+              if (tracks && tracks.length > 0) {
+                queueHook.playTracks(tracks.map(pluginTrackToQueueTrack), 0, ctx);
+              }
+            }).catch((e) => {
+              console.error("[home] resolve-play failed:", e);
+            }).finally(() => {
+              setPluginLoadingMessage(null);
+            });
+          }
+        }
         return;
       }
       case "none":

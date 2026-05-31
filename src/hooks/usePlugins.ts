@@ -202,6 +202,7 @@ export function usePlugins(
   const homeShelfHandlersRef = useRef(new Map<string, (limit: number) => Promise<HomeShelfResult>>());
   // shelf key -> plugin-provided click handler that takes over card body-clicks
   const homeShelfClickHandlersRef = useRef(new Map<string, (item: HomeShelfItem) => void | Promise<void>>());
+  const homeShelfResolvePlayHandlersRef = useRef(new Map<string, (item: HomeShelfItem) => Promise<PluginTrack[]>>());
   const dynamicHomeShelvesRef = useRef(new Map<string, {
     pluginId: string;
     shelfId: string;
@@ -829,6 +830,17 @@ export function usePlugins(
             trackUnsubscribe(unsub);
             return unsub;
           },
+          onResolvePlay(shelfId: string, handler: (item: HomeShelfItem) => Promise<PluginTrack[]>): () => void {
+            const key = `${pluginId}:${shelfId}`;
+            homeShelfResolvePlayHandlersRef.current.set(key, handler);
+            const unsub = () => {
+              if (homeShelfResolvePlayHandlersRef.current.get(key) === handler) {
+                homeShelfResolvePlayHandlersRef.current.delete(key);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
         },
 
         imageProviders: {
@@ -1042,6 +1054,12 @@ export function usePlugins(
     for (const key of Array.from(homeShelfClickHandlersRef.current.keys())) {
       if (key.startsWith(`${pluginId}:`)) {
         homeShelfClickHandlersRef.current.delete(key);
+      }
+    }
+    // Clear home shelf resolve-play handlers for this plugin
+    for (const key of Array.from(homeShelfResolvePlayHandlersRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        homeShelfResolvePlayHandlersRef.current.delete(key);
       }
     }
     // Clear dynamically registered home shelves for this plugin
@@ -1771,6 +1789,18 @@ export function usePlugins(
     [],
   );
 
+  // Returns the resolver's promise of tracks, or null if no resolver is
+  // registered for this shelf. The caller (App) awaits it to lazily resolve a
+  // card whose tracks arrived empty.
+  const invokeHomeShelfResolvePlay = useCallback(
+    (pluginId: string, shelfId: string, item: HomeShelfItem): Promise<PluginTrack[]> | null => {
+      const handler = homeShelfResolvePlayHandlersRef.current.get(`${pluginId}:${shelfId}`);
+      if (!handler) return null;
+      return Promise.resolve().then(() => handler(item));
+    },
+    [],
+  );
+
   const pluginNames = useMemo(
     () => new Map(pluginStates.map((s) => [s.id, s.manifest.name])),
     [pluginStates],
@@ -1805,6 +1835,7 @@ export function usePlugins(
     dispatchContextMenuAction,
     dispatchUIAction,
     invokeHomeShelfItemClick,
+    invokeHomeShelfResolvePlay,
     togglePlugin,
     reloadPlugin,
     reloadAllPlugins,

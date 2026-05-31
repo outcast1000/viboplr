@@ -532,6 +532,14 @@ export interface PluginHomeAPI {
     shelfId: string,
     handler: (item: HomeShelfItem) => void | Promise<void>,
   ): () => void;
+  // Resolve the tracks to play for a card whose `tracks` arrived empty (lazy).
+  // The host awaits this (behind a loading modal) only when the card's play
+  // action is kind:"tracks" with an empty list. Return the tracks to play (or
+  // [] to play nothing).
+  onResolvePlay(
+    shelfId: string,
+    handler: (item: HomeShelfItem) => Promise<PluginTrack[]>,
+  ): () => void;
 }
 
 export type ImageFetchResult =
