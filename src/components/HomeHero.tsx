@@ -51,13 +51,19 @@ export function HomeHero({ tracks, albumImageFor, onPlay, onEnqueue, onContextMe
     return <div className="home-hero home-hero--empty">No featured tracks yet.</div>;
   }
 
+  // Resolve a background/art image for a track. Frame URLs from the queue are
+  // already convertFileSrc'd; album paths are raw and need conversion.
+  const imgSrcFor = (t: Track): string | null => {
+    const videoFrame = t.id != null ? frameMap[t.id] ?? null : null;
+    if (videoFrame) return videoFrame;
+    const albumPath = t.album_title
+      ? albumImageFor(t.album_title, t.artist_name ?? undefined)
+      : null;
+    return albumPath ? convertFileSrc(albumPath) : null;
+  };
+
   const current = tracks[idx];
-  // Frame URLs from the queue are already convertFileSrc'd. Album paths are raw.
-  const videoFrame = current.id != null ? frameMap[current.id] ?? null : null;
-  const albumPath = !videoFrame && current.album_title
-    ? albumImageFor(current.album_title, current.artist_name ?? undefined)
-    : null;
-  const imgSrc = videoFrame ?? (albumPath ? convertFileSrc(albumPath) : null);
+  const imgSrc = imgSrcFor(current);
 
   const advance = (delta: number) => setIdx((i) => (i + delta + tracks.length) % tracks.length);
 
@@ -66,14 +72,29 @@ export function HomeHero({ tracks, albumImageFor, onPlay, onEnqueue, onContextMe
       className="home-hero"
       onMouseEnter={() => { hoverRef.current = true; }}
       onMouseLeave={() => { hoverRef.current = false; }}
-      style={{
-        backgroundImage: imgSrc ? `linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)), url("${imgSrc}")` : undefined,
-      }}
     >
+      {/* Cross-fading background layers — one per track, only the active one is
+          opaque. Mirrors DetailHeroBackground's layered-opacity approach. */}
+      <div className="home-hero-bg" aria-hidden="true">
+        {tracks.map((t, i) => {
+          const src = imgSrcFor(t);
+          if (!src) return null;
+          return (
+            <div
+              key={i}
+              className={`home-hero-bg-layer ${i === idx ? "active" : ""}`}
+              style={{ backgroundImage: `url("${src.replace(/"/g, '\\"')}")` }}
+            />
+          );
+        })}
+      </div>
+      <div className="home-hero-scrim" aria-hidden="true" />
+
       <button className="home-hero-arrow home-hero-arrow--left" aria-label="Previous featured" onClick={() => advance(-1)}>‹</button>
       <button className="home-hero-arrow home-hero-arrow--right" aria-label="Next featured" onClick={() => advance(1)}>›</button>
 
-      <div className="home-hero-content">
+      {/* key={idx} re-mounts the content on each change so it fades in fresh. */}
+      <div className="home-hero-content" key={idx}>
         <div className="home-hero-art" onClick={() => onPlay(current)} onContextMenu={(e) => { e.preventDefault(); onContextMenu(current, e); }}>
           {imgSrc ? <img src={imgSrc} alt={current.title} /> : <div className="home-hero-art-fallback">{current.title[0]?.toUpperCase() ?? "?"}</div>}
         </div>
