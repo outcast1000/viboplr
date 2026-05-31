@@ -85,7 +85,11 @@ impl Database {
                     album_name: get("album_title"),
                     duration_secs: meta.get("duration_secs").and_then(|v| v.as_f64()),
                     source: get("source"),
-                    image_path: get("image_url"),
+                    // Deliberately omit the captured `image_url`: it's a remote URL
+                    // that may break (expired CDN link, etc.). Leave empty so the
+                    // frontend resolves artwork in real time via the name-based
+                    // chain (album image → artist image → placeholder).
+                    image_path: None,
                 });
             }
             return Ok(out);
