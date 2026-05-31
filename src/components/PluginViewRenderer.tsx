@@ -1,3 +1,4 @@
+import { useRef, useLayoutEffect } from "react";
 import type { Track, QueueTrack } from "../types";
 import type { PluginViewData, TrackRowItem, PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import {
@@ -27,6 +28,7 @@ import { resolveImageUrl } from "../utils/resolveImageUrl";
 interface PluginViewRendererProps {
   pluginName: string;
   data: PluginViewData | undefined;
+  scrollKey?: string;
   currentTrack: QueueTrack | null;
   onPlayTrack?: (track: Track) => void;
   onAction?: (actionId: string, data?: unknown) => void;
@@ -38,6 +40,7 @@ interface PluginViewRendererProps {
 
 export function PluginViewRenderer({
   data,
+  scrollKey,
   currentTrack,
   onPlayTrack,
   onAction,
@@ -46,6 +49,41 @@ export function PluginViewRenderer({
   pluginMenuItems,
   onPluginAction,
 }: PluginViewRendererProps) {
+  // Per-view scroll memory, keyed by scrollKey. Standard scroll-restoration
+  // pattern: continuously record the CURRENT key's scrollTop via a scroll
+  // listener (so the saved value is always up to date BEFORE any navigation —
+  // we can't reliably read the outgoing position in a post-commit effect, since
+  // the new view's content has already replaced the container's children), and
+  // on key change just restore the incoming key's saved position (0 if unseen).
+  // The [scrollKey] dep means the effect runs only when the key changes;
+  // same-key updates (e.g. progressive in-place re-renders) do NOT re-run it, so
+  // scroll position is naturally preserved. No key → no-op (legacy behavior).
+  // Session-only; the position map is bounded to 50 keys.
+  const scrollElRef = useRef<HTMLDivElement | null>(null);
+  const scrollPosRef = useRef<Map<string, number>>(new Map());
+  useLayoutEffect(() => {
+    if (scrollKey === undefined) return;
+    const el = scrollElRef.current;
+    if (!el) return;
+    // Restore the incoming view's saved position (top if first seen).
+    el.scrollTop = scrollPosRef.current.get(scrollKey) ?? 0;
+    // Record this view's scroll position as the user scrolls, so it's saved
+    // before they navigate away. Re-insert (delete+set) to keep recently-used
+    // keys newest for the size-bound eviction below.
+    const onScroll = function () {
+      var m = scrollPosRef.current;
+      if (m.has(scrollKey)) m.delete(scrollKey);
+      m.set(scrollKey, el.scrollTop);
+      while (m.size > 50) {
+        var oldest = m.keys().next().value;
+        if (oldest === undefined) break;
+        m.delete(oldest);
+      }
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return function () { el.removeEventListener("scroll", onScroll); };
+  }, [scrollKey]);
+
   if (!data) {
     return (
       <div className="plugin-view">
@@ -83,7 +121,7 @@ export function PluginViewRenderer({
           onPluginAction={onPluginAction}
         />
       ))}
-      <div className="plugin-view">
+      <div className="plugin-view" ref={scrollElRef}>
         <div className="plugin-view-content">
           <PluginViewNode
             node={contentData}

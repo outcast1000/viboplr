@@ -195,6 +195,7 @@ export function usePlugins(
   const enabledPluginsRef = useRef<Set<string>>(new Set());
   const appVersionRef = useRef<string>("0.0.0");
   const viewDataRef = useRef<Map<string, PluginViewData>>(new Map());
+  const viewScrollKeyRef = useRef<Map<string, string>>(new Map());
   const badgeMapRef = useRef<Map<string, PluginBadge>>(new Map());
   const [badgeMap, setBadgeMap] = useState<Map<string, PluginBadge>>(new Map());
   const homeShelfHandlersRef = useRef(new Map<string, (limit: number) => Promise<HomeShelfResult>>());
@@ -442,9 +443,14 @@ export function usePlugins(
         },
 
         ui: {
-          setViewData: (viewId, data) => {
+          setViewData: (viewId, data, opts) => {
             const key = `${pluginId}:${viewId}`;
             viewDataRef.current.set(key, data);
+            if (opts && typeof opts.scrollKey === "string") {
+              viewScrollKeyRef.current.set(key, opts.scrollKey);
+            } else {
+              viewScrollKeyRef.current.delete(key);
+            }
             setViewData(new Map(viewDataRef.current));
           },
           showNotification: (message) => {
@@ -1466,6 +1472,13 @@ export function usePlugins(
     [viewData],
   );
 
+  const getViewScrollKey = useCallback(
+    (pluginId: string, viewId: string): string | undefined => {
+      return viewScrollKeyRef.current.get(`${pluginId}:${viewId}`);
+    },
+    [],
+  );
+
   const fetchPluginGallery = useCallback(async () => {
     setGalleryLoading(true);
     setGalleryError(null);
@@ -1752,6 +1765,7 @@ export function usePlugins(
     pluginsLoaded,
     viewData,
     getViewData,
+    getViewScrollKey,
     badgeMap,
     dispatchEvent,
     dispatchContextMenuAction,

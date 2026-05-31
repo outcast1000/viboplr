@@ -2721,10 +2721,12 @@ function App() {
             const viewId = parts.slice(1).join(":");
             const pluginState = plugins.pluginStates.find(p => p.id === pluginId);
             const data = plugins.getViewData(pluginId, viewId);
+            const scrollKey = plugins.getViewScrollKey(pluginId, viewId);
             return (
               <PluginViewRenderer
                 pluginName={pluginState?.manifest.name ?? pluginId}
                 data={data}
+                scrollKey={scrollKey}
                 currentTrack={playback.currentTrack}
                 onPlayTrack={(track) => {
                   queueHook.playTracks([track], 0);

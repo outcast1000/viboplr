@@ -404,7 +404,7 @@ export type PluginBadge =
   | { type: "count"; value: number; variant: PluginBadgeVariant };
 
 export interface PluginUIAPI {
-  setViewData(viewId: string, data: PluginViewData): void;
+  setViewData(viewId: string, data: PluginViewData, opts?: { scrollKey?: string }): void;
   showNotification(message: string): void;
   onAction(actionId: string, handler: (data: unknown) => void): void;
   navigateToView(viewId: string): void;

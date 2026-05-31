@@ -155,7 +155,7 @@ Top-level logger. Writes to the app's frontend log stream. Prefer this over `con
 When a plugin is deactivated or reloaded, `usePlugins` automatically drops all of its registered home-shelf handlers and runtime descriptors.
 
 ### api.ui
-- `setViewData(viewId, data)` — render plugin views (see `PluginViewData` types)
+- `setViewData(viewId, data, opts?)` — render plugin views (see `PluginViewData` types). `opts.scrollKey?: string` enables per-view scroll memory: the host saves/restores the view's scroll position keyed by `scrollKey`. Change it on navigation (new sub-view → opens at top; returning to a prior key → scroll restored); keep it stable across in-place updates so the view doesn't jump.
 - `showNotification(message)` / `navigateToView(viewId)` / `requestAction(action, payload)`
 - `onAction(actionId, handler)` — handle UI action events emitted from plugin views
 - `setBadge(viewId, badge)` — set a sidebar badge: `null | { type: "dot", variant } | { type: "count", value, variant }`
