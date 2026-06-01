@@ -7,7 +7,7 @@ import type { QueueTrack } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import type { MiniRestingSize, MiniWidthSize } from "../hooks/useMiniMode";
 import { formatDuration, isVideoTrack } from "../utils";
-import { isRemoteScheme } from "../queueEntry";
+import { isRemoteScheme, isLocalTrack } from "../queueEntry";
 import { AutoContinuePopover } from "./AutoContinuePopover";
 import { EqPopover } from "./EqPopover";
 import { WaveformSeekBar } from "./WaveformSeekBar";
@@ -19,6 +19,25 @@ import "./NowPlayingBar.css";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
 const isMac = navigator.platform.includes("Mac");
+
+type ResolvedSource = { name: string; url: string; sourceUrl?: string | null; id?: string | null } | null;
+
+// Decide whether the *effective* playback source is a local file. This accounts for
+// the resolver chain rather than the track's path scheme: a remote track served from a
+// local Library copy plays locally, while a local-path track that fell through to a
+// remote resolver plays remotely. Falls back to the path scheme when no resolver has
+// reported yet.
+function isEffectivelyLocal(track: { path?: string | null }, resolvedSource: ResolvedSource): boolean {
+  if (resolvedSource) {
+    if (resolvedSource.name === "Local") return true;
+    // The Library fallback plays a local file copy; its sourceUrl is the filesystem path.
+    if (resolvedSource.name === "Library") {
+      return !!resolvedSource.sourceUrl && !resolvedSource.sourceUrl.startsWith("http");
+    }
+    return false;
+  }
+  return isLocalTrack(track);
+}
 
 function SourceIcon({ s = 11, isLocal }: { s?: number; isLocal: boolean }) {
   if (isLocal) {
@@ -188,8 +207,7 @@ export function NowPlayingBar({
   useEffect(() => {
     setAudioProps(null);
     if (!currentTrack?.path) return;
-    const isLocal = currentTrack.path.startsWith("file://") || (!currentTrack.path.includes("://") && currentTrack.path.length > 0);
-    if (!isLocal) return;
+    if (!isLocalTrack(currentTrack)) return;
     let cancelled = false;
     invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>(
       "get_audio_properties_by_path",
@@ -491,19 +509,30 @@ export function NowPlayingBar({
                   ) : (
                     <>
                       {!resolvingStatus && (() => {
-                        const path = currentTrack.path ?? "";
-                        const isLocal = path.startsWith("file://") || (!path.includes("://") && path.length > 0);
+                        const isLocal = isEffectivelyLocal(currentTrack, resolvedSource ?? null);
+                        const sourceName = resolvedSource?.name && resolvedSource.name !== "Library"
+                          ? resolvedSource.name
+                          : isLocal ? "Local" : "Remote";
+                        const openTooltip = (rect: DOMRect) => {
+                          if (sourceHoverTimerRef.current) { clearTimeout(sourceHoverTimerRef.current); sourceHoverTimerRef.current = null; }
+                          setSourceAnchor({ x: rect.left, y: rect.top - 8 });
+                          setSourceTooltipOpen(true);
+                        };
+                        const scheduleClose = () => {
+                          if (sourceHoverTimerRef.current) clearTimeout(sourceHoverTimerRef.current);
+                          sourceHoverTimerRef.current = setTimeout(() => setSourceTooltipOpen(false), 150);
+                        };
                         return <span
                           className="now-source-icon"
-                          onMouseEnter={(e) => {
-                            if (sourceHoverTimerRef.current) { clearTimeout(sourceHoverTimerRef.current); sourceHoverTimerRef.current = null; }
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            setSourceAnchor({ x: rect.left, y: rect.top - 8 });
-                            setSourceTooltipOpen(true);
-                          }}
-                          onMouseLeave={() => {
-                            if (sourceHoverTimerRef.current) clearTimeout(sourceHoverTimerRef.current);
-                            sourceHoverTimerRef.current = setTimeout(() => setSourceTooltipOpen(false), 150);
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Playback source: ${sourceName}. Show details.`}
+                          onMouseEnter={(e) => openTooltip(e.currentTarget.getBoundingClientRect())}
+                          onMouseLeave={scheduleClose}
+                          onFocus={(e) => openTooltip(e.currentTarget.getBoundingClientRect())}
+                          onBlur={scheduleClose}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") setSourceTooltipOpen(false);
                           }}
                         ><SourceIcon isLocal={isLocal} /></span>;
                       })()}
@@ -679,10 +708,8 @@ export function NowPlayingBar({
       {sourceTooltipOpen && sourceAnchor && currentTrack && (() => {
         const path = currentTrack.path ?? "";
         const isSubsonic = path.startsWith("subsonic://");
-        const isLocal = path.startsWith("file://") || (!path.includes("://") && path.length > 0);
+        const isLocal = isLocalTrack(currentTrack);
         const resolverName = resolvedSource?.name;
-        const resolverId = resolvedSource?.id;
-        const viaYouTube = resolverId === "youtube:youtube-fallback";
         const sourceUrl = resolvedSource?.sourceUrl ?? null;
 
         let pluginProtocol: string | null = null;
@@ -690,28 +717,27 @@ export function NowPlayingBar({
           pluginProtocol = path.substring(0, path.indexOf("://"));
         }
 
-        const sourceLabel = viaYouTube
-          ? "YouTube"
-          : resolverName && resolverName !== "Library"
-            ? resolverName
-            : pluginProtocol ? pluginProtocol.charAt(0).toUpperCase() + pluginProtocol.slice(1)
+        // The resolver names itself (e.g. "YouTube", "TIDAL") — the host does not
+        // special-case individual plugin ids here. "Library" is internal, so it
+        // falls through to the path-derived label instead of being shown.
+        const sourceLabel = resolverName && resolverName !== "Library"
+          ? resolverName
+          : pluginProtocol ? pluginProtocol.charAt(0).toUpperCase() + pluginProtocol.slice(1)
             : isSubsonic ? "Subsonic" : isLocal ? "Local" : (resolverName || "Unknown");
 
         const localPath = isLocal ? path.replace(/^file:\/\//, "") : null;
         // Library fallback: sourceUrl is the local file path
         const libraryFallbackPath = resolverName === "Library" && sourceUrl ? sourceUrl : null;
         const displayPath = localPath || libraryFallbackPath;
-        const folder = displayPath ? displayPath.replace(/\/[^/]*$/, "") : null;
 
-        // External link for the "open URL" action
+        // External link for the "open URL" action. Derived generically from the
+        // resolver's reported sourceUrl — any plugin that returns an http(s) source
+        // (YouTube, TIDAL, …) gets an "Open on <resolver>" button for free.
         let externalUrl: string | null = null;
         let externalLabel: string | null = null;
-        if (viaYouTube) {
-          externalUrl = sourceUrl || null;
-          externalLabel = "Open on YouTube";
-        } else if (sourceUrl && sourceUrl.startsWith("https://tidal.com/")) {
+        if (sourceUrl && (sourceUrl.startsWith("http://") || sourceUrl.startsWith("https://"))) {
           externalUrl = sourceUrl;
-          externalLabel = "Open on TIDAL";
+          externalLabel = sourceLabel && sourceLabel !== "Unknown" ? `Open on ${sourceLabel}` : "Open link";
         } else if (isSubsonic && resolvedSource) {
           try {
             const u = new URL(resolvedSource.url);
@@ -763,13 +789,13 @@ export function NowPlayingBar({
                 ))}
               </div>
             )}
-            {(folder || externalUrl) && (
+            {(displayPath || externalUrl) && (
               <div className="now-source-actions">
-                {folder && currentTrack.path?.startsWith("file://") && (
+                {displayPath && (
                   <button
                     className="ds-btn ds-btn--ghost ds-btn--sm"
                     onClick={() => {
-                      invoke("show_in_folder_path", { filePath: currentTrack.path }).catch(e => console.error("Failed to show in folder:", e));
+                      invoke("show_in_folder_path", { filePath: displayPath }).catch(e => console.error("Failed to show in folder:", e));
                     }}
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>

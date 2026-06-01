@@ -213,6 +213,13 @@
   color: var(--text-tertiary);
   vertical-align: middle;
   cursor: default;
+  border-radius: var(--ds-radius);
+}
+
+.now-source-icon:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  color: var(--text-secondary);
 }
 
 .now-source-tooltip {

@@ -342,7 +342,7 @@ Stream resolvers provide playback URLs when a track's native source isn't availa
 For each track to play:
 1. If a local copy exists for the track's metadata, use it.
 2. If the track has a native URL (`file://`, `subsonic://`, or `http(s)://`), try the native resolver. Plugin-registered schemes are resolved via `onResolveStreamByUri`.
-3. Walk the user-ordered list of plugin stream resolvers. Each is called with `(title, artistName, albumName, durationSecs)` and has 15 seconds to return `{ url, label } | null`.
+3. Walk the user-ordered list of plugin stream resolvers. Each is called with `(title, artistName, albumName, durationSecs)` and has 60 seconds to return `{ url, label } | null` (resolvers like YouTube shell out to `yt-dlp`, which can be slow).
 4. First success wins. Failures fall through to the next resolver. `addLog` surfaces fallback info to the user.
 
 ### Custom URL Schemes
