@@ -299,13 +299,23 @@
   line-height: 6px;
 }
 
-/* Track detail view — fixed header, flex-grow sections below */
+/* Track detail view — scrolls as a whole page, matching artist/album detail. */
 .track-detail {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
+}
+
+/* Track detail is the only view where a tabbed InformationSections is the hero's
+   immediate sibling. The global `.detail-hero + .section-wide` rule pulls that
+   sibling up 28px to tuck body content under the hero's fade — but here it drags
+   the tab bar (SONG MEANING / LYRICS / DETAILS …) onto the dark hero artwork,
+   where the low-contrast labels become unreadable. Cancel the overlap so the
+   tabs sit cleanly below the hero. (Album/Artist don't hit this: a track list or
+   header-placement section sits between their hero and the main tab bar.) */
+.track-detail .detail-hero + .section-wide {
+  margin-top: 0;
 }
 
 
