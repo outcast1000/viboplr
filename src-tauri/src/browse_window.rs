@@ -1,4 +1,5 @@
 use serde::Serialize;
+use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 #[derive(Clone, Serialize)]
@@ -81,6 +82,10 @@ pub async fn open_browse_window(
         .title(title.unwrap_or_else(|| "Viboplr Browse".to_string()))
         .inner_size(width.unwrap_or(1200.0), height.unwrap_or(800.0))
         .visible(visible.unwrap_or(true))
+        // Hidden/occluded WKWebViews are suspended by default on macOS, which
+        // freezes the timer-driven scrape loop (it only resumes when the window
+        // is shown). Disable throttling so background scraping keeps running.
+        .background_throttling(BackgroundThrottlingPolicy::Disabled)
         .user_agent(safari_ua)
         .initialization_script(&init_script)
         .on_navigation(move |nav_url| {
