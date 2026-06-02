@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { resolveShelves, type ShelfResolver } from "../hooks/useHome";
+import { resolveShelves, findUnattemptedShelfKeys, type ShelfResolver } from "../hooks/useHome";
 
 function makeResolver(name: string, fn: () => Promise<unknown>): ShelfResolver {
   return { id: name, title: name, displayKind: "album-cards", limit: 5, fetch: fn as ShelfResolver["fetch"] };
@@ -24,5 +24,37 @@ describe("resolveShelves", () => {
     const result = await resolveShelves([throws, good], { timeoutMs: 50 });
     expect(result.map(r => r.id)).toEqual(["good"]);
     consoleErr.mockRestore();
+  });
+});
+
+describe("findUnattemptedShelfKeys", () => {
+  const shelves = [
+    { pluginId: "spotify", shelfId: "discover" },
+    { pluginId: "tidal", shelfId: "mixes" },
+  ];
+
+  it("flags a freshly-installed plugin shelf that was never attempted", () => {
+    // Snapshot is fresh and only ever attempted the spotify shelf; tidal was
+    // just installed.
+    const attempted = new Set(["spotify:discover", "builtin:recently-played"]);
+    const result = findUnattemptedShelfKeys(shelves, {}, attempted);
+    expect(result).toEqual(["tidal:mixes"]);
+  });
+
+  it("returns empty when every visible plugin shelf was already attempted", () => {
+    const attempted = new Set(["spotify:discover", "tidal:mixes"]);
+    expect(findUnattemptedShelfKeys(shelves, {}, attempted)).toEqual([]);
+  });
+
+  it("ignores shelves the user has hidden", () => {
+    const attempted = new Set(["spotify:discover"]);
+    const visibility = { "tidal:mixes": false };
+    expect(findUnattemptedShelfKeys(shelves, visibility, attempted)).toEqual([]);
+  });
+
+  it("treats missing visibility keys as visible", () => {
+    const attempted = new Set<string>();
+    const result = findUnattemptedShelfKeys(shelves, {}, attempted);
+    expect(result).toEqual(["spotify:discover", "tidal:mixes"]);
   });
 });

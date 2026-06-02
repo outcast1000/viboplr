@@ -18,6 +18,24 @@ interface HomeSnapshot {
   featured: Track[];
   shelves: ResolvedShelf[];
   savedAt?: number;
+  // Resolver ids attempted in the last refresh (built-in + visible plugin
+  // shelves). Persisted so a later mount can tell an already-seen plugin shelf
+  // from a freshly installed one without re-fetching everything.
+  attemptedKeys?: string[];
+}
+
+// Plugin shelves that are visible but have never been fetched (their key is not
+// in `attempted`). A non-empty result means a refresh is warranted even when the
+// snapshot is otherwise fresh — e.g. right after installing a plugin from the
+// gallery, or toggling a never-fetched shelf on.
+export function findUnattemptedShelfKeys(
+  pluginShelves: Array<{ pluginId: string; shelfId: string }>,
+  visibility: Record<string, boolean>,
+  attempted: Set<string>,
+): string[] {
+  return pluginShelves
+    .map((p) => shelfKey(p.pluginId, p.shelfId))
+    .filter((id) => visibility[id] !== false && !attempted.has(id));
 }
 
 export interface ResolvedShelf {
@@ -106,6 +124,9 @@ export function useHome(opts: UseHomeOptions) {
   const featuredRef = useRef<Track[]>([]);
   featuredRef.current = featured;
   const savedAtRef = useRef<number>(0);
+  // Resolver ids attempted in the last completed refresh — used to detect
+  // freshly-installed plugin shelves that have never been fetched.
+  const attemptedKeysRef = useRef<Set<string>>(new Set());
 
   const fetchFeatured = useCallback(async (): Promise<Track[]> => {
     let anchorTitle: string | null = currentTrack?.title ?? null;
@@ -386,6 +407,10 @@ export function useHome(opts: UseHomeOptions) {
       const all = [...builtIns, ...pluginResolvers].filter(r =>
         visibility[r.id] !== false,
       );
+      // Remember which resolvers we attempted this cycle so a later mount can
+      // distinguish an already-seen shelf from a freshly-installed plugin shelf.
+      const attemptedKeys = all.map((r) => r.id);
+      attemptedKeysRef.current = new Set(attemptedKeys);
 
       // Featured tracks resolve independently — render them as soon as they arrive.
       const featuredPromise = fetchFeatured().then((feat) => {
@@ -442,6 +467,7 @@ export function useHome(opts: UseHomeOptions) {
           featured: featuredRef.current,
           shelves: finalShelves,
           savedAt,
+          attemptedKeys,
         }).catch((e) => console.error("Failed to persist home snapshot:", e));
       }
     } finally {
@@ -460,6 +486,7 @@ export function useHome(opts: UseHomeOptions) {
         if (snap?.featured?.length) setFeatured(snap.featured);
         if (snap?.shelves?.length) setShelves(snap.shelves);
         if (snap?.savedAt) savedAtRef.current = snap.savedAt;
+        if (snap?.attemptedKeys) attemptedKeysRef.current = new Set(snap.attemptedKeys);
       } catch (e) {
         console.error("Failed to hydrate home snapshot:", e);
       } finally {
@@ -490,18 +517,26 @@ export function useHome(opts: UseHomeOptions) {
         featured: featuredRef.current,
         shelves: next,
         savedAt: savedAtRef.current,
+        attemptedKeys: Array.from(attemptedKeysRef.current),
       }).catch((e) => console.error("Failed to persist pruned home snapshot:", e));
       return next;
     });
   }, [pluginsLoaded, pluginShelves]);
 
-  // Refresh on mount only when the cached snapshot is older than 24h (or absent).
-  // Manual refresh via the toolbar button is always available regardless of age.
+  // Refresh on mount when the cached snapshot is older than 24h (or absent), OR
+  // when a visible plugin shelf has never been fetched (e.g. a plugin was just
+  // installed from the gallery). The staleness gate alone would otherwise leave
+  // a freshly-installed plugin's shelf invisible until the 24h window elapsed or
+  // the user hit ⟳ Refresh manually. Manual refresh stays available regardless.
+  // Gated on `pluginsLoaded` so the async plugin-load window (where pluginShelves
+  // is transiently empty) doesn't read as "nothing new".
   useEffect(() => {
-    if (!isVisible || !restoredRef.current || !hydrated) return;
+    if (!isVisible || !restoredRef.current || !hydrated || !pluginsLoaded) return;
     const age = Date.now() - savedAtRef.current;
-    if (savedAtRef.current === 0 || age >= STALE_MS) refresh();
-  }, [isVisible, refresh, restoredRef, hydrated]);
+    const hasNewShelves =
+      findUnattemptedShelfKeys(pluginShelves, visibility, attemptedKeysRef.current).length > 0;
+    if (savedAtRef.current === 0 || age >= STALE_MS || hasNewShelves) refresh();
+  }, [isVisible, refresh, restoredRef, hydrated, pluginsLoaded, pluginShelves, visibility]);
 
   return { featured, shelves, refresh, isLoading };
 }
