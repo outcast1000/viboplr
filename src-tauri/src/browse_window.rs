@@ -40,6 +40,87 @@ pub async fn open_browse_window(
 
     let parsed_url = url.parse::<tauri::Url>().map_err(|e| e.to_string())?;
 
+    // Browse windows exist only to scrape (and occasionally log in) — they must
+    // never emit sound. This gate is unconditional: there is no scenario where a
+    // hidden scrape window should play audio.
+    //
+    // ROOT CAUSE: wry creates the WKWebView with autoplay unlocked
+    // (`setMediaTypesRequiringUserActionForPlayback(None)` — wry's default, which
+    // Tauri 2.11 gives no builder knob to override and clobbers even a custom
+    // WKWebViewConfiguration). A *normal* browser rejects un-gestured playback
+    // with NotAllowedError, so Spotify's "resume last session" attempt silently
+    // fails and the page stays quiet on a manual open. Here that gate is gone, so
+    // the page's own play() succeeds and audio leaks out — the scraper never asks
+    // for playback, the relaxed policy just lets the page do what browsers forbid.
+    //
+    // FIX (prevention, not muting): re-impose the browser's autoplay policy in JS.
+    // Reject media-element play() that isn't tied to a genuine user gesture
+    // (rejecting with NotAllowedError, exactly as WebKit would) and keep Web Audio
+    // contexts suspended until a gesture occurs. This reproduces the manual-open
+    // behavior — playback simply never starts — instead of letting it start and
+    // masking it. A real user gesture (login click in a visible window) flips the
+    // gate so legitimate interaction still works.
+    // Injected into ALL frames — Spotify's player lives in subframes that a
+    // main-frame-only script would miss.
+    let autoplay_gate_script =
+        r#"(function() {
+    // Track whether a real user gesture has happened (matches the browser's
+    // "sticky activation" concept). Until then, autoplay is denied.
+    var gestured = false;
+    ['pointerdown','mousedown','touchstart','keydown'].forEach(function(t) {
+        document.addEventListener(t, function() { gestured = true; }, true);
+    });
+    try {
+        var proto = HTMLMediaElement.prototype;
+        var nativePlay = proto.play;
+        // Re-create the browser's gate: un-gestured play() rejects with
+        // NotAllowedError. Pages (including Spotify) are built to handle this —
+        // they catch it and stay paused, so nothing plays and nothing breaks.
+        proto.play = function() {
+            if (!gestured) {
+                try { this.pause(); } catch(e) {}
+                return Promise.reject(new DOMException(
+                    'play() blocked: no user activation (viboplr scrape window)',
+                    'NotAllowedError'));
+            }
+            return nativePlay.apply(this, arguments);
+        };
+        // Belt-and-suspenders: if anything still manages to start (e.g. an
+        // autoplay attribute honored before our hook), pause it on the play event.
+        document.addEventListener('play', function(e) {
+            if (!gestured && e.target && typeof e.target.pause === 'function') {
+                try { e.target.pause(); } catch(err) {}
+            }
+        }, true);
+    } catch(e) {
+        console.error('[viboplr-bridge] failed to install autoplay gate:', e);
+    }
+    try {
+        // Spotify can route audio through Web Audio, which bypasses element
+        // playback. Keep every context suspended until a real gesture; resume()
+        // is a no-op without activation, mirroring the browser policy.
+        var ACtor = window.AudioContext || window.webkitAudioContext;
+        if (ACtor) {
+            var nativeResume = ACtor.prototype.resume;
+            ACtor.prototype.resume = function() {
+                if (!gestured) return Promise.resolve();
+                return nativeResume.apply(this, arguments);
+            };
+            var Wrapped = function() {
+                var ctx = new (Function.prototype.bind.apply(
+                    ACtor, [null].concat([].slice.call(arguments))))();
+                if (!gestured) { try { ctx.suspend(); } catch(e) {} }
+                return ctx;
+            };
+            Wrapped.prototype = ACtor.prototype;
+            window.AudioContext = Wrapped;
+            window.webkitAudioContext = Wrapped;
+        }
+    } catch(e) {
+        console.error('[viboplr-bridge] failed to gate web audio:', e);
+    }
+})();"#;
+
     let init_script = format!(
         r#"(function() {{
     window.__viboplr = {{
@@ -88,6 +169,9 @@ pub async fn open_browse_window(
         .background_throttling(BackgroundThrottlingPolicy::Disabled)
         .user_agent(safari_ua)
         .initialization_script(&init_script)
+        // Autoplay-gate shim runs in every frame (main-frame-only would miss
+        // player iframes).
+        .initialization_script_for_all_frames(autoplay_gate_script)
         .on_navigation(move |nav_url| {
             let _ = app_for_nav.emit(
                 "browse-window-navigation",
