@@ -9,8 +9,10 @@ import {
   diffThumbs,
   thumbFilenameForUri,
   queueItemLocalThumb,
+  tracksFromManifest,
   type Manifest,
 } from "../mainPlaylist";
+import { nextExternalKey } from "../queueEntry";
 
 function makeTrack(overrides: Partial<Track> = {}): Track {
   return {
@@ -597,5 +599,34 @@ describe("queueItemLocalThumb", () => {
   it("returns null when dir or uri is missing", () => {
     expect(queueItemLocalThumb({ mainPlaylistDir: null, uri: "spotify://abc", remote: true, versions: { "spotify://abc": 1 } })).toBeNull();
     expect(queueItemLocalThumb({ mainPlaylistDir: dir, uri: null, remote: true, versions: {} })).toBeNull();
+  });
+});
+
+describe("tracksFromManifest key generation", () => {
+  function manifest(n: number): Manifest {
+    return {
+      version: 1, title: "P", type: "custom", created_at: "", created_by: null, cover: null,
+      tracks: Array.from({ length: n }, (_, i) => ({
+        title: `T${i}`, artist: "A", album: null, duration_secs: 100, file: `file:///${i}.mp3`, thumb: null,
+      })),
+    };
+  }
+
+  it("assigns unique keys within a single restore", () => {
+    const tracks = tracksFromManifest(manifest(3));
+    const keys = tracks.map(t => t.key);
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  // Regression: a private local counter in tracksFromManifest restarted at ext:1
+  // on every restore and collided with keys minted later by nextExternalKey()
+  // (enqueue, play-next, plugin tracks). Duplicate React keys corrupted
+  // reconciliation — phantom queue rows that survived clear/remove until restart.
+  it("does not collide with keys minted later by nextExternalKey", () => {
+    const restored = tracksFromManifest(manifest(2)).map(t => t.key);
+    // Simulate subsequent queue mutations (enqueue etc.) that mint external keys.
+    const minted = [nextExternalKey(), nextExternalKey()];
+    const all = [...restored, ...minted];
+    expect(new Set(all).size).toBe(all.length);
   });
 });

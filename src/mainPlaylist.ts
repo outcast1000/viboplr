@@ -1,5 +1,6 @@
 import type { QueueTrack } from "./types";
 import type { PlaylistContext } from "./hooks/useQueue";
+import { nextExternalKey } from "./queueEntry";
 
 export interface ManifestTrack {
   title: string;
@@ -131,13 +132,16 @@ export function buildState(
 }
 
 export function tracksFromManifest(manifest: Manifest, mainPlaylistDir?: string | null): QueueTrack[] {
-  let extCounter = 1;
   return manifest.tracks.map((m): QueueTrack => ({
     // QueueEntry.key is an in-memory identity used for React rendering + multi-select.
-    // It is not persisted. Generate fresh keys on restore. Thumbnail identity on disk
-    // is keyed off the file URI (see thumbFilenameForUri), not this key, so thumbs
-    // cached before restart are still found.
-    key: `ext:${extCounter++}`,
+    // It is not persisted. Generate fresh keys on restore from the SAME shared
+    // counter (nextExternalKey) that every other queue mutation uses — a private
+    // local counter here would restart at ext:1 and collide with keys minted later
+    // by nextExternalKey(), producing duplicate React keys that corrupt
+    // reconciliation (phantom rows that survive clear/remove). Thumbnail identity on
+    // disk is keyed off the file URI (see thumbFilenameForUri), not this key, so
+    // thumbs cached before restart are still found.
+    key: nextExternalKey(),
     path: m.file,
     title: m.title,
     artist_name: m.artist || null,
