@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { Track, QueueTrack } from "../types";
+import type { Track } from "../types";
 import type { AppStore } from "../store";
 import type { DownloadProvider, DownloadResolveResult } from "../types/plugin";
 
@@ -9,7 +9,6 @@ export interface UseDownloadsReturn {
   downloadFormat: string;
   setFormat: (format: string, store: AppStore) => void;
   downloadTrack: (trackId: number, destCollectionId: number, tracks: Track[]) => Promise<void>;
-  autoSaveTrack: (track: QueueTrack, downloadsCollectionId: number, format: string, libraryTracks?: Track[]) => Promise<void>;
 }
 
 async function resolveTrackDownload(
@@ -114,49 +113,9 @@ export function useDownloads(
     }
   }
 
-  async function autoSaveTrack(
-    track: QueueTrack,
-    downloadsCollectionId: number,
-    format: string,
-    libraryTracks?: Track[],
-  ) {
-    try {
-      if (libraryTracks) {
-        const title = track.title.toLowerCase();
-        const artist = (track.artist_name || "").toLowerCase();
-        const localCopy = libraryTracks.find(t =>
-          t.path?.startsWith("file://") &&
-          t.title.toLowerCase() === title &&
-          (t.artist_name || "").toLowerCase() === artist
-        );
-        if (localCopy) return;
-      }
-
-      const existing = await invoke<Track | null>("find_track_in_collection", {
-        collectionId: downloadsCollectionId,
-        title: track.title,
-        artistName: track.artist_name ?? "",
-      });
-      if (existing) return;
-
-      await invoke("enqueue_download", {
-        title: track.title,
-        artistName: track.artist_name ?? null,
-        albumTitle: track.album_title ?? null,
-        uri: track.path ?? null,
-        durationSecs: track.duration_secs ?? null,
-        destCollectionId: downloadsCollectionId,
-        format,
-      });
-    } catch (e) {
-      console.error("Auto-save failed:", e);
-    }
-  }
-
   return {
     downloadFormat,
     setFormat,
     downloadTrack,
-    autoSaveTrack,
   };
 }

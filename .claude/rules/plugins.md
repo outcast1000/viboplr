@@ -351,7 +351,7 @@ For each track to play:
 
 ### Configuration
 
-Users can drag-and-drop reorder and toggle stream resolvers on/off in Settings > Providers. Order and enabled state are stored under `streamResolverOrder` in the app store. Per-resolver auto-save (caching resolved URLs back to the track) is stored under `autoSaveStreams`.
+Users can drag-and-drop reorder and toggle stream resolvers on/off in Settings > Providers. Order and enabled state are stored under `streamResolverOrder` in the app store.
 
 ## Download Provider Chain
 

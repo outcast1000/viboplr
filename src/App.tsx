@@ -22,7 +22,7 @@ function needsTranscode(track: { format: string | null }): boolean {
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
 import { emitTrackPatch } from "./trackEvents";
-import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, shouldAutoSave, nextExternalKey, parseLibraryId, isLocalTrack } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, nextExternalKey, parseLibraryId, isLocalTrack } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { resolveImageUrl } from "./utils/resolveImageUrl";
@@ -168,13 +168,10 @@ function App() {
   const [debugMode, setDebugMode] = useState(false);
   const [devPluginPath, setDevPluginPath] = useState<string | null>(null);
   const [lastDownloadDest, setLastDownloadDest] = useState<string | null>(null);
-  const [autoSaveStreams, setAutoSaveStreams] = useState<Record<string, boolean>>({});
   const [downloadsCollectionId, setDownloadsCollectionId] = useState<number | null>(null);
   const [mainPlaylistDir, setMainPlaylistDir] = useState<string | null>(null);
-  const autoSaveStreamsRef = useRef<Record<string, boolean>>({});
   const downloadsCollectionIdRef = useRef<number | null>(null);
   trackVideoHistoryRef.current = trackVideoHistory;
-  autoSaveStreamsRef.current = autoSaveStreams;
   downloadsCollectionIdRef.current = downloadsCollectionId;
   const advanceIndexRef = useRef<() => void>(() => {});
   const resolveStreamByUriRef = useRef<(scheme: string, id: string, quality?: string | null) => Promise<string>>(
@@ -327,19 +324,6 @@ function App() {
   // Wire up image resolver to handle image-resolve-request events
   useImageResolver(plugins.invokeImageFetch);
 
-  const streamResolversMeta = useMemo(() => {
-    const meta: Array<{ id: string; name: string; source: string }> = [];
-    for (const ps of plugins.pluginStates) {
-      if (ps.status !== "active") continue;
-      const srs = ps.manifest.contributes?.streamResolvers;
-      if (!srs) continue;
-      for (const sr of srs) {
-        meta.push({ id: `${ps.id}:${sr.id}`, name: sr.name, source: ps.id });
-      }
-    }
-    return meta;
-  }, [plugins.pluginStates]);
-
   // Build ordered stream resolver list from built-in + plugins + user ordering
   useEffect(() => {
     const buildResolvers = async () => {
@@ -395,22 +379,6 @@ function App() {
         streamResolversRef.current = ordered;
       } else {
         streamResolversRef.current = allResolvers;
-      }
-
-      // Migrate old boolean autoSaveStreams to per-resolver map
-      const stored = await store.get<Record<string, boolean> | boolean>("autoSaveStreams");
-      if (typeof stored === "boolean") {
-        if (stored) {
-          const migrated: Record<string, boolean> = {};
-          for (const r of pluginResolvers) {
-            migrated[r.id] = true;
-          }
-          setAutoSaveStreams(migrated);
-          store.set("autoSaveStreams", migrated);
-        } else {
-          setAutoSaveStreams({});
-          store.set("autoSaveStreams", {});
-        }
       }
     };
     buildResolvers();
@@ -555,12 +523,6 @@ function App() {
     const track = playback.currentTrack;
     if (!track) return;
     plugins.dispatchEvent("track:scrobbled", track);
-    if (shouldAutoSave(autoSaveStreamsRef.current, track.path ?? "", resolvedSource?.id ?? null)) {
-      const dlColId = downloadsCollectionIdRef.current;
-      if (dlColId != null) {
-        downloads.autoSaveTrack(track, dlColId, downloadFormatRef.current, library.tracks).catch(console.error);
-      }
-    }
   }, [playback.scrobbled, playback.currentTrack, plugins.dispatchEvent]);
 
   // Reset scroll position when view or selections change
@@ -1475,15 +1437,12 @@ function App() {
           downloadFormat: savedDownloadFormat, filterYoutubeOnly: savedFilterYoutubeOnly,
           mediaTypeFilter: savedMediaTypeFilter, trackLikedFirst: savedTrackLikedFirst,
           lastDownloadDest: savedLastDownloadDest, searchViewModes: savedSearchViewModes,
-          autoSaveStreams: savedAutoSaveStreams, downloadsCollectionId: savedDownloadsCollectionId,
+          downloadsCollectionId: savedDownloadsCollectionId,
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
         } = await timeAsync("store.restore", () => readPersistedSettings(store));
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
-        if (savedAutoSaveStreams && typeof savedAutoSaveStreams === "object") {
-          setAutoSaveStreams(savedAutoSaveStreams);
-        }
         if (savedDownloadsCollectionId != null) setDownloadsCollectionId(savedDownloadsCollectionId);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
 
@@ -2084,18 +2043,8 @@ function App() {
 
   const handleUnsetDownloadsCollection = async () => {
     setDownloadsCollectionId(null);
-    setAutoSaveStreams({});
     store.set("downloadsCollectionId", null);
-    store.set("autoSaveStreams", {});
   };
-
-  function handleAutoSaveStreamsChange(resolverId: string, enabled: boolean) {
-    setAutoSaveStreams(prev => {
-      const next = { ...prev, [resolverId]: enabled };
-      store.set("autoSaveStreams", next);
-      return next;
-    });
-  }
 
   function handleToggleSidebar() {
     setSidebarCollapsed(prev => {
@@ -2866,11 +2815,8 @@ function App() {
               onReloadPlugins={plugins.reloadAllPlugins}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
               downloadsCollection={downloadsCollection}
-              streamResolvers={streamResolversMeta}
-              autoSaveStreams={autoSaveStreams}
               onSetDownloadsFolder={handleSetDownloadsFolder}
               onUnsetDownloadsCollection={handleUnsetDownloadsCollection}
-              onAutoSaveStreamsChange={handleAutoSaveStreamsChange}
               dependencies={dependencies}
             />
           )}

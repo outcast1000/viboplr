@@ -45,7 +45,7 @@ Each entry documents the gold standard implementation for a repeated user action
 
 ### Download Track
 
-- **Canonical:** `useDownloads.ts` -> `downloadTrack()` / `autoSaveTrack()`
+- **Canonical:** `useDownloads.ts` -> `downloadTrack()`
 - **Flow:** Resolve download URL via provider chain (`resolveTrackDownload`) -> `invoke("enqueue_download", ...)` -> progress via `download-progress` events -> success via `download-complete` -> error via `download-error` -> `addLog()` on both outcomes
 - **Multi-track:** `useContextMenuActions.ts` -> `handleDownloadMulti()` loops tracks with `isBatchLast` flag on the final item
 

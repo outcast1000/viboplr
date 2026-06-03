@@ -871,11 +871,8 @@ interface SettingsPanelProps {
   onStreamResolverOrderChanged?: () => void;
   // Downloads collection
   downloadsCollection: Collection | null;
-  streamResolvers: Array<{ id: string; name: string; source: string }>;
-  autoSaveStreams: Record<string, boolean>;
   onSetDownloadsFolder: () => void;
   onUnsetDownloadsCollection: () => void;
-  onAutoSaveStreamsChange: (resolverId: string, enabled: boolean) => void;
   dependencies?: {
     deps: Array<{
       name: string;
@@ -930,11 +927,8 @@ export function SettingsPanel({
   onReloadPlugins,
   onStreamResolverOrderChanged,
   downloadsCollection,
-  streamResolvers: streamResolversList,
-  autoSaveStreams,
   onSetDownloadsFolder,
   onUnsetDownloadsCollection,
-  onAutoSaveStreamsChange,
   dependencies,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
@@ -1187,43 +1181,6 @@ export function SettingsPanel({
                         )}
                       </div>
                     </div>
-                    {streamResolversList.filter(sr => sr.source !== "built-in").length > 0 ? (
-                      <>
-                        <div className="settings-row">
-                          <div className="settings-row-info">
-                            <span className="settings-label">Auto-save streams</span>
-                            <span className="settings-description">
-                              {downloadsCollection
-                                ? "Choose which sources auto-save tracks to your Downloads folder"
-                                : "Configure a Downloads folder first"}
-                            </span>
-                          </div>
-                        </div>
-                        {downloadsCollection && streamResolversList
-                          .filter(sr => sr.source !== "built-in")
-                          .map(sr => (
-                            <div className="settings-row settings-row--nested" key={sr.id}>
-                              <div className="settings-row-info">
-                                <span className="settings-label">{sr.name}</span>
-                              </div>
-                              <button
-                                className={`ds-toggle ${autoSaveStreams[sr.id] ? "on" : ""}`}
-                                onClick={() => onAutoSaveStreamsChange(sr.id, !autoSaveStreams[sr.id])}
-                              >
-                                <span className="ds-toggle-thumb" />
-                              </button>
-                            </div>
-                          ))
-                        }
-                      </>
-                    ) : (
-                      <div className="settings-row">
-                        <div className="settings-row-info">
-                          <span className="settings-label">Auto-save streams</span>
-                          <span className="settings-description">No stream resolvers available</span>
-                        </div>
-                      </div>
-                    )}
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">Download format</span>

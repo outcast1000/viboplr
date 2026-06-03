@@ -6,6 +6,7 @@ import {
   parseUrlScheme,
   isLocalTrack,
   isRemoteTrack,
+  isRemoteScheme,
   remoteId,
   type QueueEntry,
 } from "../queueEntry";
@@ -35,6 +36,28 @@ function makeTrack(overrides: Partial<Track> = {}): Track {
     ...overrides,
   };
 }
+
+describe("isRemoteScheme", () => {
+  it("returns true for tidal:// URLs", () => {
+    expect(isRemoteScheme("tidal://123/456")).toBe(true);
+  });
+
+  it("returns true for subsonic:// URLs", () => {
+    expect(isRemoteScheme("subsonic://server.com/123")).toBe(true);
+  });
+
+  it("returns false for file:// URLs", () => {
+    expect(isRemoteScheme("file:///path/to/song.mp3")).toBe(false);
+  });
+
+  it("returns false for http/https URLs", () => {
+    expect(isRemoteScheme("https://cdn.example.com/stream")).toBe(false);
+  });
+
+  it("returns false for paths without scheme", () => {
+    expect(isRemoteScheme("/path/to/song.mp3")).toBe(false);
+  });
+});
 
 describe("isLocalTrack", () => {
   it("returns true for file:// path", () => {
