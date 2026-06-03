@@ -242,4 +242,60 @@ impl SubsonicClient {
         }
         url
     }
+
+    /// URL for the original, untranscoded file via the `download.view` endpoint.
+    /// Unlike `stream.view`, this never transcodes — the server returns the
+    /// source file byte-for-byte.
+    pub fn download_url(&self, track_id: &str) -> String {
+        format!(
+            "{}/rest/download.view?id={}&{}",
+            self.base_url, track_id, self.auth_params
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn token_client() -> SubsonicClient {
+        SubsonicClient::from_stored(
+            "https://music.example.com/",
+            "alice",
+            "tok123",
+            Some("salty"),
+            "token",
+        )
+    }
+
+    #[test]
+    fn test_download_url_uses_download_endpoint() {
+        let client = token_client();
+        let url = client.download_url("abc");
+        assert!(
+            url.starts_with("https://music.example.com/rest/download.view?id=abc&"),
+            "expected download.view endpoint, got: {}",
+            url
+        );
+    }
+
+    #[test]
+    fn test_download_url_never_transcodes() {
+        let client = token_client();
+        let url = client.download_url("abc");
+        assert!(
+            !url.contains("format="),
+            "download.view must not carry a format/transcode param, got: {}",
+            url
+        );
+    }
+
+    #[test]
+    fn test_download_url_includes_auth_params() {
+        let client = token_client();
+        let url = client.download_url("abc");
+        assert!(url.contains("u=alice"), "missing username auth: {}", url);
+        assert!(url.contains("t=tok123"), "missing token auth: {}", url);
+        assert!(url.contains("s=salty"), "missing salt auth: {}", url);
+    }
 }

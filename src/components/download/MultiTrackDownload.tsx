@@ -280,6 +280,10 @@ export function MultiTrackDownload({
             const trackNumber = resolved.metadata?.trackNumber ?? t.trackNumber;
             const coverUrl = resolved.metadata?.coverUrl || t.coverUrl;
 
+            // A concrete resolver-provided extension overrides the batch default
+            // so the saved file matches the real container (e.g. original files).
+            const trackExt = resolved.ext && resolved.ext !== "auto" ? resolved.ext : ext;
+
             // Build destination path
             const dp = buildDestPath(
               basePath,
@@ -288,7 +292,7 @@ export function MultiTrackDownload({
               artistName ?? "Unknown",
               albumTitle ?? "Unknown",
               trackNumber,
-              ext
+              trackExt
             );
 
             let finalPath = dp;

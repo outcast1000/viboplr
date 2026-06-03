@@ -194,6 +194,7 @@ export function SingleTrackDownload({
 
     // Resolve stream URL and metadata from the provider
     let streamUrl: string;
+    let effectiveExt: string | null = null;
     try {
       if (directUri && resolveByUri && track.uri) {
         const resolved = await resolveByUri(track.uri, quality);
@@ -203,6 +204,7 @@ export function SingleTrackDownload({
           return;
         }
         streamUrl = resolved.url;
+        effectiveExt = resolved.ext ?? null;
         setResolvedCoverUrl(resolved.metadata?.coverUrl || null);
         setResolvedTitle(resolved.metadata?.title || selectedMatch.title);
         setResolvedArtist(resolved.metadata?.artist || selectedMatch.artistName || null);
@@ -211,6 +213,7 @@ export function SingleTrackDownload({
       } else {
         const resolved = await onResolveRef.current(selectedMatch.id, quality);
         streamUrl = resolved.url;
+        effectiveExt = resolved.ext ?? null;
         setResolvedCoverUrl(resolved.metadata?.coverUrl || selectedMatch.coverUrl || null);
         setResolvedTitle(resolved.metadata?.title || selectedMatch.title);
         setResolvedArtist(resolved.metadata?.artist || selectedMatch.artistName || null);
@@ -264,12 +267,17 @@ export function SingleTrackDownload({
       return;
     }
 
+    // A concrete resolver-provided extension overrides the format default so the
+    // saved file matches the real container (e.g. a Subsonic original). "auto"
+    // means the backend will sniff it, so we don't force a name here.
+    const concreteExt = effectiveExt && effectiveExt !== "auto" ? effectiveExt : null;
     try {
       const check = await invoke<ConflictCheck>("check_dest_conflict", {
         artistName: effectiveArtist ?? "Unknown",
         trackTitle: effectiveTitle,
         destDir,
         format: quality,
+        ext: concreteExt,
       });
 
       if (check.has_conflict) {
@@ -281,7 +289,7 @@ export function SingleTrackDownload({
       }
     } catch {
       // Treat conflict check errors as no conflict
-      const ext = quality === "flac" ? "flac" : "m4a";
+      const ext = concreteExt ?? (quality === "flac" ? "flac" : "m4a");
       const fallbackPath = `${destDir}/${effectiveArtist ?? "Unknown"} - ${effectiveTitle}.${ext}`;
       await doFreshDownload(fallbackPath, false, streamUrl, effectiveCoverUrl ?? undefined);
     }

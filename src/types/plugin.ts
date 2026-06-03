@@ -567,6 +567,10 @@ export interface DownloadResolveResult {
     genre?: string;
     coverUrl?: string;
   } | null;
+  /** File extension to save as, overriding the requested format's default.
+   *  Use "auto" to have the backend sniff the container from the downloaded
+   *  bytes (e.g. an original file of unknown format). */
+  ext?: string | null;
 }
 
 export type DownloadResolveByUriHandler = (

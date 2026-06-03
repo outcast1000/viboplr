@@ -68,13 +68,22 @@ pub fn download_resolve_response(
     Ok(())
 }
 
+/// Resolved Subsonic download target: the URL to fetch plus the file extension
+/// to save as. `ext` may be `"auto"` when the original file's container must be
+/// sniffed from the downloaded bytes (original of unknown format).
+#[derive(serde::Serialize)]
+pub struct SubsonicDownloadTarget {
+    pub url: String,
+    pub ext: String,
+}
+
 #[tauri::command]
 pub fn resolve_subsonic_download_url(
     state: State<'_, AppState>,
     collection_id: i64,
     remote_track_id: String,
     format: Option<String>,
-) -> Result<String, String> {
+) -> Result<SubsonicDownloadTarget, String> {
     let creds = state.db.get_collection_credentials(collection_id)
         .map_err(|e| format!("Failed to get collection credentials: {}", e))?;
     let client = SubsonicClient::from_stored(
@@ -84,11 +93,35 @@ pub fn resolve_subsonic_download_url(
         creds.salt.as_deref(),
         &creds.auth_method,
     );
-    let format_param = format
+
+    let dl_format = format
         .as_deref()
         .and_then(|f| DownloadFormat::from_str(f).ok())
-        .and_then(|f| f.subsonic_format_param());
-    Ok(client.stream_url_with_format(&remote_track_id, format_param))
+        .unwrap_or(DownloadFormat::Flac);
+
+    // The track's stored source suffix (e.g. "mp3"/"flac") lets us name an
+    // original download correctly without re-downloading to probe it.
+    let source_suffix = state
+        .db
+        .get_track_format_by_remote(collection_id, &remote_track_id)
+        .unwrap_or(None);
+
+    let (transcode_param, ext) =
+        crate::downloader::subsonic_download_target(dl_format, source_suffix.as_deref());
+
+    match transcode_param {
+        // AAC/MP3: ask the server to transcode via stream.view.
+        Some(param) => Ok(SubsonicDownloadTarget {
+            url: client.stream_url_with_format(&remote_track_id, Some(param)),
+            ext: ext.unwrap_or_else(|| dl_format.extension().to_string()),
+        }),
+        // FLAC/original: fetch the untouched source file via download.view.
+        // Extension comes from the stored suffix, or "auto" to sniff post-download.
+        None => Ok(SubsonicDownloadTarget {
+            url: client.download_url(&remote_track_id),
+            ext: ext.unwrap_or_else(|| "auto".to_string()),
+        }),
+    }
 }
 
 // --- Download provider CRUD commands ---
@@ -151,14 +184,18 @@ pub async fn check_dest_conflict(
     track_title: String,
     dest_dir: String,
     format: String,
+    ext: Option<String>,
 ) -> Result<ConflictCheck, String> {
     let fmt = DownloadFormat::from_str(&format)?;
-    let filename = format!(
-        "{} - {}.{}",
-        crate::downloader::sanitize_filename(&artist_name),
-        crate::downloader::sanitize_filename(&track_title),
-        fmt.extension()
-    );
+    // A resolver-provided extension (e.g. a Subsonic original file's true suffix)
+    // overrides the format default so the conflict check and resulting filename
+    // match what will actually be saved.
+    let ext = ext
+        .as_deref()
+        .map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase())
+        .filter(|e| !e.is_empty() && e != "auto")
+        .unwrap_or_else(|| fmt.extension().to_string());
+    let filename = crate::downloader::download_filename(&artist_name, &track_title, &ext);
     let dest_path = std::path::Path::new(&dest_dir).join(&filename);
     let dest_str = dest_path.to_string_lossy().to_string();
 

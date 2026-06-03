@@ -28,6 +28,7 @@ import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited"
 import { resolveImageUrl } from "./utils/resolveImageUrl";
 import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
 import { withResolverLog } from "./utils/resolverLog";
+import { builtinQualityOptions } from "./utils/builtinDownloadQualities";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
 import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
@@ -435,10 +436,10 @@ function App() {
             const collectionId = parseInt(rest.substring(0, lastSlash), 10);
             const trackId = rest.substring(lastSlash + 1);
             if (!trackId || isNaN(collectionId)) throw new Error(`malformed subsonic uri (bad id): ${uri}`);
-            const url = await invoke<string>("resolve_subsonic_download_url", {
+            const target = await invoke<{ url: string; ext: string }>("resolve_subsonic_download_url", {
               collectionId, remoteTrackId: trackId, format,
             });
-            return { url, headers: null, metadata: null };
+            return { url: target.url, headers: null, metadata: null, ext: target.ext };
           },
         ).catch(() => null),
       resolveByMetadata: () =>
@@ -3042,7 +3043,10 @@ function App() {
       )}
       {downloadModal && (() => {
         const parts = downloadModal.providerId.split(":");
-        const qualityOptions = parts.length >= 2 ? plugins.invokeGetQualities(parts[0], parts.slice(1).join(":")) : null;
+        // Built-in providers (e.g. Subsonic) supply options in app code; plugins
+        // supply theirs via onGetQualities.
+        const qualityOptions = builtinQualityOptions(downloadModal.providerId)
+          ?? (parts.length >= 2 ? plugins.invokeGetQualities(parts[0], parts.slice(1).join(":")) : null);
         return (
         <DownloadModal
           tracks={downloadModal.tracks}

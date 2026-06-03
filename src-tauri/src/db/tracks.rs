@@ -364,6 +364,24 @@ impl Database {
         conn.query_row(sql, params![full_path], |row| row.get(0)).optional()
     }
 
+    /// Returns the stored source format (file suffix, e.g. "mp3"/"flac") for a
+    /// remote track identified by its collection and remote id (`t.path`).
+    /// `None` if the track isn't found or has no recorded format.
+    pub fn get_track_format_by_remote(
+        &self,
+        collection_id: i64,
+        remote_track_id: &str,
+    ) -> SqlResult<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT format FROM tracks WHERE collection_id = ?1 AND path = ?2 LIMIT 1",
+            params![collection_id, remote_track_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map(|opt| opt.flatten())
+    }
+
     pub(super) fn search_tracks_inner(&self, conn: &rusqlite::Connection, opts: &TrackQuery, query: &str) -> SqlResult<Vec<Track>> {
         let normalized = strip_diacritics(query);
         let words = normalized

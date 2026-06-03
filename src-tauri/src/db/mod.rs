@@ -669,6 +669,43 @@ mod tests {
     }
 
     #[test]
+    fn test_get_track_format_by_remote() {
+        let db = test_db();
+        let cid = db
+            .add_collection("subsonic", "Server", None, Some("https://music.example.com"), Some("alice"), None, None, None)
+            .expect("add subsonic collection")
+            .id;
+        // Subsonic tracks store the bare remote id in `path`.
+        db.upsert_track(
+            "remote-id-42", "Time", None, None,
+            Some(4), Some(413.0), Some("flac"), None, None, Some(cid), None,
+        ).unwrap();
+
+        assert_eq!(
+            db.get_track_format_by_remote(cid, "remote-id-42").unwrap().as_deref(),
+            Some("flac")
+        );
+        // Unknown remote id -> None
+        assert_eq!(db.get_track_format_by_remote(cid, "nope").unwrap(), None);
+        // Wrong collection -> None
+        assert_eq!(db.get_track_format_by_remote(cid + 999, "remote-id-42").unwrap(), None);
+    }
+
+    #[test]
+    fn test_get_track_format_by_remote_null_format() {
+        let db = test_db();
+        let cid = db
+            .add_collection("subsonic", "Server2", None, Some("https://m2.example.com"), Some("bob"), None, None, None)
+            .expect("add subsonic collection")
+            .id;
+        db.upsert_track(
+            "rid-no-fmt", "Untitled", None, None,
+            None, None, None, None, None, Some(cid), None,
+        ).unwrap();
+        assert_eq!(db.get_track_format_by_remote(cid, "rid-no-fmt").unwrap(), None);
+    }
+
+    #[test]
     fn test_upsert_track_deduplication() {
         let db = test_db();
         let cid = test_collection(&db);

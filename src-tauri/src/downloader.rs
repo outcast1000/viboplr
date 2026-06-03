@@ -19,7 +19,9 @@ pub enum DownloadFormat {
 impl DownloadFormat {
     pub fn from_str(s: &str) -> Result<Self, String> {
         match s {
-            "flac" => Ok(Self::Flac),
+            // "original" is the source-quality choice (e.g. Subsonic): no
+            // transcode, same raw/lossless handling as FLAC.
+            "flac" | "original" => Ok(Self::Flac),
             "aac" => Ok(Self::Aac),
             "mp3" => Ok(Self::Mp3),
             _ => Err(format!("Unknown format: {}", s)),
@@ -33,14 +35,58 @@ impl DownloadFormat {
             Self::Mp3 => "mp3",
         }
     }
+}
 
-    pub fn subsonic_format_param(&self) -> Option<&'static str> {
-        match self {
-            Self::Flac => None, // raw/original
-            Self::Aac => Some("aac"),
-            Self::Mp3 => Some("mp3"),
+/// Decide how to fetch a Subsonic track for a requested download format.
+///
+/// Returns `(transcode_param, extension)`:
+/// - `transcode_param` is the `format=` query value for `stream.view`, or `None`
+///   to fetch the original file untouched via `download.view`.
+/// - `extension` is the file extension to save as, or `None` when it must be
+///   sniffed from the downloaded bytes (original file whose source format is
+///   unknown).
+///
+/// FLAC is the "original quality" choice: it downloads the source file as-is and
+/// names it by the track's real stored suffix. AAC/MP3 ask the server to
+/// transcode and always land on a known container.
+pub fn subsonic_download_target(
+    format: DownloadFormat,
+    source_suffix: Option<&str>,
+) -> (Option<&'static str>, Option<String>) {
+    match format {
+        DownloadFormat::Aac => (Some("aac"), Some("m4a".to_string())),
+        DownloadFormat::Mp3 => (Some("mp3"), Some("mp3".to_string())),
+        DownloadFormat::Flac => {
+            let ext = source_suffix
+                .map(|s| s.trim().trim_start_matches('.').to_ascii_lowercase())
+                .filter(|s| !s.is_empty());
+            (None, ext)
         }
     }
+}
+
+/// Best-effort detection of an audio container from its leading bytes.
+/// Used when downloading an original file whose extension we don't already know.
+/// Returns `None` for unrecognized data.
+pub fn sniff_audio_extension(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() >= 4 {
+        match &bytes[0..4] {
+            b"fLaC" => return Some("flac"),
+            b"ID3\x03" | b"ID3\x04" | b"ID3\x02" => return Some("mp3"),
+            b"OggS" => return Some("ogg"),
+            b"RIFF" if bytes.len() >= 12 && &bytes[8..12] == b"WAVE" => return Some("wav"),
+            _ => {}
+        }
+        // MP3 frame sync (no ID3 header): 0xFF Ex/Fx
+        if bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0 {
+            return Some("mp3");
+        }
+    }
+    // MP4/M4A: "ftyp" box at offset 4
+    if bytes.len() >= 8 && &bytes[4..8] == b"ftyp" {
+        return Some("m4a");
+    }
+    None
 }
 
 impl std::fmt::Display for DownloadFormat {
@@ -78,6 +124,16 @@ pub struct DownloadResolveResponse {
     pub url: String,
     pub headers: Option<HashMap<String, String>>,
     pub metadata: Option<DownloadMetadata>,
+    /// File extension the resolver wants the saved file to use, overriding the
+    /// requested format's default extension. Used when the real container is
+    /// known only at resolve time (e.g. a Subsonic original file).
+    /// - `Some("mp3")` etc. — save with this exact extension.
+    /// - `Some("auto")` — the resolver knows it returns the original file but not
+    ///   its container; sniff the extension from the downloaded bytes.
+    /// - `None` — resolver doesn't care; use `request.format.extension()`
+    ///   (unchanged behavior for plugin providers, which never set this).
+    #[serde(default)]
+    pub ext: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -237,6 +293,17 @@ pub fn sanitize_filename(name: &str) -> String {
     }
 }
 
+/// Build the flat `{Artist} - {Title}.{ext}` filename used by the download
+/// modal's conflict check and direct-to-path download. Components are sanitized.
+pub fn download_filename(artist: &str, title: &str, ext: &str) -> String {
+    format!(
+        "{} - {}.{}",
+        sanitize_filename(artist),
+        sanitize_filename(title),
+        ext
+    )
+}
+
 /// Build the destination path from a pattern or default `{Artist}/{Album}/{TrackNum} - {Title}.{ext}`.
 /// Pattern tokens: `[artist]`, `[album]`, `[track_number]`, `[title]`.
 /// Use `/` or `\` in the pattern to create subdirectories.
@@ -394,31 +461,25 @@ pub fn process_download(
     let genre = metadata.and_then(|m| m.genre.as_deref());
     let cover_url = metadata.and_then(|m| m.cover_url.as_deref());
 
-    let ext = request.format.extension();
+    // Whether the resolver wants us to sniff the real extension from the bytes
+    // (original file of unknown container). An explicit extension is used as-is;
+    // otherwise we fall back to the requested format's default.
+    let sniff_ext = resolved.ext.as_deref() == Some("auto");
+    let explicit_ext = resolved
+        .ext
+        .as_deref()
+        .filter(|e| !e.is_empty() && *e != "auto")
+        .map(|e| e.to_string());
 
-    // Build destination path
-    let dest_path = build_dest_path(
-        &request.dest_collection_path,
-        title,
-        artist,
-        album,
-        track_number,
-        ext,
-        request.path_pattern.as_deref(),
-    );
-
-    // Create parent directories
-    if let Some(parent) = dest_path.parent() {
+    // Download to a neutral temp file first. The final extension may depend on
+    // the downloaded bytes (sniff case), so the destination path is built after
+    // the download completes.
+    let temp_path = Path::new(&request.dest_collection_path)
+        .join(format!(".viboplr-download-{}.part", request.id));
+    if let Some(parent) = temp_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create directories: {}", e))?;
     }
-
-    // Download to temp file
-    let temp_filename = format!(".viboplr-download-{}.{}", request.id, ext);
-    let temp_path = dest_path
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join(&temp_filename);
 
     download_file(
         &resolved.url,
@@ -438,6 +499,40 @@ pub fn process_download(
             let _ = app.emit("download-progress", &progress_status);
         }),
     )?;
+
+    // Resolve the final extension: explicit from resolver -> sniffed from bytes
+    // (when requested) -> requested format default.
+    let sniffed = if sniff_ext {
+        let mut head = [0u8; 16];
+        std::fs::File::open(&temp_path)
+            .and_then(|mut f| {
+                use std::io::Read;
+                let n = f.read(&mut head)?;
+                Ok(n)
+            })
+            .ok()
+            .and_then(|n| sniff_audio_extension(&head[..n]))
+    } else {
+        None
+    };
+    let ext: String = explicit_ext
+        .or_else(|| sniffed.map(|s| s.to_string()))
+        .unwrap_or_else(|| request.format.extension().to_string());
+
+    // Build destination path now that the extension is known.
+    let dest_path = build_dest_path(
+        &request.dest_collection_path,
+        title,
+        artist,
+        album,
+        track_number,
+        &ext,
+        request.path_pattern.as_deref(),
+    );
+    if let Some(parent) = dest_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directories: {}", e))?;
+    }
 
     // Detect WebM content by EBML magic bytes
     let is_webm = std::fs::File::open(&temp_path)
@@ -740,6 +835,33 @@ mod tests {
     }
 
     #[test]
+    fn test_download_format_from_str_original_is_flac() {
+        // "original" is the Subsonic source-quality choice: same raw/lossless
+        // semantics as FLAC (no transcode requested).
+        assert_eq!(DownloadFormat::from_str("original").unwrap(), DownloadFormat::Flac);
+    }
+
+    #[test]
+    fn test_download_filename_uses_given_extension() {
+        assert_eq!(
+            download_filename("Pink Floyd", "Time", "flac"),
+            "Pink Floyd - Time.flac"
+        );
+        assert_eq!(
+            download_filename("Pink Floyd", "Time", "mp3"),
+            "Pink Floyd - Time.mp3"
+        );
+    }
+
+    #[test]
+    fn test_download_filename_sanitizes_components() {
+        assert_eq!(
+            download_filename("AC/DC", "T:N/T", "m4a"),
+            "AC_DC - T_N_T.m4a"
+        );
+    }
+
+    #[test]
     fn test_download_format_from_str_invalid() {
         assert!(DownloadFormat::from_str("wav").is_err());
         assert!(DownloadFormat::from_str("ogg").is_err());
@@ -754,17 +876,95 @@ mod tests {
     }
 
     #[test]
-    fn test_download_format_subsonic_format_param() {
-        assert_eq!(DownloadFormat::Flac.subsonic_format_param(), None);
-        assert_eq!(DownloadFormat::Aac.subsonic_format_param(), Some("aac"));
-        assert_eq!(DownloadFormat::Mp3.subsonic_format_param(), Some("mp3"));
-    }
-
-    #[test]
     fn test_download_format_display() {
         assert_eq!(format!("{}", DownloadFormat::Flac), "flac");
         assert_eq!(format!("{}", DownloadFormat::Aac), "aac");
         assert_eq!(format!("{}", DownloadFormat::Mp3), "mp3");
+    }
+
+    // --- subsonic_download_target tests ---
+
+    #[test]
+    fn test_subsonic_target_flac_downloads_original_with_known_suffix() {
+        // FLAC (default) means "give me the original file". No transcode param,
+        // and the extension comes from the source suffix — even when that suffix
+        // is mp3, the file must NOT be mislabeled .flac.
+        let (param, ext) = subsonic_download_target(DownloadFormat::Flac, Some("mp3"));
+        assert_eq!(param, None, "FLAC/original must not request a transcode");
+        assert_eq!(ext.as_deref(), Some("mp3"));
+    }
+
+    #[test]
+    fn test_subsonic_target_flac_normalizes_suffix() {
+        let (_, ext) = subsonic_download_target(DownloadFormat::Flac, Some(".FLAC"));
+        assert_eq!(ext.as_deref(), Some("flac"));
+    }
+
+    #[test]
+    fn test_subsonic_target_flac_unknown_suffix_defers_to_sniff() {
+        // No stored suffix -> extension is unknown, must be sniffed after download.
+        let (param, ext) = subsonic_download_target(DownloadFormat::Flac, None);
+        assert_eq!(param, None);
+        assert_eq!(ext, None);
+        // blank suffix is treated as unknown too
+        let (_, ext_blank) = subsonic_download_target(DownloadFormat::Flac, Some("  "));
+        assert_eq!(ext_blank, None);
+    }
+
+    #[test]
+    fn test_subsonic_target_aac_transcodes_to_m4a() {
+        let (param, ext) = subsonic_download_target(DownloadFormat::Aac, Some("flac"));
+        assert_eq!(param, Some("aac"));
+        assert_eq!(ext.as_deref(), Some("m4a"));
+    }
+
+    #[test]
+    fn test_subsonic_target_mp3_transcodes_to_mp3() {
+        let (param, ext) = subsonic_download_target(DownloadFormat::Mp3, Some("flac"));
+        assert_eq!(param, Some("mp3"));
+        assert_eq!(ext.as_deref(), Some("mp3"));
+    }
+
+    // --- sniff_audio_extension tests ---
+
+    #[test]
+    fn test_sniff_flac() {
+        assert_eq!(sniff_audio_extension(b"fLaC\x00\x00\x00\x22"), Some("flac"));
+    }
+
+    #[test]
+    fn test_sniff_mp3_id3() {
+        assert_eq!(sniff_audio_extension(b"ID3\x03\x00\x00\x00\x00"), Some("mp3"));
+    }
+
+    #[test]
+    fn test_sniff_mp3_frame_sync() {
+        assert_eq!(sniff_audio_extension(&[0xFF, 0xFB, 0x90, 0x00]), Some("mp3"));
+    }
+
+    #[test]
+    fn test_sniff_m4a_ftyp() {
+        // size box + "ftyp" + brand
+        assert_eq!(
+            sniff_audio_extension(b"\x00\x00\x00\x20ftypM4A "),
+            Some("m4a")
+        );
+    }
+
+    #[test]
+    fn test_sniff_ogg() {
+        assert_eq!(sniff_audio_extension(b"OggS\x00\x02\x00\x00"), Some("ogg"));
+    }
+
+    #[test]
+    fn test_sniff_wav() {
+        assert_eq!(sniff_audio_extension(b"RIFF\x00\x00\x00\x00WAVE"), Some("wav"));
+    }
+
+    #[test]
+    fn test_sniff_unknown_returns_none() {
+        assert_eq!(sniff_audio_extension(b"\x00\x01\x02\x03"), None);
+        assert_eq!(sniff_audio_extension(b""), None);
     }
 
     // --- build_dest_path tests ---
@@ -963,6 +1163,7 @@ mod tests {
             url: "https://example.com/stream".to_string(),
             headers: None,
             metadata: None,
+            ext: None,
         };
         assert!(registry.respond(42, Some(response)));
 
