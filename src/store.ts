@@ -46,7 +46,6 @@ const STORE_DEFAULTS = {
   videoLayout: { dockSide: "bottom", fitMode: "contain", sizes: { top: 300, bottom: 300, left: 400, right: 400 }, isCollapsed: false },
   sidebarCollapsed: true,
   queueCollapsed: true,
-  downloadFormat: "flac",
   lastDownloadDest: null,
   skin: "default",
   loggingEnabled: false,

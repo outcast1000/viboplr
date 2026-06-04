@@ -17,7 +17,6 @@ export function MultiTrackDownload({
   providerId: _providerId,
   providerName,
   confirmed,
-  downloadFormat,
   qualityOptions,
   collections,
   downloadsCollectionId,
@@ -33,7 +32,6 @@ export function MultiTrackDownload({
   providerId: string;
   providerName: string;
   confirmed?: boolean;
-  downloadFormat: string;
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   downloadsCollectionId?: number | null;
@@ -54,7 +52,7 @@ export function MultiTrackDownload({
 
   const [step, setStep] = useState<BatchStep>("configure");
   const [quality, setQualityState] = useState<string>(
-    hasProviderQualities ? qualities[0].value : (downloadFormat === "flac" ? "flac" : "aac")
+    hasProviderQualities ? qualities[0].value : "flac"
   );
   const setQuality = (q: string) => {
     setQualityState(q);

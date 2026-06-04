@@ -14,7 +14,6 @@ export function SingleTrackDownload({
   providerId: _providerId,
   providerName,
   resolveByUri,
-  downloadFormat,
   qualityOptions,
   collections,
   downloadsCollectionId,
@@ -30,7 +29,6 @@ export function SingleTrackDownload({
   providerId: string;
   providerName: string;
   resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
-  downloadFormat: string;
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   downloadsCollectionId?: number | null;
@@ -74,7 +72,7 @@ export function SingleTrackDownload({
 
   const [quality, setQualityState] = useState<string>(() => {
     if (hasProviderQualities) return qualities[0].value;
-    return downloadFormat === "flac" ? "flac" : "aac";
+    return "flac";
   });
   const setQuality = (q: string) => {
     setQualityState(q);

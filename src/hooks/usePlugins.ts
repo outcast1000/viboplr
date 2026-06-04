@@ -133,7 +133,6 @@ export interface PluginPlaybackCallbacks {
   playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name?: string; playlistName?: string; coverUrl?: string | null; source?: string | null; description?: string | null; metadata?: Record<string, string> | null }) => void;
   insertTrack: (track: PluginTrack, position: number) => void;
   insertTracks: (tracks: PluginTrack[], position: number) => void;
-  getDownloadFormat: () => string;
 }
 
 export interface PluginHostCallbacks {
@@ -858,9 +857,6 @@ export function usePlugins(
         },
 
         downloads: {
-          async getDownloadFormat() {
-            return playbackCallbacksRef.current?.getDownloadFormat() ?? "flac";
-          },
           async enqueue(request) {
             return invoke<number>("enqueue_download", {
               title: request.title,

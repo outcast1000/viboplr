@@ -853,8 +853,6 @@ interface SettingsPanelProps {
   backendTimings: TimingEntry[];
   frontendTimings: TimingEntry[];
   onFetchBackendTimings: () => void;
-  downloadFormat: string;
-  onDownloadFormatChange: (format: string) => void;
   // Plugins (for provider priority section)
   pluginStates?: PluginState[];
   // Logging
@@ -913,8 +911,6 @@ export function SettingsPanel({
   backendTimings,
   frontendTimings,
   onFetchBackendTimings,
-  downloadFormat,
-  onDownloadFormatChange,
   pluginStates,
   loggingEnabled,
   onLoggingEnabledChange,
@@ -1180,20 +1176,6 @@ export function SettingsPanel({
                           </button>
                         )}
                       </div>
-                    </div>
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Download format</span>
-                        <span className="settings-description">Preferred format for saving tracks</span>
-                      </div>
-                      <select
-                        value={downloadFormat}
-                        onChange={(e) => onDownloadFormatChange(e.target.value)}
-                        className="ds-select"
-                      >
-                        <option value="flac">FLAC (Lossless)</option>
-                        <option value="aac">M4A (AAC)</option>
-                      </select>
                     </div>
                   </div>
                 </div>

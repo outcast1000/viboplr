@@ -62,7 +62,6 @@
 - **useSkins.ts** — Skin management: load/apply/import/delete, gallery browsing, CSS injection via `<style id="viboplr-skin">`.
 - **useLikeActions.ts** — Like/unlike for tracks (tri-state: -1/0/1), artists, albums, tags (binary: 0/1).
 - **useContextMenuActions.ts** — Context menu action handlers (delete, show in folder, YouTube, etc.).
-- **useDownloads.ts** — Download management with progress tracking.
 
 ## Keyboard Shortcuts
 

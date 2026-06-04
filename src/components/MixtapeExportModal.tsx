@@ -3,6 +3,7 @@ import { save, open } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { useState, useEffect, useCallback } from "react";
 import { formatDuration, formatFileSize } from "../utils";
+import { MIXTAPE_FORMAT_LADDER, MIXTAPE_FORMAT_DEFAULT } from "../utils/mixtapeFormatLadder";
 
 export interface ExportTrack {
   id?: number;
@@ -21,7 +22,6 @@ interface MixtapeExportModalProps {
   defaultCoverPath?: string | null;
   defaultMetadata?: Record<string, string> | null;
   defaultMixtapeType?: MixtapeType;
-  downloadFormat?: string;
   onClose: () => void;
 }
 
@@ -70,8 +70,9 @@ function formatPhase(phase: string): string {
 }
 
 
-export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, defaultMetadata, defaultMixtapeType, downloadFormat, onClose }: MixtapeExportModalProps) {
+export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, defaultMetadata, defaultMixtapeType, onClose }: MixtapeExportModalProps) {
   const [title, setTitle] = useState(defaultTitle || "");
+  const [maxFormat, setMaxFormat] = useState<string>(MIXTAPE_FORMAT_DEFAULT);
   const [mixtapeType, setMixtapeType] = useState<MixtapeType>(defaultMixtapeType || "custom");
   const [coverPath, setCoverPath] = useState<string | null>(defaultCoverPath ?? null);
   const [includeThumb, setIncludeThumb] = useState(true);
@@ -218,7 +219,7 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
             coverImagePath: coverPath,
             includeThumbs: includeThumb,
             tracks: trackInputs,
-            format: downloadFormat || "flac",
+            format: maxFormat,
           },
         });
       }
@@ -226,7 +227,7 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
       setError(`Export failed: ${err}`);
       setExporting(false);
     }
-  }, [title, metadataEntries, mixtapeType, coverPath, includeThumb, trackList, exportMode]);
+  }, [title, metadataEntries, mixtapeType, coverPath, includeThumb, trackList, exportMode, maxFormat]);
 
   const handleCancel = useCallback(() => {
     if (exporting) {
@@ -334,6 +335,18 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
                       <p className="mixtape-export-hint">Track list and cover only — no audio files</p>
                     )}
                   </div>
+                  {exportMode === "full" && trackList.some(t => trackStatus(t) !== "local") && (
+                    <div className="mixtape-export-row">
+                      <label>
+                        Max preferred format
+                        <select value={maxFormat} onChange={(e) => setMaxFormat(e.target.value)}>
+                          {MIXTAPE_FORMAT_LADDER.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  )}
                   <div className="mixtape-export-row">
                     <label>
                       Type

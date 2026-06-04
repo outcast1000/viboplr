@@ -231,7 +231,6 @@ There is **no** `api.informationTypes.invoke` escape hatch — plugins cannot ca
 - `onFetch(entity, handler)` — entity is `"artist"` or `"album"`. Handler receives `(name, artistName?)` and returns `{ status: "ok", url, headers? } | { status: "ok", data } | { status: "not_found" } | { status: "error", message? }`.
 
 ### api.downloads
-- `getDownloadFormat()` — returns the user's configured download format (`"flac" | "m4a" | "mp3" | "aac"`)
 - `enqueue(request)` — queue a download through the unified downloader. `request: { title, artistName?, albumTitle?, uri?, durationSecs?, destCollectionId?, destCollectionPath?, format?, provider? }`. Returns the download ID.
 - `onResolveByUri(providerId, handler)` — handler receives `(uri, format)` and returns a `DownloadResolveResult | null`
 - `onResolveByMetadata(providerId, handler)` — handler receives `(title, artistName, albumName, durationSecs, format)`

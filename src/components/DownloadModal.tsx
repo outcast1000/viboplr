@@ -13,7 +13,6 @@ interface DownloadModalProps {
   providerName: string;
   confirmed?: boolean;
   resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
-  downloadFormat: string;
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   downloadsCollectionId?: number | null;
@@ -32,7 +31,6 @@ export function DownloadModal({
   providerName,
   confirmed,
   resolveByUri,
-  downloadFormat,
   qualityOptions,
   collections,
   downloadsCollectionId,
@@ -55,7 +53,6 @@ export function DownloadModal({
             providerId={providerId}
             providerName={providerName}
             resolveByUri={resolveByUri}
-            downloadFormat={downloadFormat}
             qualityOptions={qualityOptions}
             collections={collections}
             downloadsCollectionId={downloadsCollectionId}
@@ -73,7 +70,6 @@ export function DownloadModal({
             providerId={providerId}
             providerName={providerName}
             confirmed={confirmed}
-            downloadFormat={downloadFormat}
             qualityOptions={qualityOptions}
             collections={collections}
             downloadsCollectionId={downloadsCollectionId}

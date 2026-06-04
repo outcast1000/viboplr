@@ -626,7 +626,6 @@ export interface DownloadRequest {
 }
 
 export interface PluginDownloadsAPI {
-  getDownloadFormat(): Promise<string>;
   enqueue(request: DownloadRequest): Promise<number>;
   onResolveByUri(providerId: string, handler: DownloadResolveByUriHandler): () => void;
   onResolveByMetadata(providerId: string, handler: DownloadResolveByMetadataHandler): () => void;

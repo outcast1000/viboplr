@@ -55,7 +55,6 @@ import { usePlugins, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY, type PluginHostCallback
 import { useImageResolver } from "./hooks/useImageResolver";
 import { useExtensions } from "./hooks/useExtensions";
 
-import { useDownloads } from "./hooks/useDownloads";
 import { useLikeActions } from "./hooks/useLikeActions";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
@@ -122,6 +121,49 @@ import { DependencyModal } from "./components/DependencyModal";
 function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<VideoFrameQueue | null> }) {
   const queue = useVideoFrameQueue();
   useEffect(() => { refOut.current = queue; }, [queue, refOut]);
+  return null;
+}
+
+async function resolveTrackDownload(
+  providers: DownloadProvider[],
+  uri: string | null,
+  title: string,
+  artistName: string | null,
+  albumName: string | null,
+  durationSecs: number | null,
+  format: string,
+  provider?: string | null,
+): Promise<DownloadResolveResult | null> {
+  const targetProviders = provider
+    ? providers.filter(p => p.id === provider)
+    : providers;
+
+  if (uri) {
+    for (const p of targetProviders) {
+      try {
+        const result = await Promise.race([
+          p.resolveByUri(uri, format),
+          new Promise<null>((r) => setTimeout(() => r(null), 10000)),
+        ]);
+        if (result) return result;
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  for (const p of targetProviders) {
+    try {
+      const result = await Promise.race([
+        p.resolveByMetadata(title, artistName, albumName, durationSecs, format),
+        new Promise<null>((r) => setTimeout(() => r(null), 10000)),
+      ]);
+      if (result) return result;
+    } catch {
+      continue;
+    }
+  }
+
   return null;
 }
 
@@ -286,7 +328,6 @@ function App() {
       image_url: info.image_url ?? undefined,
     };
   }, []);
-  const downloadFormatRef = useRef("flac");
   const pluginPlaybackCallbacks = useMemo(() => ({
     playTrack: (track: PluginTrack) => {
       queueHook.playTracks([pluginTrackToQueueTrack(track)], 0);
@@ -314,7 +355,6 @@ function App() {
         queueHook.insertAtPosition(converted, position);
       }
     },
-    getDownloadFormat: () => downloadFormatRef.current,
   }), [queueHook, pluginTrackToQueueTrack]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode, devPluginPath);
@@ -440,6 +480,29 @@ function App() {
 
   const downloadProvidersRef = useRef<DownloadProvider[]>([]);
   downloadProvidersRef.current = downloadProviders;
+
+  // Respond to backend download-resolve-request events by walking the plugin
+  // download-provider chain. (Inlined from the former useDownloads hook.)
+  useEffect(() => {
+    const unlisten = listen<{
+      id: number;
+      title: string;
+      artist_name: string | null;
+      album_title: string | null;
+      duration_secs: number | null;
+      uri: string | null;
+      format: string;
+      provider: string | null;
+    }>("download-resolve-request", async (event) => {
+      const { id, title, artist_name, album_title, duration_secs, uri, format, provider } = event.payload;
+      const result = await resolveTrackDownload(
+        downloadProvidersRef.current,
+        uri, title, artist_name, album_title, duration_secs, format, provider,
+      );
+      await invoke("download_resolve_response", { id, result: result ?? null });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
 
   const [providerPriorities, setProviderPriorities] = useState<Map<string, number>>(new Map());
 
@@ -639,9 +702,6 @@ function App() {
     onFetchSkinGallery: skins.fetchGallery,
     onReloadAllPlugins: plugins.reloadAllPlugins,
   });
-
-  // Downloads
-  const downloads = useDownloads(downloadFormatRef, downloadProvidersRef);
 
   // Like actions
   const likeActions = useLikeActions({
@@ -852,7 +912,7 @@ function App() {
         uri: track?.path ?? null,
         durationSecs: track?.duration_secs ?? null,
         destCollectionId: null,
-        format: downloadFormatRef.current,
+        format: null,
         provider: providerId,
       }).catch((e: unknown) => {
         console.error("Failed to enqueue download:", e);
@@ -1434,7 +1494,7 @@ function App() {
           trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
           videoLayout: savedVideoLayout,
           sidebarCollapsed: savedSidebarCollapsed, queueCollapsed: savedQueueCollapsed, queueWidth: savedQueueWidth,
-          downloadFormat: savedDownloadFormat, filterYoutubeOnly: savedFilterYoutubeOnly,
+          filterYoutubeOnly: savedFilterYoutubeOnly,
           mediaTypeFilter: savedMediaTypeFilter, trackLikedFirst: savedTrackLikedFirst,
           lastDownloadDest: savedLastDownloadDest, searchViewModes: savedSearchViewModes,
           downloadsCollectionId: savedDownloadsCollectionId,
@@ -1512,7 +1572,6 @@ function App() {
         if (savedSidebarCollapsed) setSidebarCollapsed(true);
         if (savedQueueCollapsed) setQueueCollapsed(true);
         if (savedQueueWidth && savedQueueWidth >= 200 && savedQueueWidth <= 600) setQueueWidth(savedQueueWidth);
-        if (savedDownloadFormat && ["flac", "aac"].includes(savedDownloadFormat)) { downloads.setFormat(savedDownloadFormat, store); }
         if (savedLastDownloadDest !== undefined) setLastDownloadDest(savedLastDownloadDest ?? null);
         if (savedSearchViewModes) {
           const validModes = ["basic", "list", "tiles"];
@@ -2801,8 +2860,6 @@ function App() {
               backendTimings={backendTimings}
               frontendTimings={getTimingEntries()}
               onFetchBackendTimings={() => invoke<TimingEntry[]>("get_startup_timings").then(setBackendTimings)}
-              downloadFormat={downloads.downloadFormat}
-              onDownloadFormatChange={(format) => downloads.setFormat(format, store)}
               pluginStates={plugins.pluginStates}
               loggingEnabled={loggingEnabled}
               onLoggingEnabledChange={handleLoggingEnabledChange}
@@ -3000,7 +3057,6 @@ function App() {
           providerName={downloadModal.providerName}
           confirmed={downloadModal.confirmed}
           resolveByUri={downloadModal.resolveByUri}
-          downloadFormat={downloads.downloadFormat}
           qualityOptions={qualityOptions}
           collections={localCollections}
           downloadsCollectionId={downloadsCollectionId}
@@ -3192,7 +3248,6 @@ function App() {
           defaultCoverPath={mixtapeExportDefaultCover}
           defaultMetadata={mixtapeExportDefaultMetadata}
           defaultMixtapeType={mixtapeExportDefaultType}
-          downloadFormat={downloads.downloadFormat}
           onClose={() => setMixtapeExportTracks(null)}
         />
       )}

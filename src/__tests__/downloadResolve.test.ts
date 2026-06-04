@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { DownloadProvider } from "../types/plugin";
 
-// The resolveTrackDownload function is now internal to useDownloads.
+// The resolveTrackDownload function is now internal to App.tsx.
 // Test the DownloadProvider interface contract instead.
 
 describe("DownloadProvider interface", () => {
