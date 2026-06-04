@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { isPositionOnScreen, clampToNearestMonitor } from "../hooks/useMiniMode";
+import { isCurrentPlayGeneration } from "../hooks/usePlayback";
 
 // --- Extracted pure functions from hooks ---
 
@@ -176,5 +177,30 @@ describe("clampToNearestMonitor", () => {
 
   it("returns original coordinates when monitors is empty", () => {
     expect(clampToNearestMonitor(9999, 9999, 500, 40, [])).toEqual({ x: 9999, y: 9999 });
+  });
+});
+
+describe("isCurrentPlayGeneration (rapid track-switch abort guard)", () => {
+  it("treats a request as current when no newer one started", () => {
+    expect(isCurrentPlayGeneration(1, 1)).toBe(true);
+  });
+
+  it("treats a superseded request as stale", () => {
+    // handlePlay captured generation 1, but a later click bumped the ref to 2.
+    expect(isCurrentPlayGeneration(1, 2)).toBe(false);
+  });
+
+  it("discards the AbortError from every track skipped past", () => {
+    // Simulate pressing Next three times in quick succession: each handlePlay
+    // bumps the ref, so only the final request's outcome should be honoured.
+    let ref = 0;
+    const gen1 = ++ref; // first click
+    const gen2 = ++ref; // second click (aborts the first)
+    const gen3 = ++ref; // third click (aborts the second)
+    // The first two reject with AbortError and must be ignored...
+    expect(isCurrentPlayGeneration(gen1, ref)).toBe(false);
+    expect(isCurrentPlayGeneration(gen2, ref)).toBe(false);
+    // ...only the last request is allowed to surface an error.
+    expect(isCurrentPlayGeneration(gen3, ref)).toBe(true);
   });
 });

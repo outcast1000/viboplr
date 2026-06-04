@@ -15,6 +15,14 @@ function logPlayback(message: string) {
   invoke("write_frontend_log", { level: "info", message, section: "playback" }).catch(() => {});
 }
 
+// A play request is "current" only while no later request has started. Used to
+// decide whether a caught playback error / loading-state reset belongs to the
+// active track or to a superseded one whose play() was aborted by the newer
+// request's pause/load. Pure so it can be unit-tested without the hook.
+export function isCurrentPlayGeneration(captured: number, current: number): boolean {
+  return captured === current;
+}
+
 export function usePlayback(
   restoredRef: React.RefObject<boolean>,
   peekNextRef: React.RefObject<() => QueueTrack | null>,
@@ -42,6 +50,13 @@ export function usePlayback(
   // in the same tick (play().catch + onLoadedMetadata/onMediaError) could both
   // pass that guard. This ref is set synchronously before the await.
   const transcodeStartingRef = useRef(false);
+  // Monotonic id bumped on every play request (handlePlay/handlePlayUrl). When a
+  // newer request starts, it pauses/reloads the audio elements, which rejects the
+  // previous request's pending `play()` promise with an AbortError ("The operation
+  // was aborted."). That rejection is expected, not a real failure — by capturing
+  // the id at the start of each request and comparing on completion, a superseded
+  // request silently discards its outcome instead of flashing a playback-error modal.
+  const playGenerationRef = useRef(0);
 
   const audioRefA = useRef<HTMLAudioElement>(null);
   const audioRefB = useRef<HTMLAudioElement>(null);
@@ -483,6 +498,7 @@ export function usePlayback(
   }
 
   async function handlePlay(track: QueueTrack, source: "user" | "auto" = "user") {
+    const generation = ++playGenerationRef.current;
     if (eqEnabledRef.current) ensureAudioGraph();
     cancelCrossfade();
     // Pause the outgoing audio synchronously so its `ended` event can't fire
@@ -508,13 +524,17 @@ export function usePlayback(
         : await resolveTrackSrcRef.current(track);
       await playWithSrc(track, src, source);
     } catch (e) {
+      // A newer play request has superseded this one: its synchronous
+      // pause/load aborted this request's in-flight play(). The rejection is
+      // expected and belongs to a track that's no longer current — discard it.
+      if (!isCurrentPlayGeneration(generation, playGenerationRef.current)) return;
       console.error("Playback error:", e);
       setCurrentTrack(track);
       setPlaying(false);
       setPlaybackError(e instanceof Error ? e.message : String(e));
       setFailedTrack(track);
     } finally {
-      setLoadingTrack(null);
+      if (isCurrentPlayGeneration(generation, playGenerationRef.current)) setLoadingTrack(null);
     }
   }
 
@@ -523,6 +543,7 @@ export function usePlayback(
   }
 
   async function handlePlayUrl(track: QueueTrack, url: string) {
+    const generation = ++playGenerationRef.current;
     if (eqEnabledRef.current) ensureAudioGraph();
     cancelCrossfade();
     invalidatePreload();
@@ -532,13 +553,15 @@ export function usePlayback(
     try {
       await playWithSrc(track, url);
     } catch (e) {
+      // Superseded by a newer play request — see handlePlay for details.
+      if (!isCurrentPlayGeneration(generation, playGenerationRef.current)) return;
       console.error("Playback error:", e);
       setCurrentTrack(track);
       setPlaying(false);
       setPlaybackError(e instanceof Error ? e.message : String(e));
       setFailedTrack(track);
     } finally {
-      setLoadingTrack(null);
+      if (isCurrentPlayGeneration(generation, playGenerationRef.current)) setLoadingTrack(null);
     }
   }
 
