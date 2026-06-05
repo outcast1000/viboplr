@@ -1017,6 +1017,14 @@ function App() {
       } else if (action === "refresh-library") {
         library.loadLibrary();
         library.loadTracks();
+      } else if (action === "require-dependency") {
+        // A plugin asks the host to surface its platform-aware install modal for a
+        // binary dependency (e.g. YouTube → yt-dlp). The modal pulls the correct
+        // command per OS (brew / winget / apt) from the Rust dependency registry.
+        const p = payload as { name?: string; feature?: string };
+        if (p.name) {
+          dependencies.promptDep(p.name, p.feature ?? _pluginId).catch(console.error);
+        }
       }
     },
     showNotification: (message) => {

@@ -129,6 +129,22 @@ export function useDependencies(pluginStates: PluginState[]) {
     [checkDep],
   );
 
+  // Like requireDep, but always (re)shows the modal when the dependency is
+  // missing — for explicit user requests (e.g. a plugin's "Install" button)
+  // where the once-per-session guard of requireDep would otherwise swallow the
+  // second click after a dismiss.
+  const promptDep = useCallback(
+    async (name: string, feature: string): Promise<boolean> => {
+      const dep = await checkDep(name);
+      if (!dep) return false;
+      if (dep.status === "installed") return true;
+      shownModalsRef.current.add(name);
+      setModalState({ dep, feature });
+      return false;
+    },
+    [checkDep],
+  );
+
   const dismissModal = useCallback(() => {
     setModalState(null);
   }, []);
@@ -150,6 +166,7 @@ export function useDependencies(pluginStates: PluginState[]) {
     checkAll,
     checkDep,
     requireDep,
+    promptDep,
     dismissModal,
     recheckModal,
   };
