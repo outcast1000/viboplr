@@ -877,7 +877,7 @@ pub fn run() {
                                 };
                                 log::info!("Album image from embedded artwork: {} from {}", title, source);
                                 let _ = app_handle.emit("album-image-ready",
-                                    serde_json::json!({ "path": &path_str, "title": title, "source": &source }));
+                                    serde_json::json!({ "path": &path_str, "title": title, "artist_name": artist_name, "source": &source }));
                                 std::thread::sleep(std::time::Duration::from_millis(1100));
                                 continue;
                             }
@@ -911,20 +911,20 @@ pub fn run() {
                                         log::warn!("All providers failed for album {}: {}", title, error);
                                         let _ = worker_db.record_image_failure("album", &slug);
                                         let _ = app_handle.emit("album-image-error",
-                                            serde_json::json!({ "title": title, "error": error }));
+                                            serde_json::json!({ "title": title, "artist_name": artist_name, "error": error }));
                                     } else if let Some(data) = result.data {
                                         match base64_decode_and_save(&data, &dest) {
                                             Ok(()) => {
                                                 let path = dest.to_string_lossy().to_string();
                                                 log::info!("Saved album image from base64 data: {}", title);
                                                 let _ = app_handle.emit("album-image-ready",
-                                                    serde_json::json!({ "path": &path, "title": title, "source": "plugin" }));
+                                                    serde_json::json!({ "path": &path, "title": title, "artist_name": artist_name, "source": "plugin" }));
                                             }
                                             Err(e) => {
                                                 log::warn!("Failed to decode/save base64 image for album {}: {}", title, e);
                                                 let _ = worker_db.record_image_failure("album", &slug);
                                                 let _ = app_handle.emit("album-image-error",
-                                                    serde_json::json!({ "title": title, "error": e }));
+                                                    serde_json::json!({ "title": title, "artist_name": artist_name, "error": e }));
                                             }
                                         }
                                     } else if let Some(url) = result.url {
@@ -933,13 +933,13 @@ pub fn run() {
                                                 let path = dest.to_string_lossy().to_string();
                                                 log::info!("Downloaded album image from {}: {}", url, title);
                                                 let _ = app_handle.emit("album-image-ready",
-                                                    serde_json::json!({ "path": &path, "title": title, "source": "plugin" }));
+                                                    serde_json::json!({ "path": &path, "title": title, "artist_name": artist_name, "source": "plugin" }));
                                             }
                                             Err(e) => {
                                                 log::warn!("Failed to download album image from {}: {}", url, e);
                                                 let _ = worker_db.record_image_failure("album", &slug);
                                                 let _ = app_handle.emit("album-image-error",
-                                                    serde_json::json!({ "title": title, "error": e }));
+                                                    serde_json::json!({ "title": title, "artist_name": artist_name, "error": e }));
                                             }
                                         }
                                     } else {
@@ -953,7 +953,7 @@ pub fn run() {
                                     log::warn!("Image resolve timeout for album {}", title);
                                     let _ = worker_db.record_image_failure("album", &slug);
                                     let _ = app_handle.emit("album-image-error",
-                                        serde_json::json!({ "title": title, "error": "Resolve timeout" }));
+                                        serde_json::json!({ "title": title, "artist_name": artist_name, "error": "Resolve timeout" }));
                                 }
                             }
                         }
