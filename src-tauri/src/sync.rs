@@ -44,12 +44,18 @@ pub fn sync_collection(
 
     let total = all_album_ids.len() as u64;
     let mut synced: u64 = 0;
+    // Tracks whether any per-album fetch failed. A failed fetch means its tracks
+    // never make it into `seen_paths`, which would make them look "removed on the
+    // server" below. We only trust the seen/not-seen diff for pruning when the
+    // server view was complete -- see the deletion phase.
+    let mut fetch_failures: u64 = 0;
 
     for album_id in &all_album_ids {
         let (album, tracks) = match client.get_album(album_id) {
             Ok(result) => result,
             Err(e) => {
                 log::warn!("Failed to fetch album {}: {}", album_id, e);
+                fetch_failures += 1;
                 synced += 1;
                 if synced % 5 == 0 || synced == total {
                     progress_callback(synced, total);
@@ -113,14 +119,34 @@ pub fn sync_collection(
         }
     }
 
-    // Delete tracks that are no longer on the server
-    let removed: Vec<String> = existing_paths
-        .into_iter()
-        .filter(|p| !seen_paths.contains(p))
-        .collect();
-    let removed_count = removed.len() as u64;
-    db.delete_tracks_by_paths_in_collection(collection_id, &removed)
-        .map_err(|e| e.to_string())?;
+    // Delete tracks that are no longer on the server.
+    //
+    // Pruning is destructive and relies on `seen_paths` being a complete picture
+    // of what the server currently holds. If any album fetch failed this run, its
+    // tracks are missing from `seen_paths` even though they still exist on the
+    // server -- pruning then would silently delete real tracks (e.g. a flaky
+    // connection that fails 70% of album fetches would wipe 70% of the library
+    // while still reporting success). Only prune when we have a trustworthy,
+    // complete snapshot; otherwise keep everything and let the next clean sync
+    // do the pruning.
+    let removed_count = if fetch_failures > 0 {
+        log::warn!(
+            "Skipping prune for collection {}: {} of {} album fetch(es) failed, server view is incomplete",
+            collection_id,
+            fetch_failures,
+            total
+        );
+        0
+    } else {
+        let removed: Vec<String> = existing_paths
+            .into_iter()
+            .filter(|p| !seen_paths.contains(p))
+            .collect();
+        let count = removed.len() as u64;
+        db.delete_tracks_by_paths_in_collection(collection_id, &removed)
+            .map_err(|e| e.to_string())?;
+        count
+    };
 
     db.rebuild_fts().map_err(|e| e.to_string())?;
     db.recompute_counts().map_err(|e| e.to_string())?;
