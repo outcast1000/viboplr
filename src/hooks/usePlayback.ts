@@ -94,6 +94,30 @@ export function usePlayback(
     return mutedRef.current ? 0 : volumeRef.current;
   }
 
+  // DIAGNOSTIC (no behavior change): a "shadow" track is an audio element still
+  // producing sound while it is NOT the active slot and no crossfade is running.
+  // That orphan state is the suspected cause of the rare "two tracks at once /
+  // pause leaves one playing" bug. We can't reproduce it on demand, so we log
+  // full state the moment it appears in the wild to pin down the trigger.
+  function diagnoseShadowPlayback(origin: string): void {
+    const a = audioRefA.current;
+    const b = audioRefB.current;
+    if (!a || !b) return;
+    const aPlaying = !a.paused && !a.ended;
+    const bPlaying = !b.paused && !b.ended;
+    if (aPlaying && bPlaying && !isCrossfadingRef.current) {
+      logPlayback(
+        `SHADOW DETECTED (${origin}): both A & B playing outside a crossfade. ` +
+          `active=${activeSlotRef.current} ` +
+          `A{src=${a.src ? "set" : "empty"} t=${a.currentTime.toFixed(1)} paused=${a.paused} ended=${a.ended}} ` +
+          `B{src=${b.src ? "set" : "empty"} t=${b.currentTime.toFixed(1)} paused=${b.paused} ended=${b.ended}} ` +
+          `crossfadeTimer=${crossfadeTimerRef.current !== null} ` +
+          `preloaded=${preloadedTrackRef.current?.title ?? "none"} ` +
+          `current=${currentTrack?.title ?? "none"}`,
+      );
+    }
+  }
+
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceARef = useRef<MediaElementAudioSourceNode | null>(null);
   const sourceBRef = useRef<MediaElementAudioSourceNode | null>(null);
@@ -339,6 +363,12 @@ export function usePlayback(
       outgoing.pause();
       outgoing.removeAttribute("src");
       outgoing.load();
+      // DIAGNOSTIC: verify the outgoing element actually stopped. If WKWebView
+      // left it playing here, isCrossfadingRef is about to flip false and the
+      // element becomes an untracked orphan (the shadow bug).
+      if (!outgoing.paused) {
+        logPlayback("CROSSFADE WARN (finish): outgoing element still playing after pause()/load()");
+      }
     }
 
     // Set incoming element to full volume
@@ -368,6 +398,10 @@ export function usePlayback(
       outgoing.pause();
       outgoing.removeAttribute("src");
       outgoing.load();
+      // DIAGNOSTIC: see finishCrossfade — same orphan risk on the cancel path.
+      if (!outgoing.paused) {
+        logPlayback("CROSSFADE WARN (cancel): outgoing element still playing after pause()/load()");
+      }
     }
 
     // Snap incoming to full volume
@@ -675,6 +709,11 @@ export function usePlayback(
     } else {
       cancelCrossfade();
       el.pause();
+      // DIAGNOSTIC: the user-facing symptom is "I pressed pause and a track
+      // kept playing". After pausing the active element, check whether the
+      // OTHER element is still producing sound — that confirms an orphan that
+      // handlePause can't reach (it only acts on the active slot).
+      diagnoseShadowPlayback("handlePause");
     }
   }
 
@@ -767,6 +806,10 @@ export function usePlayback(
 
   function onTimeUpdate(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
     const el = e.target as HTMLMediaElement;
+    // Run shadow detection BEFORE the active-element guard: a timeupdate from
+    // the INACTIVE element while it's playing (and no crossfade) is exactly the
+    // orphan we're hunting. The active-element guard below would hide it.
+    diagnoseShadowPlayback("timeupdate");
     if (!isActiveElement(el)) return;
 
     const transcodeSession = (transcodeSessionRef.current && currentTrack && isVideoTrack(currentTrack))
