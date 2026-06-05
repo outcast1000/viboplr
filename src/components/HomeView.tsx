@@ -6,7 +6,7 @@ import { useHome, shelfKey } from "../hooks/useHome";
 import { useImageCache } from "../hooks/useImageCache";
 import { HomeHero } from "./HomeHero";
 import { HomeShelf } from "./HomeShelf";
-import { HomeShelvesPopover } from "./HomeShelvesPopover";
+import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { store } from "../store";
 import "./HomeView.css";
 
@@ -37,7 +37,6 @@ export function HomeView(props: HomeViewProps) {
   const artistImages = useImageCache("artist");
 
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
-  const [popoverOpen, setPopoverOpen] = useState(false);
 
   // Restore visibility on mount
   useEffect(() => {
@@ -75,11 +74,24 @@ export function HomeView(props: HomeViewProps) {
     ...props.pluginShelves.map(p => ({ id: shelfKey(p.pluginId, p.shelfId), title: p.title })),
   ];
 
+  function openShelvesMenu(e: React.MouseEvent<HTMLButtonElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const specs: MenuItemSpec[] = allShelfDescriptors.map((s) => ({
+      kind: "check",
+      text: s.title,
+      checked: visibility[s.id] !== false,
+      action: () => setVisibility((prev) => ({ ...prev, [s.id]: prev[s.id] === false })),
+    }));
+    showNativeMenu(rect.left, rect.bottom, specs).catch((err) =>
+      console.error("Failed to show shelves menu:", err)
+    );
+  }
+
   return (
     <div className="home-view" style={props.style}>
       <div className="home-view-header">
         <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={refresh} title="Refresh">⟳ Refresh</button>
-        <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={() => setPopoverOpen(true)} title="Shelves">⚙ Shelves</button>
+        <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={openShelvesMenu} title="Shelves">⚙ Shelves</button>
       </div>
 
       <HomeHero
@@ -101,15 +113,6 @@ export function HomeView(props: HomeViewProps) {
           onItemPlay={props.onShelfItemPlay}
         />
       ))}
-
-      {popoverOpen && (
-        <HomeShelvesPopover
-          shelves={allShelfDescriptors}
-          visibility={visibility}
-          onChange={(id, v) => setVisibility((prev) => ({ ...prev, [id]: v }))}
-          onClose={() => setPopoverOpen(false)}
-        />
-      )}
     </div>
   );
 }

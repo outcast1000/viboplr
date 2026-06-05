@@ -303,50 +303,6 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
-/* Column configuration menu */
-.column-menu-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 999;
-}
-
-.column-menu {
-  position: fixed;
-  z-index: 1000;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 0;
-  min-width: 150px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.column-menu-title {
-  padding: 4px 12px 8px;
-  font-size: var(--fs-xs);
-  text-transform: uppercase;
-  color: var(--text-secondary);
-  letter-spacing: 0.05em;
-}
-
-.column-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  cursor: pointer;
-  font-size: var(--fs-sm);
-  color: var(--text-primary);
-}
-
-.column-menu-item:hover {
-  background: var(--bg-hover);
-}
-
-.column-menu-item input[type="checkbox"] {
-  accent-color: var(--accent);
-}
-
 /* Clickable artist/album links in track rows */
 .track-link {
   cursor: pointer;

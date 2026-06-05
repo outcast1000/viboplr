@@ -6,6 +6,7 @@ import { IconYoutube } from "./Icons";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { SpinningDisc } from "./SpinningDisc";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import "./TrackList.css";
 
 function formatCount(n: number): string {
@@ -145,7 +146,6 @@ export function TrackList({
     return Math.max(0, ...Object.values(trackPopularity));
   }, [trackPopularity]);
 
-  const [columnMenuPos, setColumnMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [draggedCol, setDraggedCol] = useState<TrackColumnId | null>(null);
   const [dragOverCol, setDragOverCol] = useState<TrackColumnId | null>(null);
   const draggedRef = useRef<TrackColumnId | null>(null);
@@ -188,9 +188,7 @@ export function TrackList({
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        if (columnMenuPos) {
-          setColumnMenuPos(null);
-        } else if (selectedIds.size > 0) {
+        if (selectedIds.size > 0) {
           setSelectedIds(new Set());
         }
       } else if (e.key === "a" && (e.metaKey || e.ctrlKey) && tracks.length > 0) {
@@ -205,7 +203,7 @@ export function TrackList({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [columnMenuPos, selectedIds, onDeleteTracks, tracks]);
+  }, [selectedIds, onDeleteTracks, tracks]);
 
   function handleRowClick(e: React.MouseEvent, index: number) {
     if (didDragRowRef.current) return;
@@ -258,13 +256,21 @@ export function TrackList({
     window.addEventListener("mouseup", onMouseUp);
   }
 
-  function handleHeaderContextMenu(e: React.MouseEvent) {
-    e.preventDefault();
-    setColumnMenuPos({ x: e.clientX, y: e.clientY });
-  }
-
   function toggleColumnVisibility(id: TrackColumnId) {
     onColumnsChange(columns.map(c => c.id === id ? { ...c, visible: !c.visible } : c));
+  }
+
+  function handleHeaderContextMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    const specs: MenuItemSpec[] = columns.map(col => ({
+      kind: "check",
+      text: COLUMN_DISPLAY_NAMES[col.id],
+      checked: col.visible,
+      action: () => toggleColumnVisibility(col.id),
+    }));
+    showNativeMenu(e.clientX, e.clientY, specs).catch((err) =>
+      console.error("Failed to show column menu:", err)
+    );
   }
 
   const ghostRef = useRef<HTMLDivElement | null>(null);
@@ -501,25 +507,6 @@ export function TrackList({
       )}
       {tracks.length === 0 && (
         <div className="empty">{emptyMessage}</div>
-      )}
-
-      {columnMenuPos && (
-        <>
-          <div className="column-menu-backdrop" onClick={() => setColumnMenuPos(null)} />
-          <div className="column-menu" style={{ top: columnMenuPos.y, left: columnMenuPos.x }}>
-            <div className="column-menu-title">Columns</div>
-            {columns.map(col => (
-              <label key={col.id} className="column-menu-item">
-                <input
-                  type="checkbox"
-                  checked={col.visible}
-                  onChange={() => toggleColumnVisibility(col.id)}
-                />
-                {COLUMN_DISPLAY_NAMES[col.id]}
-              </label>
-            ))}
-          </div>
-        </>
       )}
     </div>
   );

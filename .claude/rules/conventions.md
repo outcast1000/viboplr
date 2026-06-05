@@ -120,6 +120,15 @@ Cross-cutting rules that apply to all code everywhere.
 - Check that the element renders correctly across different skins -- new UI must not break when a skin overrides colors, fonts, or spacing
 - Reference `types/skin.ts` for the available `SkinColors` properties
 
+### Native Menus Only
+
+- All menus — right-click context menus AND ⋯ overflow/dropdown menus — must be native OS menus, never JS/CSS popovers
+- **Canonical:** build a `MenuItemSpec[]` and call `showNativeMenu(x, y, specs)` from `nativeMenu.ts`. For entity context menus, go through `buildContextMenuSpecs(target, deps)` + the `buildAndShowNativeMenu` wrapper in `App.tsx`
+- A ⋯ trigger button computes its anchor with `e.currentTarget.getBoundingClientRect()` and pops the native menu at `(rect.left, rect.bottom)` — see `HeroOverflowMenu.tsx` and `SavePlaylistModal.tsx`
+- Never introduce a menu via React state (`menuOpen`/`setOpen`) + a `<div>` dropdown with click-outside/Escape handlers. That pattern is banned
+- `showNativeMenu` supports `item`, `check`, `separator`, and `submenu` specs — use `submenu` instead of a CSS hover fly-out
+- When you touch any surface that still shows a JS/CSS menu, convert it as part of the change
+
 ### Plugin-First for New Functionality
 
 - Before implementing new functionality directly in the app, check whether it could be accomplished as a plugin using the information type plugin system

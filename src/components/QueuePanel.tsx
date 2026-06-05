@@ -8,6 +8,7 @@ import { queueItemLocalThumb, isContextRemote } from "../mainPlaylist";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { SpinningDisc } from "./SpinningDisc";
+import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import "./QueuePanel.css";
 
 export interface PendingEnqueue {
@@ -140,8 +141,6 @@ export function QueuePanel({
   const [isDragging, setIsDragging] = useState(false);
   const [countdown, setCountdown] = useState(AUTO_APPROVE_SECS);
   const [tooltip, setTooltip] = useState<{ track: QueueTrack; anchorX: number; anchorY: number } | null>(null);
-  const [saveMenuOpen, setSaveMenuOpen] = useState(false);
-  const saveMenuRef = useRef<HTMLDivElement>(null);
   const [contextInfoAnchor, setContextInfoAnchor] = useState<{ x: number; y: number } | null>(null);
   const [contextInfoPos, setContextInfoPos] = useState<{ left: number; top: number } | null>(null);
   const contextInfoRef = useRef<HTMLDivElement>(null);
@@ -169,16 +168,17 @@ export function QueuePanel({
     setTooltipPos({ left, top });
   }, [tooltip]);
 
-  useEffect(() => {
-    if (!saveMenuOpen) return;
-    const handle = (e: MouseEvent) => {
-      if (saveMenuRef.current && !saveMenuRef.current.contains(e.target as Node)) {
-        setSaveMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [saveMenuOpen]);
+  const openSaveMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const specs: MenuItemSpec[] = [
+      { kind: "item", text: "Save as Playlist", action: onSaveToPlaylists },
+      { kind: "item", text: "Export as M3U", action: onSaveAsM3U },
+      { kind: "item", text: "Export as Mixtape", action: onExportAsMixtape },
+    ];
+    showNativeMenu(rect.left, rect.bottom, specs).catch((err) =>
+      console.error("Failed to show save playlist menu:", err)
+    );
+  }, [onSaveToPlaylists, onSaveAsM3U, onExportAsMixtape]);
 
   useEffect(() => {
     if (!contextInfoAnchor || !contextInfoRef.current) { setContextInfoPos(null); return; }
@@ -487,18 +487,11 @@ export function QueuePanel({
         <span className="queue-title">Playlist</span>
         <div className="queue-header-actions">
           <button className="g-btn g-btn-sm" onClick={onLoadPlaylist} title="Load playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>' }} />
-          <div className="queue-save-wrapper" ref={saveMenuRef}>
-            <button className="g-btn g-btn-sm queue-save-btn" onClick={() => setSaveMenuOpen(v => !v)} title="Save playlist">
+          <div className="queue-save-wrapper">
+            <button className="g-btn g-btn-sm queue-save-btn" onClick={openSaveMenu} title="Save playlist">
               <span dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>' }} />
               <span className="queue-save-caret">&#9662;</span>
             </button>
-            {saveMenuOpen && (
-              <div className="queue-save-menu">
-                <button onClick={() => { setSaveMenuOpen(false); onSaveToPlaylists(); }}>Save as Playlist</button>
-                <button onClick={() => { setSaveMenuOpen(false); onSaveAsM3U(); }}>Export as M3U</button>
-                <button onClick={() => { setSaveMenuOpen(false); onExportAsMixtape(); }}>Export as Mixtape</button>
-              </div>
-            )}
           </div>
           <button className="g-btn g-btn-sm" onClick={onEditPlaylist} title="Edit playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>' }} />
           <button className="g-btn g-btn-sm" onClick={onClear} title="Clear playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' }} />

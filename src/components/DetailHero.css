@@ -201,53 +201,11 @@
   text-shadow: var(--hero-text-shadow-sm);
 }
 
-/* HeroOverflowMenu */
-.hero-overflow-wrapper {
-  position: relative;
-  display: inline-flex;
-}
-
+/* HeroOverflowMenu — the ⋯ trigger opens a native menu (see nativeMenu.ts) */
 .hero-overflow-trigger {
   width: 38px;
   padding: 0;
   justify-content: center;
-}
-
-.hero-overflow-dropdown {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  right: 0;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  z-index: 100;
-  min-width: 200px;
-  padding: 4px 0;
-}
-
-.hero-overflow-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  color: var(--text-primary);
-  padding: 6px 12px;
-  font-size: var(--fs-xs);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.hero-overflow-item:hover { background: var(--bg-tertiary); }
-.hero-overflow-item--danger { color: var(--error); }
-
-.hero-overflow-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
 }
 
 /* Tighten the spacing between the hero and the section that follows. */

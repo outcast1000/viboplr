@@ -141,39 +141,6 @@
 .home-hero-arrow--left { left: 12px; }
 .home-hero-arrow--right { right: 12px; }
 
-/* Shelf visibility popover */
-.home-shelves-popover-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-}
-.home-shelves-popover {
-  position: absolute;
-  top: 56px;
-  right: 24px;
-  z-index: 101;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
-  min-width: 220px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-}
-.home-shelves-popover-title {
-  font-size: var(--fs-sm);
-  font-weight: 700;
-  margin-bottom: 8px;
-  color: var(--text-secondary);
-}
-.home-shelves-popover-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 4px;
-  font-size: var(--fs-sm);
-  cursor: pointer;
-}
-
 .home-view-header {
   display: flex; justify-content: flex-end; gap: 8px;
   margin-bottom: 16px;

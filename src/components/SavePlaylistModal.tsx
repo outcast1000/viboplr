@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import playlistDefault from "../assets/playlist-default.png";
 
 export interface PlaylistEditInfo {
@@ -21,8 +22,6 @@ interface SavePlaylistModalProps {
 export function SavePlaylistModal({ defaultName, defaultImage, title, info, onSave, onClose }: SavePlaylistModalProps) {
   const [name, setName] = useState(defaultName);
   const [imagePath, setImagePath] = useState<string | null>(defaultImage ?? null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   const [source, setSource] = useState(info?.source ?? "");
   const [description, setDescription] = useState(info?.description ?? "");
@@ -30,19 +29,7 @@ export function SavePlaylistModal({ defaultName, defaultImage, title, info, onSa
     info?.metadata ? Object.entries(info.metadata).map(([key, value]) => ({ key, value })) : [],
   );
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handle = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [menuOpen]);
-
   async function handlePasteImage() {
-    setMenuOpen(false);
     try {
       const path = await invoke<string>("paste_clipboard_to_playlist_images");
       setImagePath(path);
@@ -50,7 +37,6 @@ export function SavePlaylistModal({ defaultName, defaultImage, title, info, onSa
   }
 
   async function handleSetImage() {
-    setMenuOpen(false);
     const selected = await open({
       multiple: false,
       filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
@@ -64,8 +50,22 @@ export function SavePlaylistModal({ defaultName, defaultImage, title, info, onSa
   }
 
   function handleRemoveImage() {
-    setMenuOpen(false);
     setImagePath(null);
+  }
+
+  function openImageMenu(e: React.MouseEvent<HTMLButtonElement>) {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const specs: MenuItemSpec[] = [
+      { kind: "item", text: "Paste Image", action: handlePasteImage },
+      { kind: "item", text: "Set Image", action: handleSetImage },
+    ];
+    if (imagePath) {
+      specs.push({ kind: "item", text: "Remove Image", action: handleRemoveImage });
+    }
+    showNativeMenu(rect.left, rect.bottom, specs).catch((err) =>
+      console.error("Failed to show image options menu:", err)
+    );
   }
 
   function handleMetaChange(index: number, field: "key" | "value", val: string) {
@@ -112,29 +112,14 @@ export function SavePlaylistModal({ defaultName, defaultImage, title, info, onSa
         <div className="save-playlist-image-row">
           <div className="save-playlist-image-preview">
             <img src={imagePath ? convertFileSrc(imagePath) : playlistDefault} alt="" />
-            <div className="artist-image-menu-wrapper" ref={menuRef}>
+            <div className="artist-image-menu-wrapper">
               <button
                 className="artist-image-menu-trigger"
-                onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+                onClick={openImageMenu}
                 title="Image options"
               >
                 &#x22EF;
               </button>
-              {menuOpen && (
-                <div className="artist-image-menu-dropdown">
-                  <button onClick={handlePasteImage}>
-                    <span>Paste Image</span>
-                  </button>
-                  <button onClick={handleSetImage}>
-                    <span>Set Image</span>
-                  </button>
-                  {imagePath && (
-                    <button onClick={handleRemoveImage}>
-                      <span>Remove Image</span>
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
           </div>
         </div>
