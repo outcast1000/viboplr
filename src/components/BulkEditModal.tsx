@@ -2,9 +2,14 @@ import { useState, useMemo, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Track } from "../types";
 import { emitTrackPatch } from "../trackEvents";
+import AutocompleteInput from "./AutocompleteInput";
+import { effectiveTagNames } from "../utils/bulkEditTags";
 
 interface BulkEditModalProps {
   tracks: Track[];
+  artistOptions: string[];
+  albumOptions: string[];
+  tagOptions: string[];
   onClose: () => void;
   onSave: () => void;
 }
@@ -13,8 +18,38 @@ interface TagEntry {
   name: string;
 }
 
-export default function BulkEditModal({ tracks, onClose, onSave }: BulkEditModalProps) {
+function FieldRow({ label, dirty, onRevert, children }: {
+  label: string;
+  dirty: boolean;
+  onRevert: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="modal-field">
+      <label className="bulk-edit-field-label">
+        <span>{label}{dirty && <span className="bulk-edit-dirty-dot" aria-label="modified" />}</span>
+        {dirty && (
+          <button type="button" className="bulk-edit-revert" onClick={onRevert} title="Revert this field">↺</button>
+        )}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+export default function BulkEditModal({ tracks, artistOptions, albumOptions, tagOptions, onClose, onSave }: BulkEditModalProps) {
   const count = tracks.length;
+
+  // For a single track, show its file name (basename) under the title.
+  const singleFileName = useMemo(() => {
+    if (count !== 1) return null;
+    const path = tracks[0].path;
+    if (!path) return null;
+    const bare = path.startsWith("file://") ? path.slice("file://".length) : path;
+    const decoded = (() => { try { return decodeURIComponent(bare); } catch { return bare; } })();
+    const segments = decoded.split(/[/\\]/);
+    return segments[segments.length - 1] || decoded;
+  }, [count, tracks]);
 
   // Compute shared values
   const shared = useMemo(() => {
@@ -31,12 +66,19 @@ export default function BulkEditModal({ tracks, onClose, onSave }: BulkEditModal
     };
   }, [tracks]);
 
+  const [title, setTitle] = useState(count === 1 ? tracks[0].title : "");
+  const [dirtyTitle, setDirtyTitle] = useState(false);
+  const [trackNumber, setTrackNumber] = useState(
+    count === 1 && tracks[0].track_number != null ? String(tracks[0].track_number) : "",
+  );
+  const [dirtyTrackNumber, setDirtyTrackNumber] = useState(false);
   const [artist, setArtist] = useState(shared.artist);
   const [album, setAlbum] = useState(shared.album);
   const [year, setYear] = useState(shared.year);
   const [tags, setTags] = useState<TagEntry[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [tagsLoaded, setTagsLoaded] = useState(false);
+  const [tagMode, setTagMode] = useState<"replace" | "add" | "remove">("replace");
 
   const [dirtyArtist, setDirtyArtist] = useState(false);
   const [dirtyAlbum, setDirtyAlbum] = useState(false);
@@ -73,7 +115,16 @@ export default function BulkEditModal({ tracks, onClose, onSave }: BulkEditModal
     fetchTags();
   }, [tracks]);
 
-  const hasDirtyFields = dirtyArtist || dirtyAlbum || dirtyYear || dirtyTags;
+  // In add/remove modes the pills are a delta, not the full set — start empty.
+  useEffect(() => {
+    if (tagMode !== "replace") {
+      setTags([]);
+      setTagInput("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tagMode]);
+
+  const hasDirtyFields = dirtyArtist || dirtyAlbum || dirtyYear || dirtyTags || dirtyTitle || dirtyTrackNumber || tagInput.trim().length > 0;
 
   function addTag(name: string) {
     const trimmed = name.trim();
@@ -90,7 +141,7 @@ export default function BulkEditModal({ tracks, onClose, onSave }: BulkEditModal
   }
 
   function handleTagKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter" || e.key === ",") {
+    if (e.key === ",") {
       e.preventDefault();
       addTag(tagInput);
     } else if (e.key === "Backspace" && tagInput === "" && tags.length > 0) {
@@ -102,11 +153,23 @@ export default function BulkEditModal({ tracks, onClose, onSave }: BulkEditModal
     setSaving(true);
     setErrors([]);
 
+    // Flush any pending tag text into the effective list (tested helper).
+    const effectiveTagList = effectiveTagNames(tags, tagInput);
+    const tagsChanged =
+      tagMode === "replace"
+        ? dirtyTags || effectiveTagList.length !== tags.length
+        : effectiveTagList.length > 0;
+
     const fields: Record<string, unknown> = {};
     if (dirtyArtist) fields.artist_name = artist || null;
     if (dirtyAlbum) fields.album_title = album || null;
     if (dirtyYear) fields.year = year ? parseInt(year, 10) : null;
-    if (dirtyTags) fields.tag_names = tags.map((t) => t.name);
+    if (dirtyTitle) fields.title = title;
+    if (dirtyTrackNumber) fields.track_number = trackNumber ? parseInt(trackNumber, 10) : null;
+    if (tagsChanged) {
+      fields.tag_names = effectiveTagList;
+      fields.tag_mode = tagMode;
+    }
 
     try {
       const result = await invoke<string[]>("bulk_update_tracks", {
@@ -120,6 +183,8 @@ export default function BulkEditModal({ tracks, onClose, onSave }: BulkEditModal
         if (dirtyArtist) patch.artist_name = artist || null;
         if (dirtyAlbum) patch.album_title = album || null;
         if (dirtyYear) patch.year = year ? parseInt(year, 10) : null;
+        if (dirtyTitle) patch.title = title;
+        if (dirtyTrackNumber) patch.track_number = trackNumber ? parseInt(trackNumber, 10) : null;
         if (Object.keys(patch).length > 0) {
           for (const t of tracks) {
             if (t.id != null) emitTrackPatch(t.id, patch);
@@ -136,33 +201,74 @@ export default function BulkEditModal({ tracks, onClose, onSave }: BulkEditModal
 
   return (
     <div className="ds-modal-overlay">
-      <div className="ds-modal" style={{ width: 420 }} onClick={(e) => e.stopPropagation()}>
+      <div
+        className="ds-modal"
+        style={{ width: 420 }}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.defaultPrevented) return; // let AutocompleteInput consume its own keys
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && hasDirtyFields && !saving) {
+            e.preventDefault();
+            handleSave();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            onClose();
+          }
+        }}
+      >
         <h3 className="ds-modal-title">Edit {count} Track{count !== 1 ? "s" : ""}</h3>
+        {singleFileName && (
+          <p className="bulk-edit-filename" title={singleFileName}>{singleFileName}</p>
+        )}
 
-        <div className="modal-field">
-          <label>Artist</label>
-          <input
-            className="ds-input"
-            type="text"
+        {count === 1 && (
+          <>
+            <FieldRow label="Title" dirty={dirtyTitle} onRevert={() => { setTitle(tracks[0].title); setDirtyTitle(false); }}>
+              <input
+                className="ds-input"
+                type="text"
+                value={title}
+                onChange={(e) => { setTitle(e.target.value); setDirtyTitle(true); }}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+              />
+            </FieldRow>
+            <FieldRow label="Track #" dirty={dirtyTrackNumber} onRevert={() => { setTrackNumber(tracks[0].track_number != null ? String(tracks[0].track_number) : ""); setDirtyTrackNumber(false); }}>
+              <input
+                className="ds-input"
+                type="number"
+                value={trackNumber}
+                onChange={(e) => { setTrackNumber(e.target.value); setDirtyTrackNumber(true); }}
+                style={{ width: 120 }}
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </FieldRow>
+          </>
+        )}
+
+        <FieldRow label="Artist" dirty={dirtyArtist} onRevert={() => { setArtist(shared.artist); setDirtyArtist(false); }}>
+          <AutocompleteInput
             value={artist}
+            onChange={(v) => { setArtist(v); setDirtyArtist(true); }}
+            suggestions={artistOptions}
             placeholder={shared.artistPlaceholder}
-            onChange={(e) => { setArtist(e.target.value); setDirtyArtist(true); }}
           />
-        </div>
+        </FieldRow>
 
-        <div className="modal-field">
-          <label>Album</label>
-          <input
-            className="ds-input"
-            type="text"
+        <FieldRow label="Album" dirty={dirtyAlbum} onRevert={() => { setAlbum(shared.album); setDirtyAlbum(false); }}>
+          <AutocompleteInput
             value={album}
+            onChange={(v) => { setAlbum(v); setDirtyAlbum(true); }}
+            suggestions={albumOptions}
             placeholder={shared.albumPlaceholder}
-            onChange={(e) => { setAlbum(e.target.value); setDirtyAlbum(true); }}
           />
-        </div>
+        </FieldRow>
 
-        <div className="modal-field">
-          <label>Year</label>
+        <FieldRow label="Year" dirty={dirtyYear} onRevert={() => { setYear(shared.year); setDirtyYear(false); }}>
           <input
             className="ds-input"
             type="number"
@@ -170,11 +276,30 @@ export default function BulkEditModal({ tracks, onClose, onSave }: BulkEditModal
             placeholder={shared.yearPlaceholder}
             onChange={(e) => { setYear(e.target.value); setDirtyYear(true); }}
             style={{ width: 120 }}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
           />
-        </div>
+        </FieldRow>
 
         <div className="modal-field">
-          <label>Tags{dirtyTags ? " (replace mode)" : ""}</label>
+          <label className="bulk-edit-field-label">
+            <span>Tags{count === 1 ? "" : tagMode === "add" ? " · add to existing" : tagMode === "remove" ? " · remove from tracks" : " · replace"}</span>
+          </label>
+          {count > 1 && (
+            <div className="bulk-edit-tagmode" role="group" aria-label="Tag edit mode">
+              {(["replace", "add", "remove"] as const).map((m) => (
+                <button
+                  type="button"
+                  key={m}
+                  className={`bulk-edit-tagmode-btn${tagMode === m ? " active" : ""}`}
+                  onClick={() => setTagMode(m)}
+                >
+                  {m === "replace" ? "Replace" : m === "add" ? "Add" : "Remove"}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="bulk-edit-tags-input">
             {tags.map((t) => (
               <span key={t.name} className="bulk-edit-tag-pill">
@@ -182,15 +307,16 @@ export default function BulkEditModal({ tracks, onClose, onSave }: BulkEditModal
                 <span className="bulk-edit-tag-remove" onClick={() => removeTag(t.name)}>&times;</span>
               </span>
             ))}
-            <input
-              type="text"
+            <AutocompleteInput
               value={tagInput}
+              onChange={setTagInput}
+              suggestions={tagOptions}
+              exclude={new Set(tags.map((t) => t.name.toLowerCase()))}
+              onCommit={addTag}
+              onKeyDownExtra={handleTagKeyDown}
               placeholder={!tagsLoaded ? "Loading tags..." : tags.length === 0 ? "Type and press Enter..." : ""}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={handleTagKeyDown}
-              onBlur={() => { if (tagInput.trim()) addTag(tagInput); }}
-              className="bulk-edit-tag-text-input"
               disabled={!tagsLoaded}
+              inputClassName="bulk-edit-tag-text-input"
             />
           </div>
         </div>

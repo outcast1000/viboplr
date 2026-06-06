@@ -13,6 +13,7 @@ import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { toggleSortKey, chainDir, type SortKey, type SortDir } from "../sortChain";
 import { SortButton, LoadMoreSentinel } from "./search/searchShared";
 import { SearchTagResults, SearchAlbumResults, SearchArtistResults } from "./search/SearchEntityResults";
+import { subscribeTrackEvents } from "../trackEvents";
 
 function isLocalVideo(t: Track): boolean {
   if (!isVideoTrack(t)) return false;
@@ -297,6 +298,23 @@ export function SearchView({
       tags: Math.max(0, prev.tags - deletedTagIds.length),
     }));
   }, [deletedTagKey]);
+
+  useEffect(() => {
+    return subscribeTrackEvents(event => {
+      if (event.kind === "patch") {
+        setResults(prev => ({
+          ...prev,
+          tracks: prev.tracks.map(t => t.id === event.trackId ? { ...t, ...event.patch } : t),
+        }));
+      } else {
+        const removed = new Set(event.trackIds);
+        setResults(prev => ({
+          ...prev,
+          tracks: prev.tracks.filter(t => t.id == null || !removed.has(t.id)),
+        }));
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (!restoredRef.current) return;

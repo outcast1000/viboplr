@@ -470,21 +470,20 @@ pub fn bulk_update_tracks(
         fields.artist_name.as_deref(),
         fields.album_title.as_deref(),
         fields.year,
+        fields.title.as_deref(),
+        fields.track_number,
         fields.tag_names.as_deref(),
+        crate::db::collections::TagMode::from_opt(fields.tag_mode.as_deref()),
     ).map_err(|e| e.to_string())?;
 
-    // Write tags to local files
+    // Write tags to local files. Genre is written per-track from the FINAL tag set
+    // (so add/remove modes write the resulting tags, not the raw delta).
     let mut errors = Vec::new();
-    let updates = crate::tag_writer::TagUpdates {
-        artist: fields.artist_name.clone(),
-        album: fields.album_title.clone(),
-        year: fields.year.map(|y| y as u32),
-        genre: fields.tag_names.as_ref().map(|tags| tags.join(", ")),
-    };
+    let tags_touched = fields.tag_names.is_some();
 
     const VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv"];
 
-    for (_track_id, path, _collection_id) in &track_info {
+    for (track_id, path, _collection_id) in &track_info {
         // Skip non-local files
         if !path.starts_with("file://") {
             continue;
@@ -505,6 +504,25 @@ pub fn bulk_update_tracks(
         if is_video {
             continue;
         }
+
+        // Only recompute genre when tags were touched; otherwise leave genre alone.
+        let genre = if tags_touched {
+            match state.db.get_tags_for_track(*track_id) {
+                Ok(tags) => Some(tags.into_iter().map(|t| t.name).collect::<Vec<_>>().join(", ")),
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
+        let updates = crate::tag_writer::TagUpdates {
+            title: fields.title.clone(),
+            track_number: fields.track_number.map(|n| n as u32),
+            artist: fields.artist_name.clone(),
+            album: fields.album_title.clone(),
+            year: fields.year.map(|y| y as u32),
+            genre,
+        };
 
         if let Err(e) = crate::tag_writer::write_tags(file_path, &updates) {
             errors.push(format!("{}: {}", path, e));

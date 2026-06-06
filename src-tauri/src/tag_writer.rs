@@ -6,6 +6,8 @@ use std::path::Path;
 
 /// Fields to write back to the audio file. Only `Some` fields are written.
 pub struct TagUpdates {
+    pub title: Option<String>,
+    pub track_number: Option<u32>,
     pub artist: Option<String>,
     pub album: Option<String>,
     pub year: Option<u32>,
@@ -29,6 +31,12 @@ pub fn write_tags(path: &Path, updates: &TagUpdates) -> Result<(), String> {
         }
     };
 
+    if let Some(title) = &updates.title {
+        tag.set_title(title.clone());
+    }
+    if let Some(track_number) = updates.track_number {
+        tag.set_track(track_number);
+    }
     if let Some(artist) = &updates.artist {
         tag.set_artist(artist.clone());
     }

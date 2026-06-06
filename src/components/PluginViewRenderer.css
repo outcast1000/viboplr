@@ -439,7 +439,123 @@
   font-size: var(--fs-sm);
 }
 
+.bulk-edit-filename {
+  margin: -4px 0 12px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
+.autocomplete-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.autocomplete-dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 10;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.autocomplete-row {
+  padding: 6px 10px;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+/* Mouse hover: subtle grey, distinct from the keyboard-highlighted row. */
+.autocomplete-row:hover {
+  background: var(--bg-hover);
+}
+
+/* Keyboard-highlighted (or auto-highlighted) row: accent bar + tint + accent text. */
+.autocomplete-row.highlighted {
+  background: rgba(var(--accent-rgb), 0.16);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 0 var(--accent);
+}
+
+/* When the highlighted row is also hovered, keep the accent treatment. */
+.autocomplete-row.highlighted:hover {
+  background: rgba(var(--accent-rgb), 0.22);
+}
+
+.bulk-edit-field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bulk-edit-dirty-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
+
+.bulk-edit-revert {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: var(--ds-radius);
+}
+
+.bulk-edit-revert:hover {
+  color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.bulk-edit-tagmode {
+  display: inline-flex;
+  gap: 2px;
+  margin: 4px 0 6px;
+  padding: 2px;
+  background: var(--bg-tertiary);
+  border-radius: var(--ds-radius);
+}
+
+.bulk-edit-tagmode-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  padding: 4px 10px;
+  border-radius: var(--ds-radius);
+}
+
+.bulk-edit-tagmode-btn:hover {
+  color: var(--text-primary);
+}
+
+.bulk-edit-tagmode-btn.active {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
 
 /* Plugin loading */
 .plugin-loading {

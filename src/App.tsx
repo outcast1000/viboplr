@@ -3123,6 +3123,9 @@ function App() {
       {contextMenuActions.bulkEditTracks && (
         <BulkEditModal
           tracks={contextMenuActions.bulkEditTracks}
+          artistOptions={[...new Set(library.artists.map((a) => a.name))]}
+          albumOptions={[...new Set(library.albums.map((a) => a.title))]}
+          tagOptions={[...new Set(library.tags.map((t) => t.name))]}
           onClose={() => contextMenuActions.setBulkEditTracks(null)}
           onSave={() => { contextMenuActions.setBulkEditTracks(null); library.loadLibrary(); library.loadTracks(); }}
         />

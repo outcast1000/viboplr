@@ -170,7 +170,7 @@ pub struct Database {
 // --- db submodules (split out of this file; inherent impl Database methods) ---
 mod albums;
 mod artists;
-mod collections;
+pub mod collections;
 mod history;
 mod image_failures;
 pub mod likes;
@@ -565,6 +565,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::collections::TagMode;
 
     fn test_db() -> Database {
         Database::new_in_memory().expect("Failed to create in-memory database")
@@ -3005,5 +3006,53 @@ mod tests {
         let mut deduped = returned_artists.clone();
         deduped.dedup();
         assert_eq!(returned_artists.len(), deduped.len(), "expected distinct artists across 5 seeds");
+    }
+
+    #[test]
+    fn test_bulk_update_title_and_track_number() {
+        let db = test_db();
+        let t1 = insert_track(&db, "x.mp3", "Old Title", None, None);
+        db.bulk_update_tracks(&[t1], None, None, None, Some("New Title"), Some(7), None, TagMode::Replace).unwrap();
+        let track = db.get_track_by_id(t1).unwrap();
+        assert_eq!(track.title, "New Title");
+        assert_eq!(track.track_number, Some(7));
+    }
+
+    #[test]
+    fn test_bulk_update_tag_mode_add_keeps_existing() {
+        let db = test_db();
+        let t1 = insert_track(&db, "x.mp3", "Song", None, None);
+        let rock = db.get_or_create_tag("Rock").unwrap();
+        db.add_track_tag(t1, rock).unwrap();
+        // Add "Live" — Rock must remain.
+        db.bulk_update_tracks(&[t1], None, None, None, None, None, Some(&["Live".to_string()]), TagMode::Add).unwrap();
+        let names: Vec<String> = db.get_tags_for_track(t1).unwrap().into_iter().map(|t| t.name).collect();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"Rock".to_string()));
+        assert!(names.contains(&"Live".to_string()));
+    }
+
+    #[test]
+    fn test_bulk_update_tag_mode_remove_only_named() {
+        let db = test_db();
+        let t1 = insert_track(&db, "x.mp3", "Song", None, None);
+        let rock = db.get_or_create_tag("Rock").unwrap();
+        let live = db.get_or_create_tag("Live").unwrap();
+        db.add_track_tag(t1, rock).unwrap();
+        db.add_track_tag(t1, live).unwrap();
+        db.bulk_update_tracks(&[t1], None, None, None, None, None, Some(&["Live".to_string()]), TagMode::Remove).unwrap();
+        let names: Vec<String> = db.get_tags_for_track(t1).unwrap().into_iter().map(|t| t.name).collect();
+        assert_eq!(names, vec!["Rock".to_string()]);
+    }
+
+    #[test]
+    fn test_bulk_update_tag_mode_replace_overwrites() {
+        let db = test_db();
+        let t1 = insert_track(&db, "x.mp3", "Song", None, None);
+        let rock = db.get_or_create_tag("Rock").unwrap();
+        db.add_track_tag(t1, rock).unwrap();
+        db.bulk_update_tracks(&[t1], None, None, None, None, None, Some(&["Jazz".to_string()]), TagMode::Replace).unwrap();
+        let names: Vec<String> = db.get_tags_for_track(t1).unwrap().into_iter().map(|t| t.name).collect();
+        assert_eq!(names, vec!["Jazz".to_string()]);
     }
 }

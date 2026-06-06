@@ -2,6 +2,28 @@
 // these are inherent `impl Database` methods reachable via `use super::*`.
 use super::*;
 
+/// How tag edits are applied in bulk_update_tracks.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TagMode {
+    /// Replace each track's tags with exactly `tag_names`.
+    Replace,
+    /// Add `tag_names` to each track, keeping existing tags.
+    Add,
+    /// Remove `tag_names` from each track, keeping the rest.
+    Remove,
+}
+
+impl TagMode {
+    /// Parse from the string the command layer receives. Unknown / None → Replace.
+    pub fn from_opt(s: Option<&str>) -> TagMode {
+        match s {
+            Some("add") => TagMode::Add,
+            Some("remove") => TagMode::Remove,
+            _ => TagMode::Replace,
+        }
+    }
+}
+
 impl Database {
 
     // --- Collections ---
@@ -205,7 +227,10 @@ impl Database {
         artist_name: Option<&str>,
         album_title: Option<&str>,
         year: Option<i32>,
+        title: Option<&str>,
+        track_number: Option<i32>,
         tag_names: Option<&[String]>,
+        tag_mode: TagMode,
     ) -> SqlResult<Vec<(i64, String, Option<i64>)>> {
         if track_ids.is_empty() {
             return Ok(vec![]);
@@ -402,9 +427,33 @@ impl Database {
                     }
                 }
 
-                // Step 4: Tags
+                // Step 3b: Title (single-value, applied to all given ids)
+                if let Some(t) = title {
+                    for chunk in track_ids.chunks(500) {
+                        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                        let sql = format!("UPDATE tracks SET title = ?1 WHERE id IN ({})", placeholders);
+                        let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(t.to_string())];
+                        all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
+                        let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+                        conn.execute(&sql, param_refs.as_slice())?;
+                    }
+                }
+
+                // Step 3c: Track number
+                if let Some(n) = track_number {
+                    for chunk in track_ids.chunks(500) {
+                        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                        let sql = format!("UPDATE tracks SET track_number = ?1 WHERE id IN ({})", placeholders);
+                        let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(n)];
+                        all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
+                        let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+                        conn.execute(&sql, param_refs.as_slice())?;
+                    }
+                }
+
+                // Step 4: Tags (replace / add / remove)
                 if let Some(tags) = tag_names {
-                    // Pre-resolve/create all tag IDs
+                    // Pre-resolve/create all tag IDs (needed for replace + add).
                     let mut tag_ids: Vec<i64> = Vec::with_capacity(tags.len());
                     for name in tags {
                         let tag_id: i64 = match conn.query_row(
@@ -421,13 +470,37 @@ impl Database {
                         tag_ids.push(tag_id);
                     }
 
-                    for &tid in track_ids {
-                        conn.execute("DELETE FROM track_tags WHERE track_id = ?1", params![tid])?;
-                        for &tag_id in &tag_ids {
-                            conn.execute(
-                                "INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?1, ?2)",
-                                params![tid, tag_id],
-                            )?;
+                    match tag_mode {
+                        TagMode::Replace => {
+                            for &tid in track_ids {
+                                conn.execute("DELETE FROM track_tags WHERE track_id = ?1", params![tid])?;
+                                for &tag_id in &tag_ids {
+                                    conn.execute(
+                                        "INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?1, ?2)",
+                                        params![tid, tag_id],
+                                    )?;
+                                }
+                            }
+                        }
+                        TagMode::Add => {
+                            for &tid in track_ids {
+                                for &tag_id in &tag_ids {
+                                    conn.execute(
+                                        "INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?1, ?2)",
+                                        params![tid, tag_id],
+                                    )?;
+                                }
+                            }
+                        }
+                        TagMode::Remove => {
+                            for &tid in track_ids {
+                                for &tag_id in &tag_ids {
+                                    conn.execute(
+                                        "DELETE FROM track_tags WHERE track_id = ?1 AND tag_id = ?2",
+                                        params![tid, tag_id],
+                                    )?;
+                                }
+                            }
                         }
                     }
                 }

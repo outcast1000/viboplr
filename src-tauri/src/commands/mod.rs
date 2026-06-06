@@ -114,6 +114,9 @@ pub struct BulkUpdateFields {
     pub album_title: Option<String>,
     pub year: Option<i32>,
     pub tag_names: Option<Vec<String>>,
+    pub title: Option<String>,
+    pub track_number: Option<i32>,
+    pub tag_mode: Option<String>,
 }
 
 fn detect_image_format(data: &[u8]) -> &'static str {

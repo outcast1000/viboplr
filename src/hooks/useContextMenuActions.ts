@@ -332,8 +332,13 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
 
   async function handleBulkEdit() {
     const cm = contextMenuRef.current;
-    if (!cm || cm.target.kind !== "multi-track") return;
-    const { trackIds } = cm.target;
+    if (!cm) return;
+    const trackIds = cm.target.kind === "multi-track"
+      ? cm.target.trackIds
+      : cm.target.kind === "track" && cm.target.trackId
+      ? [cm.target.trackId]
+      : null;
+    if (!trackIds || trackIds.length === 0) return;
     setContextMenu(null);
     try {
       const selected = await invoke<Track[]>("get_tracks_by_ids", { ids: trackIds });

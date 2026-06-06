@@ -206,7 +206,7 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
           specs.push({ kind: "item", text: "Refresh Image", action: refreshAction });
         }
       }
-      if (isMulti && d.contextMenuActions.handleBulkEdit) {
+      if (d.contextMenuActions.handleBulkEdit && (isMulti || (target.kind === "track" && target.trackId))) {
         specs.push({ kind: "item", text: "Edit Properties", action: d.contextMenuActions.handleBulkEdit });
       }
       if (target.kind === "track" && target.isLocal) {
