@@ -442,6 +442,9 @@ export function SearchView({
       artists: artists.length < artistRes.total,
       tags: tags.length < tagRes.total,
     });
+    // New query results replace the list — scroll back to top (all tabs share
+    // this container). Load-more appends via handleLoadMore and never hits this.
+    if (resultsRef.current) resultsRef.current.scrollTop = 0;
   }, []);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
