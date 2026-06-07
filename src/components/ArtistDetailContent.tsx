@@ -18,6 +18,7 @@ import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOver
 import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 
 interface ArtistDetailContentProps {
   name: string;
@@ -109,12 +110,26 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
     (title: string, artistName: string) => actions.requestFetchImage("album", title, artistName),
     [actions.requestFetchImage],
   );
-  const heroImages = useDetailHeroImages.artistAlbums(
+  const albumHeroImages = useDetailHeroImages.artistAlbums(
     artist,
     albums,
     actions.getAlbumImage,
     requestAlbumImage,
   );
+  // Fallback tiers when the artist has no albums to build the hero from:
+  //   1. albums exist            -> album covers (above)
+  //   2. else video frame grabs  -> first cached capture of each video track
+  //   3. else the artist's image
+  const noAlbums = albums.length === 0;
+  const videoFrameImages = useDetailHeroImages.videoFrames(sortedTracks, noAlbums);
+  const artistImageUrl = resolveImageUrl(artistImagePath);
+  const heroImages = !noAlbums
+    ? albumHeroImages
+    : videoFrameImages.length > 0
+      ? videoFrameImages
+      : artistImageUrl
+        ? [artistImageUrl]
+        : [];
 
   const handlePlayAll = useCallback(() => {
     actions.playEntityAll("artist", name, undefined, {

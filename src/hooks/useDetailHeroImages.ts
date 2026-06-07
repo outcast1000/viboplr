@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Album, Artist, QueueTrack } from "../types";
+import type { Album, Artist, QueueTrack, Track } from "../types";
 import { isVideoTrack } from "../utils";
 import {
   selectArtistAlbumHeroImages,
@@ -187,9 +187,49 @@ function useTagTopArtistsHero(
   return toUrls(resolved);
 }
 
+// Collect the first cached frame of each video track in `tracks`, up to
+// MAX_LAYERS. Cache-only (`get_video_frames` never triggers extraction), so a
+// video with no captured frames simply contributes nothing.
+function useVideoFrameHero(tracks: Track[], enabled: boolean): string[] {
+  const [frames, setFrames] = useState<string[]>([]);
+
+  const videoIds = enabled
+    ? tracks.filter(t => t.id != null && isVideoTrack(t)).map(t => t.id as number)
+    : [];
+  const idsKey = videoIds.join(",");
+
+  useEffect(() => {
+    if (videoIds.length === 0) {
+      setFrames([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const collected: string[] = [];
+      for (const id of videoIds) {
+        if (collected.length >= MAX_LAYERS) break;
+        try {
+          const result = await invoke<{ status: string; paths?: string[] } | null>("get_video_frames", { trackId: id });
+          const first = result?.paths?.[0];
+          if (first) collected.push(first);
+        } catch (e) {
+          console.error("Failed to load video frames for artist hero:", e);
+        }
+      }
+      if (!cancelled) setFrames(collected);
+    })();
+    return () => { cancelled = true; };
+    // idsKey captures the set of video track ids for stable identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
+
+  return useMemo(() => toUrls(frames), [frames]);
+}
+
 export const useDetailHeroImages = {
   artistAlbums: useArtistAlbumHero,
   singleArtist: useSingleArtistHero,
   track: useTrackHero,
   tagTopArtists: useTagTopArtistsHero,
+  videoFrames: useVideoFrameHero,
 };
