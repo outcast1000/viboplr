@@ -5,11 +5,12 @@ interface Props {
   trackTitle: string | null;
   onDismiss: () => void;
   onSkip: () => void;
+  onSearchYoutube?: () => void;
 }
 
 const AUTO_SKIP_SECS = 15;
 
-export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSkip }: Props) {
+export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSkip, onSearchYoutube }: Props) {
   const [remaining, setRemaining] = useState(AUTO_SKIP_SECS);
 
   useEffect(() => {
@@ -36,6 +37,11 @@ export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSki
           Skipping to next track in {remaining}s...
         </p>
         <div className="ds-modal-actions">
+          {onSearchYoutube && (
+            <button className="ds-btn ds-btn--ghost" onClick={onSearchYoutube}>
+              Search on YouTube
+            </button>
+          )}
           <button className="ds-btn ds-btn--ghost" onClick={onDismiss}>
             Dismiss
           </button>

@@ -3,7 +3,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getInitials } from "../utils";
-import type { Track, Artist, ColumnConfig } from "../types";
+import type { Artist, ColumnConfig, QueueTrack } from "../types";
 
 import { buildSearchUrl } from "../searchProviders";
 import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
@@ -86,13 +86,13 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
 
   const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
     if (actionId === "play-track") {
-      const t = payload as Track | undefined;
-      if (t) actions.playTracks([t], 0);
+      const t = payload as QueueTrack | undefined;
+      if (t) actions.playExternal([t]);
     } else if (actionId === "enqueue-track") {
-      const t = payload as Track | undefined;
-      if (t) actions.enqueueTracks([t]);
+      const t = payload as QueueTrack | undefined;
+      if (t) actions.enqueueExternal([t]);
     }
-  }, [actions.playTracks, actions.enqueueTracks]);
+  }, [actions.playExternal, actions.enqueueExternal]);
 
   const infoEntity: InfoEntity = artist
     ? { kind: "artist", name: artist.name, id: artist.id }

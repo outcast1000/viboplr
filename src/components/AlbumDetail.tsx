@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Track, Album, ColumnConfig } from "../types";
+import type { Album, ColumnConfig, QueueTrack } from "../types";
 
 import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
 import { ALBUM_DETAIL_COLUMNS } from "../hooks/useLibrary";
@@ -80,13 +80,13 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
 
   const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
     if (actionId === "play-track") {
-      const t = payload as Track | undefined;
-      if (t) actions.playTracks([t], 0);
+      const t = payload as QueueTrack | undefined;
+      if (t) actions.playExternal([t]);
     } else if (actionId === "enqueue-track") {
-      const t = payload as Track | undefined;
-      if (t) actions.enqueueTracks([t]);
+      const t = payload as QueueTrack | undefined;
+      if (t) actions.enqueueExternal([t]);
     }
-  }, [actions.playTracks, actions.enqueueTracks]);
+  }, [actions.playExternal, actions.enqueueExternal]);
 
   const resolveEntity = useCallback((kind: string, entityName: string) => {
     if (kind === "artist") {

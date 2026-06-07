@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import type { Track, Tag, ColumnConfig } from "../types";
+import type { Tag, ColumnConfig, QueueTrack } from "../types";
 
 import { TAG_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
@@ -121,13 +121,13 @@ export function TagDetail({ name }: TagDetailProps) {
 
   const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
     if (actionId === "play-track") {
-      const t = payload as Track | undefined;
-      if (t) actions.playTracks([t], 0);
+      const t = payload as QueueTrack | undefined;
+      if (t) actions.playExternal([t]);
     } else if (actionId === "enqueue-track") {
-      const t = payload as Track | undefined;
-      if (t) actions.enqueueTracks([t]);
+      const t = payload as QueueTrack | undefined;
+      if (t) actions.enqueueExternal([t]);
     }
-  }, [actions.playTracks, actions.enqueueTracks]);
+  }, [actions.playExternal, actions.enqueueExternal]);
 
   return (
     <div className="album-detail">

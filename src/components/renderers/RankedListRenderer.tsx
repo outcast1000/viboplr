@@ -49,14 +49,10 @@ export function RankedListRenderer({ data, onEntityClick, onAction, resolveEntit
               <div className="ranked-list-actions">
                 <button
                   className="track-row-action track-row-action-play"
-                  title={trackId ? "Play" : "Play / YouTube"}
+                  title="Play"
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (trackId) {
-                      onAction?.("play-track", { id: trackId });
-                    } else {
-                      onAction?.("play-or-youtube", { name: item.name, artist: item.subtitle });
-                    }
+                    onAction?.("play-track", { name: item.name, artist: item.subtitle });
                   }}
                 >
                   <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
@@ -66,7 +62,7 @@ export function RankedListRenderer({ data, onEntityClick, onAction, resolveEntit
                   title="Enqueue"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onAction?.("enqueue-track", { id: trackId ?? undefined, name: item.name, artist: item.subtitle });
+                    onAction?.("enqueue-track", { name: item.name, artist: item.subtitle });
                   }}
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>

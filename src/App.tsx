@@ -1083,8 +1083,8 @@ function App() {
       interface ResolverEntry { name: string; id: string | null; sourceUrl: string | null; resolve: () => Promise<string> }
       const chain: ResolverEntry[] = [];
 
-      // Pre-resolution: check if a local copy exists for remote tracks
-      if (url && isRemoteScheme(url)) {
+      // Pre-resolution: check if a local copy exists for remote OR path-less tracks
+      if (!url || isRemoteScheme(url)) {
         try {
           const localMatch = await invoke<Track | null>("find_track_by_metadata", {
             title: stripRemasterSuffix(track.title) ?? track.title,
@@ -2177,6 +2177,8 @@ function App() {
     playEntityAll: handlePlayEntityAll,
     playAlbum: playActions.playAlbum,
     enqueueTracks: contextMenuActions.handleEnqueue,
+    playExternal: (tracks) => queueHook.playTracks(tracks, 0),
+    enqueueExternal: queueHook.enqueueTracks,
     toggleLike: likeActions.handleToggleLike,
     toggleDislike: likeActions.handleToggleDislike,
     toggleEntityLike: (kind: "artist" | "album" | "tag", id: number) => {
@@ -2213,7 +2215,7 @@ function App() {
     searchProviders,
   }), [
     library.handleArtistClick, library.handleAlbumClick, library.handleTagClick,
-    queueHook.playTracks, handlePlayEntityAll, playActions.playAlbum, contextMenuActions.handleEnqueue,
+    queueHook.playTracks, queueHook.enqueueTracks, handlePlayEntityAll, playActions.playAlbum, contextMenuActions.handleEnqueue,
     likeActions.handleToggleLike, likeActions.handleToggleDislike,
     likeActions.handleToggleArtistLike, likeActions.handleToggleArtistDislike,
     likeActions.handleToggleAlbumLike, likeActions.handleToggleAlbumDislike,
@@ -3228,6 +3230,16 @@ function App() {
           trackTitle={playback.failedTrack?.title ?? null}
           onDismiss={playback.clearPlaybackError}
           onSkip={() => { playback.clearPlaybackError(); handleNext(); }}
+          onSearchYoutube={playback.failedTrack ? () => {
+            const ft = playback.failedTrack!;
+            invoke<{ url: string; video_title: string | null }>("search_youtube", { title: ft.title, artistName: ft.artist_name ?? null })
+              .then(r => openUrl(r.url))
+              .catch((e) => {
+                console.error("YouTube search failed, falling back to manual search:", e);
+                const q = encodeURIComponent(`${ft.title} ${ft.artist_name ?? ""}`);
+                openUrl(`https://www.youtube.com/results?search_query=${q}`).catch(console.error);
+              });
+          } : undefined}
         />
       )}
 

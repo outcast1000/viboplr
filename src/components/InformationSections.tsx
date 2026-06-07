@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { buildEntityKey } from "../types/informationTypes";
+import type { QueueTrack } from "../types";
+import { buildExternalQueueTrack } from "../utils/externalTrack";
 import "./InformationSections.css";
 
 export interface CustomTab {
@@ -115,61 +117,11 @@ export function InformationSections({
       }
       return;
     }
-    if (actionId === "play-track") {
-      const p = payload as { id: number } | undefined;
-      if (p?.id) {
-        const track = await invoke<{ id: number; path: string; title: string; artist_name?: string; album_title?: string; duration_secs?: number } | null>("get_track_by_id", { trackId: p.id });
-        if (track && onAction) onAction("play-track", track);
-      }
-      return;
-    }
-    if (actionId === "enqueue-track") {
-      const p = payload as { id?: number; name?: string; artist?: string } | undefined;
-      if (!p) return;
-      type ResolvedTrack = { id: number; path: string; title: string; artist_name?: string; album_title?: string; duration_secs?: number } | null;
-      try {
-        let track: ResolvedTrack = null;
-        if (p.id != null) {
-          track = await invoke<ResolvedTrack>("get_track_by_id", { trackId: p.id });
-        } else if (p.name) {
-          track = await invoke<ResolvedTrack>("find_track_by_metadata", { title: p.name, artistName: p.artist ?? null, albumName: null });
-        }
-        if (track) {
-          if (onAction) onAction("enqueue-track", track);
-        } else {
-          console.warn(`Track not in library, cannot enqueue: ${p.name ?? p.id ?? "unknown"}`);
-        }
-      } catch (e) {
-        console.error("Failed to resolve track for enqueue:", e);
-      }
-      return;
-    }
-    if (actionId === "play-or-youtube") {
-      const p = payload as { name: string; artist?: string } | undefined;
-      if (p) {
-        try {
-          const results = await invoke<Array<{ id: number; title: string; artist_name?: string }>>(
-            "get_tracks", { opts: { query: p.name, limit: 10 } }
-          );
-          const match = results.find(t =>
-            t.title.toLowerCase() === p.name.toLowerCase() &&
-            (!p.artist || (t.artist_name ?? "").toLowerCase() === p.artist.toLowerCase())
-          );
-          if (match) {
-            const track = await invoke<{ id: number; path: string; title: string; artist_name?: string; album_title?: string; duration_secs?: number } | null>("get_track_by_id", { trackId: match.id });
-            if (track && onAction) { onAction("play-track", track); return; }
-          }
-        } catch { /* fall through to youtube */ }
-        try {
-          const result = await invoke<{ url: string; video_title: string | null }>(
-            "search_youtube", { title: p.name, artistName: p.artist ?? null }
-          );
-          openUrl(result.url);
-        } catch {
-          const q = encodeURIComponent(`${p.name} ${p.artist ?? ""}`);
-          openUrl(`https://www.youtube.com/results?search_query=${q}`);
-        }
-      }
+    if (actionId === "play-track" || actionId === "enqueue-track" || actionId === "play-or-youtube") {
+      const p = payload as { name?: string; artist?: string } | undefined;
+      if (!p?.name || !onAction) return;
+      const ext: QueueTrack = buildExternalQueueTrack(p.name, p.artist);
+      onAction(actionId === "enqueue-track" ? "enqueue-track" : "play-track", ext);
       return;
     }
     if (actionId === "youtube-search") {

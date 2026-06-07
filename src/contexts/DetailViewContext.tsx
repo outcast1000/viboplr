@@ -13,6 +13,8 @@ export interface DetailViewActions {
   playEntityAll: (kind: "artist" | "album" | "tag", name: string, artistName?: string, opts?: { tracks?: Track[]; entityId?: number }) => void;
   playAlbum: (albumId: number, opts?: { tracks?: Track[]; startIndex?: number }) => void;
   enqueueTracks: (tracks: Track[]) => void;
+  playExternal: (tracks: QueueTrack[]) => void;
+  enqueueExternal: (tracks: QueueTrack[]) => void;
 
   toggleLike: (track: Track | QueueTrack) => void;
   toggleDislike: (track: Track | QueueTrack) => void;
