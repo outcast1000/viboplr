@@ -129,6 +129,7 @@ pub fn export_mixtape_playlist_only(
             duration_secs: t.duration_secs,
             file: None,
             thumb: None,
+            format: None,
         }
     }).collect();
 

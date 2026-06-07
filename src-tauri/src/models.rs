@@ -304,6 +304,8 @@ pub struct MixtapeTrack {
     pub file: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumb: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

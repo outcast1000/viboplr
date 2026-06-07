@@ -333,6 +333,7 @@ mod tests {
             duration_secs: None,
             file: Some("file:///x".into()),
             thumb: Some("thumbs/keep.jpg".into()),
+            format: None,
         });
         write(t.path(), Some(&m), None).unwrap();
         gc(t.path()).unwrap();

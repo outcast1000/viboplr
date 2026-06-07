@@ -9,6 +9,7 @@ export interface ManifestTrack {
   duration_secs: number | null;
   file: string | null;
   thumb: string | null;
+  format?: string | null;
 }
 
 export interface Manifest {
@@ -118,6 +119,7 @@ export function buildManifest(queue: QueueTrack[], context: PlaylistContext | nu
       duration_secs: t.duration_secs,
       file: t.path,
       thumb: remote && t.path ? `thumbs/${thumbFilenameForUri(t.path)}` : null,
+      format: t.format,
     })),
   };
 }
@@ -147,7 +149,10 @@ export function tracksFromManifest(manifest: Manifest, mainPlaylistDir?: string 
     artist_name: m.artist || null,
     album_title: m.album,
     duration_secs: m.duration_secs,
-    format: null,
+    // Restore the persisted format. Legacy manifests written before format was
+    // stored omit the field → null (audio default). isVideoTrack reads this, so
+    // dropping it would misclassify a restored video as audio after restart.
+    format: m.format ?? null,
     liked: 0,
     image_url: m.thumb && mainPlaylistDir ? `${mainPlaylistDir}/${m.thumb}` : undefined,
   }));

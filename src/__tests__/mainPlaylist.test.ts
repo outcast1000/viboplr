@@ -630,3 +630,26 @@ describe("tracksFromManifest key generation", () => {
     expect(new Set(all).size).toBe(all.length);
   });
 });
+
+describe("format persistence", () => {
+  // Regression: format was not stored in the manifest and tracksFromManifest
+  // hardcoded format: null. After restart a restored video was classified as
+  // audio (isVideoTrack reads format) and played through the audio element.
+  it("round-trips track format through buildManifest → tracksFromManifest", () => {
+    const video = makeTrack({ path: "file:///clip.mp4", format: "mp4" });
+    const audio = makeTrack({ path: "file:///song.flac", format: "flac" });
+    const manifest = buildManifest([video, audio], { name: "P" });
+    const restored = tracksFromManifest(manifest);
+    expect(restored[0].format).toBe("mp4");
+    expect(restored[1].format).toBe("flac");
+  });
+
+  it("defaults format to null for legacy manifests without the field", () => {
+    const legacy: Manifest = {
+      version: 1, title: "P", type: "custom", created_at: "", created_by: null, cover: null,
+      tracks: [{ title: "T", artist: "A", album: null, duration_secs: 100, file: "file:///x.mp3", thumb: null }],
+    };
+    const restored = tracksFromManifest(legacy);
+    expect(restored[0].format).toBeNull();
+  });
+});

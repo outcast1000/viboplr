@@ -168,6 +168,7 @@ where
             duration_secs: source.duration_secs,
             file: Some(archive_path),
             thumb,
+            format: None,
         });
     }
 
@@ -477,6 +478,7 @@ mod tests {
                 duration_secs: Some(180.0),
                 file: Some("tracks/01-track-1.flac".into()),
                 thumb: None,
+                format: None,
             }],
         );
         assert_eq!(manifest.version, 1);
