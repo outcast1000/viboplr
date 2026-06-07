@@ -47,14 +47,16 @@
   font-size: var(--fs-base);
 }
 
-/* Track list */
+/* Track list — rounded, inset rows matching the entity (album/artist/tag) tables. */
 .track-list {
   display: flex;
   flex-direction: column;
+  padding: 0 8px 8px;
 }
 
 .track-header {
   display: flex;
+  gap: 4px;
   padding: 8px 16px;
   border-bottom: 1px solid var(--border);
   font-size: var(--fs-xs);
@@ -67,43 +69,25 @@
   z-index: 1;
 }
 
-.track-row {
-  display: flex;
-  align-items: center;
-  padding: 8px 16px;
-  border-bottom: 1px solid transparent;
-  cursor: pointer;
-  transition: background 0.1s;
-  font-size: var(--fs-sm);
-}
-
-.track-row:hover {
-  background: var(--bg-hover);
-}
-
-.track-row.highlighted {
-  background: var(--bg-hover);
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
-}
-
+/* Row shell + hover/highlighted/selected states are shared with .entity-table-row
+   (defined in App.css). Only the track-specific "playing" state lives here. */
 .track-row.playing {
   color: var(--accent);
   background: rgba(var(--accent-rgb), 0.08);
 }
 
-.track-row.selected {
-  background: rgba(var(--accent-rgb), 0.15);
-  border-left: 3px solid var(--accent);
-  padding-left: 13px;
-}
-
 .track-header > span,
 .track-row > span {
-  padding-right: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The lead action cluster must not clip its buttons' hover scale/glow
+   (the blanket overflow:hidden above is for text-cell ellipsis only). */
+.track-row > .row-lead-actions,
+.track-header > .row-lead-actions-head {
+  overflow: visible;
 }
 
 .track-header > span {

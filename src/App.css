@@ -687,25 +687,29 @@
   color: var(--accent);
 }
 
+/* Shared data-table row shell — single source of truth for the track table
+   (.track-row) and the album/artist/tag tables (.entity-table-row). Each table
+   keeps its own column widths; this governs the row shell, spacing, and states. */
+.track-row,
 .entity-table-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   padding: 8px 16px;
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.15s;
   font-size: var(--fs-sm);
-  display: flex;
-  align-items: center;
-  gap: 4px;
 }
 
-.entity-table-row:hover {
-  background: var(--bg-hover);
-}
-
+.track-row:hover,
+.entity-table-row:hover,
+.track-row.highlighted,
 .entity-table-row.highlighted {
   background: var(--bg-hover);
 }
 
+.track-row.selected,
 .entity-table-row.selected {
   background: rgba(var(--accent-rgb), 0.15);
   border-left: 3px solid var(--accent);
