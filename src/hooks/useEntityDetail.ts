@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Artist, Album, Tag, Track, SortField, SortDir } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
@@ -109,6 +109,17 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     });
   }, []);
 
+  // Stable signature of the track *set* (ids only). Patches that mutate a field
+  // like `liked` produce a new `tracks` array but the same id set, so this key
+  // is unchanged — keeping the popularity effect below from re-running (and
+  // blanking the popularity bars) on every like/dislike.
+  const trackIdsKey = useMemo(() => tracks.map(t => t.id ?? "x").join(","), [tracks]);
+
+  // Read latest tracks inside the popularity effect without making the array
+  // identity a dependency (so field-only patches don't re-run it).
+  const tracksRef = useRef(tracks);
+  tracksRef.current = tracks;
+
   // Fetch track popularity from ranked_list info types (artist and album only)
   useEffect(() => {
     setTrackPopularity({});
@@ -136,7 +147,7 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
             const popMap: Record<number, number> = {};
             for (const item of items) {
               const norm = normalizeTitle(item.name);
-              const match = tracks.find(t => normalizeTitle(t.title) === norm);
+              const match = tracksRef.current.find(t => normalizeTitle(t.title) === norm);
               if (match && match.id != null && item.value > 0) popMap[match.id] = item.value;
             }
             if (!cancelled) setTrackPopularity(popMap);
@@ -149,7 +160,9 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     })();
 
     return () => { cancelled = true; };
-  }, [entity, tracks, invokeInfoFetch, kind]);
+    // trackIdsKey (not `tracks`) so field-only patches like `liked` don't refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entity, trackIdsKey, invokeInfoFetch, kind]);
 
   const handleSort = useCallback((field: SortField) => {
     if (field === "random") {
