@@ -20,6 +20,28 @@ interface HistoryViewProps {
   onPlayTrack: (tracks: Track[], index: number) => void;
   onEnqueueTrack: (tracks: Track[]) => void;
   onArtistClick: (artistId: number, name?: string) => void;
+  onPlayArtist: (artistId: number) => void;
+  onEnqueueArtist: (artistId: number) => void;
+}
+
+const PLAY_ICON = (
+  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z" /></svg>
+);
+const ENQUEUE_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+);
+
+function RowActions({ onPlay, onEnqueue }: { onPlay: () => void; onEnqueue: () => void }) {
+  return (
+    <span className="row-lead-actions">
+      <button type="button" className="track-row-action track-row-action-play" title="Play" onClick={(e) => { e.stopPropagation(); onPlay(); }}>
+        {PLAY_ICON}
+      </button>
+      <button type="button" className="track-row-action track-row-action-enqueue" title="Enqueue" onClick={(e) => { e.stopPropagation(); onEnqueue(); }}>
+        {ENQUEUE_ICON}
+      </button>
+    </span>
+  );
 }
 
 function formatRelativeTime(unixSecs: number): string {
@@ -52,7 +74,7 @@ function timespanSinceTs(ts: Timespan): number | null {
 }
 
 export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
-  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, onArtistClick }, ref) {
+  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, onArtistClick, onPlayArtist, onEnqueueArtist }, ref) {
   const [activeTab, setActiveTab] = useState<HistoryTab>("recent");
   const [tracksTimespan, setTracksTimespan] = useState<Timespan>("30-days");
   const [artistsTimespan, setArtistsTimespan] = useState<Timespan>("30-days");
@@ -227,6 +249,28 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     }
   }
 
+  async function playArtistById(historyArtistId: number) {
+    try {
+      const artistId = await invoke<number | null>("reconnect_history_artist", { historyArtistId });
+      if (artistId) {
+        onPlayArtist(artistId);
+      }
+    } catch (e) {
+      console.error("Failed to reconnect artist:", e);
+    }
+  }
+
+  async function enqueueArtistById(historyArtistId: number) {
+    try {
+      const artistId = await invoke<number | null>("reconnect_history_artist", { historyArtistId });
+      if (artistId) {
+        onEnqueueArtist(artistId);
+      }
+    } catch (e) {
+      console.error("Failed to reconnect artist:", e);
+    }
+  }
+
   const tabs: { key: HistoryTab; label: string }[] = [
     { key: "recent", label: "Recent" },
     { key: "tracks", label: "Tracks" },
@@ -303,6 +347,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   className="history-row"
                   onDoubleClick={() => handleArtistDoubleClick(a.history_artist_id)}
                 >
+                  <RowActions onPlay={() => playArtistById(a.history_artist_id)} onEnqueue={() => enqueueArtistById(a.history_artist_id)} />
                   <span className="history-rank">{a.rank}</span>
                   <HistoryArt imagePath={artistImages[a.display_name]} />
                   <div className="history-info">
@@ -329,6 +374,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     data-history-index={idx}
                     onDoubleClick={() => playTrackById(t.history_track_id)}
                   >
+                    <RowActions onPlay={() => playTrackById(t.history_track_id)} onEnqueue={() => enqueueTrackById(t.history_track_id)} />
                     <span className="history-rank">{t.rank}</span>
                     <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
                     <div className="history-info">
@@ -355,6 +401,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     data-history-index={idx}
                     onDoubleClick={() => playTrackById(entry.history_track_id)}
                   >
+                    <RowActions onPlay={() => playTrackById(entry.history_track_id)} onEnqueue={() => enqueueTrackById(entry.history_track_id)} />
                     <HistoryArt imagePath={entry.display_artist ? artistImages[entry.display_artist] : null} />
                     <div className="history-info">
                       <span className="history-title">{entry.display_title}</span>
@@ -383,6 +430,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     data-history-index={idx}
                     onDoubleClick={() => playTrackById(t.history_track_id)}
                   >
+                    <RowActions onPlay={() => playTrackById(t.history_track_id)} onEnqueue={() => enqueueTrackById(t.history_track_id)} />
                     <span className="history-rank">{t.rank}</span>
                     <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
                     <div className="history-info">
@@ -409,6 +457,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   className="history-row"
                   onDoubleClick={() => handleArtistDoubleClick(a.history_artist_id)}
                 >
+                  <RowActions onPlay={() => playArtistById(a.history_artist_id)} onEnqueue={() => enqueueArtistById(a.history_artist_id)} />
                   <span className="history-rank">{a.rank}</span>
                   <HistoryArt imagePath={artistImages[a.display_name]} />
                   <div className="history-info">

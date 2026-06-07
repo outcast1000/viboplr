@@ -2759,7 +2759,7 @@ function App() {
                 placeholder="Search history..."
                 {...historySearchNav}
               />
-              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={contextMenuActions.handleEnqueue} onArtistClick={library.handleArtistClick} />
+              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={contextMenuActions.handleEnqueue} onArtistClick={library.handleArtistClick} onPlayArtist={playActions.playArtist} onEnqueueArtist={playActions.enqueueArtist} />
             </>
           )}
 
