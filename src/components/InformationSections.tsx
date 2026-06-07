@@ -96,6 +96,13 @@ export function InformationSections({
   }, [sections, onTitleData]);
 
   const handleAction = useCallback(async (actionId: string, payload?: unknown) => {
+    // The list item rarely carries an explicit artist (e.g. Last.fm "Top Songs"
+    // emits track name only). Fall back to the section's own entity: its
+    // artistName for album/track pages, or its name when it IS an artist.
+    const resolveArtist = (explicit?: string): string | undefined =>
+      explicit ??
+      entity?.artistName ??
+      (entity?.kind === "artist" ? entity.name : undefined);
     if (actionId === "save-lyrics" && entity) {
       const p = payload as { text: string; kind: string } | undefined;
       if (!p) return;
@@ -120,20 +127,22 @@ export function InformationSections({
     if (actionId === "play-track" || actionId === "enqueue-track" || actionId === "play-or-youtube") {
       const p = payload as { name?: string; artist?: string } | undefined;
       if (!p?.name || !onAction) return;
-      const ext: QueueTrack = buildExternalQueueTrack(p.name, p.artist);
+      const artist = resolveArtist(p.artist);
+      const ext: QueueTrack = buildExternalQueueTrack(p.name, artist);
       onAction(actionId === "enqueue-track" ? "enqueue-track" : "play-track", ext);
       return;
     }
     if (actionId === "youtube-search") {
       const p = payload as { name: string; artist?: string } | undefined;
       if (p) {
+        const artist = resolveArtist(p.artist);
         try {
           const result = await invoke<{ url: string; video_title: string | null }>(
-            "search_youtube", { title: p.name, artistName: p.artist ?? null }
+            "search_youtube", { title: p.name, artistName: artist ?? null }
           );
           openUrl(result.url);
         } catch {
-          const q = encodeURIComponent(`${p.name} ${p.artist ?? ""}`);
+          const q = encodeURIComponent(`${p.name} ${artist ?? ""}`);
           openUrl(`https://www.youtube.com/results?search_query=${q}`);
         }
       }
