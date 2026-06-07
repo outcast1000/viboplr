@@ -2730,6 +2730,8 @@ function App() {
             onToggleDislike={likeActions.handleToggleDislike}
             onToggleArtistLike={likeActions.handleToggleArtistLike}
             onToggleAlbumLike={likeActions.handleToggleAlbumLike}
+            onToggleArtistDislike={likeActions.handleToggleArtistDislike}
+            onToggleAlbumDislike={likeActions.handleToggleAlbumDislike}
             onTrackDragStart={contextMenuActions.handleTrackDragStart}
             onEntityDragStart={async (kind, ids) => {
               const target = kind === "album" ? { kind: "multi-album" as const, albumIds: ids }
@@ -2741,6 +2743,7 @@ function App() {
             onTagClick={library.handleTagClick}
             onTagContextMenu={contextMenuActions.handleTagContextMenu}
             onToggleTagLike={likeActions.handleToggleTagLike}
+            onToggleTagDislike={likeActions.handleToggleTagDislike}
             columns={library.trackColumns}
             onColumnsChange={library.setTrackColumns}
           />

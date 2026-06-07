@@ -97,11 +97,14 @@ interface SearchViewProps {
   onToggleDislike: (track: Track) => void;
   onToggleArtistLike: (id: number) => void;
   onToggleAlbumLike: (id: number) => void;
+  onToggleArtistDislike: (id: number) => void;
+  onToggleAlbumDislike: (id: number) => void;
   onTrackDragStart: (tracks: Track[]) => void;
   onEntityDragStart: (entityKind: "album" | "artist" | "tag", ids: number[]) => void;
   onTagClick: (id: number) => void;
   onTagContextMenu: (e: React.MouseEvent, tag: Tag) => void;
   onToggleTagLike: (id: number) => void;
+  onToggleTagDislike: (id: number) => void;
   columns: import("../types").ColumnConfig[];
   onColumnsChange: (columns: import("../types").ColumnConfig[]) => void;
 }
@@ -144,11 +147,14 @@ export function SearchView({
   onToggleDislike,
   onToggleArtistLike,
   onToggleAlbumLike,
+  onToggleArtistDislike,
+  onToggleAlbumDislike,
   onTrackDragStart,
   onEntityDragStart,
   onTagClick,
   onTagContextMenu,
   onToggleTagLike,
+  onToggleTagDislike,
   columns,
   onColumnsChange,
 }: SearchViewProps) {
@@ -535,6 +541,21 @@ export function SearchView({
     setResults(prev => ({ ...prev, tags: prev.tags.map(t => t.id === id ? { ...t, liked: t.liked === 1 ? 0 : 1 } : t) }));
     onToggleTagLike(id);
   }, [onToggleTagLike]);
+
+  const handleArtistDislike = useCallback((id: number) => {
+    setResults(prev => ({ ...prev, artists: prev.artists.map(a => a.id === id ? { ...a, liked: a.liked === -1 ? 0 : -1 } : a) }));
+    onToggleArtistDislike(id);
+  }, [onToggleArtistDislike]);
+
+  const handleAlbumDislike = useCallback((id: number) => {
+    setResults(prev => ({ ...prev, albums: prev.albums.map(a => a.id === id ? { ...a, liked: a.liked === -1 ? 0 : -1 } : a) }));
+    onToggleAlbumDislike(id);
+  }, [onToggleAlbumDislike]);
+
+  const handleTagDislike = useCallback((id: number) => {
+    setResults(prev => ({ ...prev, tags: prev.tags.map(t => t.id === id ? { ...t, liked: t.liked === -1 ? 0 : -1 } : t) }));
+    onToggleTagDislike(id);
+  }, [onToggleTagDislike]);
 
   useEffect(() => {
     setSelectedTrackIds(new Set());
@@ -1009,6 +1030,7 @@ export function SearchView({
             getAlbumImage={getAlbumImage}
             onAlbumClick={onAlbumClick}
             onToggleLike={handleAlbumLike}
+            onToggleDislike={handleAlbumDislike}
             onContextMenu={onAlbumContextMenu}
             onMultiContextMenu={onMultiAlbumContextMenu}
             onPlayAlbum={onPlayAlbum}
@@ -1033,6 +1055,7 @@ export function SearchView({
             getArtistImage={getArtistImage}
             onArtistClick={onArtistClick}
             onToggleLike={handleArtistLike}
+            onToggleDislike={handleArtistDislike}
             onContextMenu={onArtistContextMenu}
             onMultiContextMenu={onMultiArtistContextMenu}
             onPlayArtist={onPlayArtist}
@@ -1057,6 +1080,7 @@ export function SearchView({
             getTagImage={getTagImage}
             onTagClick={onTagClick}
             onToggleLike={handleTagLike}
+            onToggleDislike={handleTagDislike}
             onContextMenu={onTagContextMenu}
             onMultiContextMenu={onMultiTagContextMenu}
             onPlayTag={onPlayTag}

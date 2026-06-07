@@ -36,7 +36,7 @@ function computeIdSelection(
 }
 
 export function SearchTagResults({
-  tags, viewMode, getTagImage, onTagClick, onToggleLike,
+  tags, viewMode, getTagImage, onTagClick, onToggleLike, onToggleDislike,
   onContextMenu, onMultiContextMenu, onPlayTag, onEnqueueTag, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator, selectedIds, onSelectionChange, lastClickedRef, onDragStart,
 }: {
@@ -45,6 +45,7 @@ export function SearchTagResults({
   getTagImage: (name: string) => string | null;
   onTagClick: (id: number) => void;
   onToggleLike: (id: number) => void;
+  onToggleDislike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, tag: Tag) => void;
   onMultiContextMenu: (e: React.MouseEvent, tagIds: number[]) => void;
   onPlayTag: (tagId: number) => void;
@@ -110,7 +111,7 @@ export function SearchTagResults({
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
               </span>
-              <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="inline" size={12} />
+              <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} onToggleDislike={() => onToggleDislike(t.id)} variant="inline" size={12} />
               <span className="entity-table-name">{t.name}</span>
               <span className="entity-table-count">{t.track_count}</span>
             </div>
@@ -131,7 +132,7 @@ export function SearchTagResults({
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
               </span>
-              <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="inline" size={12} />
+              <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} onToggleDislike={() => onToggleDislike(t.id)} variant="inline" size={12} />
               <TagCardArt tag={t} imagePath={getTagImage(t.name)} className="entity-list-img" />
               <div className="entity-list-info">
                 <span className="entity-list-name">{t.name}</span>
@@ -150,7 +151,7 @@ export function SearchTagResults({
               <div key={t.id} className={`tag-card${selectedIds.has(t.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, t.id)} onContextMenu={e => handleCtxMenu(e, t)}>
                 <div className="album-card-art-wrapper">
                   <TagCardArt tag={t} imagePath={getTagImage(t.name)} />
-                  <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} variant="overlay" size={12} />
+                  <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} onToggleDislike={() => onToggleDislike(t.id)} variant="overlay" size={12} />
                   <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); handleCtxMenu(e, t); }} title="More options">&#x22EF;</button>
                   <button className="album-card-play-btn" onClick={e => { e.stopPropagation(); onPlayTag(t.id); }} title="Play">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
@@ -176,7 +177,7 @@ export function SearchTagResults({
 }
 
 export function SearchAlbumResults({
-  albums, viewMode, getAlbumImage, onAlbumClick, onToggleLike,
+  albums, viewMode, getAlbumImage, onAlbumClick, onToggleLike, onToggleDislike,
   onContextMenu, onMultiContextMenu, onPlayAlbum, onEnqueueAlbum, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator, selectedIds, onSelectionChange, lastClickedRef, onDragStart,
 }: {
@@ -185,6 +186,7 @@ export function SearchAlbumResults({
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
   onAlbumClick: (id: number, artistId?: number | null) => void;
   onToggleLike: (id: number) => void;
+  onToggleDislike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, id: number) => void;
   onMultiContextMenu: (e: React.MouseEvent, albumIds: number[]) => void;
   onPlayAlbum: (albumId: number) => void;
@@ -253,7 +255,7 @@ export function SearchAlbumResults({
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
               </span>
-              <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="inline" size={12} />
+              <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="inline" size={12} />
               <span className="entity-table-name">{a.title}</span>
               <span className="entity-table-secondary">{a.artist_name ?? ""}</span>
               <span className="entity-table-year">{a.year ?? ""}</span>
@@ -276,7 +278,7 @@ export function SearchAlbumResults({
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
               </span>
-              <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="inline" size={12} />
+              <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="inline" size={12} />
               <AlbumCardArt album={a} imagePath={getAlbumImage(a.title, a.artist_name)} />
               <div className="entity-list-info">
                 <span className="entity-list-name">{a.title}</span>
@@ -298,7 +300,7 @@ export function SearchAlbumResults({
               <div key={a.id} className={`album-card${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a)}>
                 <div className="album-card-art-wrapper">
                   <AlbumCardArt album={a} imagePath={getAlbumImage(a.title, a.artist_name)} />
-                  <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="overlay" size={12} />
+                  <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="overlay" size={12} />
                   <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); handleCtxMenu(e, a); }} title="More options">&#x22EF;</button>
                   <button className="album-card-play-btn" onClick={e => { e.stopPropagation(); onPlayAlbum(a.id); }} title="Play">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
@@ -326,7 +328,7 @@ export function SearchAlbumResults({
 }
 
 export function SearchArtistResults({
-  artists, viewMode, getArtistImage, onArtistClick, onToggleLike,
+  artists, viewMode, getArtistImage, onArtistClick, onToggleLike, onToggleDislike,
   onContextMenu, onMultiContextMenu, onPlayArtist, onEnqueueArtist, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator, selectedIds, onSelectionChange, lastClickedRef, onDragStart,
 }: {
@@ -335,6 +337,7 @@ export function SearchArtistResults({
   getArtistImage: (name: string) => string | null;
   onArtistClick: (id: number) => void;
   onToggleLike: (id: number) => void;
+  onToggleDislike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, id: number) => void;
   onMultiContextMenu: (e: React.MouseEvent, artistIds: number[]) => void;
   onPlayArtist: (artistId: number) => void;
@@ -400,7 +403,7 @@ export function SearchArtistResults({
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
               </span>
-              <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="inline" size={12} />
+              <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="inline" size={12} />
               <span className="entity-table-name">{a.name}</span>
               <span className="entity-table-count">{a.track_count}</span>
             </div>
@@ -421,7 +424,7 @@ export function SearchArtistResults({
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
               </span>
-              <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="inline" size={12} />
+              <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="inline" size={12} />
               <ArtistCardArt artist={a} imagePath={getArtistImage(a.name)} className="entity-list-img circular" />
               <div className="entity-list-info">
                 <span className="entity-list-name">{a.name}</span>
@@ -440,7 +443,7 @@ export function SearchArtistResults({
               <div key={a.id} className={`artist-card${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a.id)}>
                 <div className="album-card-art-wrapper">
                   <ArtistCardArt artist={a} imagePath={getArtistImage(a.name)} />
-                  <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} variant="overlay" size={12} />
+                  <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="overlay" size={12} />
                   <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); handleCtxMenu(e, a.id); }} title="More options">&#x22EF;</button>
                   <button className="album-card-play-btn" onClick={e => { e.stopPropagation(); onPlayArtist(a.id); }} title="Play">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
