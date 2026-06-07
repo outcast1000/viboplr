@@ -346,3 +346,59 @@
   font-size: var(--fs-xs);
   color: var(--text-secondary);
 }
+
+/* Per-row play/enqueue actions: a fixed leading cell, always visible, before all columns. */
+.row-lead-actions,
+.row-lead-actions-head {
+  width: 56px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+}
+
+.track-row-action {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.track-row-action svg {
+  width: 12px;
+  height: 12px;
+}
+
+.track-row-action:hover {
+  transform: scale(1.12);
+}
+
+/* Play: solid accent circle with a light glyph. */
+.track-row-action-play {
+  background: var(--accent);
+  color: var(--bg-primary);
+  box-shadow: 0 1px 4px rgba(var(--accent-rgb), 0.4);
+}
+
+.track-row-action-play:hover {
+  background: var(--accent);
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.6);
+}
+
+/* Enqueue: subtle filled circle that brightens to accent on hover. */
+.track-row-action-enqueue {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.track-row-action-enqueue:hover {
+  background: var(--accent);
+  color: var(--bg-primary);
+}

@@ -88,8 +88,11 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
     if (actionId === "play-track") {
       const t = payload as Track | undefined;
       if (t) actions.playTracks([t], 0);
+    } else if (actionId === "enqueue-track") {
+      const t = payload as Track | undefined;
+      if (t) actions.enqueueTracks([t]);
     }
-  }, [actions.playTracks]);
+  }, [actions.playTracks, actions.enqueueTracks]);
 
   const infoEntity: InfoEntity = artist
     ? { kind: "artist", name: artist.name, id: artist.id }
@@ -263,6 +266,8 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
             columns={trackColumns}
             onColumnsChange={setTrackColumns}
             onDoubleClick={actions.playTracks}
+            onPlay={(t) => actions.playTracks([t], 0)}
+            onEnqueue={(t) => actions.enqueueTracks([t])}
             onContextMenu={actions.handleTrackContextMenu}
             onArtistClick={actions.navigateToArtist}
             onAlbumClick={actions.navigateToAlbum}

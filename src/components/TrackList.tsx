@@ -125,6 +125,8 @@ interface TrackListProps {
   onToggleDislike?: (track: Track) => void;
   onTrackDragStart?: (tracks: Track[]) => void;
   onDeleteTracks?: (trackIds: number[]) => void;
+  onPlay?: (track: Track) => void;
+  onEnqueue?: (track: Track) => void;
   trackPopularity?: Record<number, number>;
   emptyMessage?: string;
   hasMore?: boolean;
@@ -137,7 +139,7 @@ export function TrackList({
   sortField, trackListRef, columns, onColumnsChange,
   onDoubleClick, onContextMenu, onArtistClick, onAlbumClick,
   onSort, sortIndicator, onToggleLike, onToggleDislike, onTrackDragStart,
-  onDeleteTracks, trackPopularity,
+  onDeleteTracks, onPlay, onEnqueue, trackPopularity,
   emptyMessage = "No tracks found.",
   hasMore = false, loadingMore = false, onLoadMore,
 }: TrackListProps) {
@@ -207,7 +209,7 @@ export function TrackList({
 
   function handleRowClick(e: React.MouseEvent, index: number) {
     if (didDragRowRef.current) return;
-    if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link')) {
+    if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link, .track-row-action')) {
       return;
     }
     const newSelection = computeSelection(
@@ -220,7 +222,7 @@ export function TrackList({
 
   function handleRowMouseDown(e: React.MouseEvent, index: number) {
     if (e.button !== 0 || !onTrackDragStart) return;
-    if ((e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link')) return;
+    if ((e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link, .track-row-action')) return;
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -475,9 +477,12 @@ export function TrackList({
     }
   }
 
+  const hasRowActions = !!onPlay || !!onEnqueue;
+
   return (
     <div className="track-list" ref={trackListRef}>
       <div className="track-header" onContextMenu={handleHeaderContextMenu}>
+        {hasRowActions && <span className="row-lead-actions-head" />}
         {visibleColumns.map(col => renderHeaderCell(col))}
       </div>
       {tracks.map((t, i) => (
@@ -497,6 +502,20 @@ export function TrackList({
             }
           }}
         >
+          {hasRowActions && (
+            <span className="row-lead-actions">
+              {onPlay && (
+                <button type="button" className="track-row-action track-row-action-play" title="Play" onClick={(e) => { e.stopPropagation(); onPlay(t); }}>
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                </button>
+              )}
+              {onEnqueue && (
+                <button type="button" className="track-row-action track-row-action-enqueue" title="Enqueue" onClick={(e) => { e.stopPropagation(); onEnqueue(t); }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+              )}
+            </span>
+          )}
           {visibleColumns.map(col => renderCell(col, t, i))}
         </div>
       ))}

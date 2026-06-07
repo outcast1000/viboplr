@@ -221,8 +221,11 @@ export function TrackDetailView({
     if (actionId === "play-track") {
       const t = payload as Track | undefined;
       if (t) actions.playTracks([t], 0);
+    } else if (actionId === "enqueue-track") {
+      const t = payload as Track | undefined;
+      if (t) actions.enqueueTracks([t]);
     }
-  }, [actions.playTracks]);
+  }, [actions.playTracks, actions.enqueueTracks]);
 
   const assignedTagNames = new Set(trackTags.map(t => t.name.toLowerCase()));
 

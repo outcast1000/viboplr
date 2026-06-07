@@ -82,8 +82,11 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     if (actionId === "play-track") {
       const t = payload as Track | undefined;
       if (t) actions.playTracks([t], 0);
+    } else if (actionId === "enqueue-track") {
+      const t = payload as Track | undefined;
+      if (t) actions.enqueueTracks([t]);
     }
-  }, [actions.playTracks]);
+  }, [actions.playTracks, actions.enqueueTracks]);
 
   const resolveEntity = useCallback((kind: string, entityName: string) => {
     if (kind === "artist") {
@@ -214,6 +217,8 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
           columns={trackColumns}
           onColumnsChange={setTrackColumns}
           onDoubleClick={actions.playTracks}
+          onPlay={(t) => actions.playTracks([t], 0)}
+          onEnqueue={(t) => actions.enqueueTracks([t])}
           onContextMenu={actions.handleTrackContextMenu}
           onArtistClick={actions.navigateToArtist}
           onAlbumClick={actions.navigateToAlbum}

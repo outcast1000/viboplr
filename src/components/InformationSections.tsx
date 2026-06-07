@@ -123,6 +123,27 @@ export function InformationSections({
       }
       return;
     }
+    if (actionId === "enqueue-track") {
+      const p = payload as { id?: number; name?: string; artist?: string } | undefined;
+      if (!p) return;
+      type ResolvedTrack = { id: number; path: string; title: string; artist_name?: string; album_title?: string; duration_secs?: number } | null;
+      try {
+        let track: ResolvedTrack = null;
+        if (p.id != null) {
+          track = await invoke<ResolvedTrack>("get_track_by_id", { trackId: p.id });
+        } else if (p.name) {
+          track = await invoke<ResolvedTrack>("find_track_by_metadata", { title: p.name, artistName: p.artist ?? null, albumName: null });
+        }
+        if (track) {
+          if (onAction) onAction("enqueue-track", track);
+        } else {
+          console.warn(`Track not in library, cannot enqueue: ${p.name ?? p.id ?? "unknown"}`);
+        }
+      } catch (e) {
+        console.error("Failed to resolve track for enqueue:", e);
+      }
+      return;
+    }
     if (actionId === "play-or-youtube") {
       const p = payload as { name: string; artist?: string } | undefined;
       if (p) {

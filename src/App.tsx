@@ -169,6 +169,7 @@ async function resolveTrackDownload(
 
 function App() {
   const restoredRef = useRef(false);
+  const handleEnqueueRef = useRef<(tracks: Track[]) => void>(() => {});
   const videoFrameQueueRef = useRef<VideoFrameQueue | null>(null);
   const [appRestoring, setAppRestoring] = useState(true);
   const [navError, setNavError] = useState<string | null>(null);
@@ -749,6 +750,7 @@ function App() {
 
   const playActions = usePlayActions({
     playTracks: queueHook.playTracks,
+    enqueueTracks: (tracks: Track[]) => handleEnqueueRef.current(tracks),
     setPlaylistContext: queueHook.setPlaylistContext,
     albums: library.albums,
     artists: library.artists,
@@ -824,6 +826,10 @@ function App() {
     },
     onShowMenu: (state) => showNativeMenuRef.current?.(state),
   });
+
+  // playActions is constructed before contextMenuActions, so the enqueue-entity
+  // actions reach the dedup-aware handleEnqueue through this ref (updated each render).
+  handleEnqueueRef.current = contextMenuActions.handleEnqueue;
 
   const handleDeleteTracks = useCallback((trackIds: number[]) => {
     const idSet = new Set(trackIds);
@@ -2703,9 +2709,13 @@ function App() {
             getAlbumImage={albumImageCache.getImage}
             getTagImage={tagImageCache.getImage}
             onPlayTracks={queueHook.playTracks}
+            onEnqueueTrack={(t) => contextMenuActions.handleEnqueue([t])}
             onPlayAlbum={playActions.playAlbum}
             onPlayArtist={playActions.playArtist}
             onPlayTag={playActions.playTag}
+            onEnqueueAlbum={playActions.enqueueAlbum}
+            onEnqueueArtist={playActions.enqueueArtist}
+            onEnqueueTag={playActions.enqueueTag}
             onArtistClick={library.handleArtistClick}
             onAlbumClick={library.handleAlbumClick}
             onTrackContextMenu={contextMenuActions.handleTrackContextMenu}

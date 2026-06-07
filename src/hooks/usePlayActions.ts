@@ -5,6 +5,7 @@ import type { PlaylistContext } from "./useQueue";
 
 interface PlayActionsArgs {
   playTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
+  enqueueTracks: (tracks: Track[]) => void;
   setPlaylistContext: (fn: (prev: PlaylistContext | null) => PlaylistContext | null) => void;
   albums: Album[];
   artists: Artist[];
@@ -95,6 +96,7 @@ function enrichDescription(
 
 export function usePlayActions({
   playTracks,
+  enqueueTracks,
   setPlaylistContext,
   albums,
   artists,
@@ -133,5 +135,35 @@ export function usePlayActions({
     playTracks(tracks, opts?.startIndex ?? 0, buildTagContext(tag, tagImg));
   }, [playTracks, tags, getTagImage]);
 
-  return { playAlbum, playArtist, playTag };
+  const enqueueAlbum = useCallback(async (albumId: number) => {
+    try {
+      const tracks = await invoke<Track[]>("get_tracks", { opts: { albumId } });
+      const queueable = tracks.filter(t => t.liked !== -1);
+      if (queueable.length > 0) enqueueTracks(queueable);
+    } catch (e) {
+      console.error("Failed to enqueue album:", e);
+    }
+  }, [enqueueTracks]);
+
+  const enqueueArtist = useCallback(async (artistId: number) => {
+    try {
+      const tracks = await invoke<Track[]>("get_tracks_by_artist", { artistId });
+      const queueable = tracks.filter(t => t.liked !== -1);
+      if (queueable.length > 0) enqueueTracks(queueable);
+    } catch (e) {
+      console.error("Failed to enqueue artist:", e);
+    }
+  }, [enqueueTracks]);
+
+  const enqueueTag = useCallback(async (tagId: number) => {
+    try {
+      const tracks = await invoke<Track[]>("get_tracks", { opts: { tagId } });
+      const queueable = tracks.filter(t => t.liked !== -1);
+      if (queueable.length > 0) enqueueTracks(queueable);
+    } catch (e) {
+      console.error("Failed to enqueue tag:", e);
+    }
+  }, [enqueueTracks]);
+
+  return { playAlbum, playArtist, playTag, enqueueAlbum, enqueueArtist, enqueueTag };
 }

@@ -45,11 +45,10 @@ export function RankedListRenderer({ data, onEntityClick, onAction, resolveEntit
               onTrackContextMenu(e, { trackId: trackId ?? undefined, title: item.name, artistName: item.subtitle ?? null });
             } : undefined}
           >
-            <span className="ranked-list-rank">{i + 1}</span>
             {isTrack && (
               <div className="ranked-list-actions">
                 <button
-                  className="ranked-list-action-btn"
+                  className="track-row-action track-row-action-play"
                   title={trackId ? "Play" : "Play / YouTube"}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -59,9 +58,22 @@ export function RankedListRenderer({ data, onEntityClick, onAction, resolveEntit
                       onAction?.("play-or-youtube", { name: item.name, artist: item.subtitle });
                     }
                   }}
-                >&#9654;</button>
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                </button>
+                <button
+                  className="track-row-action track-row-action-enqueue"
+                  title="Enqueue"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAction?.("enqueue-track", { id: trackId ?? undefined, name: item.name, artist: item.subtitle });
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
               </div>
             )}
+            <span className="ranked-list-rank">{i + 1}</span>
             <div className="ranked-list-text">
               <span className="ranked-list-name">{item.name}</span>
               {item.subtitle && <><span className="ranked-list-sep"> — </span><span className="ranked-list-subtitle">{item.subtitle}</span></>}

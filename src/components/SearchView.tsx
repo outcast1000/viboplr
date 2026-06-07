@@ -78,9 +78,13 @@ interface SearchViewProps {
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
   getTagImage: (name: string) => string | null;
   onPlayTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
+  onEnqueueTrack: (track: Track) => void;
   onPlayAlbum: (albumId: number) => void;
   onPlayArtist: (artistId: number) => void;
   onPlayTag: (tagId: number) => void;
+  onEnqueueAlbum: (albumId: number) => void;
+  onEnqueueArtist: (artistId: number) => void;
+  onEnqueueTag: (tagId: number) => void;
   onArtistClick: (id: number, name?: string) => void;
   onAlbumClick: (id: number, artistId?: number | null, name?: string, artistName?: string) => void;
   onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedIds: Set<string>) => void;
@@ -121,9 +125,13 @@ export function SearchView({
   getAlbumImage,
   getTagImage,
   onPlayTracks,
+  onEnqueueTrack,
   onPlayAlbum,
   onPlayArtist,
   onPlayTag,
+  onEnqueueAlbum,
+  onEnqueueArtist,
+  onEnqueueTag,
   onArtistClick,
   onAlbumClick,
   onTrackContextMenu,
@@ -870,6 +878,8 @@ export function SearchView({
             columns={columns}
             onColumnsChange={onColumnsChange}
             onDoubleClick={onPlayTracks}
+            onPlay={(t) => onPlayTracks([t], 0)}
+            onEnqueue={(t) => onEnqueueTrack(t)}
             onContextMenu={onTrackContextMenu}
             onArtistClick={onArtistClick}
             onAlbumClick={onAlbumClick}
@@ -897,6 +907,14 @@ export function SearchView({
                   onMouseDown={(e) => handleTrackItemMouseDown(e, i)}
                   onContextMenu={(e) => handleTrackItemContextMenu(e, t, i)}
                 >
+                  <span className="row-lead-actions">
+                    <button type="button" className="track-row-action track-row-action-play" title="Play" onClick={(e) => { e.stopPropagation(); setSelectedTrackIds(new Set()); onPlayTracks([t], 0); }}>
+                      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                    </button>
+                    <button type="button" className="track-row-action track-row-action-enqueue" title="Enqueue" onClick={(e) => { e.stopPropagation(); onEnqueueTrack(t); }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                    </button>
+                  </span>
                   <LikeDislikeButtons
                     liked={t.liked}
                     onToggleLike={() => handleTrackLike(t)}
@@ -994,6 +1012,7 @@ export function SearchView({
             onContextMenu={onAlbumContextMenu}
             onMultiContextMenu={onMultiAlbumContextMenu}
             onPlayAlbum={onPlayAlbum}
+            onEnqueueAlbum={onEnqueueAlbum}
             hasMore={hasMore.albums}
             loadingMore={loadingMore.albums}
             onLoadMore={handleLoadMore}
@@ -1017,6 +1036,7 @@ export function SearchView({
             onContextMenu={onArtistContextMenu}
             onMultiContextMenu={onMultiArtistContextMenu}
             onPlayArtist={onPlayArtist}
+            onEnqueueArtist={onEnqueueArtist}
             hasMore={hasMore.artists}
             loadingMore={loadingMore.artists}
             onLoadMore={handleLoadMore}
@@ -1040,6 +1060,7 @@ export function SearchView({
             onContextMenu={onTagContextMenu}
             onMultiContextMenu={onMultiTagContextMenu}
             onPlayTag={onPlayTag}
+            onEnqueueTag={onEnqueueTag}
             hasMore={hasMore.tags}
             loadingMore={loadingMore.tags}
             onLoadMore={handleLoadMore}
