@@ -259,16 +259,6 @@
   color: var(--text-secondary);
 }
 
-.now-resolving-error {
-  color: var(--error);
-  font-size: var(--fs-xs);
-}
-
-.now-resolving-sep {
-  color: var(--text-tertiary);
-  font-size: var(--fs-xs);
-}
-
 .now-resolving-trying {
   color: var(--accent);
   font-size: var(--fs-xs);

@@ -97,6 +97,8 @@ interface QueuePanelProps {
   debugMode?: boolean;
   mainPlaylistDir: string | null;
   thumbVersions: Record<string, number>;
+  resolvingStatus?: { key: string; error: string | null; trying: string | null } | null;
+  resolveFailures?: Record<string, string>;
 }
 
 const AUTO_APPROVE_SECS = 10;
@@ -134,7 +136,7 @@ export function QueuePanel({
   onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onEditPlaylist, onLoadPlaylist, onContextMenu,
   externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
-  mainPlaylistDir, thumbVersions,
+  mainPlaylistDir, thumbVersions, resolvingStatus, resolveFailures,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
@@ -619,6 +621,23 @@ export function QueuePanel({
                 <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
                 {t.album_title && <span className="queue-item-album">{t.album_title}</span>}
               </div>
+              {resolvingStatus?.key === t.key ? (
+                <div className="queue-item-status">
+                  <span className="queue-item-status-spinner" />
+                  {resolvingStatus.error && (
+                    <>
+                      <span className="queue-resolving-error">{resolvingStatus.error}</span>
+                      <span className="queue-resolving-sep">·</span>
+                    </>
+                  )}
+                  <span className="queue-resolving-trying">Trying {resolvingStatus.trying}…</span>
+                </div>
+              ) : resolveFailures?.[t.key] ? (
+                <div className="queue-item-status queue-item-status-failed">
+                  <svg className="queue-resolving-fail-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  <span className="queue-resolving-error">Couldn't play · {resolveFailures[t.key]}</span>
+                </div>
+              ) : null}
             </div>
           </div>
         ))}

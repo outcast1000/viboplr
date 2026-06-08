@@ -235,7 +235,10 @@ function App() {
   });
   const streamResolversRef = useRef<StreamResolver[]>([]);
   const [streamResolverOrderVersion, setStreamResolverOrderVersion] = useState(0);
-  const [resolvingStatus, setResolvingStatus] = useState<{ error: string | null; trying: string | null } | null>(null);
+  const [resolvingStatus, setResolvingStatus] = useState<{ key: string; error: string | null; trying: string | null } | null>(null);
+  // Persistent per-track resolve failures, keyed by QueueTrack.key. Survives track
+  // changes so the failed row keeps explaining what happened until a later retry succeeds.
+  const [resolveFailures, setResolveFailures] = useState<Record<string, string>>({});
   const [resolvedSource, setResolvedSource] = useState<{ name: string; url: string; sourceUrl: string | null; id: string | null } | null>(null);
   const resolveGenerationRef = useRef(0);
   const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>(null);
@@ -1170,12 +1173,19 @@ function App() {
       for (const entry of chain) {
         if (resolveGenerationRef.current !== generation) return "";
         if (lastError || chain.length > 1) {
-          setResolvingStatus({ error: lastError, trying: entry.name });
+          setResolvingStatus({ key: track.key, error: lastError, trying: entry.name });
         }
         try {
           const src = await entry.resolve();
           if (resolveGenerationRef.current !== generation) return "";
           setResolvingStatus(null);
+          // Resolved successfully — clear any prior persistent failure for this track.
+          setResolveFailures(prev => {
+            if (!(track.key in prev)) return prev;
+            const next = { ...prev };
+            delete next[track.key];
+            return next;
+          });
           setResolvedSource({ name: entry.name, url: src, sourceUrl: entry.sourceUrl, id: entry.id });
           if (lastError) {
             console.debug(`Playing from ${entry.name} (original unavailable)`);
@@ -1191,6 +1201,9 @@ function App() {
       if (resolveGenerationRef.current === generation) {
         setResolvingStatus(null);
       }
+      // Record a persistent failure for this track so the queue row keeps
+      // explaining what happened even after playback moves to another track.
+      setResolveFailures(prev => ({ ...prev, [track.key]: lastError ?? "no source found" }));
       throw new Error(`No playback source found for: ${track.title}`);
     };
   }, []);
@@ -1202,6 +1215,21 @@ function App() {
       console.debug(`Playback failed (${src}): ${t.artist_name ? t.artist_name + " — " : ""}${t.title}: ${playback.playbackError}`);
     }
   }, [playback.playbackError, playback.failedTrack]);
+
+  // Prune persistent resolve failures for tracks no longer in the queue, so the
+  // map stays bounded and a recycled key can't inherit a stale error.
+  useEffect(() => {
+    setResolveFailures(prev => {
+      const keys = Object.keys(prev);
+      if (keys.length === 0) return prev;
+      const live = new Set(queueHook.queue.map(t => t.key));
+      const stale = keys.filter(k => !live.has(k));
+      if (stale.length === 0) return prev;
+      const next = { ...prev };
+      for (const k of stale) delete next[k];
+      return next;
+    });
+  }, [queueHook.queue]);
 
 
   // Paste image onto artist/album
@@ -3037,6 +3065,8 @@ function App() {
           debugMode={debugMode}
           mainPlaylistDir={mainPlaylistDir}
           thumbVersions={queueHook.thumbVersions}
+          resolvingStatus={resolvingStatus}
+          resolveFailures={resolveFailures}
         />
       {!queueCollapsed && (
         <button
@@ -3396,7 +3426,6 @@ function App() {
         onToggleSync={handleToggleSync}
         showHelp={showHelp}
         onToggleHelp={() => setShowHelp(h => !h)}
-        resolvingStatus={resolvingStatus}
         resolvedSource={resolvedSource}
         loadingTrack={playback.loadingTrack}
         playbackError={playback.playbackError}

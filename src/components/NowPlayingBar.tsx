@@ -146,7 +146,6 @@ interface NowPlayingBarProps {
   showHelp: boolean;
   onToggleHelp: () => void;
   playbackError?: string | null;
-  resolvingStatus?: { error: string | null; trying: string | null } | null;
   resolvedSource?: { name: string; url: string; sourceUrl?: string | null; id?: string | null } | null;
   loadingTrack?: QueueTrack | null;
   onSkipError?: () => void;
@@ -172,7 +171,7 @@ export function NowPlayingBar({
   onNavigateToArtistByName, onNavigateToAlbumByName,
   syncState, onToggleSync,
   showHelp, onToggleHelp,
-  playbackError, resolvingStatus, resolvedSource, loadingTrack, onSkipError,
+  playbackError, resolvedSource, loadingTrack, onSkipError,
   onDownloadTrack,
   onContextMenu,
 }: NowPlayingBarProps) {
@@ -299,24 +298,8 @@ export function NowPlayingBar({
                       </div>
                     ) : (
                       <span className="now-artist">
-                        {loadingTrack && loadingTrack.key !== currentTrack.key ? (
-                          <span className="now-resolving-trying">
-                            Loading {loadingTrack.title}
-                            {resolvingStatus?.trying && ` · ${resolvingStatus.trying}`}...
-                          </span>
-                        ) : resolvingStatus ? (
-                          <>
-                            {resolvingStatus.error && (
-                              <><span className="now-resolving-error">{resolvingStatus.error}</span><span className="now-resolving-sep"> · </span></>
-                            )}
-                            <span className="now-resolving-trying">Trying {resolvingStatus.trying}...</span>
-                          </>
-                        ) : (
-                          <>
-                            {currentTrack.artist_name || "Unknown"}
-                            {currentTrack.album_title && ` · ${currentTrack.album_title}`}
-                          </>
-                        )}
+                        {currentTrack.artist_name || "Unknown"}
+                        {currentTrack.album_title && ` · ${currentTrack.album_title}`}
                       </span>
                     )}
                   </>
@@ -501,14 +484,7 @@ export function NowPlayingBar({
                   )}
                 </span>
                 <span className="now-subtitle">
-                  {loadingTrack && loadingTrack.key !== currentTrack.key ? (
-                    <span className="now-resolving-trying">
-                      Loading {loadingTrack.title}
-                      {resolvingStatus?.trying && ` · ${resolvingStatus.trying}`}...
-                    </span>
-                  ) : (
-                    <>
-                      {!resolvingStatus && (() => {
+                  {(() => {
                         const isLocal = isEffectivelyLocal(currentTrack, resolvedSource ?? null);
                         const sourceName = resolvedSource?.name && resolvedSource.name !== "Library"
                           ? resolvedSource.name
@@ -535,24 +511,11 @@ export function NowPlayingBar({
                             if (e.key === "Escape") setSourceTooltipOpen(false);
                           }}
                         ><SourceIcon isLocal={isLocal} /></span>;
-                      })()}
-                      {resolvingStatus ? (
-                        <>
-                          {resolvingStatus.error && (
-                            <><span className="now-resolving-error">{resolvingStatus.error}</span><span className="now-resolving-sep"> · </span></>
-                          )}
-                          <span className="now-resolving-trying">Trying {resolvingStatus.trying}...</span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="now-link" onClick={currentTrack.artist_name && onNavigateToArtistByName ? () => onNavigateToArtistByName(currentTrack.artist_name!) : undefined}><SlideText text={currentTrack.artist_name || "Unknown"} /></span>
-                          {artistRank != null && artistRank <= 100 && <span className="now-rank-badge" title={`Artist rank #${artistRank}`}>#{artistRank}</span>}
-                          {currentTrack.album_title && (
-                            <><span className="now-sep"> — </span><span className="now-link" onClick={onNavigateToAlbumByName ? () => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name ?? undefined) : undefined}>{currentTrack.album_title}</span></>
-                          )}
-                        </>
-                      )}
-                    </>
+                  })()}
+                  <span className="now-link" onClick={currentTrack.artist_name && onNavigateToArtistByName ? () => onNavigateToArtistByName(currentTrack.artist_name!) : undefined}><SlideText text={currentTrack.artist_name || "Unknown"} /></span>
+                  {artistRank != null && artistRank <= 100 && <span className="now-rank-badge" title={`Artist rank #${artistRank}`}>#{artistRank}</span>}
+                  {currentTrack.album_title && (
+                    <><span className="now-sep"> — </span><span className="now-link" onClick={onNavigateToAlbumByName ? () => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name ?? undefined) : undefined}>{currentTrack.album_title}</span></>
                   )}
                 </span>
               </>
