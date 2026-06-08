@@ -128,9 +128,11 @@ export function CentralSearchDropdown({
     el?.scrollIntoView({ block: "nearest" });
   }, [highlightedIndex]);
 
-  const artistOffset = 0;
-  const albumOffset = results.artists.length;
-  const trackOffset = results.artists.length + results.albums.length;
+  // Display order tracks → albums → artists (matches the mini-player search
+  // and the `items` array in useCentralSearch).
+  const trackOffset = 0;
+  const albumOffset = results.tracks.length;
+  const artistOffset = results.tracks.length + results.albums.length;
 
   return (
     <div className="central-search-container" ref={containerRef}>
@@ -190,26 +192,30 @@ export function CentralSearchDropdown({
       {showOverlay && (
         <div className="central-search-dropdown" ref={dropdownRef}>
           <div className="central-search-results">
-            {results.artists.length > 0 && (
+            {results.tracks.length > 0 && (
               <>
-                <div className="search-section-header">Artists</div>
-                {results.artists.map((artist, i) => (
+                <div className="search-section-header">Tracks</div>
+                {results.tracks.map((track, i) => (
                   <div
-                    key={`artist-${artist.id}`}
-                    className={`central-search-result ${artistOffset + i === highlightedIndex ? "highlighted" : ""}`}
+                    key={`track-${track.id}`}
+                    className={`central-search-result ${trackOffset + i === highlightedIndex ? "highlighted" : ""}`}
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      onResultClick({ kind: "artist", data: artist });
+                      onResultClick({ kind: "track", data: track });
                     }}
                   >
                     <div className="result-art">
-                      <ArtistImage artist={artist} getArtistImage={getArtistImage} />
+                      <TrackImage track={track} getAlbumImage={getAlbumImage} getArtistImage={getArtistImage} />
                     </div>
                     <div className="result-info">
-                      <div className="result-title">{artist.name}</div>
-                      <div className="result-subtitle">Artist · {artist.track_count} tracks</div>
+                      <div className="result-title">{track.title}</div>
+                      <div className="result-subtitle">
+                        {track.artist_name}
+                        {track.artist_name && track.album_title && " · "}
+                        {track.album_title}
+                      </div>
                     </div>
-                    <span className="result-action">→</span>
+                    <span className="result-play">▶</span>
                   </div>
                 ))}
               </>
@@ -242,30 +248,26 @@ export function CentralSearchDropdown({
                 ))}
               </>
             )}
-            {results.tracks.length > 0 && (
+            {results.artists.length > 0 && (
               <>
-                <div className="search-section-header">Tracks</div>
-                {results.tracks.map((track, i) => (
+                <div className="search-section-header">Artists</div>
+                {results.artists.map((artist, i) => (
                   <div
-                    key={`track-${track.id}`}
-                    className={`central-search-result ${trackOffset + i === highlightedIndex ? "highlighted" : ""}`}
+                    key={`artist-${artist.id}`}
+                    className={`central-search-result ${artistOffset + i === highlightedIndex ? "highlighted" : ""}`}
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      onResultClick({ kind: "track", data: track });
+                      onResultClick({ kind: "artist", data: artist });
                     }}
                   >
                     <div className="result-art">
-                      <TrackImage track={track} getAlbumImage={getAlbumImage} getArtistImage={getArtistImage} />
+                      <ArtistImage artist={artist} getArtistImage={getArtistImage} />
                     </div>
                     <div className="result-info">
-                      <div className="result-title">{track.title}</div>
-                      <div className="result-subtitle">
-                        {track.artist_name}
-                        {track.artist_name && track.album_title && " · "}
-                        {track.album_title}
-                      </div>
+                      <div className="result-title">{artist.name}</div>
+                      <div className="result-subtitle">Artist · {artist.track_count} tracks</div>
                     </div>
-                    <span className="result-play">▶</span>
+                    <span className="result-action">→</span>
                   </div>
                 ))}
               </>

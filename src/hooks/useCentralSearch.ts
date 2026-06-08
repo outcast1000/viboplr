@@ -30,11 +30,12 @@ export function useCentralSearch({
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  // Display order tracks → albums → artists (matches the mini-player search).
   const items: SearchResultItem[] = useMemo(() => {
     const list: SearchResultItem[] = [];
-    for (const a of results.artists) list.push({ kind: "artist", data: a });
-    for (const a of results.albums) list.push({ kind: "album", data: a });
     for (const t of results.tracks) list.push({ kind: "track", data: t });
+    for (const a of results.albums) list.push({ kind: "album", data: a });
+    for (const a of results.artists) list.push({ kind: "artist", data: a });
     return list;
   }, [results]);
 
