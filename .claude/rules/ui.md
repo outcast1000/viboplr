@@ -24,7 +24,7 @@ Every entity list supports three view modes using shared CSS classes. The stylin
 |------|-----------|--------|--------------|
 | **Table** | `.entity-table` | Grid columns, sortable headers | Right-click on row |
 | **List** | `.entity-list` | Rows with thumbnails, two-line layout (title + subtitle) | Right-click on row |
-| **Tiles** | `.album-grid` | Card grid (`repeat(auto-fill, minmax(160px, 1fr))`) | Via `...` button overlay on card (see Tile Card Structure below) |
+| **Tiles** | `.entity-grid` | Card grid (`repeat(auto-fill, minmax(160px, 1fr))`) | Via `...` button overlay on card (see Tile Card Structure below) |
 
 ### Context Menu Consistency
 
@@ -40,7 +40,7 @@ The app must detect what kind of entity it is rendering and show the appropriate
 
 **Registering new actions:** Both internal features and plugins register context menu items via `contributes.contextMenuItems` in their manifest with `targets: ["track", "album", "artist", "multi-track", "playlist"]`. New actions automatically appear in all context menus for that entity type across every surface.
 
-**When adding a new surface that shows entities:** Use the shared CSS classes, wire up context menus with `pluginMenuItems` and `onPluginAction`, and ensure all three view modes work. Do not create one-off styling — reuse the existing `.entity-table`, `.entity-list`, and `.album-grid` patterns.
+**When adding a new surface that shows entities:** Use the shared CSS classes, wire up context menus with `pluginMenuItems` and `onPluginAction`, and ensure all three view modes work. Do not create one-off styling — reuse the existing `.entity-table`, `.entity-list`, and `.entity-grid` patterns.
 
 ### Tile Card Structure
 

@@ -36,8 +36,8 @@ test('tracks tab shows track rows and the sort bar (SortButton)', async ({ page 
 
 test('albums tab renders extracted SearchAlbumResults', async ({ page }) => {
   await page.locator('.search-view .ds-tab', { hasText: 'Albums' }).click();
-  // tiles view -> album-grid with album cards from TEST_ALBUMS (2 items)
-  await expect(page.locator('.search-view .album-grid').first()).toBeVisible();
+  // tiles view -> entity-grid with album cards from TEST_ALBUMS (2 items)
+  await expect(page.locator('.search-view .entity-grid').first()).toBeVisible();
   await expect(page.locator('.search-view .album-card')).toHaveCount(2);
   await expect(page.locator('.search-view').getByText('Album X')).toBeVisible();
 });

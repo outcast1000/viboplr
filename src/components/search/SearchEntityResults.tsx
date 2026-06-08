@@ -146,7 +146,7 @@ export function SearchTagResults({
 
       {viewMode === "tiles" && (
         <div className="tiles-scroll">
-          <div className="album-grid">
+          <div className="entity-grid">
             {tags.map((t, i) => (
               <div key={t.id} className={`tag-card${selectedIds.has(t.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, t.id)} onContextMenu={e => handleCtxMenu(e, t)}>
                 <div className="album-card-art-wrapper">
@@ -295,7 +295,7 @@ export function SearchAlbumResults({
 
       {viewMode === "tiles" && (
         <div className="tiles-scroll">
-          <div className="album-grid">
+          <div className="entity-grid">
             {albums.map((a, i) => (
               <div key={a.id} className={`album-card${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a)}>
                 <div className="album-card-art-wrapper">
@@ -438,7 +438,7 @@ export function SearchArtistResults({
 
       {viewMode === "tiles" && (
         <div className="tiles-scroll">
-          <div className="album-grid">
+          <div className="entity-grid">
             {artists.map((a, i) => (
               <div key={a.id} className={`artist-card${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a.id)}>
                 <div className="album-card-art-wrapper">

@@ -190,7 +190,7 @@ function App() {
   const getScrollEl = useCallback(() => {
     const el = contentRef.current;
     if (!el) return null;
-    return el.querySelector<HTMLElement>('.track-list, .entity-list, .entity-table, .album-grid, .artist-detail, .album-detail, .history-view, .collections-view, .plugin-view, .settings-content-body');
+    return el.querySelector<HTMLElement>('.track-list, .entity-list, .entity-table, .entity-grid, .artist-detail, .album-detail, .history-view, .collections-view, .plugin-view, .settings-content-body');
   }, []);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HistoryViewHandle>(null);

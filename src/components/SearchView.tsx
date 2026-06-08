@@ -978,7 +978,7 @@ export function SearchView({
         {searched && activeTab === "tracks" && viewModes.tracks === "tiles" && (
           <>
             <div className="tiles-scroll">
-              <div className="album-grid">
+              <div className="entity-grid">
                 {results.tracks.map((t, i) => (
                   <div
                     key={t.key}

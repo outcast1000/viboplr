@@ -166,7 +166,7 @@
 .content > .track-list,
 .content > .entity-list,
 .content > .entity-table,
-.content > .album-grid,
+.content > .entity-grid,
 .content > .tiles-scroll,
 .content > .plugin-view {
   flex: 1;
@@ -367,10 +367,14 @@
   padding: 16px;
 }
 
-.album-grid {
+.entity-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 12px;
+}
+
+.entity-grid > .empty {
+  grid-column: 1 / -1;
 }
 
 .album-scroll {
