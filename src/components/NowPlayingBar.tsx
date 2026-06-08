@@ -3,7 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { QueueTrack } from "../types";
+import type { QueueTrack, SearchAllResults, SearchResultItem } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import type { MiniRestingSize, MiniWidthSize } from "../hooks/useMiniMode";
 import { formatDuration, isVideoTrack } from "../utils";
@@ -15,6 +15,7 @@ import { SegmentedSeekBar } from "./SegmentedSeekBar";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { IconHeartFilled } from "./Icons";
 import { SpinningDisc } from "./SpinningDisc";
+import { MiniSearchPanel } from "./MiniSearchPanel";
 import "./NowPlayingBar.css";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
@@ -151,6 +152,18 @@ interface NowPlayingBarProps {
   onSkipError?: () => void;
   onDownloadTrack?: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  miniSearch?: {
+    isOpen: boolean;
+    query: string;
+    results: SearchAllResults;
+    items: SearchResultItem[];
+    highlightedIndex: number;
+    onQueryChange: (q: string) => void;
+    onKeyDown: (e: React.KeyboardEvent) => void;
+    onResultClick: (item: SearchResultItem, enqueue: boolean) => void;
+  };
+  getAlbumImage?: (title: string, artistName?: string | null) => string | null;
+  getArtistImage?: (name: string) => string | null;
 }
 
 export function NowPlayingBar({
@@ -174,6 +187,9 @@ export function NowPlayingBar({
   playbackError, resolvedSource, loadingTrack, onSkipError,
   onDownloadTrack,
   onContextMenu,
+  miniSearch,
+  getAlbumImage,
+  getArtistImage,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -260,6 +276,20 @@ export function NowPlayingBar({
         }} onDoubleClick={isMac ? (e) => {
           if (!(e.target as HTMLElement).closest("button")) onToggleMiniMode();
         } : undefined}>
+        {miniSearch?.isOpen && getAlbumImage && getArtistImage ? (
+          <MiniSearchPanel
+            query={miniSearch.query}
+            onQueryChange={miniSearch.onQueryChange}
+            results={miniSearch.results}
+            items={miniSearch.items}
+            highlightedIndex={miniSearch.highlightedIndex}
+            onKeyDown={miniSearch.onKeyDown}
+            onResultClick={miniSearch.onResultClick}
+            getAlbumImage={getAlbumImage}
+            getArtistImage={getArtistImage}
+          />
+        ) : (
+          <>
         {miniExpanded || miniRestingSize === "normal" ? (
           <div className="mini-compact-row">
             <div className="now-info">
@@ -403,6 +433,8 @@ export function NowPlayingBar({
                 </button>
               </div>
             </div>
+          </>
+        )}
           </>
         )}
       </footer>

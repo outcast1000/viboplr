@@ -14,6 +14,7 @@ const FULL_MIN_WIDTH = 300;
 const FULL_MIN_HEIGHT = 400;
 const MINI_HOVER_EXPAND_DELAY = 500;
 const MINI_HOVER_COLLAPSE_DELAY = 300;
+const MINI_SEARCH_PANEL_HEIGHT = 260;
 
 export type MiniWidthSize = "small" | "medium" | "large";
 
@@ -46,6 +47,32 @@ export function clampToNearestMonitor(
     x: Math.max(best.x, Math.min(x, best.x + best.w - winW)),
     y: Math.max(best.y, Math.min(y, best.y + best.h - winH)),
   };
+}
+
+export interface SearchPanelGeometryInput {
+  logicalY: number;       // current window top, logical px
+  restingHeight: number;  // 52 (normal) or 24 (compact)
+  monitor: MonitorRect | null;
+}
+
+export interface SearchPanelGeometry {
+  height: number;
+  direction: "down" | "up";
+  newY: number;           // window top after resize
+}
+
+// Decide the search-panel window geometry: prefer growing down; if the panel
+// would overflow the bottom of the monitor, grow up and shift the top edge.
+export function searchPanelGeometry(input: SearchPanelGeometryInput): SearchPanelGeometry {
+  const height = MINI_SEARCH_PANEL_HEIGHT;
+  const extra = height - input.restingHeight;
+  const spaceBelow = input.monitor
+    ? (input.monitor.y + input.monitor.h) - (input.logicalY + input.restingHeight)
+    : Infinity;
+  if (spaceBelow >= extra) {
+    return { height, direction: "down", newY: input.logicalY };
+  }
+  return { height, direction: "up", newY: input.logicalY - extra };
 }
 
 async function getLogicalMonitorBounds(): Promise<MonitorRect[]> {
@@ -149,6 +176,12 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
   const expandDirectionRef = useRef<"down" | "up">("down");
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const expandingRef = useRef(false);
+  const searchOpenRef = useRef(false);
+  const searchDirectionRef = useRef<"down" | "up">("down");
+  // Latest known cursor-over-window state from the Rust cursor tracker. Used to
+  // decide whether closing the search panel should land expanded (cursor over)
+  // or collapsed to the resting size (cursor away).
+  const cursorOverRef = useRef(false);
 
   const cancelCollapseTimer = useCallback(() => {
     if (collapseTimerRef.current) {
@@ -223,6 +256,66 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
     }
   }, [currentRestingHeight]);
 
+  const openSearchPanel = useCallback(async () => {
+    if (!miniModeRef.current || searchOpenRef.current) return;
+    cancelCollapseTimer();
+    searchOpenRef.current = true;
+    try {
+      const win = getCurrentWindow();
+      const factor = await win.scaleFactor();
+      const pos = await win.outerPosition();
+      const size = await win.innerSize();
+      const logicalY = pos.y / factor;
+      const logicalW = size.width / factor;
+      const priorHeight = size.height / factor;
+      const bounds = await getLogicalMonitorBounds();
+      const monitor = bounds.find(m =>
+        pos.x / factor >= m.x && pos.x / factor < m.x + m.w &&
+        logicalY >= m.y && logicalY < m.y + m.h
+      ) || bounds[0] || null;
+      // Anchor the grow decision on the window's CURRENT height, so a search
+      // opened from the hover-expanded state grows from there, not the resting size.
+      const geo = searchPanelGeometry({ logicalY, restingHeight: priorHeight, monitor });
+      searchDirectionRef.current = geo.direction;
+      await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, geo.height));
+      if (geo.direction === "up") {
+        await win.setPosition(new LogicalPosition(pos.x / factor, geo.newY));
+      }
+      await win.setSize(new LogicalSize(logicalW, geo.height));
+    } catch (err) {
+      console.error("openSearchPanel failed:", err);
+    }
+  }, [cancelCollapseTimer, currentRestingHeight]);
+
+  const closeSearchPanel = useCallback(async () => {
+    if (!miniModeRef.current || !searchOpenRef.current) return;
+    searchOpenRef.current = false;
+    try {
+      const win = getCurrentWindow();
+      const factor = await win.scaleFactor();
+      const pos = await win.outerPosition();
+      const size = await win.innerSize();
+      const logicalW = size.width / factor;
+      // Restore to whatever the hover state dictates right now: if the cursor is
+      // over the window, land on the expanded player; otherwise the resting size.
+      const expand = cursorOverRef.current;
+      const restoreHeight = expand ? MINI_EXPANDED_HEIGHT : currentRestingHeight();
+      const extra = MINI_SEARCH_PANEL_HEIGHT - restoreHeight;
+      await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, restoreHeight));
+      if (searchDirectionRef.current === "up") {
+        // Search grew upward (bottom edge fixed); shrink back down to it.
+        await win.setPosition(new LogicalPosition(pos.x / factor, pos.y / factor + extra));
+      }
+      await win.setSize(new LogicalSize(logicalW, restoreHeight));
+      // Sync the expand state so the rendered layout matches the new height and a
+      // subsequent hover-collapse knows which way to shrink.
+      expandDirectionRef.current = searchDirectionRef.current;
+      setMiniExpanded(expand);
+    } catch (err) {
+      console.error("closeSearchPanel failed:", err);
+    }
+  }, [currentRestingHeight]);
+
   const toggleMiniMode = useCallback(async () => {
     try {
       const win = getCurrentWindow();
@@ -263,6 +356,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
         await win.show();
         await win.setFocus();
       } else {
+        if (searchOpenRef.current) { searchOpenRef.current = false; }
         cancelCollapseTimer();
         miniModeRef.current = false;
         const pos = await win.outerPosition();
@@ -401,13 +495,13 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
     const controller = makeHoverController({
       expandDelayMs: MINI_HOVER_EXPAND_DELAY,
       collapseDelayMs: MINI_HOVER_COLLAPSE_DELAY,
-      onExpand: () => { expandMini(); },
-      onCollapse: () => { collapseMini(); },
+      onExpand: () => { if (!searchOpenRef.current) expandMini(); },
+      onCollapse: () => { if (!searchOpenRef.current) collapseMini(); },
       isExpanded: () => miniExpandedRef.current,
     });
 
-    const unlistenEnter = listen("mini-cursor-entered", () => controller.handleEnter());
-    const unlistenLeave = listen("mini-cursor-left", () => controller.handleLeave());
+    const unlistenEnter = listen("mini-cursor-entered", () => { cursorOverRef.current = true; controller.handleEnter(); });
+    const unlistenLeave = listen("mini-cursor-left", () => { cursorOverRef.current = false; controller.handleLeave(); });
 
     return () => {
       controller.cancel();
@@ -455,5 +549,6 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
     miniMode, setMiniMode, miniModeRef, fullSizeRef, toggleMiniMode, miniExpanded,
     cancelCollapseTimer, miniRestingSize, setMiniRestingSize,
     miniWidthSize, setMiniWidthSize,
+    openSearchPanel, closeSearchPanel, searchOpenRef,
   };
 }

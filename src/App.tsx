@@ -61,6 +61,7 @@ import { useContextMenuActions } from "./hooks/useContextMenuActions";
 import type { PluginTrack, DownloadProvider, DownloadResolveResult } from "./types/plugin";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
+import { useMiniSearch } from "./hooks/useMiniSearch";
 import { VideoFrameQueueProvider, useVideoFrameQueue } from "./hooks/useVideoFrameQueueContext";
 import { DetailViewProvider, type DetailViewActions, type DetailViewState } from "./contexts/DetailViewContext";
 import type { VideoFrameQueue } from "./videoFrameQueue";
@@ -762,6 +763,26 @@ function App() {
     getArtistImage: artistImageCache.getImage,
     getTagImage: tagImageCache.getImage,
   });
+
+  // Mini search drives both useMiniMode's window resize (via onOpen/ClosePanel)
+  // and the keyboard trigger's "already open?" guard (via miniSearch.isOpen).
+  const miniSearch = useMiniSearch({
+    onPlayTrack: (track) => { queueHook.playTracks([track], 0); },
+    onEnqueueTrack: (track) => { queueHook.enqueueTracks([track]); },
+    playAlbum: (albumId) => { playActions.playAlbum(albumId); },
+    enqueueAlbum: (albumId) => { playActions.enqueueAlbum(albumId); },
+    playArtist: (artistId) => { playActions.playArtist(artistId); },
+    enqueueArtist: (artistId) => { playActions.enqueueArtist(artistId); },
+    onOpenPanel: () => { mini.openSearchPanel(); },
+    onClosePanel: () => { mini.closeSearchPanel(); },
+  });
+
+  // Leaving mini mode must clear any open search panel, otherwise a stale
+  // miniSearch.isOpen renders the panel clipped inside the resting-height
+  // window on the next mini-mode entry.
+  useEffect(() => {
+    if (!mini.miniMode && miniSearch.isOpen) miniSearch.close();
+  }, [mini.miniMode, miniSearch.isOpen, miniSearch.close]);
 
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
@@ -1957,6 +1978,8 @@ function App() {
     handleNext: () => handleNext(),
     handleToggleQueueCollapsed,
     handleToggleSidebar,
+    miniSearchOpen: miniSearch.isOpen,
+    openMiniSearch: (initialChar) => miniSearch.open(initialChar),
   });
 
   // Mouse side buttons for navigation history
@@ -3462,6 +3485,18 @@ function App() {
           specs.push({ kind: "item", text: "Exit App", action: () => exit(0) });
           showNativeMenu(e.clientX, e.clientY, specs);
         }}
+        miniSearch={{
+          isOpen: miniSearch.isOpen,
+          query: miniSearch.query,
+          results: miniSearch.results,
+          items: miniSearch.items,
+          highlightedIndex: miniSearch.highlightedIndex,
+          onQueryChange: miniSearch.setQuery,
+          onKeyDown: miniSearch.handleKeyDown,
+          onResultClick: miniSearch.handleResultClick,
+        }}
+        getAlbumImage={albumImageCache.getImage}
+        getArtistImage={artistImageCache.getImage}
         onDownloadTrack={playback.currentTrack ? async () => {
           const track = playback.currentTrack!;
           const trackUri = track.path ?? "";

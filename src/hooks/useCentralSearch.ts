@@ -2,9 +2,9 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, SearchAllResults, SearchResultItem } from "../types";
+import { allocateSlotsBalanced } from "../utils/searchSlots";
 
 const DEBOUNCE_MS = 200;
-const MAX_TOTAL = 7;
 const PER_TYPE_LIMIT = 7; // fetch up to this many per type, trim client-side
 
 interface UseCentralSearchOptions {
@@ -13,28 +13,6 @@ interface UseCentralSearchOptions {
   onCommitSearch: (query: string) => void;
   onNavigateToArtist: (artistId: number) => void;
   onNavigateToAlbum: (albumId: number, artistId: number | null) => void;
-}
-
-function allocateSlots(
-  artistCount: number,
-  albumCount: number,
-  trackCount: number,
-): { artists: number; albums: number; tracks: number } {
-  let a = Math.min(artistCount, 2);
-  let b = Math.min(albumCount, 2);
-  let t = Math.min(trackCount, 3);
-
-  let remaining = MAX_TOTAL - (a + b + t);
-
-  while (remaining > 0) {
-    let distributed = false;
-    if (trackCount > t) { t++; remaining--; distributed = true; if (remaining <= 0) break; }
-    if (albumCount > b) { b++; remaining--; distributed = true; if (remaining <= 0) break; }
-    if (artistCount > a) { a++; remaining--; distributed = true; if (remaining <= 0) break; }
-    if (!distributed) break;
-  }
-
-  return { artists: a, albums: b, tracks: t };
 }
 
 const EMPTY_RESULTS: SearchAllResults = { artists: [], albums: [], tracks: [] };
@@ -79,7 +57,7 @@ export function useCentralSearch({
           albumLimit: PER_TYPE_LIMIT,
           trackLimit: PER_TYPE_LIMIT,
         });
-        const slots = allocateSlots(raw.artists.length, raw.albums.length, raw.tracks.length);
+        const slots = allocateSlotsBalanced(raw.artists.length, raw.albums.length, raw.tracks.length);
         setResults({
           artists: raw.artists.slice(0, slots.artists),
           albums: raw.albums.slice(0, slots.albums),

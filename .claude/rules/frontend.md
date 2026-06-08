@@ -69,6 +69,7 @@ No modifier (when not in text input): Space (play/pause), arrows (seek/volume).
 Cmd/Ctrl: 1 (Library), 2 (History), K (search), F (fullscreen), L (like), P (playlist panel), M (mute), Shift+M (mini), B (sidebar), Left/Right (prev/next track).
 Alt: Left/Right (nav history back/forward).
 Track list: arrows (navigate), Enter (play), Shift+Enter (enqueue).
+Mini mode: any printable character (when no input is focused) opens the mini-player quick-search panel; Space/arrows remain player controls.
 
 ## State Persistence
 

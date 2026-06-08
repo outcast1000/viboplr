@@ -9,6 +9,7 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { isVideoTrack } from "../utils";
+import { shouldWakeMiniSearch } from "../utils/miniSearchTrigger";
 import type { QueueTrack } from "../types";
 import type { useLibrary } from "./useLibrary";
 import type { usePlayback } from "./usePlayback";
@@ -35,6 +36,9 @@ export interface KeyboardShortcutDeps {
   handleNext: () => void;
   handleToggleQueueCollapsed: () => void;
   handleToggleSidebar: () => void;
+  // Mini-player quick search.
+  miniSearchOpen: boolean;
+  openMiniSearch: (initialChar: string) => void;
 }
 
 export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
@@ -46,6 +50,18 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
       const d = ref.current;
       const { library, playback, queueHook, mini } = d;
       const isInput = (e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA";
+
+      if (
+        shouldWakeMiniSearch(e, {
+          miniMode: d.mini.miniMode,
+          inputFocused: isInput,
+          searchOpen: d.miniSearchOpen,
+        })
+      ) {
+        e.preventDefault();
+        d.openMiniSearch(e.key);
+        return;
+      }
 
       if (e.key === "Escape" && library.selectedTrack !== null) {
         library.setSelectedTrack(null);
