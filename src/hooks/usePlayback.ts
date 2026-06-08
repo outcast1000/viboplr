@@ -705,9 +705,27 @@ export function usePlayback(
         if (currentTrack) handlePlay(currentTrack);
         return;
       }
-      el.play();
+      // If EQ is engaged the element plays through the Web Audio graph; an
+      // idle AudioContext gets auto-suspended by WKWebView and stays silent
+      // after el.play() until resumed. Resume it synchronously so audio comes
+      // back immediately, not on the next graph nudge.
+      if (audioCtxRef.current?.state === "suspended") {
+        audioCtxRef.current.resume().catch(console.error);
+      }
+      // Flip the UI optimistically: the native 'play' event round-trips
+      // through WKWebView's media pipeline tens of ms after we call play(),
+      // which makes the button visibly lag the click. onPlay reconciles the
+      // truth (idempotent); revert if play() actually rejects.
+      setPlaying(true);
+      el.play().catch(e => {
+        console.error("Resume playback failed:", e);
+        setPlaying(false);
+      });
     } else {
       cancelCrossfade();
+      // Optimistic pause for the same reason — don't wait for the 'pause'
+      // event to flip the icon. pause() itself is synchronous.
+      setPlaying(false);
       el.pause();
       // DIAGNOSTIC: the user-facing symptom is "I pressed pause and a track
       // kept playing". After pausing the active element, check whether the
