@@ -28,6 +28,7 @@ interface EventListenerOptions {
   resyncingCollectionName: string | null;
   setResyncProgress: (v: ResyncProgress | null) => void;
   setResyncComplete: (v: ResyncComplete | null) => void;
+  onBulkEditComplete?: () => void;
   dispatchPluginEvent?: (event: string, ...args: unknown[]) => void;
 }
 
@@ -42,6 +43,7 @@ export function useEventListeners(opts: EventListenerOptions) {
     resyncingCollectionName,
     setResyncProgress,
     setResyncComplete,
+    onBulkEditComplete,
   } = opts;
 
   // Scan events
@@ -174,11 +176,14 @@ export function useEventListeners(opts: EventListenerOptions) {
     const unlisten = listen("bulk-edit-complete", () => {
       loadLibrary();
       loadTracks();
+      onBulkEditComplete?.();
     });
 
     return () => {
       unlisten.then((f) => f());
     };
+    // onBulkEditComplete called via closure (stable functional setter) — kept out
+    // of deps to match the other optional callbacks and avoid re-subscribing.
   }, [loadLibrary, loadTracks]);
 
   // Download complete — refresh library so the new track appears

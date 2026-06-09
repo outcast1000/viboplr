@@ -677,6 +677,7 @@ function App() {
   const [searchQueryKey, setSearchQueryKey] = useState(0);
   const [searchDeletedBatch, setSearchDeletedBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
   const [searchDeletedTagBatch, setSearchDeletedTagBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
+  const [searchBulkEditKey, setSearchBulkEditKey] = useState(0);
 
   // Updater
   const updater = useAppUpdater(playback.handleStop);
@@ -1072,6 +1073,7 @@ function App() {
     resyncingCollectionName: collectionActions.resyncingCollection?.name ?? null,
     setResyncProgress,
     setResyncComplete,
+    onBulkEditComplete: () => setSearchBulkEditKey(k => k + 1),
     dispatchPluginEvent: plugins.dispatchEvent as (event: string, ...args: unknown[]) => void,
   });
 
@@ -2754,6 +2756,7 @@ function App() {
             deletedTrackKey={searchDeletedBatch.key}
             deletedTagIds={searchDeletedTagBatch.ids}
             deletedTagKey={searchDeletedTagBatch.key}
+            bulkEditKey={searchBulkEditKey}
             currentTrack={playback.currentTrack}
             playing={playback.playing}
             viewModes={searchViewModes}

@@ -70,6 +70,7 @@ interface SearchViewProps {
   deletedTrackKey: number;
   deletedTagIds: number[];
   deletedTagKey: number;
+  bulkEditKey: number;
   currentTrack: QueueTrack | null;
   playing: boolean;
   viewModes: SearchViewModes;
@@ -120,6 +121,7 @@ export function SearchView({
   deletedTrackKey,
   deletedTagIds,
   deletedTagKey,
+  bulkEditKey,
   currentTrack,
   playing,
   viewModes,
@@ -312,6 +314,15 @@ export function SearchView({
       tags: Math.max(0, prev.tags - deletedTagIds.length),
     }));
   }, [deletedTagKey]);
+
+  // A bulk edit (Edit Properties) can change indexed fields (artist/album/title/
+  // year) or tags, which alters query membership, counts, and sort order — none of
+  // which the in-place trackEvents patch handles (and tag-only edits emit no patch
+  // at all). Re-run the active query so the visible results stay accurate.
+  useEffect(() => {
+    if (bulkEditKey === 0 || !restoredRef.current || !searched) return;
+    doSearch(queryRef.current);
+  }, [bulkEditKey]);
 
   useEffect(() => {
     return subscribeTrackEvents(event => {
