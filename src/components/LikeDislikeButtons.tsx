@@ -1,19 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import {
   IconHeartFilled,
   IconHeartOutline,
   IconThumbsDownFilled,
 } from "./Icons";
-import { resolveLikeAction, type LikeState, type LikeTarget } from "../utils/likeControl";
-
-// The three rating choices. Each shows its representative icon regardless of
-// current state: filled red heart (like), empty heart (neutral), filled red
-// hand (dislike). The popover renders only the choices that aren't selected.
-const CHOICES: { target: LikeTarget; Icon: typeof IconHeartFilled; cls: string; label: string }[] = [
-  { target: 1, Icon: IconHeartFilled, cls: "liked", label: "Like" },
-  { target: 0, Icon: IconHeartOutline, cls: "ds-like-neutral", label: "Clear rating" },
-  { target: -1, Icon: IconThumbsDownFilled, cls: "disliked", label: "Dislike" },
-];
 
 interface LikeDislikeButtonsProps {
   liked: number;
@@ -27,13 +17,19 @@ interface LikeDislikeButtonsProps {
   disabled?: boolean;
 }
 
-// Per-variant class for the individual choice buttons (reuses existing styling).
-const CHOICE_CLASS: Record<string, string> = {
+// Per-variant class for the single button (reuses existing styling).
+const VARIANT_CLASS: Record<string, string> = {
   inline: "ds-like-inline",
   overlay: "ds-like-overlay",
   default: "ds-like-btn",
 };
 
+// A single button that cycles the rating on each click:
+//   neutral (0) → like (1) → dislike (-1) → neutral (0)
+// It reuses the existing onToggleLike / onToggleDislike callbacks (each backed
+// by nextTriState) by picking which one advances from the current state.
+// If onToggleDislike is omitted the button degrades to a plain like toggle
+// (0 → 1 → 0) via onToggleLike.
 export function LikeDislikeButtons({
   liked,
   onToggleLike,
@@ -45,79 +41,55 @@ export function LikeDislikeButtons({
   showKeyboardHint,
   disabled,
 }: LikeDislikeButtonsProps) {
-  const [expanded, setExpanded] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const current = (liked === 1 ? 1 : liked === -1 ? -1 : 0) as LikeState;
+  const current = liked === 1 ? 1 : liked === -1 ? -1 : 0;
   const hasDislike = !!onToggleDislike;
 
-  // Collapse the tap-expanded state when clicking outside.
-  useEffect(() => {
-    if (!expanded) return;
-    function onDocClick(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setExpanded(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [expanded]);
+  const btnClass = variant === "glass" ? `g-btn g-btn-${glassSize}` : (VARIANT_CLASS[variant] ?? "ds-like-btn");
+  const iconSize = Math.round(size * 1.4);
+  const labelSuffix = entityLabel ? ` ${entityLabel}` : "";
 
-  const choiceClass = variant === "glass" ? `g-btn g-btn-${glassSize}` : (CHOICE_CLASS[variant] ?? "ds-like-btn");
-  const statusSize = Math.round(size * 1.4);
-  const choiceSize = Math.round(size * 1.6);
-  const likeLabel = entityLabel ? `${entityLabel} ` : "";
-
-  const apply = useCallback((target: LikeTarget, e: React.MouseEvent) => {
+  const onClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     if (disabled) return;
-    const action = resolveLikeAction(current, target);
-    if (action === "like") {
+    // From neutral, advance to like. From like, advance to dislike (or back to
+    // neutral when there's no dislike callback). From dislike, back to neutral.
+    if (current === 0) {
       e.currentTarget.classList.add("anim-heart-bounce");
       onToggleLike();
-    } else if (action === "dislike") {
+    } else if (current === 1) {
+      if (hasDislike) {
+        e.currentTarget.classList.add("anim-heart-bounce-subtle");
+        onToggleDislike?.();
+      } else {
+        e.currentTarget.classList.add("anim-heart-bounce");
+        onToggleLike();
+      }
+    } else {
       e.currentTarget.classList.add("anim-heart-bounce-subtle");
       onToggleDislike?.();
     }
-    setExpanded(false);
-  }, [current, disabled, onToggleLike, onToggleDislike]);
+  }, [current, hasDislike, disabled, onToggleLike, onToggleDislike]);
 
-  // Collapsed status icon reflects current state.
-  const StatusIcon = current === 1 ? IconHeartFilled : current === -1 ? IconThumbsDownFilled : IconHeartOutline;
-  const statusStateClass = current === 1 ? " liked" : current === -1 ? " disliked" : "";
-  const statusTitle = current === 1
-    ? `Liked ${likeLabel}`.trim()
-    : current === -1 ? `Disliked ${likeLabel}`.trim() : `Rate ${likeLabel}`.trim();
+  const Icon = current === 1 ? IconHeartFilled : current === -1 ? IconThumbsDownFilled : IconHeartOutline;
+  const stateClass = current === 1 ? " liked" : current === -1 ? " disliked" : "";
+  const title = (
+    current === 1 ? `Liked${labelSuffix}`
+      : current === -1 ? `Disliked${labelSuffix}`
+        : `Rate${labelSuffix}`
+  ) + (showKeyboardHint ? ` ${showKeyboardHint}` : "");
 
   return (
-    <div
-      ref={wrapRef}
-      className={`ds-like-control ds-like-control--${variant}${expanded ? " expanded" : ""}`}
-      onMouseLeave={() => setExpanded(false)}
-    >
+    <div className={`ds-like-control ds-like-control--${variant}`}>
       <button
         type="button"
-        className={`${choiceClass} ds-like-status${statusStateClass}`}
-        title={statusTitle}
+        className={`${btnClass} ds-like-status${stateClass}`}
+        title={title.trim()}
         disabled={disabled}
-        onClick={(e) => { e.stopPropagation(); if (!disabled) setExpanded(v => !v); }}
+        onClick={onClick}
+        onAnimationEnd={(e) => e.currentTarget.classList.remove("anim-heart-bounce", "anim-heart-bounce-subtle")}
       >
-        <StatusIcon size={statusSize} />
+        <Icon size={iconSize} />
       </button>
-      <div className="ds-like-choices">
-        {CHOICES
-          .filter(c => c.target !== current && (c.target !== -1 || hasDislike))
-          .map(c => (
-            <button
-              key={c.target}
-              type="button"
-              className={`${choiceClass} ${c.cls}`}
-              title={`${c.label} ${likeLabel}${c.target === 1 && showKeyboardHint ? ` ${showKeyboardHint}` : ""}`.trim()}
-              disabled={disabled}
-              onClick={(e) => apply(c.target, e)}
-              onAnimationEnd={(e) => e.currentTarget.classList.remove("anim-heart-bounce", "anim-heart-bounce-subtle")}
-            >
-              <c.Icon size={choiceSize} />
-            </button>
-          ))}
-      </div>
     </div>
   );
 }

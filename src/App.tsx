@@ -3028,7 +3028,7 @@ function App() {
             onResetAutoContinueWeights={autoContinue.resetWeights}
             onCloseAutoContinuePopover={() => autoContinue.setShowPopover(false)}
             onToggleLike={() => playback.currentTrack && likeActions.handleToggleLike(playback.currentTrack)}
-            onToggleDislike={() => { if (playback.currentTrack) { likeActions.handleToggleDislike(playback.currentTrack); handleNext(); } }}
+            onToggleDislike={() => { if (playback.currentTrack) likeActions.handleToggleDislike(playback.currentTrack); }}
             onToggleFullscreen={playback.toggleFullscreen}
             showQueue={!queueCollapsed}
             onToggleQueue={handleToggleQueueCollapsed}
@@ -3441,7 +3441,7 @@ function App() {
         onResetAutoContinueWeights={autoContinue.resetWeights}
         onCloseAutoContinuePopover={() => autoContinue.setShowPopover(false)}
         onToggleLike={() => playback.currentTrack && likeActions.handleToggleLike(playback.currentTrack)}
-        onToggleDislike={() => { if (playback.currentTrack) { likeActions.handleToggleDislike(playback.currentTrack); handleNext(); } }}
+        onToggleDislike={() => { if (playback.currentTrack) likeActions.handleToggleDislike(playback.currentTrack); }}
         onTrackClick={(trackId) => { library.handleTrackClick(trackId); }}
         onNavigateToArtistByName={library.navigateToArtistByName}
         onNavigateToAlbumByName={library.navigateToAlbumByName}

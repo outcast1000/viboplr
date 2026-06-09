@@ -823,71 +823,13 @@
   to { transform: rotate(360deg); }
 }
 
-/* Single status like control — collapsed status icon expands to choices. */
+/* Single cycling like control — one button advances neutral → like → dislike. */
 .ds-like-control {
   display: inline-flex;
   align-items: center;
   position: relative;
 }
-
-/* The status icon always occupies the cell (collapsed default) — it never
-   moves or hides, so the row layout is completely static. */
-.ds-like-control { position: relative; }
 .ds-like-control .ds-like-status { display: inline-flex; }
-
-/* Choices are a fixed popover anchored over the status icon. They appear
-   instantly on hover/focus (no slide, no width change, no layout shift). */
-.ds-like-control .ds-like-choices {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px 5px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-radius);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-  z-index: 20;
-  visibility: hidden;
-  opacity: 0;
-}
-
-/* Larger, comfortable hit targets for the (now icon-only, unselected) choices —
-   override the narrow 20px collapsed-cell width the variant classes impose. */
-.ds-like-control .ds-like-choices > button {
-  width: auto;
-  padding: 4px;
-  border-radius: var(--ds-radius);
-  opacity: 1;
-  transition: background 0.12s ease, transform 0.12s ease;
-}
-
-/* Hover affordance for the popover choices: a background highlight + slight
-   scale, consistent for every choice regardless of icon color. */
-.ds-like-control .ds-like-choices > button:hover {
-  background: var(--bg-hover);
-  transform: scale(1.1);
-}
-
-/* Each choice keeps its resting icon color on hover (the variant :hover rules
-   would otherwise recolor it — e.g. the heart turning white on glass). The
-   only hover feedback is the background highlight above, applied uniformly. */
-.ds-like-control .ds-like-choices > button.liked:hover,
-.ds-like-control .ds-like-choices > button.disliked:hover { color: var(--error); }
-.ds-like-control .ds-like-choices > button.ds-like-neutral:hover { color: var(--text-tertiary); }
-
-/* Overlay (card corner) anchors the popover to the right so it stays on-card. */
-.ds-like-control--overlay .ds-like-choices { left: auto; right: 0; }
-
-.ds-like-control:hover .ds-like-choices,
-.ds-like-control:focus-within .ds-like-choices,
-.ds-like-control.expanded .ds-like-choices {
-  visibility: visible;
-  opacity: 1;
-}
 
 /* Within the like control, both like and dislike read as the red accent
    (the variant classes only define .liked red, not .disliked, so the hand
@@ -895,11 +837,7 @@
 .ds-like-control .liked,
 .ds-like-control .disliked { color: var(--error); }
 
-/* Neutral (clear) choice: muted, accent only when it's the active state. */
-.ds-like-neutral { color: var(--text-tertiary); }
-.ds-like-neutral.active { color: var(--text-primary); }
-
-/* Overlay variant: the status icon sits in the card corner like the old buttons. */
+/* Overlay variant: the button sits in the card corner like the old buttons. */
 .ds-like-control--overlay {
   position: absolute;
   top: 6px;
