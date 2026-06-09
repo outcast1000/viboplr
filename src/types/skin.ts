@@ -41,4 +41,7 @@ export interface GallerySkinEntry {
   file: string;
   updateUrl?: string;
   colors: [string, string, string, string];
+  /** Marked as recommended in the gallery index. Optional; absent = false.
+   *  Source of truth is the separate outcast1000/viboplr-skins index.json. */
+  recommended?: boolean;
 }

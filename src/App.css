@@ -2216,6 +2216,11 @@
   background: rgba(var(--text-tertiary), 0.15);
   color: var(--text-tertiary);
 }
+.ext-badge--recommended {
+  background: rgba(var(--accent-rgb), 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+}
 
 /* Detail Pane */
 .ext-detail { padding: 24px; }
@@ -2242,6 +2247,9 @@
   font-size: var(--fs-xl);
   font-weight: 700;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .ext-detail-desc {
   font-size: var(--fs-sm);

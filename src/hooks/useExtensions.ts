@@ -273,6 +273,7 @@ export function useExtensions(props: UseExtensionsProps) {
         source: "gallery",
         minAppVersion: entry.minAppVersion,
         updateUrl: entry.updateUrl,
+        recommended: entry.recommended === true,
       });
     }
 
@@ -290,6 +291,7 @@ export function useExtensions(props: UseExtensionsProps) {
         source: "gallery",
         skinColors: entry.colors,
         skinType: entry.type,
+        recommended: entry.recommended === true,
       });
     }
 

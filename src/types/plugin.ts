@@ -853,6 +853,9 @@ export interface ExtensionItem {
   skinType?: "dark" | "light";
   isActiveSkin?: boolean;
   updateUrl?: string;
+  /** Featured in the gallery index (plugins and skins). Drives the
+   *  "Recommended" badge on not-installed gallery entries. */
+  recommended?: boolean;
 }
 
 export type ExtensionFilter = "all" | "plugins" | "skins" | "installed" | "updates" | "gallery";

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skins — Viboplr</title>
+  <meta name="description" content="Browse skins for Viboplr — Nord, Dracula, Catppuccin, Gruvbox, and more. Theme the whole app from inside it.">
+  <link rel="canonical" href="https://viboplr.com/skins.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://viboplr.com/skins.html">
+  <meta property="og:title" content="Skins — Viboplr">
+  <meta property="og:description" content="Browse skins for Viboplr — Nord, Dracula, Catppuccin, Gruvbox, and more.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Skins — Viboplr">
+  <meta name="twitter:description" content="Browse skins for Viboplr — Nord, Dracula, Catppuccin, Gruvbox, and more.">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <svg viewBox="0 0 512 512" width="34" height="34" aria-hidden="true">
+          <defs><linearGradient id="navGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FF6B6B"/><stop offset="100%" stop-color="#E91E8A"/></linearGradient></defs>
+          <circle cx="256" cy="256" r="230" fill="none" stroke="url(#navGrad)" stroke-width="6" opacity="0.15"/>
+          <circle cx="256" cy="256" r="190" fill="none" stroke="url(#navGrad)" stroke-width="4" opacity="0.1"/>
+          <path d="M120,110 L256,400 L392,110" fill="none" stroke="url(#navGrad)" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="256" cy="400" r="16" fill="url(#navGrad)" opacity="0.6"/>
+        </svg>
+        Viboplr
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="index.html" class="nav-link">Home</a>
+        <a href="plugins.html" class="nav-link">Plugins</a>
+        <a href="skins.html" class="nav-link active">Skins</a>
+        <a href="https://github.com/sponsors/outcast1000" class="nav-link nav-link--sponsor" target="_blank" rel="noopener">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+          Sponsor
+        </a>
+        <a href="download.html" class="nav-cta">Get Viboplr</a>
+      </div>
+      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="download-hero">
+    <div class="container">
+      <h1 class="animate-in"><span class="gradient-text">Skins</span></h1>
+      <p class="animate-in animate-delay-1">Theme the entire app — backgrounds, accents, the works. Install any skin from inside Viboplr — <strong>Extensions → Skins</strong>.</p>
+    </div>
+  </section>
+
+  <!-- Gallery -->
+  <section class="section">
+    <div class="container">
+      <div class="gallery-toolbar">
+        <input type="search" id="gallerySearch" class="gallery-search" placeholder="Search skins…" aria-label="Search skins">
+        <span class="gallery-count" id="galleryCount"></span>
+      </div>
+      <div class="gallery-status" id="galleryStatus"></div>
+      <div class="gallery-grid" id="galleryGrid"></div>
+    </div>
+  </section>
+
+  <!-- How submission works -->
+  <section class="section section-alt">
+    <div class="container">
+      <div class="gallery-steps reveal">
+        <h2>How to add a skin</h2>
+        <p class="gallery-steps-intro">No pull request, no JSON editing — a bot validates the colors and opens it for review.</p>
+        <div class="gallery-steps-grid">
+          <div class="gallery-step">
+            <span class="gallery-step-num">1</span>
+            <h3>Export your theme</h3>
+            <p>In the app, go to <strong>Settings → Skins → Export</strong> to get your skin's JSON — or hand-write one with all 15 color keys.</p>
+          </div>
+          <div class="gallery-step">
+            <span class="gallery-step-num">2</span>
+            <h3>Paste the JSON</h3>
+            <p>Open the submission form and paste the skin JSON (or link to a raw <code>.json</code> URL). Name, author, and type come from it.</p>
+          </div>
+          <div class="gallery-step">
+            <span class="gallery-step-num">3</span>
+            <h3>A bot validates &amp; opens a PR</h3>
+            <p>It checks all 15 colors and your <code>customCSS</code>, then opens a PR that adds your skin file. A maintainer merges it to publish.</p>
+          </div>
+        </div>
+        <p class="gallery-steps-note">Full details in the <a href="https://github.com/outcast1000/viboplr-skins#submitting-a-skin" target="_blank" rel="noopener">submission guide</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Submit CTA -->
+  <section class="section section-alt">
+    <div class="container">
+      <div class="auto-update reveal">
+        <div class="auto-update-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>Made a skin?</span>
+        </div>
+        <p>Export your theme from the app, then submit it with a single form. A bot validates the colors and opens it for review.</p>
+        <div class="hero-buttons" style="margin-top: 1.5rem;">
+          <a href="https://github.com/outcast1000/viboplr-skins/issues/new?template=submit-skin.yml" class="btn btn-primary" target="_blank" rel="noopener">Submit a skin</a>
+          <a href="https://github.com/outcast1000/viboplr-skins" class="btn btn-outline" target="_blank" rel="noopener">Gallery repo</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-left">&copy; 2026 Viboplr. All rights reserved.</div>
+        <div class="footer-right">
+          <a href="https://github.com/sponsors/outcast1000" class="footer-link" target="_blank" rel="noopener">Sponsor</a>
+          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
+          <span class="footer-link">Built with Tauri + React</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script>window.VBPL_GALLERY = "skins";</script>
+  <script src="js/main.js"></script>
+  <script src="js/gallery.js"></script>
+  <!-- Cloudflare Web Analytics -->
+  <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
+</body>
+</html>

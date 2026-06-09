@@ -86,6 +86,9 @@ function ExtensionListItem({ ext, selected, onClick }: { ext: ExtensionItem; sel
         <div className="ext-list-item-header">
           <span className="ext-list-item-name">{ext.name}</span>
           {ext.source === "dev" && <span className="ext-dev-badge">DEV</span>}
+          {ext.status === "not_installed" && ext.recommended && (
+            <span className="ext-badge ext-badge--recommended">recommended</span>
+          )}
           <StatusBadge status={ext.status} update={ext.updateAvailable} />
         </div>
         <div className="ext-list-item-desc">{ext.description}</div>
@@ -148,7 +151,12 @@ function ExtensionDetail({
           <PluginIcon name={ext.name} icon={ext.icon} />
         )}
         <div className="ext-detail-header-info">
-          <div className="ext-detail-name">{ext.name}</div>
+          <div className="ext-detail-name">
+            {ext.name}
+            {ext.status === "not_installed" && ext.recommended && (
+              <span className="ext-badge ext-badge--recommended">recommended</span>
+            )}
+          </div>
           <div className="ext-detail-desc">{ext.description}</div>
           <div className="ext-detail-meta">
             By <strong>{ext.author}</strong> {"\u00b7"} v{ext.version} {"\u00b7"}{" "}
