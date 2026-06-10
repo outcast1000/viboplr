@@ -17,6 +17,7 @@ import { isVideoTrack } from "../utils";
 import { VideoFilmstrip } from "./VideoFilmstrip";
 import { VideoFrameCard } from "./VideoFrameCard";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { DetailHero } from "./DetailHero";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import "./TrackDetailView.css";
@@ -114,8 +115,11 @@ export function TrackDetailView({
     actions.getArtistImage,
     requestArtistImage,
   );
-  const heroImages: string[] = videoFrames.frames && videoFrames.frames.length > 0
-    ? videoFrames.frames.slice(0, 4)
+  // Hero background fallback chain: video frames -> album image -> artist image.
+  const albumHeroUrl = resolveImageUrl(albumImagePath);
+  const heroImages: string[] =
+    videoFrames.frames && videoFrames.frames.length > 0 ? videoFrames.frames.slice(0, 4)
+    : albumHeroUrl ? [albumHeroUrl]
     : artistHeroImages;
 
   useEffect(() => { trackIdRef.current = trackId; }, [trackId]);
