@@ -765,12 +765,25 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   );
 }
 
-function DependenciesSection({ dependencies }: { dependencies?: SettingsPanelProps["dependencies"] }) {
+function DependenciesSection({
+  dependencies,
+  autoUpdateManagedDeps,
+  onAutoUpdateManagedDepsChange,
+}: {
+  dependencies?: SettingsPanelProps["dependencies"];
+  autoUpdateManagedDeps: boolean;
+  onAutoUpdateManagedDepsChange: (enabled: boolean) => void;
+}) {
   const [loading, setLoading] = useState(false);
+  const [actioning, setActioning] = useState<string | null>(null);
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
+  // Name of the dep whose inline "let Viboplr manage" confirm is open.
+  const [takeoverConfirm, setTakeoverConfirm] = useState<string | null>(null);
 
   useEffect(() => {
     if (dependencies && dependencies.deps.length === 0) {
-      dependencies.checkAll();
+      // Offline presence check first, then the networked latest-version pass.
+      dependencies.checkAll().then(() => dependencies.checkUpdates()).catch(console.error);
     }
   }, [dependencies]);
 
@@ -779,7 +792,48 @@ function DependenciesSection({ dependencies }: { dependencies?: SettingsPanelPro
   const handleRefresh = async () => {
     setLoading(true);
     await dependencies.checkAll(true);
+    await dependencies.checkUpdates();
     setLoading(false);
+  };
+
+  const handleInstall = async (name: string) => {
+    setActioning(name);
+    setTakeoverConfirm(null);
+    try {
+      await dependencies.installDep(name);
+    } catch (e) {
+      console.error("Failed to install dependency:", e);
+    } finally {
+      setActioning(null);
+    }
+  };
+
+  const handleStopManaging = async (name: string) => {
+    setActioning(name);
+    try {
+      await dependencies.uninstallManaged(name);
+    } catch (e) {
+      console.error("Failed to stop managing dependency:", e);
+    } finally {
+      setActioning(null);
+    }
+  };
+
+  const platform: "macos" | "windows" | "linux" = (() => {
+    const p = navigator.platform.toLowerCase();
+    if (p.includes("mac")) return "macos";
+    if (p.includes("win")) return "windows";
+    return "linux";
+  })();
+
+  const handleCopyUpgrade = async (name: string, cmd: string) => {
+    try {
+      await navigator.clipboard.writeText(cmd);
+      setCopiedCmd(name);
+      setTimeout(() => setCopiedCmd((c) => (c === name ? null : c)), 2000);
+    } catch (e) {
+      console.error("Failed to copy:", e);
+    }
   };
 
   return (
@@ -803,11 +857,17 @@ function DependenciesSection({ dependencies }: { dependencies?: SettingsPanelPro
         )}
         {dependencies.deps.map((dep) => {
           const allConsumers = [...dep.internalConsumers, ...dep.pluginConsumers];
+          const update = dependencies.updates.find((u) => u.name === dep.name);
+          const outdated = update?.outdated ?? false;
+          const progress = dependencies.installing[dep.name];
+          const busy = actioning === dep.name || !!progress;
+          const installed = dep.status === "installed";
+
           return (
             <div className="settings-row" key={dep.name} style={{ flexDirection: "column", alignItems: "stretch", gap: 4 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className="settings-label" style={{ fontWeight: 600 }}>{dep.name}</span>
-                {dep.status === "installed" ? (
+                {installed ? (
                   <span style={{ fontSize: "var(--fs-xs)", color: "var(--success)", fontWeight: 500 }}>
                     Installed{dep.version ? ` (${dep.version})` : ""}
                   </span>
@@ -816,7 +876,77 @@ function DependenciesSection({ dependencies }: { dependencies?: SettingsPanelPro
                     Not Installed
                   </span>
                 )}
+                {installed && dep.origin && (
+                  <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-tertiary)", border: "1px solid var(--border)", borderRadius: "var(--ds-radius)", padding: "1px 6px" }}>
+                    {dep.origin === "managed" ? "managed by Viboplr" : "system"}
+                  </span>
+                )}
+                {/* Install / Update / manage actions live on the right. */}
+                <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+                  {busy && progress && (
+                    <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-tertiary)" }}>
+                      {progress.total ? `${Math.round((progress.downloaded / progress.total) * 100)}%` : "…"}
+                    </span>
+                  )}
+                  {!installed && dep.managedAvailable && (
+                    <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => handleInstall(dep.name)} disabled={busy}>
+                      {busy ? "Installing..." : "Install"}
+                    </button>
+                  )}
+                  {installed && outdated && dep.origin === "managed" && (
+                    <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => handleInstall(dep.name)} disabled={busy}>
+                      {busy ? "Updating..." : "Update"}
+                    </button>
+                  )}
+                  {installed && outdated && dep.origin === "system" && (
+                    <button
+                      className="ds-btn ds-btn--secondary ds-btn--sm"
+                      onClick={() => handleCopyUpgrade(dep.name, dep.install[platform])}
+                      title={dep.install[platform]}
+                    >
+                      {copiedCmd === dep.name ? "Copied" : "Copy upgrade command"}
+                    </button>
+                  )}
+                  {installed && dep.origin === "system" && dep.managedAvailable && (
+                    <button
+                      className="ds-btn ds-btn--ghost ds-btn--sm"
+                      onClick={() => setTakeoverConfirm(takeoverConfirm === dep.name ? null : dep.name)}
+                      disabled={busy}
+                    >
+                      Let Viboplr manage
+                    </button>
+                  )}
+                  {installed && dep.origin === "managed" && (
+                    <button
+                      className="ds-btn ds-btn--ghost ds-btn--sm"
+                      onClick={() => handleStopManaging(dep.name)}
+                      disabled={busy}
+                      title="Remove Viboplr's copy and fall back to a system install"
+                    >
+                      {busy ? "Working..." : "Stop managing"}
+                    </button>
+                  )}
+                </span>
               </div>
+              {installed && outdated && update?.latest && (
+                <span style={{ fontSize: "var(--fs-xs)", color: "var(--warning)" }}>
+                  Update available: {update.installed ?? dep.version} → {update.latest}
+                  {dep.origin === "system" ? " (installed outside Viboplr — update via your package manager)" : ""}
+                </span>
+              )}
+              {takeoverConfirm === dep.name && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "8px 10px", background: "var(--bg-tertiary)", borderRadius: "var(--ds-radius)" }}>
+                  <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-secondary)" }}>
+                    Viboplr will download and keep its own copy of {dep.name} up to date automatically. Your existing system copy is left in place but no longer used — you can remove it later via your package manager.
+                  </span>
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={() => setTakeoverConfirm(null)} disabled={busy}>Cancel</button>
+                    <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => handleInstall(dep.name)} disabled={busy}>
+                      {busy ? "Installing..." : "Let Viboplr manage"}
+                    </button>
+                  </div>
+                </div>
+              )}
               <span className="settings-description">{dep.description}</span>
               {allConsumers.length > 0 && (
                 <div style={{ fontSize: "var(--fs-xs)", color: "var(--text-tertiary)", display: "flex", flexDirection: "column", gap: 2 }}>
@@ -828,6 +958,15 @@ function DependenciesSection({ dependencies }: { dependencies?: SettingsPanelPro
             </div>
           );
         })}
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-label">Keep dependencies up to date automatically</span>
+            <span className="settings-description">
+              Silently update Viboplr-managed binaries (e.g. yt-dlp) when a newer release is available. Binaries installed via a package manager are never touched.
+            </span>
+          </div>
+          <ToggleSwitch checked={autoUpdateManagedDeps} onChange={onAutoUpdateManagedDepsChange} />
+        </div>
       </div>
     </div>
   );
@@ -877,12 +1016,28 @@ interface SettingsPanelProps {
       description: string;
       status: "installed" | "notFound" | "error";
       version?: string;
+      origin?: "managed" | "system";
       internalConsumers: Array<{ name: string; reason: string }>;
       pluginConsumers: Array<{ name: string; reason: string }>;
       install: { macos: string; windows: string; linux: string; url: string };
+      managedAvailable: boolean;
+      latestVersion?: string;
     }>;
+    updates: Array<{
+      name: string;
+      installed?: string;
+      latest?: string;
+      outdated: boolean;
+      origin?: "managed" | "system";
+    }>;
+    installing: Record<string, { downloaded: number; total: number | null }>;
     checkAll: (forceRefresh?: boolean) => Promise<unknown>;
+    checkUpdates: () => Promise<unknown>;
+    installDep: (name: string) => Promise<string | null>;
+    uninstallManaged: (name: string) => Promise<void>;
   };
+  autoUpdateManagedDeps: boolean;
+  onAutoUpdateManagedDepsChange: (enabled: boolean) => void;
 }
 
 interface ProviderFormData {
@@ -926,6 +1081,8 @@ export function SettingsPanel({
   onSetDownloadsFolder,
   onUnsetDownloadsCollection,
   dependencies,
+  autoUpdateManagedDeps,
+  onAutoUpdateManagedDepsChange,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1202,7 +1359,11 @@ export function SettingsPanel({
                   </div>
                 </div>
 
-                <DependenciesSection dependencies={dependencies} />
+                <DependenciesSection
+                  dependencies={dependencies}
+                  autoUpdateManagedDeps={autoUpdateManagedDeps}
+                  onAutoUpdateManagedDepsChange={onAutoUpdateManagedDepsChange}
+                />
 
               </>
             )}

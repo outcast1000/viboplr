@@ -123,6 +123,9 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::subsonic_test_connection,
         commands::search_youtube,
         commands::check_dependencies,
+        commands::dependency_install,
+        commands::dependency_uninstall_managed,
+        commands::dependency_check_updates,
         commands::plugin_exec,
         commands::yt_dlp_check,
         commands::ffmpeg_check,
@@ -344,6 +347,9 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::subsonic_test_connection,
         commands::search_youtube,
         commands::check_dependencies,
+        commands::dependency_install,
+        commands::dependency_uninstall_managed,
+        commands::dependency_check_updates,
         commands::plugin_exec,
         commands::yt_dlp_check,
         commands::ffmpeg_check,
@@ -667,6 +673,9 @@ pub fn run() {
                 std::fs::create_dir_all(&dir).expect("Failed to create profile directory");
                 dir
             });
+
+            // Managed binary copies (yt-dlp etc.) are shared across profiles.
+            dependencies::set_managed_bin_dir(app_data_dir.join("bin"));
 
             // Migrate legacy data from root app_data_dir to profiles/default/.
             // Gated by a sentinel file so this is a true one-shot — once the
@@ -1481,6 +1490,9 @@ pub fn run() {
             // Clone values before moving into AppState, for use in update checker
             let checker_app_dir = app_dir.clone();
             let checker_native_dir = native_plugins_dir.clone();
+            let dep_cache = Arc::new(dependencies::DepCache::new());
+            let dep_updater_cache = Arc::clone(&dep_cache);
+            let dep_updater_store_path = app_dir.join("app-state.json");
 
             timer.time("manage_app_state", || {
                 app.manage(AppState {
@@ -1498,10 +1510,33 @@ pub fn run() {
                     cursor_tracker_active: Arc::clone(&cursor_tracker_active),
                     transcode_port,
                     transcode_sessions,
-                    dep_cache: Arc::new(dependencies::DepCache::new()),
+                    dep_cache,
                     p2p_node: Arc::new(tokio::sync::RwLock::new(None)),
                 });
             });
+
+            // Auto-update app-managed dependency copies (e.g. yt-dlp, which
+            // breaks against YouTube within weeks when stale). Only touches
+            // binaries in the managed bin dir — never package-manager installs.
+            {
+                let updater_app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    loop {
+                        // Let startup settle before any network traffic.
+                        std::thread::sleep(std::time::Duration::from_secs(30));
+                        dependencies::auto_update_managed(
+                            &dep_updater_cache,
+                            &dep_updater_store_path,
+                            |event, payload| {
+                                let _ = updater_app_handle.emit(event, payload);
+                            },
+                        );
+                        // Re-run daily; the latest-version TTL cache makes
+                        // earlier wakeups free anyway.
+                        std::thread::sleep(std::time::Duration::from_secs(24 * 60 * 60 - 30));
+                    }
+                });
+            }
 
             // Spawn the update checker thread
             {

@@ -25,6 +25,25 @@
 - **mixtape.rs** — Mixtape export/import functionality.
 - **timing.rs** — Startup performance profiling.
 - **seed.rs** — Debug-only (`#[cfg(debug_assertions)]`). Fake data seeding.
+- **dependencies.rs** — External binary dependency service (ffmpeg, yt-dlp). See "External Binary Dependencies" below.
+
+## External Binary Dependencies
+
+External CLI binaries the app/plugins shell out to (currently `ffmpeg`, `yt-dlp`) are governed by the static `REGISTRY` in `dependencies.rs`. Each `DependencyDef` carries: version-check args + parser, per-platform install commands (the instruct-only fallback), internal consumers (shown as the "who needs this" list), and an optional `ManagedSource`.
+
+**The registry is also the `api.system.exec` allow-list** — `plugin_exec` rejects any program not in `allowed_names()`. Plugins therefore **reference** registry entries via the `binaryDependencies` manifest field (name + reason → requestor list); they cannot add new binaries. Adding a binary = a host release.
+
+**Existence check:** `check_single()` runs the binary's version flag, caches the result (session-scoped `DepCache` in `AppState`), and reports `DepOrigin` (`Managed` = the app-installed copy in the shared bin dir, `System` = found on PATH).
+
+**Managed install/update** (only deps with a `ManagedSource`, currently just yt-dlp — ffmpeg is instruct-only with `managed: None`):
+- Binaries install to `{app_data_dir}/bin/` (shared across profiles, set via `set_managed_bin_dir` in `lib.rs` setup). `command_with_path()` / `augmented_path()` **prepend** this dir to PATH and resolve the program explicitly, so a managed copy wins over the system one everywhere (internal consumers + `plugin_exec`) with no call-site changes.
+- `install_managed()` downloads the platform asset from the pinned GitHub releases repo, verifies SHA-256 against the release's checksums file, and atomically renames into place. Commands: `dependency_install`, `dependency_uninstall_managed` (deletes the managed copy → PATH falls back to any system install), `dependency_check_updates` (in `commands/media.rs`); progress via `dependency-install-progress` events.
+- **"Let Viboplr manage" handoff:** a `system`-origin dep can be taken over by installing a managed copy alongside it — because the managed bin dir is PATH-prepended, the managed copy immediately wins resolution; the orphaned system copy is left for the user's package manager to remove. The reverse ("Stop managing") calls `dependency_uninstall_managed`. Both are surfaced in Settings.
+- **Latest-version lookups** (`latest_version()`) hit the GitHub API at most once per dep per 24h — TTL-cached on `DepCache`, **failures cached too** so a flaky network can't exhaust the 60 req/h unauthenticated limit. `check_dependencies` stays offline/fast (cache-only).
+- **Auto-update** (`auto_update_managed()`, background thread in `lib.rs`): ~30s after startup then daily, silently reinstalls outdated **managed-origin** copies when `autoUpdateManagedDeps` is on (default true, read straight from the store file). **Never touches `System`-origin copies** — those belong to the user's package manager; the UI only shows the upgrade command for them. Emits `dependency-updated`.
+- yt-dlp failures in `yt_dlp_stream_audio` append an "outdated" hint when the cached latest version is newer than installed (no fresh network call) — stale yt-dlp is the common failure and looks like an app bug otherwise.
+
+Frontend: `useDependencies.ts` (install/update/progress/checkUpdates), `DependencyModal.tsx` ("Install for me" when managed, else copy-command + download-page), Settings > Dependencies (origin labels, outdated badges, Install/Update buttons, system upgrade-command copy, auto-update toggle).
 
 ## Collections
 

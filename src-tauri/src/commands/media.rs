@@ -46,7 +46,7 @@ pub async fn yt_dlp_check(state: State<'_, AppState>) -> Result<Option<String>, 
     let cache = Arc::clone(&state.dep_cache);
     Ok(tauri::async_runtime::spawn_blocking(move || {
         match dependencies::check_single("yt-dlp", &cache) {
-            dependencies::DepStatus::Installed { version } => Some(version),
+            dependencies::DepStatus::Installed { version, .. } => Some(version),
             _ => None,
         }
     })
@@ -59,7 +59,7 @@ pub async fn ffmpeg_check(state: State<'_, AppState>) -> Result<Option<String>, 
     let cache = Arc::clone(&state.dep_cache);
     Ok(tauri::async_runtime::spawn_blocking(move || {
         match dependencies::check_single("ffmpeg", &cache) {
-            dependencies::DepStatus::Installed { version } => Some(version),
+            dependencies::DepStatus::Installed { version, .. } => Some(version),
             _ => None,
         }
     })
@@ -112,6 +112,103 @@ pub async fn check_dependencies(
                     }).collect(),
                     plugin_consumers,
                     install: def.install.clone(),
+                    managed_available: def
+                        .managed
+                        .as_ref()
+                        .is_some_and(|m| m.platform_asset().is_some()),
+                    // Cache-only — this command must stay fast and offline.
+                    latest_version: cache.get_latest(def.name).flatten(),
+                }
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())?)
+}
+
+/// Install (or update — same code path, the download URL always points at the
+/// latest release) the app-managed copy of a dependency.
+#[tauri::command]
+pub async fn dependency_install(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<String, String> {
+    let cache = Arc::clone(&state.dep_cache);
+    tauri::async_runtime::spawn_blocking(move || {
+        let progress_name = name.clone();
+        let version = dependencies::install_managed(&name, &cache, |downloaded, total| {
+            let _ = app.emit(
+                "dependency-install-progress",
+                serde_json::json!({ "name": progress_name, "downloaded": downloaded, "total": total }),
+            );
+        })?;
+        let _ = app.emit(
+            "dependency-installed",
+            serde_json::json!({ "name": name, "version": version }),
+        );
+        log::info!("Installed managed {} {}", name, version);
+        Ok(version)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Remove the app-managed copy of a dependency, falling back to any system
+/// copy on PATH. Returns the new origin ("system") or null if nothing remains.
+#[tauri::command]
+pub async fn dependency_uninstall_managed(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<Option<String>, String> {
+    let cache = Arc::clone(&state.dep_cache);
+    tauri::async_runtime::spawn_blocking(move || {
+        let status = dependencies::uninstall_managed(&name, &cache)?;
+        log::info!("Removed managed copy of {}", name);
+        Ok(match status {
+            dependencies::DepStatus::Installed { origin, .. } => Some(
+                match origin {
+                    dependencies::DepOrigin::Managed => "managed",
+                    dependencies::DepOrigin::System => "system",
+                }
+                .to_string(),
+            ),
+            _ => None,
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Latest-vs-installed comparison for every managed dependency. Hits the
+/// GitHub API at most once per dep per 24h (TTL-cached, failures included).
+#[tauri::command]
+pub async fn dependency_check_updates(
+    state: State<'_, AppState>,
+) -> Result<Vec<dependencies::DepUpdateInfo>, String> {
+    let cache = Arc::clone(&state.dep_cache);
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        dependencies::REGISTRY
+            .iter()
+            .filter(|def| def.managed.as_ref().is_some_and(|m| m.platform_asset().is_some()))
+            .map(|def| {
+                let (installed, origin) = match dependencies::check_single(def.name, &cache) {
+                    dependencies::DepStatus::Installed { version, origin } => {
+                        (Some(version), Some(origin))
+                    }
+                    _ => (None, None),
+                };
+                let latest = dependencies::latest_version(def.name, &cache).ok();
+                let outdated = match (&installed, &latest) {
+                    (Some(i), Some(l)) => dependencies::version_lt(i, l),
+                    _ => false,
+                };
+                dependencies::DepUpdateInfo {
+                    name: def.name.to_string(),
+                    installed,
+                    latest,
+                    outdated,
+                    origin,
                 }
             })
             .collect()
@@ -126,6 +223,7 @@ pub async fn yt_dlp_stream_audio(
     youtube_url: String,
 ) -> Result<String, String> {
     let app_dir = state.app_dir.clone();
+    let dep_cache = Arc::clone(&state.dep_cache);
 
     tauri::async_runtime::spawn_blocking(move || {
         let temp_dir = app_dir.join("yt_cache");
@@ -152,7 +250,24 @@ pub async fn yt_dlp_stream_audio(
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("yt-dlp failed: {}", stderr));
+            // Stale yt-dlp is the most common cause of failures and looks like
+            // an app bug to users — call it out when we already know (cached,
+            // no network here) that a newer release exists.
+            let outdated_hint = match (
+                dependencies::check_single("yt-dlp", &dep_cache),
+                dep_cache.get_latest("yt-dlp").flatten(),
+            ) {
+                (dependencies::DepStatus::Installed { version, .. }, Some(latest))
+                    if dependencies::version_lt(&version, &latest) =>
+                {
+                    format!(
+                        " Your yt-dlp is outdated (installed {}, latest {}) — update it in Settings > Dependencies.",
+                        version, latest
+                    )
+                }
+                _ => String::new(),
+            };
+            return Err(format!("yt-dlp failed:{} {}", outdated_hint, stderr));
         }
 
         if !dest.exists() {

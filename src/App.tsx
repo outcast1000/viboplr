@@ -205,6 +205,9 @@ function App() {
   const trackVideoHistoryRef = useRef(true);
   const [trackVideoHistory, setTrackVideoHistory] = useState(true);
   const [loggingEnabled, setLoggingEnabled] = useState(false);
+  // Default ON — stale yt-dlp breaks against YouTube and the failure looks
+  // like an app bug to users. See MANAGED-DEPENDENCIES-PLAN.md.
+  const [autoUpdateManagedDeps, setAutoUpdateManagedDeps] = useState(true);
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = useState(false);
   const [eqCustomPresets, setEqCustomPresets] = useState<{ id: string; name: string; gains: number[] }[]>([]);
   const [eqSaveAsOpen, setEqSaveAsOpen] = useState(false);
@@ -1645,15 +1648,18 @@ function App() {
             setSearchViewModes({ tracks: s.tracks, albums: s.albums, artists: s.artists, tags: s.tags && validModes.includes(s.tags) ? s.tags : "tiles" });
           }
         }
-        const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedSyncWithPlaying, savedFallbackTrack, savedDevPluginPath] = await Promise.all([
+        const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedSyncWithPlaying, savedFallbackTrack, savedDevPluginPath, savedAutoUpdateDeps] = await Promise.all([
           store.get<boolean>("loggingEnabled"),
           store.get<boolean>("debugLogging"),
           store.get<boolean>("debugMode"),
           store.get<boolean | string>("syncWithPlaying"),
           store.get<{ name: string; artistName?: string; albumTitle?: string } | null>("fallbackTrackName"),
           store.get<string | null>("devPluginPath"),
+          store.get<boolean>("autoUpdateManagedDeps"),
         ]);
         if (savedLoggingEnabled) setLoggingEnabled(true);
+        // Default ON: only disable when explicitly set to false.
+        if (savedAutoUpdateDeps === false) setAutoUpdateManagedDeps(false);
         if (savedDebugLogging) { setDebugLogging(true); setDebugLoggingRef(true); }
         if (savedDebugMode) setDebugMode(true);
         if (savedDevPluginPath) setDevPluginPath(savedDevPluginPath);
@@ -2135,6 +2141,11 @@ function App() {
   function handleLoggingEnabledChange(enabled: boolean) {
     setLoggingEnabled(enabled);
     store.set("loggingEnabled", enabled);
+  }
+
+  function handleAutoUpdateManagedDepsChange(enabled: boolean) {
+    setAutoUpdateManagedDeps(enabled);
+    store.set("autoUpdateManagedDeps", enabled);
   }
 
   function handleDebugLoggingChange(enabled: boolean) {
@@ -2952,6 +2963,8 @@ function App() {
               onSetDownloadsFolder={handleSetDownloadsFolder}
               onUnsetDownloadsCollection={handleUnsetDownloadsCollection}
               dependencies={dependencies}
+              autoUpdateManagedDeps={autoUpdateManagedDeps}
+              onAutoUpdateManagedDepsChange={handleAutoUpdateManagedDepsChange}
             />
           )}
           </>}
@@ -3321,6 +3334,8 @@ function App() {
         <DependencyModal
           dep={dependencies.modalState.dep}
           feature={dependencies.modalState.feature}
+          installProgress={dependencies.installing[dependencies.modalState.dep.name]}
+          onInstall={dependencies.installDep}
           onDismiss={dependencies.dismissModal}
           onRecheck={dependencies.recheckModal}
         />
