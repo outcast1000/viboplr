@@ -6,6 +6,8 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import type { PlaylistContext } from "../hooks/useQueue";
+import type { QueueTrack } from "../types";
+import { nextExternalKey } from "../queueEntry";
 import type { ExportTrack } from "./MixtapeExportModal";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { DetailHero } from "./DetailHero";
@@ -47,15 +49,17 @@ function formatDate(ts: number): string {
 }
 
 
-function playlistTrackToMinimalTrack(t: PlaylistTrack): { title: string; artist_name: string | null; album_title: string | null; duration_secs: number | null; url: string | null; path: string; image_url?: string } {
+function playlistTrackToMinimalTrack(t: PlaylistTrack): QueueTrack {
   return {
+    key: nextExternalKey(),
+    path: t.source ?? null,
     title: t.title,
     artist_name: t.artist_name,
     album_title: t.album_name,
     duration_secs: t.duration_secs ?? null,
-    url: t.source,
-    path: t.source ?? "",
+    format: null,
     image_url: t.image_path ?? undefined,
+    liked: 0,
   };
 }
 
