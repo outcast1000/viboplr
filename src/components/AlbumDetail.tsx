@@ -16,6 +16,7 @@ import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOver
 import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 
 interface AlbumDetailProps {
   name: string;
@@ -63,11 +64,16 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     (n: string) => actions.requestFetchImage("artist", n),
     [actions.requestFetchImage],
   );
-  const heroImages = useDetailHeroImages.singleArtist(
+  const artistHeroImages = useDetailHeroImages.singleArtist(
     heroArtistName,
     actions.getArtistImage,
     requestArtistImage,
   );
+  // Hero background fallback chain: artist image -> album image.
+  const albumHeroUrl = resolveImageUrl(albumImagePath);
+  const heroImages = artistHeroImages.length > 0
+    ? artistHeroImages
+    : albumHeroUrl ? [albumHeroUrl] : [];
 
   const infoEntity: InfoEntity = album
     ? { kind: "album", name: album.title, id: album.id, artistName: album.artist_name ?? undefined }
