@@ -93,6 +93,7 @@ export interface CollectionStats {
 }
 
 export type View = "home" | "search" | "artists" | "albums" | "tags" | "history" | "collections" | "playlists" | "settings" | "extensions" | `plugin:${string}`;
+export type QueueMode = "normal" | "repeat-all" | "repeat-one";
 
 export interface HistoryEntry {
   id: number;

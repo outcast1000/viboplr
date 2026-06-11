@@ -55,8 +55,8 @@ describe("buildManifest", () => {
 
 describe("buildState", () => {
   it("round-trips queue playback state", () => {
-    const s = buildState(3, "shuffle", [0, 2, 1], 1);
-    expect(s).toEqual({ queueIndex: 3, queueMode: "shuffle", shuffleOrder: [0, 2, 1], shufflePosition: 1 });
+    const s = buildState(3, "repeat-all");
+    expect(s).toEqual({ queueIndex: 3, queueMode: "repeat-all" });
   });
 });
 

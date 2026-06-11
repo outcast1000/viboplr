@@ -61,7 +61,7 @@ Every way tracks enter the queue and what each must maintain.
 
 | Operation | Canonical | Invariants |
 |---|---|---|
-| **Play tracks** | `playTracks(tracks, startIndex, context?)` | Replaces entire queue. Sets `queueIndex` to `startIndex`. If shuffle active, regenerates shuffle order with `startIndex` first. Sets or clears `playlistContext`. |
+| **Play tracks** | `playTracks(tracks, startIndex, context?)` | Replaces entire queue. Sets `queueIndex` to `startIndex`. Sets or clears `playlistContext`. Queue mode is unaffected (no shuffle order to rebuild). |
 | **Enqueue tracks** | `enqueueTracks(tracks)` | Appends to end. Does NOT change `queueIndex`. Does NOT clear `playlistContext`. Caller must run `findDuplicates()` first and present the duplicate banner — `enqueueTracks` itself has no dedup guard. |
 | **Play next** | `playNextInQueue(track)` | Inserts single track at `queueIndex + 1`. Does NOT advance index or trigger playback. |
 | **Insert at position** | `insertAtPosition(tracks, position)` | Inserts at arbitrary index. If `position <= queueIndex`, shifts index up by `tracks.length`. |
@@ -75,22 +75,24 @@ Every way tracks enter the queue and what each must maintain.
 
 ## Playback Progression
 
-How the queue advances through tracks across all three modes.
+How the queue advances through tracks across all three modes. The per-mode index math lives in pure helpers in `queueNav.ts` (`nextIndex` / `prevIndex`), which `useQueue.ts` calls — they are the single source of truth.
 
-**Modes:**
-- **Normal** — linear, index increments by 1. `playNext` returns `false` at end (no wrap). `playPrevious` stops at index 0.
-- **Loop** — circular. `playNext` wraps via `(idx + 1) % length`. `playPrevious` wraps via `(idx - 1 + length) % length`.
-- **Shuffle** — Fisher-Yates order generated at mode activation or queue replacement. Current track is always position 0 in shuffle order. Progression follows `shufflePosition` through `shuffleOrder` array. When shuffle exhausts, regenerates full order anchored at the first track of the previous shuffle (`order[0]`) and restarts at position 0. `playPrevious` walks back through shuffle history (stops at position 0, no wrap).
+**Modes** (`QueueMode = "normal" | "repeat-all" | "repeat-one"`):
+- **Normal** — linear, index increments by 1. `playNext` returns `false` at end (no wrap; auto-continue may then extend the queue). `playPrevious` stops at index 0.
+- **Repeat All** — circular. `playNext` wraps via `(idx + 1) % length`. `playPrevious` wraps via `(idx - 1 + length) % length`.
+- **Repeat One** — `playNext` / `playPrevious` return the **current** index unchanged, so the same track replays. Because the end-of-track flow re-enters `handlePlay` (the explicit play path), each replay resets the scrobble guard and counts as a fresh play/scrobble. Repeat One is NOT implemented via `audio.loop` or a silent seek (that would suppress scrobbles).
 
-**Mode toggling** (`toggleQueueMode`): cycles `normal -> loop -> shuffle -> normal`. When entering shuffle, generates new order anchored at current `queueIndex`. When leaving shuffle, no special action — `queueIndex` already points to the correct track.
+**Randomize** (`randomizeQueue`) — a one-shot action, **not a mode**. It physically reorders the `queue` array: the current track moves to index 0 and the rest are Fisher-Yates shuffled. Play/pause state is left untouched (the same audio keeps playing; only the surrounding queue is renumbered). No-op for queues with fewer than 2 tracks. Disabled in Repeat One. There is no persistent "shuffle order" — once randomized it's just a reordered queue.
+
+**Mode toggling** (`toggleQueueMode`): cycles `normal -> repeat-all -> repeat-one -> normal`. No side effects on toggle — `queueIndex` already points to the correct track in every mode.
 
 **Invariants:**
 - `queueIndex` always points to the currently playing track's position in the `queue` array, regardless of mode. It is the single source of truth for "what's playing."
-- `shuffleOrder` and `shufflePosition` are only meaningful when `queueMode === "shuffle"`. They must not be consulted in other modes.
 - `playNext` and `playPrevious` always read from refs (`queueRef`, `queueIndexRef`, `queueModeRef`, etc.), never from stale closure state. New code that accesses queue state inside event handlers or callbacks must follow this pattern.
-- `peekNext()` returns `null` at shuffle boundary (can't predict regenerated order). Callers must handle `null`.
-- `advanceIndex()` moves the index without triggering playback — used for preload/gapless. It follows the same mode logic as `playNext`.
+- `peekNext()` mirrors `nextIndex`: it returns the same-mode next track (current track in Repeat One, wrapped in Repeat All), or `null` only when Normal is at the end or the queue is empty. Callers must handle `null`.
+- `advanceIndex()` moves the index without triggering playback — used for preload/gapless. It follows the same `nextIndex` logic as `playNext`.
 - `handlePlay(track, source)` receives `"user"` or `"auto"` — auto-continue and gapless preload use `"auto"`, user clicks use `"user"`. This distinction matters for scrobble logic downstream.
+- Auto-continue runs only in Normal mode (gated in `App.tsx` `handleNext`). In Repeat All / Repeat One `playNext` never returns `false`, so it's unreachable anyway; the UI also disables the auto-continue button outside Normal.
 
 ## Queue Mutation & Index Integrity
 
@@ -108,9 +110,7 @@ Every mutation that changes the queue array must also recalculate `queueIndex` s
 | **Move to bottom** (`moveToBottom`) | Mirror of move-to-top. Current track in set: `remainingLength + posInSorted`. Not in set: decrements by count of moved items before it. |
 | **Insert at position** (`insertAtPosition`) | If `position <= index`: index shifts by `insertedCount`. Otherwise: no change. |
 | **Play next in queue** (`playNextInQueue`) | Inserts at `index + 1`. Index does not change (inserted item is after current). |
-| **Clear** (`clearQueue`) | Index resets to -1. Shuffle state cleared. Playlist context cleared. Also invokes `main_playlist_clear` on backend. |
-
-**Shuffle state on mutation:** Shuffle order is NOT recalculated after add/remove/reorder. This means shuffle indices can become stale if tracks are added or removed mid-shuffle. This is a known limitation — future changes that address it must regenerate `shuffleOrder` while preserving the current track's position.
+| **Clear** (`clearQueue`) | Index resets to -1. Playlist context cleared. Also invokes `main_playlist_clear` on backend. |
 
 **Selection behavior:** `selectedIndices` in QueuePanel is cleared on every queue state change (the `useEffect` on `[queue]`). This prevents stale index references after mutations.
 
@@ -119,12 +119,12 @@ Every mutation that changes the queue array must also recalculate `queueIndex` s
 How the queue survives app restarts.
 
 **Write path:**
-- Triggered by a `useEffect` watching `[queue, playlistContext, queueIndex, queueMode, shuffleOrder, shufflePosition]`
+- Triggered by a `useEffect` watching `[queue, playlistContext, queueIndex, queueMode]`
 - Debounced at 500ms via `setTimeout` / `clearTimeout`
 - Guarded by `restoredRef.current` — will not write until initial restore is complete. This prevents overwriting saved state with empty defaults on startup.
 - Writes two pieces via `invoke("main_playlist_write")`:
   - **Manifest:** track entries (via `buildManifest`) + playlist context
-  - **State:** index, mode, shuffle order, shuffle position (via `buildState`)
+  - **State:** index, mode (via `buildState`)
 
 **Cover image:**
 - Separate `useEffect` on `[playlistContext]`
@@ -141,7 +141,7 @@ How the queue survives app restarts.
 **Restore path:**
 - On startup, App.tsx calls `invoke("main_playlist_read")` to read the manifest and state from the backend's main-playlist folder (NOT from `tauri-plugin-store`).
 - Tracks are reconstructed via `tracksFromManifest()` (producing `id: null` tracks with fresh `ext:N` keys). Playlist context is reconstructed via `contextFromManifest()`.
-- Queue mode, shuffle order, and shuffle position are restored from the state object.
+- Queue mode is restored from the state object. Legacy persisted modes are normalized on read: `"loop"` → `"repeat-all"`, `"shuffle"` → `"normal"` (App.tsx restore path) so older stored state stays valid.
 - The queue and index are NOT set directly during restore — they are deferred via `pendingRestoreQueueRef` / `pendingRestoreTrackRef` and applied after initial library load (so library tracks can be matched and upgraded to full `id`-bearing tracks).
 - `restoredRef` is set to `true` only after all restore operations complete.
 - `invoke("main_playlist_gc")` runs fire-and-forget after restore to clean up orphaned cover/thumb files in the main-playlist folder.
@@ -237,7 +237,7 @@ Rules that span multiple areas. These are the things most likely to break during
 
 ### Ref-Based State Access
 
-Queue state is accessed via refs (`queueRef`, `queueIndexRef`, `queueModeRef`, `shuffleOrderRef`, `shufflePositionRef`) inside callbacks and event handlers. This is because React state closures capture stale values. Every ref mirrors its corresponding state (`queueRef.current = queue` etc.), updated on every render. New code that reads queue state inside `setTimeout`, event listeners, or `handlePlay` callbacks MUST use refs, not direct state variables.
+Queue state is accessed via refs (`queueRef`, `queueIndexRef`, `queueModeRef`) inside callbacks and event handlers. This is because React state closures capture stale values. Every ref mirrors its corresponding state (`queueRef.current = queue` etc.), updated on every render. New code that reads queue state inside `setTimeout`, event listeners, or `handlePlay` callbacks MUST use refs, not direct state variables.
 
 ### The `restoredRef` Guard
 
@@ -271,11 +271,9 @@ The `source` parameter (`"user"` vs `"auto"`) flows from `playNext`/`playPreviou
 
 Queue tracks may not have playable URLs at enqueue time. URL resolution happens at play time via the stream resolver chain in `App.tsx`. Queue code must never assume `track.path` is a playable URL. It is a scheme-prefixed identifier (`file://`, `subsonic://`, `custom://`), not a source.
 
-### Shuffle State Fragility
+### Randomize Is Destructive, Not Stateful
 
-Shuffle order is generated once (on mode switch or `playTracks`) and not updated on queue mutations. Adding, removing, or reordering tracks mid-shuffle can create stale indices in `shuffleOrder`. Current behavior: shuffle continues with potentially invalid indices until regeneration at boundary. Future fix must regenerate shuffle order on mutation while preserving the current position in the walk.
-
-### Common Mistakes to Avoid
+Randomization is a one-shot reorder of the `queue` array (`randomizeQueue`), not a persistent mode. There is no `shuffleOrder`/`shufflePosition` to keep in sync with mutations — the queue array IS the order. This deliberately avoids the old shuffle-state fragility class (stale shuffle indices on add/remove/reorder). After Randomize, the current track sits at index 0 and normal index-recalc rules apply to any further mutations.
 
 1. Using state variables instead of refs inside callbacks — causes stale reads
 2. Calling `enqueueTracks` without running `findDuplicates` first — bypasses the duplicate banner

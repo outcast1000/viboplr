@@ -3,7 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { QueueTrack, SearchAllResults, SearchResultItem } from "../types";
+import type { QueueTrack, SearchAllResults, SearchResultItem, QueueMode } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import type { MiniRestingSize, MiniWidthSize } from "../hooks/useMiniMode";
 import { formatDuration, isVideoTrack } from "../utils";
@@ -97,7 +97,7 @@ interface NowPlayingBarProps {
   artistRank: number | null;
   volume: number;
   muted: boolean;
-  queueMode: "normal" | "loop" | "shuffle";
+  queueMode: QueueMode;
   autoContinueEnabled: boolean;
   autoContinueSameFormat: boolean;
   showAutoContinuePopover: boolean;
@@ -131,6 +131,8 @@ interface NowPlayingBarProps {
   onEqResetAll: () => void;
   onEqSaveAs: () => void;
   onToggleQueueMode: () => void;
+  onRandomize: () => void;
+  queueLength: number;
   onToggleAutoContinue: () => void;
   onToggleAutoContinueSameFormat: () => void;
   onToggleAutoContinuePopover: () => void;
@@ -178,7 +180,7 @@ export function NowPlayingBar({
   onSeek, onVolume, onMute,
   eqEnabled, eqPreset, eqGains, eqPreGainDb, eqCustomPresets,
   onEqEnabledChange, onEqPresetChange, onEqGainChange, onEqPreGainChange, onEqResetAll, onEqSaveAs,
-  onToggleQueueMode,
+  onToggleQueueMode, onRandomize, queueLength,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onTrackClick,
   onNavigateToArtistByName, onNavigateToAlbumByName,
@@ -583,20 +585,29 @@ export function NowPlayingBar({
         <button
           className={`g-btn g-btn-sm${queueMode !== "normal" ? " active" : ""}`}
           onClick={onToggleQueueMode}
-          title={queueMode === "normal" ? "Normal" : queueMode === "loop" ? "Loop" : "Shuffle"}
+          title={queueMode === "normal" ? "Normal" : queueMode === "repeat-all" ? "Repeat All" : "Repeat One"}
         >
-          {queueMode === "shuffle"
-            ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-            : queueMode === "loop"
+          {queueMode === "repeat-one"
+            ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M11.5 9 13 8.3V16"/></svg>
+            : queueMode === "repeat-all"
             ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-            : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>}
+            : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>}
+        </button>
+        <button
+          className="g-btn g-btn-sm"
+          onClick={onRandomize}
+          disabled={queueMode === "repeat-one" || queueLength < 2}
+          title="Randomize queue order"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg>
         </button>
         <div className="auto-continue-wrapper">
           <button
             ref={acAnchorRef}
-            className={`g-btn g-btn-sm${autoContinueEnabled ? " active" : ""}`}
+            className={`g-btn g-btn-sm${autoContinueEnabled && queueMode === "normal" ? " active" : ""}`}
             onClick={onToggleAutoContinuePopover}
-            title="Auto Continue"
+            disabled={queueMode !== "normal"}
+            title={queueMode === "normal" ? "Auto Continue" : "Auto Continue (only in Normal mode)"}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 12c-2-2.67-4-4-6-4a4 4 0 1 0 0 8c2 0 4-1.33 6-4zm0 0c2 2.67 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.33-6 4z"/></svg>
           </button>

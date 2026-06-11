@@ -34,16 +34,6 @@ function pickStrategy(weights: AutoContinueWeights, roll: number): string {
   return "random";
 }
 
-// From useQueue.ts: generateShuffleOrder
-function generateShuffleOrder(length: number, startIndex: number): number[] {
-  const indices = Array.from({ length }, (_, i) => i).filter(i => i !== startIndex);
-  for (let i = indices.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [indices[i], indices[j]] = [indices[j], indices[i]];
-  }
-  return [startIndex, ...indices];
-}
-
 describe("pickStrategy (weighted random)", () => {
   const weights: AutoContinueWeights = {
     random: 40, sameArtist: 20, sameTag: 20, mostPlayed: 10, liked: 10,
@@ -86,31 +76,6 @@ describe("pickStrategy (weighted random)", () => {
   it("handles single-strategy weight", () => {
     const single = { random: 0, sameArtist: 100, sameTag: 0, mostPlayed: 0, liked: 0 };
     expect(pickStrategy(single, 50)).toBe("same_artist");
-  });
-});
-
-describe("generateShuffleOrder", () => {
-  it("starts with startIndex", () => {
-    const order = generateShuffleOrder(5, 2);
-    expect(order[0]).toBe(2);
-  });
-
-  it("includes all indices exactly once", () => {
-    const order = generateShuffleOrder(5, 0);
-    expect(order.length).toBe(5);
-    expect([...order].sort()).toEqual([0, 1, 2, 3, 4]);
-  });
-
-  it("works with single element", () => {
-    const order = generateShuffleOrder(1, 0);
-    expect(order).toEqual([0]);
-  });
-
-  it("works with startIndex at end", () => {
-    const order = generateShuffleOrder(3, 2);
-    expect(order[0]).toBe(2);
-    expect(order.length).toBe(3);
-    expect([...order].sort()).toEqual([0, 1, 2]);
   });
 });
 

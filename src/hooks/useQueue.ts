@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import type { QueueTrack, PlaylistLoadResult, PlaylistEntry } from "../types";
+import type { QueueTrack, PlaylistLoadResult, PlaylistEntry, QueueMode } from "../types";
 import { trackToQueueEntry, queueEntryToQueueTrack, nextExternalKey } from "../queueEntry";
 import { buildManifest, buildState, diffThumbs, isContextRemote } from "../mainPlaylist";
 import { stripImageVersion } from "../utils/resolveImageUrl";
+import { nextIndex, prevIndex, randomizeOrder } from "../queueNav";
 
 export interface PlaylistContext {
   name: string;
@@ -22,9 +23,7 @@ export function useQueue(
 ) {
   const [queue, setQueue] = useState<QueueTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
-  const [queueMode, setQueueMode] = useState<"normal" | "loop" | "shuffle">("normal");
-  const [shuffleOrder, setShuffleOrder] = useState<number[]>([]);
-  const [shufflePosition, setShufflePosition] = useState(0);
+  const [queueMode, setQueueMode] = useState<QueueMode>("normal");
   const [playlistContext, setPlaylistContext] = useState<PlaylistContext | null>(null);
   const [thumbVersions, setThumbVersions] = useState<Record<string, number>>({});
 
@@ -43,10 +42,6 @@ export function useQueue(
   queueIndexRef.current = queueIndex;
   const queueModeRef = useRef(queueMode);
   queueModeRef.current = queueMode;
-  const shuffleOrderRef = useRef(shuffleOrder);
-  shuffleOrderRef.current = shuffleOrder;
-  const shufflePositionRef = useRef(shufflePosition);
-  shufflePositionRef.current = shufflePosition;
   const queuePanelRef = useRef<HTMLDivElement>(null);
   const dragIndexRef = useRef<number | null>(null);
 
@@ -56,11 +51,11 @@ export function useQueue(
     const t = setTimeout(() => {
       invoke("main_playlist_write", {
         manifest: buildManifest(queue, playlistContext),
-        stateData: buildState(queueIndex, queueMode, shuffleOrder, shufflePosition),
+        stateData: buildState(queueIndex, queueMode),
       }).catch(e => console.error("Failed to write main-playlist:", e));
     }, 500);
     return () => clearTimeout(t);
-  }, [queue, playlistContext, queueIndex, queueMode, shuffleOrder, shufflePosition]);
+  }, [queue, playlistContext, queueIndex, queueMode]);
 
   // Cover: sync imagePath to main-playlist/cover.jpg
   const lastCoverRef = useRef<string | null>(null);
@@ -133,15 +128,6 @@ export function useQueue(
     }
   }, [queueIndex]);
 
-  function generateShuffleOrder(length: number, startIndex: number): number[] {
-    const indices = Array.from({ length }, (_, i) => i).filter(i => i !== startIndex);
-    for (let i = indices.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [indices[i], indices[j]] = [indices[j], indices[i]];
-    }
-    return [startIndex, ...indices];
-  }
-
   function playTracks(tracks: QueueTrack[], startIndex: number, context?: PlaylistContext | null) {
     // Dedupe keys *within* the incoming batch so two copies of the same library
     // track don't collide as React keys (e.g. a playlist that contains a track
@@ -157,11 +143,6 @@ export function useQueue(
     setQueue(dedupedTracks);
     setQueueIndex(startIndex);
     handlePlay(dedupedTracks[startIndex]);
-    if (queueModeRef.current === "shuffle") {
-      const order = generateShuffleOrder(dedupedTracks.length, startIndex);
-      setShuffleOrder(order);
-      setShufflePosition(0);
-    }
     setPlaylistContext(context ?? null);
   }
 
@@ -201,79 +182,21 @@ export function useQueue(
     const q = queueRef.current;
     const idx = queueIndexRef.current;
     const mode = queueModeRef.current;
-
-    if (q.length === 0) return false;
-
-    if (mode === "shuffle") {
-      const pos = shufflePositionRef.current;
-      const order = shuffleOrderRef.current;
-      if (order.length === 0) return false;
-      const nextPos = pos + 1;
-      if (nextPos >= order.length) {
-        const newOrder = generateShuffleOrder(q.length, order[0]);
-        setShuffleOrder(newOrder);
-        setShufflePosition(0);
-        const nextIdx = newOrder[0];
-        setQueueIndex(nextIdx);
-        handlePlay(q[nextIdx], source);
-      } else {
-        setShufflePosition(nextPos);
-        const nextIdx = order[nextPos];
-        setQueueIndex(nextIdx);
-        handlePlay(q[nextIdx], source);
-      }
-      return true;
-    }
-
-    if (mode === "loop") {
-      const nextIdx = (idx + 1) % q.length;
-      setQueueIndex(nextIdx);
-      handlePlay(q[nextIdx], source);
-      return true;
-    }
-
-    // normal
-    if (idx + 1 < q.length) {
-      const nextIdx = idx + 1;
-      setQueueIndex(nextIdx);
-      handlePlay(q[nextIdx], source);
-      return true;
-    }
-    return false;
+    const next = nextIndex(mode, idx, q.length);
+    if (next === null) return false;
+    setQueueIndex(next);
+    handlePlay(q[next], source);
+    return true;
   }
 
   function playPrevious() {
     const q = queueRef.current;
     const idx = queueIndexRef.current;
     const mode = queueModeRef.current;
-
-    if (q.length === 0) return;
-
-    if (mode === "shuffle") {
-      const pos = shufflePositionRef.current;
-      const order = shuffleOrderRef.current;
-      if (pos > 0) {
-        const prevPos = pos - 1;
-        setShufflePosition(prevPos);
-        const prevIdx = order[prevPos];
-        setQueueIndex(prevIdx);
-        handlePlay(q[prevIdx]);
-      }
-      return;
-    }
-
-    if (mode === "loop") {
-      const prevIdx = (idx - 1 + q.length) % q.length;
-      setQueueIndex(prevIdx);
-      handlePlay(q[prevIdx]);
-      return;
-    }
-
-    if (idx > 0) {
-      const prevIdx = idx - 1;
-      setQueueIndex(prevIdx);
-      handlePlay(q[prevIdx]);
-    }
+    const prev = prevIndex(mode, idx, q.length);
+    if (prev === null) return;
+    setQueueIndex(prev);
+    handlePlay(q[prev]);
   }
 
   function removeFromQueue(index: number) {
@@ -387,83 +310,45 @@ export function useQueue(
   function clearQueue() {
     setQueue([]);
     setQueueIndex(-1);
-    setShuffleOrder([]);
-    setShufflePosition(0);
     setPlaylistContext(null);
     invoke("main_playlist_clear").catch(console.error);
   }
 
   function toggleQueueMode() {
-    setQueueMode(prev => {
-      const next = prev === "normal" ? "loop" : prev === "loop" ? "shuffle" : "normal";
-      if (next === "shuffle" && queueRef.current.length > 0) {
-        const order = generateShuffleOrder(queueRef.current.length, queueIndexRef.current);
-        setShuffleOrder(order);
-        setShufflePosition(0);
-      }
-      return next;
-    });
+    setQueueMode(prev =>
+      prev === "normal" ? "repeat-all" : prev === "repeat-all" ? "repeat-one" : "normal"
+    );
+  }
+
+  function randomizeQueue() {
+    const q = queueRef.current;
+    if (q.length < 2) return;
+    const idx = queueIndexRef.current;
+    const order = randomizeOrder(q.length, idx, Math.random);
+    const reordered = order.map(i => q[i]);
+    setQueue(reordered);
+    // The current track is order[0] by construction (when idx >= 0), so it now
+    // sits at index 0. Playback is NOT re-triggered — the same audio keeps
+    // playing; we only renumber the queue around it.
+    setQueueIndex(idx >= 0 ? 0 : -1);
   }
 
   function peekNext(): QueueTrack | null {
     const q = queueRef.current;
     const idx = queueIndexRef.current;
     const mode = queueModeRef.current;
-
-    if (q.length === 0) return null;
-
-    if (mode === "shuffle") {
-      const pos = shufflePositionRef.current;
-      const order = shuffleOrderRef.current;
-      if (order.length === 0) return null;
-      const nextPos = pos + 1;
-      if (nextPos >= order.length) return null; // can't predict new shuffle order
-      return q[order[nextPos]] ?? null;
-    }
-
-    if (mode === "loop") {
-      return q[(idx + 1) % q.length] ?? null;
-    }
-
-    // normal
-    if (idx + 1 < q.length) return q[idx + 1];
-    return null;
+    const next = nextIndex(mode, idx, q.length);
+    return next === null ? null : (q[next] ?? null);
   }
 
   function advanceIndex(): boolean {
     const q = queueRef.current;
     const idx = queueIndexRef.current;
     const mode = queueModeRef.current;
-
-    if (q.length === 0) return false;
-
-    if (mode === "shuffle") {
-      const pos = shufflePositionRef.current;
-      const order = shuffleOrderRef.current;
-      if (order.length === 0) return false;
-      const nextPos = pos + 1;
-      if (nextPos >= order.length) {
-        const newOrder = generateShuffleOrder(q.length, order[0]);
-        setShuffleOrder(newOrder);
-        setShufflePosition(0);
-        setQueueIndex(newOrder[0]);
-      } else {
-        setShufflePosition(nextPos);
-        setQueueIndex(order[nextPos]);
-      }
-      return true;
-    }
-
-    if (mode === "loop") {
-      setQueueIndex((idx + 1) % q.length);
-      return true;
-    }
-
-    if (idx + 1 < q.length) {
-      setQueueIndex(idx + 1);
-      return true;
-    }
-    return false;
+    const next = nextIndex(mode, idx, q.length);
+    if (next === null) return false;
+    setQueueIndex(next);
+    return true;
   }
 
   function insertAtPosition(newTracks: QueueTrack[], position: number) {
@@ -546,13 +431,11 @@ export function useQueue(
     queue, setQueue,
     queueIndex, setQueueIndex,
     queueMode, setQueueMode,
-    shuffleOrder, setShuffleOrder,
-    shufflePosition, setShufflePosition,
     queuePanelRef, dragIndexRef,
     playTracks, enqueueTracks, findDuplicates,
     playNext, playPrevious,
     removeFromQueue, removeMultiple, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
-    toggleQueueMode, playNextInQueue, addToQueue, addToQueueAndPlay,
+    toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,
     thumbVersions,

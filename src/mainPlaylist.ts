@@ -1,4 +1,4 @@
-import type { QueueTrack } from "./types";
+import type { QueueTrack, QueueMode } from "./types";
 import type { PlaylistContext } from "./hooks/useQueue";
 import { nextExternalKey } from "./queueEntry";
 
@@ -25,9 +25,7 @@ export interface Manifest {
 
 export interface MainPlaylistState {
   queueIndex: number;
-  queueMode: "normal" | "loop" | "shuffle";
-  shuffleOrder: number[];
-  shufflePosition: number;
+  queueMode: QueueMode;
 }
 
 const LIBRARY_SOURCES = new Set(["library", "album", "artist", "tag", "playlist"]);
@@ -124,13 +122,8 @@ export function buildManifest(queue: QueueTrack[], context: PlaylistContext | nu
   };
 }
 
-export function buildState(
-  queueIndex: number,
-  queueMode: "normal" | "loop" | "shuffle",
-  shuffleOrder: number[],
-  shufflePosition: number,
-): MainPlaylistState {
-  return { queueIndex, queueMode, shuffleOrder, shufflePosition };
+export function buildState(queueIndex: number, queueMode: QueueMode): MainPlaylistState {
+  return { queueIndex, queueMode };
 }
 
 export function tracksFromManifest(manifest: Manifest, mainPlaylistDir?: string | null): QueueTrack[] {

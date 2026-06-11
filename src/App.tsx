@@ -1619,11 +1619,13 @@ function App() {
             if (ctx) queueHook.setPlaylistContext(ctx);
           }
           if (mpState) {
-            if (mpState.queueMode && ["normal", "loop", "shuffle"].includes(mpState.queueMode)) {
-              queueHook.setQueueMode(mpState.queueMode);
-            }
-            queueHook.setShuffleOrder(mpState.shuffleOrder ?? []);
-            queueHook.setShufflePosition(mpState.shufflePosition ?? 0);
+            // Migrate legacy persisted modes: "loop" → "repeat-all", "shuffle" → "normal".
+            const raw = mpState.queueMode as string | undefined;
+            const mode =
+              raw === "repeat-all" || raw === "repeat-one" || raw === "normal" ? raw :
+              raw === "loop" ? "repeat-all" :
+              "normal";
+            queueHook.setQueueMode(mode);
           }
           // Fire-and-forget gc; not awaited so it never blocks startup.
           invoke("main_playlist_gc").catch(e => console.error("main_playlist_gc failed:", e));
@@ -2003,6 +2005,8 @@ function App() {
   // onEnded handler — uses refs to avoid stale closures from useCallback([])
   const autoContinueRef = useRef(autoContinue);
   autoContinueRef.current = autoContinue;
+  const queueModeRef = useRef(queueHook.queueMode);
+  queueModeRef.current = queueHook.queueMode;
   const currentTrackRef = useRef(playback.currentTrack);
   currentTrackRef.current = playback.currentTrack;
   const handleStopRef = useRef(playback.handleStop);
@@ -2035,7 +2039,10 @@ function App() {
     if (!playNextRef.current(source)) {
       const ac = autoContinueRef.current;
       const track = currentTrackRef.current;
-      if (ac.enabled && track) {
+      // Auto-continue extends the queue only in Normal mode. In repeat-all /
+      // repeat-one, playNext never returns false, so this branch is unreachable
+      // there anyway — the explicit mode check is belt-and-suspenders + intent.
+      if (queueModeRef.current === "normal" && ac.enabled && track) {
         const next = await ac.fetchTrack(track);
         if (next) {
           addToQueueAndPlayRef.current(next, source);
@@ -3037,6 +3044,8 @@ function App() {
             onVolume={playback.handleVolume}
             onMute={playback.toggleMute}
             onToggleQueueMode={queueHook.toggleQueueMode}
+            onRandomize={queueHook.randomizeQueue}
+            queueLength={queueHook.queue.length}
             onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
             onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
             onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
@@ -3452,6 +3461,8 @@ function App() {
         }}
         onEqSaveAs={() => setEqSaveAsOpen(true)}
         onToggleQueueMode={queueHook.toggleQueueMode}
+        onRandomize={queueHook.randomizeQueue}
+        queueLength={queueHook.queue.length}
         onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
         onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
         onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
