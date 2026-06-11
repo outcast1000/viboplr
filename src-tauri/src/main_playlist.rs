@@ -14,8 +14,15 @@ fn folder(profile_dir: &Path) -> PathBuf {
     profile_dir.join("main-playlist")
 }
 
+/// The on-disk thumbnail filename for a track key (its file URI). Rust is the
+/// single source of this name: the frontend learns it from the
+/// `main-playlist-thumb-ready` event, never recomputes it. See set_thumb.
+fn thumb_filename(key: &str) -> String {
+    format!("{}.jpg", canonical_slug(key))
+}
+
 fn thumb_file(profile_dir: &Path, key: &str) -> PathBuf {
-    folder(profile_dir).join(THUMBS_DIR).join(format!("{}.jpg", canonical_slug(key)))
+    folder(profile_dir).join(THUMBS_DIR).join(thumb_filename(key))
 }
 
 
@@ -132,22 +139,18 @@ pub fn gc(profile_dir: &Path) -> Result<(), String> {
     };
 
     // Build the referenced set from each track's `file` URI run through the
-    // SAME Rust canonical_slug that set_thumb/thumb_file use to name the file
-    // on disk. We deliberately do NOT trust the manifest's `thumb` string
-    // (produced by the frontend's JS slug mirror): if the two slug functions
-    // ever diverge for a given URI (non-ASCII or >200-byte paths), the JS name
-    // would not match the real on-disk name and GC would delete a live thumb.
-    // Keying off canonical_slug(file) guarantees the collector and the writer
-    // always agree. A null `thumb` means the track has no cached thumb, so we
-    // only reference tracks whose `thumb` is set.
+    // SAME Rust thumb_filename (canonical_slug) that set_thumb uses to name the
+    // file on disk — never the manifest's `thumb` string. The frontend no
+    // longer writes `thumb` (it is always null for the main playlist), so the
+    // only reliable signal is the file URI itself: a thumb is an orphan iff no
+    // current track's slug maps to it. Reference every track with a `file`;
+    // tracks that never had a thumb simply won't have a matching file on disk
+    // for their slug, so referencing them is harmless.
     let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
     if let Some(m) = &manifest {
         for t in &m.tracks {
-            if t.thumb.is_none() {
-                continue;
-            }
             if let Some(file) = &t.file {
-                referenced.insert(format!("{}.jpg", canonical_slug(file)));
+                referenced.insert(thumb_filename(file));
             }
         }
     }
@@ -239,11 +242,17 @@ pub fn set_cover(profile_dir: &Path, src: Option<&ImageSource>) -> Result<(), St
     Ok(())
 }
 
-pub fn set_thumb(profile_dir: &Path, key: &str, src: &ImageSource) -> Result<(), String> {
+/// Ensure a thumbnail exists for `key` and return its on-disk filename
+/// (`canonical_slug(key).jpg`). Returns the name in BOTH the freshly-written
+/// and already-exists branches so the caller can always relay it to the
+/// frontend via `main-playlist-thumb-ready` — the frontend never computes this
+/// name itself.
+pub fn set_thumb(profile_dir: &Path, key: &str, src: &ImageSource) -> Result<String, String> {
     ensure_dirs(profile_dir)?;
+    let filename = thumb_filename(key);
     let dest = thumb_file(profile_dir, key);
     if dest.exists() {
-        return Ok(());
+        return Ok(filename);
     }
     let bytes = if let Some(p) = &src.path {
         resize_path_to_jpeg(Path::new(p), THUMB_MAX_DIM)?
@@ -251,12 +260,30 @@ pub fn set_thumb(profile_dir: &Path, key: &str, src: &ImageSource) -> Result<(),
         resize_bytes_to_jpeg(&fetch_source_bytes(src)?, THUMB_MAX_DIM)?
     };
     atomic_write(&dest, &bytes)?;
-    Ok(())
+    Ok(filename)
 }
 
 pub fn remove_thumb(profile_dir: &Path, key: &str) -> Result<(), String> {
     let _ = std::fs::remove_file(thumb_file(profile_dir, key));
     Ok(())
+}
+
+/// Restore reconciler: for each key (track file URI) whose thumbnail already
+/// exists on disk, return `(key, filename)`. The caller emits
+/// `main-playlist-thumb-ready` for each so the frontend can populate its
+/// `thumbInfo` map after a restart without recomputing any filename. Keys with
+/// no thumb on disk are omitted (they fall back to the live entity-image chain).
+pub fn existing_thumbs(profile_dir: &Path, keys: &[String]) -> Vec<(String, String)> {
+    keys.iter()
+        .filter_map(|key| {
+            let filename = thumb_filename(key);
+            if thumb_file(profile_dir, key).exists() {
+                Some((key.clone(), filename))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -420,27 +447,45 @@ mod tests {
     }
 
     #[test]
-    fn gc_skips_tracks_with_null_thumb() {
-        // A track with thumb: null has no cached thumb; gc must not reference
-        // (and therefore must collect) any stray file named after its slug.
+    fn gc_references_thumbs_by_file_slug_ignoring_manifest_thumb_field() {
+        // The frontend no longer writes the manifest `thumb` field (always null
+        // for the main playlist). gc must reference a track's thumb purely by
+        // canonical_slug(file), regardless of whether `thumb` is set. A thumb
+        // whose slug matches a current track's file is kept even though that
+        // track carries thumb: None.
         use crate::models::MixtapeTrack;
         let t = tmp();
         ensure_dirs(t.path()).unwrap();
-        let stray = format!("{}.jpg", canonical_slug("file:///local.mp3"));
-        std::fs::write(folder(t.path()).join(THUMBS_DIR).join(&stray), b"x").unwrap();
+        let keep = thumb_filename("spotify://keep");
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join(&keep), b"x").unwrap();
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join("orphan.jpg"), b"x").unwrap();
         let mut m = sample_manifest();
         m.tracks.push(MixtapeTrack {
             title: "t".into(),
             artist: "a".into(),
             album: None,
             duration_secs: None,
-            file: Some("file:///local.mp3".into()),
-            thumb: None,
+            file: Some("spotify://keep".into()),
+            thumb: None, // gc must NOT consult this; slug(file) is the truth
             format: None,
         });
         write(t.path(), Some(&m), None).unwrap();
         gc(t.path()).unwrap();
-        assert!(!folder(t.path()).join(THUMBS_DIR).join(&stray).exists());
+        assert!(folder(t.path()).join(THUMBS_DIR).join(&keep).exists());
+        assert!(!folder(t.path()).join(THUMBS_DIR).join("orphan.jpg").exists());
+    }
+
+    #[test]
+    fn existing_thumbs_returns_only_present_files_with_rust_filename() {
+        let t = tmp();
+        ensure_dirs(t.path()).unwrap();
+        // Write a thumb for one URI; leave the other absent.
+        let present = "spotify://Björk-track";
+        let fname = thumb_filename(present);
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join(&fname), b"x").unwrap();
+        let keys = vec![present.to_string(), "tidal://missing".to_string()];
+        let got = existing_thumbs(t.path(), &keys);
+        assert_eq!(got, vec![(present.to_string(), fname)]);
     }
 
     #[test]

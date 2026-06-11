@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import type { QueueTrack, PlaylistLoadResult, PlaylistEntry, QueueMode } from "../types";
 import { trackToQueueEntry, queueEntryToQueueTrack, nextExternalKey } from "../queueEntry";
-import { buildManifest, buildState, diffThumbs, isContextRemote } from "../mainPlaylist";
+import { buildManifest, buildState, diffThumbs, type ThumbInfo } from "../mainPlaylist";
 import { stripImageVersion } from "../utils/resolveImageUrl";
 import { nextIndex, prevIndex, randomizeOrder } from "../queueNav";
 
@@ -25,13 +25,17 @@ export function useQueue(
   const [queueIndex, setQueueIndex] = useState(-1);
   const [queueMode, setQueueMode] = useState<QueueMode>("normal");
   const [playlistContext, setPlaylistContext] = useState<PlaylistContext | null>(null);
-  const [thumbVersions, setThumbVersions] = useState<Record<string, number>>({});
+  const [thumbInfo, setThumbInfo] = useState<Record<string, ThumbInfo>>({});
 
   useEffect(() => {
-    const unlisten = listen<{ key: string }>("main-playlist-thumb-ready", (event) => {
+    const unlisten = listen<{ key: string; filename: string }>("main-playlist-thumb-ready", (event) => {
       const key = event.payload?.key;
-      if (!key) return;
-      setThumbVersions(prev => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
+      const filename = event.payload?.filename;
+      if (!key || !filename) return;
+      // Bump version to bust the WebView cache; record the backend-supplied
+      // filename (the frontend never computes it — Rust's canonical_slug is the
+      // single source of truth, so there's no JS slug mirror to drift).
+      setThumbInfo(prev => ({ ...prev, [key]: { version: (prev[key]?.version ?? 0) + 1, filename } }));
     });
     return () => { unlisten.then(fn => fn()).catch(console.error); };
   }, []);
@@ -79,28 +83,30 @@ export function useQueue(
       .catch(e => console.error(`main_playlist_set_cover failed for ${img}:`, e));
   }, [playlistContext]);
 
-  // Thumb diff: write/remove thumbs when queue changes (remote-only)
+  // Thumb diff: write/remove thumbs when the queue changes.
+  //
+  // No remote gate: a thumb is written for any added track that carries an
+  // `image_url` (i.e. art the entity-image cache can't serve — plugin/remote
+  // tracks). Library tracks have no `image_url` on the QueueTrack, so the
+  // `source` check below skips them; their art resolves via the entity cache.
   const prevQueueRef = useRef<QueueTrack[]>([]);
   useEffect(() => {
     if (!restoredRef.current) { prevQueueRef.current = queue; return; }
-    const remote = isContextRemote(playlistContext);
     const { added, removed } = diffThumbs(prevQueueRef.current, queue);
     prevQueueRef.current = queue;
 
-    // Always remove stale thumbs even when switching off remote.
-    // Backend slugifies the `key` param via canonical_slug → same filename as thumbFilenameForUri.
+    // Backend slugifies the `key` param via canonical_slug → same filename it wrote.
     for (const uri of removed) {
       invoke("main_playlist_remove_thumb", { key: uri })
         .catch(e => console.error(`main_playlist_remove_thumb failed for ${uri}:`, e));
     }
     if (removed.length > 0) {
-      setThumbVersions(prev => {
+      setThumbInfo(prev => {
         const next = { ...prev };
         for (const uri of removed) delete next[uri];
         return next;
       });
     }
-    if (!remote) return;
     for (const t of added) {
       if (!t.path) continue;
       // Strip plugin-appended `#v=N` cache-buster from local paths before
@@ -438,6 +444,6 @@ export function useQueue(
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,
-    thumbVersions,
+    thumbInfo,
   };
 }

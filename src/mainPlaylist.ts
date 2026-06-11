@@ -31,45 +31,32 @@ export interface MainPlaylistState {
 const LIBRARY_SOURCES = new Set(["library", "album", "artist", "tag", "playlist"]);
 
 /**
- * Mirror of backend `canonical_slug` applied to a track's file URI.
- * Backend (src-tauri/src/entity_image.rs): lowercases, deletes `\ / : * ? " < > |` and
- * control chars, collapses whitespace, trims leading/trailing dots, returns "_unknown"
- * if empty.
- *
- * Rationale: URIs are stable across restarts (unlike the in-memory `QueueEntry.key`
- * which uses a resetting counter for external tracks). Keying thumbs by URI lets
- * cached thumbs survive app restarts.
- *
- * Known divergences from Rust canonical_slug (intentional; don't affect thumb lookup
- * because thumbs are only cached for remote-sourced playlists whose URIs are ASCII —
- * plugin schemes, `subsonic://`, `http(s)://`):
- *   - no `deunicode` / `strip_diacritics` (Rust transliterates non-ASCII)
- *   - no `RESERVED_NAMES` prefix (Rust adds `_` before CON/PRN/AUX/etc.)
- *   - no 200-byte truncation
- * If you change `canonical_slug` in Rust, update this to match and re-run both test suites.
+ * What we know about a track's on-disk thumbnail. Both fields come from the
+ * backend `main-playlist-thumb-ready` event — the frontend never computes the
+ * filename itself (Rust's `canonical_slug` is the single source of truth, so
+ * there is no JS slug mirror to drift out of sync). `version` is bumped on each
+ * ready event to bust the WebView cache.
  */
-const FORBIDDEN_CHARS = /[\\/:*?"<>|\x00-\x1f]/g;
-export function thumbFilenameForUri(uri: string | null | undefined): string {
-  if (!uri) return "_unknown.jpg";
-  const lowered = uri.toLowerCase();
-  const filtered = lowered.replace(FORBIDDEN_CHARS, "");
-  const collapsed = filtered.split(/\s+/).filter(Boolean).join(" ");
-  const trimmed = collapsed.replace(/^\.+|\.+$/g, "");
-  const slug = trimmed.length === 0 ? "_unknown" : trimmed;
-  return `${slug}.jpg`;
+export interface ThumbInfo {
+  version: number;
+  filename: string;
 }
 
 /**
- * Resolve the on-disk local thumbnail path for a queue item, or null if it
- * should not be requested yet.
+ * Resolve the on-disk local thumbnail path for a queue item, or null if no
+ * thumb has been confirmed on disk.
  *
- * The thumb file is written asynchronously by `main_playlist_set_thumb`, which
- * emits `main-playlist-thumb-ready` (bumping `versions[uri]`) only *after* the
- * write completes. Until that signal arrives we have no proof the file exists,
- * so requesting `thumbs/{slug}.jpg` would make the asset protocol log a
- * spurious "File does not exist" error on first paint. Gating on a recorded
- * version makes the request race-free: callers fall back to the track's own
- * `image_url` until the thumb is confirmed on disk.
+ * The thumb file is written asynchronously by `main_playlist_set_thumb` (and
+ * reconciled on restore by `main_playlist_touch_thumbs`), which emit
+ * `main-playlist-thumb-ready { key, filename }` only *after* the file exists.
+ * The frontend records that as `thumbInfo[uri]`. Until an entry is present we
+ * have no proof the file exists, so requesting it would make the asset protocol
+ * log a spurious "File does not exist" error on first paint — callers fall back
+ * to the track's own `image_url` / the entity-image chain until then.
+ *
+ * No remote gate: a thumb is used iff one exists on disk for this URI. Library
+ * tracks never get a thumb written (their art resolves through the shared
+ * entity-image cache), so this naturally returns null for them.
  *
  * Returns the raw local path with a `#v=N` cache-buster suffix (NOT run
  * through convertFileSrc) so this stays pure/testable. The caller passes it
@@ -78,14 +65,13 @@ export function thumbFilenameForUri(uri: string | null | undefined): string {
 export function queueItemLocalThumb(args: {
   mainPlaylistDir: string | null | undefined;
   uri: string | null | undefined;
-  remote: boolean;
-  versions: Record<string, number>;
+  thumbInfo: Record<string, ThumbInfo>;
 }): string | null {
-  const { mainPlaylistDir, uri, remote, versions } = args;
-  if (!mainPlaylistDir || !uri || !remote) return null;
-  const version = versions[uri];
-  if (!version) return null;
-  return `${mainPlaylistDir}/thumbs/${thumbFilenameForUri(uri)}#v=${version}`;
+  const { mainPlaylistDir, uri, thumbInfo } = args;
+  if (!mainPlaylistDir || !uri) return null;
+  const info = thumbInfo[uri];
+  if (!info) return null;
+  return `${mainPlaylistDir}/thumbs/${info.filename}#v=${info.version}`;
 }
 
 export function isContextRemote(ctx: PlaylistContext | null | undefined): boolean {
@@ -96,7 +82,6 @@ export function isContextRemote(ctx: PlaylistContext | null | undefined): boolea
 }
 
 export function buildManifest(queue: QueueTrack[], context: PlaylistContext | null | undefined): Manifest {
-  const remote = isContextRemote(context);
   const metadata: Record<string, string> = {};
   if (context?.source) metadata.source = context.source;
   if (context?.description) metadata.description = context.description;
@@ -116,7 +101,11 @@ export function buildManifest(queue: QueueTrack[], context: PlaylistContext | nu
       album: t.album_title ?? null,
       duration_secs: t.duration_secs,
       file: t.path,
-      thumb: remote && t.path ? `thumbs/${thumbFilenameForUri(t.path)}` : null,
+      // The main playlist no longer persists a thumb path: the on-disk
+      // filename is derived solely from `file` (canonical_slug) by the backend,
+      // and gc()/restore key off that, not this string. The field stays on the
+      // shared MixtapeTrack type for mixtape export, which sets it itself.
+      thumb: null,
       format: t.format,
     })),
   };
@@ -126,7 +115,7 @@ export function buildState(queueIndex: number, queueMode: QueueMode): MainPlayli
   return { queueIndex, queueMode };
 }
 
-export function tracksFromManifest(manifest: Manifest, mainPlaylistDir?: string | null): QueueTrack[] {
+export function tracksFromManifest(manifest: Manifest): QueueTrack[] {
   return manifest.tracks.map((m): QueueTrack => ({
     // QueueEntry.key is an in-memory identity used for React rendering + multi-select.
     // It is not persisted. Generate fresh keys on restore from the SAME shared
@@ -134,8 +123,9 @@ export function tracksFromManifest(manifest: Manifest, mainPlaylistDir?: string 
     // local counter here would restart at ext:1 and collide with keys minted later
     // by nextExternalKey(), producing duplicate React keys that corrupt
     // reconciliation (phantom rows that survive clear/remove). Thumbnail identity on
-    // disk is keyed off the file URI (see thumbFilenameForUri), not this key, so
-    // thumbs cached before restart are still found.
+    // disk is keyed off the file URI (canonical_slug, backend-side), not this key,
+    // so thumbs cached before restart are still found — repopulated into thumbInfo
+    // by the post-restore main_playlist_touch_thumbs call, not from the manifest.
     key: nextExternalKey(),
     path: m.file,
     title: m.title,
@@ -147,7 +137,10 @@ export function tracksFromManifest(manifest: Manifest, mainPlaylistDir?: string 
     // dropping it would misclassify a restored video as audio after restart.
     format: m.format ?? null,
     liked: 0,
-    image_url: m.thumb && mainPlaylistDir ? `${mainPlaylistDir}/${m.thumb}` : undefined,
+    // image_url is intentionally NOT seeded from m.thumb: the queue thumbnail is
+    // resolved from thumbInfo (populated by touch_thumbs) so Rust remains the
+    // sole namer of the on-disk file. Library art still resolves via the entity
+    // cache in QueuePanel/App.
   }));
 }
 

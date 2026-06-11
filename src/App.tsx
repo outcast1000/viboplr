@@ -1607,7 +1607,7 @@ function App() {
             invoke<string>("main_playlist_dir"),
           ]);
           if (manifest) {
-            const tracks = tracksFromManifest(manifest, dir);
+            const tracks = tracksFromManifest(manifest);
             const ctx = contextFromManifest(manifest, dir);
             if (tracks.length > 0) {
               const idx = mpState?.queueIndex != null && mpState.queueIndex >= 0 && mpState.queueIndex < tracks.length ? mpState.queueIndex : -1;
@@ -1711,6 +1711,15 @@ function App() {
       queueHook.setQueue(queue.tracks);
       queueHook.setQueueIndex(queue.index);
       pendingRestoreQueueRef.current = null;
+      // Reconcile thumbnails cached before restart: ask the backend which track
+      // URIs already have a thumb on disk and re-emit main-playlist-thumb-ready
+      // for each, repopulating thumbInfo. Rust stays the sole namer of the file
+      // (no JS slug recomputation here).
+      const keys = queue.tracks.map(t => t.path).filter((p): p is string => !!p);
+      if (keys.length > 0) {
+        invoke("main_playlist_touch_thumbs", { keys })
+          .catch(e => console.error("main_playlist_touch_thumbs failed:", e));
+      }
     }
   }, [appRestoring]);
 
@@ -3112,7 +3121,7 @@ function App() {
           isPlaying={playback.playing}
           debugMode={debugMode}
           mainPlaylistDir={mainPlaylistDir}
-          thumbVersions={queueHook.thumbVersions}
+          thumbInfo={queueHook.thumbInfo}
           resolvingStatus={resolvingStatus}
           resolveFailures={resolveFailures}
         />

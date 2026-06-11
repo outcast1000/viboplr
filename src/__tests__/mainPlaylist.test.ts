@@ -7,7 +7,6 @@ import {
   contextToExportMetadata,
   contextFromMixtapeMetadata,
   diffThumbs,
-  thumbFilenameForUri,
   queueItemLocalThumb,
   tracksFromManifest,
   type Manifest,
@@ -36,15 +35,13 @@ describe("buildManifest", () => {
     expect(m.tracks[0].file).toBe("file:///x.mp3");
   });
 
-  it("references thumbs/{slug}.jpg derived from the track URI when context source is spotify", () => {
-    const t = makeTrack({ path: "tidal://12345" });
-    const m = buildManifest([t], { name: "P", source: "spotify" });
-    expect(m.tracks[0].thumb).toBe("thumbs/tidal12345.jpg");
-  });
-
-  it("leaves thumb null when context source is library", () => {
-    const m = buildManifest([makeTrack()], { name: "P", source: "library" });
-    expect(m.tracks[0].thumb).toBeNull();
+  it("always leaves thumb null — the main playlist no longer persists a thumb path", () => {
+    // The on-disk thumb filename is derived from `file` (canonical_slug) by the
+    // backend; gc()/restore key off that, so the manifest never stores a path.
+    const remote = buildManifest([makeTrack({ path: "tidal://12345" })], { name: "P", source: "spotify" });
+    expect(remote.tracks[0].thumb).toBeNull();
+    const library = buildManifest([makeTrack()], { name: "P", source: "library" });
+    expect(library.tracks[0].thumb).toBeNull();
   });
 
   it("sets cover to 'cover.jpg' when context has an image", () => {
@@ -526,7 +523,7 @@ describe("plugin album → queue → mixtape → queue roundtrip", () => {
     expect(manifest.metadata!.source).toBe("tidal://albums/12345");
     expect(manifest.metadata!.artist).toBe("Radiohead");
     expect(manifest.metadata!.tidalId).toBe("12345");
-    expect(manifest.tracks[0].thumb).toBe("thumbs/tidal67890.jpg");
+    expect(manifest.tracks[0].thumb).toBeNull();
 
     const restored = contextFromManifest(manifest, "/profile/main-playlist");
     expect(restored!.source).toBe("tidal://albums/12345");
@@ -554,51 +551,43 @@ describe("plugin album → queue → mixtape → queue roundtrip", () => {
   });
 });
 
-describe("thumbFilenameForUri", () => {
-  it("matches backend canonical_slug: colons and slashes are deleted", () => {
-    expect(thumbFilenameForUri("tidal://12345")).toBe("tidal12345.jpg");
-    expect(thumbFilenameForUri("spotify://abc")).toBe("spotifyabc.jpg");
-  });
-
-  it("falls back to _unknown for empty strings", () => {
-    expect(thumbFilenameForUri("")).toBe("_unknown.jpg");
-    expect(thumbFilenameForUri(null as unknown as string)).toBe("_unknown.jpg");
-  });
-});
-
 describe("queueItemLocalThumb", () => {
   const dir = "/app/main-playlist";
 
-  it("returns null until the thumb-ready signal has set a version (avoids requesting a not-yet-written file)", () => {
-    // No version recorded yet → the backend has not confirmed the write.
+  it("returns null until a thumb-ready signal has recorded thumbInfo (avoids requesting a not-yet-written file)", () => {
+    // No entry yet → the backend has not confirmed the write.
     const r = queueItemLocalThumb({
       mainPlaylistDir: dir,
       uri: "spotify://abc",
-      remote: true,
-      versions: {},
+      thumbInfo: {},
     });
     expect(r).toBeNull();
   });
 
-  it("returns the versioned thumb path once a version is recorded", () => {
+  it("returns the versioned thumb path using the backend-supplied filename", () => {
+    // The filename comes from the event, not a JS slug computation.
     const r = queueItemLocalThumb({
       mainPlaylistDir: dir,
       uri: "spotify://abc",
-      remote: true,
-      versions: { "spotify://abc": 1 },
+      thumbInfo: { "spotify://abc": { version: 1, filename: "spotifyabc.jpg" } },
     });
     expect(r).toBe("/app/main-playlist/thumbs/spotifyabc.jpg#v=1");
   });
 
-  it("returns null when context is not remote", () => {
-    expect(
-      queueItemLocalThumb({ mainPlaylistDir: dir, uri: "file:///x.mp3", remote: false, versions: { "file:///x.mp3": 1 } }),
-    ).toBeNull();
+  it("uses a thumb whenever one exists on disk — no remote gate", () => {
+    // A local/library URI with a recorded thumb resolves just like a remote one;
+    // the only gate is whether thumbInfo has an entry.
+    const r = queueItemLocalThumb({
+      mainPlaylistDir: dir,
+      uri: "file:///x.mp3",
+      thumbInfo: { "file:///x.mp3": { version: 3, filename: "filex.mp3.jpg" } },
+    });
+    expect(r).toBe("/app/main-playlist/thumbs/filex.mp3.jpg#v=3");
   });
 
   it("returns null when dir or uri is missing", () => {
-    expect(queueItemLocalThumb({ mainPlaylistDir: null, uri: "spotify://abc", remote: true, versions: { "spotify://abc": 1 } })).toBeNull();
-    expect(queueItemLocalThumb({ mainPlaylistDir: dir, uri: null, remote: true, versions: {} })).toBeNull();
+    expect(queueItemLocalThumb({ mainPlaylistDir: null, uri: "spotify://abc", thumbInfo: { "spotify://abc": { version: 1, filename: "spotifyabc.jpg" } } })).toBeNull();
+    expect(queueItemLocalThumb({ mainPlaylistDir: dir, uri: null, thumbInfo: {} })).toBeNull();
   });
 });
 

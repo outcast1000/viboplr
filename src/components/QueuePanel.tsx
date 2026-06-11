@@ -4,7 +4,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 import { formatDuration, isVideoTrack } from "../utils";
-import { queueItemLocalThumb, isContextRemote } from "../mainPlaylist";
+import { queueItemLocalThumb, type ThumbInfo } from "../mainPlaylist";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { SpinningDisc } from "./SpinningDisc";
@@ -96,7 +96,7 @@ interface QueuePanelProps {
   isPlaying?: boolean;
   debugMode?: boolean;
   mainPlaylistDir: string | null;
-  thumbVersions: Record<string, number>;
+  thumbInfo: Record<string, ThumbInfo>;
   resolvingStatus?: { key: string; error: string | null; trying: string | null } | null;
   resolveFailures?: Record<string, string>;
 }
@@ -136,7 +136,7 @@ export function QueuePanel({
   onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onEditPlaylist, onLoadPlaylist, onContextMenu,
   externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
-  mainPlaylistDir, thumbVersions, resolvingStatus, resolveFailures,
+  mainPlaylistDir, thumbInfo, resolvingStatus, resolveFailures,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
@@ -598,8 +598,7 @@ export function QueuePanel({
                 localThumb={resolveImageUrl(queueItemLocalThumb({
                   mainPlaylistDir,
                   uri: t.path,
-                  remote: isContextRemote(playlistContext),
-                  versions: thumbVersions,
+                  thumbInfo,
                 })) ?? null}
                 fallback={getTrackImage(t)}
               />

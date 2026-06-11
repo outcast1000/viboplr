@@ -63,10 +63,39 @@ pub async fn main_playlist_set_thumb(
 ) -> Result<(), String> {
     let dir = state.app_dir.clone();
     let key_clone = key.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::main_playlist::set_thumb(&dir, &key_clone, &source))
+    let filename = tauri::async_runtime::spawn_blocking(move || crate::main_playlist::set_thumb(&dir, &key_clone, &source))
         .await
         .map_err(|e| e.to_string())??;
-    let _ = app.emit("main-playlist-thumb-ready", serde_json::json!({ "key": key }));
+    let _ = app.emit(
+        "main-playlist-thumb-ready",
+        serde_json::json!({ "key": key, "filename": filename }),
+    );
+    Ok(())
+}
+
+/// Restore reconciler: after the queue is rebuilt from the manifest on startup,
+/// the frontend calls this with all current track URIs. For every URI whose
+/// thumbnail already exists on disk we re-emit `main-playlist-thumb-ready` so
+/// the frontend repopulates its `thumbInfo` map — without ever recomputing the
+/// on-disk filename itself (Rust is the sole namer).
+#[tauri::command]
+pub async fn main_playlist_touch_thumbs(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    keys: Vec<String>,
+) -> Result<(), String> {
+    let dir = state.app_dir.clone();
+    let found = tauri::async_runtime::spawn_blocking(move || {
+        crate::main_playlist::existing_thumbs(&dir, &keys)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    for (key, filename) in found {
+        let _ = app.emit(
+            "main-playlist-thumb-ready",
+            serde_json::json!({ "key": key, "filename": filename }),
+        );
+    }
     Ok(())
 }
 
