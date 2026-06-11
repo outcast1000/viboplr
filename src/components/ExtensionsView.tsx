@@ -7,6 +7,8 @@ import type {
 } from "../types/plugin";
 import type { GallerySkinEntry } from "../types/skin";
 import { PluginViewRenderer } from "./PluginViewRenderer";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { LINKS } from "../constants/links";
 
 type ExtTab = "skins" | "plugins";
 
@@ -417,6 +419,12 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
           )}
           <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onCheckForUpdates} disabled={checking}>
             {checking ? "Checking..." : "Check for Updates"}
+          </button>
+          <button
+            className="ds-btn ds-btn--secondary ds-btn--sm"
+            onClick={() => openUrl(tab === "skins" ? LINKS.skinsPage : LINKS.pluginsPage).catch(console.error)}
+          >
+            Browse online
           </button>
           <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => setShowUrlInput(!showUrlInput)}>
             Install from URL
