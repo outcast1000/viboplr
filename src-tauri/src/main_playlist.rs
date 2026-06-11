@@ -105,17 +105,53 @@ pub fn gc(profile_dir: &Path) -> Result<(), String> {
     if !thumbs.exists() {
         return Ok(());
     }
-    let manifest = read_json::<MixtapeManifest>(&f.join(MANIFEST_FILE));
+
+    // Distinguish "no manifest" from "manifest present but unreadable". A
+    // missing manifest means the queue was cleared (clear() also removes the
+    // manifest file) → any leftover thumbs are genuine orphans, safe to sweep.
+    // A manifest that exists but fails to parse (schema drift, truncated write
+    // after a crash, hand-edit) must NOT be treated as "zero referenced
+    // thumbs": doing so would wipe the entire thumb cache on the next startup.
+    // Bail in that case and leave every thumb in place.
+    let manifest_path = f.join(MANIFEST_FILE);
+    let manifest = match std::fs::read_to_string(&manifest_path) {
+        Ok(contents) => match serde_json::from_str::<MixtapeManifest>(&contents) {
+            Ok(m) => Some(m),
+            Err(e) => {
+                log::warn!(
+                    "main_playlist::gc: manifest exists but failed to parse ({}); \
+                     skipping thumb GC to avoid deleting live thumbnails",
+                    e
+                );
+                return Ok(());
+            }
+        },
+        // File absent: queue was cleared (clear() removes the manifest). Leave
+        // `manifest` as None → empty referenced set → leftover thumbs collected.
+        Err(_) => None,
+    };
+
+    // Build the referenced set from each track's `file` URI run through the
+    // SAME Rust canonical_slug that set_thumb/thumb_file use to name the file
+    // on disk. We deliberately do NOT trust the manifest's `thumb` string
+    // (produced by the frontend's JS slug mirror): if the two slug functions
+    // ever diverge for a given URI (non-ASCII or >200-byte paths), the JS name
+    // would not match the real on-disk name and GC would delete a live thumb.
+    // Keying off canonical_slug(file) guarantees the collector and the writer
+    // always agree. A null `thumb` means the track has no cached thumb, so we
+    // only reference tracks whose `thumb` is set.
     let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
-    if let Some(m) = manifest {
-        for t in m.tracks {
-            if let Some(thumb) = t.thumb {
-                if let Some(name) = Path::new(&thumb).file_name().and_then(|n| n.to_str()) {
-                    referenced.insert(name.to_string());
-                }
+    if let Some(m) = &manifest {
+        for t in &m.tracks {
+            if t.thumb.is_none() {
+                continue;
+            }
+            if let Some(file) = &t.file {
+                referenced.insert(format!("{}.jpg", canonical_slug(file)));
             }
         }
     }
+
     for entry in std::fs::read_dir(&thumbs).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let name = match entry.file_name().into_string() {
@@ -317,29 +353,125 @@ mod tests {
         assert!(!folder(t.path()).join(THUMBS_DIR).join("a.jpg").exists());
     }
 
+    /// A track whose `file` URI produces `canonical_slug(file).jpg` on disk and
+    /// carries a non-null `thumb` so gc() treats it as referenced.
+    fn referenced_track(file: &str) -> crate::models::MixtapeTrack {
+        crate::models::MixtapeTrack {
+            title: "t".into(),
+            artist: "a".into(),
+            album: None,
+            duration_secs: None,
+            file: Some(file.into()),
+            // gc() keys off canonical_slug(file), not this string, but it must
+            // be non-null for the track to count as referenced.
+            thumb: Some(format!("thumbs/{}.jpg", canonical_slug(file))),
+            format: None,
+        }
+    }
+
     #[test]
     fn gc_removes_orphan_thumbs_not_referenced_by_manifest() {
+        let t = tmp();
+        ensure_dirs(t.path()).unwrap();
+        // The on-disk thumb name must match canonical_slug(file) — the same
+        // name set_thumb writes — so gc keeps it.
+        let keep = format!("{}.jpg", canonical_slug("spotify://keep"));
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join(&keep), b"x").unwrap();
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join("orphan.jpg"), b"x").unwrap();
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join("legacy.jpg.src"), b"url").unwrap();
+        let mut m = sample_manifest();
+        m.tracks.push(referenced_track("spotify://keep"));
+        write(t.path(), Some(&m), None).unwrap();
+        gc(t.path()).unwrap();
+        assert!(folder(t.path()).join(THUMBS_DIR).join(&keep).exists());
+        assert!(!folder(t.path()).join(THUMBS_DIR).join("orphan.jpg").exists());
+        assert!(!folder(t.path()).join(THUMBS_DIR).join("legacy.jpg.src").exists());
+    }
+
+    #[test]
+    fn gc_keys_referenced_thumbs_by_canonical_slug_of_file_not_manifest_thumb_string() {
+        // Regression: gc must derive the kept filename from canonical_slug(file)
+        // — the exact name set_thumb wrote — never from the manifest's `thumb`
+        // string (a JS-side slug mirror that can diverge for non-ASCII / long
+        // URIs). Here the manifest's thumb string is deliberately WRONG; the
+        // real on-disk file follows the Rust slug. gc must keep the real file.
         use crate::models::MixtapeTrack;
         let t = tmp();
         ensure_dirs(t.path()).unwrap();
-        std::fs::write(folder(t.path()).join(THUMBS_DIR).join("keep.jpg"), b"x").unwrap();
-        std::fs::write(folder(t.path()).join(THUMBS_DIR).join("orphan.jpg"), b"x").unwrap();
-        std::fs::write(folder(t.path()).join(THUMBS_DIR).join("legacy.jpg.src"), b"url").unwrap();
+        let uri = "spotify://Björk-track";
+        let real = format!("{}.jpg", canonical_slug(uri)); // what set_thumb actually writes
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join(&real), b"x").unwrap();
         let mut m = sample_manifest();
         m.tracks.push(MixtapeTrack {
             title: "t".into(),
             artist: "a".into(),
             album: None,
             duration_secs: None,
-            file: Some("file:///x".into()),
-            thumb: Some("thumbs/keep.jpg".into()),
+            file: Some(uri.into()),
+            thumb: Some("thumbs/this-string-is-intentionally-wrong.jpg".into()),
             format: None,
         });
         write(t.path(), Some(&m), None).unwrap();
         gc(t.path()).unwrap();
-        assert!(folder(t.path()).join(THUMBS_DIR).join("keep.jpg").exists());
-        assert!(!folder(t.path()).join(THUMBS_DIR).join("orphan.jpg").exists());
-        assert!(!folder(t.path()).join(THUMBS_DIR).join("legacy.jpg.src").exists());
+        assert!(
+            folder(t.path()).join(THUMBS_DIR).join(&real).exists(),
+            "gc deleted a live thumb because it trusted the manifest thumb string instead of canonical_slug(file)"
+        );
+    }
+
+    #[test]
+    fn gc_skips_tracks_with_null_thumb() {
+        // A track with thumb: null has no cached thumb; gc must not reference
+        // (and therefore must collect) any stray file named after its slug.
+        use crate::models::MixtapeTrack;
+        let t = tmp();
+        ensure_dirs(t.path()).unwrap();
+        let stray = format!("{}.jpg", canonical_slug("file:///local.mp3"));
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join(&stray), b"x").unwrap();
+        let mut m = sample_manifest();
+        m.tracks.push(MixtapeTrack {
+            title: "t".into(),
+            artist: "a".into(),
+            album: None,
+            duration_secs: None,
+            file: Some("file:///local.mp3".into()),
+            thumb: None,
+            format: None,
+        });
+        write(t.path(), Some(&m), None).unwrap();
+        gc(t.path()).unwrap();
+        assert!(!folder(t.path()).join(THUMBS_DIR).join(&stray).exists());
+    }
+
+    #[test]
+    fn gc_keeps_all_thumbs_when_manifest_is_corrupt() {
+        // Regression: gc runs fire-and-forget at every startup. If the manifest
+        // exists but fails to deserialize (schema drift, crash-truncated write,
+        // hand-edit), gc must NOT treat that as "zero referenced thumbs" and
+        // wipe the cache. It must bail and leave every thumb in place.
+        let t = tmp();
+        ensure_dirs(t.path()).unwrap();
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join("a.jpg"), b"x").unwrap();
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join("b.jpg"), b"x").unwrap();
+        // Corrupt manifest (valid file, invalid JSON for MixtapeManifest).
+        std::fs::write(folder(t.path()).join(MANIFEST_FILE), "{not valid json").unwrap();
+        gc(t.path()).unwrap();
+        assert!(folder(t.path()).join(THUMBS_DIR).join("a.jpg").exists());
+        assert!(folder(t.path()).join(THUMBS_DIR).join("b.jpg").exists());
+    }
+
+    #[test]
+    fn gc_collects_all_thumbs_when_manifest_absent() {
+        // No manifest file at all means the queue was cleared (clear() removes
+        // the manifest). Any leftover thumbs are genuine orphans → collected.
+        let t = tmp();
+        ensure_dirs(t.path()).unwrap();
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join("a.jpg"), b"x").unwrap();
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join("b.jpg"), b"x").unwrap();
+        assert!(!folder(t.path()).join(MANIFEST_FILE).exists());
+        gc(t.path()).unwrap();
+        assert!(!folder(t.path()).join(THUMBS_DIR).join("a.jpg").exists());
+        assert!(!folder(t.path()).join(THUMBS_DIR).join("b.jpg").exists());
     }
 
     #[test]
