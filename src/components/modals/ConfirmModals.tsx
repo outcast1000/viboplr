@@ -7,19 +7,33 @@ interface DeleteTracksModalProps {
   title: string;
   trackCount: number;
   trashLabel: string;
+  /** True when any selected track is on a network share (no Recycle Bin → permanent). */
+  network?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }
 
-export function DeleteTracksModal({ title, trackCount, trashLabel, onCancel, onConfirm }: DeleteTracksModalProps) {
+export function DeleteTracksModal({ title, trackCount, trashLabel, network, onCancel, onConfirm }: DeleteTracksModalProps) {
+  const plural = trackCount > 1;
   return (
     <div className="ds-modal-overlay">
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">Move {title} to {trashLabel}?</h2>
-        <p className="delete-confirm-warning">This will move the file{trackCount > 1 ? "s" : ""} to {trashLabel} and remove from library.</p>
+        <h2 className="ds-modal-title">
+          {network ? `Permanently delete ${title}?` : `Move ${title} to ${trashLabel}?`}
+        </h2>
+        {network ? (
+          <p className="delete-confirm-warning">
+            {plural ? "These files are" : "This file is"} on a network share, which has no {trashLabel}.
+            {plural ? " They" : " It"} will be <strong>permanently deleted</strong> and removed from your library. This cannot be undone.
+          </p>
+        ) : (
+          <p className="delete-confirm-warning">This will move the file{plural ? "s" : ""} to {trashLabel} and remove from library.</p>
+        )}
         <div className="ds-modal-actions">
           <button className="ds-btn ds-btn--ghost" onClick={onCancel}>Cancel</button>
-          <button className="ds-btn ds-btn--danger" onClick={onConfirm} autoFocus>Move to {trashLabel}</button>
+          <button className="ds-btn ds-btn--danger" onClick={onConfirm} autoFocus>
+            {network ? "Delete permanently" : `Move to ${trashLabel}`}
+          </button>
         </div>
       </div>
     </div>

@@ -113,6 +113,23 @@ impl Track {
     }
 }
 
+/// Returns true if `bare_path` (a filesystem path with any `file://` prefix
+/// already stripped) points at a Windows network share / UNC location.
+///
+/// Network shares need special handling on Windows for two reasons:
+/// - The OS has no Recycle Bin for them, so `trash::delete` cannot honor an
+///   undo-able move (callers must permanently delete instead).
+/// - `std::fs::canonicalize` turns them into a `\\?\UNC\...` verbatim path that
+///   the shell "reveal/select" APIs reject (callers must open the folder a
+///   different way).
+///
+/// UNC paths begin with two separators (`\\server\share` or `//server/share`).
+/// A plain triple-slash `file:///foo` URI strips to a single-separator `/foo`,
+/// and a local Windows drive strips to `C:\...`, so neither is misclassified.
+pub fn is_network_path(bare_path: &str) -> bool {
+    bare_path.starts_with("\\\\") || bare_path.starts_with("//")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Collection {
     pub id: i64,
@@ -442,4 +459,27 @@ pub struct ImageSource {
     pub path: Option<String>,
     /// Remote URL to download from.
     pub url: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_network_path() {
+        // Windows UNC paths (backslash and forward-slash forms).
+        assert!(is_network_path("\\\\server\\share\\song.mp3"));
+        assert!(is_network_path("//server/share/song.mp3"));
+
+        // Local Windows drive and POSIX absolute paths are NOT network shares.
+        assert!(!is_network_path("C:\\Music\\song.mp3"));
+        assert!(!is_network_path("/home/user/song.mp3"));
+
+        // A `file:///foo` URI strips to a single-slash path — not a share.
+        assert!(!is_network_path("/Users/alex/song.mp3"));
+
+        // Relative / empty are not shares.
+        assert!(!is_network_path("song.mp3"));
+        assert!(!is_network_path(""));
+    }
 }

@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Artist, Album, QueueTrack } from "../types";
-import { parseLibraryId, isLocalTrack, trackToQueueTrack } from "../queueEntry";
+import { parseLibraryId, isLocalTrack, isNetworkSharePath, trackToQueueTrack } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
 import { store } from "../store";
@@ -51,7 +51,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   } | null>(null);
   const [bulkEditTracks, setBulkEditTracks] = useState<Track[] | null>(null);
 
-  const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string; network?: boolean } | null>(null);
   const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [downloadConfirm, setDownloadConfirm] = useState<{ track: QueueTrack; localTitle: string; localTrackId: number } | null>(null);
@@ -352,16 +352,24 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     const cm = contextMenuRef.current;
     if (!cm) return;
     const { target } = cm;
+    // A network-share file can't go to the Recycle Bin — deleting it is
+    // permanent. Flag the confirm modal when any selected track lives there.
+    const idsOnNetwork = (ids: number[]) =>
+      ids.some(id => isNetworkSharePath(library.tracks.find(t => t.id === id)?.path));
     if (target.kind === "track" && target.trackId && target.isLocal) {
-      setDeleteConfirm({ trackIds: [target.trackId], title: target.title });
+      setDeleteConfirm({ trackIds: [target.trackId], title: target.title, network: idsOnNetwork([target.trackId]) });
     } else if (target.kind === "multi-track") {
-      setDeleteConfirm({ trackIds: target.trackIds, title: `${target.trackIds.length} tracks` });
+      setDeleteConfirm({ trackIds: target.trackIds, title: `${target.trackIds.length} tracks`, network: idsOnNetwork(target.trackIds) });
     } else if (target.kind === "queue-multi") {
       const tracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
       const localTracks = tracks.filter(t => isLocalTrack(t) && parseLibraryId(t.key) != null);
       if (localTracks.length > 0) {
         const ids = localTracks.map(t => parseLibraryId(t.key)!);
-        setDeleteConfirm({ trackIds: ids, title: localTracks.length === 1 ? localTracks[0].title : `${localTracks.length} tracks` });
+        setDeleteConfirm({
+          trackIds: ids,
+          title: localTracks.length === 1 ? localTracks[0].title : `${localTracks.length} tracks`,
+          network: localTracks.some(t => isNetworkSharePath(t.path)),
+        });
       }
     }
     setContextMenu(null);

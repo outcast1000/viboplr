@@ -45,6 +45,19 @@ export function isRemoteTrack(track: { path?: string | null }): boolean {
 }
 
 /**
+ * True when a local track lives on a Windows network share (UNC path).
+ * Mirrors the backend `is_network_path`: after stripping the `file://` prefix,
+ * a network share begins with two separators (`\\server\share` or
+ * `//server/share`). Such files cannot go to the Recycle Bin, so deleting them
+ * is permanent — the delete confirmation surfaces this.
+ */
+export function isNetworkSharePath(path: string | null | undefined): boolean {
+  if (!path) return false;
+  const bare = path.startsWith("file://") ? path.slice("file://".length) : path;
+  return bare.startsWith("\\\\") || bare.startsWith("//");
+}
+
+/**
  * Extracts the remote ID from a subsonic:// or plugin scheme path.
  */
 export function remoteId(track: Track): string | null {

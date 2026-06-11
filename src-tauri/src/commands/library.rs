@@ -378,6 +378,28 @@ pub fn rebuild_search_index(state: State<'_, AppState>) -> Result<(), String> {
     state.db.recompute_counts().map_err(|e| e.to_string())
 }
 
+/// Reveal a local file in the OS file manager.
+///
+/// For local drives we use `reveal_item_in_dir`, which selects the file in its
+/// folder. That call canonicalizes the path via `dunce`, which on Windows
+/// leaves network-share (UNC) paths in `\\?\UNC\...` verbatim form — a form the
+/// shell "reveal/select" APIs reject, so it silently fails on network shares.
+/// For network paths we instead open the containing folder directly (no
+/// select), which Explorer handles fine for UNC locations.
+fn reveal_path_in_folder(bare: &str) -> Result<(), String> {
+    let path = std::path::Path::new(bare);
+    if !path.exists() {
+        return Err(format!("File not found: {}", bare));
+    }
+    if crate::models::is_network_path(bare) {
+        let parent = path.parent().unwrap_or(path);
+        tauri_plugin_opener::open_path(parent.to_string_lossy().to_string(), None::<&str>)
+            .map_err(|e| e.to_string())
+    } else {
+        tauri_plugin_opener::reveal_item_in_dir(path).map_err(|e| e.to_string())
+    }
+}
+
 #[tauri::command]
 pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), String> {
     let track = state
@@ -391,17 +413,13 @@ pub fn show_in_folder(state: State<'_, AppState>, track_id: i64) -> Result<(), S
     }
 
     let fs_path = track.filesystem_path().ok_or("Track has no local file path")?;
-    tauri_plugin_opener::reveal_item_in_dir(fs_path).map_err(|e| e.to_string())
+    reveal_path_in_folder(fs_path)
 }
 
 #[tauri::command]
 pub fn show_in_folder_path(file_path: String) -> Result<(), String> {
     let bare = file_path.strip_prefix("file://").unwrap_or(&file_path);
-    let path = std::path::Path::new(bare);
-    if !path.exists() {
-        return Err(format!("File not found: {}", bare));
-    }
-    tauri_plugin_opener::reveal_item_in_dir(path).map_err(|e| e.to_string())
+    reveal_path_in_folder(bare)
 }
 
 #[tauri::command]
@@ -424,11 +442,20 @@ pub fn delete_tracks(
         let fs_path = track.filesystem_path().unwrap_or(&track.path);
         let path = std::path::Path::new(fs_path);
         if path.exists() {
-            if let Err(e) = trash::delete(path) {
-                log::warn!("Failed to trash file {}: {}", track.path, e);
+            // Windows has no Recycle Bin for network shares, so `trash::delete`
+            // can't move the file there — it fails (or would delete it without
+            // any undo). Permanently delete network-share files instead; the UI
+            // warns the user this is irreversible before reaching this command.
+            let result = if crate::models::is_network_path(fs_path) {
+                std::fs::remove_file(path).map_err(|e| e.to_string())
+            } else {
+                trash::delete(path).map_err(|e| e.to_string())
+            };
+            if let Err(e) = result {
+                log::warn!("Failed to delete file {}: {}", track.path, e);
                 failures.push(DeleteFailure {
                     title: track.title.clone(),
-                    reason: e.to_string(),
+                    reason: e,
                 });
                 continue;
             }

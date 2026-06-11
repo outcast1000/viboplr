@@ -6,6 +6,7 @@ import {
   parseUrlScheme,
   isLocalTrack,
   isRemoteTrack,
+  isNetworkSharePath,
   isRemoteScheme,
   remoteId,
   type QueueEntry,
@@ -116,6 +117,34 @@ describe("isRemoteTrack", () => {
 
   it("returns true for arbitrary unknown scheme", () => {
     expect(isRemoteTrack(makeTrack({ path: "foo://bar" }))).toBe(true);
+  });
+});
+
+describe("isNetworkSharePath", () => {
+  it("detects a Windows UNC path behind file://", () => {
+    expect(isNetworkSharePath("file://\\\\server\\share\\song.mp3")).toBe(true);
+  });
+
+  it("detects a forward-slash UNC path behind file://", () => {
+    expect(isNetworkSharePath("file:////server/share/song.mp3")).toBe(true);
+  });
+
+  it("detects a bare UNC path (no file:// prefix)", () => {
+    expect(isNetworkSharePath("\\\\server\\share\\song.mp3")).toBe(true);
+  });
+
+  it("returns false for a local Windows drive", () => {
+    expect(isNetworkSharePath("file://C:\\Music\\song.mp3")).toBe(false);
+  });
+
+  it("returns false for a POSIX file:/// path", () => {
+    expect(isNetworkSharePath("file:///Users/alex/song.mp3")).toBe(false);
+  });
+
+  it("returns false for null / empty", () => {
+    expect(isNetworkSharePath(null)).toBe(false);
+    expect(isNetworkSharePath(undefined)).toBe(false);
+    expect(isNetworkSharePath("")).toBe(false);
   });
 });
 

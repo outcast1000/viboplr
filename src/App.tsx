@@ -22,7 +22,7 @@ function needsTranscode(track: { format: string | null }): boolean {
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
 import { emitTrackPatch } from "./trackEvents";
-import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, nextExternalKey, parseLibraryId, isLocalTrack } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, nextExternalKey, parseLibraryId, isLocalTrack, isNetworkSharePath } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { resolveImageUrl } from "./utils/resolveImageUrl";
@@ -867,7 +867,8 @@ function App() {
     const title = localIds.length === 1
       ? (selected.find(t => t.id != null && t.id === localIds[0])?.title ?? "track")
       : `${localIds.length} tracks`;
-    contextMenuActions.setDeleteConfirm({ trackIds: localIds, title });
+    const network = selected.some(t => t.id != null && localIds.includes(t.id) && isNetworkSharePath(t.path));
+    contextMenuActions.setDeleteConfirm({ trackIds: localIds, title, network });
   }, [library.tracks, contextMenuActions.setDeleteConfirm]);
 
   const handleDownloadFromProvider = useCallback((providerId: string, interactive: boolean) => {
@@ -3238,6 +3239,7 @@ function App() {
           title={contextMenuActions.deleteConfirm.title}
           trackCount={contextMenuActions.deleteConfirm.trackIds.length}
           trashLabel={trashLabel}
+          network={contextMenuActions.deleteConfirm.network}
           onCancel={() => contextMenuActions.setDeleteConfirm(null)}
           onConfirm={contextMenuActions.handleDeleteConfirm}
         />
