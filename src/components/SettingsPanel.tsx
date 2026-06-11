@@ -1481,11 +1481,8 @@ export function SettingsPanel({
                         <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => openUrl(LINKS.support.sponsor).catch(console.error)}>
                           Sponsor
                         </button>
-                        <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => openUrl(LINKS.support.buyMeACoffee).catch(console.error)}>
-                          Buy Me a Coffee
-                        </button>
-                        <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => openUrl(LINKS.support.paypal).catch(console.error)}>
-                          PayPal
+                        <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => openUrl(LINKS.support.koFi).catch(console.error)}>
+                          Ko-fi
                         </button>
                       </div>
                     </div>
