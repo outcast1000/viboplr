@@ -700,7 +700,7 @@ function App() {
     onTogglePlugin: (id: string) => {
       const plugin = plugins.pluginStates.find(p => p.id === id);
       if (plugin) {
-        plugins.togglePlugin(id, plugin.status !== "active");
+        return plugins.togglePlugin(id, plugin.status !== "active");
       }
     },
     onReloadPlugin: plugins.reloadPlugin,
@@ -3427,6 +3427,10 @@ function App() {
 
       {pluginLoadingMessage && (
         <PluginLoadingModal message={pluginLoadingMessage} />
+      )}
+
+      {extensionsHook.busyMessage && (
+        <PluginLoadingModal message={extensionsHook.busyMessage} />
       )}
 
       {showSavePlaylistModal && (

@@ -16,7 +16,7 @@ interface UseExtensionsProps {
   activeSkinId: string;
   gallerySkins: GallerySkinEntry[];
   galleryPlugins: GalleryPluginEntry[];
-  onTogglePlugin: (id: string) => void;
+  onTogglePlugin: (id: string) => void | Promise<void>;
   onReloadPlugin: (id: string) => void;
   onDeletePlugin: (id: string) => Promise<{ ok: boolean; error?: string }>;
   onInstallPluginFromGallery: (
@@ -58,6 +58,10 @@ export function useExtensions(props: UseExtensionsProps) {
   const [installing, setInstalling] = useState<Set<string>>(new Set());
   const [lastChecked, setLastChecked] = useState<number | null>(null);
   const [checking, setChecking] = useState(false);
+  // Non-null while a blocking extension operation (check/update/enable) is in
+  // flight. Drives the shared PluginLoadingModal so the user knows something is
+  // happening — these operations otherwise run silently with no on-screen change.
+  const [busyMessage, setBusyMessage] = useState<string | null>(null);
 
   // Listen for background update events
   useEffect(() => {
@@ -79,6 +83,7 @@ export function useExtensions(props: UseExtensionsProps) {
 
   const checkForUpdates = useCallback(async () => {
     setChecking(true);
+    setBusyMessage("Checking for extension updates…");
     try {
       const result = await invoke<ExtensionUpdate[]>(
         "check_for_extension_updates",
@@ -89,6 +94,7 @@ export function useExtensions(props: UseExtensionsProps) {
       console.error("Failed to check for updates:", e);
     } finally {
       setChecking(false);
+      setBusyMessage(null);
     }
   }, []);
 
@@ -127,8 +133,16 @@ export function useExtensions(props: UseExtensionsProps) {
 
   const updateAll = useCallback(async () => {
     const available = updates.filter((u) => u.status === "available");
-    for (const update of available) {
-      await updateExtension(update.id);
+    if (available.length === 0) return;
+    try {
+      for (let i = 0; i < available.length; i++) {
+        setBusyMessage(
+          `Updating ${available[i].name} (${i + 1}/${available.length})…`,
+        );
+        await updateExtension(available[i].id);
+      }
+    } finally {
+      setBusyMessage(null);
     }
   }, [updates, updateExtension]);
 
@@ -176,14 +190,27 @@ export function useExtensions(props: UseExtensionsProps) {
   );
 
   const toggleEnabled = useCallback(
-    (id: string, kind: "plugin" | "skin") => {
-      if (kind === "plugin") {
-        onTogglePlugin(id);
-      } else {
+    async (id: string, kind: "plugin" | "skin") => {
+      if (kind === "skin") {
         onApplySkin(id);
+        return;
+      }
+      // Enabling/disabling a plugin reloads the whole plugin runtime
+      // (deactivate-all → re-activate sequentially), which can take a moment
+      // with no on-screen change. Block with the shared modal until it settles
+      // so the button press has visible, awaited feedback.
+      const enabling =
+        pluginStates.find((p) => p.id === id)?.status !== "active";
+      setBusyMessage(enabling ? "Enabling plugin…" : "Disabling plugin…");
+      try {
+        await onTogglePlugin(id);
+      } catch (e) {
+        console.error("Failed to toggle plugin:", e);
+      } finally {
+        setBusyMessage(null);
       }
     },
-    [onTogglePlugin, onApplySkin],
+    [onTogglePlugin, onApplySkin, pluginStates],
   );
 
   const installFromUrl = useCallback(
@@ -356,6 +383,7 @@ export function useExtensions(props: UseExtensionsProps) {
     setSearchQuery,
     installing,
     checking,
+    busyMessage,
     lastChecked,
     checkForUpdates,
     updateExtension,
