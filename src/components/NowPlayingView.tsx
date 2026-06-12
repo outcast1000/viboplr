@@ -11,7 +11,6 @@ interface NowPlayingViewProps {
   style?: CSSProperties;
   track: QueueTrack | null;
   positionSecs: number;
-  durationSecs: number;
   lyrics: UseLyricsResult;
   /** The full queue + current index, used to show the up-next peek. */
   queue: QueueTrack[];
@@ -64,17 +63,16 @@ function currentLineIndex(lines: LrcLine[], position: number): number {
 }
 
 /** Centered, lean-back lyrics display. Synced (karaoke) when LRC timing is
-    available, otherwise centered plain text. Auto-scrolls to the active line,
-    pausing briefly after manual scroll. Synced lines are tap-to-seek. */
+    available, otherwise centered plain text. Synced auto-scrolls to the active
+    line (pausing briefly after manual scroll) and lines are tap-to-seek; plain
+    text doesn't auto-scroll (no timing to follow). */
 function NowPlayingLyrics({
   data,
   positionSecs,
-  durationSecs,
   onSeek,
 }: {
   data: LyricsData;
   positionSecs: number;
-  durationSecs: number;
   onSeek?: (secs: number) => void;
 }) {
   const synced = useMemo(
@@ -102,20 +100,8 @@ function NowPlayingLyrics({
     }
   }, [synced, activeIdx, userScrolled]);
 
-  // Plain (no timing): no per-line sync, so follow the song by scrolling
-  // proportionally to playback progress — only when the text overflows the
-  // panel. Deterministic from position, so we always follow (no user-pause):
-  // direct scrollTop, not smooth, since position ticks are frequent and small.
-  useEffect(() => {
-    if (synced) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const max = el.scrollHeight - el.clientHeight;
-    if (max <= 0 || !(durationSecs > 0)) return; // fits, or unknown duration
-    const progress = Math.min(1, Math.max(0, positionSecs / durationSecs));
-    markProgrammatic();
-    el.scrollTop = progress * max;
-  }, [synced, positionSecs, durationSecs]);
+  // Plain (no timing): no auto-scroll. Without per-line sync there's nothing to
+  // follow, so the text stays put and the user scrolls it themselves.
 
   const onScroll = () => {
     if (performance.now() < suppressUntil.current) return; // ignore our own scrolls
@@ -211,7 +197,6 @@ export function NowPlayingView({
   style,
   track,
   positionSecs,
-  durationSecs,
   lyrics,
   queue,
   queueIndex,
@@ -299,7 +284,7 @@ export function NowPlayingView({
         </div>
         <div className="np-lyrics-col">
           {lyrics.status === "loaded" && lyrics.data ? (
-            <NowPlayingLyrics data={lyrics.data} positionSecs={positionSecs} durationSecs={durationSecs} onSeek={onSeek} />
+            <NowPlayingLyrics data={lyrics.data} positionSecs={positionSecs} onSeek={onSeek} />
           ) : lyrics.status === "loading" ? (
             <div className="np-lyrics-hint" aria-hidden="true" />
           ) : null}

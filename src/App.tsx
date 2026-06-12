@@ -2861,7 +2861,6 @@ function App() {
             <NowPlayingView
               track={playback.currentTrack}
               positionSecs={playback.positionSecs}
-              durationSecs={playback.durationSecs}
               lyrics={nowPlayingLyrics}
               queue={queueHook.queue}
               queueIndex={queueHook.queueIndex}
