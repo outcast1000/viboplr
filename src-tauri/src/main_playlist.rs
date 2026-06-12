@@ -319,9 +319,7 @@ mod tests {
     fn sample_state() -> MainPlaylistState {
         MainPlaylistState {
             queue_index: 2,
-            queue_mode: "shuffle".into(),
-            shuffle_order: vec![2, 0, 1],
-            shuffle_position: 0,
+            queue_mode: "repeat-all".into(),
         }
     }
 
@@ -334,7 +332,7 @@ mod tests {
         assert_eq!(r.manifest.unwrap().title, "Test");
         let s = r.state.unwrap();
         assert_eq!(s.queue_index, 2);
-        assert_eq!(s.shuffle_order, vec![2, 0, 1]);
+        assert_eq!(s.queue_mode, "repeat-all");
     }
 
     #[test]
