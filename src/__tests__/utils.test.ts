@@ -41,8 +41,30 @@ describe("isVideoTrack", () => {
     }
   });
 
-  it("returns false for null format", () => {
+  it("returns false for null format with an audio path", () => {
     expect(isVideoTrack(makeTrack({ format: null }))).toBe(false);
+  });
+
+  it("infers video from the path extension when format is missing", () => {
+    expect(isVideoTrack(makeTrack({ format: null, path: "file:///clips/holiday.mp4" }))).toBe(true);
+    expect(isVideoTrack(makeTrack({ format: null, path: "file:///clips/holiday.MOV" }))).toBe(true);
+    expect(isVideoTrack(makeTrack({ format: "", path: "file:///clips/holiday.webm" }))).toBe(true);
+  });
+
+  it("ignores query/fragment suffixes when reading the path extension", () => {
+    expect(isVideoTrack(makeTrack({ format: null, path: "file:///clips/holiday.mp4#v=12" }))).toBe(true);
+    expect(isVideoTrack(makeTrack({ format: null, path: "https://host/v/clip.mp4?token=abc" }))).toBe(true);
+  });
+
+  it("returns false when neither format nor path indicate video", () => {
+    expect(isVideoTrack(makeTrack({ format: null, path: "file:///songs/track.mp3" }))).toBe(false);
+    expect(isVideoTrack(makeTrack({ format: null, path: "subsonic://col/123" }))).toBe(false);
+    expect(isVideoTrack(makeTrack({ format: null, path: null }))).toBe(false);
+  });
+
+  it("lets a known format win over the path extension", () => {
+    // Real audio file with a misleading name shouldn't be treated as video.
+    expect(isVideoTrack(makeTrack({ format: "mp3", path: "file:///weird.mp4" }))).toBe(false);
   });
 });
 

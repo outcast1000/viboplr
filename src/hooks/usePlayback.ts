@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { QueueTrack } from "../types";
+import type { QueueTrack, ResolvedTrackSource } from "../types";
 import { isVideoTrack, shouldScrobble } from "../utils";
 import { parseUrlScheme } from "../queueEntry";
 import { store } from "../store";
@@ -29,7 +29,7 @@ export function usePlayback(
   crossfadeSecsRef: React.RefObject<number>,
   advanceIndexRef: React.RefObject<() => void>,
   trackVideoHistoryRef: React.RefObject<boolean>,
-  resolveTrackSrcRef: React.RefObject<(track: QueueTrack) => Promise<string>>,
+  resolveTrackSrcRef: React.RefObject<(track: QueueTrack) => Promise<ResolvedTrackSource>>,
   prefetchNextRef: React.RefObject<() => void>,
   transcodeSessionRef: React.RefObject<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>,
 ) {
@@ -80,7 +80,7 @@ export function usePlayback(
   const preloadReadyRef = useRef(false);
   const isPreloadingRef = useRef(false);
   const prefetchRequestedRef = useRef(false);
-  const preloadPromiseRef = useRef<{ key: string; promise: Promise<string> } | null>(null);
+  const preloadPromiseRef = useRef<{ key: string; promise: Promise<ResolvedTrackSource> } | null>(null);
 
   // Crossfade state
   const isCrossfadingRef = useRef(false);
@@ -328,13 +328,25 @@ export function usePlayback(
     const resolvePromise = resolveTrackSrcRef.current(nextTrack);
     preloadPromiseRef.current = { key: nextTrack.key, promise: resolvePromise };
     try {
-      const src = await resolvePromise;
+      const resolved = await resolvePromise;
       logPlayback(`Preload: resolved "${nextTrack.title}"`);
+
+      // Resolution can reveal that a path-less/remote next track is actually a
+      // video (its local copy was matched here). The audio preload elements
+      // can't play video, so abort — handlePlay will resolve again and route it
+      // to the <video> element. handleGaplessNext only fires when a preload is
+      // marked ready, so leaving it unset is enough to force the explicit path.
+      const enriched = resolved.patch ? { ...nextTrack, ...resolved.patch } : nextTrack;
+      if (isVideoTrack(enriched)) {
+        preloadedTrackRef.current = null;
+        preloadReadyRef.current = false;
+        return;
+      }
 
       const inactiveEl = getInactiveAudioElement();
       if (!inactiveEl) return;
 
-      inactiveEl.src = src;
+      inactiveEl.src = resolved.src;
       inactiveEl.volume = effectiveVolume();
       inactiveEl.preload = "auto";
 
@@ -553,10 +565,15 @@ export function usePlayback(
     setLoadingTrack(track);
 
     try {
-      const src = resolvePromise
+      const resolved = resolvePromise
         ? await resolvePromise
         : await resolveTrackSrcRef.current(track);
-      await playWithSrc(track, src, source);
+      // Resolution may have discovered the real local file for a path-less /
+      // remote track (e.g. a Home track-row that only carried title+artist).
+      // Merge that metadata in so playWithSrc routes video → <video> and the
+      // now-playing UI classifies it correctly via currentTrack.
+      const playTrack = resolved.patch ? { ...track, ...resolved.patch } : track;
+      await playWithSrc(playTrack, resolved.src, source);
     } catch (e) {
       // A newer play request has superseded this one: its synchronous
       // pause/load aborted this request's in-flight play(). The rejection is

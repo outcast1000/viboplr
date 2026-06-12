@@ -3,8 +3,23 @@ export const trashLabel = navigator.platform.includes("Mac") ? "Trash" : "Recycl
 
 const VIDEO_FORMATS = ["mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv"];
 
-export function isVideoTrack(track: { format: string | null }): boolean {
-  return VIDEO_FORMATS.includes(track.format?.toLowerCase() ?? "");
+// Pull the file extension out of a scheme-prefixed path/URL, ignoring any
+// query (`?token=…`) or fragment (`#v=12`) suffix. Returns "" when absent.
+function extensionFromPath(path: string): string {
+  const clean = path.split(/[?#]/)[0];
+  const dot = clean.lastIndexOf(".");
+  const slash = Math.max(clean.lastIndexOf("/"), clean.lastIndexOf("\\"));
+  if (dot <= slash) return "";
+  return clean.slice(dot + 1).toLowerCase();
+}
+
+export function isVideoTrack(track: { format: string | null; path?: string | null }): boolean {
+  const format = track.format?.toLowerCase() ?? "";
+  // A known format is authoritative — a real audio file with a misleading name
+  // must not be treated as video. Only fall back to the path extension when the
+  // format is absent (e.g. queue tracks built from path-less plugin metadata).
+  if (format) return VIDEO_FORMATS.includes(format);
+  return track.path ? VIDEO_FORMATS.includes(extensionFromPath(track.path)) : false;
 }
 
 export function getInitials(name: string): string {

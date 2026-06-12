@@ -10,7 +10,7 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, QueueTrack, Tag, ViewMode, ColumnConfig, SortField, SortDir, Collection } from "./types";
+import type { Track, QueueTrack, Tag, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource } from "./types";
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 
 const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
@@ -224,18 +224,18 @@ function App() {
   const resolveStreamByUriRef = useRef<(scheme: string, id: string, quality?: string | null) => Promise<string>>(
     async () => { throw new Error("Stream URI resolver not ready"); }
   );
-  const resolveTrackSrcRef = useRef<(track: QueueTrack) => Promise<string>>(async (track) => {
+  const resolveTrackSrcRef = useRef<(track: QueueTrack) => Promise<ResolvedTrackSource>>(async (track) => {
     const url = track.path;
     if (!url) throw new Error("Track has no URL");
     const parsed = parseUrlScheme(url);
-    if (parsed.scheme === "file") return convertFileSrc(parsed.path);
+    if (parsed.scheme === "file") return { src: convertFileSrc(parsed.path) };
     if (parsed.scheme === "plugin") {
       const resolved = await resolveStreamByUriRef.current(parsed.protocol, parsed.id, null);
-      if (resolved.startsWith("file://")) return convertFileSrc(resolved.substring(7));
-      return resolved;
+      if (resolved.startsWith("file://")) return { src: convertFileSrc(resolved.substring(7)) };
+      return { src: resolved };
     }
     if (parsed.scheme === "external") throw new Error("Cannot play external track directly — requires stream resolver");
-    return invoke<string>("resolve_subsonic_location", { location: parsed.url });
+    return { src: await invoke<string>("resolve_subsonic_location", { location: parsed.url }) };
   });
   const streamResolversRef = useRef<StreamResolver[]>([]);
   const [streamResolverOrderVersion, setStreamResolverOrderVersion] = useState(0);
@@ -1110,7 +1110,7 @@ function App() {
       setResolvedSource(null);
       const url = track.path;
 
-      interface ResolverEntry { name: string; id: string | null; sourceUrl: string | null; resolve: () => Promise<string> }
+      interface ResolverEntry { name: string; id: string | null; sourceUrl: string | null; patch?: Partial<QueueTrack>; resolve: () => Promise<string> }
       const chain: ResolverEntry[] = [];
 
       // Pre-resolution: check if a local copy exists for remote OR path-less tracks
@@ -1127,6 +1127,9 @@ function App() {
               name: "Library",
               id: null,
               sourceUrl: localPath,
+              // Carry the matched file's path + format so the play path can
+              // re-classify a path-less track (e.g. a Home track-row) as video.
+              patch: { path: localMatch.path, format: localMatch.format },
               resolve: () => Promise.resolve(convertFileSrc(localPath)),
             });
           }
@@ -1198,13 +1201,13 @@ function App() {
 
       let lastError: string | null = null;
       for (const entry of chain) {
-        if (resolveGenerationRef.current !== generation) return "";
+        if (resolveGenerationRef.current !== generation) return { src: "" };
         if (lastError || chain.length > 1) {
           setResolvingStatus({ key: track.key, error: lastError, trying: entry.name });
         }
         try {
           const src = await entry.resolve();
-          if (resolveGenerationRef.current !== generation) return "";
+          if (resolveGenerationRef.current !== generation) return { src: "" };
           setResolvingStatus(null);
           // Resolved successfully — clear any prior persistent failure for this track.
           setResolveFailures(prev => {
@@ -1217,7 +1220,7 @@ function App() {
           if (lastError) {
             console.debug(`Playing from ${entry.name} (original unavailable)`);
           }
-          return src;
+          return { src, patch: entry.patch };
         } catch (e) {
           console.error(`Stream resolver "${entry.name}" failed:`, e);
           lastError = entry.name === "Library" ? "Not in library" : `${entry.name} failed`;

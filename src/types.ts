@@ -58,6 +58,15 @@ export interface QueueTrack {
   liked: number;
 }
 
+// Result of resolving a track to a playable source. `patch` carries metadata
+// discovered during resolution (e.g. the real file path + format of a local
+// copy matched for a path-less/remote track) so the play path can re-classify
+// audio vs video and surfaces can display the right info.
+export interface ResolvedTrackSource {
+  src: string;
+  patch?: Partial<QueueTrack>;
+}
+
 export interface SearchAllResults {
   artists: Artist[];
   albums: Album[];
