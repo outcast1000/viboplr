@@ -70,6 +70,21 @@
   display: block;
 }
 
+/* Theater mode: the same <video> element fills the main content area while
+   the Now Playing view is active (no remount — mirrors the fullscreen trick). */
+.video-container--theater {
+  position: absolute;
+  inset: 0;
+  width: auto !important;
+  height: auto !important;
+  z-index: 5;
+  background: var(--bg-primary);
+}
+.video-container--theater.collapsed {
+  height: auto !important;
+  width: auto !important;
+}
+
 .fs-controls.fs-visible {
   opacity: 1;
   pointer-events: auto;

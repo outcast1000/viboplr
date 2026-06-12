@@ -33,6 +33,8 @@ function decideCacheAction(
 interface UseInformationTypesOpts {
   entity: InfoEntity | null;
   exclude?: string[];
+  /** If set, only these type IDs are loaded (all others skipped). */
+  include?: string[];
   invokeInfoFetch: (
     pluginId: string,
     infoTypeId: string,
@@ -51,6 +53,7 @@ type BackendValueRow = [number, string, string, string, number];
 export function useInformationTypes({
   entity,
   exclude,
+  include,
   invokeInfoFetch,
   pluginNames,
 }: UseInformationTypesOpts) {
@@ -64,6 +67,7 @@ export function useInformationTypes({
   }, []);
 
   const excludeKey = exclude?.join(",") ?? "";
+  const includeKey = include?.join(",") ?? "";
   const entityKeyRef = useRef<string>("");
 
   const loadSections = useCallback(async () => {
@@ -82,6 +86,7 @@ export function useInformationTypes({
     const entityKey = buildEntityKey(entity);
     entityKeyRef.current = entityKey;
     const excludeSet = excludeKey ? new Set(excludeKey.split(",")) : null;
+    const includeSet = includeKey ? new Set(includeKey.split(",")) : null;
     const cached = await invoke<BackendValueRow[]>(
       "info_get_values_for_entity",
       { entityKey },
@@ -106,6 +111,7 @@ export function useInformationTypes({
 
     for (const [typeId, name, displayKind, ttl, _sortOrder, providers, description] of types) {
       if (excludeSet?.has(typeId)) continue;
+      if (includeSet && !includeSet.has(typeId)) continue;
 
       const entry = cacheMap.get(typeId);
       const action = decideCacheAction(
@@ -271,7 +277,7 @@ export function useInformationTypes({
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entity?.kind, entity?.id, entity?.name, entity?.artistName, excludeKey, invokeInfoFetch]);
+  }, [entity?.kind, entity?.id, entity?.name, entity?.artistName, excludeKey, includeKey, invokeInfoFetch]);
 
   useEffect(() => {
     loadSections();

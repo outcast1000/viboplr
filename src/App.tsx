@@ -112,6 +112,8 @@ import type { ExportTrack } from "./components/MixtapeExportModal";
 
 import { SearchView } from "./components/SearchView";
 import { HomeView } from "./components/HomeView";
+import { NowPlayingView } from "./components/NowPlayingView";
+import { useLyrics } from "./hooks/useLyrics";
 import type { ResolvedShelf } from "./hooks/useHome";
 import type { HomeShelfItem } from "./types/plugin";
 import { trackToQueueTrack } from "./queueEntry";
@@ -2314,6 +2316,13 @@ function App() {
     plugins.invokeInfoFetch, plugins.pluginNames, searchProviders,
   ]);
 
+  // Now Playing view: lyrics via the shared info-type chain, and resolved art.
+  const nowPlayingLyrics = useLyrics({
+    track: playback.currentTrack,
+    enabled: library.view === "nowplaying",
+    invokeInfoFetch: plugins.invokeInfoFetch,
+    pluginNames: plugins.pluginNames,
+  });
   const detailViewState: DetailViewState = useMemo(() => ({
     currentTrack: playback.currentTrack,
     playing: playback.playing,
@@ -2500,6 +2509,12 @@ function App() {
       <Sidebar
         view={view}
         selectedTrack={library.selectedTrack}
+        nowPlayingMedia={
+          playback.currentTrack
+            ? (isVideoTrack(playback.currentTrack) ? "video" : "audio")
+            : null
+        }
+        nowPlayingActive={playback.playing}
         collapsed={sidebarCollapsed}
         onShowHome={() => {
           pushAndScroll();
@@ -2520,6 +2535,14 @@ function App() {
         onShowHistory={() => {
           pushAndScroll();
           library.setView("history");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSelectedTrack(null);
+        }}
+        onShowNowPlaying={() => {
+          pushAndScroll();
+          library.setView("nowplaying");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
@@ -2833,7 +2856,18 @@ function App() {
             onColumnsChange={library.setTrackColumns}
           />
 
-
+          {/* Now Playing view */}
+          {view === "nowplaying" && (
+            <NowPlayingView
+              track={playback.currentTrack}
+              positionSecs={playback.positionSecs}
+              durationSecs={playback.durationSecs}
+              lyrics={nowPlayingLyrics}
+              getAlbumImage={albumImageCache.getImage}
+              getArtistImage={artistImageCache.getImage}
+              onSeek={playback.handleSeek}
+            />
+          )}
 
           {/* History view */}
           {view === "history" && (
@@ -2992,7 +3026,7 @@ function App() {
         </div>
 
         {/* Video splitter + player area (below content, above now-playing) */}
-        {playback.currentTrack && isVideoTrack(playback.currentTrack) && (
+        {playback.currentTrack && isVideoTrack(playback.currentTrack) && view !== "nowplaying" && (
           <div
             className={`video-splitter${videoLayout.isHorizontal ? "" : " vertical"}`}
             onMouseDown={videoLayout.onSplitterMouseDown}
@@ -3010,7 +3044,7 @@ function App() {
           </div>
         )}
         <div
-          className={`video-container${videoLayout.isCollapsed ? " collapsed" : ""}`}
+          className={`video-container${videoLayout.isCollapsed ? " collapsed" : ""}${view === "nowplaying" ? " video-container--theater" : ""}`}
           data-fit={videoLayout.fitMode}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -3018,7 +3052,9 @@ function App() {
           }}
           style={{
             display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',
-            ...(videoLayout.isHorizontal
+            ...(view === "nowplaying"
+              ? {}
+              : videoLayout.isHorizontal
               ? { height: videoLayout.isCollapsed ? 0 : videoLayout.videoSize }
               : { width: videoLayout.isCollapsed ? 0 : videoLayout.videoSize }),
           }}

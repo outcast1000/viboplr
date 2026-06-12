@@ -146,6 +146,15 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           break;
+        case "3":
+          e.preventDefault();
+          d.pushState();
+          library.setView("nowplaying");
+          library.setSelectedArtist(null);
+          library.setSelectedAlbum(null);
+          library.setSelectedTag(null);
+          library.setSelectedTrack(null);
+          break;
         case "f":
           if (d.currentTrack && isVideoTrack(d.currentTrack)) {
             e.preventDefault();

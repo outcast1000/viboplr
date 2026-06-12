@@ -1,0 +1,227 @@
+.now-playing-view {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 24px;
+}
+
+/* ── Empty state ─────────────────────────────── */
+.np-empty-msg {
+  color: var(--text-tertiary);
+  font-size: var(--fs-lg);
+}
+
+/* ── Video state ─────────────────────────────── */
+/* The actual video is the .video-container--theater element layered on top
+   by App.tsx; this body just reserves space and shows the metadata line. */
+.np-video {
+  justify-content: flex-end;
+  gap: 16px;
+}
+.np-video-spacer {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ── Audio state ─────────────────────────────── */
+.np-audio--noart {
+  background: linear-gradient(160deg, var(--accent-dim), var(--bg-primary) 70%);
+}
+
+.np-backdrop {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(48px) brightness(0.45) saturate(1.2);
+  transform: scale(1.2); /* hide blurred edges */
+  z-index: 0;
+}
+
+.np-stage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  width: 100%;
+  max-width: 1100px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.np-art-col {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.np-art {
+  width: min(38vh, 360px);
+  height: min(38vh, 360px);
+  object-fit: cover;
+  border-radius: var(--ds-radius-card);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+  background: var(--bg-secondary);
+}
+
+.np-art--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+}
+
+.np-lyrics-col {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 560px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+/* ── Karaoke / centered lyrics ───────────────── */
+.np-lyrics-scroll {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  text-align: center;
+  /* fade top & bottom so lines ease in/out at the edges */
+  -webkit-mask-image: linear-gradient(transparent, #000 14%, #000 86%, transparent);
+  mask-image: linear-gradient(transparent, #000 14%, #000 86%, transparent);
+  scrollbar-width: none;
+}
+.np-lyrics-scroll::-webkit-scrollbar { display: none; }
+
+/* pad so the first/last line can scroll to vertical center */
+.np-lyrics-scroll--synced {
+  padding: 45% 4px;
+}
+.np-lyrics-scroll--plain {
+  padding: 24px 4px;
+  display: flex;
+  flex-direction: column;
+  /* center when the text fits, but fall back to top-anchored (fully scrollable)
+     when it overflows — required for position-based scrolling to reach line 1 */
+  justify-content: safe center;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.np-lyric-line {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 7px 0;
+  /* keep lines narrower than the column so the active line's scale-up has
+     horizontal headroom and isn't clipped by the scroll container */
+  max-width: 86%;
+  margin: 0 auto;
+  overflow-wrap: break-word;
+  transform-origin: center;
+  /* spring-like easing: lines lift/settle with a slight overshoot, like Spotify/Apple */
+  transition:
+    color 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 0.45s ease;
+}
+
+/* synced states */
+.np-lyric-line--past,
+.np-lyric-line--upcoming {
+  color: var(--text-secondary);
+  opacity: 0.38;
+  filter: blur(0.5px);
+  transform: scale(0.97);
+}
+.np-lyric-line--active {
+  color: var(--text-primary);
+  opacity: 1;
+  font-weight: 800;
+  filter: none;
+  transform: scale(1.12) translateY(-1px);
+}
+
+/* tap-to-seek affordance */
+.np-lyric-line--seekable {
+  cursor: pointer;
+}
+.np-lyrics-scroll--synced:hover .np-lyric-line--seekable:not(.np-lyric-line--active):hover {
+  color: var(--text-primary);
+  opacity: 0.85;
+  filter: none;
+}
+
+/* plain text: identical font/size/weight to synced lines (inherits the base
+   .np-lyric-line metrics). No per-line "active" state, so all lines render at a
+   single readable level — no dimming or blur. */
+.np-lyric-line--plain {
+  color: var(--text-primary);
+  opacity: 0.9;
+}
+
+/* Subtle loading placeholder — no text, just a faint pulse where lyrics will be. */
+.np-lyrics-hint {
+  width: 60%;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--text-tertiary);
+  animation: np-lyrics-hint-pulse 1.8s ease-in-out infinite;
+}
+@keyframes np-lyrics-hint-pulse {
+  0%, 100% { opacity: 0.08; }
+  50%      { opacity: 0.2; }
+}
+
+/* ── Shared metadata line ────────────────────── */
+.np-meta {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  text-align: center;
+  margin-top: 20px;
+  max-width: 80%;
+}
+.np-title {
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.np-subtitle {
+  font-size: var(--fs-base);
+  color: var(--text-secondary);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* When there are no lyrics, center the art alone (no two-column split). */
+.np-audio--nolyrics .np-stage {
+  gap: 0;
+}
+.np-audio--nolyrics .np-lyrics-col {
+  display: none;
+}
+.np-audio--nolyrics .np-art {
+  width: min(50vh, 460px);
+  height: min(50vh, 460px);
+}
