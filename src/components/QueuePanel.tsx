@@ -574,26 +574,6 @@ export function QueuePanel({
             onDoubleClick={() => handleDoubleClick(t, i)}
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
-            <div className="queue-item-actions">
-              {i !== queueIndex && (
-                <button
-                  className="queue-item-action"
-                  onClick={(e) => { e.stopPropagation(); onPlay(t, i); }}
-                  title="Play"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-                </button>
-              )}
-              {onLocateTrack && (
-                <button
-                  className="queue-item-action"
-                  onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
-                  title="Track Details"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                </button>
-              )}
-            </div>
             <div className="queue-item-art-wrapper">
               <QueueItemThumb
                 localThumb={resolveImageUrl(queueItemLocalThumb({
@@ -618,6 +598,26 @@ export function QueuePanel({
                 {t.liked === -1 && <IconThumbsDownFilled size={11} className="queue-item-dislike" />}
                 <span className="queue-item-title">{t.title}</span>
                 <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
+                <div className="queue-item-actions">
+                  {i !== queueIndex && (
+                    <button
+                      className="queue-item-action"
+                      onClick={(e) => { e.stopPropagation(); onPlay(t, i); }}
+                      title="Play"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                    </button>
+                  )}
+                  {onLocateTrack && (
+                    <button
+                      className="queue-item-action"
+                      onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
+                      title="Track Details"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="queue-item-line2">
                 <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
