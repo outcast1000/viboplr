@@ -254,7 +254,6 @@ export function NowPlayingView({
     return (
       <div className="now-playing-view np-video" style={style}>
         <div className="np-video-spacer" />
-        {metaLine}
       </div>
     );
   }

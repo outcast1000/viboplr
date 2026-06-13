@@ -129,3 +129,28 @@
 .video-ambient-intro.anim-slide-text-in {
   animation: slide-text-in 250ms ease-out forwards;
 }
+
+/* Auto-hiding fullscreen toggle: top-right, shares the fade layer with the
+   intro + chip so it hides on the idle timer. */
+.video-ambient-fs {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: none;
+  border-radius: var(--ds-radius, 6px);
+  background: rgba(var(--overlay-inverse), 0.55);
+  backdrop-filter: blur(8px);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.video-ambient-fs:hover {
+  background: rgba(var(--overlay-inverse), 0.72);
+}

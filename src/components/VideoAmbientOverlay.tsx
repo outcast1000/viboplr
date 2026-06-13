@@ -16,6 +16,8 @@ interface VideoAmbientOverlayProps {
   getAlbumImage: (name: string, artistName?: string | null) => string | null;
   getArtistImage: (name: string) => string | null;
   onPlayQueueIndex?: (index: number) => void;
+  /** Toggle the shared <video> in/out of fullscreen. */
+  onToggleFullscreen?: () => void;
 }
 
 /** Resolve a local image path to a webview-usable src (remote URLs pass
@@ -35,6 +37,7 @@ export function VideoAmbientOverlay({
   getAlbumImage,
   getArtistImage,
   onPlayQueueIndex,
+  onToggleFullscreen,
 }: VideoAmbientOverlayProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number>(0);
@@ -42,6 +45,15 @@ export function VideoAmbientOverlay({
   const [glow, setGlow] = useState<RGB | null>(null);
   // Bump on track change to re-trigger the intro slide-in animation.
   const [introKey, setIntroKey] = useState(0);
+
+  // Mirror document fullscreen state so the FS button shows enter/exit correctly.
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    onChange();
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
 
   // Sample the glow color from the (already-resolved) current track image.
   useEffect(() => {
@@ -109,6 +121,31 @@ export function VideoAmbientOverlay({
       style={{ ["--glow-color" as string]: glowColorValue(glow) }}
     >
       <div className="video-ambient-glow" />
+
+      {onToggleFullscreen && (
+        <button
+          className="video-ambient-fs video-ambient-fade"
+          onClick={onToggleFullscreen}
+          title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+        >
+          {isFullscreen ? (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 14 10 14 10 20" />
+              <polyline points="20 10 14 10 14 4" />
+              <line x1="14" y1="10" x2="21" y2="3" />
+              <line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 3 21 3 21 9" />
+              <polyline points="9 21 3 21 3 15" />
+              <line x1="21" y1="3" x2="14" y2="10" />
+              <line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          )}
+        </button>
+      )}
 
       {currentTrack && (
         <div key={introKey} className="video-ambient-intro video-ambient-fade anim-slide-text-in">

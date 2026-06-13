@@ -3135,6 +3135,7 @@ function App() {
               getAlbumImage={albumImageCache.getImage}
               getArtistImage={artistImageCache.getImage}
               onPlayQueueIndex={(index) => { queueHook.setQueueIndex(index); playback.handlePlay(queueHook.queue[index]); }}
+              onToggleFullscreen={playback.toggleFullscreen}
             />
           )}
         </div>
